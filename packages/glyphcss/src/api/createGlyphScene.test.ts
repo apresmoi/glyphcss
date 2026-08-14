@@ -3,6 +3,11 @@ import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { createGlyphScene } from "./createGlyphScene";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 
+declare global {
+  // Deliberately private test seam; production has no exported hook.
+  var __glyphRenderStage: ((stage: string) => void) | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // applyTransform — degrees convention unit tests
 //
@@ -71,6 +76,197 @@ describe("createGlyphScene", () => {
   beforeEach(() => {
     host = makeDiv();
     document.body.appendChild(host);
+    delete globalThis.__glyphRenderStage;
+  });
+
+  it("keeps the previously committed frame, detail node, hotspot, and camera center when every transaction stage fails", async () => {
+    const camera = createGlyphOrthographicCamera({ zoom: 50 });
+    const center = camera.center;
+    const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera });
+    scene.add(makeCubePolygons(), { density: 2 });
+    const hotspot = scene.addHotspot({ id: "atomic", at: [0, 0, 0] });
+    await Promise.resolve();
+    const base = scene.output.textContent;
+    const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement;
+    const detailText = detail.textContent;
+    const detailStyle = detail.getAttribute("style");
+    const hotspotStyle = hotspot.el.getAttribute("style");
+    const stages = [
+      "base-validate", "base-layout", "base-project", "base-raster", "base-encode",
+      "detail-measure", "detail-project", "detail-raster", "detail-encode", "detail-transform",
+      "hotspot-project", "hotspot-style", "commit-write", "commit-style", "commit-remove", "commit-insert",
+    ];
+    for (const target of stages) {
+      const seen: string[] = [];
+      globalThis.__glyphRenderStage = (stage) => { seen.push(stage); if (stage === target) throw new Error(target); };
+      expect(() => scene.rerender()).toThrow(target);
+      delete globalThis.__glyphRenderStage;
+      expect(seen).toContain(target);
+      expect(scene.output.textContent).toBe(base);
+      expect(host.querySelector("pre.glyph-output--detail")).toBe(detail);
+      expect(detail.textContent).toBe(detailText);
+      expect(detail.getAttribute("style")).toBe(detailStyle);
+      expect(hotspot.el.getAttribute("style")).toBe(hotspotStyle);
+      expect(camera.center).toBe(center);
+      expect(camera.center).toEqual(center);
+    }
+    scene.destroy();
+  });
+
+  it("stages detail replacement/removal and writes each published pre once", async () => {
+    const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    const mesh = scene.add(makeCubePolygons(), { density: 2 });
+    await Promise.resolve();
+    const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement;
+    let writes = 0;
+    let baseWrites = 0;
+    const original = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!;
+    Object.defineProperty(scene.output, "textContent", { configurable: true, get: original.get, set(value) { baseWrites++; original.set!.call(this, value); } });
+    Object.defineProperty(detail, "textContent", { configurable: true, get: original.get, set(value) { writes++; original.set!.call(this, value); } });
+    scene.rerender();
+    expect(writes).toBe(1);
+    expect(baseWrites).toBe(1);
+    mesh.setTransform({});
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "commit-insert") throw new Error("remove"); };
+    expect(() => scene.rerender()).toThrow("remove");
+    delete globalThis.__glyphRenderStage;
+    expect(host.querySelector("pre.glyph-output--detail")).toBe(detail);
+    Object.defineProperty(detail, "textContent", original);
+    Object.defineProperty(scene.output, "textContent", original);
+    scene.rerender();
+    expect(host.querySelector("pre.glyph-output--detail")).toBeNull();
+    scene.destroy();
+  });
+
+  it("does not publish a newly-created detail node when detail-element preparation fails", () => {
+    const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    scene.add(makeCubePolygons(), { density: 2 });
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "detail-element") throw new Error("detail element"); };
+    expect(() => scene.rerender()).toThrow("detail element");
+    delete globalThis.__glyphRenderStage;
+    expect(host.querySelector("pre.glyph-output--detail")).toBeNull();
+    scene.destroy();
+  });
+
+  it("measures explicit CSS detail metrics in the hidden browser-layout sandbox", async () => {
+    host.style.setProperty("--glyph-detail-size", "0.8rem");
+    host.style.setProperty("--glyph-detail-leading", "calc(1em + 2px)");
+    const seen: string[] = [];
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.parentElement?.getAttribute("aria-hidden") === "true" && this.tagName === "PRE") {
+        seen.push(`${(this as HTMLElement).style.fontSize}|${(this as HTMLElement).style.lineHeight}`);
+      }
+      return original.call(this);
+    };
+    try {
+      const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+      scene.add(makeCubePolygons(), { fontSize: "var(--glyph-detail-size)", lineHeight: "var(--glyph-detail-leading)" });
+      await Promise.resolve();
+      const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement;
+      expect(detail.style.fontSize).toBe("var(--glyph-detail-size)");
+      expect(detail.style.lineHeight).toBe("var(--glyph-detail-leading)");
+      expect(seen.some((entry) => entry.includes("var(--glyph-detail-size)"))).toBe(true);
+      scene.destroy();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    }
+  });
+
+  it("rolls back setOptions when real pre-base occlusion projection fails", async () => {
+    const camera = createGlyphOrthographicCamera({ zoom: 50 });
+    const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera });
+    scene.add(makeCubePolygons());
+    scene.add(makeCubePolygons(), { density: 2 });
+    await Promise.resolve();
+    const before = scene.output.textContent;
+    const detail = host.querySelector("pre.glyph-output--detail");
+    const original = camera.project;
+    camera.project = (() => { throw new Error("occlusion projection"); }) as typeof camera.project;
+    scene.setOptions({ cols: 33 });
+    expect(() => scene.rerender()).toThrow("occlusion projection");
+    camera.project = original;
+    expect(scene.getOptions().cols).toBe(32);
+    expect(scene.output.textContent).toBe(before);
+    expect(host.querySelector("pre.glyph-output--detail")).toBe(detail);
+    scene.destroy();
+  });
+
+  it("awaits every failed detail publication stage without child-list mutations", async () => {
+    for (const target of ["detail-transform", "commit-write", "commit-style", "commit-insert", "commit-remove"]) {
+      const localHost = makeDiv();
+      document.body.appendChild(localHost);
+      const scene = createGlyphScene(localHost, { cols: 32, rows: 16, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+      const mesh = scene.add(makeCubePolygons(), { density: 2 });
+      await Promise.resolve();
+      const detail = localHost.querySelector("pre.glyph-output--detail");
+      const records: MutationRecord[] = [];
+      const observer = new MutationObserver((next) => records.push(...next));
+      observer.observe(localHost.querySelector(".glyph-scene")!, { childList: true });
+      mesh.setTransform(target === "detail-transform" ? { density: 2 } : {});
+      globalThis.__glyphRenderStage = (stage) => { if (stage === target) throw new Error(target); };
+      expect(() => scene.rerender()).toThrow(target);
+      // Wait through the microtask checkpoint: direct rerender cancels the stale
+      // scheduled work, so an observer cannot mistake a later success for the
+      // failed transaction under test.
+      await Promise.resolve();
+      observer.disconnect();
+      expect(records).toEqual([]);
+      expect(localHost.querySelector("pre.glyph-output--detail")).toBe(detail);
+      delete globalThis.__glyphRenderStage;
+      scene.destroy();
+      localHost.remove();
+    }
+  });
+
+  it("publishes a successful detail removal and replacement only after staging both", async () => {
+    const scene = createGlyphScene(host, { cols: 32, rows: 16, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    const first = scene.add(makeCubePolygons(), { density: 2 });
+    await Promise.resolve();
+    const oldDetail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement;
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((next) => records.push(...next));
+    observer.observe(host.querySelector(".glyph-scene")!, { childList: true });
+    first.setTransform({});
+    scene.add(makeCubePolygons(), { density: 3 });
+    scene.rerender();
+    await Promise.resolve();
+    observer.disconnect();
+    const details = host.querySelectorAll("pre.glyph-output--detail");
+    expect(details).toHaveLength(1);
+    expect(details[0]).not.toBe(oldDetail);
+    expect(records.some((record) => Array.from(record.removedNodes).includes(oldDetail))).toBe(true);
+    expect(records.some((record) => Array.from(record.addedNodes).includes(details[0]!))).toBe(true);
+    scene.destroy();
+  });
+
+  it("does not leak uncommitted lighting or temporal state after a later detail failure", async () => {
+    const referenceHost = makeDiv();
+    document.body.appendChild(referenceHost);
+    const camera = createGlyphOrthographicCamera({ zoom: 50 });
+    const referenceCamera = createGlyphOrthographicCamera({ zoom: 50 });
+    const opts = { cols: 32, rows: 16, useColors: false, temporalBlend: 0.7 } as const;
+    const scene = createGlyphScene(host, { ...opts, camera });
+    const reference = createGlyphScene(referenceHost, { ...opts, camera: referenceCamera });
+    scene.add(makeCubePolygons(), { density: 2 });
+    reference.add(makeCubePolygons(), { density: 2 });
+    await Promise.resolve();
+    const before = scene.output.textContent;
+    scene.setOptions({ temporalBlend: 0.2, directionalLight: { direction: [-0.7, 0.2, 0.5], intensity: 0.35 } });
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "detail-transform") throw new Error("late detail failure"); };
+    expect(() => scene.rerender()).toThrow("late detail failure");
+    delete globalThis.__glyphRenderStage;
+    expect(scene.getOptions().temporalBlend).toBe(0.7);
+    expect(scene.output.textContent).toBe(before);
+    camera.rotY = 18;
+    referenceCamera.rotY = 18;
+    scene.rerender();
+    reference.rerender();
+    expect(scene.output.textContent).toBe(reference.output.textContent);
+    expect(host.querySelector("pre.glyph-output--detail")?.textContent)
+      .toBe(referenceHost.querySelector("pre.glyph-output--detail")?.textContent);
+    scene.destroy();
+    reference.destroy();
   });
 
   it("creates a scene div with a pre element", () => {

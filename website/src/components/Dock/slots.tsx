@@ -3,7 +3,8 @@
  * `DockGuiContext` and delegates to its corresponding folder hook. Pages
  * compose the Dock by listing the slots they want as children of `<Dock>`.
  */
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { GUI } from "lil-gui";
 
 import { useModelFolder, type ModelFolderInputs } from "./folders/useModelFolder";
@@ -29,8 +30,18 @@ export function DockModel(inputs: ModelFolderInputs): null {
   return null;
 }
 
-export function DockRendering(inputs: RenderingFolderInputs): null {
-  useRenderingFolder(useDockGui(), inputs);
+export function DockRendering(inputs: RenderingFolderInputs & { semanticDetails?: React.ReactNode }) {
+  const folder = useRenderingFolder(useDockGui(), inputs);
+  useEffect(() => {
+    if (!folder || !inputs.semanticDetails) return;
+    // lil-gui owns this folder's DOM lifetime. Render the read-only gallery
+    // details to a single owned node so closing/destroying the folder cannot
+    // race React portal cleanup.
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(inputs.semanticDetails);
+    folder.domElement.appendChild(host);
+    return () => host.remove();
+  }, [folder, inputs.semanticDetails]);
   return null;
 }
 

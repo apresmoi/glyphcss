@@ -12,11 +12,14 @@
  * + zoom to the content (cropped tight). Other defaults match the library.
  */
 import { writeFile, readFile } from "node:fs/promises";
-import { compileFile, compilePolygons, type CompileFileOptions } from "./compileFile";
+import { buildCompileControlFrame, buildCompileControlFrameFromFile, compileFile, compilePolygons, type CompileFileOptions } from "./compileFile";
 import { compileInteractive, type GlyphInteraction } from "./compileInteractive";
+import { writeGlyphControlMaps } from "./controlMaps";
 import { encodeGlyphAnsi } from "glyphcss";
 import { resolveGeometry } from "@glyphcss/core";
 import type { RenderMode, MeshResolution, Polygon, GlyphGeometryName, Vec3 } from "@glyphcss/core";
+import type { GlyphControlTensorNormalization } from "glyphcss";
+import type { GlyphLabelSidecar } from "./labelSidecar";
 
 const MESH_EXT = /\.(obj|glb|gltf|vox|stl)$/i;
 
@@ -45,6 +48,9 @@ interface Parsed {
   interactions?: GlyphInteraction[];
   decimateGrid?: number;
   cdnVersion?: string;
+  glyphLabels?: string;
+  controlOut?: string;
+  normalizationFile?: string;
   opts: CompileFileOptions;
 }
 
@@ -61,6 +67,9 @@ function parseArgs(argv: string[]): Parsed {
   let interactions: GlyphInteraction[] | undefined;
   let decimateGrid: number | undefined;
   let cdnVersion: string | undefined;
+  let glyphLabels: string | undefined;
+  let controlOut: string | undefined;
+  let normalizationFile: string | undefined;
   const num = (v: string | undefined): number | undefined => {
     const n = Number(v);
     return v !== undefined && Number.isFinite(n) ? n : undefined;
@@ -81,6 +90,15 @@ function parseArgs(argv: string[]): Parsed {
       case "--supersample": opts.supersample = num(next()); break;
       case "--mode": opts.mode = next() as RenderMode; break;
       case "--palette": opts.glyphPalette = next(); break;
+      case "--glyph-output": {
+        const value = next();
+        if (value !== "visible" && value !== "semantic") throw new Error('--glyph-output must be "visible" or "semantic"');
+        opts.glyphOutput = value;
+        break;
+      }
+      case "--glyph-labels": glyphLabels = next(); break;
+      case "--control-out": controlOut = next(); break;
+      case "--control-normalization": normalizationFile = next(); break;
       case "--mesh-resolution": opts.meshResolution = next() as MeshResolution; break;
       case "--mtl": opts.mtlUrl = next(); break;
       // Geometry input (instead of a mesh file).
@@ -106,12 +124,12 @@ function parseArgs(argv: string[]): Parsed {
       case "--decimate-grid": decimateGrid = num(next()); break;
       case "--cdn-version": cdnVersion = next(); break;
       case "-o": case "--out": out = next(); break;
-      case "-h": case "--help": file = undefined; return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts };
+      case "-h": case "--help": file = undefined; return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
       default:
         if (!a.startsWith("-") && !file) file = a;
     }
   }
-  return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts };
+  return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
 }
 
 const HELP = `glyphcss <mesh-file | shape> [options]
@@ -122,8 +140,10 @@ const HELP = `glyphcss <mesh-file | shape> [options]
   Camera   --rot-x N  --rot-y N  --zoom N  --distance N  --perspective N  --ortho
   Grid     --cols N  --rows N  --cell-aspect N   (omit cols/rows → auto-fit to content)
   Fit      --fit N   target width in columns for auto-fit (default: terminal width or 80)
-  Render   --mode solid|wireframe|voxel  --palette NAME  --no-colors  --smooth  --double-sided
+  Render   --mode solid|wireframe|voxel|ink  --palette NAME  --no-colors  --smooth  --double-sided
   Mesh     --auto-center  --mtl FILE (OBJ material override)  --mesh-resolution lossy|lossless  --crease-angle N  --supersample N
+  Labels   --glyph-output visible|semantic --glyph-labels LABELS.json (glyph-label-sidecar/v1)
+           --control-out DIR --control-normalization NORMALIZATION.json
   Interact --interactive  --interactions orbit,zoom,pan,fpv  --decimate-grid N  --cdn-version V
   Output   -f, --format text|ansi|html|full     (default: terminal → ansi, file → html, pipe → text)
            -o, --out FILE
@@ -140,7 +160,7 @@ function wrapHtml(inner: string): string {
 }
 
 async function main(): Promise<void> {
-  const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
+  const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts } = parseArgs(process.argv.slice(2));
   // A bare positional with no mesh extension is treated as a shape name.
   const positionalShape = file && !MESH_EXT.test(file) ? file : undefined;
   const meshFile = file && MESH_EXT.test(file) ? file : undefined;
@@ -153,6 +173,13 @@ async function main(): Promise<void> {
 
   // Output format: explicit wins; else file → html, terminal → ansi, pipe → text.
   const format: OutputFormat = fmtArg ?? (out ? "html" : process.stdout.isTTY ? "ansi" : "text");
+  if (glyphLabels) {
+    const sidecar = JSON.parse(await readFile(glyphLabels, "utf8")) as GlyphLabelSidecar;
+    if (sidecar.schemaVersion !== "glyph-label-sidecar/v1" || !sidecar.scene || !sidecar.dictionary) throw new Error("--glyph-labels must be a glyph-label-sidecar/v1 with scene and dictionary");
+    opts.labelSidecar = sidecar;
+  }
+  if (opts.glyphOutput === "semantic" && !opts.labelSidecar) throw new Error("--glyph-output semantic requires --glyph-labels");
+  if ((controlOut || normalizationFile) && (!controlOut || !normalizationFile || !opts.labelSidecar)) throw new Error("--control-out requires --control-normalization and --glyph-labels");
 
   if (interactive) {
     if (!meshFile) throw new Error("--interactive needs a mesh file (shapes/polygons are static-only for now)");
@@ -184,10 +211,18 @@ async function main(): Promise<void> {
   // Resolve the geometry source: inline polygons, polygons file, primitive shape,
   // or a mesh file.
   let result;
-  if (polygonsJson) result = compilePolygons(normalizePolygons(JSON.parse(polygonsJson)), opts);
-  else if (polygonsFile) result = compilePolygons(normalizePolygons(JSON.parse(await readFile(polygonsFile, "utf8"))), opts);
-  else if (shapeName) result = compilePolygons(resolveGeometry(shapeName as GlyphGeometryName, { size: 1 }), { ...opts, autoCenter: true });
+  let sourcePolygons: Polygon[] | undefined;
+  if (polygonsJson) { sourcePolygons = normalizePolygons(JSON.parse(polygonsJson)); result = compilePolygons(sourcePolygons, opts); }
+  else if (polygonsFile) { sourcePolygons = normalizePolygons(JSON.parse(await readFile(polygonsFile, "utf8"))); result = compilePolygons(sourcePolygons, opts); }
+  else if (shapeName) { sourcePolygons = resolveGeometry(shapeName as GlyphGeometryName, { size: 1 }); result = compilePolygons(sourcePolygons, { ...opts, autoCenter: true }); }
   else result = await compileFile(meshFile!, opts);
+  if (controlOut && normalizationFile) {
+    const normalization = JSON.parse(await readFile(normalizationFile, "utf8")) as GlyphControlTensorNormalization;
+    const frame = sourcePolygons
+      ? buildCompileControlFrame(sourcePolygons, opts)
+      : await buildCompileControlFrameFromFile(meshFile!, opts);
+    await writeGlyphControlMaps({ destination: controlOut, frames: [{ frame }], normalization, glyphOutput: opts.glyphOutput });
+  }
   const output =
     format === "text" ? result.inner :
     format === "ansi" ? encodeGlyphAnsi(result.inner) :

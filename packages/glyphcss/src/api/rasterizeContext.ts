@@ -7,7 +7,7 @@ import type {
 } from "@glyphcss/core";
 import type { TransformCells } from "../render/cells";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 /**
  * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
@@ -41,6 +41,109 @@ export interface RasterizeContextOptions {
   ambientLight?: GlyphAmbientLight;
   /** Named wireframe glyph palette. Defaults to `"default"`. */
   glyphPalette?: string;
+  /**
+   * Character encoding for rasterized output. `"ascii"` (default) is the
+   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
+   * using Unicode Braille Patterns (U+2800..U+28FF), packing a 2×4 subcell
+   * dot grid into each output cell for visibly smoother diagonal/curved
+   * edges than a single ASCII rule glyph per cell. `"braille"` is a
+   * documented no-op in `solid`/`voxel`/`ink` modes — braille dot coverage is
+   * binary and cannot carry a Lambert shade ramp, voxel face glyph, or ink's
+   * oriented direction glyph, so those modes always render ASCII regardless
+   * of this option.
+   *
+   * `"halfblock"` is the mirror trade-off, solid-mode-only: instead of
+   * picking one glyph from a shade ramp per cell, it packs TWO independently
+   * colored subcells (top + bottom) into `▀`/`▄`/`█`, buying 2× vertical
+   * COLOR resolution at the cost of coarse (block) shape — exactly where
+   * braille's binary coverage cannot carry a Lambert shade ramp. It borrows
+   * the supersample subcell buffers (forcing an even supersample of at least
+   * 2 internally when needed) and is a documented no-op outside `solid` mode,
+   * when a `transformCells` hook is supplied, or during active temporal
+   * reprojection (`temporalBlend > 0` with retained history) — those paths
+   * all expect/produce the existing one-color-per-cell {@link CellGrid}.
+   *
+   * `"quadrant"` generalizes `"halfblock"` from a 1×2 (top/bottom) subcell
+   * split to a full 2×2 split, packing a 4-region coverage mask into one of
+   * 16 Unicode quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, and the
+   * four three-quadrant glyphs `▛▜▙▟`) — twice halfblock's shape resolution
+   * at the same two-colors-per-cell markup cost (`▀`/`▄` are two of these 16
+   * masks). A partially-covered cell picks the exact coverage-mask glyph with
+   * one collapsed average color (no `background-color` — that would have to
+   * paint an uncovered region); a fully-covered cell either collapses to a
+   * single-color `█` or splits into a genuine two-tone glyph via a
+   * mean-luminance threshold over the 4 regions. Same eligibility rule as
+   * `"halfblock"`: solid-mode-only, forces the same even supersample ≥2, and
+   * is a documented no-op with a `transformCells` hook or active
+   * `temporalBlend` reprojection.
+   */
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
+  /**
+   * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only;
+   * documented no-op for `"braille"` — which already derives corners/joins
+   * from its own subcell dot mask — and for `ink`, which picks its own fixed
+   * oriented glyph set and never consults this option). Default `false`.
+   *
+   * When `true`, a second pass runs over the finished wireframe stamp: every
+   * near-axis-aligned edge accumulates which of a cell's four sides (N/E/S/W)
+   * carry a line, and cells with a non-zero side mask render from the fixed
+   * `┌┐└┘├┤┬┴┼─│` box-drawing set keyed by that mask instead of the default
+   * per-tier random glyph — so two edges meeting in one cell (a corner or a
+   * T-junction) resolve to ONE glyph consistent with both, instead of
+   * whichever edge happened to rasterize last. An edge counts as
+   * "near-axis-aligned" when its two projected endpoints round to the same
+   * output row (near-horizontal) or the same output column (near-vertical) —
+   * equivalently, under half a cell of perpendicular drift across the whole
+   * edge. This scales with edge length instead of a fixed angle constant, and
+   * a diagonal-dominant edge (endpoints round to neither) contributes nothing
+   * to the mask, so its cells keep the existing slope-glyph behavior
+   * unchanged. Default `false` keeps rasterize output byte-identical.
+   */
+  wireframeJunctions?: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`; documented no-op in `solid`, which is already depth-buffered
+   * per cell, and in `ink` — a flat-bias spike regressed every convex mesh
+   * there, see `research/contour-first-text/decisions.md`, and is not wired
+   * into this option). Default `"show"` (today's behavior: edges draw in
+   * mesh order with no depth reference, so a farther edge can paint over a
+   * nearer one — byte-identical output).
+   *
+   * `"hide"` depth-tests every wireframe stroke sample against a solid
+   * surface prepass (the same triangle-depth rasterizer
+   * {@link OcclusionMap} uses) with a slope-scaled bias, so an edge that is
+   * genuinely behind another mesh's surface (or the far side of its own
+   * mesh) does not paint through it — fixing cross-letter/cross-mesh
+   * side-wall bleed-through and darker `sideColor` edges overwriting a
+   * brighter front face. Also wired in `mode: "ink"`, with an identity-based
+   * test instead of a margin: each kept silhouette/crease edge exempts its
+   * own local vertex neighborhood from occluding it, so a mesh's own
+   * silhouette never self-occludes, while a genuinely different, farther
+   * surface still hides it. A string union (not boolean) because a future
+   * `"dashed"` state (hidden lines drawn faintly, classic CAD convention)
+   * should not require a breaking change.
+   */
+  hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps, ordered darkest → densest by MEASURED ink
+   * coverage (see `@glyphcss/effects`' `calibrateWeightedGlyphRamp`, which
+   * crosses a glyph pool against candidate `font-weight` values through real
+   * canvas measurement — never a hand-authored table). When set (length > 0),
+   * it REPLACES `glyphPalette`'s solid ramp for this render: solid mode picks
+   * both a glyph AND a `font-weight` from these steps instead of only a
+   * glyph, buying MORE perceptually distinct shading steps than the glyph
+   * pool's shape count alone provides (bold ink coverage measurably differs
+   * per weight without changing monospace advance width, so a weight-bearing
+   * span never desyncs the character grid — see `AGENTS.md`). Default
+   * `undefined` (off): rasterize output is byte-identical to before this
+   * option existed. Documented no-op during active temporal-blend
+   * reprojection (`temporalBlend > 0` with retained history) — reprojection
+   * blends the ramp index continuously across frames and has no notion of a
+   * parallel weight lookup, the same precedent as `charMode: "halfblock"`
+   * being a no-op there.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
@@ -103,12 +206,33 @@ export interface RasterizeContextOptions {
   depthEpsilon?: number;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
+  /**
+   * Decoded texture samplers keyed by the authored texture URL. This is an
+   * explicit input for pure/headless callers; interactive scenes populate the
+   * same field after browser decoding.
+   */
+  textureSamplers?: Map<string, TextureSampler> | null;
   /** Retain the final solid-mode per-cell shading scalar for an effect input. */
   retainShade?: boolean;
   /** Retain depth-winning world positions for an effect input. */
   retainWorldPosition?: boolean;
   /** Retain depth-winning geometric face normals for an effect input. */
   retainNormal?: boolean;
+  /**
+   * Retain depth-winning positions in each mesh's own pre-transform 3D frame
+   * for an effect input (`space: "object"`).
+   */
+  retainObjectPosition?: boolean;
+  /**
+   * Retain the positional source-polygon index that won each solid cell.
+   * `-1` marks an empty cell. This is an opaque lookup key for durable control
+   * capture; it is not a semantic label and is never allocated by default.
+   */
+  retainWinnerPolygon?: boolean;
+  /** Retain the unlit albedo from the depth-winning surface. */
+  retainAlbedoRgb?: boolean;
+  /** Retain final lit RGB from the depth-winning surface. */
+  retainTargetRgb?: boolean;
   /**
    * Optional post-rasterize cell hook (M4 composition effects). When supplied,
    * the rasterizer builds a {@link CellGrid} from its final per-cell buffers,
@@ -166,6 +290,14 @@ export interface RasterizeContext {
   ambientLight: GlyphAmbientLight;
   /** Named wireframe glyph palette passed to the rasterizer. */
   glyphPalette: string;
+  /** Character encoding — see {@link RasterizeContextOptions.charMode}. */
+  charMode: "ascii" | "braille" | "halfblock" | "quadrant";
+  /** Box-drawing junction resolve pass — see {@link RasterizeContextOptions.wireframeJunctions}. */
+  wireframeJunctions: boolean;
+  /** Wireframe hidden-line removal — see {@link RasterizeContextOptions.hiddenLines}. */
+  hiddenLines: "show" | "hide";
+  /** Solid-mode font-weight density ramp — see {@link RasterizeContextOptions.solidWeightRamp}. */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -197,6 +329,14 @@ export interface RasterizeContext {
   retainWorldPosition?: boolean;
   /** Retain depth-winning geometric face normals for an effect input. */
   retainNormal?: boolean;
+  /** Retain depth-winning pre-transform (mesh-local) positions for an effect input. */
+  retainObjectPosition?: boolean;
+  /** Retain the positional source-polygon winner for durable control capture. */
+  retainWinnerPolygon?: boolean;
+  /** Retain the unlit albedo from the depth-winning surface. */
+  retainAlbedoRgb?: boolean;
+  /** Retain final lit RGB from the depth-winning surface. */
+  retainTargetRgb?: boolean;
   /** Optional post-rasterize cell hook — see {@link RasterizeContextOptions.transformCells}. */
   transformCells?: TransformCells;
 }
@@ -243,6 +383,9 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     directionalLight: opts.directionalLight ?? DEFAULT_DIRECTIONAL,
     ambientLight: opts.ambientLight ?? DEFAULT_AMBIENT,
     glyphPalette: opts.glyphPalette ?? "default",
+    charMode: opts.charMode ?? "ascii",
+    wireframeJunctions: opts.wireframeJunctions ?? false,
+    hiddenLines: opts.hiddenLines ?? "show",
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
@@ -255,9 +398,15 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainShade: opts.retainShade ?? false,
     retainWorldPosition: opts.retainWorldPosition ?? false,
     retainNormal: opts.retainNormal ?? false,
+    retainObjectPosition: opts.retainObjectPosition ?? false,
+    retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
+    retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
+    retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
+    ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),
     ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
+    ...(opts.solidWeightRamp ? { solidWeightRamp: opts.solidWeightRamp } : {}),
   };
 }

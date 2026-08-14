@@ -74,7 +74,20 @@ export interface GeneratedSurfaceField {
 // Exported so a build-time exporter (see `staticExport.ts`) can resolve the
 // SAME domain coordinate a mounted effect layer's `evaluate()` reads, instead
 // of re-deriving the surface-basis / coplanar-group math by hand.
-export type EffectSpace = "auto" | "surface" | "scene";
+export type EffectSpace = "auto" | "surface" | "scene" | "object";
+
+// Triplanar blend sharpness for the "object"-space 2D fallback (`scan`,
+// `wipe`-adjacent, `flow-text`). Each covered cell projects onto whichever of
+// the three axis-aligned planes its face normal most faces, blended by
+// `normalize(|n|^TRIPLANAR_K)`. K=4 is the conventional starting point for
+// triplanar blending (id-tech/Sequoia-style shaders): K=1 blends across a
+// wide band around each 45°-ish normal transition (visible double-vision
+// "mush" where two projections disagree), while a much higher K collapses
+// toward a hard per-axis seam (the K→∞ limit is a discontinuous 3-way
+// nearest-axis pick). K=4 keeps the transition narrow — most cells commit
+// fully to one plane — while still blending the handful of cells whose
+// normal sits close to a plane diagonal, so there is no visible seam line.
+const TRIPLANAR_K = 4;
 type EffectDirection = "down" | "up" | "right" | "left";
 const GENERATED_SURFACE_PITCH = 4;
 const generatedSurfaceFieldCache = new WeakMap<object, GeneratedSurfaceField>();
@@ -240,7 +253,8 @@ function surfaceBasisSample<P extends AnyParams>(
   const absY = Math.abs(ny);
   const absZ = Math.abs(nz);
   const dominant = absX >= absY && absX >= absZ ? nx : absY >= absZ ? ny : nz;
-  if (dominant < 0) {
+  const canonicalSign = dominant < 0 ? -1 : 1;
+  if (canonicalSign < 0) {
     nx = -nx;
     ny = -ny;
     nz = -nz;
@@ -297,9 +311,23 @@ function surfaceBasisSample<P extends AnyParams>(
     verticalCoordinate = px * verticalX + py * verticalY + pz * verticalZ;
   }
 
-  const horizontalX = verticalY * nz - verticalZ * ny;
-  const horizontalY = verticalZ * nx - verticalX * nz;
-  const horizontalZ = verticalX * ny - verticalY * nx;
+  // `verticalX/Y/Z` above is world -Z projected into the tangent plane —
+  // quadratic in `nx/ny/nz`, so it is unaffected by the `canonicalSign` flip
+  // above (a whole-normal sign flip leaves nz*nx, nz*ny, nz*nz-1 unchanged).
+  // `horizontal = vertical × normal` is *linear* in the normal, so it does
+  // NOT share that invariance: it silently flips sign every time a rotating
+  // mesh's normal crosses the dominant-axis canonicalization boundary, while
+  // `vertical` stays continuous — an asymmetric flip a viewer reads as "down"
+  // staying put while "right" reverses mid-rotation. Re-apply `canonicalSign`
+  // here (only for this non-degenerate branch — the exact-perpendicular
+  // fallback below already derives its own basis straight from the
+  // canonicalized normal and must not be touched) to undo that propagated
+  // flip, so `horizontal` is computed as if from the raw, un-canonicalized
+  // normal and stays continuous across the same boundary as `vertical`.
+  const horizontalSign = verticalLength < 1e-4 ? 1 : canonicalSign;
+  const horizontalX = (verticalY * nz - verticalZ * ny) * horizontalSign;
+  const horizontalY = (verticalZ * nx - verticalX * nz) * horizontalSign;
+  const horizontalZ = (verticalX * ny - verticalY * nx) * horizontalSign;
   const planeOffset = px * nx + py * ny + pz * nz;
   return {
     u: (px * horizontalX + py * horizontalY + pz * horizontalZ) * worldToSceneScale,
@@ -465,6 +493,42 @@ export function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P
   return field;
 }
 
+// `space: "object"` triplanar fallback for the 2D-domain effects (`scan`,
+// `flow-text`) — see the `TRIPLANAR_K` comment for the blend rationale.
+// Blends the axis-plane 2D COORDINATES (not a sampled scalar): the caller
+// only ever reads a coordinate out of `domainCoordinate`, so this is the
+// cheap "triplanar UV" approximation rather than full triplanar texture
+// blending. `matrix-rain` does NOT go through this path — it has a natural
+// 3D form (falling strands) and uses the volumetric object-space
+// formulation directly in its own `evaluate()` instead.
+function triplanarObjectCoordinate<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  scale: number,
+): readonly [number, number, number, number, number, number] | null {
+  const op = context.base.objectPosition;
+  if (!op) return null;
+  const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  const nrm = context.base.normal;
+  let nx = 0, ny = 0, nz = 1;
+  if (nrm) {
+    const rnx = nrm[index * 3]!, rny = nrm[index * 3 + 1]!, rnz = nrm[index * 3 + 2]!;
+    if (Number.isFinite(rnx) && Number.isFinite(rny) && Number.isFinite(rnz)) { nx = rnx; ny = rny; nz = rnz; }
+  }
+  const wxRaw = Math.pow(Math.abs(nx), TRIPLANAR_K);
+  const wyRaw = Math.pow(Math.abs(ny), TRIPLANAR_K);
+  const wzRaw = Math.pow(Math.abs(nz), TRIPLANAR_K);
+  const wSum = wxRaw + wyRaw + wzRaw;
+  const wx = wSum > 1e-9 ? wxRaw / wSum : 1 / 3;
+  const wy = wSum > 1e-9 ? wyRaw / wSum : 1 / 3;
+  const wz = wSum > 1e-9 ? wzRaw / wSum : 1 / 3;
+  // X-facing plane reads (y, z); Y-facing reads (x, z); Z-facing reads (x, y).
+  const u = (wx * y + wy * x + wz * x) * scale;
+  const v = (wx * z + wy * z + wz * y) * scale;
+  return [u, v, 1, 0, 0, 1];
+}
+
 function domainCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
@@ -474,6 +538,13 @@ function domainCoordinate<P extends AnyParams>(
   generatedSurface?: GeneratedSurfaceField | null,
 ): readonly [number, number, number, number, number, number] | null {
   if (space !== "scene") {
+    if (space === "object") {
+      const triplanar = triplanarObjectCoordinate(context, index, scale);
+      if (triplanar) return triplanar;
+      // No objectPosition on this cell (wireframe/voxel mode, or empty cell):
+      // degrade to the same generated-surface / scene fallback `"surface"`
+      // already uses when its own optional inputs are unavailable.
+    }
     if (space === "auto" && uvBounds && context.base.uv0) {
       const u = context.base.uv0[index * 2]!;
       const v = context.base.uv0[index * 2 + 1]!;
@@ -598,7 +669,7 @@ const timeSpec = {
 const spaceSpec = {
   kind: "string",
   default: "auto",
-  values: ["auto", "surface", "scene"],
+  values: ["auto", "surface", "scene", "object"],
   animation: "discrete",
   label: "Mapping",
 } as const;
@@ -624,7 +695,18 @@ const matrixRainSchema = {
   time: timeSpec,
   glyphs: { kind: "string", default: "HOLA", animation: "discrete", label: "Glyphs" },
   direction: directionSpec,
-  space: spaceSpec,
+  // Matrix rain defaults to the volumetric object-space field (unlike
+  // flow-text/scan, which keep `spaceSpec`'s "auto" default): a strand
+  // falling through the mesh's own volume, agreeing across faces with no
+  // per-face UV seam, is matrix rain's natural form (see AGENTS.md's
+  // `space: "object"` volumetric formulation) and reads better as the
+  // out-of-the-box look than the 2D-domain "auto" fallback most other
+  // effects want. `scale` means a DIFFERENT thing under "object" (a 3D
+  // field, not a 2D UV) than under "auto"/"surface" — existing saved
+  // URLs/presets that relied on the old "auto" default and set a
+  // non-default `scale` may look different after this change (see the
+  // word-art/gallery/synth preset audit in the same change).
+  space: { ...spaceSpec, default: "object" },
   scale: scaleSpec,
   speedMin: { kind: "number", default: 5, min: 0, max: 40, step: 0.25, unit: "cells/s", label: "Min speed" },
   speedMax: { kind: "number", default: 12, min: 0, max: 40, step: 0.25, unit: "cells/s", label: "Max speed" },
@@ -642,6 +724,70 @@ const matrixRainSchema = {
   headColor: { kind: "color", default: "#d8ffe4", label: "Original head color" },
 } as const satisfies GlyphEffectParamSchema;
 
+// Volumetric `space: "object"` formulation for matrix rain: the pattern
+// fills the mesh's own 3D volume — `f(x, z, y - t)` — instead of painting
+// per-face UVs, so faces are just windows into the same body of rain and
+// rotating the mesh turns the object through a field that stays put
+// relative to it. "down"/"up" fall along the mesh's own Y (lanes keyed by
+// X, Z); "left"/"right" fall along X (lanes keyed by Y, Z), so the same
+// volumetric field also reads correctly on a mesh authored sideways. A cap
+// cell and an adjacent wall cell sample the SAME (x, y, z) at their shared
+// edge, so they agree by construction — no per-face seam, no UV-gradient
+// blowup on a face turned edge-on to the camera.
+// Fraction of a lane's width, on either side of its integer boundary, that
+// fades out instead of committing hard to one lane's `hash2` bucket. Sized
+// from a measured rotation sweep (packages/effects/src/stock.test.ts,
+// "matrix-rain volumetric lane-boundary stability"): the rasterizer's
+// depth-winning object-position sample for a given output cell is chosen
+// per-subcell (nearest COVERED subcell to the cell's screen-space center —
+// see AGENTS.md's Retained Glyph Effects section), and that pick can jump to
+// a DIFFERENT subcell — a different point on the surface, up to roughly half
+// an output cell's object-space footprint away — as the mesh rotates and
+// coverage shifts within the cell, even with the effect clock paused. A hard
+// `Math.floor` lane boundary turns that small, genuine positional jitter into
+// a full swap to an unrelated `hash2` bucket (different phase/speed/glyph
+// offset), which reads as a strand popping in or out. 0.18 was picked as the
+// smallest margin that drove the measured sweep's "visible" churn (both the
+// pre- and post-step sample solidly inside the faded band, i.e. an actual
+// hard pop rather than a graceful fade) to zero on that sweep without fading
+// a large fraction of each lane's interior at rest.
+const OBJECT_LANE_EDGE_MARGIN = 0.18;
+
+// Exported for direct regression testing (packages/effects/src/stock.test.ts
+// pins this against a real rasterized rotating mesh) — see `generatedSurfaceField`
+// above for the same "internal helper, exported for test/build reuse" convention.
+export function objectVolumetricAlongLane<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  direction: EffectDirection,
+  scale: number,
+): { along: number; lane: number; edgeFade: number } | null {
+  const op = context.base.objectPosition;
+  if (!op) return null;
+  const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  // Object frame is Z-up (X = extrusion depth, Y = width, Z = height), matching
+  // glyphcss's world convention — see AGENTS.md. Vertical flow therefore runs
+  // along Z (down = decreasing height) and horizontal flow along Y; the lane key
+  // is the two axes perpendicular to that, always including depth (X) so cells
+  // at different depths on the same column share a strand.
+  const horizontal = direction === "left" || direction === "right";
+  const along = (horizontal ? (direction === "right" ? y : -y) : (direction === "down" ? -z : z)) * scale;
+  const lane0 = (horizontal ? z : y) * scale;
+  const lane1 = x * scale;
+  const f0 = lane0 - Math.floor(lane0);
+  const f1 = lane1 - Math.floor(lane1);
+  // Distance from the nearest lane boundary, in EITHER key axis (a crossing
+  // in either flips the combined hash) — 0 exactly on a boundary, 0.5 at a
+  // lane's center.
+  const edgeDistance = Math.min(Math.min(f0, 1 - f0), Math.min(f1, 1 - f1));
+  const edgeFade = smoothstep(0, OBJECT_LANE_EDGE_MARGIN, edgeDistance);
+  // Combine the 2D lane key (the two axes perpendicular to flow) into the
+  // single integer `hash2(lane, seed)` below expects.
+  const lane = hash2(Math.floor(lane0), Math.floor(lane1)) | 0;
+  return { along, lane, edgeFade };
+}
+
 export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
   id: "matrix-rain",
   version: 1,
@@ -650,7 +796,7 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
   defaultBlend: "replace",
   parameterSchema: matrixRainSchema,
   program: {
-    optionalRequirements: ["baseShade", "normal", "worldPosition", "uv0"],
+    optionalRequirements: ["baseShade", "normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) {
       validateGlyphs(params);
       validatePositiveScale(params);
@@ -666,27 +812,53 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
       const parsedHead = parseGlyphEffectColor(params.headColor);
       const parsedColor = parseGlyphEffectColor(params.color);
       const monochrome = params.colorMode === "monochrome";
-      const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
+      // Volumetric branch is all-or-nothing per render: `objectPosition` is
+      // either retained for every solid-mode cell or entirely absent (any
+      // other mode). Skip building the costly generated-surface fit when the
+      // volumetric path will actually be used — it only exists as this
+      // effect's degrade-to-`"surface"` path for wireframe/voxel modes.
+      const volumetric = params.space === "object" && !!context.base.objectPosition;
+      const generatedSurface = !volumetric && params.space !== "scene" && !(params.space === "auto" && uvBounds)
         ? generatedSurfaceField(context)
         : undefined;
       const fittedSurface = generatedSurface !== undefined && generatedSurface !== null;
+      const direction = params.direction as EffectDirection;
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
-        const coordinate = domainCoordinate(
-          context,
-          i,
-          params.space as EffectSpace,
-          uvBounds,
-          params.scale,
-          generatedSurface,
-        );
-        if (!coordinate) continue;
-        const direction = params.direction as EffectDirection;
-        const [along, across] = fittedSurface
-          ? projectedSurfaceDirection(coordinate, direction)
-          : directed(coordinate[0], coordinate[1], direction);
-        const glyphsPerPatternCell = fittedSurface ? 1 / params.scale : 1;
-        const lane = Math.floor(across);
+        let along: number;
+        let lane: number;
+        let glyphsPerPatternCell: number;
+        // Only the volumetric (`space: "object"`) path softens near a lane
+        // boundary — see `OBJECT_LANE_EDGE_MARGIN`. The 2D domain paths below
+        // sample a stable per-cell UV/surface coordinate, not a
+        // supersample-quantized object position, so they don't exhibit the
+        // same rotation-driven pop and stay at full strength (edgeFade 1).
+        let edgeFade = 1;
+        if (volumetric) {
+          const v = objectVolumetricAlongLane(context, i, direction, params.scale);
+          if (!v) continue;
+          along = v.along;
+          lane = v.lane;
+          edgeFade = v.edgeFade;
+          if (edgeFade <= 0) continue;
+          glyphsPerPatternCell = 1 / params.scale;
+        } else {
+          const coordinate = domainCoordinate(
+            context,
+            i,
+            params.space as EffectSpace,
+            uvBounds,
+            params.scale,
+            generatedSurface,
+          );
+          if (!coordinate) continue;
+          const [alongC, acrossC] = fittedSurface
+            ? projectedSurfaceDirection(coordinate, direction)
+            : directed(coordinate[0], coordinate[1], direction);
+          along = alongC;
+          lane = Math.floor(acrossC);
+          glyphsPerPatternCell = fittedSurface ? 1 / params.scale : 1;
+        }
         const seed = hash2(lane, Math.floor(params.seed));
         if ((seed & 0xffff) / 0x1_0000 >= params.density) continue;
         const speedUnit = ((seed >>> 16) & 0xffff) / 0xffff;
@@ -716,12 +888,12 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
             const intensity = (0.12 + 0.88 * fade) * (0.5 + 0.5 * surfaceLit);
             setColor(context, i, scalePackedColor(parsedColor.packed, intensity));
           }
-          context.output.coverage[i] = parsedColor.opacity;
+          context.output.coverage[i] = parsedColor.opacity * edgeFade;
         } else {
-          context.output.coverage[i] = 1;
+          context.output.coverage[i] = edgeFade;
           if (behind < 1 / glyphsPerPatternCell && parsedHead.opacity > 0) {
             setColor(context, i, parsedHead.packed);
-            context.output.coverage[i] = parsedHead.opacity;
+            context.output.coverage[i] = parsedHead.opacity * edgeFade;
           }
         }
       }
@@ -746,7 +918,7 @@ export const flowText: GlyphStockEffectDefinition<typeof flowTextSchema> = {
   defaultBlend: "replace",
   parameterSchema: flowTextSchema,
   program: {
-    optionalRequirements: ["normal", "worldPosition", "uv0"],
+    optionalRequirements: ["normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) {
       validateGlyphs(params);
       validatePositiveScale(params);
@@ -787,7 +959,7 @@ export const scan: GlyphStockEffectDefinition<typeof scanSchema> = {
   defaultBlend: "over",
   parameterSchema: scanSchema,
   program: {
-    optionalRequirements: ["normal", "worldPosition", "uv0"],
+    optionalRequirements: ["normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) { validatePositiveScale(params); },
     evaluate(context) {
       const { params } = context;
@@ -1006,7 +1178,7 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 export const SYNTH_VOICES = 6;
 export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
-export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
+export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
 
 // Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
 // plot the exact same shape+phase math the engine evaluates, instead of a
@@ -1043,8 +1215,20 @@ function synthNoise3(x: number, y: number, z: number): number {
 }
 
 // One oscillator → value in ~[-amp, amp].
-function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number): number {
+function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number, angle = 0): number {
   if (amp === 0) return 0;
+  if (angle !== 0) {
+    // Rotate the SAMPLE about this voice's own centre rather than rotating the
+    // field: radial/spiral then stay anchored where they were, and a linear
+    // field becomes a plane wave at `angle`.
+    const a = (-angle * Math.PI) / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    x = cx + dx * ca - dy * sa;
+    y = cy + dx * sa + dy * ca;
+  }
   if (field === "noise") {
     return amp * (2 * synthNoise3(x * freq, y * freq, time * speed) - 1);
   }
@@ -1076,43 +1260,75 @@ function lerpPacked(a: number, b: number, t: number): number {
 const fieldSynthSchema = {
   time: timeSpec,
   space: spaceSpec,
-  scale: { kind: "number", default: 2, min: 0.1, max: 12, step: 0.1, label: "Pattern scale" },
+  // 0.1 → 100 is exactly three decades, and the dial is logarithmic, so
+  // 0.1–1, 1–10 and 10–100 each get precisely a third of the track.
+  scale: { kind: "number", default: 2, min: 0.1, max: 100, step: 0.1, label: "Pattern scale" },
   originU: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Origin U" },
   originV: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Origin V" },
   field1: { kind: "string", default: "radial", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 1 field" },
   wave1: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 1 wave" },
-  freq1: { kind: "number", default: 3, min: 0, max: 24, step: 0.1, label: "Osc 1 freq" },
+  freq1: { kind: "number", default: 3, min: 0, max: 96, step: 0.1, label: "Osc 1 freq" },
   speed1: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 1 speed" },
   amp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 1 amp" },
+  angle1: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 1 angle" },
+  originU1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin U" },
+  originV1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin V" },
   field2: { kind: "string", default: "angular", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 2 field" },
   wave2: { kind: "string", default: "saw", values: SYNTH_WAVES, animation: "discrete", label: "Osc 2 wave" },
-  freq2: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 2 freq" },
+  freq2: { kind: "number", default: 5, min: 0, max: 96, step: 0.1, label: "Osc 2 freq" },
   speed2: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 2 speed" },
   amp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 2 amp" },
+  angle2: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 2 angle" },
+  originU2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin U" },
+  originV2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin V" },
   field3: { kind: "string", default: "linearX", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 3 field" },
   wave3: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 3 wave" },
-  freq3: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 3 freq" },
+  freq3: { kind: "number", default: 4, min: 0, max: 96, step: 0.1, label: "Osc 3 freq" },
   speed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 3 speed" },
   amp3: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 3 amp" },
+  angle3: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 3 angle" },
+  originU3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin U" },
+  originV3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin V" },
   field4: { kind: "string", default: "linearY", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 4 field" },
   wave4: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 4 wave" },
-  freq4: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 4 freq" },
+  freq4: { kind: "number", default: 4, min: 0, max: 96, step: 0.1, label: "Osc 4 freq" },
   speed4: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 4 speed" },
   amp4: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 4 amp" },
+  angle4: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 4 angle" },
+  originU4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin U" },
+  originV4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin V" },
   field5: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 5 field" },
   wave5: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 5 wave" },
-  freq5: { kind: "number", default: 6, min: 0, max: 24, step: 0.1, label: "Osc 5 freq" },
+  freq5: { kind: "number", default: 6, min: 0, max: 96, step: 0.1, label: "Osc 5 freq" },
   speed5: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 5 speed" },
   amp5: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 5 amp" },
+  angle5: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 5 angle" },
+  originU5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin U" },
+  originV5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin V" },
   field6: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 6 field" },
   wave6: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 6 wave" },
-  freq6: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 6 freq" },
+  freq6: { kind: "number", default: 5, min: 0, max: 96, step: 0.1, label: "Osc 6 freq" },
   speed6: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 6 speed" },
   amp6: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 6 amp" },
+  angle6: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 6 angle" },
+  originU6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin U" },
+  originV6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin V" },
   combine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Combine" },
   gain: { kind: "number", default: 1, min: 0, max: 4, step: 0.05, label: "Contrast" },
   bias: { kind: "number", default: 0.5, min: -1, max: 2, step: 0.05, label: "Brightness" },
   glyphs: { kind: "string", default: " .:-=+*#%@", animation: "discrete", label: "Ramp" },
+  // "2x4" swaps the ramp-indexed glyph for a synthesized Braille pattern
+  // character (U+2800 + dot bitmask), one 2×4 dot grid sampled and thresholded
+  // per cell — still exactly one glyph per cell, so the renderer's
+  // single-glyph-per-cell contract is unaffected. Subcell coordinates outside
+  // `space: "scene"` are reconstructed by finite-differencing neighboring
+  // cells' resolved coordinates (a local-affine approximation), so dots shear
+  // on genuinely curved generated-surface/UV mappings; `space: "scene"` is exact.
+  subcellRes: { kind: "string", default: "1x1", values: ["1x1", "2x4", "ink"], animation: "discrete", label: "Subcell resolution" },
+  // "ink" reads the field's SHAPE rather than its level: see `inkGlyphForField`.
+  // How many evenly spaced cuts through the amplitude axis to contour — a
+  // topographic map of the field, not a single iso-line.
+  inkLevels: { kind: "number", default: 4, min: 1, max: 12, step: 1, label: "Ink levels" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -1147,6 +1363,15 @@ interface SynthVoice {
   readonly speed: number;
   readonly amp: number;
   readonly color: string;
+  /** Degrees. Rotates this voice's sampling frame about its own origin, which
+   *  turns the three fixed linear fields into one continuously steerable plane
+   *  wave — the continuum where fine moiré lives. Radial is invariant to it. */
+  readonly angle: number;
+  /** Offset from the global origin, in the same normalized domain units, so two
+   *  radial voices can sit on DIFFERENT centres (the textbook interference
+   *  figure, unreachable at any voice count while the centre was shared). */
+  readonly originU: number;
+  readonly originV: number;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1201,10 +1426,142 @@ export function fieldSynthCoordinate<P extends AnyParams>(
   return [(x / sceneCols) * scale, (y / sceneRows) * scale, originU * scale, originV * scale];
 }
 
+// Braille block (U+2800..U+28FF) dot bit weights, indexed [dotCol][dotRow].
+// This is the block's actual bit layout, NOT raster order: column 0 runs
+// 0x01,0x02,0x04 top-to-bottom then jumps to 0x40 for its bottom dot; column 1
+// mirrors that at 0x08,0x10,0x20,0x80.
+const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
+  [0x01, 0x02, 0x04, 0x40],
+  [0x08, 0x10, 0x20, 0x80],
+];
+
+// Same voice-fold as the main evaluate() loop below, minus the color
+// bookkeeping the main loop needs — used to resample the scalar field at each
+// of a cell's 8 Braille subcell offsets, where only the scalar matters.
+/**
+ * Evaluate the whole voice stack at one point. `winner` is only meaningful under
+ * `combine: "argmax"`, where the output is CATEGORICAL — which voice won, not
+ * how much it won by. Every other mode folds values as before and reports -1.
+ *
+ * argmax is what makes hard-edged tilings possible: the pairwise ops all return
+ * a value, so a region's shading keeps varying inside it, whereas selecting by
+ * identity gives each region one flat level (and, with per-voice colors, the
+ * winning voice's own colour).
+ */
+function evaluateVoices(
+  voices: readonly SynthVoice[],
+  combine: string,
+  x: number,
+  y: number,
+  cx: number,
+  cy: number,
+  time: number,
+  scale: number,
+): { combined: number; winner: number; active: number } {
+  let combined = 0;
+  let active = 0;
+  let best = -Infinity;
+  let winner = -1;
+  let winnerOrder = -1;
+  const argmax = combine === "argmax";
+  for (let k = 0; k < SYNTH_VOICES; k++) {
+    const voice = voices[k]!;
+    if (!(voice.amp > 0)) continue;
+    // Same units as the global origin, which `fieldSynthCoordinate` already
+    // scaled (`originU * scale`) — adding a raw offset here made a voice's
+    // centre drift by half the grid at scale 2 and by 1% of it at scale 100.
+    const vcx = cx + voice.originU * scale;
+    const vcy = cy + voice.originV * scale;
+    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, vcx, vcy, time, voice.angle);
+    if (argmax) {
+      const contribution = voice.amp * o;
+      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
+    } else if (active === 0) {
+      combined = voice.amp * o;
+    } else {
+      combined += voice.amp * (combineSynth(combine, combined, o) - combined);
+    }
+    active++;
+  }
+  if (argmax) {
+    // Evenly spaced flat levels across the range, one per ACTIVE voice, so the
+    // ramp (or ink) reads each region as a single constant tone.
+    combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
+  }
+  return { combined, winner, active };
+}
+
+function subcellFieldValue(
+  voices: readonly SynthVoice[],
+  combine: string,
+  x: number,
+  y: number,
+  cx: number,
+  cy: number,
+  time: number,
+  scale: number,
+): number {
+  return evaluateVoices(voices, combine, x, y, cx, cy, time, scale).combined;
+}
+
+// Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
+// per full cell step, right and down) by finite-differencing
+// `fieldSynthCoordinate` at the neighboring cell indices. Exact for
+// `space: "scene"` (the domain coordinate is affine in col/row there); a
+// local-affine approximation everywhere else, matching the assumption the
+// static field-synth exporter's affine-fit already relies on for the common
+// flat-surface case. Falls back to the opposite neighbor at a grid edge, and
+// to a zero gradient (all 8 subcells collapse to the cell-center sample) when
+// a neighbor's coordinate is unavailable.
+function fieldSynthSubcellGradient<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  space: EffectSpace,
+  uvBounds: boolean,
+  scale: number,
+  originU: number,
+  originV: number,
+  sceneCols: number,
+  sceneRows: number,
+  generatedSurface: GeneratedSurfaceField | null | undefined,
+  x: number,
+  y: number,
+): readonly [number, number, number, number] {
+  const cols = context.base.cols;
+  const rows = context.base.rows;
+  const col = index % cols;
+  const row = (index / cols) | 0;
+  let dxCol = 0, dyCol = 0, dxRow = 0, dyRow = 0;
+  if (cols > 1) {
+    const hasRight = col + 1 < cols;
+    const rightIndex = hasRight ? index + 1 : index - 1;
+    const right = fieldSynthCoordinate(context, rightIndex, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface);
+    if (right) {
+      const sign = hasRight ? 1 : -1;
+      dxCol = (right[0] - x) * sign;
+      dyCol = (right[1] - y) * sign;
+    }
+  }
+  if (rows > 1) {
+    const hasDown = row + 1 < rows;
+    const downIndex = hasDown ? index + cols : index - cols;
+    const down = fieldSynthCoordinate(context, downIndex, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface);
+    if (down) {
+      const sign = hasDown ? 1 : -1;
+      dxRow = (down[0] - x) * sign;
+      dyRow = (down[1] - y) * sign;
+    }
+  }
+  return [dxCol, dyCol, dxRow, dyRow];
+}
+
 // Exported for the same reason as `synthWave` above — reuse the exact
 // per-voice mix-weight fold instead of re-deriving it.
 export function combineSynth(mode: string, a: number, b: number): number {
   switch (mode) {
+    // Pairwise, argmax can only report the winning VALUE; the winning identity
+    // is resolved by `evaluateVoices`, which sees the whole stack at once.
+    case "argmax": return Math.max(a, b);
     case "add": return a + b;
     case "max": return Math.max(a, b);
     case "min": return Math.min(a, b);
@@ -1214,6 +1571,37 @@ export function combineSynth(mode: string, a: number, b: number): number {
 }
 
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
+  // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
+  // one flat tone, which is what turns a lattice into the rhombille/cube
+  // tessellation. No value-combining op can express it — inside a region a
+  // folded value keeps varying, and the illusion needs constants. Per-voice
+  // colours paint the three cube faces; the ramp keeps it readable unlit too.
+  // argmax regions traced as contours rather than shaded: an angular voice cuts
+  // the plane into wedges while two counter-rotating radials fight over them, so
+  // the winning region — and therefore the outline — keeps reorganising.
+  { name: "Ink cells", params: { combine: "argmax", subcellRes: "ink", inkLevels: 1,
+    scale: 0.9, gain: 1, bias: 0.4,
+    field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.65, amp1: 1,
+    field2: "radial", wave2: "sin", freq2: 7, speed2: 1.3, amp2: 1,
+    field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
+    amp4: 0, amp5: 0, amp6: 0,
+    voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
+  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
+    // Drift, not shear: a rigid translation needs each wave's phase rate to be
+    // its own normal projected on the drift direction, `speed = freq * (n · v)`.
+    // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —
+    // equal speeds would pump the cells' areas instead of sliding the lattice.
+    field1: "linearX", wave1: "triangle", freq1: 1, speed1: 0.6, amp1: 1, angle1: 0,
+    field2: "linearX", wave2: "triangle", freq2: 1, speed2: 0.3, amp2: 1, angle2: 60,
+    field3: "linearX", wave3: "triangle", freq3: 1, speed3: -0.3, amp3: 1, angle3: 120,
+    // At gain 3 / bias 1 the three argmax levels clamp to {0, 1, 1}: the two lit
+    // faces paint solid blocks in their voice colour, and the third lands on 0
+    // and is skipped — the unpainted cells ARE the cube's shadowed face, which
+    // is why this looks right despite ~a third of the grid staying blank. The
+    // level sits exactly on the `value <= 0` boundary, so it is deliberate but
+    // fragile; bias 0.95 would push it clearly negative for the same picture.
+    amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
+    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 } },
   { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
   { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
   { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
@@ -1234,6 +1622,37 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
 ];
+
+
+/**
+ * `subcellRes: "ink"` — contour the field instead of shading by its level, the
+ * same way `mode: "ink"` outlines geometry instead of filling it. Like that
+ * mode, it draws ONLY lines: interiors and plateaus stay empty, because an
+ * outline of a flat region is not a fill, it is the region's edges — and a step
+ * (a square wave) already presents those edges as an abrupt gradient the
+ * crossing test picks up on its own.
+ *
+ * `inkLevels` cuts the amplitude axis into that many evenly spaced levels and
+ * contours each, so one pass reads like a topographic map rather than a single
+ * iso-line. A cell is inked when a level falls BETWEEN it and a neighbour (a
+ * real crossing, not "this cell is near a level" — that is what makes a
+ * continuous line rather than a scatter of marks). The stroke is then oriented
+ * perpendicular to the local gradient, quantized into the same four 45° buckets
+ * the geometry ink path uses.
+ *
+ * Glyphs are deliberately plain ASCII: box-drawing and Braille are missing from
+ * common monospace faces and get served from a fallback at a DIFFERENT advance,
+ * which desynchronizes the character grid (see the Braille notes in AGENTS.md).
+ */
+const INK_STROKES = ["-", "\\", "|", "/"] as const;
+function inkGlyphForField(gx: number, gy: number): string {
+  // Contour tangent is perpendicular to the gradient. Rows grow downward, so a
+  // tangent heading right-and-down reads as "\".
+  let angle = Math.atan2(gx, -gy);
+  if (angle < 0) angle += Math.PI;
+  const bucket = Math.round(angle / (Math.PI / 4)) % 4;
+  return INK_STROKES[bucket]!;
+}
 
 export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   id: "field-synth",
@@ -1263,12 +1682,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
       const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6 },
+        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1 },
+        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2 },
+        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3 },
+        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4 },
+        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5 },
+        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6 },
       ];
       const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
@@ -1289,46 +1708,97 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         );
         if (!coord) continue;
         const [x, y, cx, cy] = coord;
-        // Combine active oscillators (amp > 0). `amp` is a MIX WEIGHT, not a signal
-        // gain: the first voice enters at its weight; each later voice blends the
-        // result toward `combine(result, voice)` by its amp. So amp 0 = no effect
-        // (leaves the others clean), amp 1 = full combine, and low amp gently mixes
-        // — for every combine op, instead of `multiply` crushing the field to zero.
-        let combined = 0;
-        let active = 0;
-        // Two weight sums, both accumulated every pass: `cw` (amp * |osc|) is
-        // the true per-cell contribution and drives the normal blend; `caw`
-        // (amp alone) is always > 0 for an active voice and only feeds the
-        // fallback below, for cells where every voice sits on a zero-crossing.
+        // One evaluator for the whole stack (see `evaluateVoices`) so the
+        // scalar here, the 2x4 subcell probes and the ink gradient probes can
+        // never disagree about what the patch sounds like. `amp` is a MIX
+        // WEIGHT, not a signal gain: the first voice enters at its weight, each
+        // later voice blends the result toward `combine(result, voice)` by its
+        // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
+        // instead of `multiply` crushing the field to zero.
+        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time, scale);
+        const combined = stack.combined;
+        const active = stack.active;
+        // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
+        // and drives the normal blend; `caw` (amp alone) is always > 0 for an
+        // active voice and only feeds the fallback below, for cells where every
+        // voice sits on a zero-crossing.
         let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0;
-        let car = 0, cag = 0, cabv = 0, caw = 0, cao = 0;
-        for (let k = 0; k < SYNTH_VOICES; k++) {
-          const voice = voices[k]!;
-          if (!(voice.amp > 0)) continue;
-          const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, cx, cy, time);
-          if (active === 0) combined = voice.amp * o;
-          else combined += voice.amp * (combineSynth(params.combine, combined, o) - combined);
-          active++;
-          if (parsedVoiceColors) {
-            const w = voice.amp * Math.abs(o);
-            const c = parsedVoiceColors[k]!;
-            const r = (c.packed >> 16) & 0xff, g = (c.packed >> 8) & 0xff, b = c.packed & 0xff;
-            cr += r * w;
-            cg += g * w;
-            cbv += b * w;
-            co += c.opacity * w;
-            cw += w;
-            car += r * voice.amp;
-            cag += g * voice.amp;
-            cabv += b * voice.amp;
-            cao += c.opacity * voice.amp;
-            caw += voice.amp;
+        let car = 0, cag = 0, cabv = 0, cao = 0, caw = 0;
+        if (parsedVoiceColors) {
+          if (stack.winner >= 0) {
+            // argmax is categorical: the region belongs to ONE voice, so it
+            // takes that voice's colour flat rather than a blend of all of them.
+            const c = parsedVoiceColors[stack.winner]!;
+            cr = (c.packed >> 16) & 0xff; cg = (c.packed >> 8) & 0xff; cbv = c.packed & 0xff;
+            co = c.opacity; cw = 1;
+            car = cr; cag = cg; cabv = cbv; cao = co; caw = 1;
+          } else {
+            for (let k = 0; k < SYNTH_VOICES; k++) {
+              const voice = voices[k]!;
+              if (!(voice.amp > 0)) continue;
+              const o = synthOsc(
+                voice.field, voice.wave, voice.freq, voice.speed, 1,
+                x, y, cx + voice.originU * scale, cy + voice.originV * scale, time, voice.angle,
+              );
+              const w = voice.amp * Math.abs(o);
+              const c = parsedVoiceColors[k]!;
+              const r = (c.packed >> 16) & 0xff, g = (c.packed >> 8) & 0xff, b = c.packed & 0xff;
+              cr += r * w; cg += g * w; cbv += b * w; co += c.opacity * w; cw += w;
+              car += r * voice.amp; cag += g * voice.amp; cabv += b * voice.amp;
+              cao += c.opacity * voice.amp; caw += voice.amp;
+            }
           }
         }
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
-        if (value <= 0) continue;
-        setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
+        const inkMode = params.subcellRes === "ink";
+        // A contour cell can sit BELOW the level — it is one side of a crossing.
+        // Dropping it here would draw only the inner edge of every contour.
+        if (!inkMode && value <= 0) continue;
+        if (inkMode) {
+          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+            context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
+            sceneCols, sceneRows, generatedSurface, x, y,
+          );
+          const sample = (ox: number, oy: number): number =>
+            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time, scale) * 0.5);
+          const right = sample(dxCol, dyCol);
+          const down = sample(dxRow, dyRow);
+          const gx = right - value;
+          const gy = down - value;
+          // Contour every level, not just one: `n / (levels + 1)` spreads the
+          // cuts across the interior of the range so neither extreme (a flat
+          // floor or a saturated ceiling) gets a degenerate line of its own.
+          const levels = Math.max(1, Math.round(params.inkLevels));
+          let crosses = false;
+          for (let n = 1; n <= levels && !crosses; n++) {
+            const level = n / (levels + 1);
+            const side = value >= level;
+            crosses = side !== (right >= level) || side !== (down >= level);
+          }
+          if (!crosses) continue;
+          setGlyph(context, i, inkGlyphForField(gx, gy));
+        } else if (params.subcellRes === "2x4") {
+          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+            context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
+            sceneCols, sceneRows, generatedSurface, x, y,
+          );
+          let mask = 0;
+          for (let dotCol = 0; dotCol < 2; dotCol++) {
+            const fx = dotCol === 0 ? -0.25 : 0.25;
+            for (let dotRow = 0; dotRow < 4; dotRow++) {
+              const fy = (dotRow + 0.5) / 4 - 0.5;
+              const subX = x + fx * dxCol + fy * dxRow;
+              const subY = y + fx * dyCol + fy * dyRow;
+              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time, scale);
+              const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
+              if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
+            }
+          }
+          setGlyph(context, i, String.fromCharCode(0x2800 + mask));
+        } else {
+          setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
+        }
         let packed: number;
         let resolvedOpacity: number;
         if (parsedVoiceColors && cw > 0) {
@@ -1348,7 +1818,10 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
         }
         setColor(context, i, packed);
-        context.output.coverage[i] = value * resolvedOpacity;
+        // Shaded modes fade a cell by its level; an inked cell is a decision, not
+        // a level — half a contour lies BELOW the iso-level and would render
+        // almost invisible if its coverage were scaled by it.
+        context.output.coverage[i] = inkMode ? resolvedOpacity : value * resolvedOpacity;
       }
     },
   },

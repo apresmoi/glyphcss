@@ -66,7 +66,7 @@ Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rast
 |---|---|---|---|
 | `cols` | `number` | `80` | Grid width in character cells |
 | `rows` | `number` | `40` | Grid height in character cells |
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
+| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `"solid"` | Render mode |
 
 ### `<GlyphMesh>`
 

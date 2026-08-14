@@ -17,7 +17,7 @@ import {
   encodeStaticGlyphHtml,
   injectGlyphBaseStyles,
 } from "glyphcss";
-import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema } from "glyphcss";
+import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema, RenderMode } from "glyphcss";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { GUI } from "lil-gui";
 import { StatsOverlay } from "../StatsOverlay";
@@ -53,6 +53,13 @@ import {
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
+import {
+  readInitialWordArtState,
+  WORD_ART_DEFAULTS,
+  wordArtEffectStateFromUrlState,
+  writeWordArtUrlState,
+  type WordArtUrlState,
+} from "./wordartUrlState";
 import type {
   WordArtComposeInput,
   WordArtFaceSpec,
@@ -67,6 +74,30 @@ type Align = "left" | "center" | "right";
 type FillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
 type FaceFill = "solid" | "texture" | "none";
 type Bezier4 = [number, number, number, number];
+/** Word-art has no "semantic" presentation (that's a gallery-only debug view
+ *  over a dropped model's mesh), so this is the gallery's own render-mode set
+ *  minus that one option — see `Dock/folders/useRenderingFolder.ts`'s
+ *  `GalleryRenderPresentation` for the sibling with Semantic included. */
+type WordArtRenderMode = Exclude<RenderMode, "voxel">;
+type WordArtCharMode = "ascii" | "braille" | "halfblock" | "quadrant";
+/** Hidden-line removal for the wireframe path (wireframe + charMode
+ *  "braille"). No-op in solid (already depth-buffered) and ink (not wired). */
+type WordArtHiddenLines = "show" | "hide";
+const RENDER_MODE_OPTIONS: Record<string, WordArtRenderMode> = {
+  Wireframe: "wireframe",
+  Solid: "solid",
+  Ink: "ink",
+};
+const CHAR_MODE_OPTIONS: Record<string, WordArtCharMode> = {
+  ASCII: "ascii",
+  Braille: "braille",
+  Halfblock: "halfblock",
+  Quadrant: "quadrant",
+};
+const HIDDEN_LINES_OPTIONS: Record<string, WordArtHiddenLines> = {
+  Show: "show",
+  Hide: "hide",
+};
 
 // Named CSS easings → cubic-bezier control points, for the custom edge profile.
 const CSS_EASINGS: Record<string, Bezier4> = {
@@ -139,6 +170,29 @@ interface Preset {
   outline?: { color: string; width: number };
   /** Flat two-layer drop shadow (no extrusion walls). */
   layered?: boolean;
+  /** Stage zoom, paired with `density`: density alone changes cell size, so an
+      effect preset that raises it also needs its framing back. */
+  zoom?: number;
+  /** Scene glyph density. Effect presets need real cell resolution to read —
+      matrix rain at the default density 1 is ~440 cells of confetti; at 3.4 it
+      is ~4900 and the word reads as letterforms filled with falling code. */
+  density?: number;
+  /** Render mode this preset wants. Optional: absent means "don't touch the
+   *  current render mode" — `applyPreset` never resets a style-only preset's
+   *  target back to whatever mode the user happened to be in. */
+  mode?: WordArtRenderMode;
+  /** Character encoding this preset wants (braille is wireframe-only,
+   *  halfblock is solid-only — see AGENTS.md). Same absent-means-untouched rule as `mode`. */
+  charMode?: WordArtCharMode;
+  /** Hidden-line removal this preset wants (wireframe/ink only). Same absent-means-untouched rule as `mode`. */
+  hiddenLines?: WordArtHiddenLines;
+  /** A stock `@glyphcss/effects` layer to mount with this preset. `params` are
+   *  merged over the effect's own schema defaults (not the current live
+   *  effect's params). Unlike `mode`/`charMode`/`hiddenLines`, absent means
+   *  "this look has no effect" — applying ANY preset without one CLEARS the
+   *  active effect layer (see `applyPreset`). An effect is part of the whole
+   *  look, not a standalone viewing choice that should survive preset changes. */
+  effect?: { id: GlyphEffectId; blend?: GalleryEffectBlend; params?: Partial<Record<string, GalleryEffectParamValue>> };
 }
 
 // Bottom preset row — each is a full "look": extrusion, layered front/back,
@@ -179,6 +233,32 @@ const PRESETS: Preset[] = [
     outline: { color: "#ff2fd0", width: 5 } },
   { label: "Copper Shine", profile: "bevel", depth: 24, color: "#e0813a", sideColor: "#6b2f12",
     fill: "gradient", gradA: "#ffcf8a", gradB: "#a34a12", gradAngle: 200 },
+  // ── Render-mode showcase presets ──────────────────────────────────────
+  // These four exercise render modes/char modes/effects the other 20 never
+  // touch. Each sets `mode`/`charMode`/`hiddenLines`/`effect` explicitly so
+  // clicking the tile shows the feature, not whatever mode the user was
+  // already in — see `applyPreset`'s absent-means-untouched contract above.
+  { label: "Ink Silhouette", profile: "bevel", depth: 24, color: "#39ff14", sideColor: "#0f4d0f",
+    mode: "ink", hiddenLines: "hide" },
+  { label: "Braille Wire", profile: "bevel", depth: 34, color: "#7ec8ff", sideColor: "#1838b8",
+    mode: "wireframe", charMode: "braille", hiddenLines: "hide" },
+  // Tuned by looking at it: the first pass used a near-black base under a
+  // `replace` blend at density 0.6, which left the letterform unreadable —
+  // ~111 inked cells of scattered confetti. A readable green base under an
+  // `over` blend at density 0.99 gives ~4900 cells and the word actually reads
+  // as letterforms filled with falling code.
+  { label: "Matrix Fall", profile: "flat", depth: 20, color: "#1d6b3a", sideColor: "#0f3a20",
+    backColor: "#0f3a20", mode: "solid", density: 2.5, hiddenLines: "hide",
+    effect: { id: "matrix-rain", blend: "over", timeScale: 2.5, params: {
+      glyphs: "GLYPH01", direction: "down", space: "object", scale: 1.01,
+      speedMin: 5.25, speedMax: 25.25, trail: 45, density: 0.88, seed: 306,
+      colorMode: "monochrome", color: "#00d149", headColor: "#baffd6",
+    } } },
+  { label: "Scan Pulse", profile: "bevel", depth: 20, color: "#161b22", sideColor: "#0b0f1a",
+    mode: "ink", hiddenLines: "hide",
+    effect: { id: "scan", blend: "over", params: {
+      direction: "down", space: "auto", scale: 1, speed: 12, width: 4, spacing: 30, color: "#5ad1ff",
+    } } },
 ];
 
 function applyCase(text: string, mode: "as-typed" | "upper" | "lower" | "title"): string {
@@ -205,44 +285,18 @@ function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, sca
       if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
     }
   }
-  const horizontal = Math.max((maxY - minY) * scaleX, maxZ - minZ);
-  const vertical = (maxX - minX) * scaleY;
+  const horizontal = Math.max((maxY - minY) * scaleX, maxX - minX);
+  const vertical = (maxZ - minZ) * scaleY;
   const fitW = (stageW * 0.7) / Math.max(horizontal, 1);
   const fitH = (stageH * 0.68) / Math.max(vertical, 1);
   return Math.max(0.5, Math.min(10, Math.min(fitW, fitH)));
 }
 
-// All controls persist to the URL query string so any look is a shareable link.
-const URL_SEARCH = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-const qs = (k: string, d: string) => URL_SEARCH.get(k) ?? d;
-const qn = (k: string, d: number) => (URL_SEARCH.has(k) ? Number(URL_SEARCH.get(k)) : d);
-const qb = (k: string, d: boolean) => (URL_SEARCH.has(k) ? URL_SEARCH.get(k) === "1" : d);
-
-/** Restore the Effects folder's selection from the URL (mirrors the gallery's
- *  `fx`/`fxb`/`fxp`/`fxs`/`fxx` shape, but folded into this page's single
- *  flat-URLSearchParams persistence pass instead of a second read-modify-write
- *  — see the big `useEffect` below, which is the only writer). */
-function initialEffectState(): GalleryEffectState {
-  const id = qs("fx", "");
-  if (!id) return DEFAULT_GALLERY_EFFECT_STATE;
-  const definition = galleryEffectDefinition(id as GlyphEffectId);
-  if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
-  const state = createGalleryEffectState(definition.id, {
-    blend: qs("fxb", definition.defaultBlend) as GalleryEffectBlend,
-    paused: qb("fxp", false),
-    timeScale: qn("fxs", 1),
-  });
-  if (!state) return DEFAULT_GALLERY_EFFECT_STATE;
-  const rawParams = qs("fxx", "");
-  if (rawParams) {
-    try {
-      state.params = sanitizeGalleryEffectParams(definition, JSON.parse(rawParams));
-    } catch {
-      // Malformed/legacy `fxx` payload — keep the definition's defaults.
-    }
-  }
-  return state;
-}
+// All controls persist to a single packed `?w=` query param — see
+// `wordartUrlState.ts` (shared codec: website/src/lib/urlState.ts). Measured
+// on a representative state: 419 chars verbose -> 93 chars packed.
+const initialWordArtState = readInitialWordArtState();
+const qs = <K extends keyof WordArtUrlState>(key: K): WordArtUrlState[K] => initialWordArtState[key];
 
 export function WordArtWorkbench() {
   const [font, setFont] = useState<ParsedFont | null>(null);
@@ -255,55 +309,59 @@ export function WordArtWorkbench() {
   // Always a real Google font — defaults to Roboto so both the live page and
   // the export work from any origin (CodePen included). Never reset to null.
   const [entry, setEntry] = useState<FontEntry>(ROBOTO_FONT_ENTRY);
-  const [familyInput, setFamilyInput] = useState(() => qs("font", "Roboto"));
-  const [weight, setWeight] = useState(() => qn("weight", 700));
-  const [italic, setItalic] = useState(() => qb("italic", false));
+  const [familyInput, setFamilyInput] = useState(() => qs("font"));
+  const [weight, setWeight] = useState(() => qs("weight"));
+  const [italic, setItalic] = useState(() => qs("italic"));
   const [status, setStatus] = useState("");
 
-  const [text, setText] = useState(() => qs("text", "Glyph\nCSS"));
-  const [textCase, setTextCase] = useState<"as-typed" | "upper" | "lower" | "title">(() => qs("case", "as-typed") as "as-typed");
-  const [scaleX, setScaleX] = useState(() => qn("sx", 100));
-  const [scaleY, setScaleY] = useState(() => qn("sy", 100));
-  const [profile, setProfile] = useState<ExtrudeProfile>(() => qs("profile", "bevel") as ExtrudeProfile);
-  const [roundConvex, setRoundConvex] = useState(() => qb("rconv", false));
-  const [bezier, setBezier] = useState<Bezier4>(() => {
-    const p = qs("bez", "").split(",").map(Number);
-    return p.length === 4 && p.every((n) => !Number.isNaN(n)) ? (p as Bezier4) : [0.3, 0.9, 0.7, 0.1];
-  });
-  const [depth, setDepth] = useState(() => qn("depth", 26));
-  const [letterSpacing, setLetterSpacing] = useState(() => qn("ls", 0));
-  const [lineHeight, setLineHeight] = useState(() => qn("lh", 1.15));
-  const [align, setAlign] = useState<Align>(() => qs("align", "center") as Align);
-  const [underline, setUnderline] = useState(() => qb("ul", false));
-  const [strike, setStrike] = useState(() => qb("st", false));
-  const [color, setColor] = useState(() => qs("color", "#d4a82a"));
-  const [sideColor, setSideColor] = useState(() => qs("side", "#7c5e16"));
-  const [backColor, setBackColor] = useState(() => qs("back", "#7c5e16"));
-  const [offset, setOffset] = useState(() => qn("offset", 0));
-  const [curveSegments, setCurveSegments] = useState(() => qn("curve", 4));
-  const [simplify, setSimplify] = useState(() => qn("simplify", 2));
-  const [profileSegments, setProfileSegments] = useState(() => qn("edge", 3));
-  const [warpShape, setWarpShape] = useState<WarpShape>(() => qs("warp", "none") as WarpShape);
-  const [warpAmount, setWarpAmount] = useState(() => qn("bend", 0.5));
-  const [spin, setSpin] = useState(() => qb("spin", true));
+  const [text, setText] = useState(() => qs("text"));
+  const [textCase, setTextCase] = useState<"as-typed" | "upper" | "lower" | "title">(() => qs("textCase"));
+  const [scaleX, setScaleX] = useState(() => qs("scaleX"));
+  const [scaleY, setScaleY] = useState(() => qs("scaleY"));
+  const [profile, setProfile] = useState<ExtrudeProfile>(() => qs("profile"));
+  const [roundConvex, setRoundConvex] = useState(() => qs("roundConvex"));
+  const [bezier, setBezier] = useState<Bezier4>(() => qs("bezier"));
+  const [depth, setDepth] = useState(() => qs("depth"));
+  const [letterSpacing, setLetterSpacing] = useState(() => qs("letterSpacing"));
+  const [lineHeight, setLineHeight] = useState(() => qs("lineHeight"));
+  const [align, setAlign] = useState<Align>(() => qs("align"));
+  const [underline, setUnderline] = useState(() => qs("underline"));
+  const [strike, setStrike] = useState(() => qs("strike"));
+  const [color, setColor] = useState(() => qs("color"));
+  const [sideColor, setSideColor] = useState(() => qs("sideColor"));
+  const [backColor, setBackColor] = useState(() => qs("backColor"));
+  const [offset, setOffset] = useState(() => qs("offset"));
+  const [curveSegments, setCurveSegments] = useState(() => qs("curveSegments"));
+  const [simplify, setSimplify] = useState(() => qs("simplify"));
+  const [profileSegments, setProfileSegments] = useState(() => qs("profileSegments"));
+  const [warpShape, setWarpShape] = useState<WarpShape>(() => qs("warpShape"));
+  const [warpAmount, setWarpAmount] = useState(() => qs("warpAmount"));
+  const [spin, setSpin] = useState(() => qs("spin"));
   // Face fill (solid / gradient / rainbow / image), outline, flat-layer shadow.
-  const [fillType, setFillType] = useState<FillType>(() => qs("fill", "solid") as FillType);
-  const [gradA, setGradA] = useState(() => qs("ga", "#ffd23f"));
-  const [gradB, setGradB] = useState(() => qs("gb", "#ff5e3a"));
-  const [gradAngle, setGradAngle] = useState(() => qn("gang", 270));
+  const [fillType, setFillType] = useState<FillType>(() => qs("fillType"));
+  const [gradA, setGradA] = useState(() => qs("gradA"));
+  const [gradB, setGradB] = useState(() => qs("gradB"));
+  const [gradAngle, setGradAngle] = useState(() => qs("gradAngle"));
   const [fillImage, setFillImage] = useState("");
-  const [faceTex, setFaceTex] = useState(() => qs("ftex", "dirt"));
-  const [sideFill, setSideFill] = useState<FaceFill>(() => qs("sfill", "solid") as FaceFill);
-  const [sideTex, setSideTex] = useState(() => qs("stex", "dirt"));
-  const [backFill, setBackFill] = useState<FaceFill>(() => qs("bfill", "solid") as FaceFill);
-  const [backTex, setBackTex] = useState(() => qs("btex", "dirt"));
-  const [outlineOn, setOutlineOn] = useState(() => qb("ol", false));
-  const [outlineColor, setOutlineColor] = useState(() => qs("olc", "#1a1a2e"));
-  const [outlineWidth, setOutlineWidth] = useState(() => qn("olw", 3));
-  const [layered, setLayered] = useState(() => qb("layer", false));
+  const [faceTex, setFaceTex] = useState(() => qs("faceTex"));
+  const [sideFill, setSideFill] = useState<FaceFill>(() => qs("sideFill"));
+  const [sideTex, setSideTex] = useState(() => qs("sideTex"));
+  const [backFill, setBackFill] = useState<FaceFill>(() => qs("backFill"));
+  const [backTex, setBackTex] = useState(() => qs("backTex"));
+  const [outlineOn, setOutlineOn] = useState(() => qs("outlineOn"));
+  const [outlineColor, setOutlineColor] = useState(() => qs("outlineColor"));
+  const [outlineWidth, setOutlineWidth] = useState(() => qs("outlineWidth"));
+  const [layered, setLayered] = useState(() => qs("layered"));
   // Camera + lighting (gallery-style)
-  const [perspective, setPerspective] = useState(() => qb("persp", true));
-  const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  const [perspective, setPerspective] = useState(() => qs("perspective"));
+  const [zoomScale, setZoomScale] = useState(() => qs("zoomScale"));
+  // State, not a ref: StatsOverlay mounts imperatively into this element, and
+  // a ref mutation would not re-run its effect.
+  const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
+  // Viewing angle lives here, not in <Stage>, so the URL effect below can see
+  // it. Dragging rotates the MESH (see <Stage>) — the camera stays pinned.
+  const [turn, setTurn] = useState(() => qs("turn"));
+  const [tilt, setTilt] = useState(() => qs("tilt"));
   // Scene-wide ASCII resolution (mirrors /synth's Density): drives the
   // GlyphScene host's font-size (BASE_FONT_PX ÷ density) — smaller cell = more
   // columns/rows in the same on-screen box (zoom is CSS px/world-unit,
@@ -311,16 +369,19 @@ export function WordArtWorkbench() {
   // `SynthWorkbench`'s `host.style.fontSize` uses, just via the React
   // `<GlyphScene style>` prop instead of an imperative host ref (glyphcss/react
   // has no scene-wide `fontSize` option — only the per-mesh detail-layer one).
-  const [density, setDensity] = useState(() => qn("density", 1));
-  const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
-  const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
-  const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
-  const [lightAz, setLightAz] = useState(() => qn("laz", -25));
-  const [lightEl, setLightEl] = useState(() => qn("lel", 45));
+  const [density, setDensity] = useState(() => qs("density"));
+  const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("renderMode"));
+  const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charMode"));
+  const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hiddenLines"));
+  const [lightIntensity, setLightIntensity] = useState(() => qs("lightIntensity"));
+  const [ambient, setAmbient] = useState(() => qs("ambient"));
+  const [lightColor, setLightColor] = useState(() => qs("lightColor"));
+  const [lightAz, setLightAz] = useState(() => qs("lightAz"));
+  const [lightEl, setLightEl] = useState(() => qs("lightEl"));
   // Glyph Effects layer (gallery-style): same state shape, same
   // `scene.addEffectLayer`-backed `<GlyphEffectLayer>` wiring, just applied to
   // the word-art mesh instead of a dropped model.
-  const [effectState, setEffectState] = useState<GalleryEffectState>(initialEffectState);
+  const [effectState, setEffectState] = useState<GalleryEffectState>(() => wordArtEffectStateFromUrlState(initialWordArtState));
   const [activePreset, setActivePreset] = useState<string | null>(null);
   // Mobile: only one floating panel is open at a time, toggled by the bottom tabs
   // (mirrors /synth's voices/controls/presets drawer pattern).
@@ -359,8 +420,8 @@ export function WordArtWorkbench() {
     listGoogleFonts()
       .then((c) => {
         setCatalog(c);
-        const wanted = qs("font", "").trim().toLowerCase();
-        if (wanted) {
+        const wanted = qs("font").trim().toLowerCase();
+        if (wanted && wanted !== "roboto") {
           const f = c.find((e) => e.family.toLowerCase() === wanted);
           if (f) setEntry(f);
         }
@@ -368,80 +429,76 @@ export function WordArtWorkbench() {
       .catch(() => {});
   }, []);
 
-  // Persist every control to the URL (non-defaults only, for short links).
+  // Persist every control to a single packed `?w=` param (non-defaults only,
+  // for short links) — see wordartUrlState.ts (shared codec).
   useEffect(() => {
-    const p = new URLSearchParams();
-    const ss = (k: string, v: string, d: string) => { if (v !== d) p.set(k, v); };
-    const sn = (k: string, v: number, d: number) => { if (v !== d) p.set(k, String(v)); };
-    p.set("text", text);
-    ss("font", entry.family, "Roboto");
-    sn("weight", weight, 700);
-    if (italic) p.set("italic", "1");
-    ss("case", textCase, "as-typed");
-    sn("sx", scaleX, 100);
-    sn("sy", scaleY, 100);
-    ss("profile", profile, "bevel");
-    if (roundConvex) p.set("rconv", "1");
-    if (profile === "custom") p.set("bez", bezier.map((n) => +n.toFixed(3)).join(","));
-    sn("depth", depth, 26);
-    sn("ls", letterSpacing, 0);
-    sn("lh", lineHeight, 1.15);
-    ss("align", align, "center");
-    if (underline) p.set("ul", "1");
-    if (strike) p.set("st", "1");
-    ss("color", color, "#d4a82a");
-    ss("side", sideColor, "#7c5e16");
-    ss("back", backColor, "#7c5e16");
-    sn("offset", offset, 0);
-    sn("curve", curveSegments, 1);
-    sn("simplify", simplify, 2);
-    sn("edge", profileSegments, 3);
-    ss("warp", warpShape, "none");
-    sn("bend", warpAmount, 0.5);
-    if (!spin) p.set("spin", "0");
-    if (!perspective) p.set("persp", "0");
-    sn("zoom", zoomScale, 1);
-    sn("density", density, 1);
-    sn("li", lightIntensity, 0.95);
-    sn("amb", ambient, 0.5);
-    ss("lc", lightColor, "#ffffff");
-    sn("laz", lightAz, -25);
-    sn("lel", lightEl, 45);
-    ss("fill", fillType, "solid");
-    ss("ga", gradA, "#ffd23f");
-    ss("gb", gradB, "#ff5e3a");
-    sn("gang", gradAngle, 270);
-    ss("ftex", faceTex, "dirt");
-    ss("sfill", sideFill, "solid");
-    ss("stex", sideTex, "dirt");
-    ss("bfill", backFill, "solid");
-    ss("btex", backTex, "dirt");
-    if (outlineOn) p.set("ol", "1");
-    ss("olc", outlineColor, "#1a1a2e");
-    sn("olw", outlineWidth, 3);
-    if (layered) p.set("layer", "1");
-    // Effects folder — folded into this same flat-URLSearchParams pass (rather
-    // than a second read-modify-write like the gallery's `useEffectRouteSync`)
-    // so it can't race the rest of this page's controls for the last write.
-    if (effectState.effectId) {
-      p.set("fx", effectState.effectId);
-      const definition = galleryEffectDefinition(effectState.effectId);
-      if (definition) {
-        ss("fxb", effectState.blend, definition.defaultBlend);
-        if (effectState.paused) p.set("fxp", "1");
-        sn("fxs", effectState.timeScale, 1);
-        const defaults = galleryEffectDefaultParams(definition);
-        const overrides: Record<string, GalleryEffectParamValue> = {};
-        for (const [name, value] of Object.entries(effectState.params)) {
-          if (name === "time" || value === defaults[name]) continue;
-          overrides[name] = value;
-        }
-        if (Object.keys(overrides).length > 0) p.set("fxx", JSON.stringify(overrides));
-      }
-    }
-    const search = p.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+    const state: WordArtUrlState = {
+      text,
+      font: entry.family,
+      weight,
+      italic,
+      textCase,
+      scaleX,
+      scaleY,
+      profile,
+      roundConvex,
+      bezier,
+      depth,
+      letterSpacing,
+      lineHeight,
+      align,
+      underline,
+      strike,
+      color,
+      sideColor,
+      backColor,
+      offset,
+      curveSegments,
+      simplify,
+      profileSegments,
+      warpShape,
+      warpAmount,
+      spin,
+      perspective,
+      zoomScale,
+      // `turn` is skipped while `spin` animates (falls back to the default so
+      // it's omitted from the packed state), or the turntable would rewrite
+      // the URL every frame. Rounded to 0.1deg — a drag emits hundreds of
+      // updates and full float precision would bloat every shared link.
+      turn: spin ? WORD_ART_DEFAULTS.turn : Math.round(turn * 10) / 10,
+      tilt: Math.round(tilt * 10) / 10,
+      density,
+      renderMode,
+      charMode,
+      hiddenLines,
+      lightIntensity,
+      ambient,
+      lightColor,
+      lightAz,
+      lightEl,
+      fillType,
+      gradA,
+      gradB,
+      gradAngle,
+      faceTex,
+      sideFill,
+      sideTex,
+      backFill,
+      backTex,
+      outlineOn,
+      outlineColor,
+      outlineWidth,
+      layered,
+      // Placeholders — writeWordArtUrlState folds in the real effect fields
+      // from `effectState` below (mirrors the gallery's `fx*` shape).
+      effectId: "",
+      effectBlend: "replace",
+      effectPaused: false,
+      effectTimeScale: 1,
+      effectParams: "",
+    };
+    writeWordArtUrlState(state, effectState);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
   // / style changes. The first font to resolve also pins `previewFont` — the
@@ -456,7 +513,11 @@ export function WordArtWorkbench() {
         setPreviewFont((prev) => prev ?? f);
         setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
       })
-      .catch((e) => alive && setStatus(`couldn't load ${entry.family}: ${e}`));
+      .catch((e) => {
+        if (!alive) return;
+        console.error(`WordArt: failed to load ${entry.family} ${weight}${italic ? " italic" : ""}`, e);
+        setStatus(`couldn't load ${entry.family}: ${e instanceof Error ? e.message : e}`);
+      });
     return () => {
       alive = false;
     };
@@ -516,11 +577,13 @@ export function WordArtWorkbench() {
   }, [font, text, textCase, depth, profile, roundConvex, bezier, letterSpacing, lineHeight, align, underline, strike, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, front, fillType, backFill, backTex, sideFill, sideTex, outlineOn, outlineColor, outlineWidth, layered]);
 
   // Source vector from azimuth (left/right) + elevation (height), biased toward
-  // the front so the face stays lit.
+  // the front so the face stays lit. The front cap faces world X now (extrusion
+  // depth moved off Z, see extrude.ts), so the "stays lit" floor applies to the
+  // X component instead of Z.
   const lightDir = useMemo<Vec3>(() => {
     const a = (lightAz * Math.PI) / 180;
     const e = (lightEl * Math.PI) / 180;
-    return [-Math.sin(e), -Math.sin(a) * Math.cos(e), Math.max(0.25, Math.cos(e))];
+    return [Math.max(0.25, Math.cos(e)), -Math.sin(a) * Math.cos(e), -Math.sin(e)];
   }, [lightAz, lightEl]);
 
   const effectDefinition = useMemo<GalleryEffectDefinition | null>(
@@ -645,6 +708,9 @@ export function WordArtWorkbench() {
       lightColor,
       ambient,
       density,
+      mode: renderMode,
+      charMode,
+      hiddenLines,
       effect: hasEffect && exportName
         ? {
             id: effectState.effectId as string,
@@ -657,7 +723,7 @@ export function WordArtWorkbench() {
           }
         : null,
     };
-  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
+  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, renderMode, charMode, hiddenLines, effectState, effectDefinition]);
 
   /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
   function postCodepenForm(action: string, data: string): void {
@@ -754,6 +820,37 @@ export function WordArtWorkbench() {
     setOutlineOn(!!p.outline);
     if (p.outline) { setOutlineColor(p.outline.color); setOutlineWidth(p.outline.width); }
     setLayered(!!p.layered);
+    if (p.density !== undefined) setDensity(p.density);
+    if (p.zoom !== undefined) setZoomScale(() => p.zoom!);
+    // Render mode / char mode / hidden lines are OPTIONAL on a preset — only
+    // touch state the preset actually specifies, so a style-only preset (the
+    // original 20) never resets a render mode the user already has dialed
+    // in. These are the user's own VIEWING choice; staying put is useful.
+    if (p.mode) setRenderMode(p.mode);
+    if (p.charMode) setCharMode(p.charMode);
+    if (p.hiddenLines) setHiddenLines(p.hiddenLines);
+    // Effect is deliberately NOT sticky, unlike mode/charMode/hiddenLines
+    // above: a preset is a whole LOOK, and an effect (Matrix rain, a scan
+    // sweep, …) is part of that look, not a standalone viewing preference. A
+    // preset always determines the effect — present means "mount this one",
+    // absent means "this look has no effect", so clicking a style-only
+    // preset after "Matrix Fall" clears the rain instead of leaving it
+    // running over an unrelated style. Do not "fix" this back into the
+    // absent-means-untouched rule mode/charMode/hiddenLines use above — the
+    // asymmetry is intentional (reported bug: effect stuck across presets).
+    if (p.effect) {
+      const definition = galleryEffectDefinition(p.effect.id);
+      const state = definition ? createGalleryEffectState(definition.id, { blend: p.effect.blend }) : null;
+      if (state) {
+        state.params = sanitizeGalleryEffectParams(definition!, { ...state.params, ...p.effect.params });
+        if (p.effect.timeScale !== undefined) state.timeScale = p.effect.timeScale;
+        setEffectState(state);
+      } else {
+        setEffectState(DEFAULT_GALLERY_EFFECT_STATE);
+      }
+    } else {
+      setEffectState(DEFAULT_GALLERY_EFFECT_STATE);
+    }
     setActivePreset(p.label);
   }
 
@@ -768,7 +865,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
-    density,
+    density, renderMode, charMode, hiddenLines,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -791,6 +888,9 @@ export function WordArtWorkbench() {
       case "profileSegments": setProfileSegments(v as number); break;
       case "offset": setOffset(v as number); break;
       case "density": setDensity(v as number); break;
+      case "renderMode": setRenderMode(v as WordArtRenderMode); break;
+      case "charMode": setCharMode(v as WordArtCharMode); break;
+      case "hiddenLines": setHiddenLines(v as WordArtHiddenLines); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -838,21 +938,31 @@ export function WordArtWorkbench() {
     }
   };
 
-  // Bottom preset row — one static single-letter glyphcss render per preset,
-  // computed once (memoized on the pinned preview font) with NO live scene /
-  // rAF: `compileScene` is pure (geometry + camera → string), so each tile is
-  // a plain `<pre>` string baked at mount and re-baked only if the bundled
-  // font itself reloads.
+  // Bottom preset row — one static single-letter glyphcss render per
+  // style-only preset, computed once (memoized on the pinned preview font)
+  // with NO live scene / rAF: `compileScene` is pure (geometry + camera →
+  // string), so each tile is a plain `<pre>` string baked at mount and
+  // re-baked only if the bundled font itself reloads. The (currently 2)
+  // presets that carry an `effect` are excluded here and rendered live by
+  // `LiveEffectTile` instead (see the preset row below) — a static bake
+  // can't show a running effect.
   const presetTiles = useMemo(() => {
     if (!previewFont) return null;
     const map = new Map<string, CompileSceneResult | null>();
-    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p));
+    // A preset's own `mode`/`charMode` (when it specifies one) wins over the
+    // current workbench state, so e.g. the Braille Wire tile always previews
+    // as braille wireframe regardless of what mode the user is currently in.
+    // Style-only presets (no `mode`/`charMode`) keep the prior behaviour of
+    // following the live workbench state.
+    for (const p of PRESETS) {
+      if (p.effect) continue;
+      map.set(p.label, renderPresetTile(previewFont, p, p.mode ?? renderMode, p.charMode ?? charMode));
+    }
     return map;
-  }, [previewFont]);
+  }, [previewFont, renderMode, charMode]);
 
   return (
     <div className="wa-shell dn-root dn-root--wordart">
-      <StatsOverlay />
       <div className="wa-body">
         <aside
           id="wa-compose-panel"
@@ -882,14 +992,25 @@ export function WordArtWorkbench() {
           </div>
         </aside>
 
-        <main className="wa-main">
+        <main className="wa-main" ref={setStageHost}>
+          {/* Anchored to the render area's top-left, clear of the left rail
+              and the preset footer (it mounts imperatively, so it needs the
+              host element rather than JSX placement). */}
+          <StatsOverlay anchor="top-left" container={stageHost} />
           <Stage
             polygons={polygons}
             scaleXFrac={scaleX / 100}
             scaleYFrac={scaleY / 100}
             zoomScale={zoomScale}
             setZoomScale={setZoomScale}
+            turn={turn}
+            setTurn={setTurn}
+            tilt={tilt}
+            setTilt={setTilt}
             density={density}
+            renderMode={renderMode}
+            charMode={charMode}
+            hiddenLines={hiddenLines}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -956,11 +1077,15 @@ export function WordArtWorkbench() {
           return (
             <button key={p.label} type="button" className={`wa-tile ${activePreset === p.label ? "is-active" : ""}`} onClick={() => applyPreset(p)} title={`Apply “${p.label}”`}>
               <span className="wa-tile__thumb">
-                {/* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
-                    carries the base stylesheet's `white-space: pre` + monospace
-                    font, which the raw newline-joined grid string needs to lay out
-                    as rows instead of collapsing/wrapping like normal text. */}
-                {tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />}
+                {p.effect && previewFont ? (
+                  <LiveEffectTile font={previewFont} preset={p} mode={p.mode ?? renderMode} charMode={p.charMode ?? charMode} />
+                ) : (
+                  /* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
+                     carries the base stylesheet's `white-space: pre` + monospace
+                     font, which the raw newline-joined grid string needs to lay out
+                     as rows instead of collapsing/wrapping like normal text. */
+                  tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />
+                )}
               </span>
               <span className="wa-tile__label">{p.label}</span>
             </button>
@@ -1011,8 +1136,9 @@ export function WordArtWorkbench() {
 }
 
 /** Center the word's bbox on the origin so the camera frames it (glyphcss has
- *  no scene-side autoCenter). NO axis swap: @glyphcss/fonts emits polygons in
- *  the same world→screen frame glyphcss projects with (X down, Y right, Z depth). */
+ *  no scene-side autoCenter). NO axis swap: @glyphcss/fonts emits Z-up polygons
+ *  (world Z = letter height, world Y = letter width, world X = extrusion depth
+ *  — see extrude.ts), viewed by this page's `rotX={90}` camera (see `Stage`). */
 function centerMesh(polygons: Polygon[]): Polygon[] {
   if (polygons.length === 0) return polygons;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1061,7 +1187,14 @@ interface StageProps {
   scaleYFrac: number;
   zoomScale: number;
   setZoomScale: (updater: (prev: number) => number) => void;
+  turn: number;
+  setTurn: (updater: (prev: number) => number) => void;
+  tilt: number;
+  setTilt: (updater: (prev: number) => number) => void;
   density: number;
+  renderMode: WordArtRenderMode;
+  charMode: WordArtCharMode;
+  hiddenLines: WordArtHiddenLines;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1112,11 +1245,9 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
-  const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
-  const [tilt, setTilt] = useState(14); // Ry — tilt/nod around screen-horizontal (world Y)
   const draggingRef = useRef(false);
   const lastPtr = useRef({ x: 0, y: 0 });
 
@@ -1154,7 +1285,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, dens
     const dx = e.clientX - lastPtr.current.x;
     const dy = e.clientY - lastPtr.current.y;
     lastPtr.current = { x: e.clientX, y: e.clientY };
-    setTurn((t) => t - dx * 0.4);
+    setTurn((t) => t + dx * 0.4);
     setTilt((t) => Math.max(-85, Math.min(85, t + dy * 0.4)));
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -1173,7 +1304,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, dens
   // Always-fresh — read only when the Export panel/CodePen action fires (see
   // `StageProps.snapshotRef`), never subscribed to, so this plain assignment
   // (not a `useEffect`) is fine even though `turn` changes every spin frame.
-  snapshotRef.current = { rotation: [turn, tilt, 0], zoom };
+  snapshotRef.current = { rotation: [0, tilt, turn], zoom };
 
   return (
     <div
@@ -1186,19 +1317,27 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, dens
       onWheel={onWheel}
       style={{ cursor: "grab", touchAction: "none" }}
     >
-      <Cam rotX={0} rotY={0} zoom={zoom}>
+      <Cam rotX={90} rotY={0} zoom={zoom}>
         <GlyphScene
           autoSize
+          mode={renderMode}
+          charMode={charMode}
+          hiddenLines={hiddenLines}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
           <DensityFit density={density} />
-          {/* Font mesh is X-up: local X = text height (screen-down), local Y =
-              text width (screen-right). The "Scale X" slider should stretch
-              horizontally, so it maps to local Y; "Scale Y" maps to local X.
-              Depth is baked into the geometry, so Z stays 1. */}
-          <GlyphMesh polygons={centered} rotation={[turn, tilt, 0]} scale={[scaleYFrac, scaleXFrac, 1]} />
+          {/* Font mesh is Z-up: local Z = text height, local Y = text width,
+              local X = extrusion depth (see extrude.ts). The camera is tilted
+              `rotX={90}` (instead of the flat `rotX={0}` a screen-plane-authored
+              mesh would use) so that vertical axis reads on screen — this
+              reproduces byte-identical output to the old X-up mesh at rotX=0
+              (verified: both project to the same screen col/row for every
+              vertex). "Scale X" stretches horizontally, so it maps directly to
+              local Y; "Scale Y" maps directly to local Z. Depth (local X) is
+              baked into the geometry, so it stays 1. */}
+          <GlyphMesh polygons={centered} rotation={[0, tilt, turn]} scale={[1, scaleXFrac, scaleYFrac]} />
           {effectDefinition && (
             <WordArtEffectLayer
               key={effectDefinition.id}
@@ -1224,6 +1363,21 @@ interface WordArtEffectLayerProps {
   blend: GalleryEffectBlend;
   paused: boolean;
   timeScale: number;
+  /** Caps how often the rAF clock actually PUSHES `params.time` (and so
+   *  triggers a re-render/re-paint) — the sim clock itself still advances
+   *  every real frame, so effect speed is unaffected, only paint cadence.
+   *  `undefined` (the main Stage's usage) means uncapped, unchanged 60fps
+   *  behavior. Used by the footer `LiveEffectTile`s (see below): measured
+   *  with Chrome DevTools Protocol `Performance.getMetrics` `TaskDuration`,
+   *  two tiny 16×11 tiles animating uncapped added ~20-25 percentage points
+   *  of sustained main-thread busy time versus zero live tiles (idle
+   *  ~6% → ~30%) — disproportionate to their cell count, because the fixed
+   *  per-frame cost (effect eval + colored-span innerHTML re-paint × 2
+   *  layers × 60fps) dominates at this tiny grid size, not the cell count
+   *  itself. A tile only needs to visibly be moving, not track wall-clock
+   *  time exactly, so capping repaint cadence recovers most of that cost
+   *  for ~free perceived smoothness — see `LiveEffectTile`. */
+  maxFps?: number;
 }
 
 /**
@@ -1236,18 +1390,21 @@ interface WordArtEffectLayerProps {
  * no clock at all — same `"time" in parameterSchema` gate the Effects folder
  * uses to enable/disable its own Paused/Speed controls.
  */
-function WordArtEffectLayer({ definition, params, blend, paused, timeScale }: WordArtEffectLayerProps) {
+function WordArtEffectLayer({ definition, params, blend, paused, timeScale, maxFps }: WordArtEffectLayerProps) {
   const layerRef = useRef<GlyphEffectLayerHandle<Record<string, GalleryEffectParamValue>>>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const timeScaleRef = useRef(timeScale);
   timeScaleRef.current = timeScale;
+  const maxFpsRef = useRef(maxFps);
+  maxFpsRef.current = maxFps;
   const hasTime = "time" in definition.parameterSchema;
 
   useEffect(() => {
     if (!hasTime) return;
     let raf = 0;
     let last: number | null = null;
+    let lastPaint: number | null = null;
     let time = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
@@ -1255,6 +1412,9 @@ function WordArtEffectLayer({ definition, params, blend, paused, timeScale }: Wo
       const elapsed = last === null ? 0 : Math.min(Math.max(now - last, 0) / 1000, 0.1);
       last = now;
       time += elapsed * timeScaleRef.current;
+      const fps = maxFpsRef.current;
+      if (fps && lastPaint !== null && now - lastPaint < 1000 / fps) return;
+      lastPaint = now;
       if (layerRef.current) layerRef.current.params.time = time;
     };
     raf = requestAnimationFrame(tick);
@@ -1278,6 +1438,7 @@ interface GuiValues {
   depth: number; scaleX: number; scaleY: number;
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
   density: number;
+  renderMode: WordArtRenderMode; charMode: WordArtCharMode; hiddenLines: WordArtHiddenLines;
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -1318,10 +1479,15 @@ const TILE_CELL_ASPECT = 1.45;
 // library's own 0.95 default), so the "a" doesn't touch the tile's edges.
 const TILE_FRAME_FILL = 0.92;
 const TILE_TEXTURE_SIZE = 20;
+// Repaint cadence cap for a live effect tile's clock (see `WordArtEffectLayer`'s
+// `maxFps` doc comment for the measured cost this recovers) — plenty to read
+// as "animating" at 16×11, far cheaper than the main Stage's uncapped 60fps.
+const TILE_EFFECT_ZOOM = 0.21;
+const TILE_EFFECT_MAX_FPS = 12;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
 // exactly like the live composition's resting state.
-const TILE_LIGHT_DIR: Vec3 = [-Math.sin(45 * (Math.PI / 180)), -Math.sin(-25 * (Math.PI / 180)) * Math.cos(45 * (Math.PI / 180)), Math.max(0.25, Math.cos(45 * (Math.PI / 180)))];
+const TILE_LIGHT_DIR: Vec3 = [Math.max(0.25, Math.cos(45 * (Math.PI / 180))), -Math.sin(-25 * (Math.PI / 180)) * Math.cos(45 * (Math.PI / 180)), -Math.sin(45 * (Math.PI / 180))];
 
 /** Fit `polygons` into an orthographic camera's cols×rows grid by scaling
  *  zoom linearly off a zoom=1 projection (exact for orthographic — no
@@ -1349,16 +1515,22 @@ function frameZoomForGrid(
   return Math.min((fill * cols) / w, (fill * rows) / h);
 }
 
-/**
- * Render one preset as a static single-letter `<pre>` — the same face-fill /
- * profile / warp mapping `applyPreset` drives the live composition with,
- * extruded via the pinned preview font and compiled with `compileScene`
- * (pure: geometry + camera → string, no DOM, no rAF). Gradient/rainbow/
- * texture/image fills fall back to their flat `color` here — compileScene
- * has no async image decode to sample a texture sampler from (same fallback
- * the live runtime shows for one frame before its own sampler resolves).
- */
-function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult | null {
+interface PresetTileMesh {
+  /** Already tilted + centered — same polygons for the static bake and a
+   *  live tile's `<GlyphMesh>` (no separate `rotation` prop needed). */
+  polygons: Polygon[];
+  /** Orthographic zoom that fits `polygons` into `TILE_COLS`×`TILE_ROWS` at
+   *  `TILE_CELL_ASPECT` — computed once via `frameZoomForGrid` and reused
+   *  verbatim as `<GlyphOrthographicCamera zoom>` by a live tile, since it's
+   *  the exact same `camera.project` fit `compileScene` renders with. */
+  zoom: number;
+}
+
+/** Build the single-letter preset mesh + fitted camera zoom — the geometry
+ *  half of a preset tile, shared by the static `compileScene` bake
+ *  (`renderPresetTile`) and a live effect tile (`LiveEffectTile`) so both
+ *  paths frame the exact same "a" the exact same way. */
+function buildPresetTileMesh(font: ParsedFont, preset: Preset): PresetTileMesh | null {
   const sides: Face = preset.sideTex
     ? resolveFace({ kind: "texture", color: preset.sideColor, url: texUrl(preset.sideTex), tile: TILE_TEXTURE_SIZE })
     : { color: preset.sideColor };
@@ -1400,23 +1572,41 @@ function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult 
   // just the front face) — same convention `createGlyphScene`'s internal
   // `applyTransform` uses for a mesh's `rotation` prop (world-frame XYZ
   // Euler, R = Rx·Ry·Rz), and the same one the live Stage's
-  // `<GlyphMesh rotation={[turn, tilt, 0]}>` drives. The camera's own
+  // `<GlyphMesh rotation={[0, tilt, turn]}>` drives. The camera's own
   // `rotX`/`rotY` is a DIFFERENT convention (orbits per voxcss's
   // `rotateVec3Voxcss`) — mixing the two produced a squashed, illegible glyph.
-  // The yaw (Rx, turntable around the glyph's vertical) is kept modest: past
-  // ~24° it closes up the "a" bowl's small counter into a solid blob at this
-  // grid size (an "A"'s big triangular gap tolerated much more yaw).
-  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [18, 10, 0]);
+  // The yaw (Rz, turntable around the glyph's vertical — height moved to
+  // world Z, see extrude.ts) is kept modest: past ~24° it closes up the "a"
+  // bowl's small counter into a solid blob at this grid size (an "A"'s big
+  // triangular gap tolerated much more yaw).
+  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [0, 10, 18]);
   const centered = centerMesh(tilted);
-  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
+  const camera = createGlyphOrthographicCamera({ rotX: 90, rotY: 0, zoom: 1 });
   camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT, TILE_FRAME_FILL);
+  return { polygons: centered, zoom: camera.zoom };
+}
+
+/**
+ * Render one preset as a static single-letter `<pre>` — the same face-fill /
+ * profile / warp mapping `applyPreset` drives the live composition with,
+ * extruded via the pinned preview font and compiled with `compileScene`
+ * (pure: geometry + camera → string, no DOM, no rAF). Gradient/rainbow/
+ * texture/image fills fall back to their flat `color` here — compileScene
+ * has no async image decode to sample a texture sampler from (same fallback
+ * the live runtime shows for one frame before its own sampler resolves).
+ */
+function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderMode, charMode: WordArtCharMode): CompileSceneResult | null {
+  const mesh = buildPresetTileMesh(font, preset);
+  if (!mesh) return null;
+  const camera = createGlyphOrthographicCamera({ rotX: 90, rotY: 0, zoom: mesh.zoom });
   return compileScene({
-    polygons: centered,
+    polygons: mesh.polygons,
     camera,
     cols: TILE_COLS,
     rows: TILE_ROWS,
     cellAspect: TILE_CELL_ASPECT,
-    mode: "solid",
+    mode,
+    charMode,
     useColors: true,
     // Same light vector the live Stage defaults to (lightAz -25 / lightEl 45)
     // — proven to keep the front face readably lit for this exact mesh
@@ -1427,6 +1617,62 @@ function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult 
     directionalLight: { direction: TILE_LIGHT_DIR, intensity: 0.95 },
     ambientLight: { intensity: 0.7 },
   });
+}
+
+/**
+ * Live counterpart to `renderPresetTile`, used ONLY for the (currently 2)
+ * presets that carry an `effect` — a static `compileScene` bake can't show a
+ * Glyph Effect layer (it's runtime-only, see AGENTS.md's "Compilation"
+ * section: `compileScene` never evaluates a mounted effect), so those tiles
+ * were silently showing just the base style with no visible rain/scan. This
+ * mounts the exact same live-scene machinery the main Stage uses for its own
+ * effect layer (`<GlyphScene>` + `<GlyphMesh>` + `WordArtEffectLayer`'s
+ * `requestAnimationFrame` clock) at the tile's own tiny `TILE_COLS`×`TILE_ROWS`
+ * grid instead of reinventing a second effect-mounting path. The other 20
+ * style-only presets are untouched — still a single cheap `compileScene`
+ * bake computed once in the `presetTiles` memo.
+ */
+function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; preset: Preset; mode: WordArtRenderMode; charMode: WordArtCharMode }) {
+  const mesh = useMemo(() => buildPresetTileMesh(font, preset), [font, preset]);
+  const effect = preset.effect;
+  const definition = effect ? galleryEffectDefinition(effect.id) : null;
+  const effectParams = useMemo(() => {
+    if (!definition || !effect) return null;
+    const state = createGalleryEffectState(definition.id, { blend: effect.blend });
+    if (!state) return null;
+    return sanitizeGalleryEffectParams(definition, { ...state.params, ...effect.params });
+  }, [definition, effect]);
+  if (!mesh || !definition || !effectParams || !effect) return null;
+  return (
+    // Effect tiles pull the camera back: a full-coverage effect (matrix rain
+    // at density ~1) paints every covered cell, so at the static tiles' framing
+    // the slab fills the grid edge-to-edge with no margin and reads as "too
+    // big" beside the letter-with-breathing-room static tiles.
+    <GlyphOrthographicCamera rotX={90} rotY={0} zoom={mesh.zoom * TILE_EFFECT_ZOOM}>
+      <GlyphScene
+        cols={TILE_COLS}
+        rows={TILE_ROWS}
+        cellAspect={TILE_CELL_ASPECT}
+        mode={mode}
+        charMode={charMode}
+        useColors
+        className="wa-tile__glyph"
+        directionalLight={{ direction: TILE_LIGHT_DIR, intensity: 0.95 }}
+        ambientLight={{ intensity: 0.7 }}
+      >
+        <GlyphMesh polygons={mesh.polygons} />
+        <WordArtEffectLayer
+          key={definition.id}
+          definition={definition}
+          params={effectParams}
+          blend={effect.blend ?? definition.defaultBlend}
+          paused={false}
+          timeScale={1}
+          maxFps={TILE_EFFECT_MAX_FPS}
+        />
+      </GlyphScene>
+    </GlyphOrthographicCamera>
+  );
 }
 
 /**
@@ -1786,6 +2032,20 @@ function WordArtDock({
   // (SynthWorkbench.tsx's `useSlider(stage, "Density", { min: 0.5, max: 4,
   // step: 0.1 }, …)`), independent of Shape/Layout's mesh geometry knobs.
   const renderFolder = useFolder(dock, "Render", { open: true });
+  useOption<WordArtRenderMode>(renderFolder, "Render mode", RENDER_MODE_OPTIONS, gui.renderMode, (v) => setGui("renderMode", v));
+  const charModeControl = useOption<WordArtCharMode>(renderFolder, "Character mode", CHAR_MODE_OPTIONS, gui.charMode, (v) => setGui("charMode", v));
+  useEffect(() => {
+    // Same gating as the gallery's Rendering folder: braille only encodes
+    // wireframe mode, halfblock is the solid-mode mirror — both are a
+    // documented no-op in ink, so the control dims outside wireframe/solid.
+    charModeControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "solid", { dim: true });
+  }, [charModeControl, gui.renderMode]);
+  const hiddenLinesControl = useOption<WordArtHiddenLines>(renderFolder, "Hidden lines", HIDDEN_LINES_OPTIONS, gui.hiddenLines, (v) => setGui("hiddenLines", v));
+  useEffect(() => {
+    // Depth-tests wireframe strokes (ASCII or braille) against a solid
+    // surface prepass. No-op in solid/ink, so dim outside wireframe.
+    hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "ink", { dim: true });
+  }, [hiddenLinesControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
 
   // ── Effects ───────────────────────────────────────────────────────────

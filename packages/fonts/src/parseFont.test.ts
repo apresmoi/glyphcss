@@ -50,6 +50,15 @@ describe("parseFont", () => {
     expect(count(fine)).toBeGreaterThan(count(coarse));
   });
 
+  it("reads GPOS pair kerning, tightening a known pair like AV", () => {
+    const av = roboto.kerning("A".codePointAt(0)!, "V".codePointAt(0)!);
+    expect(av).toBeLessThan(0);
+    // A pair with no kerning rule (or a font with no GPOS/kern feature) is 0,
+    // never undefined/NaN — callers can always add it straight into advance.
+    const nn = roboto.kerning("n".codePointAt(0)!, "n".codePointAt(0)!);
+    expect(nn).toBe(0);
+  });
+
   it("rejects non-TrueType data", () => {
     const otto = new Uint8Array([0x4f, 0x54, 0x54, 0x4f, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(() => parseFont(otto)).toThrow(/CFF|OpenType|\.otf/);

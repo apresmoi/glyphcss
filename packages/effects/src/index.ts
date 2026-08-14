@@ -29,6 +29,24 @@ export type {
   GlyphStockEffectDefinition,
 } from "./stock";
 
+// Font-calibrated ramps — measure real per-glyph ink coverage in a live font
+// and generate a perceptually-linear solid-mode ramp for THAT font, instead
+// of an authored guess (`GlyphRamps` above). Browser-only by default; see the
+// module doc for how to measure off the DOM (tests, SSR).
+export { calibrateGlyphRamp, calibrateWeightedGlyphRamp, measureGlyphInkCoverage } from "./calibrateRamp";
+export type {
+  GlyphCoverageCanvas2D,
+  GlyphCoverageCanvasFactory,
+  GlyphCoverageFont,
+  GlyphMeasureGlyphCoverageOptions,
+  GlyphRampCalibrationOptions,
+  GlyphRampCalibrationResult,
+  GlyphRampCalibrationStep,
+  GlyphWeightedRampCalibrationOptions,
+  GlyphWeightedRampCalibrationResult,
+  GlyphWeightedRampCalibrationStep,
+} from "./calibrateRamp";
+
 // Static effect export — bake an effect-only, static-camera scene into a
 // self-contained pen (inlined vanilla-JS evaluator, zero glyphcss at runtime).
 // Field-synth only for now; see the module doc for what generalizing needs.

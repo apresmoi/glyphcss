@@ -10,6 +10,7 @@ const shouldRenderSearch =
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
+const fetchLiveStars = import.meta.env.PROD;
 const isSynth = pathname.startsWith('/synth');
 
 const topLinks = [
@@ -66,7 +67,7 @@ const topLinks = [
   )}
 </div>
 
-<script>
+{fetchLiveStars && <script>
   async function fetchStars() {
     try {
       const res = await fetch("https://api.github.com/repos/apresmoi/glyphcss");
@@ -80,6 +81,7 @@ const topLinks = [
   }
   fetchStars();
 </script>
+}
 
 <style>
   @layer starlight.core {

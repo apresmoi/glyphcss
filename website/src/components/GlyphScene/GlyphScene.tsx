@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { GlyphMetrics, PresetModel, SceneOptionsState } from "../GalleryWorkbench/types";
+import type { GlyphControlSceneManifest, GlyphObjectDictionary, GlyphSemanticCellLineage } from "glyphcss";
 import type { LoadMeshOptions, ParseAnimationClip, Polygon } from "@glyphcss/core";
 import type { GalleryEffectBlend, GalleryEffectParamValue } from "../GalleryWorkbench/types";
 
@@ -74,6 +75,8 @@ interface DemoHandle {
     floor?: boolean;
   }) => void;
   configureEffect: (config: GlyphSceneEffectConfig | null) => void;
+  setPresentation: (renderMode: SceneOptionsState["renderMode"], semanticOutput: { sceneManifest: GlyphControlSceneManifest; dictionary: GlyphObjectDictionary } | null) => void;
+  getSemanticCellFrame: () => { cols: number; rows: number; cells: readonly (GlyphSemanticCellLineage | null)[] } | null;
 }
 
 export interface GlyphSceneProps {
@@ -88,6 +91,8 @@ export interface GlyphSceneProps {
   animationPaused: boolean;
   animationTimeScale: number;
   effect: GlyphSceneEffectConfig | null;
+  semanticOutput?: { sceneManifest: GlyphControlSceneManifest; dictionary: GlyphObjectDictionary } | null;
+  onSemanticCellLineage?: (lineage: GlyphSemanticCellLineage | null) => void;
 }
 
 const POLL_INTERVAL_MS = 500;
@@ -136,6 +141,8 @@ export function GlyphScene({
   animationPaused,
   animationTimeScale,
   effect,
+  semanticOutput = null,
+  onSemanticCellLineage,
 }: GlyphSceneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
@@ -151,6 +158,8 @@ export function GlyphScene({
   optionsRef.current = options;
   const effectRef = useRef(effect);
   effectRef.current = effect;
+  const semanticOutputRef = useRef(semanticOutput);
+  semanticOutputRef.current = semanticOutput;
   // Last camera state applied via setTunables — guards against echo: when the
   // sidebar sets a value and the poll reads it back, we must not re-fire onCameraChange.
   const lastAppliedCameraRef = useRef<{ rotX: number; rotY: number; zoom: number; target: [number, number, number] } | null>(null);
@@ -241,6 +250,10 @@ export function GlyphScene({
           renderMode: currentOptions.renderMode,
           featureEdges: currentOptions.featureEdges,
           glyphPalette: currentOptions.glyphPalette,
+          charMode: currentOptions.charMode,
+          wireframeJunctions: currentOptions.wireframeJunctions,
+          hiddenLines: currentOptions.hiddenLines,
+          solidWeightRamp: currentOptions.solidWeightRamp,
           useColors: currentOptions.useColors,
           smoothShading: currentOptions.smoothShading,
           creaseAngle: currentOptions.creaseAngle,
@@ -277,7 +290,6 @@ export function GlyphScene({
           receiveShadow: currentOptions.shadowReceive,
           floor: currentOptions.shadowFloor,
         });
-        handle.configureEffect(effectRef.current);
         // If the initial preset is a primitive, load its polygons now. The
         // runtime had no data-mesh attribute so it rendered the placeholder
         // cuboctahedron; replace it with the actual primitive geometry.
@@ -285,6 +297,8 @@ export function GlyphScene({
         if (initialPreset?.kind === "primitive") {
           handle.setPolygons(initialPreset.generatePolygons());
         }
+        handle.configureEffect(effectRef.current);
+        handle.setPresentation(currentOptions.renderMode, semanticOutputRef.current);
         startPolling(handle);
       };
       setTimeout(waitForHandle, 300);
@@ -471,12 +485,12 @@ export function GlyphScene({
     handle.setInteractiveDownscale(dragDensityToDownscale(options.dragDensity));
   }, [options.dragDensity]);
 
-  // React to renderMode changes.
-  useEffect(() => {
-    const handle = getHandle();
-    if (!handle) return;
-    handle.setTunables({ renderMode: options.renderMode });
-  }, [options.renderMode]);
+  // One bridge owns the coupled core mode + glyph output transaction. Keeping
+  // these in separate effects allowed a later visible transition to retain
+  // the forced semantic solid mode.
+  useLayoutEffect(() => {
+    getHandle()?.setPresentation(options.renderMode, semanticOutput ?? null);
+  }, [options.renderMode, semanticOutput]);
 
   // React to featureEdges threshold.
   useEffect(() => {
@@ -491,6 +505,34 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ glyphPalette: options.glyphPalette });
   }, [options.glyphPalette]);
+
+  // React to charMode changes.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ charMode: options.charMode });
+  }, [options.charMode]);
+
+  // React to wireframeJunctions changes.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ wireframeJunctions: options.wireframeJunctions });
+  }, [options.wireframeJunctions]);
+
+  // React to hiddenLines changes.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ hiddenLines: options.hiddenLines });
+  }, [options.hiddenLines]);
+
+  // React to solidWeightRamp toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ solidWeightRamp: options.solidWeightRamp });
+  }, [options.solidWeightRamp]);
 
   // React to useColors toggle.
   useEffect(() => {
@@ -627,6 +669,24 @@ export function GlyphScene({
   useEffect(() => {
     getHandle()?.configureEffect(effect);
   }, [effect]);
+
+
+  useEffect(() => {
+    if (!onSemanticCellLineage) return;
+    const handle = getHandle();
+    if (!handle) return;
+    const output = hostRef.current?.querySelector(".glyph-output");
+    const onPointerDown = (event: PointerEvent) => {
+      const frame = handle.getSemanticCellFrame();
+      if (!frame || !output) { onSemanticCellLineage(null); return; }
+      const rect = output.getBoundingClientRect();
+      const col = Math.floor((event.clientX - rect.left) / (rect.width / frame.cols));
+      const row = Math.floor((event.clientY - rect.top) / (rect.height / frame.rows));
+      onSemanticCellLineage(col >= 0 && col < frame.cols && row >= 0 && row < frame.rows ? frame.cells[row * frame.cols + col] ?? null : null);
+    };
+    output?.addEventListener("pointerdown", onPointerDown);
+    return () => output?.removeEventListener("pointerdown", onPointerDown);
+  }, [onSemanticCellLineage, semanticOutput]);
 
   return (
     <div

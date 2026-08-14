@@ -51,8 +51,10 @@ export default defineConfig({
       head: [
         // Google Analytics (gtag.js) — covers all Starlight docs pages; custom
         // pages render the same tag via src/components/Analytics.astro.
-        { tag: 'script', attrs: { async: true, src: 'https://www.googletagmanager.com/gtag/js?id=G-PHHY1R5B58' } },
-        { tag: 'script', content: "window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', 'G-PHHY1R5B58');" },
+        ...(process.env.NODE_ENV === 'production' ? [
+          { tag: 'script', attrs: { async: true, src: 'https://www.googletagmanager.com/gtag/js?id=G-PHHY1R5B58' } },
+          { tag: 'script', content: "window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', 'G-PHHY1R5B58');" },
+        ] : []),
         // Social preview image for docs pages (Starlight emits og:title/description/url itself).
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://glyphcss.com/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://glyphcss.com/og.png' } },

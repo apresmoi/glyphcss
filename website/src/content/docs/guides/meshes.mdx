@@ -11,6 +11,7 @@ the rasterizer consumes:
 | Wavefront OBJ | `parseObj(source: string)` | + optional MTL for vertex colors |
 | glTF / GLB | `parseGltf(buffer: ArrayBuffer)` | embedded textures supported |
 | MagicaVoxel `.vox` | `parseVox(buffer: ArrayBuffer)` | natural fit for `voxel` render mode |
+| STL | `parseStl(buffer: ArrayBuffer)` | binary + ASCII; no color data in the format |
 
 Or use the format-detecting wrapper:
 
@@ -31,12 +32,17 @@ const { polygons, dispose } = await loadMesh("/cottage.glb");
 | `wireframe` | Geometric meshes, lattices, anything that should look like line art |
 | `solid` | Smooth-shaded surfaces — Lambert shading mapped to a glyph ramp (` .:-=+*#%@`) |
 | `voxel` | VOX models — one glyph per voxel face, depth-sorted |
+| `ink` | Illustration-style outlines — silhouette + crease edges only, oriented glyph per contour direction |
+
+`mode` is a **scene** option, not a mesh prop — every mesh in a scene renders
+through the same mode:
 
 ```tsx
 {/* Replace placeholder paths with paths to your own assets. */}
-<GlyphMesh src="/cottage.glb" mode="solid" />
-<GlyphMesh src="/tree.vox" mode="voxel" />
-<GlyphMesh geometry="cuboctahedron" mode="wireframe" />
+<GlyphScene mode="solid"><GlyphMesh src="/cottage.glb" /></GlyphScene>
+<GlyphScene mode="voxel"><GlyphMesh src="/tree.vox" /></GlyphScene>
+<GlyphScene mode="wireframe"><GlyphMesh geometry="cuboctahedron" /></GlyphScene>
+<GlyphScene mode="ink"><GlyphMesh src="/cottage.glb" /></GlyphScene>
 ```
 
 ## Built-in geometries
@@ -49,7 +55,7 @@ For the common case of "I just want a rotating shape", glyphcss ships generators
 <GlyphMesh geometry="cube" />
 ```
 
-These render as wireframe by default with the Prime Radiant–style inner lattice
+These render in the scene's mode (`solid` by default)
 (for cuboctahedron) or plain edge-only (for icosahedron / cube).
 
 ## Procedural meshes

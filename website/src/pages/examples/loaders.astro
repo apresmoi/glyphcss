@@ -1,0 +1,30 @@
+---
+import LoadersWorkbench from '../../components/LoadersWorkbench/LoadersWorkbench.tsx';
+import ExamplesSidebar from '../../components/ExamplesSidebar.astro';
+import DocsHeader from '../../components/DocsHeader.astro';
+import BaseHead from '../../components/BaseHead.astro';
+
+const title = 'glyphcss · ASCII Loaders';
+const description = 'Looping ASCII loaders and progress bars built from stock glyphcss effects on a flat plane, each shown at nine box sizes with copyable code.';
+---
+<html lang="en">
+  <head>
+    <BaseHead title={title} description={description} path="/examples/loaders/" />
+    <style>
+      html, body { background: #07090d; color: rgba(255, 232, 184, 0.94); margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace; }
+      body { display: flex; overflow: hidden; }
+      /* Same shell every example uses: park below the fixed site header. */
+      .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
+      .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <DocsHeader />
+    <div class="ex-layout">
+      <ExamplesSidebar active="loaders" />
+      <div class="ex-main">
+        <LoadersWorkbench client:only="react" />
+      </div>
+    </div>
+  </body>
+</html>

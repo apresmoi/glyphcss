@@ -7,16 +7,26 @@
  * the content automatically (handy for the terminal — no cols/rows needed).
  */
 import {
+  buildGlyphControlFrame,
   compileScene,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
   cropGlyphInner,
 } from "glyphcss";
-import type { CompileSceneResult, GlyphCamera } from "glyphcss";
+import type { CompileSceneResult, GlyphCamera, GlyphControlFrame, GlyphControlSceneManifest, GlyphObjectDictionary } from "glyphcss";
 import type { MeshResolution, RenderMode, Polygon } from "@glyphcss/core";
 import { loadMeshFromFile } from "./loadMeshFromFile";
+import { verifyGlyphLabelSidecar, type GlyphLabelSidecar } from "./labelSidecar";
 
 export interface CompileFileOptions {
+  /** Appearance-shaded (default) or dictionary-semantic static output. */
+  glyphOutput?: "visible" | "semantic";
+  /** Versioned post-load polygon lineage required for semantic output. */
+  sceneManifest?: GlyphControlSceneManifest;
+  /** Versioned object dictionary required for semantic output. */
+  dictionary?: GlyphObjectDictionary;
+  /** Versioned scene/dictionary plus an optional verified optimized-loader remap. */
+  labelSidecar?: GlyphLabelSidecar;
   /** Camera projection. Default: "perspective" (the library default). */
   projection?: "perspective" | "orthographic";
   rotX?: number;
@@ -80,6 +90,13 @@ function measureContent(inner: string): { w: number; h: number } {
  * Pure + synchronous (no file I/O).
  */
 export function compilePolygons(polygons: Polygon[], options: CompileFileOptions = {}): CompileSceneResult {
+  const labels = options.labelSidecar ? verifyGlyphLabelSidecar(polygons, options.labelSidecar) : undefined;
+  if (!labels && (options.sceneManifest || options.dictionary)) {
+    if (!options.sceneManifest || !options.dictionary) throw new TypeError("glyphcss: sceneManifest and dictionary must be supplied together.");
+    verifyGlyphLabelSidecar(polygons, { schemaVersion: "glyph-label-sidecar/v1", scene: options.sceneManifest, dictionary: options.dictionary });
+  }
+  const sceneManifest = labels?.sceneManifest ?? options.sceneManifest;
+  const dictionary = labels?.dictionary ?? options.dictionary;
   const buildCam = (zoom?: number): GlyphCamera =>
     options.projection === "orthographic"
       ? createGlyphOrthographicCamera({ rotX: options.rotX, rotY: options.rotY, zoom })
@@ -95,6 +112,9 @@ export function compilePolygons(polygons: Polygon[], options: CompileFileOptions
     creaseAngle: options.creaseAngle,
     doubleSided: options.doubleSided,
     supersample: options.supersample,
+    glyphOutput: options.glyphOutput,
+    sceneManifest,
+    dictionary,
   };
 
   if (options.autoFit && options.autoFit.target > 0) {
@@ -127,6 +147,38 @@ export function compilePolygons(polygons: Polygon[], options: CompileFileOptions
     rows: options.rows,
     ...shared,
   });
+}
+
+/** Capture B5 controls using the same camera/grid/options as static compilation. */
+export function buildCompileControlFrame(polygons: Polygon[], options: CompileFileOptions): GlyphControlFrame {
+  if (options.autoFit) throw new TypeError("glyphcss: control capture requires explicit cols/rows; autoFit changes the output grid.");
+  if (options.autoCenter) throw new TypeError("glyphcss: labeled control capture requires post-center geometry in its sidecar; autoCenter is not implicit.");
+  const labels = options.labelSidecar ? verifyGlyphLabelSidecar(polygons, options.labelSidecar) : undefined;
+  const scene = labels?.sceneManifest ?? options.sceneManifest;
+  const dictionary = labels?.dictionary ?? options.dictionary;
+  if (!scene || !dictionary) throw new TypeError("glyphcss: control capture requires a verified label sidecar.");
+  if (!labels) verifyGlyphLabelSidecar(polygons, { schemaVersion: "glyph-label-sidecar/v1", scene, dictionary });
+  const camera = options.projection === "orthographic"
+    ? createGlyphOrthographicCamera({ rotX: options.rotX, rotY: options.rotY, zoom: options.zoom })
+    : createGlyphPerspectiveCamera({ rotX: options.rotX, rotY: options.rotY, zoom: options.zoom, distance: options.distance, perspective: options.perspective });
+  return buildGlyphControlFrame({
+    polygons,
+    scene,
+    dictionary,
+    camera,
+    grid: { cols: options.cols ?? 80, rows: options.rows ?? 24, cellAspect: options.cellAspect ?? 2 },
+    mode: options.mode,
+    glyphPalette: options.glyphPalette,
+    smoothShading: options.smoothShading,
+    creaseAngle: options.creaseAngle,
+    doubleSided: options.doubleSided,
+    supersample: options.supersample,
+  });
+}
+
+export async function buildCompileControlFrameFromFile(path: string, options: CompileFileOptions): Promise<GlyphControlFrame> {
+  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution, mtlUrl: options.mtlUrl });
+  return buildCompileControlFrame(polygons, options);
 }
 
 export async function compileFile(path: string, options: CompileFileOptions = {}): Promise<CompileSceneResult> {

@@ -16,7 +16,8 @@ import {
   type GlyphSceneHandle,
   type GlyphSceneOptions,
 } from "../api/createGlyphScene";
-import type { GlyphShadowOptions } from "../api/types";
+import type { GlyphShadowOptions, GlyphSolidWeightRampStep } from "../api/types";
+import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "../api/controlFrame";
 import type { RenderMode } from "@glyphcss/core";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -26,7 +27,11 @@ const ELEMENT_BASE: typeof HTMLElement =
 
 const OBSERVED_ATTRS = [
   "mode",
+  "glyph-output",
   "glyph-palette",
+  "char-mode",
+  "wireframe-junctions",
+  "hidden-lines",
   "use-colors",
   "cols",
   "rows",
@@ -43,6 +48,13 @@ const OBSERVED_ATTRS = [
   "shadow-max-extend",
 ] as const;
 
+function parseVec3(value: string | null): [number, number, number] | undefined {
+  if (!value) return undefined;
+  const parts = value.split(",").map((p) => parseFloat(p.trim()));
+  if (parts.length !== 3 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  return [parts[0]!, parts[1]!, parts[2]!];
+}
+
 function parseNumber(value: string | null): number | undefined {
   if (value == null) return undefined;
   const n = parseFloat(value);
@@ -50,8 +62,20 @@ function parseNumber(value: string | null): number | undefined {
 }
 
 function parseMode(value: string | null): RenderMode | undefined {
-  if (value === "wireframe" || value === "solid" || value === "voxel") return value;
+  if (value === "wireframe" || value === "solid" || value === "voxel" || value === "ink") return value;
   return undefined;
+}
+
+function parseGlyphOutput(value: string | null): "visible" | "semantic" | undefined {
+  return value === "visible" || value === "semantic" ? value : undefined;
+}
+
+function parseCharMode(value: string | null): "ascii" | "braille" | "halfblock" | "quadrant" | undefined {
+  return value === "ascii" || value === "braille" || value === "halfblock" || value === "quadrant" ? value : undefined;
+}
+
+function parseHiddenLines(value: string | null): "show" | "hide" | undefined {
+  return value === "show" || value === "hide" ? value : undefined;
 }
 
 function parseBool(value: string | null): boolean | undefined {
@@ -67,6 +91,38 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   }
 
   private _scene: GlyphSceneHandle | null = null;
+  private _sceneManifest: GlyphControlSceneManifest | undefined;
+  private _dictionary: GlyphObjectDictionary | undefined;
+  private _solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
+
+  /**
+   * Solid-mode font-weight density ramp (see
+   * {@link RasterizeContextOptions.solidWeightRamp}). A JS property, not an
+   * attribute — the ramp is a `(glyph, weight)[]` step list (typically the
+   * output of `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`), the same
+   * "complex data through a property" convention `sceneManifest`/
+   * `dictionary` above use, since it cannot round-trip through a string
+   * attribute.
+   */
+  get solidWeightRamp(): GlyphSolidWeightRampStep[] | undefined { return this._solidWeightRamp; }
+  set solidWeightRamp(value: GlyphSolidWeightRampStep[] | undefined) {
+    this._solidWeightRamp = value;
+    this._scene?.setOptions({ solidWeightRamp: value });
+  }
+
+  get sceneManifest(): GlyphControlSceneManifest | undefined { return this._sceneManifest; }
+  set sceneManifest(value: GlyphControlSceneManifest | undefined) {
+    const previous = this._sceneManifest;
+    this._sceneManifest = value;
+    try { this._applySemanticOptions(); } catch (error) { this._sceneManifest = previous; throw error; }
+  }
+
+  get dictionary(): GlyphObjectDictionary | undefined { return this._dictionary; }
+  set dictionary(value: GlyphObjectDictionary | undefined) {
+    const previous = this._dictionary;
+    this._dictionary = value;
+    try { this._applySemanticOptions(); } catch (error) { this._dictionary = previous; throw error; }
+  }
 
   getScene(): GlyphSceneHandle | null {
     return this._scene;
@@ -76,8 +132,23 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const opts: GlyphSceneOptions = {};
     const mode = parseMode(this.getAttribute("mode"));
     if (mode !== undefined) opts.mode = mode;
+    // Attribute removal is an explicit reset, not an omitted partial option.
+    if (this.hasAttribute("glyph-output")) {
+      const glyphOutput = parseGlyphOutput(this.getAttribute("glyph-output"));
+      if (!glyphOutput) throw new TypeError('glyphcss: glyph-output must be "visible" or "semantic".');
+      opts.glyphOutput = glyphOutput;
+    }
+    if (this._sceneManifest !== undefined) opts.sceneManifest = this._sceneManifest;
+    if (this._dictionary !== undefined) opts.dictionary = this._dictionary;
     const glyphPalette = this.getAttribute("glyph-palette");
     if (glyphPalette) opts.glyphPalette = glyphPalette;
+    const charMode = parseCharMode(this.getAttribute("char-mode"));
+    if (charMode !== undefined) opts.charMode = charMode;
+    const wireframeJunctions = parseBool(this.getAttribute("wireframe-junctions"));
+    if (wireframeJunctions !== undefined) opts.wireframeJunctions = wireframeJunctions;
+    const hiddenLines = parseHiddenLines(this.getAttribute("hidden-lines"));
+    if (hiddenLines !== undefined) opts.hiddenLines = hiddenLines;
+    if (this._solidWeightRamp !== undefined) opts.solidWeightRamp = this._solidWeightRamp;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));
@@ -86,8 +157,18 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (rows !== undefined) opts.rows = rows;
     const cellAspect = parseNumber(this.getAttribute("cell-aspect"));
     if (cellAspect !== undefined) opts.cellAspect = cellAspect;
+    // `directional-direction` was in `OBSERVED_ATTRS` but never read, so the
+    // light direction was pinned to this default and the attribute silently did
+    // nothing. Either attribute alone now configures the light, with the other
+    // falling back — same "x,y,z" comma form `<glyph-mesh position>` uses.
+    const dirDirection = parseVec3(this.getAttribute("directional-direction"));
     const dirIntensity = parseNumber(this.getAttribute("directional-intensity"));
-    if (dirIntensity !== undefined) opts.directionalLight = { direction: [0.5, 0.7, 0.5], intensity: dirIntensity };
+    if (dirDirection !== undefined || dirIntensity !== undefined) {
+      opts.directionalLight = {
+        direction: dirDirection ?? [0.5, 0.7, 0.5],
+        intensity: dirIntensity ?? 1,
+      };
+    }
     const ambIntensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (ambIntensity !== undefined) opts.ambientLight = { intensity: ambIntensity };
     if (this.hasAttribute("auto-size")) opts.autoSize = true;
@@ -113,6 +194,19 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     return opts;
   }
 
+  private _applySemanticOptions(): void {
+    if (!this._scene) return;
+    const opts = this._readOptions();
+    if (!this.hasAttribute("glyph-output")) opts.glyphOutput = "visible";
+    if (this.getAttribute("glyph-output") === "semantic" && (!this._sceneManifest || !this._dictionary)) {
+      // Properties may arrive independently. Keep the requested attribute while
+      // retaining the last valid scene output until the pair can activate together.
+      this._scene.setOptions({ ...opts, glyphOutput: "visible", sceneManifest: this._sceneManifest, dictionary: this._dictionary });
+      return;
+    }
+    this._scene.setOptions(opts);
+  }
+
   private _findCameraAncestor(): (HTMLElement & { getCamera?: () => unknown }) | null {
     let el: HTMLElement | null = this.parentElement;
     while (el) {
@@ -134,6 +228,10 @@ export class GlyphSceneElement extends ELEMENT_BASE {
       ? (cameraAncestor.getCamera() as GlyphSceneOptions["camera"])
       : undefined;
     const opts = this._readOptions();
+    // A custom element can receive its executable metadata after connection.
+    // Preserve its requested semantic attribute but initialize the real scene in
+    // the safe visible state until both values arrive.
+    if (opts.glyphOutput === "semantic" && (!this._sceneManifest || !this._dictionary)) opts.glyphOutput = "visible";
     if (camera) opts.camera = camera;
     this._scene = createGlyphScene(this, opts);
     this.dispatchEvent(new CustomEvent("glyphcss:scene-ready", { bubbles: false }));
@@ -182,6 +280,14 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   ): void {
     if (oldValue === newValue) return;
     if (!this._scene) return;
-    this._scene.setOptions(this._readOptions());
+    try {
+      this._applySemanticOptions();
+    } catch (error) {
+      if (_name === "glyph-output") {
+        if (oldValue === null) this.removeAttribute("glyph-output");
+        else this.setAttribute("glyph-output", oldValue);
+      }
+      throw error;
+    }
   }
 }

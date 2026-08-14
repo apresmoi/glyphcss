@@ -8,7 +8,11 @@
   "scripts": {
     "dev": "node scripts/copy-skill.mjs && astro dev --port 4323",
     "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs",
-    "preview": "astro preview --port 4323"
+    "preview": "astro preview --port 4323",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "vitest": "^3.1.1"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.2",
@@ -16,6 +20,7 @@
     "@astrojs/starlight": "^0.38.2",
     "@glyphcss/effects": "workspace:^",
     "@glyphcss/react": "workspace:^",
+    "@layoutit/polycss": "^0.2.7",
     "glyphcss": "workspace:^",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

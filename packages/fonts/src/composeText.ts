@@ -7,6 +7,15 @@
  * bulge / slant). The warp deforms every point in the flat type plane before
  * extrusion, so the 3D walls follow the curve too. Bold/italic are chosen by
  * the caller by passing the appropriate weight/style `ParsedFont`.
+ *
+ * Advance between glyphs is `advanceWidth + font.kerning(prev, cur) +
+ * letterSpacing`: GPOS pair kerning (e.g. tightening "AV") is applied on top
+ * of the flat advance whenever `font` exposes it, both for per-glyph
+ * placement and for the measured line width alignment uses. Vertical glyph
+ * placement is `y + baselineY` with the glyph's own font-space y (baseline at
+ * 0) passed straight through, so descenders (g, y, p, q, j…) droop below the
+ * baseline the same way the source font draws them — there is no separate
+ * bottom-snap step to get right or wrong.
  */
 import type { Polygon } from "@glyphcss/core";
 import type { ParsedFont } from "./parseFont";
@@ -202,9 +211,15 @@ export function composeText(font: ParsedFont, text: string, options: ComposeText
 
   const lines = text.split("\n");
   const measured = lines.map((line) => {
-    const glyphs = [...line].map((ch) => font.glyph(ch.codePointAt(0) ?? 0, curveSteps));
+    const glyphs = [...line].map((ch) => {
+      const cp = ch.codePointAt(0) ?? 0;
+      return { cp, g: font.glyph(cp, curveSteps) };
+    });
     let width = 0;
-    for (const g of glyphs) width += g.advanceWidth * scale * scaleX + letterSpacing;
+    glyphs.forEach(({ cp, g }, i) => {
+      if (i > 0) width += font.kerning(glyphs[i - 1].cp, cp) * scale * scaleX;
+      width += g.advanceWidth * scale * scaleX + letterSpacing;
+    });
     width = Math.max(0, width - letterSpacing);
     return { glyphs, width };
   });
@@ -221,7 +236,8 @@ export function composeText(font: ParsedFont, text: string, options: ComposeText
     else if (align === "right") startX += blockWidth - line.width;
 
     let cursor = startX;
-    for (const g of line.glyphs) {
+    line.glyphs.forEach(({ cp, g }, i) => {
+      if (i > 0) cursor += font.kerning(line.glyphs[i - 1].cp, cp) * scale * scaleX;
       if (g.contours.length) {
         const placed = g.contours.map((c) =>
           dedupeContour(c.map(([x, y]): Pt => [x * scale * scaleX + cursor, y * scale * scaleY + baselineY])),
@@ -238,7 +254,7 @@ export function composeText(font: ParsedFont, text: string, options: ComposeText
         }
       }
       cursor += g.advanceWidth * scale * scaleX + letterSpacing;
-    }
+    });
 
     if (line.width > 0) {
       const x0 = startX;

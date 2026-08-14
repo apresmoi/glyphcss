@@ -45,7 +45,7 @@ export function App() {
       <GlyphScene>
         <GlyphOrbitControls drag wheel />
         <GlyphMesh geometry="cuboctahedron">
-          <GlyphHotspot at={[1, 0, 0]} onClick={() => alert("vertex")} />
+          <GlyphHotspot id="vertex" at={[1, 0, 0]} onClick={() => alert("vertex")} />
         </GlyphMesh>
       </GlyphScene>
     </GlyphCamera>
@@ -62,7 +62,7 @@ export function App() {
     <GlyphScene>
       <GlyphOrbitControls drag wheel />
       <GlyphMesh geometry="cuboctahedron">
-        <GlyphHotspot :at="[1, 0, 0]" @click="onClick" />
+        <GlyphHotspot id="vertex" :at="[1, 0, 0]" @click="onClick" />
       </GlyphMesh>
     </GlyphScene>
   </GlyphCamera>
@@ -96,8 +96,8 @@ function onClick() { alert("vertex"); }
 ## What you get
 
 - A single `<pre>` rendered as ASCII glyphs, animating a full rotation in ~6 seconds.
-- One absolutely-positioned `<div role="button">` for each `<GlyphHotspot>`,
-  tracking the rotating mesh exactly (per-frame keyframes synced via `steps(N)`).
+- One absolutely-positioned `<div class="glyph-hotspot">` for each `<GlyphHotspot>`,
+  tracking the rotating mesh exactly (re-projected through the same camera each render).
 - Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphOrbitControls>`.
 
 ## Try a Platonic solid

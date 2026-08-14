@@ -139,7 +139,9 @@ const polys = icosahedronPolygons({
 #### `planePolygons`
 
 A single axis-aligned quad. `axis` picks the perpendicular direction (0=YZ, 1=XZ,
-2=XY); `size` is the half-extent of the quad.
+2=XY); `size` is the half-extent. Note `offset` defaults to `size * 2`, so the
+quad is placed in the +A/+B corner rather than centred — pass `offset: 0` if you
+want it on the origin.
 
 ```ts
 import { planePolygons } from "@glyphcss/core";
@@ -147,6 +149,7 @@ import { planePolygons } from "@glyphcss/core";
 const polys = planePolygons({
   axis: 1,      // quad lies in the XZ plane
   size: 0.4,
+  offset: 0,    // centred on the origin (default is size * 2)
   color: "#ffffff",
 });
 // Returns Polygon[] — 1 quad polygon.
@@ -292,7 +295,7 @@ function waveY(x: number, z: number, t = 0): number {
   return Math.sin(x * 3 + t) * 0.15 + Math.cos(z * 2.5 + t) * 0.1;
 }
 
-function makeGrid(): Polygon[] {
+function makeGrid(t = 0): Polygon[] {
   const polygons: Polygon[] = [];
 
   for (let r = 0; r < ROWS; r++) {
@@ -302,10 +305,10 @@ function makeGrid(): Polygon[] {
       const z0 = (r / ROWS - 0.5) * SIZE;
       const z1 = ((r + 1) / ROWS - 0.5) * SIZE;
 
-      const v00: Vec3 = [x0, waveY(x0, z0), z0];
-      const v10: Vec3 = [x1, waveY(x1, z0), z0];
-      const v01: Vec3 = [x0, waveY(x0, z1), z1];
-      const v11: Vec3 = [x1, waveY(x1, z1), z1];
+      const v00: Vec3 = [x0, waveY(x0, z0, t), z0];
+      const v10: Vec3 = [x1, waveY(x1, z0, t), z0];
+      const v01: Vec3 = [x0, waveY(x0, z1, t), z1];
+      const v11: Vec3 = [x1, waveY(x1, z1, t), z1];
 
       polygons.push({ vertices: [v00, v10, v11], color: "#33aaff" });
       polygons.push({ vertices: [v00, v11, v01], color: "#2299ee" });

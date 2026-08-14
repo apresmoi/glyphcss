@@ -16,5 +16,7 @@ export { GlyphHotspot } from "./GlyphHotspot";
 export type { GlyphHotspotProps } from "./GlyphHotspot";
 export { GlyphSceneContextKey } from "./context";
 export type { GlyphSceneContextValue } from "./context";
+export { useGlyphMesh } from "./useGlyphMesh";
+export type { UseGlyphMeshOptions, UseGlyphMeshResult } from "./useGlyphMesh";
 export { useGlyphSceneContext } from "./useGlyphSceneContext";
 export { findGlyphMeshHandle, pointInMeshElement, findMeshUnderPoint } from "glyphcss";

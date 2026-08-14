@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { rotateVec3 } from "@glyphcss/core";
 import { parseFont } from "./parseFont";
 import { composeText } from "./composeText";
 
@@ -12,12 +13,13 @@ function loadFixture(name: string): ArrayBuffer {
 const roboto = parseFont(loadFixture("Roboto-Bold.ttf"));
 
 function bounds(polys: ReturnType<typeof composeText>) {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of polys) for (const [x, y] of p.vertices) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of polys) for (const [x, y, z] of p.vertices) {
     minX = Math.min(minX, x); maxX = Math.max(maxX, x);
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
   }
-  return { minX, maxX, minY, maxY };
+  return { minX, maxX, minY, maxY, minZ, maxZ };
 }
 
 describe("composeText", () => {
@@ -25,10 +27,10 @@ describe("composeText", () => {
     expect(composeText(roboto, "Poly").length).toBeGreaterThan(0);
   });
 
-  it("stacks multiple lines taller (world X = screen-down)", () => {
+  it("stacks multiple lines taller (world Z = letter height)", () => {
     const one = bounds(composeText(roboto, "Poly"));
     const three = bounds(composeText(roboto, "Poly\nCSS\nText"));
-    expect(three.maxX - three.minX).toBeGreaterThan((one.maxX - one.minX) * 2);
+    expect(three.maxZ - three.minZ).toBeGreaterThan((one.maxZ - one.minZ) * 2);
   });
 
   it("splits on \\n into independent lines", () => {
@@ -56,8 +58,8 @@ describe("composeText", () => {
   it("arc warp spreads the text wider than unwarped", () => {
     const flat = bounds(composeText(roboto, "WordArt"));
     const arced = bounds(composeText(roboto, "WordArt", { warp: { shape: "arc", amount: 0.8 } }));
-    // The arc bows letters up/down, so the vertical (world X) extent grows.
-    expect(arced.maxX - arced.minX).toBeGreaterThan(flat.maxX - flat.minX);
+    // The arc bows letters up/down, so the vertical (world Z) extent grows.
+    expect(arced.maxZ - arced.minZ).toBeGreaterThan(flat.maxZ - flat.minZ);
   });
 
   it("warp shapes change the geometry vs none", () => {
@@ -71,7 +73,7 @@ describe("composeText", () => {
   it("larger lineHeight increases vertical extent", () => {
     const tight = bounds(composeText(roboto, "A\nB", { lineHeight: 1 }));
     const loose = bounds(composeText(roboto, "A\nB", { lineHeight: 2 }));
-    expect(loose.maxX - loose.minX).toBeGreaterThan(tight.maxX - tight.minX);
+    expect(loose.maxZ - loose.minZ).toBeGreaterThan(tight.maxZ - tight.minZ);
   });
 
   // ── regression: holes must never break ──────────────────────────────────
@@ -105,7 +107,7 @@ describe("composeText", () => {
   it("vertical scale heightens the glyphs", () => {
     const a = bounds(composeText(roboto, "A"));
     const b = bounds(composeText(roboto, "A", { scale: [1, 2] }));
-    expect(b.maxX - b.minX).toBeGreaterThan((a.maxX - a.minX) * 1.6);
+    expect(b.maxZ - b.minZ).toBeGreaterThan((a.maxZ - a.minZ) * 1.6);
   });
 
   it("cap triangles merge into convex polygons (fewer nodes, no concavity)", () => {
@@ -156,9 +158,14 @@ describe("composeText", () => {
     expect(polys.some((p) => !p.texture)).toBe(true);
   });
 
-  it("solid (no faceTexture) leaves the face untextured", () => {
+  it("solid (no faceTexture) leaves the face untextured but still authors UVs", () => {
     const polys = composeText(roboto, "Hi");
-    expect(polys.every((p) => !p.texture && !p.uvs)).toBe(true);
+    // No texture is applied…
+    expect(polys.every((p) => !p.texture)).toBe(true);
+    // …but every polygon still carries a UV per vertex, so surface-locked
+    // effects (`space: "auto"`) resolve the authored, mesh-local UV basis
+    // instead of falling back to the generated world-surface mapping.
+    expect(polys.every((p) => p.uvs?.length === p.vertices.length)).toBe(true);
   });
 
   it("outline adds a halo silhouette in the outline color", () => {
@@ -204,10 +211,11 @@ describe("composeText", () => {
     expect(front.length).toBeGreaterThan(0); // front cap (t≈0)
     expect(side.length).toBeGreaterThan(0);  // body walls (t≈0.5)
     expect(back.length).toBeGreaterThan(0);  // back cap (t≈1)
-    // The front cap sits at the most-forward z; the back cap at the most-back.
-    const frontZ = Math.max(...front.flatMap((p) => p.vertices.map((v) => v[2])));
-    const backZ = Math.min(...back.flatMap((p) => p.vertices.map((v) => v[2])));
-    expect(frontZ).toBeGreaterThan(backZ);
+    // The front cap sits at the most-forward depth; the back cap at the
+    // most-back — depth runs along world X now (extrude.ts's toWorld).
+    const frontDepth = Math.max(...front.flatMap((p) => p.vertices.map((v) => v[0])));
+    const backDepth = Math.min(...back.flatMap((p) => p.vertices.map((v) => v[0])));
+    expect(frontDepth).toBeGreaterThan(backDepth);
   });
 
   it("omitting `sides` makes the front meet the back (no side band)", () => {
@@ -273,5 +281,93 @@ describe("composeText", () => {
     const flat = composeText(roboto, "o", { depth: 0, faces: { back: { color: "#00ff00", offset: [10, -10] } } });
     expect(flat.length).toBeLessThan(walled.length);
     expect(flat.some((p) => p.color === "#00ff00")).toBe(true); // shadow layer kept
+  });
+
+  // ── kerning / baseline layout ────────────────────────────────────────────
+  it("kerns a known tight pair (AV) below its unkerned advance sum", () => {
+    // Ground truth from the font itself, independent of composeText: the
+    // "AV" pair carries a real GPOS kerning rule, and it tightens the pair.
+    const kernValue = roboto.kerning("A".codePointAt(0)!, "V".codePointAt(0)!);
+    expect(kernValue).toBeLessThan(0);
+
+    // The `underline` bar is drawn from `startX` to `startX + line.width`
+    // (see composeText's `barShape` call), so its span *is* the measured
+    // line width — a way to read the internal advance sum back out of the
+    // emitted geometry instead of asserting on private state.
+    const size = 100;
+    const scale = size / roboto.unitsPerEm;
+    const unkernedWidth =
+      (roboto.glyph("A".codePointAt(0)!).advanceWidth + roboto.glyph("V".codePointAt(0)!).advanceWidth) * scale;
+
+    const polys = composeText(roboto, "AV", { size, underline: true });
+    const b = bounds(polys);
+    const kernedWidth = b.maxY - b.minY; // world Y = plane x = the horizontal run
+
+    expect(kernedWidth).toBeLessThan(unkernedWidth);
+    // The shrink should match the kerning adjustment itself, not just be
+    // some other, unrelated width change.
+    expect(unkernedWidth - kernedWidth).toBeCloseTo(-kernValue * scale, 1);
+  });
+
+  it("drops a descender below the baseline instead of bottom-snapping", () => {
+    // "n" is flat-bottomed and sits on the baseline; "o" has only the small
+    // round-letter overshoot type designers add for optical alignment; "g"
+    // has a real descender that must droop well below both. World Z is the
+    // letter's own vertical axis, unflipped (+Z = up, see extrude.ts), so a
+    // smaller minZ is lower / further below the baseline.
+    const n = bounds(composeText(roboto, "n"));
+    const o = bounds(composeText(roboto, "o"));
+    const g = bounds(composeText(roboto, "g"));
+
+    const descenderDrop = n.minZ - g.minZ;
+    const overshoot = n.minZ - o.minZ;
+
+    expect(descenderDrop).toBeGreaterThan(0);
+    // If glyphs were bottom-snapped into a shared box instead of using their
+    // own font-space y, the descender's lowest point would land on the same
+    // line as every other glyph's — indistinguishable from "n"'s. It must
+    // instead drop well past even a round letter's normal overshoot.
+    expect(descenderDrop).toBeGreaterThan(overshoot * 5);
+  });
+
+  // ── regression: solid-color text UVs are surface-locked, not world-anchored ──
+  it("authored UVs stay fixed as the mesh rotates, while world-space vertices don't", () => {
+    // Solid color, no faceTexture — the WordArt repro config (matrix rain over
+    // a flat-colored word). A `<GlyphMesh rotation={[rx, ry, rz]}>` applies
+    // `rotateVec3` to each local vertex before the camera projects it; UVs are
+    // untouched by that transform because they're authored in the glyph's own
+    // 2D type-plane space upstream of it. A surface-locked effect resolving
+    // `space: "auto"` reads those UVs, so its flow direction is invariant
+    // under mesh rotation — the opposite invariant from the old fallback
+    // (generated world-surface coordinates derived from rotated vertices),
+    // which is what let the render mesh slide underneath a fixed-direction
+    // rain instead of the rain turning with the glyph faces.
+    const polysAtRest = composeText(roboto, "Glyph");
+    expect(polysAtRest.some((p) => p.uvs !== undefined)).toBe(true);
+
+    const rotate = (rx: number, ry: number, rz: number) => polysAtRest.map((p) => ({
+      ...p,
+      vertices: p.vertices.map((v) => rotateVec3(v, rx, ry, rz)),
+    }));
+    const restPose = rotate(0, 0, 0); // identity, still exercises the same mapping
+    const spunPose = rotate(0, 47, 12); // an arbitrary later frame of a spinning mesh
+
+    expect(polysAtRest.length).toBe(restPose.length);
+    expect(restPose.length).toBe(spunPose.length);
+
+    let uvInvariant = true;
+    let worldVaries = false;
+    for (let i = 0; i < polysAtRest.length; i++) {
+      const rest = restPose[i]!;
+      const spun = spunPose[i]!;
+      // The authored UV is identical at both rotations — it never depended on
+      // the vertex positions the rotation touched.
+      if (JSON.stringify(rest.uvs) !== JSON.stringify(spun.uvs)) uvInvariant = false;
+      // The world-space vertices — the only inputs the old generated-surface
+      // fallback had to work with — genuinely differ once the mesh has turned.
+      if (JSON.stringify(rest.vertices) !== JSON.stringify(spun.vertices)) worldVaries = true;
+    }
+    expect(uvInvariant).toBe(true);
+    expect(worldVaries).toBe(true);
   });
 });

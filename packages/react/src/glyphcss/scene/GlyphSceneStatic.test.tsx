@@ -3,6 +3,19 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphSceneStatic } from "./GlyphSceneStatic";
 import { cubePolygons } from "@glyphcss/core";
+import { compileScene, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
+
+const semanticPolygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" } as const;
+const digest = (char: string) => char.repeat(64);
+const dictionaryBase = {
+  schemaVersion: "glyph-object-dictionary/v2" as const, id: "dictionary/react-static",
+  font: { id: "font/react-static", version: "1", sha256: digest("a") },
+  classes: [{ id: 1, name: "quad", semanticGlyph: "Q", controlColor: "#123456" }],
+};
+const dictionary: GlyphObjectDictionary = { ...dictionaryBase, contentSha256: computeGlyphControlContentSha256(dictionaryBase) };
+const hashes = computeGlyphControlGeometryHashes([semanticPolygon]);
+const manifestBase = { schemaVersion: "control-scene/v1" as const, id: "scene/react-static", dictionaryId: dictionary.id, dictionarySha256: dictionary.contentSha256, ...hashes, contentSha256: "", instances: [{ id: "quad", classId: 1 }], surfaces: [{ id: "surface", instanceId: "quad" }], polygonSurfaceIds: ["surface"] };
+const manifest: GlyphControlSceneManifest = { ...manifestBase, contentSha256: computeGlyphControlContentSha256(manifestBase) };
 
 const containers: HTMLElement[] = [];
 function render(node: React.ReactNode): HTMLElement {
@@ -36,5 +49,14 @@ describe("GlyphSceneStatic (React)", () => {
     const el = render(<GlyphSceneStatic polygons={polys} cols={20} rows={8} className="hero" />);
     const pre = el.querySelector("pre.glyph-output");
     expect(pre?.className).toContain("hero");
+  });
+
+  it("matches compileScene semantic output in colored and plain modes", () => {
+    for (const useColors of [false, true]) {
+      const expected = compileScene({ polygons: [semanticPolygon], cols: 12, rows: 8, useColors, glyphOutput: "semantic", sceneManifest: manifest, dictionary }).inner;
+      expect(expected).toContain("Q");
+      const el = render(<GlyphSceneStatic polygons={[semanticPolygon]} cols={12} rows={8} useColors={useColors} glyphOutput="semantic" sceneManifest={manifest} dictionary={dictionary} />);
+      expect(el.querySelector("pre")?.innerHTML).toBe(expected);
+    }
   });
 });

@@ -5,11 +5,16 @@
  * units) and hand them here as pre-grouped shapes; this turns each shape into
  * front/back caps + side walls following the chosen depth profile.
  *
- * Type plane → glyphcss world: glyphcss maps world X → screen-down,
- * world Y → screen-right, world Z → toward the viewer. So world Y = plane x,
- * world X = -plane y (screen-up), and depth runs along world Z. That single
- * y-negation is a reflection, so it flips winding — every emitted polygon is
- * wound in reverse to stay outward-facing (glyphcss hides back-faces).
+ * Type plane → glyphcss world: glyphcss authors geometry Z-up (`+Z` is
+ * "up" — the same convention `cubePolygons`' "+Z (top)" face and every other
+ * native primitive use), so the mesh's own local frame is Z-up too: world
+ * Z = plane y (the glyph's ascent/height, `+Z` = up, unflipped — no sign
+ * mismatch to reconcile with primitives), world Y = plane x (glyph width),
+ * and depth runs along world X. This is a rotation of the (plane-x,
+ * plane-y, depth) axes, not a reflection (same orientation-preserving
+ * handedness as the old mapping it replaces), so the existing front/back cap
+ * winding (`flip` in `cap()` below) is unchanged — every emitted polygon
+ * still winds outward-facing without needing a fresh parity fixup.
  */
 import earcut from "earcut";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
@@ -215,7 +220,7 @@ function convexPartition(flat: number[], tris: number[]): number[][] {
   return polys.filter((p): p is number[] => p !== null);
 }
 
-const toWorld = (p: Pt, z: number): Vec3 => [-p[1], p[0], z];
+const toWorld = (p: Pt, z: number): Vec3 => [z, p[0], p[1]];
 
 /** Extrude pre-grouped 2D shapes (type-plane, world units) into polygons. */
 export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[] {
@@ -241,9 +246,13 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
   const faceH = fb ? Math.max(fb.maxY - fb.minY, 1e-6) : 1;
   // tile > 0 → repeat the texture every `tile` world units (crisp block look);
   // tile === 0 → stretch one copy across the whole word (gradient / photo).
+  // `v` is flipped so it grows DOWNWARD in type-plane terms (an unflipped
+  // `(p[1] - minY)` would produce a `v` that grows UP the glyph, the opposite
+  // of the image/texture convention that `v` grows down), independent of
+  // which world axis the type plane's y (glyph height) is authored onto.
   const uvAt = (p: Pt, tile: number): Vec2 => tile > 0
-    ? [(p[0] - fb!.minX) / tile, (p[1] - fb!.minY) / tile]
-    : [Math.min(1, Math.max(0, (p[0] - fb!.minX) / faceW)), Math.min(1, Math.max(0, (p[1] - fb!.minY) / faceH))];
+    ? [(p[0] - fb!.minX) / tile, (fb!.maxY - p[1]) / tile]
+    : [Math.min(1, Math.max(0, (p[0] - fb!.minX) / faceW)), Math.min(1, Math.max(0, (fb!.maxY - p[1]) / faceH))];
   const REPEAT = { s: "repeat", t: "repeat" } as const;
   const outlineWidth = opts.outlineColor ? Math.max(0, opts.outlineWidth ?? 0) : 0;
 
@@ -297,12 +306,19 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
           vertices: pts.map((p) => place(p, z, o)),
           color: mat.color ?? "#cccccc",
         };
+        // Cap UVs are authored unconditionally (not just when textured), planar
+        // in the glyph's own type-plane bounds — stable under mesh rotation,
+        // since this coordinate is computed before the mesh's `rotation` is
+        // applied. This is what lets surface-locked effects (`space: "auto"`)
+        // resolve authored UVs on solid-colour text instead of falling back to
+        // the generated world-surface basis, which is anchored to world space
+        // and slides under the geometry as the mesh turns.
+        if (fb) poly.uvs = pts.map((p) => uvAt(p, tile));
         if (mat.texture && fb) {
           // Inline `texture` (not just `material`) so the mesh atlas planner —
           // which reads polygon.texture — UV-maps the shared fill across the word.
           poly.texture = mat.texture;
           poly.material = { texture: mat.texture };
-          poly.uvs = pts.map((p) => uvAt(p, tile));
           if (tile > 0) poly.textureWrap = REPEAT;
         }
         polygons.push(poly);
@@ -325,6 +341,16 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
     cap(si(rings[rings.length - 1].inset), rings[rings.length - 1].z, ZERO, true, materialAt(1));
 
     for (const contour of contours) {
+      // Wall strip UV: u = fractional arc-length position around this contour
+      // (0..1, wrapping at the seam), v = fractional depth (0 front → 1 back,
+      // via the same `tOf` axis the material bands use). This is a genuinely
+      // depth-aware parameterization — unlike the planar cap mapping, whose
+      // (x, y) barely changes between the front and back ring on a "flat"
+      // profile (near-zero inset), which would leave a surface-locked effect
+      // with no usable depth axis on the walls. Computed once per contour
+      // (not per ring) since ring offsets only inset the contour, they don't
+      // change vertex correspondence or perimeter topology.
+      const arcFrac = arcLengthFractions(contour);
       let prevOffset = offsetContour(contour, si(rings[0].inset));
       for (let r = 1; r < rings.length; r++) {
         const curOffset = offsetContour(contour, si(rings[r].inset));
@@ -332,6 +358,8 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
         const z1 = rings[r].z;
         const mat = materialAt(tOf((z0 + z1) / 2));
         const tile = mat.tile ?? 0;
+        const v0 = tOf(z0);
+        const v1 = tOf(z1);
         for (let i = 0, len = contour.length; i < len; i++) {
           const j = (i + 1) % len;
           const wall: Polygon = {
@@ -342,6 +370,29 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
               place(prevOffset[i], z0, ZERO),
             ],
             color: mat.color ?? "#cccccc",
+            // `v` is the letterform's OWN vertical (the same planar axis the
+            // caps use), not the extrusion depth. With depth as `v`, a
+            // surface-locked effect asking for "down" travelled INTO the
+            // screen on every side wall while flowing correctly down the face
+            // — the word did not read as one continuous flow. Depth becomes
+            // `u` instead, which keeps the quad's parameterisation
+            // non-degenerate (front and back rings share (x, y) on a flat
+            // profile, so a planar `u` there would collapse to zero area).
+            // Without face bounds there is no letterform vertical to map to, so
+            // fall back to the arc-length/depth strip.
+            uvs: fb
+              ? [
+                [v1, uvAt(curOffset[i], 0)[1]],
+                [v1, uvAt(curOffset[j], 0)[1]],
+                [v0, uvAt(prevOffset[j], 0)[1]],
+                [v0, uvAt(prevOffset[i], 0)[1]],
+              ]
+              : [
+                [arcFrac[i], v1],
+                [arcFrac[j], v1],
+                [arcFrac[j], v0],
+                [arcFrac[i], v0],
+              ],
           };
           if (mat.texture) {
             wall.texture = mat.texture;
@@ -445,6 +496,25 @@ function safeInset(contours: Contour[], desired: number): number {
     }
   }
   return Math.min(desired, Math.sqrt(minSq) * 0.4);
+}
+
+/**
+ * Cumulative perimeter fraction at each vertex of a closed contour (0 at
+ * vertex 0, increasing monotonically, wrapping back toward 1 at the seam).
+ * Used as the wall strip's `u` axis — continuous around the glyph outline,
+ * independent of the ring's inward offset.
+ */
+function arcLengthFractions(c: Contour): number[] {
+  const n = c.length;
+  const cum = new Array<number>(n).fill(0);
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    cum[i] = total;
+    const next = c[(i + 1) % n];
+    total += Math.hypot(next[0] - c[i][0], next[1] - c[i][1]);
+  }
+  if (total < 1e-9) return cum.map(() => 0);
+  return cum.map((d) => d / total);
 }
 
 function leftNormal(a: Pt, b: Pt): Pt {
@@ -590,6 +660,30 @@ function withWinding(c: Contour, ccw: boolean): Contour {
   return positive === ccw ? c : c.slice().reverse();
 }
 
+/** Proper segment intersection (excludes shared/collinear touches at a
+ * tolerance) — a crossing, not a tangential touch. */
+function segmentsCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+  const d1 = turn(c, d, a);
+  const d2 = turn(c, d, b);
+  const d3 = turn(a, b, c);
+  const d4 = turn(a, b, d);
+  const eps = 1e-9;
+  if (Math.abs(d1) < eps || Math.abs(d2) < eps || Math.abs(d3) < eps || Math.abs(d4) < eps) return false;
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
+}
+
+/** Do two contour boundaries actually cross anywhere (not just touch)? */
+function contoursCross(a: Contour, b: Contour): boolean {
+  for (let i = 0; i < a.length; i++) {
+    const a0 = a[i];
+    const a1 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsCross(a0, a1, b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Group contours into filled shapes with holes by nesting depth (even depth =
  * filled, odd = hole of its immediate parent), independent of font winding.
@@ -608,7 +702,21 @@ export function groupShapes(contours: Contour[]): Shape[] {
     let bestArea = Infinity;
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
-      if (pointInPolygon(probe, valid[j])) {
+      // A single probe-point-in-polygon test only proves true containment
+      // when the two boundaries never cross. Some TrueType sources (notably
+      // hinted/autohinted Google Fonts static instances) draw a glyph as
+      // several simple contours meant to be combined by the nonzero winding
+      // fill rule — e.g. an "h" as a separate stem rectangle plus an
+      // arch+leg contour that overlap without either nesting inside the
+      // other. Contour i's first vertex can still land inside contour j by
+      // coincidence of that overlap, which would wrongly turn j into a
+      // "hole" subtracted from a shape it isn't actually contained by —
+      // earcut then triangulates a hole that pokes outside its outer
+      // boundary, producing a cap whose edges don't match the (correctly
+      // built) extrusion walls: a non-watertight mesh. Requiring the
+      // boundaries to never cross before counting containment routes this
+      // case to the overlap-union fallback below instead.
+      if (pointInPolygon(probe, valid[j]) && !contoursCross(valid[i], valid[j])) {
         depth[i]++;
         const a = Math.abs(signedArea(valid[j]));
         if (a < bestArea) {
@@ -618,6 +726,22 @@ export function groupShapes(contours: Contour[]): Shape[] {
       }
     }
     parent[i] = bestParent;
+  }
+
+  // Every contour landed at odd depth (each is "inside" some other one) —
+  // impossible for genuinely nested outer/hole shapes, which always have at
+  // least one depth-0 root. This happens when contours actually overlap
+  // rather than nest: some TrueType sources (notably hinted/autohinted
+  // Google Fonts static instances) ship a glyph as two or more overlapping
+  // simple contours that are meant to be combined by the nonzero winding
+  // fill rule, not read as outer+hole pairs. We don't implement a true
+  // winding-rule polygon union here — render each contour as its own filled
+  // outer instead of silently dropping the whole glyph. The overlap region
+  // just fills twice (harmless) instead of leaving a hole; this only
+  // triggers when the strict-nesting path below would otherwise yield zero
+  // shapes, so it never changes output for contours that already nest cleanly.
+  if (n > 0 && depth.every((d) => d % 2 === 1)) {
+    return valid.map((v) => ({ outer: withWinding(v, true), holes: [] }));
   }
 
   const shapes: Shape[] = [];

@@ -1,11 +1,11 @@
 ---
 title: Render Modes
-description: wireframe, solid, and voxel — when to pick which.
+description: wireframe, solid, voxel, and ink — when to pick which.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-glyphcss has three render modes. Each maps the same projected mesh to a different
+glyphcss has four render modes. Each maps the same projected mesh to a different
 glyph layout.
 
 | Mode | Best for | Cost |
@@ -13,6 +13,7 @@ glyph layout.
 | `wireframe` | Geometric meshes, lattices, line art | Scales with edge count |
 | `solid` | Smooth-shaded surfaces from real mesh files | Scales with triangle count × grid cells |
 | `voxel` | MagicaVoxel `.vox` files, chunky low-poly | Scales with visible voxel faces |
+| `ink` | Illustration-style outlines (silhouette + crease), sphere/torus contours | Scales with triangle-edge count |
 
 ## `wireframe`
 
@@ -61,22 +62,189 @@ const scene = createGlyphScene(document.querySelector("#scene")!, {
 });
 
 // Custom wireframe edges with explicit weights:
-import { buildSceneContext } from "glyph-core";
+import { buildRasterizeContext, rasterize } from "glyphcss";
 
-const ctx = buildSceneContext({
-  camera, grid,
+const grid = { cols: 80, rows: 24, cellAspect: 2.0 };
+const ctx = buildRasterizeContext({
+  camera,
+  grid,
   wireframe: [
     { from: [1, 0, 0], to: [-1, 0, 0], weight: 2 },  // bold edge
     { from: [0, 1, 0], to: [0, -1, 0], weight: 1 },  // thin spoke
   ],
   mode: "wireframe",
 });
+const text = rasterize(ctx);
 ```
 
   </TabItem>
 </Tabs>
 
 Best for: geometric meshes, lattices, iconic visuals.
+
+### Character encoding (`charMode`)
+
+`charMode` selects the character encoding used to draw `wireframe` output.
+`"ascii"` (default) is the ramp/rule-glyph encoding above. `"braille"` instead
+packs a 2×4 subcell dot grid into every output cell using Unicode Braille
+Patterns (`U+2800`..`U+28FF`), giving up to 8 independent "pixels" per glyph —
+visibly smoother diagonal and curved edges than a single ASCII rule glyph per
+cell.
+
+`charMode: "braille"` is a documented no-op in `solid` and `voxel` modes:
+braille dot coverage is binary, so it cannot carry a Lambert shade ramp or a
+voxel face-normal glyph. Those modes always render ASCII regardless of this
+option.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="wireframe" charMode="braille" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={icosa} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "wireframe",
+  charMode: "braille",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+Mirrored as `char-mode="braille"` on `<glyph-scene>` and `charMode` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+
+### Box-drawing junctions (`wireframeJunctions`)
+
+By default, each wireframe edge picks its cell glyphs independently from the
+active palette (weight tier → random glyph), so two edges meeting in the same
+cell — a corner, a T-junction, a crossing — render whichever edge happened to
+rasterize last. On an axis-aligned mesh (a cube face-on, a voxel grid, an iso
+diagram) this visibly breaks corners and joints.
+
+`wireframeJunctions: true` (default `false`, `charMode: "ascii"` only) runs a
+second pass over the finished wireframe cells: every near-axis-aligned edge
+accumulates which of a cell's four sides (N/E/S/W) carry a line, and any cell
+with a non-zero side mask resolves to the matching glyph from the fixed
+`┌┐└┘├┤┬┴┼─│` box-drawing set instead of the random pick — so the joint reads
+as ONE glyph consistent with every edge touching it. An edge counts as
+near-axis-aligned when its two projected endpoints round to the same output
+row or column; a diagonal-dominant edge contributes nothing to the mask and
+keeps the default slope-glyph behavior.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="wireframe" wireframeJunctions cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={cube} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "wireframe",
+  wireframeJunctions: true,
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+Mirrored as `wireframe-junctions` on `<glyph-scene>` and `wireframeJunctions`
+on `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+
+### Hidden-line removal (`hiddenLines`)
+
+The wireframe path has no depth reference by default: edges draw in mesh
+order, and a contested cell resolves by edge WEIGHT, not by which edge is
+actually nearer the camera. On any mesh where a farther edge (another mesh's
+far side, an extruded side wall behind a front face) projects into the same
+cell as a nearer one, the farther edge can paint over the nearer one —
+visible as cross-object bleed-through, `charMode: "braille"` strokes mixing
+with a farther stroke's dots, or a darker `sideColor` edge overwriting a
+brighter front-face color.
+
+`hiddenLines: "hide"` (default `"show"`, today's behavior) depth-tests every
+wireframe stroke sample against a solid surface prepass — the same
+triangle-depth rasterizer cross-layer occlusion uses — with a slope-scaled
+depth bias (the standard shadow-map technique: a grazing silhouette earns a
+larger allowance than a head-on crease, since a smooth surface's own
+silhouette lies ON the contour it outlines). Applies to both `charMode:
+"ascii"` and `charMode: "braille"`. Documented no-op in `solid` mode (already
+depth-buffered per cell).
+
+`ink` mode also wires `hiddenLines: "hide"`, fixing the same defect on
+extruded text and other closed meshes (an extrusion's back/side walls no
+longer paint over its own front face, or a nearer letter's face, when the
+camera angle puts them in the same cell). It uses an IDENTITY-based test, not
+a margin reused from wireframe: two earlier margin attempts (a flat bias, then
+wireframe's slope-scaled bias, tried both per-sample and per-edge) fought
+SELF-occlusion — a sphere's silhouette lies ON the sphere, so the surface
+occludes its own outline, and any margin large enough to prevent that ate
+38-46% of the silhouette anyway. The fix excludes each kept edge's own local
+neighborhood (the triangles touching its endpoints, one vertex-ring hop out)
+from occluding it — the same principle as excluding the caster from its own
+shadow map — so a stroke is hidden only when a genuinely DIFFERENT, non-exempt
+surface wins that cell by more than a small `depthGradient`-scaled residual
+(needed only for discretization noise between a fine mesh's neighboring
+facets, not for self-occlusion). This holds the convex-mesh regression to
+exactly 0 (cube, icosahedron, sphere at two subdivision levels, across five
+world scales/projections) while running per-SAMPLE rather than per-edge, so a
+wall only partly behind a cap now hides just the covered portion. See
+`research/contour-first-text/decisions.md` for the measurements behind both
+ruled-out margin attempts and the shipped identity-based design.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="wireframe" hiddenLines="hide" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={extrudedText} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "wireframe",
+  hiddenLines: "hide",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+Mirrored as `hidden-lines` on `<glyph-scene>` and `hiddenLines` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
+`compileScene`/`GlyphSceneStatic` (unlike `wireframeJunctions`, which is
+runtime-only) — it's a pure function of geometry and camera, exactly like
+`charMode`, and fixes a genuine occlusion defect a static bake shouldn't
+reproduce.
 
 ## `solid`
 
@@ -87,8 +255,9 @@ Triangle scan-fill, with Lambert shading per cell mapped to a ramp:
 ```
 
 Darker glyphs for cells facing away from the directional light, brighter glyphs
-for cells facing it. Per-cell normal is interpolated from the triangle's vertex
-normals.
+for cells facing it. Shading is **flat** by default — one normal per polygon, so
+facets stay visible. Set `smoothShading` (with `creaseAngle`, default 60°) to
+interpolate per-cell normals from averaged vertex normals instead.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -141,6 +310,172 @@ scene.add(dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" })
 
 Best for: smooth-shaded surfaces from real mesh files.
 
+### Two-color cells (`charMode: "halfblock"`)
+
+`charMode: "halfblock"` is the solid-mode mirror of wireframe's `"braille"`:
+braille buys SHAPE resolution at one color per cell, halfblock buys COLOR
+resolution at coarser (block) shape. Instead of picking one glyph from the
+shade ramp per cell, it packs two independently colored subcells — top and
+bottom — into a single cell using `▀`/`▄`/`█`, for 2× vertical color
+resolution. Because a monospace cell is already roughly twice as tall as it is
+wide, each half lands close to square — a better pixel grid than the ramp
+glyph it replaces.
+
+An empty cell never paints a background: `█` is used only when a cell's top
+and bottom both resolve to the same color (a common case on flat-shaded
+surfaces, cheaper markup than two colors), `▀`/`▄` when only one half is
+covered, and `▀` with `background-color` set to the bottom color only when
+both halves are covered with genuinely different colors.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="solid" charMode="halfblock" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={dodeca} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  charMode: "halfblock",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+`charMode: "halfblock"` is a documented no-op outside `solid` mode, and also a
+no-op when combined with a `transformCells` hook or active `temporalBlend`
+reprojection — both already expect the single-color-per-cell output. Mirrored
+as `char-mode="halfblock"` on `<glyph-scene>` and `charMode` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+
+### Four-quadrant cells (`charMode: "quadrant"`)
+
+`charMode: "quadrant"` generalizes `"halfblock"` from a 1×2 (top/bottom)
+subcell split to a full 2×2 split — TL/TR/BL/BR — buying BOTH shape and color
+resolution at the same two-colors-per-cell markup cost. It picks from all 16
+Unicode quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, and the
+three-quadrant glyphs `▛▜▙▟`), which cover every possible binary 2×2 coverage
+pattern exactly — halfblock's `▀`/`▄` are just two of these 16 masks.
+
+A partially-covered cell (1-3 of the 4 regions) renders the exact coverage
+mask — 14 distinct partial silhouettes, instead of halfblock's fixed
+top/bottom rounding — with one averaged color and no background (a background
+would have to paint an uncovered region, which never happens). A
+fully-covered cell either collapses to a single-color `█` (same color on all
+four regions) or splits into a genuine two-tone glyph: the 4 regions partition
+into a "high"/"low" luminance group against their mean, and the matching mask
+renders with `color` = the high group and `background-color` = the low group.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="solid" charMode="quadrant" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={dodeca} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  charMode: "quadrant",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+`charMode: "quadrant"` shares every eligibility rule `"halfblock"` has: a
+documented no-op outside `solid` mode, and no-op when combined with a
+`transformCells` hook or active `temporalBlend` reprojection. Mirrored as
+`char-mode="quadrant"` on `<glyph-scene>` and `charMode` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+
+### Font-weight density ramp (`solidWeightRamp`)
+
+`solidWeightRamp` adds a SECOND density axis to `solid` shading: CSS
+`font-weight`, alongside the usual glyph-shape ramp. Bold does not change
+monospace advance width in any tested stack (Menlo, Courier New, Monaco,
+Andale Mono, `ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace`
+— including a browser-synthesized bold), so a weight-bearing span can never
+desync the character grid.
+
+The ramp itself is measurement data, not a plain string — a list of
+`(glyph, weight)` steps ordered darkest → densest by real ink coverage,
+produced by `@glyphcss/effects`'s `calibrateWeightedGlyphRamp` (never a
+hand-authored table):
+
+```ts
+import { calibrateWeightedGlyphRamp } from "@glyphcss/effects";
+
+const { steps } = calibrateWeightedGlyphRamp({
+  font: { family: "ui-monospace, monospace", size: 32 },
+  steps: 24,
+  weights: [400, 700],
+});
+const solidWeightRamp = steps.map(({ glyph, weight }) => ({ glyph, weight: Number(weight) }));
+```
+
+When set, `solidWeightRamp` REPLACES `glyphPalette`'s solid ramp — shading
+picks both a glyph and a weight from the calibrated steps, buying more
+perceptual shading buckets than glyph shape alone provides (measured: a
+10-glyph Menlo pool reaches 10 steps / coverage 0.3295 on its own; weighted,
+the same pool reaches 15 steps / coverage 0.4508).
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="solid" solidWeightRamp={solidWeightRamp} cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={dodeca} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  solidWeightRamp,
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+`undefined` (the default) is byte-identical to before this option existed.
+Documented no-op outside `solid` mode, under `charMode: "halfblock"` or
+`"quadrant"` (both two-color-per-cell encodings have no font-weight span
+either), and during active `temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS
+property on `<glyph-scene>` (data, not an attribute — same rule
+`sceneManifest`/`dictionary` use) and `solidWeightRamp` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also reachable from
+`compileScene` — the ramp is plain step data, so a weighted-ramp render bakes
+at build time too.
+
 ## `voxel`
 
 One glyph per voxel face, depth-sorted. Natural fit for MagicaVoxel `.vox` files
@@ -191,10 +526,71 @@ scene.add(polygons);
   </TabItem>
 </Tabs>
 
-Each face's color (from the VOX palette) maps to a glyph density — bright colors
-become `#` / `@`, dim colors become `.` / `:`. Back faces are culled.
+Today `voxel` routes through the wireframe rasterizer rather than owning a
+separate path (`// wireframe (and voxel falls through to wireframe for now)` in
+`rasterize.ts`), so it renders cell-aligned geometry as edges. The colour →
+glyph-density mapping described for a dedicated voxel pass does not exist yet.
 
 Best for: voxel art, chunky low-poly aesthetics.
+
+## `ink`
+
+Oriented silhouette + crease outline mode: detects view-dependent silhouette
+edges (front-facing/back-facing sign flip across a shared triangle edge) and
+fixed dihedral-angle crease edges, chains them into contours, smooths the
+screen-space tangent along each chain, and picks a glyph — `_ / | \ - ‾ ▏ ▕` — that
+traces the local contour direction. Interior cells stay empty; hatching and
+texture fills are a future effect-layer concern, not baked into this mode.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
+import { spherePolygons } from "@glyphcss/core";
+
+const sphere = spherePolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+
+export function InkDemo() {
+  return (
+    <GlyphCamera rotX={25}>
+      <GlyphScene mode="ink" cols={80} rows={24}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={sphere} />
+      </GlyphScene>
+    </GlyphCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
+import { spherePolygons } from "@glyphcss/core";
+
+const camera = createGlyphCamera({ rotX: 25 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "ink",
+  cols: 80,
+  rows: 24,
+});
+scene.add(spherePolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
+```
+
+  </TabItem>
+</Tabs>
+
+`charMode`, `wireframeJunctions`, and `solidWeightRamp` are documented no-ops
+in `ink` mode — it always picks its own fixed oriented-glyph set as plain
+ASCII (and has no shade ramp for `solidWeightRamp` to extend). `hiddenLines`
+IS wired in `ink` — see [Hidden-line removal](#hidden-line-removal-hiddenlines)
+above.
+
+Best for: illustration-style previews, product-shot outlines, sphere/torus/organic
+silhouettes where a filled ramp or a dense wireframe cage reads as noise.
 
 ## Shadows
 
@@ -285,13 +681,15 @@ Shadow fields (`GlyphShadowOptions`):
 ## Built-in `geometry` attribute
 
 The `<glyph-mesh>` custom element and the `GlyphMesh` component accept a
-`geometry` string shortcut for three built-in shapes. These are runtime-internal
-presets, not public core helpers — for procedural code use the `@glyphcss/core`
-generators instead.
+`geometry` string shortcut for any name in `GlyphGeometryName` — a public
+registry of ~44 shapes in `@glyphcss/core` (every Platonic, Archimedean and
+Catalan solid, plus `sphere`, `cylinder`, `cone`, `torus`, `pyramid`, `prism`
+and more), resolved by the exported `resolveGeometry`. An unknown name throws
+`Unknown geometry`. A few of the most-used values:
 
 | Value | Shape | Notes |
 |---|---|---|
-| `"cuboctahedron"` | Cuboctahedron with inner lattice | Default demo shape |
+| `"cuboctahedron"` | Cuboctahedron | Default demo shape |
 | `"icosahedron"` | Icosahedron, edge-only wireframe | 20 faces |
 | `"cube"` | Plain cube wireframe | 6 faces |
 

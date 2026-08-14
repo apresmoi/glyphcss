@@ -1,11 +1,11 @@
 ---
 title: GlyphHotspot
-description: Sparse interactive hit anchor over the ASCII strip.
+description: Sparse interactive hit anchor over the ASCII render.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`<GlyphHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII strip,
+`<GlyphHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII render,
 tracking a 3D anchor through every baked frame. The `<div>` is `pointer-events: auto`
 inside an otherwise transparent hit layer — events fire on it like any normal DOM
 element.
@@ -15,7 +15,7 @@ element.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `id` | `string` | required | Stable identifier for this hotspot |
-| `at` | `Vec3 \| string` | required | World-space anchor. Either `[x, y, z]` or a string like `"vertex:42"` |
+| `at` | `Vec3` | required | World-space anchor `[x, y, z]` |
 | `size` | `[number, number]` | `[1, 1]` | Hitbox size in character cells |
 | `onClick` | `MouseEventHandler` | — | Click handler |
 | `aria-label` | `string` | — | Accessibility label |
@@ -25,10 +25,10 @@ element.
 ## Tracking math
 
 For an animated scene, the hotspot is projected once per frame during the bake.
-The resulting positions are emitted as a `@keyframes` rule with `0%`, `1.667%`,
-`3.333%`, ..., `100%` waypoints — matching the strip's `steps(60, end)` exactly.
+The projected cell is written straight to the element's inline `transform` on each
+render pass — one assignment per hotspot, no keyframes and no second projection.
 
-When the user drags, the strip's animation pauses and the hotspot's `transform` is
+When the user drags, the hotspot's `transform` is
 live-updated per pointermove. On release, both animations re-start from the new
 camera state.
 
@@ -157,25 +157,20 @@ const rightHotspot = scene.addHotspot(
 
 ## Visibility
 
-Hotspots behind the camera get `opacity: 0` automatically. Add a CSS transition to
-fade them gracefully:
-
-```css
-.glyph-hotspot {
-  transition: opacity 200ms ease;
-}
-```
-
-The fade is free — the renderer writes `opacity: 0` into the keyframe at any frame
-where the anchor is behind the camera.
+A hotspot whose projected cell is not visible (behind the camera, or occluded)
+is hidden with `display: "none"` rather than faded — the renderer stages the
+style and applies it in the same single write as the rest of the frame. There is
+no opacity keyframe to hook a CSS transition onto; animate the element yourself
+if you want a fade.
 
 ## Anchors
 
-`at` accepts either an explicit `Vec3` or a string anchor:
+`at` is a world-space `Vec3`. String anchors (`"vertex:42"`, `"face:roof"`,
+`"centroid"`) are **not** implemented — resolve the coordinate yourself from the
+polygon data and pass the result:
 
-| Anchor | Resolves to |
-|---|---|
-| `[x, y, z]` | World-space coordinate |
-| `"vertex:42"` | Vertex index 42 of the parent mesh |
-| `"face:roof"` | Named face (requires mesh authoring) |
-| `"centroid"` | Mesh centroid |
+```ts
+const centroid = polygons
+  .flatMap((p) => p.vertices)
+  .reduce((a, v, _i, all) => [a[0] + v[0] / all.length, a[1] + v[1] / all.length, a[2] + v[2] / all.length], [0, 0, 0]);
+```

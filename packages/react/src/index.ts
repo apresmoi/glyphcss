@@ -76,6 +76,7 @@ export {
   bakeSolidTextureSampledPolygons,
   loadMesh,
   createIsometricCamera,
+  parseStl,
   parseVox,
   polygonFaces,
   computeShapeLighting,
@@ -210,8 +211,52 @@ export type {
   GlyphEffectBlend,
 } from "glyphcss";
 
+export { createGlyphSurfaceAtlasWebGpuSession, reprojectGlyphSurfaceAtlas, resampleGlyphTemporalInputs } from "glyphcss";
+export type {
+  GlyphSurfaceAtlasState,
+  GlyphSurfaceAtlasProvenance,
+  GlyphSurfaceAtlasCamera,
+  GlyphSurfaceAtlasSurface,
+  GlyphReprojectSurfaceAtlasOptions,
+  GlyphReprojectSurfaceAtlasResult,
+  GlyphSurfaceAtlasWebGpuSession,
+  GlyphSurfaceAtlasWebGpuSessionOptions,
+  GlyphSurfaceAtlasWebGpuSubmitOptions,
+  GlyphSurfaceAtlasWebGpuReadback,
+  GlyphSurfaceAtlasWebGpuPresentationReadback,
+  GlyphSurfaceAtlasWebGpuProfile,
+} from "glyphcss";
+
+export { GLYPH_CONTROL_TENSOR_CONTRACT, packGlyphControlTensor, validateGlyphControlTensorSpec } from "glyphcss";
+export type {
+  GlyphControlTensorChannelSource,
+  GlyphControlTensorChannel,
+  GlyphControlTensorContract,
+  GlyphControlTensorInstance,
+  GlyphControlTensorSpec,
+  GlyphControlTensorNormalization,
+  GlyphTemporalControlInputs,
+  GlyphPackedControlTensors,
+} from "glyphcss";
+
 // ── Shadow options ────────────────────────────────────────────────────────────
 export type { GlyphShadowOptions } from "glyphcss";
+
+// ── Pure control-frame capture ───────────────────────────────────────────────
+export { buildGlyphControlFrame, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, resolveGlyphControlLineage, validateGlyphControlMetadata } from "glyphcss";
+export type {
+  GlyphObjectDictionary,
+  GlyphObjectDictionaryClass,
+  GlyphControlSceneManifest,
+  GlyphControlInstance,
+  GlyphControlSurface,
+  GlyphControlFrameOptions,
+  GlyphControlFrameMetadata,
+  GlyphControlCameraMetadata,
+  GlyphControlFrame,
+  GlyphControlGeometryHashes,
+  GlyphControlPolygonLineage,
+} from "glyphcss";
 
 // ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ────────
 export { rasterizeToCells, buildCellGrid, applyCellHook } from "glyphcss";

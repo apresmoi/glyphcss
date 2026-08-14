@@ -57,6 +57,8 @@ import {
   sanitizeGalleryEffectParams,
 } from "./effects";
 import type { GlyphEffectId } from "@glyphcss/effects";
+import type { GlyphSemanticCellLineage } from "glyphcss";
+import { gallerySemanticSceneFor } from "./semanticScene";
 
 type AsciiCell = { ch: string; color?: string };
 type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
@@ -242,6 +244,10 @@ const DEFAULT_SCENE: SceneOptionsState = {
   renderMode: "solid",
   featureEdges: 30,
   glyphPalette: "default",
+  charMode: "ascii",
+  wireframeJunctions: false,
+  hiddenLines: "show",
+  solidWeightRamp: false,
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,
@@ -401,6 +407,9 @@ export default function GalleryWorkbench() {
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
   // Mobile-only: which panel is open as a bottom drawer (null = canvas only).
   const [mobilePanel, setMobilePanel] = useState<"models" | "controls" | "code" | null>(null);
+  const [glyphOutput, setGlyphOutput] = useState<"visible" | "semantic">("visible");
+  const [semanticCell, setSemanticCell] = useState<GlyphSemanticCellLineage | null>(null);
+  const ordinaryRenderModeRef = useRef<SceneOptionsState["renderMode"]>(sceneOptions.renderMode);
   // Seed the loader ref to the initial preset when the URL already restored
   // scene options, so it skips applying preset rotX/rotY over the URL values.
   const autoZoomPresetRef = useRef<string | null>(initialRouteHasSceneOptions ? initialPreset.id : null);
@@ -516,6 +525,35 @@ export default function GalleryWorkbench() {
   const selectedPresetPickerCategory =
     pickerItems.find((preset) => preset.id === selectedPreset.id)?.category ??
     galleryBucketForPreset(selectedPreset);
+  const semanticScene = useMemo(
+    () => selectedPreset.kind === "primitive" ? gallerySemanticSceneFor(selectedPreset.id, selectedPreset.generatePolygons()) : null,
+    [selectedPreset],
+  );
+  const semanticAvailable = semanticScene !== null;
+  useEffect(() => {
+    if (!semanticAvailable && glyphOutput === "semantic") {
+      setGlyphOutput("visible");
+      updateScene({ renderMode: ordinaryRenderModeRef.current });
+    }
+    setSemanticCell(null);
+  }, [glyphOutput, semanticAvailable, updateScene]);
+
+  const renderPresentation = glyphOutput === "semantic" ? "semantic" : sceneOptions.renderMode;
+  const handleRenderModeChange = useCallback((mode: "wireframe" | "solid" | "ink" | "semantic") => {
+    if (mode === "semantic") {
+      if (semanticAvailable) {
+        ordinaryRenderModeRef.current = sceneOptions.renderMode;
+        // Semantic is a gallery presentation mode. Its renderer transaction is
+        // still the public solid mode plus glyphOutput: semantic.
+        updateScene({ renderMode: "solid" });
+        setGlyphOutput("semantic");
+      }
+      return;
+    }
+    ordinaryRenderModeRef.current = mode;
+    setGlyphOutput("visible");
+    updateScene({ renderMode: mode });
+  }, [sceneOptions.renderMode, semanticAvailable, updateScene]);
 
   const trimmedModelSearch = modelSearch.trim().toLowerCase();
   const filteredPresetItems = useMemo(() => {
@@ -719,6 +757,8 @@ export default function GalleryWorkbench() {
             animationPaused={sceneOptions.animationPaused}
             animationTimeScale={sceneOptions.animationTimeScale}
             effect={runtimeEffect}
+            semanticOutput={glyphOutput === "semantic" ? semanticScene : null}
+            onSemanticCellLineage={setSemanticCell}
           />
           <CopySceneButton />
           <CodePanel
@@ -742,15 +782,29 @@ export default function GalleryWorkbench() {
       >
         <DockModel metrics={metrics} />
         <DockRendering
-          renderMode={sceneOptions.renderMode}
+          renderMode={renderPresentation}
+          semanticAvailable={semanticAvailable}
           featureEdges={sceneOptions.featureEdges}
           glyphPalette={sceneOptions.glyphPalette}
+          charMode={sceneOptions.charMode}
+          wireframeJunctions={sceneOptions.wireframeJunctions}
+          hiddenLines={sceneOptions.hiddenLines}
+          solidWeightRamp={sceneOptions.solidWeightRamp}
           density={sceneOptions.density}
           dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}
           smoothShading={sceneOptions.smoothShading}
           creaseAngle={sceneOptions.creaseAngle}
+          onRenderModeChange={handleRenderModeChange}
           onUpdateScene={updateScene}
+          semanticDetails={glyphOutput === "semantic" && semanticScene
+            ? <section className="gallery-semantic-details" aria-label="Semantic rendering details">
+              <ul className="gallery-semantic-details__legend" aria-label="Semantic dictionary legend">
+                {semanticScene.dictionary.classes.map((entry) => <li key={entry.id}><i style={{ backgroundColor: entry.controlColor }} /><code>{entry.semanticGlyph}</code><span>{entry.name}</span></li>)}
+              </ul>
+              <p className="gallery-semantic-details__lineage">{semanticCell ? <>polygon {semanticCell.polygonIndex} → {semanticCell.surfaceId} → {semanticCell.instanceId} → {semanticCell.className}</> : "Select a rendered semantic cell to inspect its depth-winning lineage."}</p>
+            </section>
+            : null}
         />
         <DockEffects
           effectState={effectState}

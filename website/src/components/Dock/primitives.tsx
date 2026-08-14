@@ -74,7 +74,9 @@ export function useFolder(
     else f.open();
     setFolder(f);
     return () => {
-      f.destroy();
+      // A nested folder can be torn down after its parent for the same reason
+      // controllers can — see destroyController.
+      destroyController(f as unknown as Controller);
       setFolder(null);
     };
   }, [parent, title]);
@@ -83,6 +85,23 @@ export function useFolder(
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────
+
+/**
+ * lil-gui and React both think they own the controller's DOM. When a folder and
+ * the controllers inside it unmount in the same commit — a dock whose folders
+ * come and go, e.g. /examples/loaders swapping the per-effect folder as you pick
+ * another loader — React tears the deleted subtree down parent-first, so
+ * `folder.destroy()` has already removed the whole subtree by the time each
+ * child controller's cleanup runs, and lil-gui's `removeChild` throws
+ * NotFoundError. The node is gone either way, so treat that as done.
+ */
+function destroyController(raw: Controller): void {
+  try {
+    raw.destroy();
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+  }
+}
 
 function applyEnabled(c: Controller, enabled: boolean, dim: boolean): void {
   if (enabled) c.enable();
@@ -128,7 +147,7 @@ function useControllerLifecycle<T>(
     const wrapper = makeDockController<T>(raw, proxy);
     setCtrl(wrapper);
     return () => {
-      raw.destroy();
+      destroyController(raw);
       setCtrl(null);
     };
     // value and onChange intentionally excluded: value is mirrored below,
@@ -199,7 +218,7 @@ export function useOption<T extends string | number>(
     };
     setCtrl(wrapper);
     return () => {
-      raw.destroy();
+      destroyController(raw);
       setCtrl(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -262,7 +281,7 @@ export function useButton(
     const raw = parent.add(proxy, "value").name(label);
     setCtrl(makeDockController<never>(raw, proxy as unknown as { value: never }));
     return () => {
-      raw.destroy();
+      destroyController(raw);
       setCtrl(null);
     };
   }, [parent, label]);
@@ -287,7 +306,7 @@ export function useReadonlyNumber(
     wrapper.setEnabled(false, { dim: false });
     setCtrl(wrapper);
     return () => {
-      raw.destroy();
+      destroyController(raw);
       setCtrl(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,7 +369,7 @@ export function useReadonlyText(parent: GUI | null, label: string, value: string
     wrapper.setEnabled(false, { dim: false });
     setCtrl(wrapper);
     return () => {
-      raw.destroy();
+      destroyController(raw);
       setCtrl(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

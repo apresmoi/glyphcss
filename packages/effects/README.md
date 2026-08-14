@@ -56,7 +56,19 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   Plaid weave, and more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
-`Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`.
+`Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are
+authored guesses, eyeballed against one font — change family or weight and the
+gradient bands unevenly. `calibrateGlyphRamp({ font, steps })` measures real
+per-glyph ink coverage in a live font (a candidate glyph rasterized onto a 2D
+canvas, alpha-summed, sorted, and deduped so no two ramp steps are visually
+identical) and returns a ramp string that's perceptually linear for **that**
+font. `measureGlyphInkCoverage(glyph, { font })` exposes the underlying
+per-glyph measurement. Both are browser-only by default (need a Canvas 2D
+context); pass `canvasFactory` to measure off the DOM — e.g. with
+[`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas)'s `createCanvas`. The
+result is a plain string, the same shape as `GlyphRamps` — it drops into any
+ramp slot unchanged (including a `glyphcss` `WIREFRAME_PALETTES` entry consumed
+by `compileScene`), since this module never imports `glyphcss`.
 
 Other exports: `GlyphEffectCatalog` (array of every stock definition),
 `getGlyphEffect(id)` (look one up by id), `defaultGlyphEffectParams(definition)`

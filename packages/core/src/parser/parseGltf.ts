@@ -255,7 +255,40 @@ function readAccessor(doc: GltfDoc, bin: Uint8Array, accessorIdx: number): {
   }
   const offset = (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
   const elements = acc.count * componentCount;
-  const slice = bin.buffer.slice(bin.byteOffset + offset, bin.byteOffset + offset + elements * bytesPerComponent);
+  const elementBytes = componentCount * bytesPerComponent;
+  const stride = view.byteStride ?? elementBytes;
+  if (stride < elementBytes) {
+    throw new Error(`parseGltf: accessor ${accessorIdx} byteStride is smaller than its element size`);
+  }
+  const end = offset + (acc.count === 0 ? 0 : (acc.count - 1) * stride + elementBytes);
+  if (offset < 0 || end > bin.byteLength) {
+    throw new Error(`parseGltf: accessor ${accessorIdx} exceeds its binary buffer`);
+  }
+
+  // glTF permits multiple vertex attributes in one interleaved bufferView.
+  // A typed-array slice only works for tightly packed attributes: it would
+  // otherwise read the adjacent NORMAL/UV bytes as the next POSITION.
+  if (stride !== elementBytes) {
+    let array: Float32Array | Uint16Array | Uint32Array | Uint8Array;
+    switch (acc.componentType) {
+      case 5126: array = new Float32Array(elements); break;
+      case 5123: array = new Uint16Array(elements); break;
+      case 5125: array = new Uint32Array(elements); break;
+      case 5121: array = new Uint8Array(elements); break;
+      default: throw new Error(`parseGltf: unhandled componentType ${acc.componentType}`);
+    }
+    const data = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+    let write = 0;
+    for (let i = 0; i < acc.count; i++) {
+      const elementOffset = offset + i * stride;
+      for (let c = 0; c < componentCount; c++) {
+        array[write++] = readRawComponent(data, elementOffset + c * bytesPerComponent, acc.componentType);
+      }
+    }
+    return { array, count: acc.count, componentCount };
+  }
+
+  const slice = bin.buffer.slice(bin.byteOffset + offset, bin.byteOffset + end);
 
   let array: Float32Array | Uint16Array | Uint32Array | Uint8Array;
   switch (acc.componentType) {

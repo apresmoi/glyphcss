@@ -42,7 +42,18 @@ const STATS_STYLE = `
   }
 `;
 
-export function StatsOverlay(): null {
+/** Where the readout pins itself. Defaults to the bottom-right corner it has
+ *  always used; `top-left` anchors it to the top-left of the nearest positioned
+ *  ancestor instead, for layouts where the bottom-right corner is occupied
+ *  (e.g. /wordart's preset footer). */
+export type StatsAnchor = "bottom-right" | "top-left";
+
+export function StatsOverlay({ anchor = "bottom-right", container }: {
+  anchor?: StatsAnchor;
+  /** Mount point; defaults to `document.body`. Pass the render area to anchor
+   *  the readout inside it rather than to the viewport. */
+  container?: HTMLElement | null;
+} = {}): null {
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -52,16 +63,18 @@ export function StatsOverlay(): null {
     styleEl.textContent = STATS_STYLE;
     document.head.appendChild(styleEl);
 
+    const host = container ?? document.body;
+    const topLeft = anchor === "top-left";
     const statsContainer = document.createElement("div");
     statsContainer.className = "glyph-stats-host";
-    statsContainer.style.position = "fixed";
-    statsContainer.style.right = "12px";
-    statsContainer.style.bottom = "12px";
+    statsContainer.style.position = host === document.body ? "fixed" : "absolute";
     statsContainer.style.zIndex = "30";
-    statsContainer.style.top = "auto";
-    statsContainer.style.left = "auto";
+    statsContainer.style.right = topLeft ? "auto" : "12px";
+    statsContainer.style.bottom = topLeft ? "auto" : "12px";
+    statsContainer.style.top = topLeft ? "12px" : "auto";
+    statsContainer.style.left = topLeft ? "12px" : "auto";
     statsContainer.style.display = "flex";
-    statsContainer.style.alignItems = "flex-end";
+    statsContainer.style.alignItems = topLeft ? "flex-start" : "flex-end";
 
     const stats = [0, 1, 2].map((mode) => {
       const stat = new Stats();
@@ -72,7 +85,7 @@ export function StatsOverlay(): null {
       return stat;
     });
 
-    document.body.appendChild(statsContainer);
+    host.appendChild(statsContainer);
 
     const tick = () => {
       for (const stat of stats) {
@@ -90,7 +103,7 @@ export function StatsOverlay(): null {
       styleEl.remove();
       frameRef.current = null;
     };
-  }, []);
+  }, [anchor, container]);
 
   return null;
 }

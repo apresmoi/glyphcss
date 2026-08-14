@@ -1,7 +1,16 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import {
+  createUrlCodec,
+  decodeEffectParamsPacked,
+  encodeEffectParamsPacked,
+  readUrlParam,
+  writeUrlParam,
+  type UrlField,
+} from "../../../lib/urlState";
+import {
   DEFAULT_GALLERY_EFFECT_STATE,
+  GALLERY_EFFECT_CATALOG,
   galleryEffectDefinition,
   galleryEffectDefaultParams,
   sanitizeGalleryEffectParams,
@@ -9,92 +18,80 @@ import {
 import type { GalleryEffectParamValue, GalleryEffectState } from "../types";
 
 const EFFECT_PARAM = "fx";
-const EFFECT_ROUTE_VERSION = 1;
-const MAX_EFFECT_ROUTE_LENGTH = 8_192;
+const EFFECT_SCHEMA_VERSION = "1";
+const EFFECT_ID_VALUES = GALLERY_EFFECT_CATALOG.map((d) => d.id);
 
-type SerializedEffectState = {
-  v: 1;
-  id: string;
-  ev: number;
-  b?: "replace" | "over";
-  p?: 1;
-  s?: number;
-  x?: Record<string, GalleryEffectParamValue>;
+// Shape carried in the packed `fx` param. `params` is pre-packed against the
+// chosen effect's own parameterSchema by `encodeEffectParamsPacked` (same
+// generic codec /synth uses for its whole patch) and stored here as an opaque
+// string field — so it round-trips through the same length-prefixed string
+// primitive as any other string field, no JSON/escaping involved.
+interface EffectRouteState {
+  effectId: string;
+  effectVersion: number;
+  blend: "replace" | "over";
+  paused: boolean;
+  timeScale: number;
+  params: string;
+}
+
+const EMPTY_ROUTE_STATE: EffectRouteState = {
+  effectId: "",
+  effectVersion: 0,
+  blend: "replace",
+  paused: false,
+  timeScale: 1,
+  params: "",
 };
 
-function writeEffectParam(value: string | null): void {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  if (value) params.set(EFFECT_PARAM, value);
-  else params.delete(EFFECT_PARAM);
-  const search = params.toString();
-  const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next !== current) window.history.replaceState(window.history.state, "", next);
-}
+const effectFields: readonly UrlField<EffectRouteState>[] = [
+  { key: "effectId", token: "i", type: { kind: "enum", values: EFFECT_ID_VALUES }, default: "" },
+  { key: "effectVersion", token: "v", type: { kind: "int" }, default: 0 },
+  { key: "blend", token: "b", type: { kind: "enum", values: ["replace", "over"] }, default: "replace" },
+  { key: "paused", token: "p", type: { kind: "bool" }, default: false },
+  { key: "timeScale", token: "s", type: { kind: "float", step: 0.0001 }, default: 1 },
+  { key: "params", token: "x", type: { kind: "string" }, default: "" },
+];
 
-function sameParamValue(a: GalleryEffectParamValue, b: GalleryEffectParamValue): boolean {
-  if (typeof a === "number" && typeof b === "number") {
-    return Number(a.toFixed(6)) === Number(b.toFixed(6));
-  }
-  return a === b;
-}
+export const effectCodec = createUrlCodec<EffectRouteState>(EFFECT_SCHEMA_VERSION, effectFields);
 
 function serializeEffectState(state: GalleryEffectState): string | null {
   if (!state.effectId) return null;
   const definition = galleryEffectDefinition(state.effectId);
   if (!definition) return null;
   const defaults = galleryEffectDefaultParams(definition);
-  const overrides: Record<string, GalleryEffectParamValue> = {};
-  for (const [name, value] of Object.entries(state.params)) {
-    if (name === "time" || !(name in definition.parameterSchema)) continue;
-    if (!sameParamValue(value, defaults[name]!)) overrides[name] = value;
-  }
-  const payload: SerializedEffectState = {
-    v: EFFECT_ROUTE_VERSION,
-    id: state.effectId,
-    ev: state.effectVersion,
-    ...(state.blend !== definition.defaultBlend ? { b: state.blend } : null),
-    ...(state.paused ? { p: 1 as const } : null),
-    ...(state.timeScale !== 1 ? { s: Number(state.timeScale.toFixed(4)) } : null),
-    ...(Object.keys(overrides).length > 0 ? { x: overrides } : null),
-  };
-  return JSON.stringify(payload);
+  const params = encodeEffectParamsPacked(definition.parameterSchema, defaults, state.params);
+  const encoded = effectCodec.encode({
+    effectId: state.effectId,
+    effectVersion: state.effectVersion,
+    blend: state.blend,
+    paused: state.paused,
+    timeScale: state.timeScale,
+    params,
+  });
+  return encoded === `p${EFFECT_SCHEMA_VERSION}` ? null : encoded;
 }
 
 function decodeEffectState(raw: string | null): GalleryEffectState {
-  if (!raw || raw.length > MAX_EFFECT_ROUTE_LENGTH) return DEFAULT_GALLERY_EFFECT_STATE;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return DEFAULT_GALLERY_EFFECT_STATE;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return DEFAULT_GALLERY_EFFECT_STATE;
-  const payload = parsed as Partial<SerializedEffectState>;
-  if (payload.v !== EFFECT_ROUTE_VERSION || typeof payload.id !== "string") return DEFAULT_GALLERY_EFFECT_STATE;
-  const definition = galleryEffectDefinition(payload.id as GlyphEffectId);
+  const route = { ...EMPTY_ROUTE_STATE, ...effectCodec.decode(raw) };
+  if (!route.effectId) return DEFAULT_GALLERY_EFFECT_STATE;
+  const definition = galleryEffectDefinition(route.effectId as GlyphEffectId);
   if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
-  const effectVersion = definition.version;
-  if (payload.ev !== effectVersion) return DEFAULT_GALLERY_EFFECT_STATE;
-  const timeScale = typeof payload.s === "number" && Number.isFinite(payload.s)
-    ? Math.min(Math.max(payload.s, 0.05), 3)
-    : 1;
+  if (route.effectVersion !== definition.version) return DEFAULT_GALLERY_EFFECT_STATE;
+  const timeScale = Number.isFinite(route.timeScale) ? Math.min(Math.max(route.timeScale, 0.05), 3) : 1;
+  const overrides = decodeEffectParamsPacked(definition.parameterSchema, route.params) as Record<string, GalleryEffectParamValue>;
   return {
     effectId: definition.id,
-    effectVersion,
-    blend: payload.b === "over" || payload.b === "replace"
-      ? payload.b
-      : definition.defaultBlend,
-    paused: payload.p === 1,
+    effectVersion: definition.version,
+    blend: route.blend,
+    paused: route.paused,
     timeScale,
-    params: sanitizeGalleryEffectParams(definition, payload.x),
+    params: sanitizeGalleryEffectParams(definition, overrides),
   };
 }
 
 function currentEffectParam(): string | null {
-  if (typeof window === "undefined") return null;
-  return new URLSearchParams(window.location.search).get(EFFECT_PARAM);
+  return readUrlParam(EFFECT_PARAM);
 }
 
 export function routeInitialEffectState(): GalleryEffectState {
@@ -106,11 +103,11 @@ export function routeHasEffectState(): boolean {
 }
 
 export function setRouteEffectState(state: GalleryEffectState): void {
-  writeEffectParam(serializeEffectState(state));
+  writeUrlParam(EFFECT_PARAM, serializeEffectState(state));
 }
 
 export function clearRouteEffectState(): void {
-  writeEffectParam(null);
+  writeUrlParam(EFFECT_PARAM, null);
 }
 
 export function useEffectRouteSync(

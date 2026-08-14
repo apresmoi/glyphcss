@@ -34,8 +34,15 @@ import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
-import { rasterize, computeOcclusionIds } from "../render/rasterize";
-import { encodeCellGrid, type CellGrid, type TransformCells } from "../render/cells";
+import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
+import { encodeCellGrid, encodeGlyphBuffers, type CellGrid, type TransformCells } from "../render/cells";
+import {
+  resolveGlyphControlLineage,
+  validateGlyphControlMetadata,
+  type GlyphControlPolygonLineage,
+  type GlyphControlSceneManifest,
+  type GlyphObjectDictionary,
+} from "./controlFrame";
 import type {
   GlyphEffectDefinitionLayerOptions,
   GlyphEffectLayerHandle,
@@ -56,14 +63,64 @@ import {
 } from "../render/effectCompositor";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
-export type { GlyphMeshTransform, GlyphShadowOptions } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 export interface GlyphSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
   mode?: RenderMode;
   /** Named glyph palette. Defaults to "default". */
   glyphPalette?: string;
+  /**
+   * Character encoding for rasterized output. `"ascii"` (default) is the
+   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
+   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
+   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes — braille
+   * dot coverage is binary and cannot carry a Lambert shade ramp or voxel
+   * face glyph, so those modes always render ASCII regardless of this option.
+   * `"halfblock"` is solid-mode-only: it packs two independently colored
+   * subcells (top/bottom) into one `▀`/`▄`/`█` cell for 2× vertical color
+   * resolution, at coarser shape. `"quadrant"` generalizes it to a full 2×2
+   * subcell split (16 possible `▘▝▖▗▀▄▌▐▚▞█` + three-quadrant glyphs),
+   * buying shape resolution AND, on a fully-covered cell, a two-color split
+   * — twice halfblock's shape resolution at the same two-colors-per-cell
+   * cost. Both are documented no-ops outside `solid` mode and when combined
+   * with a `transformCells` hook or active `temporalBlend` reprojection. See
+   * {@link RasterizeContextOptions.charMode}.
+   */
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
+  /**
+   * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
+   * When `true`, near-axis-aligned wireframe edges meeting in the same cell
+   * resolve to a single `┌┐└┘├┤┬┴┼─│` glyph consistent with every edge that
+   * touches it (corners, T-junctions, crossings) instead of a random per-tier
+   * glyph. See {@link RasterizeContextOptions.wireframeJunctions}. Default
+   * `false`.
+   */
+  wireframeJunctions?: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`) and for `mode: "ink"`. `"show"` (default) is today's
+   * behavior: edges/strokes draw with no depth reference. `"hide"`
+   * depth-tests every stroke against a solid surface prepass so a back edge
+   * (another mesh's or the same mesh's far side) doesn't paint through a
+   * nearer one — wireframe with a slope-scaled margin, `ink` by exempting
+   * each edge's own local vertex neighborhood so a mesh never self-occludes
+   * its own silhouette. Documented no-op in `solid` (already depth-buffered
+   * per cell). See {@link RasterizeContextOptions.hiddenLines}.
+   */
+  hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps ordered darkest → densest by measured ink
+   * coverage — see `@glyphcss/effects`'s `calibrateWeightedGlyphRamp` and
+   * {@link RasterizeContextOptions.solidWeightRamp}. When set, replaces
+   * `glyphPalette`'s solid ramp so shading picks both a glyph and a weight,
+   * buying more perceptual steps than glyph shape alone. Default `undefined`
+   * (off, byte-identical). Documented no-op during active `temporalBlend`
+   * reprojection.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -147,6 +204,12 @@ export interface GlyphSceneOptions {
    * byte-identical to the pre-hook renderer. See {@link TransformCells}.
    */
   transformCells?: TransformCells;
+  /** Select the appearance-shaded or dictionary-semantic solid output. Default "visible". */
+  glyphOutput?: "visible" | "semantic";
+  /** Immutable polygon-to-surface lineage required only for `glyphOutput: "semantic"`. */
+  sceneManifest?: GlyphControlSceneManifest;
+  /** Immutable class-to-glyph/control-color dictionary required only for semantic output. */
+  dictionary?: GlyphObjectDictionary;
 }
 
 export interface GlyphHotspotOptions {
@@ -196,6 +259,11 @@ export interface GlyphSceneHandle {
   setOptions(opts: Partial<GlyphSceneOptions>): void;
   getOptions(): GlyphSceneOptions;
   /**
+   * Read the last committed base-grid semantic winners. `null` unless semantic
+   * output is active; detail-layer cells intentionally have no base-grid index.
+   */
+  getGlyphSemanticCellFrame(): GlyphSemanticCellFrame | null;
+  /**
    * Re-measure the host's character cell (font-size, line-height) and adapt
    * `cols`/`rows`/`cellAspect`. Only meaningful when `autoSize` was enabled.
    * Call when something outside the scene options changes the cell size —
@@ -213,13 +281,60 @@ export interface GlyphSceneHandle {
   destroy(): void;
 }
 
+export interface GlyphSemanticCellLineage {
+  readonly polygonIndex: number;
+  readonly surfaceId: string;
+  readonly instanceId: string;
+  readonly classId: number;
+  readonly className: string;
+  readonly semanticGlyph: string;
+  readonly controlColor: string;
+}
+
+export interface GlyphSemanticCellFrame {
+  readonly cols: number;
+  readonly rows: number;
+  /** Base-grid resolved depth winners, row-major. Empty cells are null. */
+  readonly cells: readonly (GlyphSemanticCellLineage | null)[];
+}
+
 interface MeshEntry {
   id: number;
   polygons: Polygon[];
   transform: GlyphMeshTransform;
 }
 
-type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells"> & { shadow: GlyphShadowOptions | undefined; transformCells: TransformCells | undefined };
+interface DetailLayerState {
+  pre: HTMLPreElement;
+  key: string;
+  cw: number;
+  ch: number;
+  fontSize: string;
+  lineHeight: string;
+  transform: string;
+}
+
+interface DetailCommit {
+  next: Map<number, DetailLayerState>;
+  removed: DetailLayerState[];
+}
+
+interface StagedHotspotStyle { el: HTMLElement; display: string; left?: string; top?: string; zIndex?: string }
+
+interface RenderCommit {
+  writes: Array<{ pre: HTMLPreElement; encoded: string }>;
+  details: DetailCommit;
+  hotspots: StagedHotspotStyle[];
+  retained: Map<string, RetainedGlyphEffectOutput> | null;
+}
+
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp"> & {
+  shadow: GlyphShadowOptions | undefined;
+  transformCells: TransformCells | undefined;
+  sceneManifest: GlyphControlSceneManifest | undefined;
+  dictionary: GlyphObjectDictionary | undefined;
+  solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
+};
 
 let nextMeshId = 1;
 
@@ -274,6 +389,11 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
   return polygons.map((p) => ({
     ...p,
     vertices: p.vertices.map(transformVertex),
+    // Pre-transform positions, parallel to the new `vertices` — recovers the
+    // mesh's own local frame for `space: "object"` effects without an
+    // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
+    // returns a fresh array), so aliasing it here is safe and free.
+    objectVertices: p.vertices,
   }));
 }
 
@@ -281,11 +401,26 @@ export function createGlyphScene(
   host: HTMLElement,
   opts: GlyphSceneOptions = {},
 ): GlyphSceneHandle {
+  const initialGlyphOutput = opts.glyphOutput ?? "visible";
+  if (initialGlyphOutput !== "visible" && initialGlyphOutput !== "semantic") {
+    throw new TypeError('glyphcss: glyphOutput must be "visible" or "semantic".');
+  }
+  if (initialGlyphOutput === "semantic") {
+    if ((opts.mode ?? "solid") !== "solid") throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
+    if (!opts.sceneManifest || !opts.dictionary) {
+      throw new TypeError("glyphcss: semantic glyph output requires sceneManifest and dictionary.");
+    }
+    validateGlyphControlMetadata(opts.sceneManifest, opts.dictionary);
+  }
   injectGlyphBaseStyles(host.ownerDocument ?? undefined);
 
   const options: InternalOptions = {
     mode: opts.mode ?? "solid",
     glyphPalette: opts.glyphPalette ?? "default",
+    charMode: opts.charMode ?? "ascii",
+    wireframeJunctions: opts.wireframeJunctions ?? false,
+    hiddenLines: opts.hiddenLines ?? "show",
+    solidWeightRamp: opts.solidWeightRamp,
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -303,7 +438,15 @@ export function createGlyphScene(
     autoSize: opts.autoSize ?? false,
     shadow: opts.shadow,
     transformCells: opts.transformCells,
+    glyphOutput: initialGlyphOutput,
+    sceneManifest: opts.sceneManifest,
+    dictionary: opts.dictionary,
   };
+  let committedOptions: InternalOptions = { ...options };
+
+  function testRenderStage(stage: string): void {
+    (globalThis as { __glyphRenderStage?: (stage: string) => void }).__glyphRenderStage?.(stage);
+  }
 
   // Build DOM
   const sceneEl = host.ownerDocument!.createElement("div");
@@ -312,13 +455,22 @@ export function createGlyphScene(
   pre.className = "glyph-output";
   const hotspotLayer = host.ownerDocument!.createElement("div");
   hotspotLayer.className = "glyph-hotspot-layer";
+  // Measurements happen in this permanent, invisible sibling.  In particular,
+  // never append a probe to a published output: a failed render must not even
+  // transiently mutate the output tree, and CSS units must be resolved by the
+  // browser rather than guessed from parseFloat.
+  const measurementSandbox = host.ownerDocument!.createElement("div");
+  measurementSandbox.setAttribute("aria-hidden", "true");
+  measurementSandbox.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;overflow:hidden;width:0;height:0;contain:layout style paint";
   sceneEl.appendChild(pre);
   sceneEl.appendChild(hotspotLayer);
+  sceneEl.appendChild(measurementSandbox);
   host.appendChild(sceneEl);
 
   const meshes = new Map<number, MeshEntry>();
   const hotspots: Array<{ hotspot: Hotspot; el: HTMLElement; onClick?: () => void }> = [];
   let pendingRender = false;
+  let renderGeneration = 0;
   let pendingEffectRender = false;
   let effectDirty = false;
   let destroyed = false;
@@ -329,12 +481,14 @@ export function createGlyphScene(
   let collectingEffectOutputs: Map<string, RetainedGlyphEffectOutput> | null = null;
   let currentEffectOutputMetadata: GlyphEffectOutputMetadata | null = null;
   let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string }> | null = null;
+  let stagedDetailCommit: DetailCommit | null = null;
+  let semanticCellFrame: GlyphSemanticCellFrame | null = null;
 
   function hasEffectLayers(): boolean {
     return effectLayers.length > 0;
   }
 
-  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition"): boolean {
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition"): boolean {
     return effectLayers.some((layer) => (
       !layer.disposed && (
         layer.program.requirements?.includes(requirement) === true
@@ -366,23 +520,14 @@ export function createGlyphScene(
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
   };
 
-  function writeEffectOutput(output: RetainedGlyphEffectOutput, encoded: string): void {
-    if (options.useColors) output.metadata.pre.innerHTML = encoded;
-    else output.metadata.pre.textContent = encoded;
-  }
-
   function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string): void {
-    if (stagedFullEffectWrites) {
-      stagedFullEffectWrites.push({ pre: outputPre, encoded });
-    } else if (options.useColors) {
-      outputPre.innerHTML = encoded;
-    } else {
-      outputPre.textContent = encoded;
-    }
+    if (!stagedFullEffectWrites) throw new Error("glyphcss: output write escaped its render transaction.");
+    stagedFullEffectWrites.push({ pre: outputPre, encoded });
   }
 
   function renderRetainedEffects(): void {
     if (destroyed || !effectDirty) return;
+    if (options.glyphOutput === "semantic") return;
     if (retainedEffectOutputs.size === 0) {
       scheduleRender();
       return;
@@ -391,10 +536,16 @@ export function createGlyphScene(
     const prepared = prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows]);
     const staged: Array<{ output: RetainedGlyphEffectOutput; encoded: string }> = [];
     for (const output of retainedEffectOutputs.values()) {
+      testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
       staged.push({ output, encoded: encodeCellGrid(grid, options.useColors) });
     }
-    for (const entry of staged) writeEffectOutput(entry.output, entry.encoded);
+    commitRender({
+      writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
+      details: { next: new Map(detailLayers), removed: [] },
+      hotspots: [],
+      retained: retainedEffectOutputs,
+    });
     effectDirty = false;
     if (!hasEffectLayers()) retainedEffectOutputs.clear();
   }
@@ -406,7 +557,15 @@ export function createGlyphScene(
     Promise.resolve().then(() => {
       pendingEffectRender = false;
       if (destroyed || pendingRender || !effectDirty) return;
-      renderRetainedEffects();
+      try {
+        renderRetainedEffects();
+      } catch (error) {
+        // Test harnesses can observe an async retained-frame failure without
+        // turning it into an unrelated unhandled-rejection failure. This is a
+        // private global seam, intentionally absent from the public API.
+        const report = (globalThis as { __glyphRenderError?: (error: unknown) => void }).__glyphRenderError;
+        if (report) report(error); else throw error;
+      }
     });
   }
 
@@ -420,11 +579,42 @@ export function createGlyphScene(
   const temporalHistory: TemporalHistory = {
     idx: new Float32Array(0), r: new Float32Array(0), g: new Float32Array(0), b: new Float32Array(0), cols: 0, rows: 0, cam: null,
   };
-  function invalidateShading(): void {
-    shadeCache.iA.length = 0;
-    shadeCache.iB.length = 0;
-    shadeCache.iC.length = 0;
-    shadeCache.lit.length = 0;
+  // Never destroy a committed cache before the render which invalidates it has
+  // itself committed. A later-stage failure must leave both the frame and its
+  // next-frame inputs exactly as they were.
+  let shadeCacheDirty = false;
+  function invalidateShading(): void { shadeCacheDirty = true; }
+
+  function cloneShadeCache(source: ShadeCache): ShadeCache {
+    return { iA: source.iA.slice(), iB: source.iB.slice(), iC: source.iC.slice(), lit: source.lit.slice() };
+  }
+
+  function cloneTemporalHistory(source: TemporalHistory): TemporalHistory {
+    return {
+      idx: source.idx.slice(), r: source.r.slice(), g: source.g.slice(), b: source.b.slice(),
+      cols: source.cols, rows: source.rows,
+      cam: source.cam === null ? null : {
+        ...source.cam,
+        target: [...source.cam.target] as [number, number, number],
+        center: [...source.cam.center] as [number, number],
+        metrics: source.cam.metrics ? { ...source.cam.metrics } : undefined,
+      },
+    };
+  }
+
+  function publishRendererState(nextShadeCache: ShadeCache, nextTemporalHistory: TemporalHistory): void {
+    shadeCache.iA.splice(0, shadeCache.iA.length, ...nextShadeCache.iA);
+    shadeCache.iB.splice(0, shadeCache.iB.length, ...nextShadeCache.iB);
+    shadeCache.iC.splice(0, shadeCache.iC.length, ...nextShadeCache.iC);
+    shadeCache.lit.splice(0, shadeCache.lit.length, ...nextShadeCache.lit);
+    temporalHistory.idx = nextTemporalHistory.idx;
+    temporalHistory.r = nextTemporalHistory.r;
+    temporalHistory.g = nextTemporalHistory.g;
+    temporalHistory.b = nextTemporalHistory.b;
+    temporalHistory.cols = nextTemporalHistory.cols;
+    temporalHistory.rows = nextTemporalHistory.rows;
+    temporalHistory.cam = nextTemporalHistory.cam;
+    shadeCacheDirty = false;
   }
 
   // Decoded texture pixel samplers (for per-cell texture rendering). Built async
@@ -468,37 +658,99 @@ export function createGlyphScene(
   function scheduleRender(): void {
     if (destroyed || pendingRender) return;
     pendingRender = true;
+    const generation = ++renderGeneration;
     Promise.resolve().then(() => {
+      if (generation !== renderGeneration) return;
       pendingRender = false;
       if (destroyed) return;
       doRender();
     });
   }
 
+  function resolveSemanticLineage(polygons: readonly Polygon[]): readonly GlyphControlPolygonLineage[] {
+    if (!options.sceneManifest || !options.dictionary) {
+      throw new TypeError("glyphcss: semantic glyph output requires sceneManifest and dictionary.");
+    }
+    return resolveGlyphControlLineage(polygons, options.sceneManifest, options.dictionary).lineage;
+  }
+
+  function encodeSemanticCells(
+    cells: CellGrid,
+    lineage: readonly GlyphControlPolygonLineage[],
+    winnerToGlobal: readonly number[],
+    useColors: boolean,
+  ): string {
+    const n = cells.cols * cells.rows;
+    const chars = new Array<string>(n).fill(" ");
+    const colors = new Array<string | null>(n).fill(null);
+    const winners = cells.winnerPolygon;
+    if (!winners) throw new Error("glyphcss: semantic output requires winner polygon cells.");
+    for (let index = 0; index < n; index++) {
+      const winner = winners[index]!;
+      if (winner < 0) continue;
+      const globalWinner = winnerToGlobal[winner];
+      const resolved = globalWinner === undefined ? undefined : lineage[globalWinner];
+      if (!resolved) throw new RangeError(`glyphcss: raster winner ${globalWinner ?? winner} is outside the semantic lineage.`);
+      chars[index] = resolved.semanticGlyph;
+      colors[index] = resolved.controlColor;
+    }
+    return encodeGlyphBuffers(chars, colors, cells.cols, cells.rows, useColors);
+  }
+
   function doRender(): void {
+    try {
+      doRenderTransaction();
+    } catch (error) {
+      // Preparation (semantic validation, layout measurement, occlusion and
+      // effect setup) is part of the same option transaction as publication.
+      Object.assign(options, committedOptions);
+      throw error;
+    }
+  }
+
+  function doRenderTransaction(): void {
     if (destroyed) return;
+    if (options.glyphOutput === "semantic" && options.mode !== "solid") {
+      throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
+    }
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
+    const basePolygonGlobalIndexes: number[] = [];
     const castShadowFlags: boolean[] = [];
     const receiveShadowFlags: boolean[] = [];
     const depthBiases: number[] = [];
     let anyDepthBias = false;
     const detailEntries: MeshEntry[] = [];
+    const transformedByEntry = new Map<number, Polygon[]>();
+    const globalPolygonOffsets = new Map<number, number>();
+    const semanticPolygons: Polygon[] = [];
     for (const entry of meshes.values()) {
+      const transformed = applyTransform(entry.polygons, entry.transform);
+      globalPolygonOffsets.set(entry.id, semanticPolygons.length);
+      semanticPolygons.push(...transformed);
+      transformedByEntry.set(entry.id, transformed);
       // Meshes with their own cell metrics render in a separate, finer <pre>.
       if (isDetailMesh(entry.transform)) { detailEntries.push(entry); continue; }
-      const transformed = applyTransform(entry.polygons, entry.transform);
       const cast = entry.transform.castShadow ?? false;
       const receive = entry.transform.receiveShadow ?? false;
       const bias = entry.transform.depthBias ?? 0;
       if (bias !== 0) anyDepthBias = true;
-      for (const p of transformed) {
+      const globalOffset = globalPolygonOffsets.get(entry.id)!;
+      for (let polygonIndex = 0; polygonIndex < transformed.length; polygonIndex++) {
+        const p = transformed[polygonIndex]!;
         allPolygons.push(p);
+        basePolygonGlobalIndexes.push(globalOffset + polygonIndex);
         castShadowFlags.push(cast);
         receiveShadowFlags.push(receive);
         depthBiases.push(bias);
       }
     }
+
+    // Validate every semantic prerequisite before allocating a winner buffer,
+    // projecting geometry, creating detail DOM, or assigning any output.
+    const semanticLineage = options.glyphOutput === "semantic"
+      ? (semanticPolygons.length > 0 ? resolveSemanticLineage(semanticPolygons) : [])
+      : null;
 
     // Cross-layer occlusion: if any OPAQUE detail mesh exists, build ONE shared
     // camera-depth buffer (base meshes + opaque detail meshes) at the base grid.
@@ -524,10 +776,13 @@ export function createGlyphScene(
     }
 
     assertEffectMode(options.mode);
-    const effectsActive = hasEffectLayers();
+    // Semantic output is geometry identity, never appearance composition. Keep
+    // retained effects and hooks untouched so visible mode resumes exactly.
+    const effectsActive = options.glyphOutput === "visible" && hasEffectLayers();
     const retainBaseShade = effectsActive && effectRequests("baseShade");
     const retainWorldPosition = effectsActive && effectRequests("worldPosition");
     const retainNormal = effectsActive && effectRequests("normal");
+    const retainObjectPosition = effectsActive && effectRequests("objectPosition");
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -553,9 +808,21 @@ export function createGlyphScene(
       ? prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows])
       : null;
     collectingEffectOutputs = effectsActive ? new Map() : null;
-    stagedFullEffectWrites = effectsActive ? [] : null;
+    // Every output is staged, including the ordinary no-effect fast path.
+    // This is deliberately not conditional: detail insertion/style and base
+    // text are one visible transaction.
+    stagedFullEffectWrites = [];
+    // Rasterization is allowed to mutate these working copies freely. They
+    // become the next frame's state only after every output/detail/hotspot
+    // publication succeeds.
+    const nextShadeCache = shadeCacheDirty
+      ? { iA: [], iB: [], iC: [], lit: [] }
+      : cloneShadeCache(shadeCache);
+    const nextTemporalHistory = cloneTemporalHistory(temporalHistory);
 
     try {
+    testRenderStage("base-validate");
+    testRenderStage("base-layout");
     const ctx = buildRasterizeContext({
       camera: options.camera,
       grid: baseGrid,
@@ -564,6 +831,10 @@ export function createGlyphScene(
       directionalLight: options.directionalLight,
       ambientLight: options.ambientLight,
       glyphPalette: options.glyphPalette,
+      charMode: options.charMode,
+      wireframeJunctions: options.wireframeJunctions,
+      hiddenLines: options.hiddenLines,
+      solidWeightRamp: options.solidWeightRamp,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -578,10 +849,12 @@ export function createGlyphScene(
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
+      retainObjectPosition,
+      retainWinnerPolygon: options.glyphOutput === "semantic",
     });
-    ctx.shadeCache = shadeCache;
+    ctx.shadeCache = nextShadeCache;
     ctx.textureSamplers = textureSamplers;
-    ctx.temporalHistory = temporalHistory;
+    if (options.glyphOutput === "visible") ctx.temporalHistory = nextTemporalHistory;
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
@@ -597,7 +870,9 @@ export function createGlyphScene(
       ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
     } : null;
     // With no effect layer, preserve the direct legacy/no-hook byte path.
-    ctx.transformCells = effectsActive ? transformEffectCells : options.transformCells;
+    ctx.transformCells = options.glyphOutput === "visible"
+      ? (effectsActive ? transformEffectCells : options.transformCells)
+      : undefined;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
     // record per-render rasterize vs DOM-write timings into it. Zero cost when
@@ -606,7 +881,19 @@ export function createGlyphScene(
     const perf = (globalThis as { __glyphPerf?: { raster?: number[]; dom?: number[]; polys?: number[] } }).__glyphPerf;
     const tStart = perf ? performance.now() : 0;
 
-    const output = rasterize(ctx);
+    testRenderStage("base-project");
+    testRenderStage("base-raster");
+    const semanticCells = options.glyphOutput === "semantic" ? rasterizeToCells(ctx) : null;
+    const output = semanticCells
+      ? encodeSemanticCells(semanticCells, semanticLineage!, basePolygonGlobalIndexes, options.useColors)
+      : rasterize(ctx);
+    // Build the immutable inspection snapshot before any DOM publication. A
+    // malformed lineage must fail this render transaction, not leave text
+    // advanced while its inspector frame remains stale.
+    const nextSemanticCellFrame = semanticCells
+      ? buildSemanticCellFrame(semanticCells, semanticLineage!, basePolygonGlobalIndexes)
+      : null;
+    testRenderStage("base-encode");
     const tRaster = perf ? performance.now() : 0;
 
     writeOrStageFullOutput(pre, output);
@@ -626,28 +913,61 @@ export function createGlyphScene(
       retainBaseShade,
       retainWorldPosition,
       retainNormal,
+      retainObjectPosition,
       worldToSceneScale,
+      semanticLineage,
+      globalPolygonOffsets,
+      transformedByEntry,
     );
 
-    if (stagedFullEffectWrites) {
-      for (const entry of stagedFullEffectWrites) {
-        if (options.useColors) entry.pre.innerHTML = entry.encoded;
-        else entry.pre.textContent = entry.encoded;
-      }
-    }
-
-    if (collectingEffectOutputs) retainedEffectOutputs = collectingEffectOutputs;
-    else retainedEffectOutputs.clear();
+    // Nothing above this line publishes a detail node, style, transform, or
+    // encoded frame. A failed projection/encode therefore leaves the prior
+    // scene intact instead of exposing a half-rendered set of layers.
+    const hotspotStyles = stageHotspots();
+    commitRender({
+      writes: stagedFullEffectWrites,
+      details: stagedDetailCommit ?? { next: new Map(detailLayers), removed: [] },
+      hotspots: hotspotStyles,
+      retained: options.glyphOutput === "visible" ? (collectingEffectOutputs ?? new Map()) : null,
+    });
+    publishRendererState(nextShadeCache, nextTemporalHistory);
+    semanticCellFrame = nextSemanticCellFrame;
     effectDirty = false;
-
-    // Update hotspot positions.
-    updateHotspots();
+    committedOptions = { ...options };
+    } catch (error) {
+      // Option setters schedule their render asynchronously. Keep their public
+      // state coupled to the DOM transaction when a later preparation stage
+      // rejects instead of leaving semantic/visible selection ahead of paint.
+      throw error;
     } finally {
       currentEffectOutputMetadata = null;
       collectingEffectOutputs = null;
       activePreparedEffects = null;
       stagedFullEffectWrites = null;
+      stagedDetailCommit = null;
     }
+  }
+
+  function buildSemanticCellFrame(cells: CellGrid, lineage: readonly GlyphControlPolygonLineage[], winnerToGlobal: readonly number[]): GlyphSemanticCellFrame {
+    const winners = cells.winnerPolygon;
+    if (!winners || !options.sceneManifest || !options.dictionary) throw new Error("glyphcss: semantic cell frame requires semantic output metadata.");
+    const surfaces = new Map(options.sceneManifest.surfaces.map((surface) => [surface.id, surface]));
+    const instances = new Map(options.sceneManifest.instances.map((instance) => [instance.id, instance]));
+    const classes = new Map(options.dictionary.classes.map((entry) => [entry.id, entry]));
+    const cellsOut = Array.from(winners, (winner): GlyphSemanticCellLineage | null => {
+      if (winner < 0) return null;
+      const polygonIndex = winnerToGlobal[winner];
+      const resolved = polygonIndex === undefined ? undefined : lineage[polygonIndex];
+      if (!resolved) return null;
+      const surfaceId = options.sceneManifest!.polygonSurfaceIds[polygonIndex]!;
+      const surface = surfaces.get(surfaceId);
+      const instance = surface ? instances.get(surface.instanceId) : undefined;
+      const entry = instance ? classes.get(instance.classId) : undefined;
+      return surface && instance && entry
+        ? Object.freeze({ polygonIndex, surfaceId, instanceId: instance.id, classId: entry.id, className: entry.name, semanticGlyph: entry.semanticGlyph, controlColor: entry.controlColor })
+        : null;
+    });
+    return Object.freeze({ cols: cells.cols, rows: cells.rows, cells: Object.freeze(cellsOut) });
   }
 
   // A mesh "pops out" into its own <pre> when it declares its own cell metrics OR
@@ -662,11 +982,14 @@ export function createGlyphScene(
   // measure the true per-line advance (see measureCell for the rationale).
   function measureCellOf(el: HTMLElement): { w: number; h: number; measured: boolean } {
     const LINES = 20;
-    const probe = host.ownerDocument!.createElement("span");
+    const probe = host.ownerDocument!.createElement("pre");
+    probe.className = el.className;
     probe.textContent = Array(LINES).fill("M").join("\n");
-    probe.style.cssText =
-      "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
-    el.appendChild(probe);
+    // Resolve the actual browser cascade (including calc/var/em/normal) in a
+    // permanent hidden sibling instead of parsing a CSS string or touching a
+    // published output node during preparation.
+    probe.style.cssText = el.style.cssText + ";position:absolute;visibility:hidden;white-space:pre;padding:0;margin:0;pointer-events:none";
+    measurementSandbox.appendChild(probe);
     const r = probe.getBoundingClientRect();
     probe.remove();
     const measured = r.width > 0 && r.height > 0;
@@ -680,6 +1003,14 @@ export function createGlyphScene(
   let baseCellCache: { w: number; h: number; measured: boolean } | null = null;
   function baseCellMetrics(): { w: number; h: number; measured: boolean } {
     return (baseCellCache ??= measureCellOf(pre));
+  }
+  function measureDetailCell(fontSize: string, lineHeight: string): { w: number; h: number; measured: boolean } {
+    const candidate = host.ownerDocument!.createElement("pre");
+    candidate.className = "glyph-output glyph-output--detail";
+    candidate.style.cssText = "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
+    candidate.style.fontSize = fontSize;
+    candidate.style.lineHeight = lineHeight;
+    return measureCellOf(candidate);
   }
   function baseProjectionGrid(): GridSize {
     const cell = baseCellMetrics();
@@ -707,7 +1038,67 @@ export function createGlyphScene(
   function baseFontPx(): number {
     return (baseFontPxCache ??= parseFloat((host.ownerDocument!.defaultView ?? globalThis).getComputedStyle(pre).fontSize) || 13);
   }
-  const detailLayers = new Map<number, { pre: HTMLPreElement; key: string; cw: number; ch: number }>();
+  const detailLayers = new Map<number, DetailLayerState>();
+
+  function commitRender(plan: RenderCommit): void {
+    testRenderStage("commit-write");
+    const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
+    const outputs = Array.from(outputNodes, (node) => ({ node, html: node.innerHTML, text: node.textContent ?? "", style: node.getAttribute("style") }));
+    const oldDetails = new Map(detailLayers);
+    const oldRetained = retainedEffectOutputs;
+    const oldHotspots = plan.hotspots.map(({ el }) => ({ el, style: el.getAttribute("style") }));
+    try {
+      for (const entry of plan.writes) {
+        if (options.useColors) entry.pre.innerHTML = entry.encoded;
+        else entry.pre.textContent = entry.encoded;
+      }
+      testRenderStage("commit-style");
+      for (const [, layer] of plan.details.next) {
+        layer.pre.style.fontSize = layer.fontSize;
+        layer.pre.style.lineHeight = layer.lineHeight;
+        layer.pre.style.transform = layer.transform;
+      }
+      for (const style of plan.hotspots) {
+        style.el.style.display = style.display;
+        if (style.left !== undefined) style.el.style.left = style.left;
+        if (style.top !== undefined) style.el.style.top = style.top;
+        if (style.zIndex !== undefined) style.el.style.zIndex = style.zIndex;
+      }
+      // Every fallible stage is complete before the live child list changes.
+      // In particular, a failed transaction must not create observer-visible
+      // remove/reinsert records for detail layers.
+      testRenderStage("commit-insert");
+      testRenderStage("commit-remove");
+      const fragment = host.ownerDocument!.createDocumentFragment();
+      for (const [id, layer] of plan.details.next) {
+        if (!detailLayers.has(id)) fragment.appendChild(layer.pre);
+      }
+      // Native fragment insertion into this owned div is the terminal commit
+      // operation: no user code, stage hook, or renderer work follows it.
+      for (const layer of plan.details.removed) {
+        if (layer.pre.parentNode === sceneEl) sceneEl.removeChild(layer.pre);
+      }
+      if (fragment.firstChild) sceneEl.insertBefore(fragment, hotspotLayer);
+      detailLayers.clear();
+      for (const [id, layer] of plan.details.next) detailLayers.set(id, layer);
+      if (plan.retained) retainedEffectOutputs = plan.retained;
+    } catch (error) {
+      for (const state of outputs) {
+        try {
+          if (committedOptions.useColors) state.node.innerHTML = state.html;
+          else state.node.textContent = state.text;
+        } catch { /* preserve rollback progress */ }
+        if (state.style === null) state.node.removeAttribute("style"); else state.node.setAttribute("style", state.style);
+      }
+      for (const state of oldHotspots) {
+        if (state.style === null) state.el.removeAttribute("style"); else state.el.setAttribute("style", state.style);
+      }
+      detailLayers.clear();
+      for (const [id, layer] of oldDetails) detailLayers.set(id, layer);
+      retainedEffectOutputs = oldRetained;
+      throw error;
+    }
+  }
 
   /**
    * Render each detail mesh into its own absolutely-positioned <pre>, sized to
@@ -723,39 +1114,49 @@ export function createGlyphScene(
     retainBaseShade: boolean,
     retainWorldPosition: boolean,
     retainNormal: boolean,
+    retainObjectPosition: boolean,
     worldToSceneScale: number | undefined,
+    semanticLineage: readonly GlyphControlPolygonLineage[] | null,
+    globalPolygonOffsets: ReadonlyMap<number, number>,
+    transformedByEntry: ReadonlyMap<number, Polygon[]>,
   ): void {
     const effectsActive = activePreparedEffects !== null;
-    // Drop <pre>s for meshes that are gone or no longer detail.
-    for (const [id, layer] of detailLayers) {
-      if (!entries.some((e) => e.id === id)) { layer.pre.remove(); detailLayers.delete(id); }
-    }
-    if (entries.length === 0) return;
+    const nextLayers = new Map<number, DetailLayerState>();
+    const removed = Array.from(detailLayers.entries())
+      .filter(([id]) => !entries.some((entry) => entry.id === id))
+      .map(([, layer]) => layer);
 
     const camera = options.camera;
     const baseZoom = camera.zoom;
     const baseFovScale = camera.fovScale;
-    const baseCenter: [number, number] = [camera.center[0], camera.center[1]];
+    const originalCenter = camera.center;
+    const baseCenter: [number, number] = [originalCenter[0], originalCenter[1]];
     const colsB = options.cols, rowsB = options.rows, caB = options.cellAspect;
     const baseCell = baseCellMetrics();
     const cwB = baseGrid.cellWidth ?? baseCell.w, chB = baseGrid.cellHeight ?? baseCell.h;
-    if (!(cwB > 0) || !(chB > 0)) return; // not laid out yet (SSR / detached)
+    if (!(cwB > 0) || !(chB > 0)) {
+      stagedDetailCommit = { next: new Map(detailLayers), removed: [] };
+      return; // not laid out yet (SSR / detached)
+    }
     const baseCenterCol = baseGrid.centerCol ?? colsB * baseCenter[0];
     const baseCenterRow = baseGrid.centerRow ?? rowsB * baseCenter[1];
 
     try {
       for (const entry of entries) {
-        let layer = detailLayers.get(entry.id);
-        if (!layer) {
+        const current = detailLayers.get(entry.id);
+        let layer: DetailLayerState;
+        if (current) {
+          layer = { ...current };
+        } else {
+          testRenderStage("detail-element");
           const el = host.ownerDocument!.createElement("pre") as HTMLPreElement;
           el.className = "glyph-output glyph-output--detail";
           el.style.cssText =
             "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
-          sceneEl.insertBefore(el, hotspotLayer);
-          layer = { pre: el, key: "", cw: 0, ch: 0 };
-          detailLayers.set(entry.id, layer);
+          layer = { pre: el, key: "", cw: 0, ch: 0, fontSize: "", lineHeight: "", transform: "" };
         }
         const dpre = layer.pre;
+        testRenderStage("detail-measure");
         const density = entry.transform.density;
         // Explicit fontSize/lineHeight OVERRIDE density (the low-level escape hatch
         // wins); density is the default convenience knob.
@@ -766,8 +1167,8 @@ export function createGlyphScene(
           // setting the <pre> font to base/density yields exactly base cell/density.
           const key = `d:${density}`;
           if (layer.key !== key) {
-            dpre.style.fontSize = `${baseFontPx() / density}px`;
-            dpre.style.lineHeight = "";
+            layer.fontSize = `${baseFontPx() / density}px`;
+            layer.lineHeight = "";
             layer.key = key; layer.cw = cwB / density; layer.ch = chB / density;
           }
         } else {
@@ -777,32 +1178,35 @@ export function createGlyphScene(
           const lhStr = entry.transform.lineHeight == null ? "" : String(entry.transform.lineHeight);
           const key = `${fsStr}|${lhStr}`;
           if (layer.key !== key) {
-            dpre.style.fontSize = fsStr;
-            dpre.style.lineHeight = lhStr;
-            const m = measureCellOf(dpre);
+            layer.fontSize = fsStr;
+            layer.lineHeight = lhStr;
+            // Keep CSS as CSS: this handles px/em/rem/calc/var/normal and
+            // inherited declarations with the browser's own layout engine.
+            const m = measureDetailCell(fsStr, lhStr);
             layer.key = key; layer.cw = m.w; layer.ch = m.h;
           }
         }
         let cwD = layer.cw, chD = layer.ch;
-        if (!(cwD > 0) || !(chD > 0)) continue;
+        if (!(cwD > 0) || !(chD > 0)) { nextLayers.set(entry.id, layer); continue; }
 
         // Render the mesh IN PLACE (no centering) into a bbox-fitted sub-window.
         // Works for ANY camera (ortho / perspective / FPV): real world positions
         // are kept so foreshortening stays correct. The finer resolution comes from
         // the detail grid's measured cell size; zoom and fovScale stay the same as
         // the base layer so depth and apparent size cannot drift.
-        const tp = applyTransform(entry.polygons, entry.transform);
+        const tp = transformedByEntry.get(entry.id) ?? applyTransform(entry.polygons, entry.transform);
 
         // Mesh screen bbox in BASE cells (base zoom + center + fovScale).
-        camera.zoom = baseZoom; camera.center = baseCenter; camera.fovScale = baseFovScale;
+        camera.zoom = baseZoom; camera.center = originalCenter; camera.fovScale = baseFovScale;
         let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
         for (const p of tp) for (const v of p.vertices) {
+          testRenderStage("detail-project");
           const pr = camera.project(v, colsB, rowsB, caB, baseGrid);
           if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
           if (pr[0] < minC) minC = pr[0]; if (pr[0] > maxC) maxC = pr[0];
           if (pr[1] < minR) minR = pr[1]; if (pr[1] > maxR) maxR = pr[1];
         }
-        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); continue; } // off-screen / clipped
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(entry.id, layer); continue; } // off-screen / clipped
 
         // Clamp the bbox to the visible grid (+margin), THEN size the detail grid.
         // A mesh near or enclosing the camera projects some verts to huge coords
@@ -811,7 +1215,7 @@ export function createGlyphScene(
         const PADB = 1; // base-cell margin around the silhouette
         minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
         minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
-        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); continue; } // fully off-screen
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(entry.id, layer); continue; } // fully off-screen
         let kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
         // Cap the detail grid: the viewport clamp bounds the bbox in BASE cells, but the
         // grid is bbox×density, so an absurd density (or tiny fontSize) still explodes it.
@@ -822,8 +1226,8 @@ export function createGlyphScene(
         if (need > MAX_DIM) {
           const f = MAX_DIM / need; // < 1: scale resolution down to fit
           cwD /= f; chD /= f; kx = cwB / cwD; ky = chB / chD;
-          dpre.style.fontSize = `${baseFontPx() * (cwD / cwB)}px`;
-          dpre.style.lineHeight = ""; layer.key = ""; // capped cell ≠ cached key
+          layer.fontSize = `${baseFontPx() * (cwD / cwB)}px`;
+          layer.lineHeight = ""; layer.key = ""; // capped cell ≠ cached key
         }
         const caD = chD / cwD;
         const colsD = Math.max(2, Math.ceil((maxC - minC) * kx));
@@ -867,6 +1271,10 @@ export function createGlyphScene(
           directionalLight: options.directionalLight,
           ambientLight: options.ambientLight,
           glyphPalette: options.glyphPalette,
+          charMode: options.charMode,
+          wireframeJunctions: options.wireframeJunctions,
+          hiddenLines: options.hiddenLines,
+          solidWeightRamp: options.solidWeightRamp,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -884,6 +1292,8 @@ export function createGlyphScene(
           retainShade: retainBaseShade,
           retainWorldPosition,
           retainNormal,
+          retainObjectPosition,
+          retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = textureSamplers;
         ctx.occlusion = occ;
@@ -896,20 +1306,34 @@ export function createGlyphScene(
           localCellFootprint: [1 / kx, 1 / ky],
           ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
         } : null;
-        ctx.transformCells = effectsActive ? transformEffectCells : options.transformCells;
-        const out = rasterize(ctx);
+        ctx.transformCells = options.glyphOutput === "visible"
+          ? (effectsActive ? transformEffectCells : options.transformCells)
+          : undefined;
+        testRenderStage("detail-raster");
+        const out = options.glyphOutput === "semantic"
+          ? (testRenderStage("detail-encode"), encodeSemanticCells(
+              rasterizeToCells(ctx),
+              semanticLineage!,
+              tp.map((_, index) => globalPolygonOffsets.get(entry.id)! + index),
+              options.useColors,
+            ))
+          : (testRenderStage("detail-encode"), rasterize(ctx));
         writeOrStageFullOutput(dpre, out);
         // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
-        dpre.style.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
+        testRenderStage("detail-transform");
+        layer.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
+        nextLayers.set(entry.id, layer);
       }
+      stagedDetailCommit = { next: nextLayers, removed };
     } finally {
       camera.zoom = baseZoom;
-      camera.center = baseCenter;
+      camera.center = originalCenter;
       camera.fovScale = baseFovScale;
     }
   }
 
-  function updateHotspots(): void {
+  function stageHotspots(): StagedHotspotStyle[] {
+    testRenderStage("hotspot-project");
     const { cols, rows, cellAspect, camera } = options;
     const grid = baseProjectionGrid();
     const cells = projectHotspots(
@@ -924,23 +1348,23 @@ export function createGlyphScene(
     const cellW = grid.cellWidth ?? 8;
     const cellH = grid.cellHeight ?? 16;
 
+    const staged: StagedHotspotStyle[] = [];
     for (let i = 0; i < hotspots.length; i++) {
       const { el } = hotspots[i]!;
       const cell = cells[i]!;
       if (!cell.visible) {
-        el.style.display = "none";
+        staged.push({ el, display: "none" });
       } else {
-        el.style.display = "";
+        testRenderStage("hotspot-style");
         // Anchor at the CELL CENTER (not top-left). The `.glyph-hotspot` CSS
         // rule applies `transform: translate(-50%, -50%)` so the visible
         // label/dot is centered on this point — and the rendered ASCII glyph
         // at this cell is also drawn at the cell center, so the two visually
         // coincide.
-        el.style.left = `${(cell.col + 0.5) * cellW}px`;
-        el.style.top = `${(cell.row + 0.5) * cellH}px`;
-        el.style.zIndex = String(Math.round(cell.depth * 1000));
+        staged.push({ el, display: "", left: `${(cell.col + 0.5) * cellW}px`, top: `${(cell.row + 0.5) * cellH}px`, zIndex: String(Math.round(cell.depth * 1000)) });
       }
     }
+    return staged;
   }
 
   function add(polygons: Polygon[], transform: GlyphMeshTransform = {}): GlyphMeshHandle {
@@ -1045,6 +1469,11 @@ export function createGlyphScene(
   }
 
   function rerender(): void {
+    // A direct rerender supersedes a queued microtask. Without this, a caller
+    // that handles a synchronous render failure can observe an unrelated second
+    // render after removing its failure hook.
+    renderGeneration += 1;
+    pendingRender = false;
     doRender();
   }
 
@@ -1084,9 +1513,34 @@ export function createGlyphScene(
   }
 
   function setOptions(partial: Partial<GlyphSceneOptions>): void {
+    const nextGlyphOutput = "glyphOutput" in partial ? (partial.glyphOutput ?? "visible") : options.glyphOutput;
+    const nextMode = partial.mode ?? options.mode;
+    const nextSceneManifest = "sceneManifest" in partial ? partial.sceneManifest : options.sceneManifest;
+    const nextDictionary = "dictionary" in partial ? partial.dictionary : options.dictionary;
+    if (nextGlyphOutput !== "visible" && nextGlyphOutput !== "semantic") {
+      throw new TypeError('glyphcss: glyphOutput must be "visible" or "semantic".');
+    }
+    if (nextGlyphOutput === "semantic") {
+      if (nextMode !== "solid") throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
+      if (!nextSceneManifest || !nextDictionary) {
+        throw new TypeError("glyphcss: semantic glyph output requires sceneManifest and dictionary.");
+      }
+      validateGlyphControlMetadata(nextSceneManifest, nextDictionary);
+      const polygons: Polygon[] = [];
+      for (const entry of meshes.values()) polygons.push(...applyTransform(entry.polygons, entry.transform));
+      if (polygons.length > 0) resolveGlyphControlLineage(polygons, nextSceneManifest, nextDictionary);
+    }
     if (partial.mode !== undefined) assertEffectMode(partial.mode);
     if (partial.mode !== undefined) options.mode = partial.mode;
     if (partial.glyphPalette !== undefined) options.glyphPalette = partial.glyphPalette;
+    if (partial.charMode !== undefined) options.charMode = partial.charMode;
+    if (partial.wireframeJunctions !== undefined) options.wireframeJunctions = partial.wireframeJunctions;
+    if (partial.hiddenLines !== undefined) options.hiddenLines = partial.hiddenLines;
+    // Unlike `charMode`/`hiddenLines` (which always have a meaningful
+    // non-undefined default), `solidWeightRamp`'s "off" state IS `undefined` —
+    // so clearing it needs the same explicit "key present" check `shadow`/
+    // `sceneManifest`/`dictionary` use below, not a `!== undefined` guard.
+    if ("solidWeightRamp" in partial) options.solidWeightRamp = partial.solidWeightRamp;
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;
@@ -1101,6 +1555,9 @@ export function createGlyphScene(
     if (partial.depthEpsilon !== undefined) options.depthEpsilon = partial.depthEpsilon;
     if (partial.temporalBlend !== undefined) options.temporalBlend = partial.temporalBlend;
     if (partial.interactiveDownscale !== undefined) options.interactiveDownscale = partial.interactiveDownscale;
+    if ("glyphOutput" in partial) options.glyphOutput = nextGlyphOutput;
+    if ("sceneManifest" in partial) options.sceneManifest = partial.sceneManifest;
+    if ("dictionary" in partial) options.dictionary = partial.dictionary;
     if ("shadow" in partial) options.shadow = partial.shadow;
     // Forward on presence (including explicit undefined) so removing the prop
     // clears the hook and restores the byte-identical no-hook path.
@@ -1211,6 +1668,7 @@ export function createGlyphScene(
     rerender,
     setOptions,
     getOptions,
+    getGlyphSemanticCellFrame: () => semanticCellFrame,
     fit: fitToHost,
     setInteracting,
     destroy,

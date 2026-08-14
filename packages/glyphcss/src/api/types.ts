@@ -35,6 +35,21 @@ export interface GlyphShadowOptions {
   maxExtend?: number;
 }
 
+/**
+ * One step of a `solidWeightRamp` (solid-mode-only, see
+ * {@link RasterizeContextOptions.solidWeightRamp}): a single (glyph,
+ * font-weight) pair, positioned by measured ink coverage rather than by
+ * glyph shape alone. Ordered darkest → densest, same convention as a plain
+ * ramp string — index `i` is reached at shade `i / (steps.length - 1)`.
+ * `@glyphcss/effects`' `calibrateWeightedGlyphRamp` produces this shape
+ * directly from real per-font measurement; it is never hand-authored.
+ */
+export interface GlyphSolidWeightRampStep {
+  glyph: string;
+  /** CSS `font-weight`, e.g. `400` or `700`. */
+  weight: number;
+}
+
 export interface GlyphMeshState {
   id: number;
   polygons: Polygon[];

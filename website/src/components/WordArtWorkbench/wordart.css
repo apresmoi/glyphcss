@@ -377,6 +377,12 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
    (see the base stylesheet `injectGlyphBaseStyles` ships), so the flex box
    centers it like an icon inside the fixed square tile. */
 .wa-tile__thumb {
+  /* The preview is real selectable text (a `<pre>` of glyphs), so a click that
+     drifts a pixel over it becomes a text-selection drag and the tile's
+     `click` never fires — the tile then only responded on its short label.
+     The thumb is decorative, so let pointer events fall through to the button. */
+  pointer-events: none;
+  user-select: none;
   width: 100%;
   aspect-ratio: 1;
   display: flex;
@@ -390,6 +396,12 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
    so the "a" reads clearly instead of blurring into noise. */
 .wa-tile__glyph { font-size: 12px; line-height: 1; }
 .wa-tile__glyph .glyph-output { color: rgba(255, 232, 184, 0.92); }
+/* Live effect tiles put `.wa-tile__glyph` on the scene HOST, so the `<pre>`
+   inside keeps the base stylesheet's own explicit font-size instead of
+   inheriting the tile's 12px — which rendered those tiles ~1.5x too large and
+   spilling out of the thumb. Pin the size on the output itself so live and
+   static tiles match. */
+.wa-tile__thumb .glyph-output { font-size: 12px !important; line-height: 1 !important; }
 .wa-tile__label {
   padding: 3px 6px 5px;
   font-size: 10px;
@@ -519,4 +531,35 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   .dn-root--wordart .wa-presets.is-mobile-open { display: flex; }
 
   .wa-stage-foot { bottom: calc(var(--overlay-bottom, 12px) + var(--mobile-tabs-height, 52px) + 8px); }
+}
+
+/* ── Right Dock: run to the bottom of the body like the left rail ──────────
+   The floating Dock defaults to a 12px bottom inset (`--overlay-bottom`),
+   which left it hovering above the preset footer while `.wa-rail` runs the
+   full height of `.wa-body` and the footer sits on top of it. Match the rail:
+   drop the inset so both sidebars end at the same line. */
+.dn-root--wordart .wa-body > .dn-floating-controls {
+  --overlay-bottom: 0px;
+  /* `height`, not just `max-height`: the Dock is content-sized, so a max alone
+     left it ending wherever its last folder did. Filling makes its panel run to
+     the footer exactly like `.wa-rail` does. */
+  height: calc(100% - var(--overlay-top));
+  max-height: calc(100% - var(--overlay-top));
+}
+.dn-root--wordart .wa-body > .dn-floating-controls > .dn-lil-gui-host,
+.dn-root--wordart .wa-body > .dn-floating-controls .lil-gui.root {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+/* ── Stats readout: top-left of the render space ──────────────────────────
+   stats-js pins itself bottom-right, where it overlapped the preset tiles.
+   Anchor it to the viewport area instead, just right of the left rail. */
+.dn-root--wordart .glyph-stats-host {
+  position: absolute;
+  top: var(--overlay-top);
+  left: var(--overlay-left);
+  right: auto;
+  bottom: auto;
+  align-items: flex-start;
 }

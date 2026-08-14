@@ -1,0 +1,181 @@
+/* `.synth-main` is a block-level flex ITEM (see instrument-workbench.css), so
+   the stage fills it the same way `.synth-viewport` does, and owns its scroll. */
+.ld-stage {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 18px 22px 24px;
+}
+/* The controls dock is an absolute overlay over `.synth-main` (it floats above
+   the synth's full-bleed render). Here the stage is CONTENT, so reserve the
+   dock's column instead of letting it cover the right-hand examples. */
+@media (min-width: 1100px) {
+  .ld-stage { padding-right: 396px; }
+}
+/* This page keeps the examples sidebar, but `.synth-shell.dn-root` is
+   `position: fixed` full-bleed and would cover it — put the shell in flow so
+   the two navigations coexist. */
+.ex-main .synth-shell.dn-root {
+  position: relative;
+  inset: auto;
+  height: 100%;
+}
+.ld-stage__head { max-width: 78ch; margin: 0 0 20px; }
+.ld-stage__titlerow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; }
+.ld-stage__title { margin: 0; font-size: 20px; letter-spacing: 0.04em; color: #38bdf8; }
+.ld-stage__kind {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.4);
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  padding: 1px 6px;
+}
+/* `.gw-code-panel` is an absolutely-positioned overlay in the gallery, pinned to
+   that page's viewport corners. Here the panel belongs to one example in a
+   scrolling list, so put it back in flow — otherwise it escapes the stage's
+   scroll box and sits on top of the preset strip. */
+.ld-code-panel {
+  position: static;
+  width: auto;
+  max-width: 980px;
+  max-height: none;
+  margin-top: 20px;
+}
+/* The stage scrolls and the preset strip is pinned below it, so an unbounded
+   code body would disappear under the footer. Scroll the code, not the page. */
+.ld-code-panel .gw-code-panel__body { max-height: 40vh; overflow: auto; }
+/* Per-example export controls: each tile is its own size, so each carries its
+   own code/copy rather than the page carrying one ambiguous pair. */
+.ld-mini {
+  font: inherit;
+  font-size: 9px;
+  line-height: 15px;
+  min-width: 20px;
+  padding: 0 4px;
+  cursor: pointer;
+  color: rgba(255, 232, 184, 0.5);
+  background: #04060b;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+}
+.ld-mini:hover { color: #38bdf8; border-color: #38bdf8; }
+
+.ld-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 18px;
+}
+.ld-size {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* Size the box to its render, not to its chrome: the label/dims header and the
+     button footer stack instead of sharing one row, so a 6-wide loader stops
+     sitting in a box four times its width. */
+  width: min-content;
+  min-width: 46px;
+  border: 1px solid rgba(255, 232, 184, 0.14);
+  background: #04060b;
+  padding: 8px 9px 7px;
+}
+/* The `<pre>` sizes itself from its cols×rows, so the tile is measured by the
+   render rather than the render being stretched to a CSS box — a 64×6 banner and
+   a 6×14 column end up at genuinely different footprints, which is the point. */
+/* The hover overlay is a second `<pre>` sitting exactly on top of the render —
+   same cols×rows and font metrics, so the two grids align cell for cell. */
+.ld-size__stack { position: relative; display: flex; }
+.ld-size__view { display: flex; }
+.ld-size__ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+.ld-size__ghost .glyph-output {
+  font-size: inherit !important;
+  line-height: 1 !important;
+  /* Hard glyphs carry the contrast; the bloom just lifts them off whatever the
+     loader is doing underneath. */
+  text-shadow: 0 0 3px currentColor, 0 0 1px #000;
+}
+.ld-size__view .glyph-output { font-size: inherit !important; line-height: 1 !important; }
+.ld-size__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.ld-size__foot { display: flex; gap: 4px; }
+.ld-size__label { color: rgba(255, 232, 184, 0.62); }
+.ld-size__dims { color: rgba(255, 232, 184, 0.32); }
+
+/* ── Footer: every loader, live (mirrors /wordart's .wa-presets) ─────────── */
+.ld-group { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
+.ld-group + .ld-group { border-left: 1px solid rgba(255, 232, 184, 0.14); padding-left: 18px; }
+.ld-group__label {
+  margin: 0;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.34);
+}
+.ld-group__items { display: flex; gap: 10px; }
+.ld-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 120px;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  background: #04060b;
+  color: rgba(255, 232, 184, 0.7);
+  overflow: hidden;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.ld-tile__pick {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ld-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); }
+.ld-tile.is-active { border-color: #38bdf8; box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.5); }
+.ld-tile__thumb {
+  /* The preview is real selectable text, so a click that drifts a pixel becomes
+     a selection drag and the button's `click` never fires (same fix as
+     `.wa-tile__thumb`). */
+  pointer-events: none;
+  user-select: none;
+  width: 100%;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #02040a;
+}
+.ld-tile__thumb .glyph-output { font-size: 9px !important; line-height: 1 !important; }
+.ld-tile__label {
+  padding: 3px 6px 5px;
+  font-size: 10px;
+  text-align: center;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 48rem) {
+  .ld-stage { padding: 14px 14px 20px; }
+  .ld-sizes { gap: 12px; }
+}

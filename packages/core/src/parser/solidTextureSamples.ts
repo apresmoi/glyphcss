@@ -1,5 +1,6 @@
 import type { Polygon, TextureTriangle, Vec2 } from "../types";
 import type { ParseResult } from "./types";
+import { decodeGlyphTextureBytes } from "./textureDecode";
 
 export interface SolidTextureSampleOptions {
   /**
@@ -11,6 +12,17 @@ export interface SolidTextureSampleOptions {
   colorTolerance?: number;
   /** Skip decoding very large textures for this optimization. Default 16 MP. */
   maxTexturePixels?: number;
+}
+
+export interface TextureSamplerBuildOptions {
+  /** Skip decoding textures larger than this many source pixels. */
+  maxTexturePixels?: number;
+  /**
+   * `shared-exact` decodes encoded PNG/JPEG source bytes through the B44
+   * pngjs/jpeg-js policy and rejects any URL that cannot use that policy.
+   * The default keeps ordinary runtime behavior, including its canvas fallback.
+   */
+  decodePolicy?: "runtime" | "shared-exact";
 }
 
 interface ImageLike {
@@ -40,6 +52,13 @@ interface BrowserTextureSamplingEnv {
   Image: new () => ImageLike;
   createCanvas(): CanvasLike;
 }
+
+interface FetchResponseLike {
+  readonly ok: boolean;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+type FetchLike = (url: string) => Promise<FetchResponseLike>;
 
 export interface SampledColor {
   r: number;
@@ -137,6 +156,21 @@ async function createSampler(
   } catch {
     return null;
   }
+}
+
+async function createExactSampler(url: string, maxTexturePixels: number): Promise<TextureSampler | null> {
+  const fetchSource = (globalThis as unknown as { fetch?: FetchLike }).fetch;
+  if (!fetchSource) throw new Error("source-byte fetch is unavailable");
+  const response = await fetchSource(url);
+  if (!response.ok) throw new Error(`texture fetch failed: ${url}`);
+  const decoded = await decodeGlyphTextureBytes(new Uint8Array(await response.arrayBuffer()));
+  if (!decoded || decoded.width <= 0 || decoded.height <= 0 || decoded.width * decoded.height > maxTexturePixels) return null;
+  return {
+    width: decoded.width,
+    height: decoded.height,
+    data: decoded.data,
+    lowDetail: isLowDetailTexture(decoded.width, decoded.height, decoded.data),
+  };
 }
 
 function maxRgbDeltaAt(
@@ -438,16 +472,28 @@ export async function bakeSolidTextureSamples(
  */
 export async function buildTextureSamplers(
   polygons: Polygon[],
-  options: { maxTexturePixels?: number } = {},
+  options: TextureSamplerBuildOptions = {},
 ): Promise<Map<string, TextureSampler>> {
   const out = new Map<string, TextureSampler>();
-  const env = getTextureSamplingEnv();
-  if (!env) return out;
   const max = options.maxTexturePixels ?? DEFAULT_MAX_TEXTURE_PIXELS;
+  const exact = options.decodePolicy === "shared-exact";
   const urls = new Set<string>();
   for (const p of polygons) { const t = textureForPolygon(p); if (t) urls.add(t); }
   await Promise.all([...urls].map(async (url) => {
-    const sampler = await createSampler(url, env, max);
+    let sampler: TextureSampler | null = null;
+    if (exact) {
+      // The B44 path is fail-closed: it never touches browser image/canvas
+      // decode, even if source bytes are unsupported or unavailable.
+      try { sampler = await createExactSampler(url, max); } catch (error) {
+        throw new Error(`glyphcss: shared-exact texture decode failed for ${url}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!sampler) throw new Error(`glyphcss: shared-exact texture decoder does not support ${url}`);
+    } else {
+      // Ordinary runtime behavior remains the original canvas image path and
+      // therefore neither fetches nor loads the exact corpus codecs.
+      const env = getTextureSamplingEnv();
+      if (env) sampler = await createSampler(url, env, max);
+    }
     if (sampler) out.set(url, sampler);
   }));
   return out;

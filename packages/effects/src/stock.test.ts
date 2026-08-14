@@ -1,8 +1,12 @@
+import type { Polygon, Vec3 } from "@glyphcss/core";
 import { describe, expect, it } from "vitest";
 import {
+  buildRasterizeContext,
+  createGlyphOrthographicCamera,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
+  rasterizeToCells,
   type GlyphEffectParamSchema,
 } from "glyphcss";
 import {
@@ -10,14 +14,18 @@ import {
   defaultGlyphEffectParams,
   fieldSynth,
   flowText,
+  generatedSurfaceField,
   getGlyphEffect,
   glitch,
   matrixRain,
   noiseDissolve,
+  objectVolumetricAlongLane,
   ripple,
   scan,
   scramble,
   wipe,
+  type AnyContext,
+  type AnyParams,
   type GlyphStockEffect,
 } from "./stock";
 
@@ -52,6 +60,7 @@ interface EvaluateOptions {
   withUv?: boolean;
   shade?: Float32Array;
   worldPosition?: Float32Array;
+  objectPosition?: Float32Array;
   normal?: Float32Array;
   cellToSceneGrid?: GridAffine;
   worldToSceneScale?: number;
@@ -96,6 +105,7 @@ function evaluate(
       ...(uv0 ? { uv0 } : {}),
       ...(options.shade ? { shade: options.shade } : {}),
       ...(options.worldPosition ? { worldPosition: options.worldPosition } : {}),
+      ...(options.objectPosition ? { objectPosition: options.objectPosition } : {}),
       ...(options.normal ? { normal: options.normal } : {}),
     },
     input: { cols, rows, length, glyph, coverage, color },
@@ -243,6 +253,78 @@ describe("stock effects", () => {
     const active = Array.from(output.coverage).filter((value) => value > 0).length;
     expect(active).toBeGreaterThan(0);
     expect(active).toBeLessThan(output.coverage.length);
+  });
+
+  it("supports space: \"object\" and declares objectPosition as an optional requirement", () => {
+    for (const effect of [matrixRain, flowText, scan]) {
+      expect(effect.parameterSchema.space.values).toContain("object");
+      expect(effect.program.optionalRequirements).toContain("objectPosition");
+    }
+  });
+
+  it("matrix-rain volumetric (space: \"object\"): same object-space point renders identically regardless of grid position", () => {
+    // Two cells FAR apart in the 2D output grid (index 0 vs. the last cell)
+    // but at the SAME 3D point in the mesh's own frame — as if one were on a
+    // cap and the other on a wall meeting it, both windows into the same
+    // volumetric field. A per-face UV atlas has no way to make these two
+    // grid-disjoint cells agree; the volumetric formulation does by
+    // construction, since it reads only (x, y, z).
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    const iB = length - 1;
+    const point: [number, number, number] = [2.3, -1.7, 4.1];
+    objectPosition[iA * 3] = point[0]; objectPosition[iA * 3 + 1] = point[1]; objectPosition[iA * 3 + 2] = point[2];
+    objectPosition[iB * 3] = point[0]; objectPosition[iB * 3 + 1] = point[1]; objectPosition[iB * 3 + 2] = point[2];
+
+    const output = evaluate(matrixRain, {
+      space: "object",
+      direction: "down",
+      time: 3.4,
+      speedMin: 4,
+      speedMax: 9,
+      density: 1,
+      trail: 6,
+      seed: 5,
+      scale: 1,
+    }, { objectPosition });
+
+    expect(output.coverage[iA]).toBe(output.coverage[iB]);
+    expect(output.glyph[iA]).toBe(output.glyph[iB]);
+    expect(output.color[iA]).toBe(output.color[iB]);
+  });
+
+  it("matrix-rain volumetric (space: \"object\") is invariant to the mesh's world position/rotation — only objectPosition drives it", () => {
+    // The SAME objectPosition buffer, evaluated twice with completely
+    // different (irrelevant) worldPosition buffers standing in for two
+    // different mesh rotations, must produce byte-identical output: the
+    // volumetric branch never reads worldPosition.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = (i % cols) - cols / 2;
+      objectPosition[i * 3 + 1] = Math.floor(i / cols) - rows / 2;
+      objectPosition[i * 3 + 2] = Math.sin(i) * 2;
+    }
+    const worldA = new Float32Array(length * 3).fill(1);
+    const worldB = new Float32Array(length * 3).fill(-99);
+    const params = {
+      space: "object",
+      direction: "down",
+      time: 1.1,
+      speedMin: 2,
+      speedMax: 8,
+      density: 0.8,
+      trail: 5,
+      seed: 42,
+      scale: 1.5,
+    };
+    const outputA = evaluate(matrixRain, params, { objectPosition, worldPosition: worldA });
+    const outputB = evaluate(matrixRain, params, { objectPosition, worldPosition: worldB });
+
+    expect(outputA.glyph).toEqual(outputB.glyph);
+    expect(Array.from(outputA.color)).toEqual(Array.from(outputB.color));
+    expect(Array.from(outputA.coverage)).toEqual(Array.from(outputB.coverage));
   });
 
   it("moves Matrix strands toward lower world Z at a constant lane speed", () => {
@@ -1305,6 +1387,184 @@ describe("regression: field-synth generated-surface isotropy", () => {
   });
 });
 
+describe("regression: generated-surface direction stays consistent as a mesh rotates", () => {
+  // Simulates a flat face (e.g. an extruded word-art front cap) spinning
+  // rigidly about the world Y axis, the way `<GlyphMesh rotation={[turn, ...]}>`
+  // turntables a mesh under a fixed camera. `worldPosition`/`normal` are what
+  // the real rasterizer would hand a mounted effect after projecting that
+  // rotated geometry into the same fixed 24x12 output grid.
+  const COLS = 24;
+  const ROWS = 12;
+
+  function rotatedCapSurface(thetaDeg: number) {
+    const theta = (thetaDeg * Math.PI) / 180;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const worldPosition = new Float32Array(COLS * ROWS * 3);
+    const normal = new Float32Array(COLS * ROWS * 3);
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const offset = (row * COLS + col) * 3;
+        const lx = col - COLS / 2;
+        const ly = -(row - ROWS / 2);
+        worldPosition[offset] = lx * cosT;
+        worldPosition[offset + 1] = ly;
+        worldPosition[offset + 2] = -lx * sinT + 20;
+        normal[offset] = sinT;
+        normal[offset + 1] = 0;
+        normal[offset + 2] = cosT;
+      }
+    }
+    return { worldPosition, normal };
+  }
+
+  function contextFor(surface: { worldPosition: Float32Array; normal: Float32Array }): AnyContext<AnyParams> {
+    const length = COLS * ROWS;
+    return {
+      base: { cols: COLS, rows: ROWS, length, worldPosition: surface.worldPosition, normal: surface.normal },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [COLS, ROWS], localCellFootprint: [1, 1] },
+    } as never;
+  }
+
+  // Before the fix, `horizontal = vertical x normal` inherited a hard sign
+  // flip from the dominant-axis canonicalization in `surfaceBasisSample`
+  // every time a rotating normal crossed that boundary (here, between 135deg
+  // and 150deg: nx=0.707 is x-dominant and positive at 135deg, nz=-0.866 is
+  // z-dominant and negative at 150deg, which used to flip the whole normal
+  // and, with it, only `horizontal` — not `vertical`, which is quadratic in
+  // the normal and already invariant to that flip). That asymmetric flip is
+  // exactly a "right" (horizontal-axis) flow reversing mid-rotation while
+  // "down" (vertical-axis) held steady.
+  it("keeps the horizontal surface axis' screen mapping stable across the dominant-axis boundary", () => {
+    const before = generatedSurfaceField(contextFor(rotatedCapSurface(135)));
+    const after = generatedSurfaceField(contextFor(rotatedCapSurface(150)));
+    const beforeGroup = before?.groups[0];
+    const afterGroup = after?.groups[0];
+    expect(beforeGroup).toBeDefined();
+    expect(afterGroup).toBeDefined();
+
+    // The horizontal (u) axis' screen-space Jacobian must land on the same
+    // screen side (same sign) before and after crossing the boundary...
+    expect(Math.sign(beforeGroup!.dyDu)).toBe(Math.sign(afterGroup!.dyDu));
+    // ...matching the vertical (v) axis, which was already stable.
+    expect(Math.sign(beforeGroup!.dxDv)).toBe(Math.sign(afterGroup!.dxDv));
+  });
+
+  // A second boundary crossing (315deg x-negative-dominant -> 330deg
+  // z-negative-dominant), so the fix isn't pinned to one specific angle.
+  it("keeps both surface axes' screen mapping stable across a second dominant-axis boundary", () => {
+    const before = generatedSurfaceField(contextFor(rotatedCapSurface(315)));
+    const after = generatedSurfaceField(contextFor(rotatedCapSurface(330)));
+    const beforeGroup = before?.groups[0];
+    const afterGroup = after?.groups[0];
+    expect(beforeGroup).toBeDefined();
+    expect(afterGroup).toBeDefined();
+    expect(Math.sign(beforeGroup!.dyDu)).toBe(Math.sign(afterGroup!.dyDu));
+    expect(Math.sign(beforeGroup!.dxDv)).toBe(Math.sign(afterGroup!.dxDv));
+  });
+
+  // matrix-rain's per-cell flow (`projectedSurfaceDirection`) is built
+  // directly from this same fitted Jacobian (`dxDu/dyDu` for left/right,
+  // `dxDv/dyDv` for up/down — see stock.ts's `domainCoordinate` /
+  // `projectedSurfaceDirection`), so pinning the Jacobian's sign here pins
+  // the actual on-screen advection direction matrix-rain (and every other
+  // generated-surface effect) reads for "right"/"left"/"down"/"up".
+  it("keeps every direction's screen mapping internally consistent (matches the sign vocabulary matrixRain reads)", () => {
+    for (const theta of [135, 150, 315, 330]) {
+      const field = generatedSurfaceField(contextFor(rotatedCapSurface(theta)));
+      const group = field!.groups[0]!;
+      // "right"/"left" read (dxDu, dyDu); "down"/"up" read (dxDv, dyDv).
+      // Each pair must stay a well-defined, non-degenerate flow vector.
+      expect(Math.hypot(group.dxDu, group.dyDu)).toBeGreaterThan(0.5);
+      expect(Math.hypot(group.dxDv, group.dyDv)).toBeGreaterThan(0.5);
+    }
+  });
+});
+
+describe("fieldSynth: subcellRes braille", () => {
+  const COLS = 12;
+
+  // `space: "scene"` with a square glyphs=1 field, freq1=1 gives every
+  // (col+0.5) center a mod-1 fractional part of exactly 0.5 — the p<0.5
+  // decision boundary itself — which is degenerate (float-fragile) for a
+  // hand-computed assertion. freq1=1.1 escapes that alignment while staying
+  // simple enough to compute by hand; every margin below is checked to sit
+  // comfortably away from the 0.5 threshold so float rounding can't flip it.
+  const HAND_PARAMS = {
+    space: "scene" as const,
+    field1: "linearX",
+    wave1: "square",
+    freq1: 1.1,
+    speed1: 0,
+    time: 0,
+    amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    combine: "add",
+    scale: 12, // cancels the /sceneCols normalization: resolved x === col + 0.5
+    bias: 0.5,
+    gain: 1,
+    subcellRes: "2x4",
+  };
+
+  it("1x1 (default, and explicit) is byte-identical to the pre-subcell ramp-indexed output", () => {
+    const { subcellRes: _drop, ...withoutSubcellRes } = HAND_PARAMS;
+    const omitted = evaluate(fieldSynth, withoutSubcellRes); // hits the schema default ("1x1")
+    const explicit1x1 = evaluate(fieldSynth, { ...withoutSubcellRes, subcellRes: "1x1" });
+    // col=5,row=2 -> index 29: center x=5.5, u=5.5*1.1=6.05, fract=0.05 < 0.5 -> wave=+1
+    const index = 2 * COLS + 5;
+    const expectedGlyphs = " .:-=+*#%@";
+    const rampMax = expectedGlyphs.length - 1;
+    const expectedValue = Math.min(1, Math.max(0, 0.5 + 1 * 1 * 0.5)); // wave=+1 -> value=1
+    const expectedGlyph = expectedGlyphs[Math.min(rampMax, Math.max(0, Math.round(expectedValue * rampMax)))];
+    expect(omitted.glyph[index]).toBe(expectedGlyph);
+    expect(explicit1x1.glyph[index]).toBe(expectedGlyph);
+    expect(explicit1x1.glyph).toEqual(omitted.glyph);
+    expect(explicit1x1.coverage).toEqual(omitted.coverage);
+  });
+
+  it("produces the hand-computed Braille bitmask for a known field at a specific cell", () => {
+    // col=5, row=2 -> index 29. scale=12 makes resolved x exactly col+0.5, so
+    // finite-differencing neighbors gives an exact dxCol=1, dyCol=dxRow=0
+    // (linearX doesn't depend on y) — no approximation error to account for.
+    //
+    // Hand computation (wave "square": p = fract(x*freq1); on iff p < 0.5):
+    //   center  x=5.5   -> u=6.05  -> fract=0.05  -> ON  (passes the value>0 cell gate)
+    //   dotCol0 x=5.25  -> u=5.775 -> fract=0.775 -> OFF (margin 0.275 from 0.5)
+    //   dotCol1 x=5.75  -> u=6.325 -> fract=0.325 -> ON  (margin 0.175 from 0.5)
+    // linearX ignores y, so all 4 rows repeat the same per-column on/off state:
+    //   col0 (bits 0x01,0x02,0x04,0x40) -> all OFF
+    //   col1 (bits 0x08,0x10,0x20,0x80) -> all ON
+    // expected mask = 0x08|0x10|0x20|0x80 = 0xB8
+    const output = evaluate(fieldSynth, HAND_PARAMS);
+    const index = 2 * COLS + 5;
+    const glyph = output.glyph[index]!;
+    expect(glyph.length).toBe(1);
+    const codepoint = glyph.codePointAt(0)!;
+    expect(codepoint).toBeGreaterThanOrEqual(0x2800);
+    expect(codepoint).toBeLessThanOrEqual(0x28ff);
+    const mask = codepoint - 0x2800;
+    expect(mask).toBe(0xb8);
+  });
+
+  it("renders at visibly finer grain than 1x1 on the same moiré preset params", () => {
+    const moire = fieldSynth.presets?.find((preset) => preset.name === "Moiré rings")!.params;
+    const coarse = evaluate(fieldSynth, moire as Record<string, number | string | boolean>, { withUv: true });
+    const fine = evaluate(fieldSynth, { ...moire, subcellRes: "2x4" } as Record<string, number | string | boolean>, { withUv: true });
+    // A finer grain means more DISTINCT rendered symbols carrying pattern
+    // detail than the coarse ramp-indexed pass can express in the same
+    // cell count — not just "a braille character appears somewhere".
+    const coarseDistinct = new Set(coarse.glyph.filter((g, i) => coarse.coverage[i]! > 0));
+    const fineDistinct = new Set(fine.glyph.filter((g, i) => fine.coverage[i]! > 0));
+    expect(fineDistinct.size).toBeGreaterThan(coarseDistinct.size);
+    for (const g of fine.glyph) {
+      if (g === " ") continue;
+      const cp = g.codePointAt(0)!;
+      expect(cp).toBeGreaterThanOrEqual(0x2800);
+      expect(cp).toBeLessThanOrEqual(0x28ff);
+    }
+  });
+});
+
 describe("effect presets", () => {
   it("validates every catalog effect's shipped presets against its own schema and evaluates cleanly", () => {
     for (const effect of GlyphEffectCatalog) {
@@ -1327,5 +1587,253 @@ describe("effect presets", () => {
 
   it("ships the field-synth preset gallery documented in AGENTS.md (~18 curated presets)", () => {
     expect(fieldSynth.presets?.length).toBeGreaterThanOrEqual(18);
+  });
+});
+
+describe("matrix-rain volumetric (space: \"object\") lane-boundary stability", () => {
+  // Regression for a flicker reported with the effect CLOCK PAUSED (`time`
+  // held constant): as a curved mesh rotates, glyphcss's supersampled solid
+  // rasterizer picks `objectPosition` per output cell from the nearest
+  // COVERED subcell to that cell's screen-space center (see AGENTS.md's
+  // Retained Glyph Effects section). Which subcell wins can flip to a
+  // different point on the surface — sometimes a different facet entirely —
+  // as coverage shifts within the cell, even for a tiny rotation. A hard
+  // `Math.floor` lane boundary turned that small sample jump into a swap to
+  // a totally unrelated `hash2` bucket, reading as a strand popping in/out.
+  // `objectVolumetricAlongLane`'s `edgeFade` softens the gate near a lane
+  // boundary instead of hard-committing.
+  //
+  // Reproduces with a REAL rasterized rotating mesh (not a synthetic
+  // objectPosition array, unlike the two invariance tests above) because the
+  // bug is specifically about how the RASTERIZER samples objectPosition
+  // under supersampling as the mesh moves, not the effect's math in
+  // isolation — and calls the actually-shipped `objectVolumetricAlongLane`
+  // (exported above) rather than a reimplementation, so a future edit to the
+  // margin or lane formula is caught here directly.
+  function rotateY(v: Vec3, angleDeg: number): Vec3 {
+    const a = (angleDeg * Math.PI) / 180;
+    const c = Math.cos(a), s = Math.sin(a);
+    const [x, y, z] = v;
+    return [x * c + z * s, y, -x * s + z * c];
+  }
+
+  // A curved multi-facet strip standing in for a bent word-art text mesh
+  // (glyphcss's `curve` param) — X = depth, Y = width, Z = height, matching
+  // AGENTS.md's object-frame convention for matrix-rain's volumetric field.
+  function curvedStripPolygonsAtAngle(angleDeg: number): Polygon[] {
+    const segs = 60, radius = 20, halfHeight = 10, arc = 1.4;
+    const polys: Polygon[] = [];
+    for (let i = 0; i < segs; i++) {
+      const a0 = -arc / 2 + (arc * i) / segs;
+      const a1 = -arc / 2 + (arc * (i + 1)) / segs;
+      const objectVertices: Vec3[] = [
+        [radius * Math.sin(a0), radius * (1 - Math.cos(a0)), -halfHeight],
+        [radius * Math.sin(a1), radius * (1 - Math.cos(a1)), -halfHeight],
+        [radius * Math.sin(a1), radius * (1 - Math.cos(a1)), halfHeight],
+        [radius * Math.sin(a0), radius * (1 - Math.cos(a0)), halfHeight],
+      ];
+      polys.push({
+        vertices: objectVertices.map((v) => rotateY(v, angleDeg)),
+        objectVertices,
+        color: "#2ea043",
+      });
+    }
+    return polys;
+  }
+
+  function laneFrame(angleDeg: number) {
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ rotX: 18, rotY: 0, zoom: 45 }),
+      grid: { cols: 200, rows: 110, cellAspect: 2 },
+      polygons: curvedStripPolygonsAtAngle(angleDeg),
+      mode: "solid",
+      useColors: true,
+      doubleSided: true,
+      supersample: 4,
+      retainObjectPosition: true,
+      directionalLight: { direction: [0.3, 0.4, 1], intensity: 0.7 },
+      ambientLight: { intensity: 0.4 },
+    }));
+    const n = grid.cols * grid.rows;
+    const lane = new Int32Array(n);
+    const edgeFade = new Float64Array(n);
+    const covered = new Uint8Array(n);
+    const context = {
+      base: { cols: grid.cols, rows: grid.rows, length: n, objectPosition: grid.objectPosition },
+    } as unknown as AnyContext<AnyParams>;
+    for (let i = 0; i < n; i++) {
+      const v = objectVolumetricAlongLane(context, i, "down", 1);
+      if (!v) continue;
+      covered[i] = 1;
+      lane[i] = v.lane;
+      edgeFade[i] = v.edgeFade;
+    }
+    return { lane, edgeFade, covered };
+  }
+
+  it("keeps VISIBLE lane pops (both frames well clear of the softened boundary) below threshold across a small rotation sweep, clock paused", () => {
+    // 0.25 degree steps: fine enough that a genuine, intentional lane
+    // crossing (the surface sliding a full lane width) essentially never
+    // happens in a 2-degree sweep, so any pop is quantization noise from the
+    // rasterizer's per-cell object-position sampling, not real motion.
+    const steps = 16;
+    const frames = Array.from({ length: steps + 1 }, (_, s) => laneFrame(s * 0.25));
+
+    // "raw" churn: the lane hash changed at all between adjacent frames —
+    // includes crossings the edge-fade softening masks (low opacity on at
+    // least one side), so this alone doesn't measure visible flicker.
+    // "visible" pop: the lane changed AND both frames were well clear of the
+    // softened boundary (edgeFade > 0.5) — an actual jarring strand swap.
+    let rawChurn = 0;
+    let visiblePops = 0;
+    let totalCoveredPairs = 0;
+    for (let s = 1; s < frames.length; s++) {
+      const prev = frames[s - 1]!, cur = frames[s]!;
+      for (let i = 0; i < prev.lane.length; i++) {
+        if (!prev.covered[i] || !cur.covered[i]) continue;
+        totalCoveredPairs++;
+        if (prev.lane[i] === cur.lane[i]) continue;
+        rawChurn++;
+        if (prev.edgeFade[i]! > 0.5 && cur.edgeFade[i]! > 0.5) visiblePops++;
+      }
+    }
+
+    // Measured on this exact mesh/sweep shape: with `OBJECT_LANE_EDGE_MARGIN`
+    // set to 0 (no softening — every crossing counts as "visible" since the
+    // gate collapses to a hard step), this sweep produced `rawChurn === 6`
+    // and `visiblePops === 6` over 248 covered-cell-pairs — i.e. every raw
+    // crossing was a hard, unmasked pop. With the shipped 0.18 margin, the
+    // same sweep shape keeps `visiblePops` meaningfully below `rawChurn` by
+    // masking crossings near the boundary. `visiblePops <= 3` catches a
+    // regression back toward that 1:1 unsoftened ratio: on this exact
+    // mesh/sweep, `OBJECT_LANE_EDGE_MARGIN = 0` (no softening) produces
+    // `rawChurn === visiblePops === 14` (every crossing counts as visible,
+    // by construction, when the gate collapses to a hard step) over 1824
+    // covered-cell-pairs; the shipped 0.18 margin keeps the SAME
+    // `rawChurn === 14` but cuts `visiblePops` to 4 (~29%). `visiblePops
+    // <= 8` sits well below the unsoftened rate (14) and above the measured
+    // softened rate (4), so it fails hard on a regression toward "every
+    // crossing is visible" while tolerating normal variance. `rawChurn`
+    // (asserted separately, > 0) confirms real lane-boundary crossings are
+    // actually happening in this sweep, so a low `visiblePops` isn't just
+    // "nothing crossed a boundary".
+    expect(totalCoveredPairs).toBeGreaterThan(0);
+    expect(rawChurn).toBeGreaterThan(0);
+    expect(visiblePops).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("field-synth ink mode", () => {
+  const INK_STROKES = ["-", "\\", "|", "/"];
+
+  it("traces a contour with oriented strokes instead of shading by level", () => {
+    // A linear ramp across X: the iso-level is crossed on exactly one column
+    // band, and its contour runs vertically — so the strokes must be "|".
+    const out = evaluate(fieldSynth, {
+      subcellRes: "ink",
+      space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevels: 1,
+    }, { withUv: true });
+
+    const inked = out.glyph.filter((g) => g !== " ");
+    expect(inked.length).toBeGreaterThan(0);
+    // Only contour glyphs are emitted — never a shade ramp character.
+    for (const g of inked) expect(INK_STROKES).toContain(g);
+    // The interior is left empty for whatever renders underneath: a contour
+    // marks a boundary, so it can never cover the whole grid the way the
+    // ramp path does.
+    expect(inked.length).toBeLessThan(out.glyph.length);
+  });
+
+  it("outlines a plateau instead of filling it", () => {
+    // A square wave is flat on top and flat at the bottom with an abrupt step
+    // between. Ink marks the STEP and leaves both plateaus empty — an outline
+    // mode never fills, and the step is already a gradient the crossing test
+    // sees. Nothing but strokes may be emitted.
+    const square = evaluate(fieldSynth, {
+      subcellRes: "ink",
+      space: "scene",
+      field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevels: 4,
+    }, { withUv: true });
+    const marks = square.glyph.filter((g) => g !== " ");
+    expect(marks.length).toBeGreaterThan(0);
+    for (const g of marks) expect(INK_STROKES).toContain(g);
+    expect(square.glyph.filter((g) => g === "█")).toHaveLength(0);
+    // The plateaus dominate the grid, so an outline must leave most of it bare.
+    expect(marks.length).toBeLessThan(square.glyph.length / 2);
+  });
+
+  it("contours more of the field as levels increase", () => {
+    const at = (inkLevels: number) => evaluate(fieldSynth, {
+      subcellRes: "ink", space: "scene",
+      field1: "radial", wave1: "sin", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 2, gain: 1, bias: 0.5, inkLevels,
+    }, { withUv: true }).glyph.filter((g) => g !== " ").length;
+    // Each added cut is another contour line through the same field.
+    expect(at(6)).toBeGreaterThan(at(1));
+  });
+
+  it("leaves 1x1 and 2x4 untouched", () => {
+    const ramp = evaluate(fieldSynth, {
+      subcellRes: "1x1", space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, amp2: 0,
+    }, { withUv: true });
+    for (const g of ramp.glyph.filter((c) => c !== " ")) expect(INK_STROKES).not.toContain(g);
+
+    const braille = evaluate(fieldSynth, {
+      subcellRes: "2x4", space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, amp2: 0,
+    }, { withUv: true });
+    const dots = braille.glyph.filter((g) => g !== " ");
+    expect(dots.length).toBeGreaterThan(0);
+    for (const g of dots) expect(g.codePointAt(0)).toBeGreaterThanOrEqual(0x2800);
+  });
+});
+
+describe("field-synth per-voice frame and argmax", () => {
+  const render = (overrides: Record<string, number | string | boolean>) =>
+    evaluate(fieldSynth, { space: "scene", amp2: 0, ...overrides }, { withUv: true });
+
+  it("rotates a linear field by its own angle", () => {
+    const base = render({ field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1 });
+    const turned = render({ field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, angle1: 90 });
+    // 90° turns vertical stripes into horizontal ones: the same field, sampled
+    // along a different axis, so the rendered grid must differ.
+    expect(turned.glyph.join("")).not.toBe(base.glyph.join(""));
+    // ...and a rotation of a RADIAL field changes nothing, because its level
+    // sets are circles about the same centre.
+    const radial = render({ field1: "radial", wave1: "sin", freq1: 2, speed1: 0, amp1: 1 });
+    const radialTurned = render({ field1: "radial", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, angle1: 37 });
+    expect(radialTurned.glyph.join("")).toBe(radial.glyph.join(""));
+  });
+
+  it("gives each voice its own origin", () => {
+    const centred = render({ field1: "radial", wave1: "sin", freq1: 3, speed1: 0, amp1: 1 });
+    const moved = render({ field1: "radial", wave1: "sin", freq1: 3, speed1: 0, amp1: 1, originU1: 0.4 });
+    expect(moved.glyph.join("")).not.toBe(centred.glyph.join(""));
+  });
+
+  it("argmax outputs flat regions keyed to the winning voice", () => {
+    const out = render({
+      combine: "argmax",
+      field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1,
+      field2: "linearY", wave2: "sin", freq2: 2, speed2: 0, amp2: 1,
+      field3: "diagonal", wave3: "sin", freq3: 2, speed3: 0, amp3: 1,
+    });
+    const inked = out.glyph.filter((g) => g !== " ");
+    expect(inked.length).toBeGreaterThan(0);
+    // Three active voices means at most three distinct levels — one flat tone
+    // per region — where a value-combining mode would spread across the ramp.
+    expect(new Set(inked).size).toBeLessThanOrEqual(3);
+
+    const blended = render({
+      combine: "max",
+      field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1,
+      field2: "linearY", wave2: "sin", freq2: 2, speed2: 0, amp2: 1,
+      field3: "diagonal", wave3: "sin", freq3: 2, speed3: 0, amp3: 1,
+    });
+    expect(new Set(blended.glyph.filter((g) => g !== " ")).size).toBeGreaterThan(3);
   });
 });

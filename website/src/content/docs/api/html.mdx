@@ -29,7 +29,7 @@ defining). In non-DOM environments (SSR, Node) the module silently no-ops.
 ## Element tree
 
 Camera wraps scene. Attribute names are kebab-case (`rot-x`, `rot-y`,
-`feature-edges`, `auto-size`). Boolean attributes follow standard HTML
+`hidden-lines`, `auto-size`). Boolean attributes follow standard HTML
 convention — present means true.
 
 ```html
@@ -50,12 +50,17 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 
 | Attribute | Type | Notes |
 |---|---|---|
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | Default `solid` |
+| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | Default `solid` |
 | `cols` | number | Grid width in character columns |
 | `rows` | number | Grid height in character rows |
 | `cell-aspect` | number | Height ÷ width of the cell (default `2.0`) |
-| `glyph-palette` | string | Named palette: `default`, `ascii`, `lines`, `blocks`, `stars`, `arrows`, `math`, `binary`, `hex` |
+| `glyph-palette` | string | Named palette: `default`, `detail`, `ascii`, `lines`, `blocks`, `dots`, `solid`, `braille`, `runes`, `stars`, `arrows`, `math`, `binary`, `hex` |
+| `char-mode` | `"ascii" \| "braille" \| "halfblock" \| "quadrant"` | Character encoding for rasterized output (default `"ascii"`). `"braille"` (wireframe-only) packs a 2×4 subcell dot grid into Unicode Braille Patterns for smoother edges. `"halfblock"` (solid-only) packs two independently colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution. `"quadrant"` (solid-only) generalizes that to a full 2×2 subcell split (16 possible glyphs) for both shape AND color resolution. Each is a documented no-op outside the mode it applies to |
 | `use-colors` | bool | Emit color spans in the output |
+| `wireframe-junctions` | flag | Box-drawing junction resolve pass (wireframe + `char-mode="ascii"` only): corners/T-junctions/crossings render from `┌┐└┘├┤┬┴┼─│` instead of a random per-edge glyph |
+| `hidden-lines` | `"show" \| "hide"` | Hidden-line removal for wireframe (+ braille) and `ink`. Default `show`. No-op in `solid`, which is already depth-buffered |
+| `glyph-output` | `"visible" \| "semantic"` | Default `visible`. `semantic` needs `sceneManifest` + `dictionary`, which are set as JS **properties** (they are data, not string attributes) |
+| `directional-direction` | `"x,y,z"` | Key-light source vector — the direction from the shaded surface *toward* the light. Comma-separated, like `<glyph-mesh position>`. Either this or `directional-intensity` configures the light; the other falls back to its default |
 | `directional-intensity` | number | Key-light intensity |
 | `ambient-intensity` | number | Ambient fill intensity |
 | `auto-size` | flag | Auto-fit `cols`/`rows` to the host's box via ResizeObserver |
@@ -65,6 +70,12 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `shadow-opacity` | number | Shadow darkness 0..1 (default `0.25`) |
 | `shadow-lift` | number | Depth bias — prevents self-shadow acne (default `0.05`) |
 | `shadow-max-extend` | number | Half-extent of the light-space projection volume (default `2000`) |
+
+`solidWeightRamp` (solid-mode-only font-weight density ramp — see the
+[render modes guide](/guides/render-modes/#font-weight-density-ramp-solidweightramp))
+is a JS property, not an attribute — it is measurement data
+(`{ glyph: string; weight: number }[]`), the same "property, not attribute"
+rule `sceneManifest`/`dictionary` use: `document.querySelector("glyph-scene").solidWeightRamp = steps`.
 
 ### `<glyph-perspective-camera>` / `<glyph-orthographic-camera>` / `<glyph-camera>`
 
@@ -148,6 +159,7 @@ target plane.
 | `drag` | flag — enable drag |
 | `wheel` | flag — enable wheel zoom |
 | `invert` | flag or number — invert axis multiplier |
+| `clamp-pitch` | flag — stop the orbit pitch from passing over the poles |
 | `animate-speed` | Orbit-only: auto-rotation speed |
 | `animate-axis` | Orbit-only: `x` \| `y` \| `z` |
 
@@ -168,12 +180,12 @@ mouselook, WASD/arrow move, Space jump, Ctrl crouch.
 ## Scene-ready handshake
 
 Custom elements register asynchronously. If you need to call imperative
-methods on the scene from JavaScript, listen for `glyph-scene-ready` on
+methods on the scene from JavaScript, listen for `glyphcss:scene-ready` on
 the `<glyph-scene>` element:
 
 ```ts
 const sceneEl = document.querySelector("glyph-scene")!;
-sceneEl.addEventListener("glyph-scene-ready", (ev) => {
+sceneEl.addEventListener("glyphcss:scene-ready", (ev) => {
   const scene = (ev.target as any).getScene();
   scene.addHotspot({ id: "runtime", at: [0, 0, 1] }, () => alert("clicked"));
 });

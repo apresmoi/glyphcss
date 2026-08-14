@@ -53,6 +53,7 @@ scene. Template attributes are kebab-case (`:rot-x`, `:rot-y`, `:auto-center`).
 | Composable | Returns |
 |---|---|
 | `useGlyphSceneContext()` | The scene + camera handles available to any descendant of `<GlyphScene>` |
+| `useGlyphMesh(polygons, options?)` | Register a polygon list with the parent scene; returns `{ meshRef, loading }`. Accepts a plain array or a `ref`, and disposes the mesh on unmount |
 | `useGlyphCamera()` | The camera handle from the surrounding camera component |
 | `useGlyphAnimation(opts)` | Drive a `GlyphAnimationClip` from a mesh handle |
 
@@ -136,10 +137,13 @@ const ambientLight = { intensity: 0.4 };
 
 ## Re-exports from `@glyphcss/core`
 
-`@glyphcss/vue` re-exports the full `@glyphcss/core` surface — every polygon
-factory (`cubePolygons`, `dodecahedronPolygons`, …), the `resolveGeometry`
-registry, and the mesh parsers (`loadMesh`, `parseObj`, `parseGltf`,
-`parseVox`). You usually only need to import from `@glyphcss/vue`.
+`@glyphcss/vue` re-exports a curated slice of `@glyphcss/core` — the polygon
+factories (`cubePolygons`, `dodecahedronPolygons`, …), the `resolveGeometry`
+registry, the math primitives, and the mesh parsers (`loadMesh`, `parseObj`,
+`parseGltf`, `parseVox`, `parseStl`). It is not the *whole* surface: mesh ops
+such as `decimatePolygons`, `dedupeOverlappingPolygons` and `recenterPolygons`,
+plus the quaternion helpers, are only in `@glyphcss/core` — import those from
+there directly.
 
 ## See also
 

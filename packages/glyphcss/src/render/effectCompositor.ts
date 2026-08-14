@@ -41,6 +41,7 @@ const SUPPORTED_REQUIREMENTS = new Set<GlyphEffectRequirement>([
   "depth",
   "normal",
   "worldPosition",
+  "objectPosition",
   "uv0",
 ]);
 
@@ -456,6 +457,7 @@ export function retainGlyphEffectOutput(
     uv0,
     ...(baseGrid.shade ? { shade: baseGrid.shade } : {}),
     ...(baseGrid.worldPosition ? { worldPosition: baseGrid.worldPosition } : {}),
+    ...(baseGrid.objectPosition ? { objectPosition: baseGrid.objectPosition } : {}),
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
   };
   return {
@@ -546,6 +548,9 @@ export function composeRetainedGlyphEffectOutput(
   if (workingGrid.worldPosition && baseGrid.worldPosition) {
     workingGrid.worldPosition.set(baseGrid.worldPosition);
   }
+  if (workingGrid.objectPosition && baseGrid.objectPosition) {
+    workingGrid.objectPosition.set(baseGrid.objectPosition);
+  }
   if (workingGrid.normal && baseGrid.normal) workingGrid.normal.set(baseGrid.normal);
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
@@ -581,6 +586,9 @@ export function composeRetainedGlyphEffectOutput(
     }
     if (layer.program.requirements?.includes("worldPosition") && !base.worldPosition) {
       throw new Error("glyphcss: retained world positions are unavailable for an effect that requires worldPosition.");
+    }
+    if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
+      throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
     }
     if (layer.program.requirements?.includes("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
