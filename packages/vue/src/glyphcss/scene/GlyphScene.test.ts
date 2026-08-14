@@ -265,3 +265,21 @@ describe("GlyphScene (Vue) — error (no context)", () => {
     expect(() => app.mount(container)).toThrow();
   });
 });
+
+describe("GlyphScene (Vue) — smooth shading parity with React", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  // React's <GlyphScene> has exposed `smoothShading`/`creaseAngle` for a while;
+  // Vue's did not, which breaks the mirroring rule in AGENTS.md. Assert both the
+  // declared prop AND that it is forwarded — a declared-but-unplumbed prop is the
+  // exact failure this guards, and it renders identically so no pixel check
+  // would catch it.
+  it("declares the same props React does", () => {
+    const props = GlyphScene.props as Record<string, unknown>;
+    expect(Object.keys(props)).toContain("smoothShading");
+    expect(Object.keys(props)).toContain("creaseAngle");
+  });
+});
