@@ -22,9 +22,10 @@ emits ASCII text instead of a DOM node per polygon.
 
 A glyphcss scene is **one `<pre>` per scene plus a sparse `<div>` hit layer**.
 The `<pre>` contains N pre-baked rotation frames stacked vertically; CSS animates the
-strip with `steps(N, end)` over a configurable duration. Hotspots (one per registered
-3D anchor) get their own `@keyframes` that step through projected positions in sync
-with the strip.
+`<pre>` in a single `textContent` write per render pass — no per-polygon DOM nodes
+and no CSS transforms. Hotspots (one per registered 3D anchor) are projected
+through the same camera and repositioned with one inline-style assignment each,
+so they cannot drift out of step with the glyphs.
 
 ## Tradeoffs
 
@@ -42,5 +43,5 @@ glyphcss is the right tool when you want **iconic, terminal-aesthetic 3D** with
 ## What's next
 
 - [Quickstart](/quickstart) — npm-installable demo in 30 seconds.
-- [Core Concepts](/core-concepts) — the strip flipbook, the hit layer, the camera contract.
+- [Core Concepts](/core-concepts) — the render pass, the hit layer, the camera contract.
 - [Gallery](/gallery) — tune live, see the renderer at work.

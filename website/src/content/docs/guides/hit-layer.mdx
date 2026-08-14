@@ -48,8 +48,8 @@ Each `<GlyphHotspot>` becomes:
 </div>
 ```
 
-The `transform: translate3d(...)` updates every frame via `@keyframes` matching the
-strip's `steps(60, end)` timing.
+The `transform: translate3d(...)` is reassigned inline each render, from the same
+camera projection that produced the character grid.
 
 ## Anchors
 

@@ -15,7 +15,8 @@ Frame size:
 - 240×72 grid (large): ~17,000 cells, ~6ms per frame
 
 The bake (60 frames × per-frame cost) happens once at init and then again only on
-drag-end / wheel-end. Steady-state animation costs **zero JavaScript** — the strip
+drag-end / wheel-end. Each render pass is one projection + one string write — the
+renderer
 is a static `<pre>` and the browser composites the `translate3d` transform on the
 GPU.
 
@@ -33,7 +34,8 @@ For "highlight every vertex" UIs, consider:
 ## Avoid steady-state JS
 
 If you find yourself reaching for `requestAnimationFrame` to update the scene
-every frame, stop. The strip flipbook is designed to make that unnecessary. Two
+every frame, stop. The single-write render pass is designed to make that
+unnecessary. Two
 recipes that come up:
 
 **"I want the scene to react to scroll position":** map scroll to camera.rotY in
@@ -41,5 +43,5 @@ chunks of `2π / 60`, debounce 100ms, re-bake. The user sees ~10fps of camera
 updates which feels smooth enough.
 
 **"I want a continuous color pulse on a hotspot":** put the pulse on the hotspot's
-`<div>` directly via CSS animation. The hotspot div is real DOM — `@keyframes
+`<div>` directly. The hotspot div is real DOM — an inline `transform`
 pulse` on it works the same as any other CSS animation.

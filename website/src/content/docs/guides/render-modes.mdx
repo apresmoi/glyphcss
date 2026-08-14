@@ -62,16 +62,18 @@ const scene = createGlyphScene(document.querySelector("#scene")!, {
 });
 
 // Custom wireframe edges with explicit weights:
-import { buildSceneContext } from "glyph-core";
+import { buildRasterizeContext, rasterize } from "glyphcss";
 
-const ctx = buildSceneContext({
-  camera, grid,
+const ctx = buildRasterizeContext({
+  camera,
+  grid,
   wireframe: [
     { from: [1, 0, 0], to: [-1, 0, 0], weight: 2 },  // bold edge
     { from: [0, 1, 0], to: [0, -1, 0], weight: 1 },  // thin spoke
   ],
   mode: "wireframe",
 });
+const text = rasterize(ctx);
 ```
 
   </TabItem>

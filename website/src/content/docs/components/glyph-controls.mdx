@@ -17,8 +17,10 @@ component wraps the scene.
 
 ## Orbit controls
 
-`GlyphOrbitControls` pauses the strip animation on drag, live-rasterizes per
-pointermove, and re-bakes a fresh strip on release.
+`GlyphOrbitControls` mutates the camera-state object on drag; the rasterizer
+reads it and writes one string per pointermove. With `interactiveDownscale` set,
+the scene renders at reduced resolution for the duration of the gesture and
+restores full detail on release.
 
 ### Props
 

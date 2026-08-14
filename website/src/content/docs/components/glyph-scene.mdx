@@ -6,8 +6,8 @@ description: Root container for a glyphcss scene.
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import GlyphDemo from "../../../components/GlyphDemo.astro";
 
-`<GlyphScene>` is the visual host. It owns the `<pre>` strip, the sibling hit layer,
-and the CSS variables (`--rows`, `--cell-h`, `--cell-fs`, `--dur`) that the strip
+`<GlyphScene>` is the visual host. It owns the `<pre>` output element, the sibling
+hit layer, and the measured cell metrics that the projection
 keyframes consume.
 
 `<GlyphScene>` must be a child of a camera component (`<GlyphCamera>`,

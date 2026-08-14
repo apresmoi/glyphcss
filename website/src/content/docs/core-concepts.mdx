@@ -1,25 +1,33 @@
 ---
 title: Core Concepts
-description: The strip flipbook, the hit layer, and the camera contract.
+description: The render pass, the hit layer, and the camera contract.
 ---
 
-## The strip flipbook
+## One render pass, one write
 
-glyphcss does not redraw the scene every frame. At init, the renderer projects every
-vertex through the camera N times (N = 60 by default), Bresenham-rasterizes each
-frame into a `Uint8Array` stamp, and concatenates the N frames into one `<pre>`
-separated by `\n`. CSS then:
+glyphcss does not build a DOM node per polygon, and it does not pre-bake frames.
+Every camera or scene change runs a single render pass:
 
-1. Clips the viewport to exactly `rows × cell-height` pixels (one frame's worth).
-2. Animates the strip's `transform: translate3d(0, -i × frame-height, 0)` with
-   `steps(N, end)` over `--dur` seconds.
+1. Walk all mounted meshes in scene order.
+2. Transform polygon vertices through the camera to 2D projected positions.
+3. Fill a `cols × rows` character grid — depth-testing overlapping polygons and
+   picking a glyph per cell according to the render mode.
+4. Join the grid into one string and assign it to `<pre>.textContent`, **once**.
 
-The visible frame steps through 0..N-1 cleanly. JavaScript runs once. The
-browser's compositor handles the rest.
+That last point is the invariant the whole renderer is built around: each render
+cycle writes each `<pre>` exactly once. No cell-by-cell DOM patching, no
+`matrix3d`, no per-polygon elements. A scene with per-mesh detail layers writes
+the base `<pre>` plus one write per detail layer, and nothing else.
 
-When the user drags or zooms, the strip animation pauses (via a `.dragging` class)
-and a single live frame is rendered with `rasterize(scene)` per pointermove. On
-release, the strip is re-baked with the new camera state.
+Interaction follows the same path rather than a special one: a control mutates a
+single camera-state object, the rasterizer reads it, and one string is written.
+Dragging can optionally render at reduced resolution via `interactiveDownscale`
+and restore full detail on release — same on-screen size, fewer cells mid-gesture.
+
+Because `rasterize` is pure — geometry + camera in, string out — the same pass
+runs at build time or on a server. That is what `compileScene` and
+`GlyphSceneStatic` use, and their output is byte-identical to the runtime render
+for the same inputs.
 
 ## The hit layer
 
@@ -41,10 +49,11 @@ const shape = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff
 </GlyphMesh>
 ```
 
-Each hotspot becomes a real `<div>` absolutely positioned at its projected cell,
-with its own `@keyframes` stepping through N projected positions. The strip and the
-hotspot keyframes both use `steps(N, end)` over the same `--dur`, so they stay in
-lockstep through rotation. Hotspots:
+Each hotspot becomes a real `<div>` absolutely positioned at its projected cell.
+The rasterizer projects `Hotspot.at` through the same camera the grid was drawn
+with and returns a `HotspotCell` (col, row, depth, visible); the consumer moves
+the element with a single inline-style assignment per hotspot — no DOM rebuild,
+and no second projection that could disagree with the glyphs. Hotspots:
 
 - Render real DOM children (use them for tooltips, badges, hover affordances).
 - Fire normal DOM events (`onClick`, `onMouseEnter`, `onFocus`).
@@ -75,17 +84,20 @@ for (let i = 0; i < 60; i++) {
 ```
 
 If you ever find yourself threading a separate "current angle" through projection,
-stop: that's how the strip and the hit layer drift apart.
+stop: one camera-state object feeds both the grid and the hotspots, and that is
+exactly what keeps them from drifting apart.
 
 ## Cell measurement (the recurring footgun)
 
 `<pre>` is `display: block`, so `getBoundingClientRect().width` returns the
 **container width**, not the character width. Always measure on a hidden
 `<span style="display: inline-block">` instead. The probe should have the same
-font properties as the strip (same `font-family`, same `font-size`,
+font properties as the `<pre>` (same `font-family`, same `font-size`,
 `line-height: normal`).
 
-After measuring, never leave `font-size` / `line-height` as inline styles on the
-strip — the CSS variables on the scene root (`--cell-fs`, `--cell-h`) must be the
-source of truth, or the strip's rendered frame height will drift from the keyframe
-translate distance and you'll see the strip scrolling smoothly instead of stepping.
+The measured cell matters because the projection uses its aspect ratio: with
+`autoSize`, the scene re-measures the host cell and overwrites `cellAspect` from
+it, so geometry stays correctly proportioned when the font or size changes. A
+fixed-size scene (explicit `cols`/`rows`, no `autoSize`) has no such correction —
+it keeps whatever `cellAspect` you gave it, which is why `compileScene` takes the
+value explicitly.

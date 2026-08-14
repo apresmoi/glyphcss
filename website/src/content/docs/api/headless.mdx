@@ -166,26 +166,29 @@ perspective.distance = 4;
 scene.setOptions({ camera: ortho });
 ```
 
-## Lower-level pieces (`glyph-core`)
+## Lower-level pieces
 
-`glyph-core` is browser-agnostic (no DOM globals) and can run in Node or a
-web worker.
+`@glyphcss/core` is browser-agnostic (no DOM globals) and can run in Node or a
+web worker. The rasterizer itself lives in `glyphcss` — it is pure too (geometry
++ camera → string), it just ships with the renderer rather than with core.
 
 ```ts
+import { icosahedronPolygons } from "@glyphcss/core";
 import {
-  buildSceneContext,
+  buildRasterizeContext,
   rasterize,
   projectHotspots,
-  icosahedronPolygons,
-} from "glyph-core";
-import { createGlyphPerspectiveCamera } from "glyphcss";
+  createGlyphPerspectiveCamera,
+} from "glyphcss";
 
-const triangles = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
 const camera = createGlyphPerspectiveCamera({ rotX: 25, zoom: 50 });
 const grid = { cols: 160, rows: 48, cellAspect: 2.0 };
 
-const ctx = buildSceneContext({ camera, grid, triangles, mode: "solid" });
+// `RasterizeContextOptions` — `polygons` is required for solid/voxel, and
+// wireframe edges are derived from it when `wireframe` is omitted.
+const ctx = buildRasterizeContext({ camera, grid, polygons, mode: "solid" });
 
 // Rasterize one frame to a string:
 const text = rasterize(ctx);
@@ -193,10 +196,17 @@ const text = rasterize(ctx);
 // Project hotspots to grid cells:
 const cells = projectHotspots(
   [{ id: "top", at: [0, 1, 0] }],
-  camera, 160, 48, 2.0,
+  camera,
+  160,
+  48,
+  2.0,
 );
 // cells is { id, col, row, depth, visible }[]
 ```
+
+`@glyphcss/core` owns the geometry and math — polygon generators (~44 named
+shapes plus `resolveGeometry`), parsers, mesh ops, and `buildSceneContext({
+polygons })` for scene composition. It does not own the rasterizer.
 
 ## Static compile
 
