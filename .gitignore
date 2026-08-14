@@ -34,24 +34,10 @@ website/public/skill.md
 # Local planning doc — kept out of git per project decision
 ANIMATIONS.md
 
-# Source-controlled vertical-slice research; generated ML artifacts are ignored
-# by narrower rules added with their producers.
-!/research/
-!/research/ascii-image-generation/
-!/research/ascii-image-generation/**
-
-# B7 corpus products are content-addressed remote artifacts. The fixture
-# manifest is intentionally source-controlled; its generated sibling is not.
-research/ascii-image-generation/fixtures/corpus/generated/
-research/ascii-image-generation/datasets/
-research/ascii-image-generation/models/
-research/ascii-image-generation/runs/
-research/ascii-image-generation/cache/
-research/ascii-image-generation/review/
-research/ascii-image-generation/**/*.safetensors
-research/ascii-image-generation/**/*.ckpt
-research/ascii-image-generation/**/*.onnx
-research/ascii-image-generation/**/pytorch_model*.bin
+# Research is local-only exploration, not part of the shipped repo: notes,
+# clones of prior art, datasets and model artifacts all stay on the machine
+# that produced them.
+/research/
 
 # Generated static-effect-export bench artifacts
 bench/static-effect-export/out/
