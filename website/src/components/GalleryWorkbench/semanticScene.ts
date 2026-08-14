@@ -1,4 +1,7 @@
-import dictionaryJson from "../../../../research/ascii-image-generation/config/glyph-object-dictionary.json";
+// Lives beside the component that uses it. It previously came from `research/`,
+// which is local-only exploration and not part of the repo — the site built
+// locally and failed in CI.
+import dictionaryJson from "./glyph-object-dictionary.json";
 import { computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
 import type { Polygon } from "@glyphcss/core";
 
