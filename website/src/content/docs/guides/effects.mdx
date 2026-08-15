@@ -293,7 +293,8 @@ Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
 - `fieldN` — the spatial field. `radial` measures distance from the origin,
   `angular` the angle around it, `spiral` combines both;
   `linearX`/`linearY`/`diagonal` are ramps; `noise` is a 3D value-noise field
-  that evolves in place over `time` rather than sliding.
+  that evolves in place over `time` rather than sliding. `linearZ` exists only
+  under the volumetric branch — see [below](#volumetric-fields-space-object).
 - `waveN` — the waveform: `sin`, `triangle`, `saw`, or `square`.
 - `freqN` — spatial frequency, in cycles per unit.
 - `speedN` — animation rate, in cycles per second.
@@ -301,6 +302,13 @@ Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
   running result toward `combine(result, voice)` by its own `ampN`. `amp: 0`
   skips the voice entirely; a low `ampN` gently mixes it in instead of
   crushing the field.
+- `dutyN` (`0..1`, default `0.5`) — the square wave's high fraction (other
+  waveforms ignore it).
+- `phaseN` (cycles, default `0`) — added to that voice's wave argument. Voice
+  origins don't shift linear fields at all (`linearX`/`linearY`/`diagonal`
+  ignore the origin; only `angleN` and the radial/angular/spiral centers read
+  it), so `phase` is how you shift one: a middle-third band selector is
+  `wave: "square", duty: 1/3, phase: -1/3`.
 
 ### Combine, gain, bias
 
@@ -371,6 +379,83 @@ shear on genuinely curved surfaces.
 `fieldSynth` shares the same `space: "auto" | "surface" | "scene" | "object"`
 mapping described [above](#composition-and-mapping).
 
+### Volumetric fields (`space: "object"`)
+
+Under `space: "object"`, field synth takes its own 3D branch rather than
+reusing the 2D formulas with `z` fixed at `0` — most fields are genuinely
+different in the two branches:
+
+- `linearZ` — the third axis projection. Only meaningful in 3D.
+- `diagonal` is `(x + y + z) / √3` here, vs. `(x + y) / √2` in 2D — the 2D
+  formula is untouched so existing presets don't shift.
+- `radial` measures spherical distance from the voice origin.
+- `angular` and `spiral` stay evaluated in the XY plane; `z` is ignored.
+- `noise` becomes a 4D hash (adding `z` to the existing `x, y, time` lattice)
+  so a volumetric noise voice animates instead of freezing.
+
+Voice origins gain `originWN` (default `0`) for the third axis, alongside the
+existing `originUN`/`originVN`. `angleN` keeps its 2D meaning — rotation about
+Z. `scale` is a 3D field frequency under `"object"`, the same caveat matrix
+rain's own volumetric mode carries: a value tuned for `"auto"`/`"surface"`
+does not carry over 1:1.
+
+`subcellRes: "2x4"` and `"ink"` still work volumetrically, finite-differencing
+neighboring cells' resolved 3D coordinate. Under `render: "carve"` (below)
+both are rejected — a march has no stable neighbor coordinate to difference.
+
+### Voice layers
+
+Voices can opt into one of three **layers** (`layer1..6`, default `1`), each
+with its own intra-layer combine, threshold, invert, and blend into the next
+layer:
+
+- `layerCombineL` — how that layer's own voices fold (default: the patch's
+  `combine`).
+- `layerThresholdOnL` / `layerThresholdL` (`-3..3`, default off / `0`) — when
+  on, the layer's folded value collapses to `+1` above the threshold or `-1`
+  below it.
+- `layerInvertL` — negates the layer's value (after thresholding, if on).
+- `layerBlendL` (`add`/`multiply`/`max`/`min`/`difference`, default
+  `multiply`) and `layerAmpL` (`0..1`, default `1`) — how the layer enters the
+  stack, one level up from how voices enter a layer.
+
+Layers exist because a flat fold of voices — every voice is a 1D wave along
+one axis — cannot express a **per-scale** rule like a Menger sponge's ("hole
+if at least two axes are in their middle third at the *same* scale"). A
+threshold per layer, one layer per scale, is what makes that expressible; a
+single flat `combine` cannot mix a per-scale threshold into the fold.
+
+A single-layer patch with threshold and invert off and amp `1` is identical
+to the pre-layers flat fold — existing patches and presets are unaffected.
+`argmax` stays single-layer: a multi-layer patch is only valid if every
+populated layer's *effective* combine (its own override, or else the patch's
+`combine`) resolves to something other than `argmax`.
+
+### Carve mode
+
+`render: "paint"` (default) is everything above. `render: "carve"` raymarches
+the field through the mesh's own volume and turns it into interior structure —
+holes, walls, hollow chambers — instead of a surface texture. It requires the
+volumetric branch (`space: "object"`) and `subcellRes: "1x1"`.
+
+Per cell, carve marches from the mesh's entry point to its exit point along
+the view ray, sampling the same combined field paint uses. `marchSteps`
+(default `48`, max `256`) sets the sampling density; a chord with fine
+enough content near the cap raises this automatically so thin walls don't
+flicker in and out under rotation. Where the march finds no solid sample, the
+cell renders nothing; the recommended mount is `blend: "replace"` at full
+opacity, so a hole shows the page background — the "hollowed-out" look. Under
+`blend: "over"`, the base surface still shows through a hole instead.
+
+An interior hit fades with depth — `marchFade` (default `1`) controls how
+quickly a wall recedes into shadow as the march goes deeper — so a
+near-surface wall reads brighter than one buried further in.
+
+`fieldSynth` ships a **Menger sponge** preset (`space: "object"`,
+`render: "carve"`, two layers of three axis voices each) built from exactly
+this layer/duty/phase/volumetric machinery on a plain cube mesh — no sponge
+geometry, no baked frames.
+
 ### Example
 
 ```ts
@@ -403,8 +488,10 @@ requestAnimationFrame(frame);
 `Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
 `Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
 `Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`) as `{ name, params }` pairs — quick starting points for `params`.
-`Cube tiles` and `Ink cells` exercise `argmax` and the ink contour mode.
+`Ink cells`, `Menger sponge`) as `{ name, params }` pairs — quick starting
+points for `params`. `Cube tiles` and `Ink cells` exercise `argmax` and the
+ink contour mode; `Menger sponge` exercises the volumetric branch, voice
+layers, and carve together.
 
 ### `GlyphRamps`
 
@@ -520,3 +607,16 @@ by id in its CDN snippet, and
 [`buildGlyphFieldSynthStaticExport`](/guides/compile#effect-only-static-export-field-synth)
 bakes an effect-only, static-camera field-synth scene with zero runtime.
 Other static compile paths do not evaluate effects.
+
+`buildGlyphFieldSynthStaticExport` supports layers, `duty`, `phase`,
+per-voice `angleN`/`originUN`/`originVN`, and `subcellRes: "2x4"`/`"ink"` — all
+2D. It rejects, with a specific error naming the reason: `space: "object"`
+(the volumetric branch) and `render: "carve"`, plus an active voice
+(`ampN > 0`) using `linearZ` or a nonzero `originWN` — all 3D-only semantics a
+per-cell coordinate bake can't fake, since carve in particular needs a march
+per cell per frame. Call `isStaticExportSupported(params)` to check before
+exporting rather than duplicating this list; the `/synth` page's CodePen
+button uses it to decide which export to offer. A volumetric or carve patch
+still exports through the
+[interactive export](/guides/compile#interactive-export) — it ships and
+evaluates the live effect runtime instead of a baked approximation.

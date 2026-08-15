@@ -1,8 +1,13 @@
 # Volumetric field synth — design
 
-Status: **proposed** (approved direction, pre-implementation; revised once
-after a three-lens adversarial review — codebase accuracy, math soundness,
-implementer completeness). This doc is the spec for making field-synth
+Status: **implemented** (`fe05add..9f1d2f5`: `objectExit` + `dynamicRequirements`
+in `glyphcss`; the field-program IR, 3D voices, `duty`/`phase`, voice layers,
+carve, and the static-export port in `@glyphcss/effects`; the `/synth` page's
+volumetric UI, layer cards, and codec index escape in `website`). This doc now
+records the design and the review history that shaped it; the shipped
+implementation is the source of truth for exact behavior, and AGENTS.md's
+effects section is the maintained reference — this doc is not updated further
+as the code evolves. It was the spec for making field-synth
 volumetric: 3D voices sampled through a mesh's own volume, opt-in voice
 layers with per-layer shaping, and a raymarched "carve" mode that turns the
 field into internal structure — holes, interior walls, color transitions in
@@ -355,20 +360,39 @@ program IR"):
   `clamp01(bias + gain·v·0.5)` mapping the ramp already uses, is solid when
   > 0. No new iso parameter — bias is the level knob, and the ±1 layer
   outputs make the default bias work (see above).
-- **Hit emission = paint's emission.** A hit at parameter t evaluates the
-  *paint* pipeline at the hit point — same value-scaled coverage, same ramp
-  glyph, same `lit`/shade, `voiceColors`, and gradient handling — then
-  multiplies the color modulation by **`exp(−marchFade · t)`**, `t` in
-  domain units, `marchFade` a param (default 1, 0 disables). At `t = 0` the
-  factor is exactly 1, so a carve whose field is solid everywhere is
-  byte-identical to paint on the same scene — the no-op equivalence test is
-  *derivable*, not asserted. The falloff is continuous in t (no "t ≈ 0"
-  epsilon, no seam at hole rims), never reaches 0 (a far-wall hit stays
-  distinguishable from a hole), and uses absolute units (two adjacent cells
-  with different chord lengths shade the same interior wall identically —
-  chord-relative normalization would paint a spurious silhouette-tracking
-  gradient). Interior hits (t > 0) carry no shadow-map term — the v1
-  shading contract; gradient-normal Lambert is a possible later refinement.
+- **Hit emission = paint's emission, at the raw solid sample — not the
+  interpolated hit point.** This section originally specified emitting at
+  the march's interpolated hit position (parameter `t`, found by a secant
+  root between the last non-solid and first solid sample). That is not what
+  shipped, and for a reason worth recording: a *hard-thresholded* field —
+  every voice/layer boundary in the Menger recipe, or any bare square-wave
+  voice — has a plateau at exactly `0` under the ramp's own
+  `clamp01(bias + gain·v·0.5)` mapping, and the interpolated position can
+  land precisely on that plateau's edge and resample non-solid (the
+  "saturation bug": a hit that, when re-evaluated at its own reported
+  position, reads as no-hit). The shipped `marchField` result instead
+  guarantees `sampleT`/`sampleX`/`sampleY`/`sampleZ` — the raw grid sample
+  that actually triggered the hit, always `> 0` by construction — alongside
+  the interpolated `t`/`x`/`y`/`z` (kept for a genuinely affine field, where
+  the two coincide up to the march step size). Carve emits the paint
+  pipeline — same value-scaled coverage, same ramp glyph, same `lit`/shade,
+  `voiceColors`, gradient handling — at `sampleX/Y/Z`, and fades color by
+  **`exp(−marchFade · sampleDistance)`**, where `sampleDistance` is
+  `marchField`'s own `sampleT * chordLength` (so the emission point and the
+  falloff distance can never drift apart, which pairing the emission point
+  with the *interpolated* `distance` instead would risk whenever the
+  crossing isn't already bracket-exact). At `sampleDistance = 0` (the
+  entry-already-solid short-circuit) the falloff factor is exactly 1, so a
+  carve whose field is solid everywhere is still byte-identical to paint on
+  the same scene — the no-op equivalence test is *derivable*, not asserted,
+  same as originally designed. The falloff is continuous in `sampleDistance`
+  (no "t ≈ 0" epsilon, no seam at hole rims), never reaches 0 (a far-wall
+  hit stays distinguishable from a hole), and uses absolute units (two
+  adjacent cells with different chord lengths shade the same interior wall
+  identically — chord-relative normalization would paint a spurious
+  silhouette-tracking gradient). Interior hits carry no shadow-map term —
+  the v1 shading contract; gradient-normal Lambert is a possible later
+  refinement.
 - **Holes.** No solid sample along the chord → the cell **emits nothing**.
   What that renders as is ordinary compositor semantics, stated here
   because it surprises: under `blend: "replace"` at opacity 1 the cell
@@ -499,7 +523,7 @@ The packed URL codec is the gating constraint, not the UI:
    `dynamicRequirements` asks for it.
 4. Carve no-op equivalence: carve with an everywhere-solid field is
    byte-identical to paint on the same scene (derivable from the shared
-   t = 0 emission path; `marchFade` any value).
+   `sampleDistance = 0` emission path; `marchFade` any value).
 5. Carve smoke: cube + depth-2 Menger patch under `blend: "replace"`,
    opacity 1, produces empty cells at hole centers and non-empty
    interior-wall cells inside hole apertures.
@@ -547,8 +571,8 @@ now don't have to be unwound to reach them.
 
 ## Advisory findings recorded, not folded into this design
 
-Pre-existing defects surfaced by the review, to be filed/fixed separately
-(the layers PR only must not *widen* them):
-
-- /synth URL codec silently drops schema indices ≥ 62 today (`lit`,
-  `voiceColors`, `color1..6` never round-trip).
+Pre-existing defect surfaced by the review, filed and fixed as part of this
+work rather than separately: the /synth URL codec silently dropped schema
+indices ≥ 62 (`lit`, `voiceColors`, `color1..6` never round-tripped) —
+`SYNTH_SCHEMA_VERSION` bumped to `"2"` with a multi-char index escape and a
+legacy ("1"-tagged) decode path for pre-bump URLs (`synthUrlState.ts`).

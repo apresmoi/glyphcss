@@ -310,3 +310,13 @@ Field synth only: another effect id would need its own exported coordinate
 resolver plus a hand-written port of its per-cell math, since there is no way to
 ship an arbitrary `GlyphEffectProgram.evaluate()` without shipping the effect
 runtime with it.
+
+This exporter ports field synth's 2D machinery — layers, `duty`, `phase`,
+per-voice `angleN`/`originUN`/`originVN`, and `subcellRes: "2x4"`/`"ink"` — but
+rejects the [volumetric branch and carve mode](/guides/effects#volumetric-fields-space-object)
+explicitly (`space: "object"`, `render: "carve"`, or an active voice using
+`linearZ`/a nonzero `originWN`): a march is a different, per-cell-per-frame
+export design this affine-fit/coordinate-table bake can't fake. Check
+`isStaticExportSupported(params)` before calling; a volumetric or carve patch
+exports through the [interactive export](#interactive-export) instead, which
+ships and evaluates the live effect runtime rather than a baked approximation.
