@@ -10,6 +10,25 @@ export {
   synthWave,
 } from "./stock";
 
+// The field program IR — public per VOLUMETRIC.md's "The field program IR"
+// ("the IR evaluator and the marcher are public"). `evaluateGlyphFieldProgram`
+// and `marchGlyphField` are the steering seam a future field-authoritative
+// primitive or the spectral track's analysis mode plugs into; the types are
+// what a caller needs to build or consume a `GlyphFieldProgram` by hand
+// (`fieldSynth`'s own params→IR compile in `stock.ts` is one such caller).
+export { evaluateFieldProgram as evaluateGlyphFieldProgram, marchField as marchGlyphField } from "./fieldProgram";
+export type {
+  FieldEvalResult as GlyphFieldEvalResult,
+  FieldLayer as GlyphFieldLayer,
+  FieldMarchHit as GlyphFieldMarchHit,
+  FieldMarchMiss as GlyphFieldMarchMiss,
+  FieldMarchOptions as GlyphFieldMarchOptions,
+  FieldMarchResult as GlyphFieldMarchResult,
+  FieldProgram as GlyphFieldProgram,
+  FieldSampler as GlyphFieldSampler,
+  FieldVoice as GlyphFieldVoice,
+} from "./fieldProgram";
+
 export {
   fieldSynth as GlyphFieldSynthEffect,
   flowText as GlyphFlowTextEffect,

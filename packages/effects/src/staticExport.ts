@@ -63,6 +63,7 @@ import {
   generatedSurfaceField,
   fieldSynthCoordinate,
   defaultGlyphEffectParams,
+  SYNTH_LAYERS,
   SYNTH_VOICES,
   type AnyContext,
   type AnyParams,
@@ -598,16 +599,22 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 
 // Phase 2 (VOLUMETRIC.md) added a field-program IR + 3D voices to the live
 // runtime (stock.ts): `space: "object"` volumetric fields, per-voice
-// `dutyN`/`phaseN`/`originWN`, and the `linearZ` field. RUNTIME_JS is a hand
-// port of the OLD 2D generated-surface/scene/auto evaluator only — porting
-// the volumetric branch, duty-cycle square waves, phase offsets, and the Z
-// origin is Phase 5's job. Silently baking a patch that uses any of these
+// `dutyN`/`phaseN`/`originWN`, and the `linearZ` field. Phase 3 added voice
+// layers: per-voice `layerN` plus per-layer `layerCombineL`/
+// `layerThresholdOnL`/`layerThresholdL`/`layerInvertL`/`layerBlendL`/
+// `layerAmpL`. RUNTIME_JS is a hand port of the OLD single-layer 2D
+// generated-surface/scene/auto evaluator only — porting the volumetric
+// branch, duty-cycle square waves, phase offsets, the Z origin, and voice
+// layers is Phase 5's job. Silently baking a patch that uses any of these
 // would emit a pen that renders a different picture than the runtime with no
 // error, so reject explicitly instead — same policy as the unsupported
-// `effect` id check above. Only ACTIVE voices (ampN > 0) are checked: the
-// evaluator (both live and inlined) skips amp-0 voices entirely, so an
-// unported field/duty/phase/originW on a voice that never contributes can't
-// diverge anything.
+// `effect` id check above. Only ACTIVE voices (ampN > 0) are checked for the
+// per-voice params: the evaluator (both live and inlined) skips amp-0 voices
+// entirely, so an unported field/duty/phase/originW/layer on a voice that
+// never contributes can't diverge anything. The per-layer shaping params are
+// checked the same way, one level up: a layer with zero active voices
+// assigned to it is skipped by the evaluator exactly like an amp-0 voice, so
+// its shaping params can't diverge anything either.
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
   if (params.space === "object") {
     throw new Error(
@@ -617,6 +624,7 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
     );
   }
   const p = params as unknown as AnyParams;
+  const layerPopulated: boolean[] = new Array(SYNTH_LAYERS).fill(false) as boolean[];
   for (let k = 1; k <= SYNTH_VOICES; k++) {
     if (!((p[`amp${k}`] as number) > 0)) continue;
     if (p[`field${k}`] === "linearZ") {
@@ -645,6 +653,59 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
         `glyphcss: buildGlyphFieldSynthStaticExport does not support originW${k} !== 0 on an active voice `
         + `(amp${k} > 0) yet — the inlined runtime has no volumetric Z origin. Porting originW support is `
         + "Phase 5's job.",
+      );
+    }
+    const layer = p[`layer${k}`] as number;
+    if (layer !== 1) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layer${k} !== 1 on an active voice `
+        + `(amp${k} > 0) yet — the inlined runtime has no voice-layer grouping. Porting layers is Phase 5's job.`,
+      );
+    }
+    if (layer >= 1 && layer <= SYNTH_LAYERS) layerPopulated[layer - 1] = true;
+  }
+  for (let l = 1; l <= SYNTH_LAYERS; l++) {
+    if (!layerPopulated[l - 1]) continue;
+    if ((p[`layerCombine${l}`] as string) !== "inherit") {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerCombine${l} !== "inherit" on a `
+        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer combine `
+        + "override. Porting layers is Phase 5's job.",
+      );
+    }
+    if ((p[`layerThresholdOn${l}`] as boolean) !== false) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerThresholdOn${l} !== false on a `
+        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer threshold. `
+        + "Porting layers is Phase 5's job.",
+      );
+    }
+    if ((p[`layerThreshold${l}`] as number) !== 0) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerThreshold${l} !== 0 on a populated `
+        + `layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer threshold. Porting `
+        + "layers is Phase 5's job.",
+      );
+    }
+    if ((p[`layerInvert${l}`] as boolean) !== false) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerInvert${l} !== false on a populated `
+        + `layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer invert. Porting `
+        + "layers is Phase 5's job.",
+      );
+    }
+    if ((p[`layerBlend${l}`] as string) !== "multiply") {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerBlend${l} !== "multiply" on a `
+        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no layer stack to blend `
+        + "into. Porting layers is Phase 5's job.",
+      );
+    }
+    if ((p[`layerAmp${l}`] as number) !== 1) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerAmp${l} !== 1 on a populated layer `
+        + `(layer ${l} has an active voice) yet — the inlined runtime has no layer stack to mix into. Porting `
+        + "layers is Phase 5's job.",
       );
     }
   }

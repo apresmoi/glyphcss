@@ -138,8 +138,23 @@ export interface FieldLayer {
   readonly amp: number;
 }
 
-/** An array of layers; a layer with no active (amp > 0) voices is skipped in the fold. */
-export type FieldProgram = readonly FieldLayer[];
+/**
+ * `domain` is a program-level property (not a per-call argument): every layer
+ * of a compiled program shares one evaluation domain, and baking it into the
+ * program keeps `evaluateFieldProgram`'s call site from having to thread a
+ * `volumetric` boolean everywhere the program itself is already threaded
+ * (VOLUMETRIC.md's Phase 3 seam fix — "promote `volumetric` from call
+ * argument to program state"). Call-level origin stays a runtime argument to
+ * `evaluateFieldProgram` because it genuinely varies per call (per coplanar
+ * surface group under `space: "surface"`), unlike domain.
+ *
+ * `layers` is length-free; a layer with no active (amp > 0) voices is skipped
+ * in the fold.
+ */
+export interface FieldProgram {
+  readonly domain: "2d" | "3d";
+  readonly layers: readonly FieldLayer[];
+}
 
 export interface FieldEvalResult {
   readonly combined: number;
@@ -295,8 +310,8 @@ export function combineSynth(mode: string, a: number, b: number): number {
  * Defaults to the domain origin (0, 0, 0) for callers with no such concept
  * (a bounding-volume march, a future field-authoritative primitive).
  *
- * `volumetric` selects the 3D branch (see `sampleFieldVoice`) — false (2D)
- * by default.
+ * `program.domain` selects the 3D branch (see `sampleFieldVoice`) — it is a
+ * program-level property, not a per-call argument (see `FieldProgram`'s doc).
  *
  * Layers fold in array order with `layer.amp` as the mix weight, mirroring
  * the voice fold one level up (VOLUMETRIC.md's Step 3): the first populated
@@ -314,16 +329,17 @@ export function evaluateFieldProgram(
   x: number, y: number, z: number,
   time: number,
   originX = 0, originY = 0, originZ = 0,
-  volumetric = false,
 ): FieldEvalResult {
+  const volumetric = program.domain === "3d";
   let stackValue = 0;
   let stackActive = 0;
   let populatedLayers = 0;
   let singleLayerWinner = -1;
   let appliedLayers = 0;
 
-  for (let li = 0; li < program.length; li++) {
-    const layer = program[li]!;
+  const layers = program.layers;
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li]!;
     const result = foldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric);
     if (result.active === 0) continue; // skip empty layers, like an amp-0 voice
     populatedLayers++;

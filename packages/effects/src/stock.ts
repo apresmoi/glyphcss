@@ -1199,6 +1199,22 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // for why the IR/evaluator stay uncapped.
 export const SYNTH_VOICES = 6;
 
+// Voice layers (VOLUMETRIC.md's Step 3) cap the flat SCHEMA at 3 layer slots
+// — the IR's `FieldProgram.layers` itself is length-free, same relationship
+// `SYNTH_VOICES` has to the voice IR.
+export const SYNTH_LAYERS = 3;
+
+// `layerBlendL` (how a layer's shaped output enters the stack) has no
+// "argmax" value — layers are value-folded, not selected by identity (see
+// `FieldLayer.blend`'s doc in fieldProgram.ts). `layerCombineL` (the
+// intra-layer VOICE fold) reuses this same non-argmax set plus "inherit",
+// which resolves to the patch-level `combine` at compile time — the only way
+// a layer's resolved combine becomes "argmax" is by inheriting a
+// patch-level `combine: "argmax"`, never by an explicit per-layer override.
+// This is what keeps `validateFieldSynthLayers` simple (see below).
+const LAYER_VALUE_OPS = ["add", "multiply", "max", "min", "difference"] as const;
+const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
+
 function lerpPacked(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
   const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
@@ -1322,15 +1338,55 @@ const fieldSynthSchema = {
   originW4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin W" },
   originW5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin W" },
   originW6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin W" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Step 3: voice
+  // layers). Default 1 for every voice's layer assignment means "layer 1,
+  // shaping off" — a single-layer stack whose fold is exactly today's flat
+  // fold (structural backward compatibility; see `compileFieldSynthProgram`).
+  layer1: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 1 layer" },
+  layer2: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 2 layer" },
+  layer3: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 3 layer" },
+  layer4: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 4 layer" },
+  layer5: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 5 layer" },
+  layer6: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 6 layer" },
+  // Default "inherit" resolves to the patch-level `combine` at compile time —
+  // a single populated layer (today's shape) folds exactly like `combine`
+  // always has.
+  layerCombine1: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 1 combine" },
+  layerCombine2: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 2 combine" },
+  layerCombine3: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 3 combine" },
+  layerThresholdOn1: { kind: "boolean", default: false, animation: "discrete", label: "Layer 1 threshold on" },
+  layerThresholdOn2: { kind: "boolean", default: false, animation: "discrete", label: "Layer 2 threshold on" },
+  layerThresholdOn3: { kind: "boolean", default: false, animation: "discrete", label: "Layer 3 threshold on" },
+  // Range -3..3: an add-fold of three amp-1 voices spans +-3 (VOLUMETRIC.md's
+  // Step 3 — a +-1..1 range could not express "all three axes mid").
+  layerThreshold1: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 1 threshold" },
+  layerThreshold2: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 2 threshold" },
+  layerThreshold3: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 3 threshold" },
+  layerInvert1: { kind: "boolean", default: false, animation: "discrete", label: "Layer 1 invert" },
+  layerInvert2: { kind: "boolean", default: false, animation: "discrete", label: "Layer 2 invert" },
+  layerInvert3: { kind: "boolean", default: false, animation: "discrete", label: "Layer 3 invert" },
+  layerBlend1: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 1 blend" },
+  layerBlend2: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 2 blend" },
+  layerBlend3: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 3 blend" },
+  layerAmp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 1 amp" },
+  layerAmp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 2 amp" },
+  layerAmp3: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 3 amp" },
 } as const satisfies GlyphEffectParamSchema;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
 // SYNTH_VOICES ever changes without the schema following, this fails loudly at
 // module load instead of silently reading `undefined` through a stale cast.
 for (let voice = 1; voice <= SYNTH_VOICES; voice++) {
-  for (const prefix of ["field", "wave", "freq", "speed", "amp", "color"] as const) {
+  for (const prefix of ["field", "wave", "freq", "speed", "amp", "color", "layer"] as const) {
     if (!(`${prefix}${voice}` in fieldSynthSchema)) {
       throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${SYNTH_VOICES} voices.`);
+    }
+  }
+}
+for (let layer = 1; layer <= SYNTH_LAYERS; layer++) {
+  for (const prefix of ["layerCombine", "layerThresholdOn", "layerThreshold", "layerInvert", "layerBlend", "layerAmp"] as const) {
+    if (!(`${prefix}${layer}` in fieldSynthSchema)) {
+      throw new Error(`glyphcss: field-synth schema is missing "${prefix}${layer}" for ${SYNTH_LAYERS} layers.`);
     }
   }
 }
@@ -1357,6 +1413,8 @@ interface SynthVoice {
   readonly duty: number;
   /** Cycles, added to the wave argument for every field/wave kind. Default 0. */
   readonly phase: number;
+  /** Which of the (up to `SYNTH_LAYERS`) layers this voice folds into. Default 1. */
+  readonly layer: number;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1420,17 +1478,18 @@ const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] =
   [0x08, 0x10, 0x20, 0x80],
 ];
 
-// Compiles field-synth's flat per-voice params into a single-layer field
-// program — the frontend→IR compile step (VOLUMETRIC.md's "The field program
-// IR"), called once per `evaluate()` call, from params only. Voice origins
-// are pre-scaled here (`* scale`) so `evaluateFieldProgram` never needs to
-// know about `scale` at all — it only combines a voice's relative origin with
-// the call-level origin it's given. A single layer with threshold/invert off
-// and amp 1 folds to exactly `combine`'s own output (see
-// `evaluateFieldProgram`'s doc), which is what keeps every pre-layers preset
-// byte-identical.
-function compileFieldSynthProgram(voices: readonly SynthVoice[], combine: string, scale: number): FieldProgram {
-  const compiled: FieldVoice[] = voices.map((voice) => ({
+// A compiled voice retains its schema-authored `layer` assignment alongside
+// the IR's own `FieldVoice` shape — `compileFieldSynthProgram` groups by it,
+// and the voiceColors fallback loop in `evaluate()` reads the FLAT list (see
+// that function) so per-voice color contribution is never affected by which
+// layer a voice happens to fold into.
+type CompiledFieldVoice = FieldVoice & { readonly layer: number };
+
+// Voice origins are pre-scaled here (`* scale`) so `evaluateFieldProgram`
+// never needs to know about `scale` at all — it only combines a voice's
+// relative origin with the call-level origin it's given.
+function compileFieldVoices(voices: readonly SynthVoice[], scale: number): readonly CompiledFieldVoice[] {
+  return voices.map((voice) => ({
     field: voice.field,
     wave: voice.wave,
     freq: voice.freq,
@@ -1441,17 +1500,103 @@ function compileFieldSynthProgram(voices: readonly SynthVoice[], combine: string
     angle: voice.angle,
     origin: { u: voice.originU * scale, v: voice.originV * scale, w: voice.originW * scale },
     color: voice.color,
+    layer: voice.layer,
   }));
-  const layer: FieldLayer = {
-    voices: compiled,
-    combine,
-    thresholdOn: false,
-    threshold: 0,
-    invert: false,
-    blend: "multiply",
-    amp: 1,
-  };
-  return [layer];
+}
+
+// Per-layer shaping, resolved once per `evaluate()` call from flat params
+// (VOLUMETRIC.md's Step 3): `combine: "inherit"` (the schema default) resolves
+// to the patch-level `combine`, which is what keeps a single-layer stack
+// (today's shape, before layers existed) folding exactly like `combine`
+// always has, including when `combine` is `"argmax"` (see
+// `validateFieldSynthLayers` below for why an EXPLICIT per-layer override can
+// never be `"argmax"` — the schema's `layerCombineL` values exclude it).
+interface FieldLayerShape {
+  readonly combine: string;
+  readonly thresholdOn: boolean;
+  readonly threshold: number;
+  readonly invert: boolean;
+  readonly blend: string;
+  readonly amp: number;
+}
+
+function resolveFieldSynthLayerShapes(params: AnyParams): readonly FieldLayerShape[] {
+  const patchCombine = params.combine as string;
+  const shapes: FieldLayerShape[] = [];
+  for (let l = 1; l <= SYNTH_LAYERS; l++) {
+    const combineRaw = params[`layerCombine${l}`] as string;
+    shapes.push({
+      combine: combineRaw === "inherit" ? patchCombine : combineRaw,
+      thresholdOn: params[`layerThresholdOn${l}`] as boolean,
+      threshold: params[`layerThreshold${l}`] as number,
+      invert: params[`layerInvert${l}`] as boolean,
+      blend: params[`layerBlend${l}`] as string,
+      amp: params[`layerAmp${l}`] as number,
+    });
+  }
+  return shapes;
+}
+
+// Compiles field-synth's flat per-voice/per-layer params into the field
+// program IR — the frontend→IR compile step (VOLUMETRIC.md's "The field
+// program IR" and Step 3), called once per `evaluate()` call. A single
+// populated layer with threshold/invert off and amp 1 (every voice's default
+// `layer` is 1, every layer's default shape is that no-op) folds to exactly
+// `combine`'s own output (see `evaluateFieldProgram`'s doc), which is what
+// keeps every pre-layers preset byte-identical. Layers with no voices
+// assigned are still emitted (not omitted) — `evaluateFieldProgram` already
+// skips a layer with zero ACTIVE (amp > 0) voices at fold time, exactly like
+// an amp-0 voice, so compile doesn't need to duplicate that logic.
+function compileFieldSynthProgram(
+  compiledVoices: readonly CompiledFieldVoice[],
+  layerShapes: readonly FieldLayerShape[],
+  volumetric: boolean,
+): FieldProgram {
+  const layers: FieldLayer[] = layerShapes.map((shape, li) => ({
+    voices: compiledVoices.filter((voice) => voice.layer === li + 1),
+    combine: shape.combine,
+    thresholdOn: shape.thresholdOn,
+    threshold: shape.threshold,
+    invert: shape.invert,
+    blend: shape.blend,
+    amp: shape.amp,
+  }));
+  return { domain: volumetric ? "3d" : "2d", layers };
+}
+
+// Effective-argmax validation (VOLUMETRIC.md's Step 3, "argmax and voice
+// colors"): argmax stays categorical and single-layer. A patch is invalid
+// when argmax is EFFECTIVE (a populated layer's resolved combine — its
+// override, else the inherited patch-level `combine` — is "argmax") in more
+// than one populated layer's worth of context, i.e. while MORE THAN ONE layer
+// is populated. Because `layerCombineL`'s schema values exclude "argmax"
+// entirely (see `LAYER_COMBINE_VALUES`), the only way a layer's resolved
+// combine becomes "argmax" is by inheriting a patch-level `combine: "argmax"`
+// — so a multi-layer patch whose every populated layer overrides to an
+// explicit value op is valid regardless of the (then dead) patch-level
+// `combine`, deliberately not validated. A single populated layer stays valid
+// exactly as today, whatever it resolves to.
+function validateFieldSynthLayers(params: AnyParams): void {
+  const patchCombine = params.combine as string;
+  const populated: boolean[] = new Array(SYNTH_LAYERS).fill(false) as boolean[];
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    if (!((params[`amp${k}`] as number) > 0)) continue;
+    const layer = params[`layer${k}`] as number;
+    if (layer >= 1 && layer <= SYNTH_LAYERS) populated[layer - 1] = true;
+  }
+  if (populated.filter(Boolean).length <= 1) return; // single-layer argmax stays exactly as today
+  for (let l = 1; l <= SYNTH_LAYERS; l++) {
+    if (!populated[l - 1]) continue;
+    const combineRaw = params[`layerCombine${l}`] as string;
+    const resolved = combineRaw === "inherit" ? patchCombine : combineRaw;
+    if (resolved === "argmax") {
+      throw new TypeError(
+        `glyphcss field-synth: layer ${l} resolves to combine "argmax" while more than one layer is populated — `
+        + "argmax is categorical and stays single-layer (VOLUMETRIC.md's Step 3). Give it an explicit non-argmax "
+        + `layerCombine${l} override, or reduce the patch to a single populated layer.`,
+      );
+    }
+  }
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1678,6 +1823,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
     validateParams(params) {
       validateGlyphRamp(params);
       validatePositiveScale(params);
+      validateFieldSynthLayers(params as unknown as AnyParams);
     },
     evaluate(context) {
       const { params } = context;
@@ -1697,24 +1843,29 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
       const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1, originW: params.originW1, duty: params.duty1, phase: params.phase1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2, originW: params.originW2, duty: params.duty2, phase: params.phase2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3, originW: params.originW3, duty: params.duty3, phase: params.phase3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4, originW: params.originW4, duty: params.duty4, phase: params.phase4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5, originW: params.originW5, duty: params.duty5, phase: params.phase5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6, originW: params.originW6, duty: params.duty6, phase: params.phase6 },
+        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1, originW: params.originW1, duty: params.duty1, phase: params.phase1, layer: params.layer1 },
+        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2, originW: params.originW2, duty: params.duty2, phase: params.phase2, layer: params.layer2 },
+        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3, originW: params.originW3, duty: params.duty3, phase: params.phase3, layer: params.layer3 },
+        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4, originW: params.originW4, duty: params.duty4, phase: params.phase4, layer: params.layer4 },
+        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5, originW: params.originW5, duty: params.duty5, phase: params.phase5, layer: params.layer5 },
+        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6, originW: params.originW6, duty: params.duty6, phase: params.phase6, layer: params.layer6 },
       ];
       const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
       const rampMax = glyphs.length - 1;
       // Compile once per evaluate() call, from params only (VOLUMETRIC.md's
-      // "The field program IR") — the per-cell loop below only ever calls the
-      // IR evaluator, never touches `params.field1`-style flat accessors
-      // again. `fieldProgram[0]!.voices` (pre-scaled origins) is reused by
-      // the voiceColors fallback loop and the subcell probes below so every
-      // scalar read in this function comes from the same compiled program.
-      const fieldProgram = compileFieldSynthProgram(voices, params.combine, scale);
-      const compiledVoices = fieldProgram[0]!.voices;
+      // "The field program IR" and Step 3) — the per-cell loop below only
+      // ever calls the IR evaluator, never touches `params.field1`-style flat
+      // accessors again. `compiledVoices` is the FLAT, unfiltered, original-
+      // voice-order list (pre-scaled origins) — the voiceColors fallback loop
+      // below indexes it by original voice number regardless of which layer a
+      // voice folds into (VOLUMETRIC.md's Step 3: "voiceColors keeps its
+      // current definition... across ALL active voices regardless of layer").
+      // `fieldProgram` is the same voices grouped into `FieldLayer`s for the
+      // evaluator; both come from the same compile so they can never disagree.
+      const compiledVoices = compileFieldVoices(voices, scale);
+      const layerShapes = resolveFieldSynthLayerShapes(params as unknown as AnyParams);
+      const fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, volumetric);
       // Global pattern origin: same `originU/originV * scale` resolution the
       // 2D "scene"/"auto"-without-UV path already uses (see
       // `fieldSynthCoordinate`). The volumetric branch has no schema-level Z
@@ -1745,7 +1896,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // later voice blends the result toward `combine(result, voice)` by its
         // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
         // instead of `multiply` crushing the field to zero.
-        const stack = evaluateFieldProgram(fieldProgram, x, y, z, time, cx, cy, cz, volumetric);
+        const stack = evaluateFieldProgram(fieldProgram, x, y, z, time, cx, cy, cz);
         const combined = stack.combined;
         const active = stack.active;
         // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
@@ -1793,7 +1944,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           );
           const sample = (ox: number, oy: number, oz: number): number =>
             clamp01(params.bias + params.gain * evaluateFieldProgram(
-              fieldProgram, x + ox, y + oy, z + oz, time, cx, cy, cz, volumetric,
+              fieldProgram, x + ox, y + oy, z + oz, time, cx, cy, cz,
             ).combined * 0.5);
           const right = sample(dxCol, dyCol, dzCol);
           const down = sample(dxRow, dyRow, dzRow);
@@ -1824,7 +1975,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               const subX = x + fx * dxCol + fy * dxRow;
               const subY = y + fx * dyCol + fy * dyRow;
               const subZ = z + fx * dzCol + fy * dzRow;
-              const subCombined = evaluateFieldProgram(fieldProgram, subX, subY, subZ, time, cx, cy, cz, volumetric).combined;
+              const subCombined = evaluateFieldProgram(fieldProgram, subX, subY, subZ, time, cx, cy, cz).combined;
               const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
               if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
             }

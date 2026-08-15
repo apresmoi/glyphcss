@@ -2016,3 +2016,221 @@ describe("field-synth volumetric (space: \"object\")", () => {
     for (const g of marks) expect(["-", "\\", "|", "/"]).toContain(g);
   });
 });
+
+describe("field-synth voice layers (VOLUMETRIC.md's Step 3)", () => {
+  it("a layer with no active voices is skipped — an empty layer doesn't multiply-annihilate the stack", () => {
+    // Voice 1 on layer 1, voice 4 on layer 3, layer 2 left unpopulated.
+    // Default layerBlend3 is "multiply" (the doc's stated default), so if the
+    // empty layer 2 wrongly entered that fold with a phantom folded value,
+    // the whole per-cell result would collapse to one constant regardless of
+    // position. The empty-layer skip is what keeps layer 1 and layer 3's own
+    // spatial variation alive through the stack.
+    const out = evaluate(fieldSynth, {
+      space: "scene",
+      field1: "linearX", wave1: "square", freq1: 3, speed1: 0, amp1: 1, layer1: 1,
+      amp2: 0, amp3: 0,
+      field4: "linearY", wave4: "square", freq4: 5, speed4: 0, amp4: 1, layer4: 3,
+      amp5: 0, amp6: 0,
+    }, { withUv: true });
+    expect(new Set(out.glyph).size).toBeGreaterThan(1);
+  });
+
+  it("voiceColors blends across ALL active voices regardless of which layer they fold into (the Phase 2 landmine fix)", () => {
+    // Voice 1 (layer 1, red) and voice 6 (layer 3, blue) both active; layer 2
+    // is unpopulated. A broken index (e.g. reading a per-layer filtered voice
+    // list at a flat index) would silently drop voice 6's contribution.
+    //
+    // Two object-space points chosen so exactly one voice contributes at
+    // each: at point A, voice1 (linearX) sits at a sin peak (|o|=1) while
+    // voice6 (linearY) sits on a zero-crossing (|o|=0) — the fallback loop's
+    // weight is amp*|o|, so point A's blended color is voice1's red exactly.
+    // Point B swaps which axis is at the peak, isolating voice6's blue.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    const iB = length - 1;
+    objectPosition[iA * 3] = 0.25; objectPosition[iA * 3 + 1] = 0; objectPosition[iA * 3 + 2] = 0;
+    objectPosition[iB * 3] = 0; objectPosition[iB * 3 + 1] = 0.25; objectPosition[iB * 3 + 2] = 0;
+
+    const out = evaluate(fieldSynth, {
+      space: "object", scale: 1, voiceColors: true, combine: "multiply",
+      field1: "linearX", wave1: "sin", freq1: 1, speed1: 0, amp1: 1, layer1: 1, color1: "#ff0000",
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0,
+      field6: "linearY", wave6: "sin", freq6: 1, speed6: 0, amp6: 1, layer6: 3, color6: "#0000ff",
+    }, { objectPosition });
+
+    expect(out.color[iA]).toBe(0xff0000);
+    expect(out.color[iB]).toBe(0x0000ff);
+  });
+});
+
+describe("field-synth layer argmax validation (VOLUMETRIC.md's Step 3, \"argmax and voice colors\")", () => {
+  it("rejects when a populated layer resolves (via inherited patch-level combine) to argmax while more than one layer is populated", () => {
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      combine: "argmax",
+      amp1: 1, layer1: 1,
+      amp2: 1, layer2: 2,
+      // layerCombine1/layerCombine2 default "inherit" -> both resolve to the
+      // patch-level "argmax".
+    };
+    expect(() => fieldSynth.program.validateParams?.(params as never)).toThrow();
+  });
+
+  it("accepts a multi-layer patch whose every populated layer overrides to an explicit value op, regardless of a dead patch-level argmax", () => {
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      combine: "argmax", // dead metadata: every populated layer overrides below
+      amp1: 1, layer1: 1, layerCombine1: "add",
+      amp2: 1, layer2: 2, layerCombine2: "max",
+    };
+    expect(() => fieldSynth.program.validateParams?.(params as never)).not.toThrow();
+  });
+
+  it("single-layer argmax stays valid exactly as today, even with other (unpopulated) layer slots present", () => {
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      combine: "argmax",
+      amp1: 1, layer1: 1,
+      amp2: 1, layer2: 1, // both voices on layer 1; layers 2/3 unpopulated
+    };
+    expect(() => fieldSynth.program.validateParams?.(params as never)).not.toThrow();
+  });
+});
+
+describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md acceptance criterion 2a)", () => {
+  // First-principles reference, identical to fieldProgram.test.ts's own
+  // depth-3 IR test (VOLUMETRIC.md acceptance 2b) — reused as a REFERENCE,
+  // not by importing the evaluator under test.
+  function mengerSolid(x: number, y: number, z: number, depth: number): boolean {
+    let cx = x, cy = y, cz = z;
+    for (let d = 0; d < depth; d++) {
+      cx *= 3; cy *= 3; cz *= 3;
+      const mx = ((cx % 3) + 3) % 3, my = ((cy % 3) + 3) % 3, mz = ((cz % 3) + 3) % 3;
+      const midCount = (mx > 1 && mx < 2 ? 1 : 0) + (my > 1 && my < 2 ? 1 : 0) + (mz > 1 && mz < 2 ? 1 : 0);
+      if (midCount >= 2) return false;
+      cx = cx - Math.floor(cx / 3) * 3; cy = cy - Math.floor(cy / 3) * 3; cz = cz - Math.floor(cz / 3) * 3;
+    }
+    return true;
+  }
+
+  // The doc's exact Menger recipe, compiled from FLAT PARAMS (space:
+  // "object" so the volumetric branch is live; scale 1 so objectPosition
+  // reads directly as the unit-domain coordinate). Depth 1 needs 3 voices
+  // (one layer); depth 2 needs 6 (two layers) — exactly SYNTH_VOICES, the
+  // schema's documented depth-2 ceiling.
+  function mengerAxisVoice(prefix: number, field: string, freq: number, layer: number): Record<string, number | string | boolean> {
+    return {
+      [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
+      [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 3, [`phase${prefix}`]: -1 / 3, [`layer${prefix}`]: layer,
+    };
+  }
+
+  function mengerLayerShape(layer: number): Record<string, number | string | boolean> {
+    return {
+      [`layerCombine${layer}`]: "add",
+      [`layerThresholdOn${layer}`]: true,
+      [`layerThreshold${layer}`]: 0,
+      [`layerInvert${layer}`]: true,
+      [`layerBlend${layer}`]: "min",
+      [`layerAmp${layer}`]: 1,
+    };
+  }
+
+  function mengerParams(depth: 1 | 2): Record<string, number | string | boolean> {
+    const params: Record<string, number | string | boolean> = {
+      space: "object", scale: 1,
+      ...mengerAxisVoice(1, "linearX", 1, 1),
+      ...mengerAxisVoice(2, "linearY", 1, 1),
+      ...mengerAxisVoice(3, "linearZ", 1, 1),
+      ...mengerLayerShape(1),
+    };
+    if (depth === 2) {
+      Object.assign(
+        params,
+        mengerAxisVoice(4, "linearX", 3, 2),
+        mengerAxisVoice(5, "linearY", 3, 2),
+        mengerAxisVoice(6, "linearZ", 3, 2),
+        mengerLayerShape(2),
+      );
+    }
+    return params;
+  }
+
+  // Offset grid over the unit cube, off the 1/3 base-3 digit boundaries
+  // (1/3 is float-inexact) — same construction and resolution as
+  // fieldProgram.test.ts's depth-3 IR test, proven safe there.
+  const GRID_N = 27;
+  function evaluateMengerGrid(depth: 1 | 2) {
+    const cols = GRID_N * GRID_N, rows = GRID_N, length = GRID_N * GRID_N * GRID_N;
+    const objectPosition = new Float32Array(length * 3);
+    const points: [number, number, number][] = [];
+    let idx = 0;
+    for (let ix = 0; ix < GRID_N; ix++) {
+      for (let iy = 0; iy < GRID_N; iy++) {
+        for (let iz = 0; iz < GRID_N; iz++) {
+          const x = (ix + 0.5) / GRID_N, y = (iy + 0.5) / GRID_N, z = (iz + 0.5) / GRID_N;
+          objectPosition[idx * 3] = x; objectPosition[idx * 3 + 1] = y; objectPosition[idx * 3 + 2] = z;
+          points.push([x, y, z]);
+          idx++;
+        }
+      }
+    }
+    const glyph = new Array<string>(length).fill("#");
+    const coverage = new Float32Array(length).fill(1);
+    const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(length).fill(" "),
+      color: new Uint32Array(length).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(length),
+      channels: new Uint8Array(length),
+    };
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...mengerParams(depth) };
+    fieldSynth.program.validateParams?.(params as never);
+    fieldSynth.program.evaluate({
+      params,
+      state: undefined,
+      base: { cols, rows, length, glyph, coverage, color, objectPosition },
+      input: { cols, rows, length, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+    return { output, points };
+  }
+
+  it.each([1, 2] as const)("depth %i solid/hole membership matches the first-principles reference", (depth) => {
+    const { output, points } = evaluateMengerGrid(depth);
+    let solidCount = 0, holeCount = 0;
+    for (let i = 0; i < points.length; i++) {
+      const [x, y, z] = points[i]!;
+      const refSolid = mengerSolid(x, y, z, depth);
+      const engineSolid = output.coverage[i]! > 0;
+      expect(engineSolid).toBe(refSolid);
+      if (refSolid) solidCount++; else holeCount++;
+    }
+    // Sanity: both solid and hole regions are actually sampled (otherwise the
+    // per-point assertion above would pass vacuously).
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+
+  it("default bias 0.5 / gain 1 maps hole (-1) to clamp01(0)=0 and solid (+1) to 1 with no bespoke tuning", () => {
+    const { output, points } = evaluateMengerGrid(1);
+    let checkedHole = false, checkedSolid = false;
+    for (let i = 0; i < points.length && !(checkedHole && checkedSolid); i++) {
+      const [x, y, z] = points[i]!;
+      const refSolid = mengerSolid(x, y, z, 1);
+      if (refSolid && !checkedSolid) {
+        expect(output.coverage[i]).toBe(1);
+        checkedSolid = true;
+      }
+      if (!refSolid && !checkedHole) {
+        expect(output.coverage[i]).toBe(0);
+        checkedHole = true;
+      }
+    }
+    expect(checkedHole && checkedSolid).toBe(true);
+  });
+});

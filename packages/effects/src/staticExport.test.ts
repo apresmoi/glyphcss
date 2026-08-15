@@ -173,6 +173,73 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     });
   });
 
+  describe("Phase 3 voice-layer params unsupported by the inlined runtime", () => {
+    it("rejects layer1 !== 1 on an active voice", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layer1: 2 },
+      }))).toThrow(/layer1/);
+    });
+
+    it("does NOT reject layerN !== 1 when the voice carrying it is inactive (amp 0)", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, amp3: 0, layer3: 2 },
+      }));
+      expect(result.js).toContain("requestAnimationFrame");
+    });
+
+    it("rejects a non-default layerCombine override on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerCombine1: "add" },
+      }))).toThrow(/layerCombine1/);
+    });
+
+    it("rejects layerThresholdOn true on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerThresholdOn1: true },
+      }))).toThrow(/layerThresholdOn1/);
+    });
+
+    it("rejects a nonzero layerThreshold on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerThreshold1: 1 },
+      }))).toThrow(/layerThreshold1/);
+    });
+
+    it("rejects layerInvert true on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerInvert1: true },
+      }))).toThrow(/layerInvert1/);
+    });
+
+    it("rejects a non-default layerBlend on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerBlend1: "add" },
+      }))).toThrow(/layerBlend1/);
+    });
+
+    it("rejects a non-default layerAmp on a populated layer", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, layerAmp1: 0.5 },
+      }))).toThrow(/layerAmp1/);
+    });
+
+    it("does NOT reject non-default shaping on an unpopulated layer slot (no active voice assigned to it)", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        // Every active voice (1 and 2 in baseOptions) stays on layer 1;
+        // layer 2's shaping is non-default but nothing is assigned to it, so
+        // the evaluator would skip it exactly like an amp-0 voice — it can't
+        // diverge the baked export.
+        params: { ...baseOptions().params, layerThresholdOn2: true, layerInvert2: true },
+      }));
+      expect(result.js).toContain("requestAnimationFrame");
+    });
+
+    it("existing green cases (default layer params) still export", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions());
+      expect(result.js).toContain("requestAnimationFrame");
+    });
+  });
+
   it("a flat, head-on, fully-covered plane drops the per-cell table entirely: no DATA at all", () => {
     const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
       rotX: 0,

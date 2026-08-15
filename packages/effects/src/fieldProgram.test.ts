@@ -25,9 +25,9 @@ function voice(overrides: Partial<FieldVoice> = {}): FieldVoice {
   };
 }
 
-function singleLayerProgram(voices: readonly FieldVoice[], combine = "add"): FieldProgram {
+function singleLayerProgram(voices: readonly FieldVoice[], combine = "add", domain: "2d" | "3d" = "2d"): FieldProgram {
   const layer: FieldLayer = { voices, combine, thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1 };
-  return [layer];
+  return { domain, layers: [layer] };
 }
 
 describe("SYNTH_FIELDS", () => {
@@ -82,9 +82,9 @@ describe("evaluateFieldProgram: the 2D path is a separate branch, not z=0 throug
   it("diagonal: 2D keeps (x+y)/√2, volumetric uses (x+y+z)/√3 — they disagree even at z=0", () => {
     const x = 3, y = 4;
     const program2D = singleLayerProgram([voice({ field: "diagonal", wave: "sin", freq: 1, speed: 0 })]);
-    const program3D = program2D;
-    const result2D = evaluateFieldProgram(program2D, x, y, 0, 0, 0, 0, 0, false);
-    const result3D = evaluateFieldProgram(program3D, x, y, 0, 0, 0, 0, 0, true);
+    const program3D = singleLayerProgram([voice({ field: "diagonal", wave: "sin", freq: 1, speed: 0 })], "add", "3d");
+    const result2D = evaluateFieldProgram(program2D, x, y, 0, 0, 0, 0, 0);
+    const result3D = evaluateFieldProgram(program3D, x, y, 0, 0, 0, 0, 0);
     const expected2D = synthWave("sin", ((x + y) * 0.70710678) * 1);
     const expected3D = synthWave("sin", ((x + y + 0) / Math.sqrt(3)) * 1);
     expect(result2D.combined).toBeCloseTo(expected2D, 6);
@@ -100,45 +100,48 @@ describe("evaluateFieldProgram: the 2D path is a separate branch, not z=0 throug
     // freq 0.29 avoids the coincidence where sin(distance*freq*2*PI) happens
     // to land on a zero crossing for the distance-5 case (distance 0 always
     // gives sin(0)=0 regardless of freq, since radial's raw value is 0 there).
-    const program = singleLayerProgram([voice({ field: "radial", wave: "sin", freq: 0.29, speed: 0 })]);
-    const twoD_A = evaluateFieldProgram(program, 3, 4, 0, 0, 0, 0, 0, false); // planar distance 5
-    const twoD_B = evaluateFieldProgram(program, 0, 0, 5, 0, 0, 0, 0, false); // planar distance 0
+    const program2D = singleLayerProgram([voice({ field: "radial", wave: "sin", freq: 0.29, speed: 0 })]);
+    const program3D = singleLayerProgram([voice({ field: "radial", wave: "sin", freq: 0.29, speed: 0 })], "add", "3d");
+    const twoD_A = evaluateFieldProgram(program2D, 3, 4, 0, 0, 0, 0, 0); // planar distance 5
+    const twoD_B = evaluateFieldProgram(program2D, 0, 0, 5, 0, 0, 0, 0); // planar distance 0
     expect(twoD_B.combined).toBe(0);
     expect(Math.abs(twoD_A.combined)).toBeGreaterThan(0.2);
     expect(twoD_A.combined).not.toBeCloseTo(twoD_B.combined, 1);
 
-    const threeD_A = evaluateFieldProgram(program, 3, 4, 0, 0, 0, 0, 0, true); // spherical distance 5
-    const threeD_B = evaluateFieldProgram(program, 0, 0, 5, 0, 0, 0, 0, true); // spherical distance 5
+    const threeD_A = evaluateFieldProgram(program3D, 3, 4, 0, 0, 0, 0, 0); // spherical distance 5
+    const threeD_B = evaluateFieldProgram(program3D, 0, 0, 5, 0, 0, 0, 0); // spherical distance 5
     expect(threeD_A.combined).toBeCloseTo(threeD_B.combined, 6);
   });
 
   it("linearZ: no 2D meaning — falls back to the same default (radial) an unrecognized field already gets; volumetric reads z directly", () => {
-    const program = singleLayerProgram([voice({ field: "linearZ", wave: "sin", freq: 2, speed: 0 })]);
-    const twoD = evaluateFieldProgram(program, 3, 4, 7, 0, 0, 0, 0, false);
+    const program2D = singleLayerProgram([voice({ field: "linearZ", wave: "sin", freq: 2, speed: 0 })]);
+    const program3D = singleLayerProgram([voice({ field: "linearZ", wave: "sin", freq: 2, speed: 0 })], "add", "3d");
+    const twoD = evaluateFieldProgram(program2D, 3, 4, 7, 0, 0, 0, 0);
     const radialProgram = singleLayerProgram([voice({ field: "radial", wave: "sin", freq: 2, speed: 0 })]);
-    const twoDRadial = evaluateFieldProgram(radialProgram, 3, 4, 7, 0, 0, 0, 0, false);
+    const twoDRadial = evaluateFieldProgram(radialProgram, 3, 4, 7, 0, 0, 0, 0);
     expect(twoD.combined).toBeCloseTo(twoDRadial.combined, 10);
 
-    const threeD = evaluateFieldProgram(program, 3, 4, 0.6, 0, 0, 0, 0, true);
+    const threeD = evaluateFieldProgram(program3D, 3, 4, 0.6, 0, 0, 0, 0);
     const expected = synthWave("sin", 0.6 * 2);
     expect(threeD.combined).toBeCloseTo(expected, 6);
   });
 
   it("noise: 2D keeps synthNoise3(x,y,time), volumetric uses a genuinely 4D hash that varies with z", () => {
-    const program = singleLayerProgram([voice({ field: "noise", freq: 3, speed: 0.5 })]);
-    const twoD = evaluateFieldProgram(program, 1.7, 2.3, 0, 0.9, 0, 0, 0, false);
-    const twoDAgain = evaluateFieldProgram(program, 1.7, 2.3, 999, 0.9, 0, 0, 0, false); // z ignored in 2D
+    const program2D = singleLayerProgram([voice({ field: "noise", freq: 3, speed: 0.5 })]);
+    const program3D = singleLayerProgram([voice({ field: "noise", freq: 3, speed: 0.5 })], "add", "3d");
+    const twoD = evaluateFieldProgram(program2D, 1.7, 2.3, 0, 0.9, 0, 0, 0);
+    const twoDAgain = evaluateFieldProgram(program2D, 1.7, 2.3, 999, 0.9, 0, 0, 0); // z ignored in 2D
     expect(twoD.combined).toBe(twoDAgain.combined);
 
-    const threeD_zA = evaluateFieldProgram(program, 1.7, 2.3, 0, 0.9, 0, 0, 0, true);
-    const threeD_zB = evaluateFieldProgram(program, 1.7, 2.3, 4.2, 0.9, 0, 0, 0, true);
+    const threeD_zA = evaluateFieldProgram(program3D, 1.7, 2.3, 0, 0.9, 0, 0, 0);
+    const threeD_zB = evaluateFieldProgram(program3D, 1.7, 2.3, 4.2, 0.9, 0, 0, 0);
     expect(threeD_zA.combined).not.toBe(threeD_zB.combined);
     expect(Number.isFinite(threeD_zA.combined)).toBe(true);
     expect(threeD_zA.combined).toBeGreaterThanOrEqual(-1);
     expect(threeD_zA.combined).toBeLessThanOrEqual(1);
 
     // Deterministic for identical inputs.
-    expect(evaluateFieldProgram(program, 1.7, 2.3, 4.2, 0.9, 0, 0, 0, true).combined).toBe(threeD_zB.combined);
+    expect(evaluateFieldProgram(program3D, 1.7, 2.3, 4.2, 0.9, 0, 0, 0).combined).toBe(threeD_zB.combined);
   });
 });
 
@@ -213,7 +216,7 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
         amp: 1,
       };
     }
-    const program: FieldProgram = [scaleLayer(1), scaleLayer(2), scaleLayer(3)];
+    const program: FieldProgram = { domain: "3d", layers: [scaleLayer(1), scaleLayer(2), scaleLayer(3)] };
 
     function mengerSolid(x: number, y: number, z: number, depth: number): boolean {
       let cx = x, cy = y, cz = z;
@@ -239,7 +242,7 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
           const x = (ix + 0.5) / 27;
           const y = (iy + 0.5) / 27;
           const z = (iz + 0.5) / 27;
-          const result = evaluateFieldProgram(program, x, y, z, 0, 0, 0, 0, true);
+          const result = evaluateFieldProgram(program, x, y, z, 0, 0, 0, 0);
           const engineIsSolid = result.combined > 0;
           const refIsSolid = mengerSolid(x, y, z, 3);
           expect(engineIsSolid).toBe(refIsSolid);
@@ -253,6 +256,82 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
     // (otherwise the assertion above would pass vacuously).
     expect(solidCount).toBeGreaterThan(0);
     expect(holeCount).toBeGreaterThan(0);
+  });
+});
+
+describe("evaluateFieldProgram: layer shaping (VOLUMETRIC.md's Step 3)", () => {
+  // freq 0 makes the field spatially uniform (raw*freq = 0 regardless of
+  // x/y/z), so a 50%-duty square wave's phase alone selects the constant
+  // sign — the same trick the "IR is unbounded" 9-voice test above uses.
+  function constVoice(sign: 1 | -1): FieldVoice {
+    return voice({ field: "linearX", wave: "square", freq: 0, speed: 0, phase: sign === 1 ? 0 : 0.6 });
+  }
+
+  function oneLayerProgram(voices: readonly FieldVoice[], overrides: Partial<FieldLayer> = {}): FieldProgram {
+    const layer: FieldLayer = { voices, combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1, ...overrides };
+    return { domain: "2d", layers: [layer] };
+  }
+
+  it("threshold outputs strictly +-1 at the v>t boundary, never {0,1}", () => {
+    // add-fold of +1 and -1 => combined exactly 0, which is NOT > 0 (the
+    // boundary case a {0,1} indicator could get wrong).
+    const atBoundary = oneLayerProgram([constVoice(1), constVoice(-1)], { thresholdOn: true, threshold: 0 });
+    expect(evaluateFieldProgram(atBoundary, 0, 0, 0, 0).combined).toBe(-1);
+
+    // add-fold of +1 and +1 => combined exactly 2, which IS > 0.
+    const abovePositive = oneLayerProgram([constVoice(1), constVoice(1)], { thresholdOn: true, threshold: 0 });
+    expect(evaluateFieldProgram(abovePositive, 0, 0, 0, 0).combined).toBe(1);
+  });
+
+  it("invert unconditionally negates, whether threshold is on or off", () => {
+    const rawInverted = oneLayerProgram([constVoice(1)], { invert: true });
+    expect(evaluateFieldProgram(rawInverted, 0, 0, 0, 0).combined).toBe(-1);
+
+    const thresholdInverted = oneLayerProgram([constVoice(1)], { thresholdOn: true, threshold: 0, invert: true });
+    expect(evaluateFieldProgram(thresholdInverted, 0, 0, 0, 0).combined).toBe(-1);
+  });
+
+  it("layerAmp is a mix weight entering the stack, mirroring voice.amp one level up", () => {
+    // Layer 1 enters the stack raw (value 1); layer 2 (-1) blends toward
+    // combine("add", stack, -1) by its own amp — amp 1 lands exactly on the
+    // combine result, amp 0.5 lands half-way between the pre- and post-blend
+    // stack value, same mix-weight formula `foldVoices` uses for voice.amp.
+    const layer1 = { voices: [constVoice(1)], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1 } satisfies FieldLayer;
+    const fullAmp: FieldProgram = { domain: "2d", layers: [layer1, { voices: [constVoice(-1)], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "add", amp: 1 }] };
+    const halfAmp: FieldProgram = { domain: "2d", layers: [layer1, { voices: [constVoice(-1)], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "add", amp: 0.5 }] };
+    expect(evaluateFieldProgram(fullAmp, 0, 0, 0, 0).combined).toBeCloseTo(0, 10); // combine("add", 1, -1) = 0
+    expect(evaluateFieldProgram(halfAmp, 0, 0, 0, 0).combined).toBeCloseTo(0.5, 10); // 1 + 0.5*(0-1)
+  });
+
+  it("min-blend performs the +-1 AND across layers — solid overall iff every layer says solid", () => {
+    function thresholdLayer(sign: 1 | -1, blend = "add"): FieldLayer {
+      return { voices: [constVoice(sign)], combine: "add", thresholdOn: true, threshold: 0, invert: false, blend, amp: 1 };
+    }
+    const solidSolid: FieldProgram = { domain: "2d", layers: [thresholdLayer(1), thresholdLayer(1, "min")] };
+    const solidHole: FieldProgram = { domain: "2d", layers: [thresholdLayer(1), thresholdLayer(-1, "min")] };
+    const holeSolid: FieldProgram = { domain: "2d", layers: [thresholdLayer(-1), thresholdLayer(1, "min")] };
+    expect(evaluateFieldProgram(solidSolid, 0, 0, 0, 0).combined).toBe(1);
+    expect(evaluateFieldProgram(solidHole, 0, 0, 0, 0).combined).toBe(-1);
+    expect(evaluateFieldProgram(holeSolid, 0, 0, 0, 0).combined).toBe(-1);
+  });
+
+  it("a layer with no active (amp > 0) voices is skipped in the fold, exactly like an amp-0 voice", () => {
+    const skippedEmpty: FieldProgram = {
+      domain: "2d",
+      layers: [
+        { voices: [constVoice(1)], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1 },
+        { voices: [], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1 }, // empty
+        { voices: [constVoice(-1)], combine: "add", thresholdOn: false, threshold: 0, invert: false, blend: "add", amp: 1 },
+      ],
+    };
+    // If the empty middle layer wrongly entered the multiply-blend fold with
+    // a phantom folded value of 0, the whole stack would collapse to 0
+    // regardless of the populated layers — this checks it folds layer 1 and
+    // layer 3 directly (add(1, -1) = 0 via the THIRD layer's own blend, not
+    // an empty-layer-poisoned value).
+    const result = evaluateFieldProgram(skippedEmpty, 0, 0, 0, 0);
+    expect(result.combined).toBeCloseTo(0, 10);
+    expect(result.active).toBe(2); // only the two populated layers' voices count
   });
 });
 
