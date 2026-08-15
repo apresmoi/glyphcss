@@ -19,6 +19,7 @@ import {
   combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
+  isStaticExportSupported,
   measureGlyphInkCoverage,
   synthWave,
 } from "@glyphcss/effects";
@@ -286,14 +287,23 @@ export default function SynthWorkbench() {
     form.remove();
   }
 
-  // `buildGlyphFieldSynthStaticExport` explicitly REJECTS a volumetric/carve
-  // patch (baking a march per cell per frame is a different export design —
-  // see AGENTS.md's "Static export"). The static "Open in CodePen" button
-  // below is disabled for exactly this condition instead of letting that
-  // throw reach the user; the "Export" code window's OWN CodePen action
-  // (`handleExportCodepenDynamic`) is unaffected — it mounts a LIVE effect at
-  // runtime from the CDN, which handles carve fine.
-  const isVolumetricPatch = params.space === "object" || params.render === "carve";
+  // `buildGlyphFieldSynthStaticExport` explicitly REJECTS several patch
+  // shapes it can't bake: volumetric/carve (a march per cell per frame is a
+  // different export design — see AGENTS.md's "Static export"), an active
+  // `linearZ` voice, and a nonzero `originW` on an active voice (both
+  // 3D-only semantics with no meaning in the 2D branch this exporter ports).
+  // `isStaticExportSupported` is the exporter's OWN predicate (from
+  // `@glyphcss/effects`, mirroring `assertStaticExportSupported` exactly) —
+  // reading it here instead of duplicating the condition list means this
+  // button can never drift out of sync with what the exporter actually
+  // rejects (a URL-loaded patch can carry either of the latter two without
+  // being volumetric/carve, and used to slip past a narrower local check).
+  // The static "Open in CodePen" button below is disabled whenever this is
+  // false, instead of letting the exporter's throw reach the user; the
+  // "Export" code window's OWN CodePen action (`handleExportCodepenDynamic`)
+  // is unaffected — it mounts a LIVE effect at runtime from the CDN, which
+  // handles every one of these cases fine.
+  const staticExportSupported = useMemo(() => isStaticExportSupported(params), [params]);
 
   // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
   // bakes for the standalone "Open in CodePen" button — reads the mesh, the
@@ -304,7 +314,7 @@ export default function SynthWorkbench() {
   // wall-clock wait, and vice-versa; the exported clock is otherwise
   // independent — it starts fresh from `time=0` on load.
   const buildSynthExport = useCallback((): GlyphFieldSynthStaticExportResult | null => {
-    if (isVolumetricPatch) return null;
+    if (!staticExportSupported) return null;
     const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
     if (!scene || !camera || !host) return null;
     const pre = host.querySelector("pre.glyph-output") as HTMLElement | null;
@@ -407,10 +417,10 @@ export default function SynthWorkbench() {
               type="button"
               className="gw-code-panel__action gw-code-panel__action--codepen"
               onClick={handleExportCodepenStatic}
-              disabled={exporting || isVolumetricPatch}
-              title={isVolumetricPatch
-                ? "Volumetric/carve patches can't bake to a static, zero-runtime CodePen — a march can't be prebaked per cell per frame. Use \"Export\" instead, which ships a live effect from the CDN."
-                : "Open the current rendered patch as a static, zero-runtime CodePen"}
+              disabled={exporting || !staticExportSupported}
+              title={staticExportSupported
+                ? "Open the current rendered patch as a static, zero-runtime CodePen"
+                : "This patch can't bake to a static, zero-runtime CodePen — volumetric/carve (a march can't be prebaked per cell per frame), an active linearZ voice, or a nonzero origin W on an active voice all have no meaning in the baked 2D evaluator. Use \"Export\" instead, which ships a live effect from the CDN."}
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
             </button>

@@ -393,6 +393,32 @@ export function ModeToggle({ volumetric, onSetMode }: { volumetric: boolean; onS
   );
 }
 
+// ── Space-change validity guard ───────────────────────────────────────────
+// Every `space` write — the Mapping dropdown AND the 2D/3D `ModeToggle` —
+// must route through this, or either path can leave the patch outside
+// `validateParams`: `render: "carve"` is only valid under `space: "object"`,
+// so writing `space` directly (as the Mapping dropdown used to) from
+// {space:"object", render:"carve"} to any other space persists an invalid
+// {space:"surface", render:"carve"}. Pure so it's testable without mounting
+// the Dock (lil-gui needs a real DOM element).
+//
+// Leaving "object" forcing `render` back to "paint" is VALIDITY-required.
+// Entering "object" forcing the stage to the cube shape is not a validity
+// requirement (shape has no bearing on `validateParams`) but mirrors the
+// established space -> shape convention already used elsewhere (`applyPreset`
+// in SynthWorkbench.tsx, and the 2D/3D toggle's own 3D entry) — a flat plane
+// has zero depth and can't preview the volumetric branch meaningfully.
+// Leaving "object" deliberately does NOT force shape back to "plane" here:
+// `space: "surface"/"scene"` is valid on any shape (that's the whole point of
+// generated-surface mapping), so forcing "plane" on every dropdown pick that
+// merely selects among the 2D mappings would over-couple the dropdown's
+// precise, shape-preserving path to the toggle's blunt one. (The toggle's own
+// 2D entry still forces "plane" on top of this, as its own separate UX
+// default — see `setMode` in `SynthDock` below.)
+export function resolveSpaceChange(nextSpace: string): { shape?: string; render?: string } {
+  return nextSpace === "object" ? { shape: "cube" } : { render: "paint" };
+}
+
 export const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
 export const AMBIENT = { intensity: 0.6 };
 
@@ -492,9 +518,22 @@ export function soloParams(params: Params, slot: number): Params {
   base.originW1 = params[`originW${slot}`];
   base.duty1 = params[`duty${slot}`]; base.phase1 = params[`phase${slot}`];
   base.freq1 = params[`freq${slot}`]; base.speed1 = params[`speed${slot}`]; base.amp1 = 1;
-  // `layer1` is left at its `synthDefaults()` value (1) — a solo preview is
-  // always a single active voice, which folds identically on any layer, so
-  // copying the original voice's layer assignment would add nothing.
+  // The solo voice always lands on layer 1 (a solo preview is always a
+  // single active voice, and layer 1 is the only populated layer) — but its
+  // SOURCE layer's shaping must come along, or a thresholded/inverted layer
+  // previews as if it were the flat, unshaped default (repro: a voice on
+  // `layer2: 3` with threshold+invert solos as `layer1: 1` with none of that
+  // shaping active, discarding it entirely). Copying the source layer's
+  // combine/threshold/invert/blend/amp onto layer 1's own shaping slot
+  // reproduces exactly how that voice folds in the real patch.
+  base.layer1 = 1;
+  const sourceLayer = Math.round(Number(params[`layer${slot}`] ?? 1));
+  base.layerCombine1 = params[`layerCombine${sourceLayer}`] ?? base.layerCombine1;
+  base.layerThresholdOn1 = params[`layerThresholdOn${sourceLayer}`] ?? base.layerThresholdOn1;
+  base.layerThreshold1 = params[`layerThreshold${sourceLayer}`] ?? base.layerThreshold1;
+  base.layerInvert1 = params[`layerInvert${sourceLayer}`] ?? base.layerInvert1;
+  base.layerBlend1 = params[`layerBlend${sourceLayer}`] ?? base.layerBlend1;
+  base.layerAmp1 = params[`layerAmp${sourceLayer}`] ?? base.layerAmp1;
   base.space = params.space; base.scale = params.scale; base.glyphs = params.glyphs;
   base.voiceColors = params.voiceColors === true;
   base.color1 = params[`color${slot}`];
@@ -1030,23 +1069,26 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // page" section: "Switching back to 2D must restore a sane 2D state").
   const last2dSpaceRef = useRef<string>(volumetric ? "auto" : s("space"));
   useEffect(() => { if (!volumetric) last2dSpaceRef.current = s("space"); });
-  const setMode = useCallback((mode: "2d" | "3d") => {
-    if (mode === "3d") {
-      onShape("cube");
-      onParam("space", "object");
-    } else {
-      onShape("plane");
-      onParam("space", last2dSpaceRef.current);
-      // Carve is invalid off-object (`validateParams` rejects it) — never
-      // leave the patch in a rejected state on the way back to 2D.
-      onParam("render", "paint");
-    }
+  // The one guard both the toggle and the Mapping dropdown route every
+  // `space` write through (see `resolveSpaceChange`'s doc above).
+  const applySpace = useCallback((nextSpace: string) => {
+    const change = resolveSpaceChange(nextSpace);
+    if (change.shape) onShape(change.shape);
+    if (change.render) onParam("render", change.render);
+    onParam("space", nextSpace);
   }, [onShape, onParam]);
+  const setMode = useCallback((mode: "2d" | "3d") => {
+    // The toggle's own 2D-entry default — the dropdown does not do this
+    // (see `resolveSpaceChange`'s doc for why forcing "plane" there would
+    // over-couple its precise, shape-preserving path).
+    if (mode === "2d") onShape("plane");
+    applySpace(mode === "3d" ? "object" : last2dSpaceRef.current);
+  }, [applySpace, onShape]);
 
   const stage = useFolder(gui, "Stage", { open: true });
   const modeSlot = useDockSlot(stage, { position: "top", className: "dock-mode-slot" });
   useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
-  useOption(stage, "Mapping", SPACE_OPTS, s("space"), (v) => onParam("space", v));
+  useOption(stage, "Mapping", SPACE_OPTS, s("space"), applySpace);
   useSlider(stage, "Density", { min: 0.5, max: 4, step: 0.1 }, density, onDensity);
   useSlider(stage, "Speed", { min: 0.05, max: 8, step: 0.05 }, timeScale, onTimeScale);
   useToggle(stage, "Paused", paused, onPaused);

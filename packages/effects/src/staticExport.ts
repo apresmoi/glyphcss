@@ -1022,6 +1022,32 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
 }
 
 /**
+ * Pure predicate mirroring `assertStaticExportSupported`: true when
+ * `buildGlyphFieldSynthStaticExport` would accept `params`, false when it
+ * would reject (`render: "carve"`, `space: "object"`, an active `linearZ`
+ * voice, or a nonzero `originW` on an active voice — see
+ * `assertStaticExportSupported`'s doc for why each is out of this exporter's
+ * design). Merges `params` over the effect's own defaults first, exactly like
+ * `buildGlyphFieldSynthStaticExport` itself, so a caller can pass a partial
+ * patch straight through.
+ *
+ * This is the single source of truth a UI should gate a static-export button
+ * on, instead of duplicating (and inevitably drifting from) this reject list
+ * next to the button — the website's `/synth` page's "Open in CodePen" button
+ * is the reference caller.
+ */
+export function isStaticExportSupported(params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>): boolean {
+  const merged = { ...defaultGlyphEffectParams(fieldSynth), ...params, time: 0 } as GlyphEffectParamsOf<typeof fieldSynth>;
+  try {
+    fieldSynth.program.validateParams?.(merged);
+    assertStaticExportSupported(merged);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Bake the current field-synth patch over a static-camera mesh into a
  * self-contained pen: inlined per-cell coordinates + a tiny hand-written
  * vanilla-JS evaluator, animated with `requestAnimationFrame`. Zero imports,
