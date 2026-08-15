@@ -396,6 +396,44 @@ describe("marchField", () => {
     if (fine.hit) expect(Math.abs(fine.x - bandCenter)).toBeLessThan(bandHalfWidth * 2);
   });
 
+  it("hardens against a NaN sampler value mid-march: never returns NaN hit coordinates (carve's per-cell caller could otherwise emit an unrenderable cell)", () => {
+    // The sampler is NaN for x < 3 (poisoning `prevValue` across several
+    // marched steps), then a real step function crosses to solid at x = 6.
+    // Before the fix, `denom !== 0` was reachable with `denom` itself NaN
+    // (`NaN !== 0` is `true`), so the crossing refinement divided by that NaN
+    // and returned `{ x: NaN, y: NaN, z: NaN, t: NaN, distance: NaN }`.
+    const entry: [number, number, number] = [0, 0, 0];
+    const exit: [number, number, number] = [10, 0, 0];
+    const sampler = (x: number): number => (x < 3 ? NaN : x - 6 > 0 ? 1 : -1);
+    const result = marchField(entry, exit, sampler, { steps: 10 });
+    expect(result.hit).toBe(true);
+    if (result.hit) {
+      expect(Number.isFinite(result.t)).toBe(true);
+      expect(Number.isFinite(result.distance)).toBe(true);
+      expect(Number.isFinite(result.x)).toBe(true);
+      expect(Number.isFinite(result.y)).toBe(true);
+      expect(Number.isFinite(result.z)).toBe(true);
+    }
+  });
+
+  it("hardens against a sampler that is NaN at the exact step immediately before a solid crossing (prevValue is NaN at the crossing)", () => {
+    let call = 0;
+    const sampler = (): number => {
+      call++;
+      if (call === 1) return -1; // entry sample: not solid
+      if (call <= 4) return NaN; // three marched steps poison prevValue
+      return 1; // final marched step crosses to solid with prevValue === NaN
+    };
+    const result = marchField([0, 0, 0], [4, 0, 0], sampler, { steps: 4 });
+    expect(result.hit).toBe(true);
+    if (result.hit) {
+      expect(Number.isFinite(result.x)).toBe(true);
+      expect(Number.isFinite(result.y)).toBe(true);
+      expect(Number.isFinite(result.z)).toBe(true);
+      expect(Number.isFinite(result.distance)).toBe(true);
+    }
+  });
+
   it("never exceeds maxSteps regardless of finestFreq", () => {
     const calls: number[] = [];
     const sampler = (x: number) => { calls.push(x); return -1; };

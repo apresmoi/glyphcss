@@ -616,6 +616,19 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 // assigned to it is skipped by the evaluator exactly like an amp-0 voice, so
 // its shaping params can't diverge anything either.
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
+  // Checked before the `space: "object"` reject below so a carve patch names
+  // carve as the reason, not the volumetric branch it happens to require —
+  // carve is its own per-cell march over every animated frame, a
+  // fundamentally different bake than the affine-fit/coordinate-table
+  // exporter this module builds (VOLUMETRIC.md's "Static export": "Baking a
+  // march per cell per frame is a different export design; do not fake it").
+  if (params.render === "carve") {
+    throw new Error(
+      'glyphcss: buildGlyphFieldSynthStaticExport does not support render: "carve" — carve raymarches the field '
+      + "per cell per frame, which is a different export design than this baked coordinate-table/affine-fit "
+      + "exporter. Not planned.",
+    );
+  }
   if (params.space === "object") {
     throw new Error(
       "glyphcss: buildGlyphFieldSynthStaticExport does not support space: \"object\" (volumetric fields) yet — "

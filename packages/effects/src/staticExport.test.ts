@@ -240,6 +240,20 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     });
   });
 
+  describe("Carve mode (VOLUMETRIC.md's Carve mode) rejected explicitly by the static exporter", () => {
+    it('rejects render: "carve", naming carve as the reason rather than the volumetric space it happens to require', () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, space: "object", render: "carve" },
+      }))).toThrow(/carve/i);
+    });
+
+    it('still rejects a plain volumetric (non-carve) patch with the pre-existing "space" error, not the carve one', () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, space: "object" },
+      }))).toThrow(/space.*"object"/);
+    });
+  });
+
   it("a flat, head-on, fully-covered plane drops the per-cell table entirely: no DATA at all", () => {
     const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
       rotX: 0,

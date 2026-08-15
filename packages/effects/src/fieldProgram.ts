@@ -414,6 +414,21 @@ export interface FieldMarchHit {
   readonly x: number;
   readonly y: number;
   readonly z: number;
+  /**
+   * The raw, un-interpolated grid sample CONFIRMED solid (`sampler(...) > 0`)
+   * — the point that actually triggered this hit, before the secant
+   * refinement above. `t`/`x`/`y`/`z` are exact for an affine field but can
+   * land on a sampler's plateau boundary for a hard-thresholded one (see the
+   * comment on the secant root above); `sampleT`/`sampleX`/`sampleY`/
+   * `sampleZ` are always guaranteed to resample `> 0`, for a caller (e.g.
+   * carve) that needs solid ground to re-evaluate at rather than maximum
+   * positional precision. Equal to `t`/`x`/`y`/`z` for the entry-already-
+   * solid short-circuit (distance 0, no stepping occurred).
+   */
+  readonly sampleT: number;
+  readonly sampleX: number;
+  readonly sampleY: number;
+  readonly sampleZ: number;
 }
 
 export interface FieldMarchMiss {
@@ -461,7 +476,7 @@ export function marchField(
 
   let prevT = 0;
   let prevValue = sampler(ex, ey, ez, time);
-  if (prevValue > 0) return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez };
+  if (prevValue > 0) return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez, sampleT: 0, sampleX: ex, sampleY: ey, sampleZ: ez };
 
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
@@ -470,8 +485,28 @@ export function marchField(
     const z = ez + dz * t;
     const value = sampler(x, y, z, time);
     if (value > 0) {
+      // `denom !== 0` alone does not guard a NaN `prevValue` (a prior NaN
+      // sampler sample poisoning the running state): `NaN !== 0` is `true`,
+      // so that branch was reachable with `denom` itself NaN, producing NaN
+      // hit coordinates downstream. Requiring `Number.isFinite(denom)` makes
+      // the fallback (snap to the last known-finite `prevT`, i.e. treat the
+      // crossing as landing exactly at the last good sample) actually fire.
+      //
+      // This secant root is exact for an affine field, including the
+      // degenerate case where `prevValue` is itself exactly 0 (the root then
+      // trivially IS `prevT`) — see the "hits an analytic slab" test just
+      // above, whose boundary happens to land exactly on a sample. A
+      // saturating sampler (a hard plateau at 0, e.g. carve's
+      // `clamp01(bias + gain*v*0.5)` mapping under a hard-thresholded field —
+      // VOLUMETRIC.md's Carve section) hits this same degenerate case for
+      // every crossing, and the reported position then resamples to exactly
+      // 0 too — not solid, by the caller's own `> 0` test. That is a CALLER
+      // concern (this marcher has no way to distinguish "genuine smooth zero
+      // crossing" from "clamped-off plateau" from two samples alone) — see
+      // `sampleT`/`sampleX`/`sampleY`/`sampleZ` below, the confirmed-solid
+      // raw grid sample a caller can fall back to.
       const denom = value - prevValue;
-      const localT = denom !== 0 ? -prevValue / denom : 0;
+      const localT = Number.isFinite(denom) && denom !== 0 ? -prevValue / denom : 0;
       const hitT = prevT + localT * (t - prevT);
       return {
         hit: true,
@@ -480,6 +515,10 @@ export function marchField(
         x: ex + dx * hitT,
         y: ey + dy * hitT,
         z: ez + dz * hitT,
+        sampleT: t,
+        sampleX: x,
+        sampleY: y,
+        sampleZ: z,
       };
     }
     prevT = t;

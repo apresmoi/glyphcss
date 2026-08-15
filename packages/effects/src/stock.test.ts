@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildRasterizeContext,
   createGlyphOrthographicCamera,
+  createGlyphScene,
+  defineGlyphEffect,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
@@ -62,6 +64,7 @@ interface EvaluateOptions {
   shade?: Float32Array;
   worldPosition?: Float32Array;
   objectPosition?: Float32Array;
+  objectExit?: Float32Array;
   normal?: Float32Array;
   cellToSceneGrid?: GridAffine;
   worldToSceneScale?: number;
@@ -107,6 +110,7 @@ function evaluate(
       ...(options.shade ? { shade: options.shade } : {}),
       ...(options.worldPosition ? { worldPosition: options.worldPosition } : {}),
       ...(options.objectPosition ? { objectPosition: options.objectPosition } : {}),
+      ...(options.objectExit ? { objectExit: options.objectExit } : {}),
       ...(options.normal ? { normal: options.normal } : {}),
     },
     input: { cols, rows, length, glyph, coverage, color },
@@ -1939,10 +1943,13 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
 });
 
 describe("field-synth volumetric (space: \"object\")", () => {
-  it("dynamicRequirements asks for objectPosition only when space is \"object\"", () => {
+  it("dynamicRequirements asks for objectPosition only when space is \"object\", and adds objectExit only when render is \"carve\" (VOLUMETRIC.md's Carve section)", () => {
     const defaults = defaultGlyphEffectParams(fieldSynth);
     expect(fieldSynth.program.dynamicRequirements?.(defaults)).toEqual([]);
     expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object" })).toEqual(["objectPosition"]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, render: "carve" })).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "carve" }))
+      .toEqual(["objectPosition", "objectExit"]);
   });
 
   it("resolves the volumetric domain coordinate from objectPosition * scale: the same object-space point renders identically regardless of grid position (matches the matrixRain volumetric pattern)", () => {
@@ -2144,6 +2151,52 @@ describe("field-synth layer argmax validation (VOLUMETRIC.md's Step 3, \"argmax 
   });
 });
 
+// The doc's exact Menger recipe, compiled from FLAT PARAMS (space: "object"
+// so the volumetric branch is live; scale 1 so objectPosition reads directly
+// as the unit-domain coordinate). Depth 1 needs 3 voices (one layer); depth 2
+// needs 6 (two layers) — exactly SYNTH_VOICES, the schema's documented
+// depth-2 ceiling. Module scope (not local to one describe block) so both the
+// schema-frontend membership test below AND the carve smoke test
+// (VOLUMETRIC.md acceptance 5, "Use the Phase 3 Menger recipe params
+// verbatim") share the exact same recipe.
+function mengerAxisVoice(prefix: number, field: string, freq: number, layer: number): Record<string, number | string | boolean> {
+  return {
+    [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
+    [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 3, [`phase${prefix}`]: -1 / 3, [`layer${prefix}`]: layer,
+  };
+}
+
+function mengerLayerShape(layer: number): Record<string, number | string | boolean> {
+  return {
+    [`layerCombine${layer}`]: "add",
+    [`layerThresholdOn${layer}`]: true,
+    [`layerThreshold${layer}`]: 0,
+    [`layerInvert${layer}`]: true,
+    [`layerBlend${layer}`]: "min",
+    [`layerAmp${layer}`]: 1,
+  };
+}
+
+function mengerParams(depth: 1 | 2): Record<string, number | string | boolean> {
+  const params: Record<string, number | string | boolean> = {
+    space: "object", scale: 1,
+    ...mengerAxisVoice(1, "linearX", 1, 1),
+    ...mengerAxisVoice(2, "linearY", 1, 1),
+    ...mengerAxisVoice(3, "linearZ", 1, 1),
+    ...mengerLayerShape(1),
+  };
+  if (depth === 2) {
+    Object.assign(
+      params,
+      mengerAxisVoice(4, "linearX", 3, 2),
+      mengerAxisVoice(5, "linearY", 3, 2),
+      mengerAxisVoice(6, "linearZ", 3, 2),
+      mengerLayerShape(2),
+    );
+  }
+  return params;
+}
+
 describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md acceptance criterion 2a)", () => {
   // First-principles reference, identical to fieldProgram.test.ts's own
   // depth-3 IR test (VOLUMETRIC.md acceptance 2b) — reused as a REFERENCE,
@@ -2158,49 +2211,6 @@ describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md accep
       cx = cx - Math.floor(cx / 3) * 3; cy = cy - Math.floor(cy / 3) * 3; cz = cz - Math.floor(cz / 3) * 3;
     }
     return true;
-  }
-
-  // The doc's exact Menger recipe, compiled from FLAT PARAMS (space:
-  // "object" so the volumetric branch is live; scale 1 so objectPosition
-  // reads directly as the unit-domain coordinate). Depth 1 needs 3 voices
-  // (one layer); depth 2 needs 6 (two layers) — exactly SYNTH_VOICES, the
-  // schema's documented depth-2 ceiling.
-  function mengerAxisVoice(prefix: number, field: string, freq: number, layer: number): Record<string, number | string | boolean> {
-    return {
-      [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
-      [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 3, [`phase${prefix}`]: -1 / 3, [`layer${prefix}`]: layer,
-    };
-  }
-
-  function mengerLayerShape(layer: number): Record<string, number | string | boolean> {
-    return {
-      [`layerCombine${layer}`]: "add",
-      [`layerThresholdOn${layer}`]: true,
-      [`layerThreshold${layer}`]: 0,
-      [`layerInvert${layer}`]: true,
-      [`layerBlend${layer}`]: "min",
-      [`layerAmp${layer}`]: 1,
-    };
-  }
-
-  function mengerParams(depth: 1 | 2): Record<string, number | string | boolean> {
-    const params: Record<string, number | string | boolean> = {
-      space: "object", scale: 1,
-      ...mengerAxisVoice(1, "linearX", 1, 1),
-      ...mengerAxisVoice(2, "linearY", 1, 1),
-      ...mengerAxisVoice(3, "linearZ", 1, 1),
-      ...mengerLayerShape(1),
-    };
-    if (depth === 2) {
-      Object.assign(
-        params,
-        mengerAxisVoice(4, "linearX", 3, 2),
-        mengerAxisVoice(5, "linearY", 3, 2),
-        mengerAxisVoice(6, "linearZ", 3, 2),
-        mengerLayerShape(2),
-      );
-    }
-    return params;
   }
 
   // Offset grid over the unit cube, off the 1/3 base-3 digit boundaries
@@ -2278,5 +2288,332 @@ describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md accep
       }
     }
     expect(checkedHole && checkedSolid).toBe(true);
+  });
+});
+
+function carveCubePolygons(): Polygon[] {
+  const faces: Vec3[][] = [
+    [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]],
+    [[-1, -1, -1], [-1, 1, -1], [1, 1, -1], [1, -1, -1]],
+    [[-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, 1, -1]],
+    [[-1, -1, 1], [-1, -1, -1], [1, -1, -1], [1, -1, 1]],
+    [[1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]],
+    [[-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]],
+  ];
+  return faces.map((vertices) => ({ vertices, color: "#8899cc" }));
+}
+
+// Spans object-space [0, 1]^3 rather than [-1, 1] — the domain
+// `evaluateMengerGrid`/`mengerParams`'s recipe is calibrated for (base-3
+// digit selection assumes a unit-domain coordinate; `scale: 1` there means
+// "objectPosition already reads directly as that unit-domain coordinate").
+// The acceptance-5 smoke test carves this mesh with the recipe UNCHANGED,
+// rather than reusing `carveCubePolygons`'s [-1, 1] convention, which would
+// double the traversed domain to two full base periods and make a chord
+// landing squarely in a hole far less likely to miss solid content
+// entirely (an adjacent period's solid material is right behind it).
+function mengerDomainCubePolygons(): Polygon[] {
+  const faces: Vec3[][] = [
+    [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
+    [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]],
+    [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]],
+    [[0, 0, 1], [0, 0, 0], [1, 0, 0], [1, 0, 1]],
+    [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]],
+    [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]],
+  ];
+  return faces.map((vertices) => ({ vertices, color: "#8899cc" }));
+}
+
+async function flushCarveRenders(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+describe("field-synth carve mode — validation (VOLUMETRIC.md's Carve mode)", () => {
+  it('requires space: "object" — the volumetric branch', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(() => fieldSynth.program.validateParams?.({ ...defaults, render: "carve" } as never))
+      .toThrow(/space: "object"/);
+    expect(() => fieldSynth.program.validateParams?.({ ...defaults, render: "carve", space: "object" } as never))
+      .not.toThrow();
+  });
+
+  it('rejects subcellRes "2x4" and "ink" — their neighbor finite-difference probes have no defined meaning at different march depths', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "carve", space: "object", subcellRes: "2x4",
+    } as never)).toThrow(/subcellRes/);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "carve", space: "object", subcellRes: "ink",
+    } as never)).toThrow(/subcellRes/);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "carve", space: "object", subcellRes: "1x1",
+    } as never)).not.toThrow();
+  });
+
+  it('paint mode never validates the volumetric/subcellRes constraints (they are carve-only)', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(() => fieldSynth.program.validateParams?.({ ...defaults, render: "paint", subcellRes: "ink" } as never))
+      .not.toThrow();
+  });
+
+  it('dynamicRequirements asks for objectPosition + objectExit only when render is "carve"', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(fieldSynth.program.dynamicRequirements?.(defaults)).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, render: "carve" })).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "carve" }))
+      .toEqual(["objectPosition", "objectExit"]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "paint" }))
+      .toEqual(["objectPosition"]);
+  });
+});
+
+describe("field-synth carve mode — the march (VOLUMETRIC.md's Carve mode)", () => {
+  it("a degenerate segment (entry === exit) falls back to surface sampling — renders exactly like paint, not a hole", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3); // identical to objectPosition everywhere: every cell is degenerate
+    objectPosition[0] = 0.3; objectPosition[1] = -0.2; objectPosition[2] = 0.1;
+    objectExit[0] = 0.3; objectExit[1] = -0.2; objectExit[2] = 0.1;
+    // bias 2 / gain 0 -> clamp01(bias) = 1 everywhere, independent of position
+    // or which voice is active — an "everywhere-solid" field that isolates the
+    // degenerate-segment fallback from any march/geometry concern.
+    const shared = { space: "object" as const, scale: 2, bias: 2, gain: 0 };
+    const carve = evaluate(fieldSynth, { ...shared, render: "carve" }, { objectPosition, objectExit });
+    const paint = evaluate(fieldSynth, { ...shared, render: "paint" }, { objectPosition, objectExit });
+    expect(carve.coverage[0]).toBeGreaterThan(0);
+    expect(Array.from(carve.coverage)).toEqual(Array.from(paint.coverage));
+    expect(carve.glyph).toEqual(paint.glyph);
+    expect(Array.from(carve.color)).toEqual(Array.from(paint.color));
+  });
+
+  it("a genuine hole (no solid sample anywhere along a non-degenerate chord) emits nothing, not a fallback to the entry point", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
+    objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
+    const output = evaluate(fieldSynth, {
+      space: "object", scale: 1, render: "carve",
+      // Always off: clamp01(0.5 + 1 * (-1) * 0.5) = 0, never > 0.
+      field1: "linearX", wave1: "sin", freq1: 3, speed1: 0, amp1: 1,
+      bias: 0, gain: 0,
+    }, { objectPosition, objectExit });
+    expect(output.coverage[0]).toBe(0);
+    expect(output.channels[0]).toBe(0);
+  });
+
+  it("Nyquist floor: an active voice's freq raises the per-cell march step count enough to find a thin feature a low fixed marchSteps would otherwise step over", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
+    objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
+    // voice1 (freq 1, one period spans the whole chord) places a single
+    // duty=0.008-wide "on" band centered at x=0.5625 — 9 sample points at
+    // marchSteps=8 (t = 0, 1/8, ..., 1) all fall outside [0.5585, 0.5665], so
+    // an 8-step march deterministically misses it. voice2's freq (not its
+    // amplitude, kept tiny via `combine: "min"` so it can't perturb the
+    // solid/hole decision at the extremes) is the ONLY thing that changes
+    // between the two calls below, isolating the Nyquist-floor wiring.
+    const base = {
+      space: "object" as const, scale: 1, render: "carve" as const, combine: "min" as const, marchSteps: 8,
+      field1: "linearX", wave1: "square", freq1: 1, duty1: 0.008, phase1: -0.5585, amp1: 1, speed1: 0,
+      field2: "linearX", wave2: "square", freq2: 200, duty2: 0.5, phase2: 0, speed2: 0,
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    };
+    const lowFreqOnly = evaluate(fieldSynth, { ...base, amp2: 0 }, { objectPosition, objectExit });
+    expect(lowFreqOnly.coverage[0]).toBe(0);
+
+    const withHighFreqVoice = evaluate(fieldSynth, { ...base, amp2: 0.001 }, { objectPosition, objectExit });
+    expect(withHighFreqVoice.coverage[0]).toBeGreaterThan(0);
+  });
+
+  it("colorFactor at a t=0 hit is exactly 1 regardless of marchFade — an everywhere-solid field's carve output matches paint bit-for-bit even through the synthetic evaluate() harness", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = (i % 12) * 0.1;
+      objectPosition[i * 3 + 1] = ((i / 12) | 0) * 0.1;
+      objectPosition[i * 3 + 2] = 0;
+      objectExit[i * 3] = objectPosition[i * 3]! + 1;
+      objectExit[i * 3 + 1] = objectPosition[i * 3 + 1]!;
+      objectExit[i * 3 + 2] = 0;
+    }
+    const shared = { space: "object" as const, scale: 1, bias: 2, gain: 0 };
+    const paint = evaluate(fieldSynth, { ...shared, render: "paint" }, { objectPosition, objectExit });
+    const carveFadeLow = evaluate(fieldSynth, { ...shared, render: "carve", marchFade: 0.2 }, { objectPosition, objectExit });
+    const carveFadeHigh = evaluate(fieldSynth, { ...shared, render: "carve", marchFade: 6 }, { objectPosition, objectExit });
+    expect(Array.from(carveFadeLow.color)).toEqual(Array.from(paint.color));
+    expect(Array.from(carveFadeHigh.color)).toEqual(Array.from(paint.color));
+    expect(Array.from(carveFadeLow.coverage)).toEqual(Array.from(paint.coverage));
+  });
+});
+
+describe("field-synth carve mode — real scene (VOLUMETRIC.md acceptance criteria 4 and 5)", () => {
+  async function renderFieldSynthCube(
+    params: Record<string, number | string | boolean> | null,
+  ): Promise<{ text: string; cols: number; rows: number }> {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const cols = 60, rows = 40;
+    const scene = createGlyphScene(host, {
+      cols, rows, useColors: false, doubleSided: true,
+      // A near-head-on view, not the oblique 25/35 orbit view used elsewhere
+      // in this file: the depth-1 Menger construction already carves a
+      // straight axis-aligned tunnel through the center of each face, all
+      // the way through to the opposite face. A fully oblique camera's
+      // diagonal rays are long enough (up to the cube's space diagonal) to
+      // clip solid content SOMEWHERE almost regardless of aim, at >50% solid
+      // fraction (no genuine holes); a FULLY head-on view instead makes every
+      // ray either dead-center in a tunnel (hole) or immediately solid at the
+      // surface (no interior wall ever shows). This small tilt is what
+      // actually exercises both: most tunnel rays still miss everything
+      // (hole), while rays skimming a tunnel's edge clip the depth-2
+      // sub-structure just inside its mouth (interior wall).
+      camera: createGlyphOrthographicCamera({ zoom: 600, rotX: 8, rotY: 8 }),
+    });
+    scene.add(mengerDomainCubePolygons());
+    if (params) scene.addEffectLayer({ effect: fieldSynth, params: params as never, blend: "replace", opacity: 1 });
+    await flushCarveRenders();
+    const text = scene.output.textContent ?? "";
+    scene.destroy();
+    host.remove();
+    return { text, cols, rows };
+  }
+
+  it("acceptance 4: carve with an everywhere-solid field is byte-identical to paint on the same scene, across marchFade values", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols: 30, rows: 20, useColors: true, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+    });
+    scene.add(carveCubePolygons());
+    // bias 2 / gain 0 -> clamp01(bias) = 1 everywhere: the entry sample is
+    // already solid, so `marchField` hits at t = 0 with position = entry —
+    // exactly the point paint itself evaluates — sharing paint's own
+    // emission path (`computeFieldSynthPoint`/`applyFieldSynthColor`).
+    const layer = scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), space: "object", bias: 2, gain: 0, render: "paint" } as never,
+      blend: "replace",
+      opacity: 1,
+    });
+    await flushCarveRenders();
+    const paintHtml = scene.output.innerHTML;
+    expect(paintHtml.length).toBeGreaterThan(0);
+
+    layer.params.render = "carve";
+    layer.params.marchFade = 0.3;
+    await flushCarveRenders();
+    expect(scene.output.innerHTML).toBe(paintHtml);
+
+    layer.params.marchFade = 5;
+    await flushCarveRenders();
+    expect(scene.output.innerHTML).toBe(paintHtml);
+
+    scene.destroy();
+    host.remove();
+  });
+
+  it("acceptance 5: cube + depth-2 Menger patch under blend: \"replace\", opacity 1 — empty cells at hole centers, non-empty interior-wall cells inside hole apertures", async () => {
+    const menger = mengerParams(2);
+    const baseline = await renderFieldSynthCube(null);
+    const paint = await renderFieldSynthCube({ ...defaultGlyphEffectParams(fieldSynth), ...menger, render: "paint" });
+    const carve = await renderFieldSynthCube({ ...defaultGlyphEffectParams(fieldSynth), ...menger, render: "carve" });
+
+    const baseRows = baseline.text.split("\n");
+    const paintRows = paint.text.split("\n");
+    const carveRows = carve.text.split("\n");
+
+    let holeCells = 0; // carve found no solid sample anywhere along the chord
+    // paint (surface-only, entry-point evaluation) says hole, but carve
+    // marched through and hit an interior wall — the doc's "non-empty
+    // interior-wall cells inside hole apertures".
+    let interiorWallCells = 0;
+    for (let r = 0; r < baseline.rows; r++) {
+      const baseRow = baseRows[r] ?? "";
+      const paintRow = paintRows[r] ?? "";
+      const carveRow = carveRows[r] ?? "";
+      for (let c = 0; c < baseline.cols; c++) {
+        if (!baseRow[c] || baseRow[c] === " ") continue; // outside the cube's silhouette
+        const carveEmpty = !carveRow[c] || carveRow[c] === " ";
+        const paintEmpty = !paintRow[c] || paintRow[c] === " ";
+        if (carveEmpty) holeCells++;
+        if (paintEmpty && !carveEmpty) interiorWallCells++;
+      }
+    }
+    expect(holeCells).toBeGreaterThan(0);
+    expect(interiorWallCells).toBeGreaterThan(0);
+  });
+
+  it.each(["wireframe", "voxel"] as const)(
+    "%s mode: carve degrades to the 2D paint fallback without throwing (dynamicRequirements can't see the render mode)",
+    async (mode) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, {
+        cols: 30, rows: 20, mode, useColors: false, doubleSided: true,
+        camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+      });
+      scene.add(carveCubePolygons());
+      let evaluated = false;
+      scene.addEffectLayer({
+        effect: fieldSynth,
+        params: { ...defaultGlyphEffectParams(fieldSynth), space: "object", render: "carve" } as never,
+        blend: "replace",
+      });
+      scene.addEffectLayer({
+        effect: defineGlyphEffect<{ phase: number }>({ evaluate() { evaluated = true; } }),
+        params: { phase: 0 },
+      });
+      await expect(flushCarveRenders()).resolves.toBeUndefined();
+      expect(evaluated).toBe(true);
+      scene.destroy();
+      host.remove();
+    },
+  );
+
+  it("flipping render paint -> carve on a live solid-mode scene triggers a full render and retains objectExit (VOLUMETRIC.md's dynamicRequirements protocol, end to end with the real field-synth program)", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols: 30, rows: 20, useColors: false, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+    });
+    scene.add(carveCubePolygons());
+    const fieldLayer = scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), space: "object", render: "paint" } as never,
+      blend: "replace",
+    });
+    let sawObjectExit: boolean | undefined;
+    // A passive observer layer sharing the same composite frame: whatever
+    // the field-synth layer's dynamicRequirements ask for is retained in the
+    // SHARED base grid every mounted layer sees, real requirement plumbing,
+    // not a synthetic stand-in (mirrors packages/glyphcss's own
+    // createGlyphScene.objectExit.test.ts pattern, with the real fieldSynth
+    // program driving the requirement instead of a hand-written one).
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({
+        evaluate({ base }) { sawObjectExit = base.objectExit !== undefined; },
+      }),
+      params: { phase: 0 },
+    });
+    await flushCarveRenders();
+    expect(sawObjectExit).toBe(false);
+
+    fieldLayer.params.render = "carve";
+    await flushCarveRenders();
+    expect(sawObjectExit).toBe(true);
+
+    fieldLayer.params.render = "paint";
+    await flushCarveRenders();
+    expect(sawObjectExit).toBe(false);
+
+    scene.destroy();
+    host.remove();
   });
 });
