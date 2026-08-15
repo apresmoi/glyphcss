@@ -47,27 +47,36 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
 - **noiseDissolve** — a stable procedural dissolve that can be scrubbed with one progress value.
 - **ripple** — concentric glyph and color waves in canonical scene coordinates.
 - **fieldSynth** — a composable oscillator synth: up to six voices, each pairing a
-  field (`radial`/`linearX`/`linearY`/`diagonal`/`angular`/`spiral`/`noise`, plus
-  `linearZ` under the volumetric branch) with a waveform (`sin`/`triangle`/`saw`/
-  `square`), combined (`add`/`multiply`/`max`/`min`/`difference`/`argmax`) into one
-  scalar mapped to a glyph ramp and color over a `space`. `argmax` is categorical —
-  each region takes the winning voice's flat level (and, with `voiceColors`, its
-  color), which makes hard-edged tilings possible. Each voice also carries `angleN`
-  (rotates its sampling frame), `originUN`/`originVN`/`originWN` (its own center
-  offset), `dutyN` (the square wave's high fraction), and `phaseN` (a cycle offset —
-  the only way to phase-shift a linear field, since voice origins don't). `amp` is a
-  per-voice mix weight rather than a gain, `lit` modulates the output color by
-  surface shading, and `voiceColors` blends each active voice's own color instead of
-  a single value gradient. `subcellRes` picks the output encoding: `"1x1"` (one ramp
+  field (`radial`/`linearX`/`linearY`/`diagonal`/`angular`/`spiral`/`noise`, `linearZ`
+  under the volumetric branch, plus the SDF family `gyroid`/`menger`/`sierpinski`)
+  with a waveform (`sin`/`triangle`/`saw`/`square`/`step`), combined
+  (`add`/`multiply`/`max`/`min`/`difference`/`argmax`) into one scalar mapped to a
+  glyph ramp and color over a `space`. `argmax` is categorical — each region takes
+  the winning voice's flat level (and, with `voiceColors`, its color), which makes
+  hard-edged tilings possible. Each voice also carries `angleN` (rotates its
+  sampling frame), `originUN`/`originVN`/`originWN` (its own center offset — for the
+  SDF family this TRANSLATES the sampled point rather than just anchoring a
+  distance measurement, so an SDF voice can be aligned to its host mesh), `dutyN`
+  (the square wave's high fraction), and `phaseN` (a cycle offset — the only way to
+  phase-shift a linear field, since voice origins don't; for an SDF voice `phase` is
+  instead an iso-level offset that erodes/dilates the solid). `amp` is a per-voice
+  mix weight rather than a gain, `lit` modulates the output color by surface
+  shading, and `voiceColors` blends each active voice's own color instead of a
+  single value gradient. `subcellRes` picks the output encoding: `"1x1"` (one ramp
   glyph per cell), `"2x4"` (Braille subcell dots), or `"ink"` (contour lines of the
   field, with `inkLevels` setting how many). Voices can also opt into one of three
   `layer1..6` groups, each with its own threshold/invert/blend into the next layer —
   this is what makes a per-scale rule like Menger-sponge membership expressible,
   which a flat voice fold cannot reach. Under `space: "object"` (a volumetric field
-  in the mesh's own 3D frame, like matrix rain's `"object"` mode) `render: "carve"`
-  raymarches the field into hollow interior structure instead of a surface texture.
-  Ships with a curated set of presets (Sunburst, Ring pulse, Plaid weave, Menger
-  sponge, and more).
+  in the mesh's own 3D frame, like matrix rain's `"object"` mode), `render: "carve"`
+  raymarches the field into hollow interior structure, and `render: "xray"`
+  integrates density along the whole chord into a transmittance brightness instead
+  — both can be cut down to a cross-section with the `slabAxis`/`slabStart`/
+  `slabEnd` clip. The SDF fields (`menger`/`sierpinski` at recursion depth `iterN`,
+  1..4) are exact signed distances to the depth-`iterN` box/tetra union, not a
+  distance-estimator approximation. Ships with a curated set of presets (Sunburst,
+  Ring pulse, Plaid weave, Menger sponge, Sierpinski pyramid, Gyroid xray, and
+  more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are
@@ -106,10 +115,13 @@ Also exported: `calibrateWeightedGlyphRamp` (measures a glyph × font-weight
 ramp for glyphcss's `solidWeightRamp` scene option) and
 `buildGlyphFieldSynthStaticExport` (bakes an effect-only, static-camera
 field-synth scene into a self-contained snippet with zero runtime imports;
-`isGlyphFieldSynthStaticExportSupported(params)` checks first — the volumetric branch and
-`render: "carve"` reject explicitly, since a march needs a different,
-per-cell-per-frame export design). The field-program IR itself is also public
-— `evaluateGlyphFieldProgram`, `marchGlyphField`, and the `GlyphFieldProgram`/
+`isGlyphFieldSynthStaticExportSupported(params)` checks first — the volumetric
+branch, `render: "carve"`/`"xray"`, and an active slab clip reject explicitly,
+since a march or a mid-march clip needs a different, per-cell-per-frame export
+design; the SDF fields and the `step` wave export normally in the 2D branch).
+The field-program IR itself is also public — `evaluateGlyphFieldProgram`,
+`marchGlyphField`, its integral sibling `integrateGlyphField` (used by xray),
+the shared step-count floor `glyphFieldStepCount`, and the `GlyphFieldProgram`/
 `GlyphFieldLayer`/`GlyphFieldVoice` types — the seam a future field-authoritative
 primitive plugs into without touching field-synth's flat param schema.
 
