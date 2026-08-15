@@ -1942,23 +1942,18 @@ interface FieldSynthPointSample {
   readonly caw: number;
 }
 
-const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
-  // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
-  // one flat tone, which is what turns a lattice into the rhombille/cube
-  // tessellation. No value-combining op can express it — inside a region a
-  // folded value keeps varying, and the illusion needs constants. Per-voice
-  // colours paint the three cube faces; the ramp keeps it readable unlit too.
-  // argmax regions traced as contours rather than shaded: an angular voice cuts
-  // the plane into wedges while two counter-rotating radials fight over them, so
-  // the winning region — and therefore the outline — keeps reorganising.
-  { name: "Ink cells", params: { combine: "argmax", subcellRes: "ink", inkLevels: 1,
-    scale: 0.9, gain: 1, bias: 0.4,
-    field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.65, amp1: 1,
-    field2: "radial", wave2: "sin", freq2: 7, speed2: 1.3, amp2: 1,
-    field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
-    amp4: 0, amp5: 0, amp6: 0,
-    voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
-  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
+// P1-B (VOLUMETRIC-2.md §3 fix review): these four presets are consumed
+// elsewhere by OBJECT IDENTITY, not by display name — the website's
+// `STAGE_HINTS` table (synthKit.tsx) needs a stable reference to "the Menger
+// sponge preset" that survives a future rename of its `.name`. A name-keyed
+// lookup at module load (`fieldSynthPresets.find(p => p.name === "...")`)
+// would throw at import time the moment this file's `name` string and that
+// lookup's string drift apart — not rename-proof, just rename-brittle at a
+// different layer. Exporting the actual objects is the fix: importers hold
+// the same reference `fieldSynthPresets` below reuses, so there is no name
+// string to keep in sync and no lookup that can fail.
+export const cubeTilesPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
     // Drift, not shear: a rigid translation needs each wave's phase rate to be
     // its own normal projected on the drift direction, `speed = freq * (n · v)`.
     // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —
@@ -1973,40 +1968,24 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     // level sits exactly on the `value <= 0` boundary, so it is deliberate but
     // fragile; bias 0.95 would push it clearly negative for the same picture.
     amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
-    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 } },
-  { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
-  { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
-  { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
-  { name: "Sonar ping", params: { field1: "radial", wave1: "sin", freq1: 10, speed1: 1.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, gain: 1.6, bias: 0.2, glyphs: "  ·:+#", color: "#2effb0", gradient: 0 } },
-  { name: "Lattice", params: { field1: "linearX", wave1: "sin", freq1: 6, speed1: 0.3, amp1: 1, field2: "linearY", wave2: "sin", freq2: 6, speed2: 0.4, amp2: 1, field3: "diagonal", wave3: "sin", freq3: 6, speed3: 0.2, amp3: 1, combine: "add", scale: 2, glyphs: " .-+*#", color: "#c78bff", colorB: "#00e5ff", gradient: 0.8 } },
-  { name: "Vortex", params: { field1: "spiral", wave1: "saw", freq1: 5, speed1: 0.8, amp1: 1, field2: "angular", wave2: "sin", freq2: 3, speed2: -0.5, amp2: 0.7, amp3: 0, combine: "add", scale: 2, glyphs: " .:/\\|=+*", color: "#ff7a45", colorB: "#ffd24a", gradient: 0.7 } },
-  { name: "Lava", params: { field1: "noise", wave1: "sin", freq1: 3, speed1: 0.5, amp1: 1, field2: "radial", wave2: "sin", freq2: 2, speed2: 0.3, amp2: 0.6, amp3: 0, combine: "add", scale: 2.5, gain: 1.3, glyphs: " .:-=+*#%@", color: "#ff3b1f", colorB: "#ffd24a", gradient: 1 } },
-  { name: "Static rain", params: { field1: "noise", wave1: "sin", freq1: 8, speed1: 3, amp1: 1, field2: "linearY", wave2: "saw", freq2: 12, speed2: 2, amp2: 0.5, amp3: 0, combine: "multiply", scale: 3, glyphs: " .:i|1oX#", color: "#5affa0", gradient: 0 } },
-  { name: "Moiré rings", params: { field1: "radial", wave1: "sin", freq1: 12, speed1: 0.4, amp1: 1, originU: 0.4, field2: "radial", wave2: "sin", freq2: 12.6, speed2: -0.4, amp2: 1, originV: 0.6, amp3: 0, combine: "multiply", scale: 2.5, glyphs: " .·:+*#", color: "#9df", gradient: 0.5 } },
-  { name: "Checkerboard", params: { field1: "linearX", wave1: "square", freq1: 6, speed1: 0.2, amp1: 1, field2: "linearY", wave2: "square", freq2: 6, speed2: 0.2, amp2: 1, amp3: 0, combine: "difference", scale: 2, glyphs: " █", color: "#ffe08a", gradient: 0 } },
-  { name: "Warp core", params: { field1: "radial", wave1: "saw", freq1: 8, speed1: 2, amp1: 1, field2: "angular", wave2: "sin", freq2: 8, speed2: 0.5, amp2: 0.8, amp3: 0, combine: "multiply", scale: 2, gain: 1.4, glyphs: " .:-=+*oO0#", color: "#00e5ff", colorB: "#c78bff", gradient: 1 } },
-  { name: "Bubbles", params: { field1: "noise", wave1: "sin", freq1: 4, speed1: 0.4, amp1: 1, field2: "radial", wave2: "sin", freq2: 9, speed2: 0.9, amp2: 0.7, amp3: 0, combine: "max", scale: 3, gain: 1.5, bias: 0.1, glyphs: "  .oO0@", color: "#5ad1ff", gradient: 0 } },
-  { name: "Aurora", params: { field1: "linearX", wave1: "sin", freq1: 2, speed1: 0.3, amp1: 1, field2: "noise", wave2: "sin", freq2: 3, speed2: 0.5, amp2: 0.8, field3: "linearY", wave3: "sin", freq3: 1.5, speed3: 0.2, amp3: 0.6, combine: "add", scale: 2.5, glyphs: " .:-=+*#", color: "#2effb0", colorB: "#7b5cff", gradient: 1 } },
-  { name: "Zebra", params: { field1: "diagonal", wave1: "square", freq1: 8, speed1: 0.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, glyphs: " █", color: "#f4f4f4", gradient: 0 } },
-  { name: "Kaleidoscope", params: { field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.4, amp1: 1, field2: "radial", wave2: "sin", freq2: 7, speed2: -0.3, amp2: 1, field3: "spiral", wave3: "sin", freq3: 4, speed3: 0.5, amp3: 0.7, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ff5aa8", colorB: "#48f7ff", gradient: 1 } },
-  { name: "Halftone", params: { field1: "radial", wave1: "sin", freq1: 14, speed1: 0.3, amp1: 1, field2: "linearX", wave2: "sin", freq2: 14, speed2: 0.3, amp2: 1, amp3: 0, combine: "min", scale: 2.5, gain: 2, glyphs: "  .oO@", color: "#ffffff", gradient: 0 } },
-  { name: "Weave", params: { field1: "linearX", wave1: "triangle", freq1: 7, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "triangle", freq2: 7, speed2: -0.4, amp2: 1, amp3: 0, combine: "add", scale: 2, glyphs: " ░▒▓█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
-  { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
-  { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
-  // The driving example from VOLUMETRIC.md: a Menger sponge carved out of a
-  // plain cube mesh, with no sponge geometry and no prepared playback. Recipe
-  // verbatim from the acceptance tests (stock.test.ts's `mengerParams(2)` /
-  // VOLUMETRIC.md's "The acceptance pattern: Menger membership"): per scale
-  // k, three axis voices (linearX/Y/Z), wave square, freq 3^(k-1), duty 1/3,
-  // phase -1/3 select that scale's middle third; each layer folds its three
-  // axes with add, thresholds at 0, inverts (solid = +1), and layers
-  // min-blend across scales — the ±1 AND: solid overall iff every scale says
-  // solid. `scale: 1/3` remaps the /synth page's centered size-3 cube
-  // (extent 3, -1.5..1.5) onto the one unit-domain period this recipe
-  // assumes; the square wave is exactly periodic in that domain, so a plain
-  // multiplicative scale (no offset) is enough to fill the cube with one
-  // full sponge regardless of where the domain's origin sits.
-  { name: "Menger sponge", params: {
+    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 },
+};
+
+// The driving example from VOLUMETRIC.md: a Menger sponge carved out of a
+// plain cube mesh, with no sponge geometry and no prepared playback. Recipe
+// verbatim from the acceptance tests (stock.test.ts's `mengerParams(2)` /
+// VOLUMETRIC.md's "The acceptance pattern: Menger membership"): per scale
+// k, three axis voices (linearX/Y/Z), wave square, freq 3^(k-1), duty 1/3,
+// phase -1/3 select that scale's middle third; each layer folds its three
+// axes with add, thresholds at 0, inverts (solid = +1), and layers
+// min-blend across scales — the ±1 AND: solid overall iff every scale says
+// solid. `scale: 1/3` remaps the /synth page's centered size-3 cube
+// (extent 3, -1.5..1.5) onto the one unit-domain period this recipe
+// assumes; the square wave is exactly periodic in that domain, so a plain
+// multiplicative scale (no offset) is enough to fill the cube with one
+// full sponge regardless of where the domain's origin sits.
+export const mengerSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger sponge", params: {
     space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
     field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
     field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
@@ -2027,29 +2006,32 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     // recursion levels deep fade toward black, so the sponge's actual 3D
     // recursive structure pops even head-on.
     marchFade: 2.5,
-  } },
-  // The base-2 sibling of the Menger recipe above (VOLUMETRIC-2.md's
-  // addendum: "at every binary scale, at most one axis is in its upper
-  // half" — the corner-tetra Sierpinski rule), reusing the exact same
-  // per-scale shape (three axis voices, `add` fold, threshold at 0, invert,
-  // `min`-blend across scales) with base-2 constants instead of base-3:
-  // `duty 1/2`/`phase -1/2` select each axis's upper half instead of its
-  // middle third, and `freq 2^(k-1)` (1, then 2) doubles the lattice each
-  // scale instead of tripling it. Reviewer-verified numerically (see this
-  // file's header comment / VOLUMETRIC-2.md's addendum) and pinned against
-  // `sierpinskiSolidRef` (a hand-derived first-principles reference,
-  // independent of this recipe) in fieldProgram.test.ts and stock.test.ts.
-  //
-  // `scale: 1/3` mirrors the Menger preset's own domain-normalizing pin: the
-  // /synth `pyramid` stage's corner tetra is authored at `s = 3` (matching
-  // every other stage's `size: 3` footprint — see synthKit.tsx), so
-  // `1/scale = 3` remaps `objectPosition`'s `[0,3]^3` authoring box onto the
-  // `[0,1]^3` window this recipe's `phase -1/2` selectors assume. That
-  // window's own corner must sit at the domain origin (not centered) for the
-  // upper-half selectors to land in the right octants — the `pyramid` stage
-  // is authored uncentered for exactly this reason (see its vertices in
-  // synthKit.tsx).
-  { name: "Sierpinski pyramid", params: {
+  },
+};
+
+// The base-2 sibling of the Menger recipe above (VOLUMETRIC-2.md's
+// addendum: "at every binary scale, at most one axis is in its upper
+// half" — the corner-tetra Sierpinski rule), reusing the exact same
+// per-scale shape (three axis voices, `add` fold, threshold at 0, invert,
+// `min`-blend across scales) with base-2 constants instead of base-3:
+// `duty 1/2`/`phase -1/2` select each axis's upper half instead of its
+// middle third, and `freq 2^(k-1)` (1, then 2) doubles the lattice each
+// scale instead of tripling it. Reviewer-verified numerically (see this
+// file's header comment / VOLUMETRIC-2.md's addendum) and pinned against
+// `sierpinskiSolidRef` (a hand-derived first-principles reference,
+// independent of this recipe) in fieldProgram.test.ts and stock.test.ts.
+//
+// `scale: 1/3` mirrors the Menger preset's own domain-normalizing pin: the
+// /synth `pyramid` stage's corner tetra is authored at `s = 3` (matching
+// every other stage's `size: 3` footprint — see synthKit.tsx), so
+// `1/scale = 3` remaps `objectPosition`'s `[0,3]^3` authoring box onto the
+// `[0,1]^3` window this recipe's `phase -1/2` selectors assume. That
+// window's own corner must sit at the domain origin (not centered) for the
+// upper-half selectors to land in the right octants — the `pyramid` stage
+// is authored uncentered for exactly this reason (see its vertices in
+// synthKit.tsx).
+export const sierpinskiPyramidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Sierpinski pyramid", params: {
     space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
     field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 2, phase1: -1 / 2, layer1: 1,
     field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 2, phase2: -1 / 2, layer2: 1,
@@ -2066,30 +2048,74 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     // centered cube) already reads its recursive structure more readily
     // than a centered sponge does, so it needs less compensating fade.
     marchFade: 2,
-  } },
-  // A single `gyroid` voice, absorption-mode xray (VOLUMETRIC-2.md §1's own
-  // rationale: an oscillating field integrates to ~`bias` per unit length —
-  // "structure averages into fog" — unless shaped near-binary first).
-  // Thresholding the layer (not raising `gain`/`bias`) is the more literal
-  // fix: it turns the gyroid's continuous implicit into an exact two-level
-  // read of "which labyrinth half" at every point, at the SCHEMA's default
-  // bias/gain (0.5/1) — so absorbing through a hole-dominated chord and a
-  // solid-dominated chord land at genuinely different brightness levels
-  // (~0.53 vs ~0.90 at the tuned `xrayGain` below) instead of both washing
-  // out toward the same mid-gray fog average.
-  // `xrayGain: 1.5` (below the schema default of 4) is deliberate: at 4,
-  // even a hole-dominated chord's much weaker 0.25 density already
-  // integrates to near-total absorption over a couple of domain units,
-  // flattening the whole image to solid white and hiding exactly the
-  // structure this preset exists to show. 1.5 keeps both halves' brightness
-  // visibly distinct across the cube stage's typical chord lengths.
-  { name: "Gyroid xray", params: {
+  },
+};
+
+// A single `gyroid` voice, absorption-mode xray (VOLUMETRIC-2.md §1's own
+// rationale: an oscillating field integrates to ~`bias` per unit length —
+// "structure averages into fog" — unless shaped near-binary first).
+// Thresholding the layer (not raising `gain`/`bias`) is the more literal
+// fix: it turns the gyroid's continuous implicit into an exact two-level
+// read of "which labyrinth half" at every point, at the SCHEMA's default
+// bias/gain (0.5/1) — so absorbing through a hole-dominated chord and a
+// solid-dominated chord land at genuinely different brightness levels
+// (~0.53 vs ~0.90 at the tuned `xrayGain` below) instead of both washing
+// out toward the same mid-gray fog average.
+// `xrayGain: 1.5` (below the schema default of 4) is deliberate: at 4,
+// even a hole-dominated chord's much weaker 0.25 density already
+// integrates to near-total absorption over a couple of domain units,
+// flattening the whole image to solid white and hiding exactly the
+// structure this preset exists to show. 1.5 keeps both halves' brightness
+// visibly distinct across the cube stage's typical chord lengths.
+export const gyroidXrayPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Gyroid xray", params: {
     space: "object", scale: 1, render: "xray", xrayGain: 1.5,
     field1: "gyroid", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, phase1: 0,
     amp2: 0, amp3: 0,
     layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: false,
     glyphs: " .:-=+*#%@", color: "#8fd8ff", colorB: "#c9a6ff", gradient: 0.6, lit: 1,
-  } },
+  },
+};
+
+const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
+  // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
+  // one flat tone, which is what turns a lattice into the rhombille/cube
+  // tessellation. No value-combining op can express it — inside a region a
+  // folded value keeps varying, and the illusion needs constants. Per-voice
+  // colours paint the three cube faces; the ramp keeps it readable unlit too.
+  // argmax regions traced as contours rather than shaded: an angular voice cuts
+  // the plane into wedges while two counter-rotating radials fight over them, so
+  // the winning region — and therefore the outline — keeps reorganising.
+  { name: "Ink cells", params: { combine: "argmax", subcellRes: "ink", inkLevels: 1,
+    scale: 0.9, gain: 1, bias: 0.4,
+    field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.65, amp1: 1,
+    field2: "radial", wave2: "sin", freq2: 7, speed2: 1.3, amp2: 1,
+    field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
+    amp4: 0, amp5: 0, amp6: 0,
+    voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
+  cubeTilesPreset,
+  { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
+  { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
+  { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
+  { name: "Sonar ping", params: { field1: "radial", wave1: "sin", freq1: 10, speed1: 1.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, gain: 1.6, bias: 0.2, glyphs: "  ·:+#", color: "#2effb0", gradient: 0 } },
+  { name: "Lattice", params: { field1: "linearX", wave1: "sin", freq1: 6, speed1: 0.3, amp1: 1, field2: "linearY", wave2: "sin", freq2: 6, speed2: 0.4, amp2: 1, field3: "diagonal", wave3: "sin", freq3: 6, speed3: 0.2, amp3: 1, combine: "add", scale: 2, glyphs: " .-+*#", color: "#c78bff", colorB: "#00e5ff", gradient: 0.8 } },
+  { name: "Vortex", params: { field1: "spiral", wave1: "saw", freq1: 5, speed1: 0.8, amp1: 1, field2: "angular", wave2: "sin", freq2: 3, speed2: -0.5, amp2: 0.7, amp3: 0, combine: "add", scale: 2, glyphs: " .:/\\|=+*", color: "#ff7a45", colorB: "#ffd24a", gradient: 0.7 } },
+  { name: "Lava", params: { field1: "noise", wave1: "sin", freq1: 3, speed1: 0.5, amp1: 1, field2: "radial", wave2: "sin", freq2: 2, speed2: 0.3, amp2: 0.6, amp3: 0, combine: "add", scale: 2.5, gain: 1.3, glyphs: " .:-=+*#%@", color: "#ff3b1f", colorB: "#ffd24a", gradient: 1 } },
+  { name: "Static rain", params: { field1: "noise", wave1: "sin", freq1: 8, speed1: 3, amp1: 1, field2: "linearY", wave2: "saw", freq2: 12, speed2: 2, amp2: 0.5, amp3: 0, combine: "multiply", scale: 3, glyphs: " .:i|1oX#", color: "#5affa0", gradient: 0 } },
+  { name: "Moiré rings", params: { field1: "radial", wave1: "sin", freq1: 12, speed1: 0.4, amp1: 1, originU: 0.4, field2: "radial", wave2: "sin", freq2: 12.6, speed2: -0.4, amp2: 1, originV: 0.6, amp3: 0, combine: "multiply", scale: 2.5, glyphs: " .·:+*#", color: "#9df", gradient: 0.5 } },
+  { name: "Checkerboard", params: { field1: "linearX", wave1: "square", freq1: 6, speed1: 0.2, amp1: 1, field2: "linearY", wave2: "square", freq2: 6, speed2: 0.2, amp2: 1, amp3: 0, combine: "difference", scale: 2, glyphs: " █", color: "#ffe08a", gradient: 0 } },
+  { name: "Warp core", params: { field1: "radial", wave1: "saw", freq1: 8, speed1: 2, amp1: 1, field2: "angular", wave2: "sin", freq2: 8, speed2: 0.5, amp2: 0.8, amp3: 0, combine: "multiply", scale: 2, gain: 1.4, glyphs: " .:-=+*oO0#", color: "#00e5ff", colorB: "#c78bff", gradient: 1 } },
+  { name: "Bubbles", params: { field1: "noise", wave1: "sin", freq1: 4, speed1: 0.4, amp1: 1, field2: "radial", wave2: "sin", freq2: 9, speed2: 0.9, amp2: 0.7, amp3: 0, combine: "max", scale: 3, gain: 1.5, bias: 0.1, glyphs: "  .oO0@", color: "#5ad1ff", gradient: 0 } },
+  { name: "Aurora", params: { field1: "linearX", wave1: "sin", freq1: 2, speed1: 0.3, amp1: 1, field2: "noise", wave2: "sin", freq2: 3, speed2: 0.5, amp2: 0.8, field3: "linearY", wave3: "sin", freq3: 1.5, speed3: 0.2, amp3: 0.6, combine: "add", scale: 2.5, glyphs: " .:-=+*#", color: "#2effb0", colorB: "#7b5cff", gradient: 1 } },
+  { name: "Zebra", params: { field1: "diagonal", wave1: "square", freq1: 8, speed1: 0.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, glyphs: " █", color: "#f4f4f4", gradient: 0 } },
+  { name: "Kaleidoscope", params: { field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.4, amp1: 1, field2: "radial", wave2: "sin", freq2: 7, speed2: -0.3, amp2: 1, field3: "spiral", wave3: "sin", freq3: 4, speed3: 0.5, amp3: 0.7, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ff5aa8", colorB: "#48f7ff", gradient: 1 } },
+  { name: "Halftone", params: { field1: "radial", wave1: "sin", freq1: 14, speed1: 0.3, amp1: 1, field2: "linearX", wave2: "sin", freq2: 14, speed2: 0.3, amp2: 1, amp3: 0, combine: "min", scale: 2.5, gain: 2, glyphs: "  .oO@", color: "#ffffff", gradient: 0 } },
+  { name: "Weave", params: { field1: "linearX", wave1: "triangle", freq1: 7, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "triangle", freq2: 7, speed2: -0.4, amp2: 1, amp3: 0, combine: "add", scale: 2, glyphs: " ░▒▓█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
+  { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
+  { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
+  mengerSpongePreset,
+  sierpinskiPyramidPreset,
+  gyroidXrayPreset,
 ];
 
 

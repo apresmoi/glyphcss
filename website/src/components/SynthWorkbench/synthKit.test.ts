@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
-import { PYRAMID_STAGE_SIZE, SHAPES, STAGE_HINTS, buildWavePathD, resolveSpaceChange, shapePolys, soloParams, stagePreviewShape, synthDefaults } from "./synthKit";
+import { PYRAMID_STAGE_SIZE, SHAPES, STAGE_HINTS, buildWavePathD, resolveSpaceChange, shapePolys, shapeTransform, soloParams, stagePreviewShape, synthDefaults } from "./synthKit";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
 // the previewed voice onto default layer 1 and default (unshaped) layer
@@ -117,8 +117,22 @@ describe("buildWavePathD", () => {
 // VOLUMETRIC-2.md §3: STAGE_HINTS is keyed by the imported preset OBJECT's
 // identity, not its display name — a name-keyed `Record<string, Hint>` (the
 // old `PRESET_DENSITY` shape) would silently drop a hint the moment someone
-// renames a preset's `.name`. This proves the binding actually survives a
-// rename, not just that the table happens to be a Map.
+// renames a preset's `.name`.
+//
+// P1-B fix: the map used to get to that object identity via a name-string
+// LOOKUP at module load (`fieldSynth.presets.find(p => p.name === "Menger
+// sponge")`, throwing if nothing matched) — rename-proof only AFTER
+// construction, not rename-proof getting there. Renaming a shipped preset in
+// `stock.ts` without updating that lookup's string crashed module
+// evaluation itself. The fix removes the lookup: `STAGE_HINTS` is built
+// directly from `GlyphMengerSpongePreset` etc. (named const exports —
+// `stock.ts` — that are the literal same objects `fieldSynth.presets`
+// holds), so there is no name string anywhere in this file to drift out of
+// sync. These tests prove that at both the unit level (object identity
+// survives a post-construction rename) and the module-init level (renaming
+// a preset's display name AT THE SOURCE, before `synthKit`'s own
+// `STAGE_HINTS` top-level runs, does not throw and the hint still applies)
+// — the real rename scenario the old name-lookup test only simulated half of.
 describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
   it("looks up by preset object identity — renaming a preset's display name after the fact doesn't drop its hint", () => {
     const preset = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge");
@@ -135,6 +149,31 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
       expect(stagePreviewShape(preset!)).toBe("cube");
     } finally {
       (preset as { name: string }).name = original;
+    }
+  });
+
+  // The real rename scenario P1-B was about: the preset's `.name` changes AT
+  // THE SOURCE (`@glyphcss/effects`) before `synthKit`'s own module-level
+  // `STAGE_HINTS = new Map([...])` construction runs — i.e. the moment the
+  // OLD `shippedPreset("Menger sponge")` name-lookup helper would have
+  // thrown and taken the whole module (and every page importing it) down
+  // with it. `vi.resetModules()` + a fresh dynamic `import()` re-runs that
+  // top-level construction from scratch against the renamed object.
+  it("module init never throws when a preset is renamed at the source before synthKit's own module load, and the hint still applies by identity", async () => {
+    vi.resetModules();
+    const effects = await import("@glyphcss/effects");
+    const renamedPreset = effects.GlyphMengerSpongePreset as { name: string };
+    const original = renamedPreset.name;
+    renamedPreset.name = "Renamed sponge (module init)";
+    try {
+      const freshSynthKit = await import("./synthKit");
+      const hint = freshSynthKit.STAGE_HINTS.get(renamedPreset as never);
+      expect(hint).toBeDefined();
+      expect(hint?.shape).toBe("cube");
+      expect(freshSynthKit.stagePreviewShape(renamedPreset as never)).toBe("cube");
+    } finally {
+      renamedPreset.name = original;
+      vi.resetModules();
     }
   });
 
@@ -183,5 +222,62 @@ describe("shapePolys(\"pyramid\") (VOLUMETRIC-2.md §3, uncentered corner tetra)
     for (const v of seen) for (const n of v.split(",").map(Number)) { if (n < minc) minc = n; if (n > maxc) maxc = n; }
     expect(minc).toBe(0);
     expect(maxc).toBe(s);
+  });
+});
+
+// P1-C: the uncentered corner tetra's own bounding-box centroid sits at
+// (s/4, s/4, s/4), not the origin every other stage renders around, so left
+// alone the stage renders and orbits off-center. `shapeTransform("pyramid")`
+// centers it via the mesh's WORLD-space position instead of touching its
+// object-space vertices — the pyramid stage's field recipe (VOLUMETRIC-2.md
+// §3) requires those to stay exactly the uncentered `[0,s]^3` corner form.
+//
+// `createGlyphScene.ts`'s `applyTransform` (a) captures `objectVertices` as
+// the ORIGINAL, untransformed `polygons[i].vertices` reference before a
+// position/rotation/scale is applied, and (b) with rotation `[0,0,0]` and
+// scale `1` (both omitted here — `shapeTransform` only ever sets `position`),
+// its rotate-then-translate math reduces to a plain `vertex + position`. That
+// composition is what this test exercises: it doesn't reimplement
+// `applyTransform`'s general rotate/scale math, only the translation-only
+// identity `shapeTransform` actually relies on.
+describe("shapeTransform(\"pyramid\") (P1-C, world-centered stage via mesh position)", () => {
+  it("centers the uncentered corner tetra's WORLD-space vertex centroid near the origin, while its object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
+    const s = PYRAMID_STAGE_SIZE;
+    const raw = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
+      .flatMap((face) => face.vertices);
+
+    // Sanity: the raw (pre-transform / objectVertices) box is NOT already
+    // centered — its own bounding-box centroid sits at (s/4, s/4, s/4), the
+    // failure mode this fix addresses.
+    const rawCentroidPerAxis = (axis: number) => raw.reduce((sum, v) => sum + v[axis]!, 0) / raw.length;
+    for (let axis = 0; axis < 3; axis++) expect(rawCentroidPerAxis(axis)).toBeCloseTo(s / 4, 10);
+
+    const transform = shapeTransform("pyramid");
+    expect(transform.position).toEqual([-s / 4, -s / 4, -s / 4]);
+    expect(transform.rotation).toBeUndefined();
+    expect(transform.scale).toBeUndefined();
+    const [px, py, pz] = transform.position!;
+
+    // objectVertices (== the raw, pre-transform vertices `applyTransform`
+    // aliases unmodified) still is exactly the uncentered corner form.
+    const expected: [number, number, number][] = [[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]];
+    const seenRaw = new Set(raw.map((v) => v.join(",")));
+    for (const v of expected) expect(seenRaw.has(v.join(","))).toBe(true);
+    expect(seenRaw.size).toBe(4);
+
+    // World vertices (translation-only `applyTransform`: vertex + position)
+    // have a centroid within floating-point epsilon of the origin.
+    const world = raw.map(([x, y, z]) => [x + px, y + py, z + pz] as const);
+    for (let axis = 0; axis < 3; axis++) {
+      const centroid = world.reduce((sum, v) => sum + v[axis]!, 0) / world.length;
+      expect(centroid).toBeCloseTo(0, 10);
+    }
+  });
+
+  it("is the identity (no position) for every other stage shape", () => {
+    for (const shape of SHAPES) {
+      if (shape === "pyramid") continue;
+      expect(shapeTransform(shape)).toEqual({});
+    }
   });
 });

@@ -22,6 +22,7 @@ import {
   generatedSurfaceField,
   getGlyphEffect,
   glitch,
+  gyroidXrayPreset,
   matrixRain,
   noiseDissolve,
   objectVolumetricAlongLane,
@@ -1914,49 +1915,91 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
     );
   }
 
+  // Canonical (key-sorted, so property insertion order can't perturb the
+  // string) JSON serialization of a preset's raw `params` object, independent
+  // of `pinnedEvaluate`'s synthetic 2D context entirely.
+  //
+  // P1-A (VOLUMETRIC-2.md §3 fix review): `pinnedEvaluate` feeds a flat
+  // `uv0`-driven grid with no `objectPosition`/`objectExit` — it never
+  // exercises `space: "object"` + `render: "carve"`'s marched/carved-stage
+  // path. A volumetric preset's param that only THAT path consumes (the
+  // Menger sponge's `marchFade: 1 → 2.5` retrofit, VOLUMETRIC-2.md §3's
+  // "invisible at the oblique camera" fix) can therefore change with zero
+  // effect on `hashOf`'s rendered-output hash, silently defeating the whole
+  // point of a byte-identity pin: a real behavior change shipped with no
+  // forced re-pin. Hashing the preset's full params object ALONGSIDE the
+  // rendered-output hash closes that gap the cheap, robust way — it doesn't
+  // need to know which params the synthetic path can or can't see, because
+  // it hashes literally every key, so ANY preset param edit forces a
+  // deliberate re-pin here even when `hashOf` itself can't detect it.
+  function canonicalJson(value: unknown): string {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(",")}]`;
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
+  }
+
+  function paramsHashOf(params: Record<string, number | string | boolean>): string {
+    return fnv1a(canonicalJson(params));
+  }
+
   it("reproduces the pre-refactor hash for default params, at 1x1/2x4/ink", () => {
     expect(hashOf()).toBe("7d1375dc");
     expect(hashOf({ subcellRes: "2x4" })).toBe("38ffa16d");
     expect(hashOf({ subcellRes: "ink" })).toBe("694ada7d");
   });
 
-  it("reproduces the pre-refactor hash for every shipped preset", () => {
-    const expected: Record<string, string> = {
-      "Ink cells": "7fa42eeb",
-      "Cube tiles": "c91fca95",
-      Sunburst: "73166434",
-      "Ring pulse": "bf16c9f7",
-      "Plaid weave": "def63013",
-      "Sonar ping": "e0a1b9a6",
-      Lattice: "182f881a",
-      Vortex: "479de6c0",
-      Lava: "13f39efc",
-      "Static rain": "7b1403a1",
-      "Moiré rings": "972334a7",
-      Checkerboard: "931fc935",
-      "Warp core": "b9699196",
-      Bubbles: "0c45d5d0",
-      Aurora: "83b81a3f",
-      Zebra: "ed2427c1",
-      Kaleidoscope: "0da9183a",
-      Halftone: "77ba200a",
-      Weave: "fd19e86f",
-      "Pulse grid": "829c38e1",
-      Nebula: "987c9199",
+  it("reproduces the pre-refactor hash for every shipped preset, and pins each preset's full params object independently of the synthetic evaluator", () => {
+    // `render`: `hashOf`'s rendered-output hash, from the synthetic 2D
+    // evaluate context above — unaffected by a param the synthetic path
+    // can't see (e.g. a volumetric-carve-only param). `params`: the raw
+    // `preset.params` object's own canonical-JSON hash — sensitive to
+    // EVERY key, so it is what actually catches a change like that.
+    const expected: Record<string, { render: string; params: string }> = {
+      "Ink cells": { render: "7fa42eeb", params: "c43055bd" },
+      "Cube tiles": { render: "c91fca95", params: "b83f76bc" },
+      Sunburst: { render: "73166434", params: "72b93f9c" },
+      "Ring pulse": { render: "bf16c9f7", params: "4cfa46f9" },
+      "Plaid weave": { render: "def63013", params: "d467d1e0" },
+      "Sonar ping": { render: "e0a1b9a6", params: "bc091ee9" },
+      Lattice: { render: "182f881a", params: "3b077229" },
+      Vortex: { render: "479de6c0", params: "5db648cc" },
+      Lava: { render: "13f39efc", params: "b8cf531a" },
+      "Static rain": { render: "7b1403a1", params: "1282a546" },
+      "Moiré rings": { render: "972334a7", params: "3658b2ef" },
+      Checkerboard: { render: "931fc935", params: "7e2af903" },
+      "Warp core": { render: "b9699196", params: "b515d692" },
+      Bubbles: { render: "0c45d5d0", params: "cde5c8f3" },
+      Aurora: { render: "83b81a3f", params: "0e8af11d" },
+      Zebra: { render: "ed2427c1", params: "1b455525" },
+      Kaleidoscope: { render: "0da9183a", params: "53ab981e" },
+      Halftone: { render: "77ba200a", params: "023ba7ef" },
+      Weave: { render: "fd19e86f", params: "dcc5eb00" },
+      "Pulse grid": { render: "829c38e1", params: "92ab91cb" },
+      Nebula: { render: "987c9199", params: "ee4f824d" },
       // Added in VOLUMETRIC.md's Phase 6 (the /synth preset gallery), after
       // this file's IR/volumetric/duty/phase changes existed — pinned the
       // same way as every preset above it, just not part of the pre-refactor
       // baseline this describe block otherwise guards.
-      "Menger sponge": "c6e1efad",
+      //
+      // `render` is the pre-existing pinned value and stays exactly
+      // "c6e1efad" — the marchFade 1 → 2.5 retrofit is invisible to the
+      // synthetic evaluator, as documented above. `params` is the
+      // deliberate re-pin this fix exists for: it changed the moment
+      // `marchFade` did, and is pinned here at its POST-retrofit value.
+      "Menger sponge": { render: "c6e1efad", params: "c33b2487" },
       // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
       // preset above it.
-      "Sierpinski pyramid": "945f235b",
-      "Gyroid xray": "770251e5",
+      "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
+      "Gyroid xray": { render: "770251e5", params: "19475e84" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
     for (const preset of presets) {
-      expect(hashOf(preset.params as Record<string, number | string | boolean>)).toBe(expected[preset.name]);
+      const params = preset.params as Record<string, number | string | boolean>;
+      expect(hashOf(params)).toBe(expected[preset.name]!.render);
+      expect(paramsHashOf(params)).toBe(expected[preset.name]!.params);
     }
   });
 });
@@ -3454,5 +3497,125 @@ describe("field-synth xray mode — real scene (VOLUMETRIC-2.md acceptance crite
 
     scene.destroy();
     host.remove();
+  });
+});
+
+// P2 (VOLUMETRIC-2.md §1's own "absorption xray reads near-binary fields"
+// rationale, and the "Gyroid xray preset" comment in stock.ts): the shipped
+// preset thresholds the gyroid layer specifically so absorption reads two
+// distinct levels — "which labyrinth half" — instead of averaging into fog.
+// That claim had no targeted real-scene test: the Menger xray real-scene
+// test above only asserts non-empty output, which a uniformly foggy render
+// would satisfy just as well. This proves the actual contrast.
+describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRIC-2.md §1 P2)", () => {
+  it("renders at least two distinct absorption bands across the cube's covered cells, not a uniform fog average", async () => {
+    const cols = 48, rows = 30, length = cols * rows;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols, rows, useColors: false, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 260, rotX: 22, rotY: 30 }),
+    });
+    scene.add(carveCubePolygons());
+    // The real, shipped preset, mounted exactly as `applyPreset`
+    // (SynthWorkbench.tsx) would apply it — this is the actual render under
+    // test, not a stand-in. `dynamicRequirements` (render: "xray") retains
+    // real per-cell objectPosition/objectExit from the real camera/mesh
+    // projection, same as the Menger xray real-scene test above.
+    scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), ...(gyroidXrayPreset.params as Record<string, number | string | boolean>) } as never,
+      blend: "replace",
+      opacity: 1,
+    });
+    let captured: { objectPosition?: Float32Array; objectExit?: Float32Array } = {};
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({
+        evaluate({ base }) { captured = { objectPosition: base.objectPosition, objectExit: base.objectExit }; },
+      }),
+      params: { phase: 0 },
+    });
+    await flushCarveRenders();
+    const text = scene.output.textContent ?? "";
+    expect(text.split("\n").some((row) => row.trim().length > 0)).toBe(true); // real render, non-empty
+    scene.destroy();
+    host.remove();
+
+    expect(captured.objectPosition).toBeDefined();
+    expect(captured.objectExit).toBeDefined();
+
+    // Decode absorption brightness from the SAME real per-cell chords the
+    // render above just used, via the file's own established grayscale-probe
+    // technique (the uniform-step-count pinned test earlier in this file):
+    // `color`/`colorB`/`gradient` are purely cosmetic value-gradient mapping
+    // — B itself is computed upstream from density/xrayGain, so overriding
+    // them to black/white/1 can't perturb the absorption result under test,
+    // only make it exactly decodable via the color channel's low byte.
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      ...(gyroidXrayPreset.params as Record<string, number | string | boolean>),
+      color: "#000000", colorB: "#ffffff", gradient: 1,
+    };
+    const glyph = new Array<string>(length).fill("#");
+    // `target.coverage` is the BASE MESH's already-rasterized silhouette —
+    // xray only ever paints where geometry already covers a cell (see
+    // stock.ts's `xrayUniformSteps`/per-cell loops, both gated on
+    // `context.target.coverage[i] > 0` before touching that cell at all).
+    // The real render's own base mesh silhouette is exactly "every cell
+    // `captured.objectPosition` has finite data for" — mirror that here
+    // (the shared `evaluate()` helper above defaults this to a fully-`1`
+    // mock canvas; this scene isn't full-frame, so it must be per-cell).
+    const coverage = new Float32Array(length);
+    for (let i = 0; i < length; i++) if (Number.isFinite(captured.objectPosition?.[i * 3])) coverage[i] = 1;
+    const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(length).fill(" "),
+      color: new Uint32Array(length).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(length),
+      channels: new Uint8Array(length),
+    };
+    fieldSynth.program.validateParams?.(params as never);
+    fieldSynth.program.evaluate({
+      params,
+      state: undefined,
+      base: { cols, rows, length, glyph, coverage, color, objectPosition: captured.objectPosition, objectExit: captured.objectExit },
+      input: { cols, rows, length, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+
+    const brightness: number[] = [];
+    for (let i = 0; i < length; i++) {
+      if (output.coverage[i]! > 0) brightness.push((output.color[i]! & 0xff) / 255);
+    }
+    expect(brightness.length).toBeGreaterThan(20); // enough covered cells to judge a distribution, not a handful of samples
+
+    // "Fog" would be a tight cluster (VOLUMETRIC-2.md §1: within 0.01-0.1 of
+    // a single reference value). A real projected cube's chords vary
+    // continuously in length (short near the silhouette edge, long through
+    // the middle), so the covered-cell distribution isn't a clean two-value
+    // histogram even with the fix applied — the robust bimodality signal is
+    // splitting the SORTED distribution at its median and comparing the two
+    // halves' means: fog collapses both halves toward the same value, while
+    // real low/high structure keeps them far apart regardless of how the
+    // middle fills in.
+    const sorted = [...brightness].sort((a, b) => a - b);
+    const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const mid = Math.floor(sorted.length / 2);
+    const lowMean = mean(sorted.slice(0, mid));
+    const highMean = mean(sorted.slice(mid));
+    // Loosely pins VOLUMETRIC-2.md §1's own ~0.53/~0.90 two-level claim (a
+    // ~0.37 gap between the two levels) without being brittle to this test's
+    // own camera/cube choice — a real scene's continuum brings the two
+    // half-means closer than two idealized point samples would be, so this
+    // threshold sits comfortably below that reference gap, not at it.
+    expect(highMean - lowMean).toBeGreaterThan(0.25);
+    // Loose absolute sanity against the documented ~0.53 (hole-dominated)
+    // and ~0.90 (solid-dominated) reference levels: something reads low,
+    // something reads high near saturation.
+    expect(sorted[0]!).toBeLessThan(0.6);
+    expect(sorted[sorted.length - 1]!).toBeGreaterThan(0.8);
   });
 });

@@ -11,10 +11,15 @@ import {
   glyphCodepenPrefill,
   type GlyphEffectBlend,
   type GlyphGeometryName,
+  type GlyphMeshTransform,
   type GlyphSceneHandle,
 } from "glyphcss";
 import {
   GlyphFieldSynthEffect as fieldSynth,
+  GlyphCubeTilesPreset,
+  GlyphGyroidXrayPreset,
+  GlyphMengerSpongePreset,
+  GlyphSierpinskiPyramidPreset,
   buildGlyphFieldSynthStaticExport,
   calibrateGlyphRamp,
   combineSynth,
@@ -511,6 +516,23 @@ export function shapePolys(name: string): Polys {
 }
 export const isFlat = (name: string) => name === "plane";
 
+// The pyramid stage's corner tetra is deliberately UNCENTERED in object
+// space (see `cornerTetraPolygons` above — a binding contract for the
+// Sierpinski recipe's `[0,1]^3` window, not to be touched). Its own
+// bounding-box centroid sits at `(s/4, s/4, s/4)`, not the origin every
+// other stage here is authored around, so left alone it renders and orbits
+// off-center. Center it in WORLD space instead, via the mesh's transform:
+// `createGlyphScene`'s `applyTransform` captures `objectVertices` BEFORE
+// this offset is applied, so the field recipe never sees it — only the
+// camera/orbit-pivot-facing world position moves.
+export function shapeTransform(name: string): GlyphMeshTransform {
+  if (name === "pyramid") {
+    const c = PYRAMID_STAGE_SIZE / 4;
+    return { position: [-c, -c, -c] };
+  }
+  return {};
+}
+
 // Frame the object by setting the camera zoom so its projected bbox fills ~`fill`
 // of the grid. MUST project with the same MEASURED cell metrics the renderer uses
 // (`metrics`), else the default cell (BASE_TILE/cellAspect) is ~4× off and the zoom
@@ -610,7 +632,7 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
     const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
-    scene.add(polys); scene.fit(); scene.rerender();
+    scene.add(polys, volumetric ? shapeTransform(previewShape) : {}); scene.fit(); scene.rerender();
     frameObject(scene, camera, polys, volumetric ? 0.8 : 0.98, false);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
@@ -1070,12 +1092,19 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
 // it actually read. Density was the only such hint before this — it's now
 // folded into the SAME table instead of its own separate `PRESET_DENSITY`
 // map. Keyed by the imported preset OBJECT's identity, not its display name
-// (a `Map`, not a `Record<string, …>`): looking a preset up by name at
-// apply-time and keying off THAT string would silently drop the hint the
-// moment someone renames a preset. Built once, from the live
-// `fieldSynth.presets` array, by finding each preset by its name AT MODULE
-// LOAD — after that, the map key is the object itself, so a later rename of
-// `.name` can't detach it from its hint.
+// (a `Map`, not a `Record<string, …>`): looking a preset up by name would
+// silently drop the hint the moment someone renames a preset.
+//
+// P1-B (VOLUMETRIC-2.md §3 fix review): the map used to be built by finding
+// each preset in `fieldSynth.presets` by its `.name` string AT MODULE LOAD
+// (a `shippedPreset(name)` helper that THREW if the name didn't match) —
+// object identity only after construction, but a name-string lookup to GET
+// there. Renaming a shipped preset in `stock.ts` without updating that
+// string here crashed module evaluation itself (the whole page, not just a
+// preset). `GlyphMengerSpongePreset` etc. are the SAME objects
+// `fieldSynth.presets` already holds (stock.ts constructs both from one
+// const) — importing them directly removes the lookup (and its throw path)
+// entirely: there is no name string to keep in sync anymore.
 export interface SynthStageHint {
   /** Overrides `applyPreset`'s `space`-derived stage default (otherwise a
    *  non-cube volumetric preset — e.g. the pyramid-stage Sierpinski preset —
@@ -1089,14 +1118,8 @@ export interface SynthStageHint {
   density?: number;
 }
 
-function shippedPreset(name: string): GlyphEffectPreset<never> {
-  const preset = ((fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[]).find((p) => p.name === name);
-  if (!preset) throw new Error(`stage hint: no shipped field-synth preset named "${name}"`);
-  return preset;
-}
-
 export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> = new Map([
-  [shippedPreset("Cube tiles"), { density: 1.5 }],
+  [GlyphCubeTilesPreset as GlyphEffectPreset<never>, { density: 1.5 }],
   // Face-on-ish so the sponge reads unaided (the "menger invisible at the
   // oblique camera" backlog item) — a shallow tilt keeps one face nearly
   // square to the viewer while still showing enough depth to read as a 3D
@@ -1104,13 +1127,17 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // steeper 58°/32° isometric-ish angle (which foreshortens the sponge's
   // fine recursive grid into visual noise). Paired with the preset's own
   // raised `marchFade` (stock.ts) for the depth cue that does the rest.
-  [shippedPreset("Menger sponge"), { shape: "cube", rotX: 15, rotY: 40 }],
+  [GlyphMengerSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   // The pyramid stage's recursive detail concentrates toward the origin
   // corner where all three axis-aligned faces meet; this angle keeps that
   // corner in view alongside the far hypotenuse face (the base triangle
-  // opposite it), rather than looking squarely down one flat face.
-  [shippedPreset("Sierpinski pyramid"), { shape: "pyramid", rotX: 35, rotY: 40 }],
-  [shippedPreset("Gyroid xray"), { shape: "cube" }],
+  // opposite it), rather than looking squarely down one flat face. P1-C:
+  // the pyramid stage itself is now world-centered (`shapeTransform`) — a
+  // pure translation, so it doesn't change which faces this angle shows —
+  // this hint's angles were re-checked against the recentered stage and
+  // still read the same, so they're unchanged.
+  [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid", rotX: 35, rotY: 40 }],
+  [GlyphGyroidXrayPreset as GlyphEffectPreset<never>, { shape: "cube" }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`

@@ -61,6 +61,7 @@ import {
   buildLighting,
   synthDefaults,
   shapePolys,
+  shapeTransform,
   isFlat,
   frameObject,
   VoiceCard,
@@ -130,7 +131,7 @@ export default function SynthWorkbench() {
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
     if (!flat) createGlyphOrbitControls(scene, { drag: true, wheel: true });
     const polys = shapePolys(shape);
-    meshRef.current = scene.add(polys) as { dispose: () => void };
+    meshRef.current = scene.add(polys, shapeTransform(shape)) as { dispose: () => void };
     scene.fit();
     scene.rerender(); // render once so the <pre> reflects the real cell size
     // `cover` + slight overscan (fill > 1) so the plane reaches every edge of a

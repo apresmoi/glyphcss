@@ -47,6 +47,17 @@ export {
   wipe as GlyphWipeEffect,
 } from "./stock";
 
+// P1-B (VOLUMETRIC-2.md §3): the four field-synth presets a consumer (the
+// website's `/synth` stage-hint table) needs to key off by OBJECT IDENTITY,
+// not by re-deriving them via a name-string lookup into `GlyphFieldSynthEffect
+// .presets` — the same array these are already the exact elements of.
+export {
+  cubeTilesPreset as GlyphCubeTilesPreset,
+  gyroidXrayPreset as GlyphGyroidXrayPreset,
+  mengerSpongePreset as GlyphMengerSpongePreset,
+  sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
+} from "./stock";
+
 export type {
   GlyphEffectId,
   GlyphEffectPreset,
