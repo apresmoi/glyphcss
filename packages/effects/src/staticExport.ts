@@ -74,17 +74,20 @@ import {
   findUvBounds,
   generatedSurfaceField,
   fieldSynthCoordinate,
+  fieldSynthSubcellGradient,
   defaultGlyphEffectParams,
   buildFieldSynthVoices,
   compileFieldVoices,
   resolveFieldSynthLayerShapes,
   compileFieldSynthProgram,
   SYNTH_VOICES,
+  BRAILLE_DOT_BITS,
+  inkGlyphForField,
   type AnyContext,
   type AnyParams,
   type EffectSpace,
 } from "./stock";
-import type { FieldLayer, FieldVoice } from "./fieldProgram";
+import { evaluateFieldProgram, type FieldLayer, type FieldProgram, type FieldVoice } from "./fieldProgram";
 
 export type GlyphFieldSynthStaticExportEffect = "field-synth";
 
@@ -180,6 +183,16 @@ interface BakedCell {
   shade: number;
   glyph: string;
   /** Packed 24-bit RGB, or `-1` for "no color" (matches the runtime's sentinel). */  color: number;
+  /**
+   * Coordinate gradient (change in resolved (x, y) per full cell step,
+   * right and down) — only populated for `subcellRes: "ink"`/`"2x4"`, the
+   * same values `fieldSynthSubcellGradient` produces for the live path.
+   * `undefined` for the plain (`"1x1"`) ramp path, which never reads it.
+   */
+  dxCol?: number;
+  dyCol?: number;
+  dxRow?: number;
+  dyRow?: number;
 }
 
 interface Baked {
@@ -261,6 +274,7 @@ function bake(
   const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
     ? generatedSurfaceField(context)
     : undefined;
+  const needsSubcellGradient = params.subcellRes === "ink" || params.subcellRes === "2x4";
 
   const cells: BakedCell[] = [];
   const n = baked.base.length;
@@ -284,6 +298,19 @@ function bake(
     const sh = shadeArr ? shadeArr[i]! : Number.NaN;
     const glyph = baked.baseGrid.char[i] ?? " ";
     const colorHex = baked.baseGrid.color[i] ?? null;
+    let dxCol: number | undefined, dyCol: number | undefined, dxRow: number | undefined, dyRow: number | undefined;
+    if (needsSubcellGradient) {
+      // 2D-only (`fieldSynthSubcellGradient`, not the volumetric
+      // `fieldSynthAnySubcellGradient` dispatcher) — `space: "object"` is
+      // rejected before `bake()` ever runs, so the volumetric branch is
+      // unreachable here. Same source, same edge-fallback semantics as the
+      // live `subcellRes: "ink"`/`"2x4"` path (stock.ts), computed once per
+      // cell here since the coordinate itself is time-independent.
+      [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+        context, i, params.space as EffectSpace, uvBounds, params.scale,
+        params.originU, params.originV, sceneCols, sceneRows, generatedSurface, x, y,
+      );
+    }
     cells.push({
       col: i % sceneCols,
       row: (i / sceneCols) | 0,
@@ -294,6 +321,7 @@ function bake(
       shade: Number.isFinite(sh) ? sh : 1,
       glyph,
       color: colorHex ? parseGlyphEffectColor(colorHex).packed : -1,
+      ...(needsSubcellGradient ? { dxCol, dyCol, dxRow, dyRow } : {}),
     });
   }
   return { cells, cols: options.cols, rows: options.rows };
@@ -371,6 +399,119 @@ function detectAffineCoords(points: { col: number; row: number; x: number; y: nu
   return { ax, bx, ecx, ay, by, ecy };
 }
 
+// P1-B fix: `detectAffineCoords`'s own residual bound is NOT a safe proxy for
+// "the affine fit is behaviorally safe". Its least-squares solve leaves
+// Cramer's-rule cancellation noise (measured ~1e-8 on an EXACTLY affine
+// surface — the residual isn't modeling real curvature, it's numerical error
+// in the fit itself) — tiny, but `Math.floor` (every duty/threshold
+// discontinuity) has no continuity guarantee AT an exact boundary: a cell
+// whose TRUE coordinate lands exactly on one (a symmetric setup naturally
+// puts several there — freq 2 on a plane centered at the origin, the
+// reviewer's repro) only needs an arbitrarily small perturbation to read the
+// wrong side and flip its entire folded value's sign. No position-residual
+// bound, however tight, can rule that out — a `residual * frequency` budget
+// tight enough to catch it (< 1e-7 here) would reject nearly every affine
+// fit, including ones with zero actual risk, discarding the payload win this
+// exporter exists for. So this checks the FIELD'S OWN quantized decision
+// instead of position error in isolation: substitute the affine
+// reconstruction for the true coordinate at every baked cell, run BOTH
+// through the real `evaluateFieldProgram` (never a re-derivation), and
+// reject the fit only if a cell's RAMP INDEX or argmax WINNER actually
+// disagrees. That is "how coordinates feed the field" made concrete — a
+// residual that never crosses a decision boundary is genuinely harmless and
+// keeps the affine win; one that does is caught exactly, not estimated.
+// Time-independent by construction (the residual folds into the wave
+// argument as a constant offset `Δraw * freq`, unaffected by `-t*speed`), so
+// checking at `t = 0` — the same reference `bake()` already uses internally
+// — covers every later playback time for the STATIC boundary case this
+// fixes; an animated field could in principle sweep a marginal cell across a
+// boundary at some other instant, which is the same irreducible risk
+// `AFFINE_EPSILON` always carried, just recast temporally instead of newly
+// introduced here.
+// `subcellRes: "2x4"`/`"ink"` don't stop at the cell-center ramp index — they
+// re-evaluate the program at 8 sub-cell offsets (2x4) or two neighbor offsets
+// (ink), scaled by the coordinate GRADIENT. That gradient is a DERIVATIVE-
+// level quantity, more exposed to a fit's tiny inaccuracy than the raw
+// position itself (see `buildRuntime`'s `needsGrad` doc), so the affine fit
+// needs its own, subcell-aware safety check — reusing the exact live dot-mask
+// (`BRAILLE_DOT_BITS`) and stroke-bucket (`inkGlyphForField`) logic from
+// stock.ts, not a re-derivation.
+function compute2x4Mask(
+  program: FieldProgram, x: number, y: number, cx: number, cy: number,
+  dxCol: number, dyCol: number, dxRow: number, dyRow: number, bias: number, gain: number,
+): number {
+  let mask = 0;
+  for (let dotCol = 0; dotCol < 2; dotCol++) {
+    const fx = dotCol === 0 ? -0.25 : 0.25;
+    for (let dotRow = 0; dotRow < 4; dotRow++) {
+      const fy = (dotRow + 0.5) / 4 - 0.5;
+      const subX = x + fx * dxCol + fy * dxRow;
+      const subY = y + fx * dyCol + fy * dyRow;
+      const subCombined = evaluateFieldProgram(program, subX, subY, 0, 0, cx, cy, 0).combined;
+      const subValue = clamp01(bias + gain * subCombined * 0.5);
+      if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
+    }
+  }
+  return mask;
+}
+
+function computeInkDecision(
+  program: FieldProgram, x: number, y: number, cx: number, cy: number,
+  dxCol: number, dyCol: number, dxRow: number, dyRow: number, bias: number, gain: number, inkLevels: number,
+): { crosses: boolean; glyph: string } {
+  const value = clamp01(bias + gain * evaluateFieldProgram(program, x, y, 0, 0, cx, cy, 0).combined * 0.5);
+  const sample = (ox: number, oy: number): number =>
+    clamp01(bias + gain * evaluateFieldProgram(program, x + ox, y + oy, 0, 0, cx, cy, 0).combined * 0.5);
+  const right = sample(dxCol, dyCol);
+  const down = sample(dxRow, dyRow);
+  const levels = Math.max(1, Math.round(inkLevels));
+  let crosses = false;
+  for (let n = 1; n <= levels && !crosses; n++) {
+    const level = n / (levels + 1);
+    const side = value >= level;
+    crosses = side !== (right >= level) || side !== (down >= level);
+  }
+  return { crosses, glyph: crosses ? inkGlyphForField(right - value, down - value) : "" };
+}
+
+function affineDecisionsMatch(
+  cells: readonly BakedCell[],
+  minCol: number,
+  minRow: number,
+  fit: AffineCoordFit,
+  program: FieldProgram,
+  bias: number,
+  gain: number,
+  rampMax: number,
+  subcellRes: string,
+  inkLevels: number,
+): boolean {
+  for (const c of cells) {
+    const relCol = c.col - minCol, relRow = c.row - minRow;
+    const rx = fit.ax * relCol + fit.bx * relRow + fit.ecx;
+    const ry = fit.ay * relCol + fit.by * relRow + fit.ecy;
+    const trueStack = evaluateFieldProgram(program, c.x, c.y, 0, 0, c.cx, c.cy, 0);
+    const fitStack = evaluateFieldProgram(program, rx, ry, 0, 0, c.cx, c.cy, 0);
+    if (trueStack.winner !== fitStack.winner) return false;
+    const trueValue = clamp01(bias + gain * trueStack.combined * 0.5);
+    const fitValue = clamp01(bias + gain * fitStack.combined * 0.5);
+    const trueIdx = Math.min(rampMax, Math.max(0, Math.round(trueValue * rampMax)));
+    const fitIdx = Math.min(rampMax, Math.max(0, Math.round(fitValue * rampMax)));
+    if (trueIdx !== fitIdx) return false;
+
+    if (subcellRes === "2x4") {
+      const trueMask = compute2x4Mask(program, c.x, c.y, c.cx, c.cy, c.dxCol ?? 0, c.dyCol ?? 0, c.dxRow ?? 0, c.dyRow ?? 0, bias, gain);
+      const fitMask = compute2x4Mask(program, rx, ry, c.cx, c.cy, fit.ax, fit.ay, fit.bx, fit.by, bias, gain);
+      if (trueMask !== fitMask) return false;
+    } else if (subcellRes === "ink") {
+      const trueInk = computeInkDecision(program, c.x, c.y, c.cx, c.cy, c.dxCol ?? 0, c.dyCol ?? 0, c.dxRow ?? 0, c.dyRow ?? 0, bias, gain, inkLevels);
+      const fitInk = computeInkDecision(program, rx, ry, c.cx, c.cy, fit.ax, fit.ay, fit.bx, fit.by, bias, gain, inkLevels);
+      if (trueInk.crosses !== fitInk.crosses || trueInk.glyph !== fitInk.glyph) return false;
+    }
+  }
+  return true;
+}
+
 function jsonForScript(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003c")
@@ -443,6 +584,10 @@ return(r<<16)|(g<<8)|b}
 if(ip!==ep)return ew>=iw?emitted:input;return-1}
 function thr(col,rw){var x=col+0.5,y=rw+0.5,mx=Math.floor(4*x),my=Math.floor(4*y);
 var coarse=BAYER[pmod(Math.floor(my/4),4)*4+pmod(Math.floor(mx/4),4)],fine=BAYER[pmod(my,4)*4+pmod(mx,4)];return(16*coarse+fine+0.5)/256}
+var BDB=[[1,2,4,64],[8,16,32,128]];
+var INKS=["-","\\\\","|","/"];
+function inkGlyph(gx,gy){var a=Math.atan2(gx,-gy);if(a<0)a+=Math.PI;var b=Math.round(a/(Math.PI/4))%4;return INKS[b]}
+function gradAt(k){if(C.aff)return[C.aff[0],C.aff[3],C.aff[1],C.aff[4]];if(C.gFixed)return[C.gcx,C.gcy,C.grx,C.gry];return[D.gcx[k],D.gcy[k],D.grx[k],D.gry[k]]}
 var pre=document.getElementById("g");
 var rowBuf=new Array(C.rows);
 function frame(now){var t=(now/1000)%C.loop;
@@ -463,13 +608,36 @@ for(var j=0;j<FLAT.length;j++){var v=FLAT[j],ox=cx+v.origin.u,oy=cy+v.origin.v,o
 var w=v.amp*Math.abs(o),c=C.voiceColorsAll[v.si],r=(c.p>>16)&255,g=(c.p>>8)&255,b=c.p&255;
 cr+=r*w;cg+=g*w;cbv+=b*w;co+=c.o*w;cw+=w;car+=r*v.amp;cag+=g*v.amp;cabv+=b*v.amp;cao+=c.o*v.amp;caw+=v.amp}}}
 var value=clamp01(C.bias+C.gain*stack.combined*0.5);
-var packed=-1,resolvedOpacity=0;
+var isInk=C.sub==="ink",is2x4=C.sub==="2x4";
+var emits=false,glyphOverride=null;
+if(isInk){
+var grad=gradAt(k),dxc=grad[0],dyc=grad[1],dxr=grad[2],dyr=grad[3];
+var rightV=clamp01(C.bias+C.gain*evalProgram(P,x+dxc,y+dyc,cx,cy,t).combined*0.5);
+var downV=clamp01(C.bias+C.gain*evalProgram(P,x+dxr,y+dyr,cx,cy,t).combined*0.5);
+var levels=C.il,crosses=false;
+for(var nlv=1;nlv<=levels&&!crosses;nlv++){var level=nlv/(levels+1),side=value>=level;crosses=side!==(rightV>=level)||side!==(downV>=level)}
+if(crosses){emits=true;glyphOverride=inkGlyph(rightV-value,downV-value)}
+}else if(is2x4){
 if(value>0){
+emits=true;
+var grad2=gradAt(k),dxc2=grad2[0],dyc2=grad2[1],dxr2=grad2[2],dyr2=grad2[3];
+var mask=0;
+for(var dc=0;dc<2;dc++){var fx=dc===0?-0.25:0.25;
+for(var dr=0;dr<4;dr++){var fy=(dr+0.5)/4-0.5;
+var subX=x+fx*dxc2+fy*dxr2,subY=y+fx*dyc2+fy*dyr2;
+var subVal=clamp01(C.bias+C.gain*evalProgram(P,subX,subY,cx,cy,t).combined*0.5);
+if(subVal>0.5)mask|=BDB[dc][dr]}}
+glyphOverride=String.fromCharCode(0x2800+mask)}
+}else{
+emits=value>0
+}
+var packed=-1,resolvedOpacity=0;
+if(emits){
 if(C.voiceColors&&cw>0){packed=(Math.round(cr/cw)<<16)|(Math.round(cg/cw)<<8)|Math.round(cbv/cw);resolvedOpacity=co/cw}
 else if(C.voiceColors&&caw>0){packed=(Math.round(car/caw)<<16)|(Math.round(cag/caw)<<8)|Math.round(cabv/caw);resolvedOpacity=cao/caw}
 else{packed=C.gradient>0?lerp(C.cA.p,C.cB.p,clamp01(value*C.gradient)):C.cA.p;resolvedOpacity=C.cA.o}
 if(C.lit>0)packed=shadeColor(packed,1-C.lit*(1-clamp01(sh)))}
-var emittedCoverage=value>0?clamp01(value*resolvedOpacity):0;
+var emittedCoverage=emits?(isInk?resolvedOpacity:clamp01(value*resolvedOpacity)):0;
 var inputCoverage=C.skipBase?1:D.bg[k]!==" "?1:0;
 var emittedWeight=emittedCoverage*C.opacity;
 var inputWeight=C.blend==="over"?inputCoverage*(1-emittedWeight):inputCoverage*(1-C.opacity);
@@ -478,9 +646,9 @@ var col=col0,rw=row0;
 var visible=nextCoverage>=1||(nextCoverage>0&&nextCoverage>thr(col,rw));
 if(!visible)continue;
 var chooseEmitted=emittedWeight>=inputWeight;
-var g=chooseEmitted?ramp[Math.min(rmax,Math.max(0,Math.round(value*rmax)))]:(C.skipBase?" ":D.bg[k]);
+var g=chooseEmitted?(glyphOverride!==null?glyphOverride:ramp[Math.min(rmax,Math.max(0,Math.round(value*rmax)))]):(C.skipBase?" ":D.bg[k]);
 var pk=blendColor(C.skipBase?-1:D.bc[k],packed,inputWeight,emittedWeight);
-rowBuf[rw].push([col,g,pk])}
+rowBuf[rw].push([col,g,g===" "?-1:pk])}
 if(C.useColors){var html="";
 for(var r2=0;r2<C.rows;r2++){var cells=rowBuf[r2];cells.sort(function(a,b){return a[0]-b[0]});
 var line="",cur=-1,prevColor=-2,open=false;
@@ -513,10 +681,53 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   const gridCols = Math.max(0, maxCol - minCol + 1);
   const gridRows = Math.max(0, maxRow - minRow + 1);
 
-  const q = (n: number) => Math.round(n * 1000) / 1000;
-  const affine = detectAffineCoords(
+  // P1-B fix: every baked scalar/table that can feed a folded DECISION
+  // (coordinates, coordinate gradients, and the `cx`/`cy` field-recentering
+  // origins radial/angular/spiral fields read) is now baked at FULL
+  // precision, not the earlier `Math.round(n * 1000) / 1000` trim — see
+  // `affineDecisionsMatch`'s doc. A rounded-but-still-affine surface's
+  // fitted position can legitimately differ from a cell's true coordinate by
+  // a residual too small to matter almost everywhere and still cross an
+  // EXACT discontinuity where it happens to matter; the table/gradient/`cx`/
+  // `cy` fallback exists precisely to be the safe alternative when the
+  // affine-fit check rejects the fit, so it must not reintroduce the same
+  // class of risk via its OWN rounding — two real regressions this phase's
+  // repro cases hit: a symmetric layered/threshold=0 patch legitimately
+  // lands MANY cells exactly on a boundary (even 6-decimal/5e-7 coordinate
+  // rounding flipped some of them), and a `subcellRes: "2x4"` patch's
+  // borderline sub-sample (~2e-5 below its 0.5 threshold) flipped once a
+  // 3-decimal-rounded `cx` (off by ~3e-4) fed through a recentered
+  // radial/angular fold. Only `shade` keeps a cosmetic 2-decimal round
+  // (below, `Math.round(c.shade * 100) / 100`) — it feeds a `±1`-per-channel
+  // color scale, never a decision boundary.
+
+  // Compile the SAME IR the live evaluator runs (VOLUMETRIC.md: "the static
+  // exporter ports the IR evaluator, not the schema") — `compileFieldVoices`/
+  // `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram` are the exact
+  // functions `fieldSynth.program.evaluate()` calls, imported from "./stock"
+  // for exactly this reuse. `volumetric` is always `false` here:
+  // `assertStaticExportSupported` rejects `space: "object"` before `bake()`
+  // ever runs, so the compiled program's domain is always "2d" and its
+  // `origin.w`/`linearZ` branch is dead — the serialized payload below drops
+  // both accordingly. Computed here (before the affine decision, not just
+  // before serialization) because `affineDecisionsMatch` needs the real
+  // compiled program to verify the fit against.
+  const anyParams = params as unknown as AnyParams;
+  const synthVoices = buildFieldSynthVoices(anyParams);
+  const compiledVoices = compileFieldVoices(synthVoices, params.scale);
+  const layerShapes = resolveFieldSynthLayerShapes(anyParams);
+  const program = compileFieldSynthProgram(compiledVoices, layerShapes, false);
+  const rampMax = params.glyphs.length - 1;
+
+  let affine = detectAffineCoords(
     baked.cells.map((c) => ({ col: c.col - minCol, row: c.row - minRow, x: c.x, y: c.y })),
   );
+  // P1-B fix: a residual-only accept can be behaviorally unsafe (see
+  // `affineDecisionsMatch`'s doc) — verify it before committing to the
+  // affine formula, and fall back to the per-cell table when it isn't.
+  if (affine && !affineDecisionsMatch(baked.cells, minCol, minRow, affine, program, params.bias, params.gain, rampMax, params.subcellRes, params.inkLevels)) {
+    affine = null;
+  }
   // Plane-fill: every raster cell in `cols×rows` got baked — no silhouette
   // gaps, the surface fills the whole viewport. `bake()` walks the grid in
   // increasing row-major index order (`i = 0..cols*rows-1`, `col=i%cols,
@@ -559,13 +770,59 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     if (Math.abs(c.cy - cy0) > 1e-6) cyFixed = false;
     if (Math.round(c.shade * 100) / 100 !== sh0) shFixed = false;
   }
+
+  // `subcellRes: "2x4"/"ink"` need the per-cell coordinate GRADIENT
+  // (`fieldSynthSubcellGradient`'s neighbor finite-difference), not just the
+  // coordinate itself. When `affine` holds, the gradient is exactly the
+  // affine fit's own slope (`x = ax*col + bx*row + ecx` differentiates to a
+  // CONSTANT (ax, bx) regardless of edge handling — the sign flip the live
+  // edge-fallback applies at a grid boundary cancels out exactly for a truly
+  // linear function), so it needs no data of its own: `RUNTIME_JS` reads it
+  // straight off `C.aff`, staying self-consistent with the same approximate
+  // position the runtime already committed to (deriving it from a separate,
+  // more "precise" per-cell bake would disagree with the affine position by
+  // exactly the residual this exporter already accepted). Only the
+  // non-affine (table) case needs its own gradient data, hoisted to 4 fixed
+  // scalars when uniform (the common "scene"-space / single-facet case)
+  // exactly like `cx`/`cy` above, else a per-cell table.
+  const needsGrad = params.subcellRes === "ink" || params.subcellRes === "2x4";
+  let gFixed = true;
+  // Full precision (unrounded) — same reasoning as the `X`/`Y` table above:
+  // this feeds the same crossing-test/sub-sample decisions.
+  const gcx0 = baked.cells[0]?.dxCol ?? 0, gcy0 = baked.cells[0]?.dyCol ?? 0;
+  const grx0 = baked.cells[0]?.dxRow ?? 0, gry0 = baked.cells[0]?.dyRow ?? 0;
+  if (needsGrad && !affine) {
+    for (const c of baked.cells) {
+      if (Math.abs((c.dxCol ?? 0) - gcx0) > 1e-9) gFixed = false;
+      if (Math.abs((c.dyCol ?? 0) - gcy0) > 1e-9) gFixed = false;
+      if (Math.abs((c.dxRow ?? 0) - grx0) > 1e-9) gFixed = false;
+      if (Math.abs((c.dyRow ?? 0) - gry0) > 1e-9) gFixed = false;
+    }
+  }
+  const bakeGradTable = needsGrad && !affine && !gFixed;
+  const GCX: number[] = [], GCY: number[] = [], GRX: number[] = [], GRY: number[] = [];
+
   for (const c of baked.cells) {
     if (!full) { col.push(c.col - minCol); row.push(c.row - minRow); }
-    if (!affine) { X.push(q(c.x)); Y.push(q(c.y)); }
-    if (!cxFixed) CXa.push(q(c.cx));
-    if (!cyFixed) CYa.push(q(c.cy));
+    // Full precision (unrounded) — see the doc above this function's start:
+    // this table is the exact fallback for exactly the patches whose
+    // discontinuities are sensitive enough that even a 6-decimal rounding
+    // step can flip a decision.
+    if (!affine) { X.push(c.x); Y.push(c.y); }
+    // Full precision — `cx`/`cy` recenter radial/angular/spiral fields, so
+    // they feed the same discontinuity-sensitive math `x`/`y` do (confirmed
+    // by a real regression: a `subcellRes: "2x4"` patch's borderline
+    // sub-sample, ~2e-5 below its 0.5 threshold, flipped once the OLD
+    // 3-decimal-rounded `cx` — off by ~3e-4 from the true value — was fed
+    // through the recentered radial/angular fold).
+    if (!cxFixed) CXa.push(c.cx);
+    if (!cyFixed) CYa.push(c.cy);
     if (!shFixed) SH.push(Math.round(c.shade * 100) / 100);
     if (!skipBase) { BG.push(c.glyph); BC.push(c.color); }
+    if (bakeGradTable) {
+      GCX.push(c.dxCol ?? 0); GCY.push(c.dyCol ?? 0);
+      GRX.push(c.dxRow ?? 0); GRY.push(c.dyRow ?? 0);
+    }
   }
   const data: Record<string, unknown> = {};
   if (!full) { data.c = col; data.r = row; }
@@ -574,22 +831,8 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   if (!cxFixed) data.cx = CXa;
   if (!cyFixed) data.cy = CYa;
   if (!shFixed) data.sh = SH;
+  if (bakeGradTable) { data.gcx = GCX; data.gcy = GCY; data.grx = GRX; data.gry = GRY; }
   const hasData = Object.keys(data).length > 0;
-
-  // Compile the SAME IR the live evaluator runs (VOLUMETRIC.md: "the static
-  // exporter ports the IR evaluator, not the schema") — `compileFieldVoices`/
-  // `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram` are the exact
-  // functions `fieldSynth.program.evaluate()` calls, imported from "./stock"
-  // for exactly this reuse. `volumetric` is always `false` here:
-  // `assertStaticExportSupported` rejects `space: "object"` before `bake()`
-  // ever runs, so the compiled program's domain is always "2d" and its
-  // `origin.w`/`linearZ` branch is dead — the serialized payload below drops
-  // both accordingly.
-  const anyParams = params as unknown as AnyParams;
-  const synthVoices = buildFieldSynthVoices(anyParams);
-  const compiledVoices = compileFieldVoices(synthVoices, params.scale);
-  const layerShapes = resolveFieldSynthLayerShapes(anyParams);
-  const program = compileFieldSynthProgram(compiledVoices, layerShapes, false);
 
   // Serialize layers/voices, dropping what the evaluator would skip anyway
   // (payload optimization, not a behavior change): an inactive voice
@@ -663,11 +906,12 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     useColors: options.useColors ?? true,
     cxFixed,
     cyFixed,
-    cx: cxFixed ? q(cx0) : 0,
-    cy: cyFixed ? q(cy0) : 0,
+    // Full precision — see the doc above the `CXa`/`CYa` push site.
+    cx: cxFixed ? cx0 : 0,
+    cy: cyFixed ? cy0 : 0,
     shFixed,
     sh: shFixed ? sh0 : 0,
-    // Full precision here, NOT `q()`: these 6 scalars are multiplied by
+    // Full precision here, NOT rounded: these 6 scalars are multiplied by
     // (col,row) — up to a few hundred — at runtime, so 3-decimal rounding
     // (fine for a per-cell coordinate, where the error stays put) would get
     // amplified by that multiplication into an error many times bigger than
@@ -680,6 +924,19 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     // drops the `c`/`r` tables — omitted otherwise so a sparse bake doesn't
     // pay for a field it never reads.
     ...(full ? { cols: gridCols } : {}),
+    // `sub` is always shipped (the plain "1x1" ramp path is the default and
+    // by far the common case) so RUNTIME_JS's mode branch never needs a
+    // separate "is this field present" check. Gradient scalars/table are
+    // omitted entirely for "1x1" (never read) and for the affine case (the
+    // runtime derives them from `aff` instead — see the `needsGrad` doc
+    // above `buildRuntime`).
+    sub: params.subcellRes,
+    ...(params.subcellRes === "ink" ? { il: Math.max(1, Math.round(params.inkLevels)) } : {}),
+    ...(needsGrad && !affine ? {
+      gFixed,
+      gcx: gFixed ? gcx0 : 0, gcy: gFixed ? gcy0 : 0,
+      grx: gFixed ? grx0 : 0, gry: gFixed ? gry0 : 0,
+    } : {}),
   };
 
   // `hasData`: the affine + skipBase + fixed-cx/cy + fixed-shade + full-grid
@@ -698,8 +955,17 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 // evaluator itself into RUNTIME_JS: layers, thresholds, invert, layer blend,
 // duty, phase, per-voice angle, and per-voice 2D origin (`originU`/`originV`)
 // all now export and match the live runtime bit-for-bit (see
-// staticExport.test.ts's parity suite). What's left rejected is genuinely
-// out of this exporter's design, not "not ported yet":
+// staticExport.test.ts's parity suite). A Phase 5 fixer pass additionally
+// ports `subcellRes: "2x4"`/`"ink"` (previously rejected — the OLD,
+// pre-Phase-5 exporter had silently IGNORED them, which is what motivated
+// the reject in the first place; a shipped preset ("Ink cells") set
+// `subcellRes: "ink"`, so rejecting broke it outright). Both read the SAME
+// per-cell coordinate gradient the live path does (`fieldSynthSubcellGradient`,
+// exported from stock.ts) — computed once at bake time, then hoisted to a
+// fixed scalar or derived directly from the affine fit's own slope exactly
+// like the coordinate itself, and only baked as a genuine per-cell table when
+// neither hoist applies (see `buildRuntime`'s `needsGrad` doc). What's left
+// rejected is genuinely out of this exporter's design, not "not ported yet":
 //
 // - `render: "carve"` and `space: "object"` (the volumetric branch) — a
 //   different export design entirely (a per-cell-per-frame march), not
@@ -713,17 +979,6 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 //   precise error naming the actual mistake, not a report that garbles two
 //   different questions ("why is my field invisible" vs "why doesn't this
 //   export") into one.
-// - `subcellRes: "2x4"`/`"ink"` — the OLD (pre-Phase-5) exporter silently
-//   ignored these (a documented pre-existing divergence: VOLUMETRIC.md's
-//   "Pre-existing divergence, to file separately"). Porting them faithfully
-//   needs the subcell finite-difference neighbor probe
-//   (`fieldSynthAnySubcellGradient` in stock.ts), which reads NEIGHBORING
-//   cells' resolved coordinates — a different shape of work than the affine-
-//   fit/per-cell-table optimizations this exporter already does for the
-//   scalar (x,y) coordinate alone, and out of this phase's verified scope.
-//   Rejecting explicitly is strictly better than the old silent divergence
-//   (VOLUMETRIC.md: "rejecting a previously-silently-wrong case is an
-//   improvement, not a break").
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
   // Checked before the `space: "object"` reject below so a carve patch names
   // carve as the reason, not the volumetric branch it happens to require —
@@ -743,13 +998,6 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
       "glyphcss: buildGlyphFieldSynthStaticExport does not support space: \"object\" (volumetric fields) yet — "
       + "the inlined runtime only ports the 2D generated-surface/scene/auto paths. A per-cell-per-frame volumetric "
       + "march is a different export design; not planned (see VOLUMETRIC.md's \"Static export\").",
-    );
-  }
-  if (params.subcellRes === "2x4" || params.subcellRes === "ink") {
-    throw new Error(
-      `glyphcss: buildGlyphFieldSynthStaticExport does not support subcellRes: "${params.subcellRes as string}" — `
-      + "the inlined runtime only ports the plain (1x1) ramp path. Porting the subcell finite-difference neighbor "
-      + "probe is unverified and out of scope; not planned.",
     );
   }
   const p = params as unknown as AnyParams;

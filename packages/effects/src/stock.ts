@@ -1521,8 +1521,11 @@ export function fieldSynthCoordinate<P extends AnyParams>(
 // Braille block (U+2800..U+28FF) dot bit weights, indexed [dotCol][dotRow].
 // This is the block's actual bit layout, NOT raster order: column 0 runs
 // 0x01,0x02,0x04 top-to-bottom then jumps to 0x40 for its bottom dot; column 1
-// mirrors that at 0x08,0x10,0x20,0x80.
-const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
+// mirrors that at 0x08,0x10,0x20,0x80. Exported so the static exporter's
+// bake-time affine-fit safety check (`affineDecisionsMatch` in
+// staticExport.ts) can verify a `subcellRes: "2x4"` patch's dot mask the
+// exact same way this live path does, instead of a second, driftable copy.
+export const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
   [0x01, 0x02, 0x04, 0x40],
   [0x08, 0x10, 0x20, 0x80],
 ];
@@ -1691,8 +1694,12 @@ function validateFieldSynthRender(params: AnyParams): void {
 // static field-synth exporter's affine-fit already relies on for the common
 // flat-surface case. Falls back to the opposite neighbor at a grid edge, and
 // to a zero gradient (all 8 subcells collapse to the cell-center sample) when
-// a neighbor's coordinate is unavailable.
-function fieldSynthSubcellGradient<P extends AnyParams>(
+// a neighbor's coordinate is unavailable. Exported (2D-only — the exporter
+// never reaches the volumetric branch, `space: "object"` is rejected before
+// `bake()` runs) so `staticExport.ts` can bake the SAME gradient the live
+// `subcellRes: "2x4"`/`"ink"` path reads, instead of a second, driftable
+// derivation.
+export function fieldSynthSubcellGradient<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   space: EffectSpace,
@@ -1902,7 +1909,10 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
  * which desynchronizes the character grid (see the Braille notes in AGENTS.md).
  */
 const INK_STROKES = ["-", "\\", "|", "/"] as const;
-function inkGlyphForField(gx: number, gy: number): string {
+// Exported for the same reason as `BRAILLE_DOT_BITS` — the static exporter's
+// `affineDecisionsMatch` reuses this exact bucket function to verify a
+// `subcellRes: "ink"` patch's stroke direction, not a re-derivation.
+export function inkGlyphForField(gx: number, gy: number): string {
   // Contour tangent is perpendicular to the gradient. Rows grow downward, so a
   // tangent heading right-and-down reads as "\".
   let angle = Math.atan2(gx, -gy);

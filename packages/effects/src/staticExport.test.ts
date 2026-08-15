@@ -5,6 +5,7 @@ import {
   rasterize,
   retainGlyphEffectOutput,
   parseGlyphEffectColor,
+  createGlyphScene,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   createGlyphOrthographicCamera,
@@ -256,6 +257,78 @@ function runBakedFrame(js: string, nowMs: number): string {
   return document.getElementById("g")!.innerHTML;
 }
 
+async function flushRenders(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+// Acceptance 6 (fixer pass, P1-B): an END-TO-END oracle using the REAL
+// renderer — `createGlyphScene` mounting the REAL, unmodified `fieldSynth`
+// effect definition via `addEffectLayer` — instead of `liveComposedGrid`'s
+// hand-ported compositor above. This is the authoritative ground truth the
+// baked export's grid must match, not a second reimplementation that could
+// itself drift or hide a genuine divergence behind its own bugs/tolerance.
+// `liveComposedGrid`/`expectGridParity` stay in this file as a lighter,
+// synchronous diagnostic; the acceptance assertion for parity is
+// `expectExactGridParity` against THIS oracle (see `runParity` below).
+async function liveSceneGrid(
+  polygons: Polygon[],
+  camOptions: { rotX?: number; rotY?: number; zoom?: number },
+  cols: number,
+  rows: number,
+  blend: "over" | "replace",
+  opacity: number,
+  params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>,
+): Promise<ComposedCell[]> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  try {
+    const scene = createGlyphScene(host, {
+      cols,
+      rows,
+      cellAspect: 2,
+      mode: "solid",
+      useColors: true,
+      camera: createGlyphOrthographicCamera({ rotX: camOptions.rotX, rotY: camOptions.rotY, zoom: camOptions.zoom }),
+      directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1 },
+      ambientLight: { intensity: 0.4 },
+    });
+    scene.add(polygons);
+    scene.addEffectLayer({
+      effect: fieldSynth,
+      params: params as unknown as Record<string, unknown>,
+      blend,
+      opacity,
+    });
+    await flushRenders();
+    const cells = parseHtmlGrid(scene.output.innerHTML, cols, rows);
+    scene.destroy();
+    return cells;
+  } finally {
+    host.remove();
+  }
+}
+
+// Strict acceptance check (P1-B): the baked pen must match the REAL renderer
+// EXACTLY — no residual/frequency-scaled budget. Color keeps the same ±1-
+// per-channel absorption `colorsClose` already documents (rounding noise
+// from `Math.round(channel * shade/value)`, an orthogonal, already-understood
+// class of noise this phase doesn't touch) — but GLYPH equality is exact and
+// unconditional. `bake()` only ever emits cells the field-synth patch
+// actually covers, so both grids are compared over the full `cols×rows`
+// frame; an invisible cell in one side and a space in the other still count
+// as equal (both render " ", uncolored).
+function expectExactGridParity(oracle: ComposedCell[], baked: ComposedCell[], cols: number, rows: number): void {
+  const mismatches: string[] = [];
+  for (let i = 0; i < cols * rows; i++) {
+    const o = oracle[i]!, b = baked[i]!;
+    if (o.glyph !== b.glyph || !colorsClose(o.color, b.color)) {
+      mismatches.push(`(${i % cols},${(i / cols) | 0}): oracle=${JSON.stringify(o)} baked=${JSON.stringify(b)}`);
+    }
+  }
+  expect(mismatches.length, mismatches.join("\n")).toBe(0);
+}
+
 // Parses RUNTIME_JS's colored-HTML output back into a fixed cols×rows grid.
 // Read via `pre.innerHTML` (a DOM getter), NOT the literal string RUNTIME_JS
 // assigned — happy-dom (like real browsers) re-serializes attribute values
@@ -339,11 +412,12 @@ const PARITY_CAM = { rotX: 0, rotY: 0, zoom: 150 };
 // scene, so the parity assertion below is purely about the field-program
 // fold, not about coordinate resolution (unaffected by this phase and
 // already covered by the exporter's other tests).
-function runParity(
+async function runParity(
   paramsPartial: Partial<GlyphEffectParamsOf<typeof fieldSynth>>,
   timeSeconds = 0,
   polygons: Polygon[] = planeMesh(),
-): void {
+  camera: { rotX?: number; rotY?: number; zoom?: number } = PARITY_CAM,
+): Promise<void> {
   // `lit: 0` disables the shade-modulation step on both sides. Shade itself
   // is untouched by this phase (`buildRuntime` hoists it to a 2-decimal-
   // rounded scalar for payload size, a pre-existing, unrelated
@@ -367,15 +441,22 @@ function runParity(
     loopSeconds: 1000,
     cols: PARITY_COLS,
     rows: PARITY_ROWS,
-    rotX: PARITY_CAM.rotX,
-    rotY: PARITY_CAM.rotY,
-    zoom: PARITY_CAM.zoom,
+    rotX: camera.rotX,
+    rotY: camera.rotY,
+    zoom: camera.zoom,
     useColors: true,
   });
   const html = runBakedFrame(exported.js, timeSeconds * 1000);
   const bakedGrid = parseHtmlGrid(html, PARITY_COLS, PARITY_ROWS);
-  const liveGrid = liveComposedGrid(polygons, PARITY_CAM, PARITY_COLS, PARITY_ROWS, "replace", 1, fullParams);
+
+  // Diagnostic (kept for its regression value, not the acceptance gate — see
+  // `expectExactGridParity`'s doc above): the hand-ported TS compositor.
+  const liveGrid = liveComposedGrid(polygons, camera, PARITY_COLS, PARITY_ROWS, "replace", 1, fullParams);
   expectGridParity(liveGrid, bakedGrid, PARITY_COLS, PARITY_ROWS);
+
+  // Acceptance (P1-B): the REAL renderer, exact match.
+  const oracleGrid = await liveSceneGrid(polygons, camera, PARITY_COLS, PARITY_ROWS, "replace", 1, fullParams);
+  expectExactGridParity(oracleGrid, bakedGrid, PARITY_COLS, PARITY_ROWS);
 }
 
 describe("buildGlyphFieldSynthStaticExport", () => {
@@ -468,7 +549,7 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ params: { glyphs: "" } }))).toThrow();
   });
 
-  describe("rejects (volumetric/carve is a different export design; subcellRes 2x4/ink and 3D-only params have no meaning in the ported 2D evaluator)", () => {
+  describe("rejects (volumetric/carve is a different export design; 3D-only params have no meaning in the ported 2D evaluator)", () => {
     it("rejects space: \"object\"", () => {
       expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
         params: { ...baseOptions().params, space: "object" },
@@ -487,16 +568,15 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       }))).toThrow(/originW1/);
     });
 
-    it("rejects subcellRes: \"2x4\"", () => {
-      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+    it("does NOT reject subcellRes: \"2x4\"/\"ink\" (P1-A fixer pass: ported, no longer rejected)", () => {
+      const r2x4 = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
         params: { ...baseOptions().params, subcellRes: "2x4" },
-      }))).toThrow(/subcellRes/);
-    });
-
-    it("rejects subcellRes: \"ink\"", () => {
-      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+      }));
+      expect(r2x4.js).toContain("requestAnimationFrame");
+      const rInk = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
         params: { ...baseOptions().params, subcellRes: "ink" },
-      }))).toThrow(/subcellRes/);
+      }));
+      expect(rInk.js).toContain("requestAnimationFrame");
     });
 
     it("does NOT reject linearZ/originW when the voice carrying them is inactive (amp 0)", () => {
@@ -597,6 +677,14 @@ describe("buildGlyphFieldSynthStaticExport", () => {
 
   it("a partially-covered plane (not filling the grid) keeps the index table and base grid even though coordinates are still affine", () => {
     const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+      // `baseOptions()`'s default `wave2: "saw"` has a hard per-cycle reset
+      // (a real discontinuity) that `affineDecisionsMatch` (P1-B) can
+      // legitimately reject the affine fit over at this zoom/freq combo —
+      // orthogonal to what THIS test checks (that partial coverage keeps an
+      // index table regardless of the coordinate-resolution strategy), so
+      // swap in an all-smooth pair of waves to keep the coordinate side
+      // affine-safe and isolate the partial-coverage assertion below.
+      params: { ...baseOptions().params, wave1: "sin", wave2: "sin" },
       rotX: 0,
       rotY: 0,
       zoom: 40, // small enough that the quad doesn't fill the 24x12 grid
@@ -659,8 +747,8 @@ describe("buildGlyphFieldSynthStaticExport", () => {
   // animation at two distinct values).
   // ---------------------------------------------------------------------
   describe("static/live parity", () => {
-    it("a layered patch (2 layers, thresholds, invert, min blend) matches the live render", () => {
-      runParity({
+    it("a layered patch (2 layers, thresholds, invert, min blend) matches the live render", async () => {
+      await runParity({
         space: "surface", scale: 1.5, combine: "add",
         field1: "linearX", wave1: "square", freq1: 2, duty1: 0.5, amp1: 1, layer1: 1,
         field2: "linearY", wave2: "square", freq2: 2, duty2: 0.5, amp2: 1, layer2: 1,
@@ -672,8 +760,8 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
-    it("duty !== 0.5 on a square-wave voice matches the live render", () => {
-      runParity({
+    it("duty !== 0.5 on a square-wave voice matches the live render", async () => {
+      await runParity({
         space: "surface", scale: 2, combine: "multiply",
         field1: "linearX", wave1: "square", freq1: 2, duty1: 0.3, amp1: 1,
         field2: "linearY", wave2: "sin", freq2: 2, speed2: 0.4, amp2: 0.8,
@@ -682,8 +770,8 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
-    it("phase !== 0 on a sine voice matches the live render", () => {
-      runParity({
+    it("phase !== 0 on a sine voice matches the live render", async () => {
+      await runParity({
         space: "surface", scale: 2, combine: "add",
         field1: "radial", wave1: "sin", freq1: 3, speed1: 0.2, phase1: 0.3, amp1: 1,
         field2: "angular", wave2: "sin", freq2: 3, phase2: -0.15, amp2: 0.6,
@@ -692,8 +780,8 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
-    it("per-voice angle and origin (previously silently ignored by the old exporter) match the live render", () => {
-      runParity({
+    it("per-voice angle and origin (previously silently ignored by the old exporter) match the live render", async () => {
+      await runParity({
         space: "surface", scale: 2, combine: "multiply",
         field1: "linearX", wave1: "triangle", freq1: 2, angle1: 35, originU1: 0.3, originV1: -0.2, amp1: 1,
         field2: "radial", wave2: "sin", freq2: 3, originU2: -0.4, originV2: 0.25, amp2: 0.7,
@@ -702,8 +790,8 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
-    it("voiceColors + argmax (winner lookup by flat source index) matches the live render", () => {
-      runParity({
+    it("voiceColors + argmax (winner lookup by flat source index) matches the live render", async () => {
+      await runParity({
         space: "surface", scale: 1.2, combine: "argmax",
         field1: "linearX", wave1: "triangle", freq1: 1, angle1: 0, amp1: 1,
         field2: "linearX", wave2: "triangle", freq2: 1, angle2: 60, amp2: 1,
@@ -714,19 +802,35 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
-    it("existing preset 'Sunburst' still matches the live render (regression)", () => {
+    it("existing preset 'Sunburst' still matches the live render (regression)", async () => {
       const preset = fieldSynth.presets.find((p) => p.name === "Sunburst");
       expect(preset).toBeDefined();
-      runParity(preset!.params);
+      await runParity(preset!.params);
     });
 
-    it("existing preset 'Cube tiles' (argmax + angle + voiceColors) still matches the live render (regression)", () => {
+    it("existing preset 'Cube tiles' (argmax + angle + voiceColors) still matches the live render (regression)", async () => {
       const preset = fieldSynth.presets.find((p) => p.name === "Cube tiles");
       expect(preset).toBeDefined();
-      runParity(preset!.params);
+      await runParity(preset!.params);
     });
 
-    it("time animation: the same layered patch matches the live render at two distinct time values", () => {
+    it("existing preset 'Ink cells' (subcellRes: \"ink\", the preset the P1-A reject broke) still matches the live render (regression)", async () => {
+      const preset = fieldSynth.presets.find((p) => p.name === "Ink cells");
+      expect(preset).toBeDefined();
+      await runParity(preset!.params);
+    });
+
+    it("subcellRes: \"2x4\" (braille dot mask) matches the live render", async () => {
+      await runParity({
+        space: "surface", scale: 2, combine: "add", subcellRes: "2x4",
+        field1: "radial", wave1: "sin", freq1: 4, speed1: 0.3, amp1: 1,
+        field2: "angular", wave2: "sin", freq2: 3, speed2: -0.2, amp2: 0.6,
+        amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " .:-=+*#%@", color: "#8affc1", gradient: 0.4,
+      });
+    });
+
+    it("time animation: the same layered patch matches the live render at two distinct time values", async () => {
       const params: Partial<GlyphEffectParamsOf<typeof fieldSynth>> = {
         space: "surface", scale: 1.8, combine: "add",
         field1: "radial", wave1: "sin", freq1: 5, speed1: 0.4, phase1: 0.2, amp1: 1,
@@ -734,8 +838,63 @@ describe("buildGlyphFieldSynthStaticExport", () => {
         amp3: 0, amp4: 0, amp5: 0, amp6: 0,
         glyphs: " .:-=+*#%@", color: "#7df9ff", colorB: "#ff4fa3", gradient: 0.5,
       };
-      runParity(params, 0);
-      runParity(params, 1.7);
+      await runParity(params, 0);
+      await runParity(params, 1.7);
+    });
+
+    // The reviewer's E2E repro shape (P1-B): layers + duty + phase together,
+    // exercised on the per-cell coordinate TABLE path (a curved surface is
+    // genuinely non-affine, so `affineDecisionsMatch` never even enters the
+    // picture — this is a fold + table-precision regression check).
+    //
+    // NOT run through `expectExactGridParity`'s absolute-position oracle
+    // comparison: a SPARSE bake (the sphere at this grid doesn't fill it)
+    // exports a bounding-box-CROPPED, CSS-CENTERED standalone `<pre>` — by
+    // design (the module doc: a portable pen, not a scene fragment), its
+    // cropped cell (0,0) is NOT the original scene's absolute (0,0). Reusing
+    // the plane-based absolute-position oracle here silently compares two
+    // different coordinate spaces and reports spurious "mismatches" that are
+    // actually the whole pattern shifted by the crop offset — confirmed by
+    // inspection (the baked and live grids are identical up to a constant
+    // (Δcol,Δrow) offset). A real table-path exactness check would need an
+    // offset-aware comparator; out of scope for this fixer pass, which the
+    // rotated-plane case below already covers for the fold+table logic this
+    // patch shape exists to regress-test.
+    it("layers + duty + phase together on a curved surface (sphere, table path) exports without throwing and paints something", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: {
+          ...baseOptions().params,
+          space: "surface", scale: 1.6, combine: "add",
+          field1: "linearX", wave1: "square", freq1: 3, duty1: 0.35, phase1: 0.15, amp1: 1, layer1: 1,
+          field2: "linearY", wave2: "sin", freq2: 4, speed2: 0.5, phase2: -0.2, amp2: 0.8, layer2: 1,
+          layerThresholdOn1: true, layerThreshold1: 0.1,
+          field3: "radial", wave3: "square", freq3: 5, duty3: 0.6, amp3: 1, layer3: 2,
+          layerInvert2: true, layerBlend2: "multiply", layerAmp2: 0.8,
+          amp4: 0, amp5: 0, amp6: 0,
+          glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#c78bff", gradient: 0.6,
+        },
+        rotX: 62, rotY: 38, zoom: 25,
+      }));
+      const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+      const cfg = JSON.parse(cfgMatch![1]!) as { aff: number[] | null };
+      expect(cfg.aff).toBeNull();
+      const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
+      expect(dataMatch).not.toBeNull();
+      const data = JSON.parse(dataMatch![1]!) as { bg: string[] };
+      expect(data.bg.some((g) => g !== " ")).toBe(true);
+    });
+
+    it("layers + duty + phase together, under a rotated camera on a flat plane, matches the live render exactly", async () => {
+      await runParity({
+        space: "surface", scale: 1.6, combine: "add",
+        field1: "linearX", wave1: "square", freq1: 3, duty1: 0.35, phase1: 0.15, amp1: 1, layer1: 1,
+        field2: "linearY", wave2: "sin", freq2: 4, speed2: 0.5, phase2: -0.2, amp2: 0.8, layer2: 1,
+        layerThresholdOn1: true, layerThreshold1: 0.1,
+        field3: "radial", wave3: "square", freq3: 5, duty3: 0.6, amp3: 1, layer3: 2,
+        layerInvert2: true, layerBlend2: "multiply", layerAmp2: 0.8,
+        amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#c78bff", gradient: 0.6,
+      }, 0, planeMesh(), { rotX: 25, rotY: 40, zoom: 150 });
     });
   });
 });
