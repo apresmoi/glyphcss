@@ -596,6 +596,60 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   return { js, gridCols, gridRows };
 }
 
+// Phase 2 (VOLUMETRIC.md) added a field-program IR + 3D voices to the live
+// runtime (stock.ts): `space: "object"` volumetric fields, per-voice
+// `dutyN`/`phaseN`/`originWN`, and the `linearZ` field. RUNTIME_JS is a hand
+// port of the OLD 2D generated-surface/scene/auto evaluator only — porting
+// the volumetric branch, duty-cycle square waves, phase offsets, and the Z
+// origin is Phase 5's job. Silently baking a patch that uses any of these
+// would emit a pen that renders a different picture than the runtime with no
+// error, so reject explicitly instead — same policy as the unsupported
+// `effect` id check above. Only ACTIVE voices (ampN > 0) are checked: the
+// evaluator (both live and inlined) skips amp-0 voices entirely, so an
+// unported field/duty/phase/originW on a voice that never contributes can't
+// diverge anything.
+function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
+  if (params.space === "object") {
+    throw new Error(
+      "glyphcss: buildGlyphFieldSynthStaticExport does not support space: \"object\" (volumetric fields) yet — "
+      + "the inlined runtime only ports the 2D generated-surface/scene/auto paths. Porting the volumetric "
+      + "evaluator is Phase 5's job.",
+    );
+  }
+  const p = params as unknown as AnyParams;
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    if (!((p[`amp${k}`] as number) > 0)) continue;
+    if (p[`field${k}`] === "linearZ") {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support field${k}: "linearZ" (a volumetric-only `
+        + `field) on an active voice (amp${k} > 0) yet — the inlined runtime has no volumetric case. Porting it `
+        + "is Phase 5's job.",
+      );
+    }
+    if ((p[`duty${k}`] as number) !== 0.5) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support duty${k} !== 0.5 on an active voice `
+        + `(amp${k} > 0) yet — the inlined runtime's square wave is hardcoded to a fixed 50% duty. Porting duty `
+        + "support is Phase 5's job.",
+      );
+    }
+    if ((p[`phase${k}`] as number) !== 0) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support phase${k} !== 0 on an active voice `
+        + `(amp${k} > 0) yet — the inlined runtime's wave() has no phase offset. Porting phase support is `
+        + "Phase 5's job.",
+      );
+    }
+    if ((p[`originW${k}`] as number) !== 0) {
+      throw new Error(
+        `glyphcss: buildGlyphFieldSynthStaticExport does not support originW${k} !== 0 on an active voice `
+        + `(amp${k} > 0) yet — the inlined runtime has no volumetric Z origin. Porting originW support is `
+        + "Phase 5's job.",
+      );
+    }
+  }
+}
+
 /**
  * Bake the current field-synth patch over a static-camera mesh into a
  * self-contained pen: inlined per-cell coordinates + a tiny hand-written
@@ -621,6 +675,7 @@ export function buildGlyphFieldSynthStaticExport(
 
   const params = { ...defaultGlyphEffectParams(fieldSynth), ...options.params, time: 0 } as GlyphEffectParamsOf<typeof fieldSynth>;
   fieldSynth.program.validateParams?.(params);
+  assertStaticExportSupported(params);
 
   const baked = bake(polygons, options, params);
   const { js, gridCols, gridRows } = buildRuntime(baked, params, options);

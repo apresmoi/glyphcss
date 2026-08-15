@@ -126,6 +126,53 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ params: { glyphs: "" } }))).toThrow();
   });
 
+  describe("Phase 2 volumetric/duty/phase params unsupported by the inlined runtime", () => {
+    it("rejects space: \"object\"", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, space: "object" },
+      }))).toThrow(/space.*"object"/);
+    });
+
+    it("rejects field1: \"linearZ\" on an active voice", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, field1: "linearZ", amp1: 1 },
+      }))).toThrow(/linearZ/);
+    });
+
+    it("rejects duty1 !== 0.5 on an active voice", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, duty1: 0.25, amp1: 1 },
+      }))).toThrow(/duty1/);
+    });
+
+    it("rejects phase1 !== 0 on an active voice", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, phase1: 0.3, amp1: 1 },
+      }))).toThrow(/phase1/);
+    });
+
+    it("rejects originW1 !== 0 on an active voice", () => {
+      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: { ...baseOptions().params, originW1: 0.5, amp1: 1 },
+      }))).toThrow(/originW1/);
+    });
+
+    it("does NOT reject linearZ/duty/phase/originW when the voice carrying them is inactive (amp 0)", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+        params: {
+          ...baseOptions().params,
+          amp3: 0, field3: "linearZ", duty3: 0.1, phase3: 0.7, originW3: 0.9,
+        },
+      }));
+      expect(result.js).toContain("requestAnimationFrame");
+    });
+
+    it("existing green cases (default duty/phase/originW, non-object space) still export", () => {
+      const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions());
+      expect(result.js).toContain("requestAnimationFrame");
+    });
+  });
+
   it("a flat, head-on, fully-covered plane drops the per-cell table entirely: no DATA at all", () => {
     const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
       rotX: 0,
