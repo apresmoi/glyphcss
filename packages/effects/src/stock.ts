@@ -665,6 +665,37 @@ function scalePackedColor(packed: number, intensity: number): number {
   return (red << 16) | (green << 8) | blue;
 }
 
+// Stable rule identifiers for every `fieldSynth.program.validateParams` throw
+// site (VOLUMETRIC-2.md §4 P2 fix). The website's URL hydration repair table
+// used to mirror these throw sites by hand — a manually maintained list whose
+// own "completeness" test asserted its length against itself, catching
+// nothing. Tagging each thrown error's `code` with one of these ids, and
+// exporting the id list, gives the website a REAL cross-package contract: it
+// can key its repair table by id and assert every exported id is covered,
+// so a validator added here without a matching website row/coercion entry
+// fails the website test via this array, not a hand-mirror.
+//
+// `validatePositiveScale` is shared by matrixRain/flowText/scan too — tagging
+// its thrown error with `"non-positive-scale"` is harmless there (those
+// effects never read `.code`) and keeps the tag in exactly one place instead
+// of duplicated per call site.
+export const GLYPH_FIELD_SYNTH_VALIDATION_RULES = [
+  "empty-glyphs",
+  "non-positive-scale",
+  "multi-layer-argmax",
+  "carve-requires-object-space",
+  "carve-subcell-unsupported",
+] as const;
+export type GlyphFieldSynthValidationRuleId = typeof GLYPH_FIELD_SYNTH_VALIDATION_RULES[number];
+
+export interface GlyphFieldSynthValidationError extends Error {
+  readonly code: GlyphFieldSynthValidationRuleId;
+}
+
+function taggedValidationError<E extends Error>(error: E, code: GlyphFieldSynthValidationRuleId): E {
+  return Object.assign(error, { code });
+}
+
 function validateGlyphs(params: Readonly<{ glyphs: string }>): void {
   if (parseGlyphPattern(params.glyphs).length === 0) {
     throw new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character");
@@ -673,12 +704,17 @@ function validateGlyphs(params: Readonly<{ glyphs: string }>): void {
 
 function validateGlyphRamp(params: Readonly<{ glyphs: string }>): void {
   if (parseGlyphRamp(params.glyphs).length === 0) {
-    throw new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character");
+    throw taggedValidationError(
+      new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character"),
+      "empty-glyphs",
+    );
   }
 }
 
 function validatePositiveScale(params: Readonly<{ scale: number }>): void {
-  if (!(params.scale > 0)) throw new RangeError("glyphcss effect scale must be greater than zero");
+  if (!(params.scale > 0)) {
+    throw taggedValidationError(new RangeError("glyphcss effect scale must be greater than zero"), "non-positive-scale");
+  }
 }
 
 const timeSpec = {
@@ -1706,10 +1742,13 @@ function validateFieldSynthLayers(params: AnyParams): void {
     const combineRaw = params[`layerCombine${l}`] as string;
     const resolved = combineRaw === "inherit" ? patchCombine : combineRaw;
     if (resolved === "argmax") {
-      throw new TypeError(
-        `glyphcss field-synth: layer ${l} resolves to combine "argmax" while more than one layer is populated — `
-        + "argmax is categorical and stays single-layer (VOLUMETRIC.md's Step 3). Give it an explicit non-argmax "
-        + `layerCombine${l} override, or reduce the patch to a single populated layer.`,
+      throw taggedValidationError(
+        new TypeError(
+          `glyphcss field-synth: layer ${l} resolves to combine "argmax" while more than one layer is populated — `
+          + "argmax is categorical and stays single-layer (VOLUMETRIC.md's Step 3). Give it an explicit non-argmax "
+          + `layerCombine${l} override, or reduce the patch to a single populated layer.`,
+        ),
+        "multi-layer-argmax",
       );
     }
   }
@@ -1729,16 +1768,22 @@ function validateFieldSynthRender(params: AnyParams): void {
   if (params.render !== "carve" && params.render !== "xray") return;
   const mode = params.render as string;
   if (params.space !== "object") {
-    throw new TypeError(
-      `glyphcss field-synth: render: "${mode}" requires space: "object" (the volumetric branch) — ${mode} marches `
-      + "objectPosition -> objectExit, which only exist for a volumetric patch.",
+    throw taggedValidationError(
+      new TypeError(
+        `glyphcss field-synth: render: "${mode}" requires space: "object" (the volumetric branch) — ${mode} marches `
+        + "objectPosition -> objectExit, which only exist for a volumetric patch.",
+      ),
+      "carve-requires-object-space",
     );
   }
   if (params.subcellRes === "2x4" || params.subcellRes === "ink") {
-    throw new TypeError(
-      `glyphcss field-synth: render: "${mode}" does not support subcellRes: "${params.subcellRes as string}" — its `
-      + "neighbor finite-difference probe has no defined meaning across cells whose march results sit at "
-      + `different depths or come from different-length chords. Use subcellRes: "1x1" with ${mode}.`,
+    throw taggedValidationError(
+      new TypeError(
+        `glyphcss field-synth: render: "${mode}" does not support subcellRes: "${params.subcellRes as string}" — its `
+        + "neighbor finite-difference probe has no defined meaning across cells whose march results sit at "
+        + `different depths or come from different-length chords. Use subcellRes: "1x1" with ${mode}.`,
+      ),
+      "carve-subcell-unsupported",
     );
   }
 }
@@ -2170,11 +2215,28 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       if (params.space !== "object") return [];
       return params.render === "carve" || params.render === "xray" ? ["objectPosition", "objectExit"] : ["objectPosition"];
     },
+    // Structural enforcement, not just a test convention: any throw from the
+    // four validators below that isn't tagged with a registered
+    // `GLYPH_FIELD_SYNTH_VALIDATION_RULES` id surfaces as THIS distinct
+    // "unregistered rule id" error instead of propagating untagged — so a new
+    // throw site added to one of those validators without also registering
+    // its rule id fails the moment it's exercised, not silently.
     validateParams(params) {
-      validateGlyphRamp(params);
-      validatePositiveScale(params);
-      validateFieldSynthLayers(params as unknown as AnyParams);
-      validateFieldSynthRender(params as unknown as AnyParams);
+      try {
+        validateGlyphRamp(params);
+        validatePositiveScale(params);
+        validateFieldSynthLayers(params as unknown as AnyParams);
+        validateFieldSynthRender(params as unknown as AnyParams);
+      } catch (error) {
+        const code = error instanceof Error ? (error as Partial<GlyphFieldSynthValidationError>).code : undefined;
+        if (!code || !(GLYPH_FIELD_SYNTH_VALIDATION_RULES as readonly string[]).includes(code)) {
+          throw new Error(
+            `glyphcss field-synth: validation error with no registered rule id (message: "${(error as Error).message}"). `
+            + "Tag it via taggedValidationError(..., code) and add the code to GLYPH_FIELD_SYNTH_VALIDATION_RULES.",
+          );
+        }
+        throw error;
+      }
     },
     evaluate(context) {
       const { params } = context;

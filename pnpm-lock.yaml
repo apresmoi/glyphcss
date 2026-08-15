@@ -415,6 +415,9 @@ importers:
         specifier: ^1.0.1
         version: 1.0.1
     devDependencies:
+      happy-dom:
+        specifier: ^20.7.0
+        version: 20.8.9
       vitest:
         specifier: ^3.1.1
         version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(happy-dom@20.8.9)

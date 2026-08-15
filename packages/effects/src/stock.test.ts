@@ -12,6 +12,7 @@ import {
   type GlyphEffectParamSchema,
 } from "glyphcss";
 import {
+  GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphEffectCatalog,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
@@ -34,6 +35,8 @@ import {
   wipe,
   type AnyContext,
   type AnyParams,
+  type GlyphFieldSynthValidationError,
+  type GlyphFieldSynthValidationRuleId,
   type GlyphStockEffect,
 } from "./stock";
 // The IR compile/evaluate seam field-synth's own `evaluate()` uses
@@ -2210,6 +2213,67 @@ describe("field-synth layer argmax validation (VOLUMETRIC.md's Step 3, \"argmax 
       amp2: 1, layer2: 1, // both voices on layer 1; layers 2/3 unpopulated
     };
     expect(() => fieldSynth.program.validateParams?.(params as never)).not.toThrow();
+  });
+});
+
+// VOLUMETRIC-2.md §4 P2: field-synth's `validateParams` throw sites carry a
+// stable `code` from `GLYPH_FIELD_SYNTH_VALIDATION_RULES`, so the website's
+// URL hydration repair table can key off a real exported cross-package
+// contract instead of a hand-maintained mirror of these throw sites (the
+// prior "completeness" test asserted its own mirror's length against
+// itself — circular, caught nothing). Each case below exercises the REAL
+// validator (not a re-derivation of its logic), and `validateParams` itself
+// structurally enforces the tag: any throw from `validateGlyphRamp` /
+// `validatePositiveScale` / `validateFieldSynthLayers` /
+// `validateFieldSynthRender` that isn't tagged with a registered id surfaces
+// as a distinct "unregistered rule id" error instead of propagating
+// untagged — so a NEW throw site added to one of those validators without
+// registering its code fails the instant it's exercised (here or by any
+// other test/caller), rather than rotting silently.
+describe("field-synth validation rule ids (VOLUMETRIC-2.md §4 P2)", () => {
+  const defaults = defaultGlyphEffectParams(fieldSynth) as Record<string, number | string | boolean>;
+
+  function codeOf(overrides: Record<string, number | string | boolean>): string | undefined {
+    try {
+      fieldSynth.program.validateParams?.({ ...defaults, ...overrides } as never);
+      return undefined;
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      const code = (error as Partial<GlyphFieldSynthValidationError>).code;
+      // Fails loudly (distinct message) if a throw site's error was never
+      // tagged, or tagged with an id `validateParams`'s own wrapper doesn't
+      // recognize — see the wrapper's doc in stock.ts.
+      expect((error as Error).message).not.toMatch(/no registered rule id/);
+      return code;
+    }
+  }
+
+  const KNOWN_TRIGGERS: Record<GlyphFieldSynthValidationRuleId, Record<string, number | string | boolean>> = {
+    "empty-glyphs": { glyphs: "" },
+    "non-positive-scale": { scale: 0 },
+    "multi-layer-argmax": {
+      combine: "argmax",
+      amp1: 1, layer1: 1, layerCombine1: "inherit",
+      amp2: 1, layer2: 2, layerCombine2: "inherit",
+    },
+    "carve-requires-object-space": { render: "carve", space: "surface" },
+    "carve-subcell-unsupported": { render: "carve", space: "object", subcellRes: "2x4" },
+  };
+
+  it("tags every registered rule id's real trigger with exactly that id", () => {
+    for (const id of GLYPH_FIELD_SYNTH_VALIDATION_RULES) {
+      expect(codeOf(KNOWN_TRIGGERS[id]), id).toBe(id);
+    }
+  });
+
+  it("every known trigger throws (sanity — proves the trigger set isn't stale)", () => {
+    for (const id of GLYPH_FIELD_SYNTH_VALIDATION_RULES) {
+      expect(() => fieldSynth.program.validateParams?.({ ...defaults, ...KNOWN_TRIGGERS[id] } as never), id).toThrow();
+    }
+  });
+
+  it("GLYPH_FIELD_SYNTH_VALIDATION_RULES has no dead (untriggerable) id and no undocumented trigger", () => {
+    expect(new Set(Object.keys(KNOWN_TRIGGERS))).toEqual(new Set(GLYPH_FIELD_SYNTH_VALIDATION_RULES));
   });
 });
 

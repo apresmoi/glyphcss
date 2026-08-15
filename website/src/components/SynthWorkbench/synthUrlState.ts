@@ -8,8 +8,11 @@
 // for effect-layer overrides, applied here to the whole patch instead of a
 // diff against one mounted effect.
 import {
+  GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphFieldSynthEffect as fieldSynth,
   defaultGlyphEffectParams,
+  type GlyphFieldSynthValidationError,
+  type GlyphFieldSynthValidationRuleId,
 } from "@glyphcss/effects";
 import {
   createUrlCodec,
@@ -134,17 +137,18 @@ export function sanitizeCarveRenderForSpace(space: unknown, render: string): str
   return (render === "carve" || render === "xray") && space !== "object" ? "paint" : render;
 }
 
-// ── URL hydration validity gate (VOLUMETRIC-2.md §4) ───────────────────────
-// `validateParams` throws opaque errors — "reset the offending key" isn't
-// derivable from the exception, so this is NOT a try/catch-and-parse. It's a
-// two-tier repair: an ORDERED table of independent predicate -> reset-keys
-// rows (each checked directly against the params, never against the thrown
-// message), applied and re-validated; if validation still throws (a future
-// validator with no table row), tier 2 resets the WHOLE effect-param object
-// to schema defaults rather than leaving a half-repaired, still-invalid
-// patch. Applied AFTER decode (both the v1-legacy and v2 codec paths funnel
-// through `decodeSynthUrlState` below) and after the carve/xray-space
-// coercion above.
+// ── URL hydration validity gate (VOLUMETRIC-2.md §4, P2-fixed) ─────────────
+// `validateParams` throws opaque Error messages, but each throw site now
+// carries a stable `code` (`GlyphFieldSynthValidationRuleId`, exported by
+// `@glyphcss/effects` — see stock.ts's `GLYPH_FIELD_SYNTH_VALIDATION_RULES`),
+// so this IS keyed off the thrown identity rather than reset-the-offending-
+// key guesswork. It's a two-tier repair: re-validate, look up the CURRENT
+// failure's code in `SYNTH_REPAIR_TABLE`, apply that row, repeat; if
+// validation still throws with no table row (a future rule id with no
+// matching entry), tier 2 resets the WHOLE effect-param object to schema
+// defaults rather than leaving a half-repaired, still-invalid patch. Applied
+// AFTER decode (both the v1-legacy and v2 codec paths funnel through
+// `decodeSynthUrlState` below) and after the carve/xray-space coercion above.
 const MAX_LAYERS = Number((fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).layer1?.max ?? 3);
 
 function populatedLayers(p: Params): boolean[] {
@@ -176,45 +180,51 @@ function hasMultiLayerEffectiveArgmax(p: Params): boolean {
 }
 
 export interface SynthRepairRule {
-  readonly name: string;
   readonly predicate: (params: Params) => boolean;
   /** Keys reset to `SYNTH_PARAM_DEFAULTS` when `predicate` matches. */
   readonly reset: readonly string[];
 }
 
-// Ordered — see the module doc above. Every row here mirrors exactly one
-// `validateParams` throw site in `packages/effects/src/stock.ts`'s
-// `fieldSynth.program.validateParams` (`validateGlyphRamp`,
-// `validatePositiveScale`, `validateFieldSynthLayers`,
-// `validateFieldSynthRender`'s subcellRes reject). `validateFieldSynthRender`'s
-// OTHER reject — carve/xray requiring `space: "object"` — has no row here
-// because `sanitizeCarveRenderForSpace` above already coerces it before this
-// gate ever runs (one guard, not two competing ones). The repair-table
-// completeness test in synthUrlState.test.ts pins this list against that
-// file's actual throw sites — a validator added there without a matching
-// row (or documented coercion) fails that test instead of rotting silently.
-export const SYNTH_REPAIR_TABLE: readonly SynthRepairRule[] = [
-  {
-    name: "empty glyphs",
+// Keyed by `GlyphFieldSynthValidationRuleId` — the STABLE cross-package
+// contract `@glyphcss/effects` exports (VOLUMETRIC-2.md §4 P2 fix). This
+// replaces a hand-maintained mirror of `packages/effects/src/stock.ts`'s
+// throw sites: that mirror's own "completeness" test asserted its length
+// against itself, which is circular and caught nothing. Now the website
+// test (synthUrlState.test.ts) asserts every id in the REAL exported
+// `GLYPH_FIELD_SYNTH_VALIDATION_RULES` array is covered here or in
+// `COERCION_HANDLED_RULES` below — a validator added on the effects side
+// without a matching entry here fails that test via the exported list, not
+// a hand-mirror.
+//
+// `"carve-requires-object-space"` is deliberately absent: it's covered by
+// `sanitizeCarveRenderForSpace` above, which coerces `render` back to
+// `"paint"` before this gate ever runs (one guard, not two competing ones)
+// — see `COERCION_HANDLED_RULES`.
+export const SYNTH_REPAIR_TABLE: Partial<Record<GlyphFieldSynthValidationRuleId, SynthRepairRule>> = {
+  "empty-glyphs": {
     predicate: (p) => typeof p.glyphs !== "string" || p.glyphs.length === 0,
     reset: ["glyphs"],
   },
-  {
-    name: "non-positive scale",
+  "non-positive-scale": {
     predicate: (p) => !(Number(p.scale) > 0),
     reset: ["scale"],
   },
-  {
-    name: "multi-layer effective argmax",
+  "multi-layer-argmax": {
     predicate: hasMultiLayerEffectiveArgmax,
     reset: ["combine"],
   },
-  {
-    name: "carve/xray with subcellRes 2x4/ink",
+  "carve-subcell-unsupported": {
     predicate: (p) => (p.render === "carve" || p.render === "xray") && (p.subcellRes === "2x4" || p.subcellRes === "ink"),
     reset: ["subcellRes"],
   },
-];
+};
+
+// Rule ids handled BEFORE this gate runs, by the carve/xray-space coercion
+// in `decodeSynthUrlState` (`sanitizeCarveRenderForSpace`) rather than by a
+// repair-table row — an explicit tier-2-only acknowledgment, not a silent
+// gap. The website completeness test asserts every exported rule id is
+// covered by either `SYNTH_REPAIR_TABLE` or this list.
+export const COERCION_HANDLED_RULES: readonly GlyphFieldSynthValidationRuleId[] = ["carve-requires-object-space"];
 
 function applyRepairRow(params: Params, keys: readonly string[]): Params {
   const next = { ...params };
@@ -222,22 +232,45 @@ function applyRepairRow(params: Params, keys: readonly string[]): Params {
   return next;
 }
 
-function fieldSynthValidatesClean(params: Params): boolean {
+// Tri-state, not a plain `code | undefined`: an unrecognized/untagged throw
+// (`code: undefined` inside `ok: false`) must stay distinguishable from
+// "validates clean" (`ok: true`), or `applySynthValidityGate` below could
+// mistake a genuinely-invalid-but-untagged patch for a repaired one and skip
+// tier 2 entirely.
+type FieldSynthValidationOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: GlyphFieldSynthValidationRuleId | undefined };
+
+function fieldSynthValidationOutcome(params: Params): FieldSynthValidationOutcome {
   try {
     fieldSynth.program.validateParams?.({ ...params, time: (params.time as number | undefined) ?? 0 } as never);
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, code: (error as Partial<GlyphFieldSynthValidationError>).code };
   }
+}
+
+function fieldSynthValidatesClean(params: Params): boolean {
+  return fieldSynthValidationOutcome(params).ok;
 }
 
 /** Two-tier URL hydration validity gate — see the module doc above. Pure
  *  (no `window` access), so it's the piece under test for repair-table
- *  coverage. */
+ *  coverage. Driven by the REAL thrown rule id (not a fixed predicate
+ *  order): each pass resolves the current `validateParams` failure's code
+ *  and applies that code's own repair row, so a repair is always tied to an
+ *  actual throw site rather than a predicate that happened to also match.
+ *  Bounded by the rule count so a pathological repair (one that doesn't
+ *  actually clear its own predicate) can't loop forever — it falls through
+ *  to tier 2 instead. */
 export function applySynthValidityGate(params: Params): Params {
   let next = params;
-  for (const rule of SYNTH_REPAIR_TABLE) {
-    if (rule.predicate(next)) next = applyRepairRow(next, rule.reset);
+  for (let guard = 0; guard < GLYPH_FIELD_SYNTH_VALIDATION_RULES.length; guard++) {
+    const outcome = fieldSynthValidationOutcome(next);
+    if (outcome.ok) return next;
+    const row = outcome.code ? SYNTH_REPAIR_TABLE[outcome.code] : undefined;
+    if (!row) break;
+    next = applyRepairRow(next, row.reset);
   }
   if (fieldSynthValidatesClean(next)) return next;
   // Tier 2: a validator with no table row still threw — reset the WHOLE

@@ -1196,11 +1196,19 @@ export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<neve
 // flat list elsewhere — two places for one concept). Header = blend-mode
 // dropdown (`layerBlendL`), a "mix" slider (`layerAmpL` — same label as a
 // voice's own "mix" on purpose: group opacity vs. element opacity),
-// threshold toggle + value, invert. `layerCombineL` (how the layer's OWN
-// voices fold together before the layer blends into the stack) is
-// deliberately NOT exposed here — VOLUMETRIC-2.md §4's header list omits it;
-// it stays fully functional via presets/URL/params at its "inherit" default,
-// just not a live control in this rewrite.
+// threshold toggle + value, invert.
+//
+// `layerCombineL` (how the layer's OWN voices fold together before the layer
+// blends into the stack) went uneditable in the original rewrite —
+// VOLUMETRIC-2.md §4's header list omitted it, a spec defect: the Menger and
+// Sierpinski presets both set a non-default `layerCombineL` (see
+// `GlyphMengerSpongePreset`/`GlyphSierpinskiPyramidPreset` in
+// packages/effects/src/stock.ts), so a live control is needed to actually
+// tune those patches rather than only read/write them via preset/URL. Placed
+// at the top of the body (not the header — the header is a single
+// click-to-toggle button, and a `<select>` inside it would fight that click
+// target) as its own row, above `blend`, since combine resolves BEFORE the
+// layer's blended output exists.
 export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, children }: {
   layer: number; params: Params; onParam: (key: string, value: ParamValue) => void;
   onAddVoice: (layer: number) => void; canAddVoice: boolean; children: ReactNode;
@@ -1220,6 +1228,14 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
       {open && (
         <div className="layer-group-body">
           <div className="layer-group-controls">
+            <label className="layer-group-row" title="Combine — how this layer's OWN voices fold together, before the layer's blended output joins the stack. &quot;inherit&quot; follows the patch-level Combine (Mix folder).">
+              <span>combine</span>
+              <span className="gx-select">
+                <select value={s("layerCombine")} onChange={(e) => onParam(`layerCombine${layer}`, e.target.value)}>
+                  {LAYER_COMBINE_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </span>
+            </label>
             <label className="layer-group-row" title="Blend — how this layer's shaped output folds into the running result across layers.">
               <span>blend</span>
               <span className="gx-select">

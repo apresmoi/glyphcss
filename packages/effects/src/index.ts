@@ -1,4 +1,5 @@
 export {
+  GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphEffectCatalog,
   GlyphEffectNoColor,
   GlyphEffects,
@@ -8,6 +9,15 @@ export {
   getGlyphEffect,
   glyphEffectHasColor,
   synthWave,
+} from "./stock";
+// Rule ids for `GlyphFieldSynthEffect`'s `validateParams` throw sites
+// (VOLUMETRIC-2.md §4 P2 fix) — the website's URL hydration repair table
+// keys off `GLYPH_FIELD_SYNTH_VALIDATION_RULES` instead of hand-mirroring
+// stock.ts's validators, so a new validator here without a matching website
+// row is a genuine cross-package test failure, not silent drift.
+export type {
+  GlyphFieldSynthValidationError,
+  GlyphFieldSynthValidationRuleId,
 } from "./stock";
 
 // The field program IR — public per VOLUMETRIC.md's "The field program IR"

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
+import { GLYPH_FIELD_SYNTH_VALIDATION_RULES, GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
 import {
+  COERCION_HANDLED_RULES,
   MAX_VOICES,
   SYNTH_PARAM_DEFAULTS,
   SYNTH_REPAIR_TABLE,
@@ -330,62 +331,71 @@ describe("synth url state — hydration validity gate (VOLUMETRIC-2.md §4)", ()
     }
   });
 
-  // Completeness: every `validateParams` throw site in
-  // `packages/effects/src/stock.ts`'s `fieldSynth.program.validateParams`
-  // either has a `SYNTH_REPAIR_TABLE` row, or is handled by the
-  // carve/xray-space coercion that runs before the gate (documented on
-  // `SYNTH_REPAIR_TABLE` itself). This list is a manually-maintained mirror
-  // of that file's validators (website-only scope can't import its private
-  // `validateGlyphRamp`/`validatePositiveScale`/`validateFieldSynthLayers`/
-  // `validateFieldSynthRender` functions directly) — the first assertion
-  // below (the trigger still throws against the REAL validator) is what
-  // makes a stale mirror fail loudly instead of rotting silently: if stock.ts
-  // changes what a known trigger does, this breaks. A NEW validator added to
-  // stock.ts with no corresponding entry here (and no repair-table row) is
-  // NOT caught by this test — that gap is inherent to website-only scope —
-  // but the size-parity assertion below at least ensures nobody can add a
-  // known throw site to this list without also adding its repair-table row.
+  // Completeness (VOLUMETRIC-2.md §4 P2 fix): every rule id in the REAL
+  // exported `GLYPH_FIELD_SYNTH_VALIDATION_RULES` (packages/effects/src/
+  // stock.ts's own throw-site registry — not a website-side hand mirror of
+  // it) is covered by either `SYNTH_REPAIR_TABLE` or `COERCION_HANDLED_RULES`.
+  // This is genuine drift detection: a validator added to stock.ts gets a
+  // new id appended to that exported array automatically, and if nobody adds
+  // a matching website entry, THIS assertion fails — no manually-maintained
+  // trigger list to keep in sync, and no self-referential length check.
+  it("every exported field-synth validation rule id has a repair-table row or an explicit coercion entry", () => {
+    for (const id of GLYPH_FIELD_SYNTH_VALIDATION_RULES) {
+      const handled = id in SYNTH_REPAIR_TABLE || COERCION_HANDLED_RULES.includes(id);
+      expect(handled, `rule id "${id}" has neither a SYNTH_REPAIR_TABLE row nor a COERCION_HANDLED_RULES entry`).toBe(true);
+    }
+  });
+
+  it("SYNTH_REPAIR_TABLE and COERCION_HANDLED_RULES don't overlap (one guard per rule id, not two competing ones)", () => {
+    for (const id of COERCION_HANDLED_RULES) {
+      expect(id in SYNTH_REPAIR_TABLE, `"${id}" is in both SYNTH_REPAIR_TABLE and COERCION_HANDLED_RULES`).toBe(false);
+    }
+  });
+
   interface KnownThrowSite {
-    readonly name: string;
+    readonly id: (typeof GLYPH_FIELD_SYNTH_VALIDATION_RULES)[number];
     readonly make: (base: Params) => Params;
-    readonly handledBy: "repairTable" | "coercion";
   }
+  // One real trigger per exported rule id — these exercise the REAL
+  // validator (not a re-derivation of its logic), and the first assertion
+  // below (the trigger still throws, tagged with exactly that id) is what
+  // makes a stale trigger fail loudly instead of silently passing.
   const KNOWN_THROW_SITES: readonly KnownThrowSite[] = [
-    { name: "empty glyphs (validateGlyphRamp)", make: (p) => ({ ...p, glyphs: "" }), handledBy: "repairTable" },
-    { name: "scale <= 0 (validatePositiveScale)", make: (p) => ({ ...p, scale: 0 }), handledBy: "repairTable" },
+    { id: "empty-glyphs", make: (p) => ({ ...p, glyphs: "" }) },
+    { id: "non-positive-scale", make: (p) => ({ ...p, scale: 0 }) },
     {
-      name: "multi-layer effective argmax (validateFieldSynthLayers)",
+      id: "multi-layer-argmax",
       make: (p) => ({ ...p, combine: "argmax", amp1: 1, layer1: 1, layerCombine1: "inherit", amp2: 1, layer2: 2, layerCombine2: "inherit" }),
-      handledBy: "repairTable",
     },
-    {
-      name: "carve/xray + subcellRes 2x4/ink (validateFieldSynthRender)",
-      make: (p) => ({ ...p, space: "object", render: "carve", subcellRes: "2x4" }),
-      handledBy: "repairTable",
-    },
-    {
-      name: "carve/xray + non-object space (validateFieldSynthRender)",
-      make: (p) => ({ ...p, space: "surface", render: "carve" }),
-      handledBy: "coercion",
-    },
+    { id: "carve-subcell-unsupported", make: (p) => ({ ...p, space: "object", render: "carve", subcellRes: "2x4" }) },
+    { id: "carve-requires-object-space", make: (p) => ({ ...p, space: "surface", render: "carve" }) },
   ];
+
+  it("KNOWN_THROW_SITES covers every exported rule id exactly once (no missing/extra trigger)", () => {
+    expect(new Set(KNOWN_THROW_SITES.map((s) => s.id))).toEqual(new Set(GLYPH_FIELD_SYNTH_VALIDATION_RULES));
+  });
+
+  it("every known throw site's REAL error is tagged with exactly its own rule id", () => {
+    for (const site of KNOWN_THROW_SITES) {
+      const malformed = { ...SYNTH_PARAM_DEFAULTS, time: 0, ...site.make(SYNTH_PARAM_DEFAULTS) } as Params;
+      try {
+        fieldSynth.program.validateParams?.(malformed as never);
+        expect.unreachable(`expected "${site.id}" trigger to throw`);
+      } catch (error) {
+        expect((error as { code?: string }).code, site.id).toBe(site.id);
+      }
+    }
+  });
 
   it("every known validateParams throw site is repaired by the full decode pipeline (coercion + repair table)", () => {
     for (const site of KNOWN_THROW_SITES) {
       const base = { ...SYNTH_PARAM_DEFAULTS, time: 0 } as Params;
       const malformed = site.make(base);
-      // Sanity: the trigger still throws against the REAL validator — proves
-      // this list isn't stale.
-      expect(() => fieldSynth.program.validateParams?.(malformed as never), site.name).toThrow();
+      expect(() => fieldSynth.program.validateParams?.(malformed as never), site.id).toThrow();
 
       const afterCoercion = { ...malformed, render: sanitizeCarveRenderForSpace(malformed.space, malformed.render as string) };
       const repaired = applySynthValidityGate(afterCoercion as Params);
-      expect(() => fieldSynth.program.validateParams?.({ ...repaired, time: 0 } as never), site.name).not.toThrow();
+      expect(() => fieldSynth.program.validateParams?.({ ...repaired, time: 0 } as never), site.id).not.toThrow();
     }
-  });
-
-  it("the repair table has exactly one row per repair-table-handled known site (a new validator without an accompanying row desyncs this count)", () => {
-    const repairTableHandled = KNOWN_THROW_SITES.filter((s) => s.handledBy === "repairTable").length;
-    expect(SYNTH_REPAIR_TABLE.length).toBe(repairTableHandled);
   });
 });
