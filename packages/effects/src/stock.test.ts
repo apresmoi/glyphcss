@@ -2622,3 +2622,429 @@ describe("field-synth carve mode — real scene (VOLUMETRIC.md acceptance criter
     host.remove();
   });
 });
+
+describe("field-synth xray mode — validation (VOLUMETRIC-2.md §1 \"March view modes\")", () => {
+  it('requires space: "object" — the volumetric branch', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(() => fieldSynth.program.validateParams?.({ ...defaults, render: "xray" } as never))
+      .toThrow(/space: "object"/);
+    expect(() => fieldSynth.program.validateParams?.({ ...defaults, render: "xray", space: "object" } as never))
+      .not.toThrow();
+  });
+
+  it('rejects subcellRes "2x4" and "ink", same as carve', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "xray", space: "object", subcellRes: "2x4",
+    } as never)).toThrow(/subcellRes/);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "xray", space: "object", subcellRes: "ink",
+    } as never)).toThrow(/subcellRes/);
+    expect(() => fieldSynth.program.validateParams?.({
+      ...defaults, render: "xray", space: "object", subcellRes: "1x1",
+    } as never)).not.toThrow();
+  });
+
+  it('dynamicRequirements asks for objectPosition + objectExit for render: "xray" too, not just "carve"', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(fieldSynth.program.dynamicRequirements?.(defaults)).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, render: "xray" })).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "xray" }))
+      .toEqual(["objectPosition", "objectExit"]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "carve" }))
+      .toEqual(["objectPosition", "objectExit"]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "paint" }))
+      .toEqual(["objectPosition"]);
+  });
+});
+
+describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptance criterion 2)", () => {
+  it("a d ≡ 0 patch (bias/gain chosen so the density mapping clamps to 0) emits no cells", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) { objectExit[i * 3] = 1; } // unit chord along x for every cell
+    const output = evaluate(
+      fieldSynth,
+      { space: "object", scale: 1, render: "xray", bias: 0, gain: 0, xrayGain: 4 },
+      { objectPosition, objectExit },
+    );
+    expect(Array.from(output.coverage).every((c) => c === 0)).toBe(true);
+    expect(Array.from(output.channels).every((c) => c === 0)).toBe(true);
+  });
+
+  it("xrayGain: 0 renders fully transparent regardless of field content", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) { objectExit[i * 3] = 1; }
+    // bias 2 / gain 0 -> density clamps to 1 everywhere: maximal absorbing
+    // material, still fully transparent at xrayGain 0.
+    const output = evaluate(
+      fieldSynth,
+      { space: "object", scale: 1, render: "xray", bias: 2, gain: 0, xrayGain: 0 },
+      { objectPosition, objectExit },
+    );
+    expect(Array.from(output.coverage).every((c) => c === 0)).toBe(true);
+  });
+
+  it("a degenerate chord (no exit / entry === exit) emits nothing — no paint-at-entry fallback, unlike carve", () => {
+    const length = 12 * 6;
+    // objectPosition and objectExit both default to all-zero: every cell's
+    // entry === exit, a genuinely degenerate chord.
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    const output = evaluate(
+      fieldSynth,
+      { space: "object", scale: 2, render: "xray", bias: 2, gain: 0, xrayGain: 4 },
+      { objectPosition, objectExit },
+    );
+    expect(Array.from(output.coverage).every((c) => c === 0)).toBe(true);
+    expect(Array.from(output.channels).every((c) => c === 0)).toBe(true);
+  });
+
+  it("degrades to the 2D volumetric paint fallback (not a throw) when objectExit isn't retained (wireframe/voxel)", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    objectPosition[2] = 0.5;
+    const output = evaluate(
+      fieldSynth,
+      { space: "object", scale: 1, render: "xray", bias: 2, gain: 0 },
+      { objectPosition }, // no objectExit -> context.base.objectExit is undefined
+    );
+    expect(output.channels[0]).not.toBe(0);
+  });
+
+  it("monotonicity: extending an already-solid region along a chord (adding material, never removing it) never decreases brightness", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectExit[0] = 1; // cell 0: unit chord along x
+    // A square-wave voice on linearX with phase 0: p = x (for x in [0,1)),
+    // solid (+1) where x < duty, else -1. Raising `duty` extends the ON
+    // region WITHOUT ever flipping an already-ON point back OFF — a strictly
+    // pointwise-monotonic addition of solid material along the chord.
+    const base = {
+      space: "object" as const, scale: 1, render: "xray" as const, bias: 0.4, gain: 1, xrayGain: 1.5,
+      field1: "linearX", wave1: "square", freq1: 1, speed1: 0, phase1: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, // isolate voice1 (amp2 defaults to 1)
+      glyphs: "0123456789",
+    };
+    const low = evaluate(fieldSynth, { ...base, duty1: 0.15 }, { objectPosition, objectExit });
+    const mid = evaluate(fieldSynth, { ...base, duty1: 0.5 }, { objectPosition, objectExit });
+    const high = evaluate(fieldSynth, { ...base, duty1: 0.85 }, { objectPosition, objectExit });
+    const level = (ch: string): number => "0123456789".indexOf(ch);
+    expect(level(low.glyph[0]!)).toBeLessThanOrEqual(level(mid.glyph[0]!));
+    expect(level(mid.glyph[0]!)).toBeLessThanOrEqual(level(high.glyph[0]!));
+    expect(level(low.glyph[0]!)).toBeLessThan(level(high.glyph[0]!));
+  });
+
+  it("hit-set equality: given xrayGain*minChord >> 1, the xray-emitting cell set equals carve's hit set on the same scene", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = (col + 0.5) / cols, y = (row + 0.5) / rows;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 1; // unit chord along z
+      }
+    }
+    const menger = mengerParams(2);
+    const carve = evaluate(fieldSynth, { ...menger, render: "carve" }, { objectPosition, objectExit });
+    // Every chord here has length 1 (minChord = 1), so xrayGain 64 comfortably
+    // saturates any chord carrying solid material to near-B=1.
+    const xray = evaluate(fieldSynth, { ...menger, render: "xray", xrayGain: 64 }, { objectPosition, objectExit });
+    let hits = 0;
+    for (let i = 0; i < length; i++) {
+      expect(xray.coverage[i]! > 0).toBe(carve.coverage[i]! > 0);
+      if (carve.coverage[i]! > 0) hits++;
+    }
+    // Sanity: the comparison isn't vacuous — both a hit and a hole occurred.
+    expect(hits).toBeGreaterThan(0);
+    expect(hits).toBeLessThan(length);
+  });
+
+  it("neighboring same-chord cells (uniform step count pinned) produce identical output for a field uniform along the march axis", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    // Two cells at different (x, y) but the SAME unit-length chord along z;
+    // the field depends only on z, so both chords see identical content.
+    objectPosition[0 * 3] = 0.1; objectPosition[0 * 3 + 1] = 0.1; objectPosition[0 * 3 + 2] = 0;
+    objectExit[0 * 3] = 0.1; objectExit[0 * 3 + 1] = 0.1; objectExit[0 * 3 + 2] = 1;
+    objectPosition[1 * 3] = 0.9; objectPosition[1 * 3 + 1] = 0.9; objectPosition[1 * 3 + 2] = 0;
+    objectExit[1 * 3] = 0.9; objectExit[1 * 3 + 1] = 0.9; objectExit[1 * 3 + 2] = 1;
+    const params = {
+      space: "object" as const, scale: 1, render: "xray" as const, bias: 0.3, gain: 1, xrayGain: 2,
+      field1: "linearZ", wave1: "square", freq1: 3, duty1: 0.4, speed1: 0, phase1: 0.1, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, // isolate voice1 (amp2 defaults to 1)
+    };
+    const output = evaluate(fieldSynth, params, { objectPosition, objectExit });
+    expect(output.coverage[0]).toBeGreaterThan(0);
+    expect(output.glyph[0]).toBe(output.glyph[1]);
+    expect(output.color[0]).toBe(output.color[1]);
+  });
+
+  it("voiceColors is inert under xray — output uses the plain color/colorB gradient regardless of the toggle", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectExit[0] = 1;
+    const shared = {
+      space: "object" as const, scale: 1, render: "xray" as const, bias: 0.4, gain: 1, xrayGain: 3,
+      field1: "linearX", wave1: "sin", freq1: 1, speed1: 0, amp1: 1, color1: "#00ff00",
+      color: "#7df9ff",
+    };
+    const withoutVoiceColors = evaluate(fieldSynth, { ...shared, voiceColors: false }, { objectPosition, objectExit });
+    const withVoiceColors = evaluate(fieldSynth, { ...shared, voiceColors: true }, { objectPosition, objectExit });
+    expect(withoutVoiceColors.coverage[0]).toBeGreaterThan(0);
+    expect(withVoiceColors.color[0]).toBe(withoutVoiceColors.color[0]);
+  });
+});
+
+describe("field-synth slab clip — carve and xray (VOLUMETRIC-2.md §1 \"Slab clip\", acceptance criterion 3)", () => {
+  function mengerScene(): { objectPosition: Float32Array; objectExit: Float32Array } {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        objectPosition[i * 3] = (col + 0.5) / cols;
+        objectPosition[i * 3 + 1] = (row + 0.5) / rows;
+        objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = objectPosition[i * 3]!;
+        objectExit[i * 3 + 1] = objectPosition[i * 3 + 1]!;
+        objectExit[i * 3 + 2] = 1;
+      }
+    }
+    return { objectPosition, objectExit };
+  }
+
+  it.each(["carve", "xray"] as const)(
+    "%s: a slab wide enough to contain the whole chord is byte-identical to slabAxis: \"none\" — the clip is skipped, not just numerically negligible",
+    (render) => {
+      const { objectPosition, objectExit } = mengerScene();
+      const menger = mengerParams(2);
+      const none = evaluate(fieldSynth, { ...menger, render, slabAxis: "none" }, { objectPosition, objectExit });
+      const wideOpen = evaluate(
+        fieldSynth,
+        { ...menger, render, slabAxis: "z", slabStart: -8, slabEnd: 8 },
+        { objectPosition, objectExit },
+      );
+      expect(Array.from(wideOpen.coverage)).toEqual(Array.from(none.coverage));
+      expect(wideOpen.glyph).toEqual(none.glyph);
+      expect(Array.from(wideOpen.color)).toEqual(Array.from(none.color));
+    },
+  );
+
+  it.each(["carve", "xray"] as const)(
+    "%s: slabStart >= slabEnd is an empty interval — every cell emits nothing",
+    (render) => {
+      const { objectPosition, objectExit } = mengerScene();
+      const menger = mengerParams(2);
+      const withoutSlab = evaluate(fieldSynth, { ...menger, render }, { objectPosition, objectExit });
+      expect(Array.from(withoutSlab.coverage).some((c) => c > 0)).toBe(true); // sanity: not vacuous
+
+      const inverted = evaluate(
+        fieldSynth,
+        { ...menger, render, slabAxis: "z", slabStart: 1, slabEnd: -1 },
+        { objectPosition, objectExit },
+      );
+      expect(Array.from(inverted.coverage).every((c) => c === 0)).toBe(true);
+
+      const equal = evaluate(
+        fieldSynth,
+        { ...menger, render, slabAxis: "z", slabStart: 0.4, slabEnd: 0.4 },
+        { objectPosition, objectExit },
+      );
+      expect(Array.from(equal.coverage).every((c) => c === 0)).toBe(true);
+    },
+  );
+
+  it("carve's slab cut face fades from the TRUE (pre-clip) entry, not the clipped entry", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectExit[2] = 1; // cell 0: entry (0,0,0) -> exit (0,0,1)
+    const shared = {
+      space: "object" as const, scale: 1, bias: 2, gain: 0, render: "carve" as const, marchFade: 1,
+    };
+    const noSlab = evaluate(fieldSynth, shared, { objectPosition, objectExit });
+    const slabbed = evaluate(
+      fieldSynth,
+      { ...shared, slabAxis: "z" as const, slabStart: 0.4, slabEnd: 1 },
+      { objectPosition, objectExit },
+    );
+    expect(noSlab.coverage[0]).toBeGreaterThan(0);
+    expect(slabbed.coverage[0]).toBeGreaterThan(0);
+
+    const cA = parseGlyphEffectColor("#7df9ff"); // schema default `color`
+    const noSlabRed = (noSlab.color[0]! >>> 16) & 0xff;
+    const slabbedRed = (slabbed.color[0]! >>> 16) & 0xff;
+    // No slab: hit at t=0, colorFactor exp(-marchFade*0)=1, color untouched.
+    expect(noSlabRed).toBe((cA.packed >> 16) & 0xff);
+    // Slabbed: the clip moves the march's own entry to z=0.4, but the fade
+    // distance is measured from the TRUE entry (z=0) — colorFactor is
+    // exp(-1 * 0.4), not exp(-1 * 0) (which the clipped-entry-relative bug
+    // would produce, leaving slabbedRed === noSlabRed).
+    const expectedFactor = Math.exp(-1 * 0.4);
+    const expectedRed = Math.round(((cA.packed >> 16) & 0xff) * expectedFactor);
+    expect(slabbedRed).toBe(expectedRed);
+    expect(slabbedRed).toBeLessThan(noSlabRed);
+  });
+
+  it("carve's degenerate-chord fallback (paint at the true entry) only fires when the entry point lies inside an active slab", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    // Degenerate chord (entry === exit) at z = 5, well outside [-1, 1].
+    objectPosition[2] = 5; objectExit[2] = 5;
+    const shared = { space: "object" as const, scale: 1, bias: 2, gain: 0, render: "carve" as const };
+
+    const noSlab = evaluate(fieldSynth, shared, { objectPosition, objectExit });
+    expect(noSlab.coverage[0]).toBeGreaterThan(0); // existing degenerate-fallback behavior, unaffected by no slab
+
+    const outsideSlab = evaluate(
+      fieldSynth,
+      { ...shared, slabAxis: "z" as const, slabStart: -1, slabEnd: 1 },
+      { objectPosition, objectExit },
+    );
+    expect(outsideSlab.coverage[0]).toBe(0); // entry z=5 is outside the slab -> fallback must not fire
+
+    objectPosition[2] = 0.5; objectExit[2] = 0.5; // move the (still-degenerate) entry inside the slab
+    const insideSlab = evaluate(
+      fieldSynth,
+      { ...shared, slabAxis: "z" as const, slabStart: -1, slabEnd: 1 },
+      { objectPosition, objectExit },
+    );
+    expect(insideSlab.coverage[0]).toBeGreaterThan(0); // now the fallback fires again
+  });
+
+  it("xray's degenerate case stays empty regardless of the slab (it never had a paint-at-entry fallback to gate)", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[2] = 0.5; objectExit[2] = 0.5; // degenerate, entry well inside [-1, 1]
+    const output = evaluate(
+      fieldSynth,
+      { space: "object", scale: 1, render: "xray", bias: 2, gain: 0, xrayGain: 4, slabAxis: "z", slabStart: -1, slabEnd: 1 },
+      { objectPosition, objectExit },
+    );
+    expect(output.coverage[0]).toBe(0);
+  });
+
+  it("a chord that doesn't intersect an active slab at all emits nothing, for carve and xray alike", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[2] = 0; objectExit[2] = 0.2; // chord entirely within z in [0, 0.2]
+    const shared = { space: "object" as const, scale: 1, bias: 2, gain: 0, slabAxis: "z" as const, slabStart: 0.5, slabEnd: 1 };
+    const carve = evaluate(fieldSynth, { ...shared, render: "carve" }, { objectPosition, objectExit });
+    const xray = evaluate(fieldSynth, { ...shared, render: "xray" }, { objectPosition, objectExit });
+    expect(carve.coverage[0]).toBe(0);
+    expect(xray.coverage[0]).toBe(0);
+  });
+});
+
+describe("field-synth slab clip — cutaway membership (VOLUMETRIC-2.md acceptance criterion 3)", () => {
+  // First-principles reference, duplicated from the schema-frontend Menger
+  // membership test above (that test's own stated precedent: reused as a
+  // REFERENCE, not by importing the evaluator under test).
+  function mengerSolid(x: number, y: number, z: number, depth: number): boolean {
+    let cx = x, cy = y, cz = z;
+    for (let d = 0; d < depth; d++) {
+      cx *= 3; cy *= 3; cz *= 3;
+      const mx = ((cx % 3) + 3) % 3, my = ((cy % 3) + 3) % 3, mz = ((cz % 3) + 3) % 3;
+      const midCount = (mx > 1 && mx < 2 ? 1 : 0) + (my > 1 && my < 2 ? 1 : 0) + (mz > 1 && mz < 2 ? 1 : 0);
+      if (midCount >= 2) return false;
+      cx = cx - Math.floor(cx / 3) * 3; cy = cy - Math.floor(cy / 3) * 3; cz = cz - Math.floor(cz / 3) * 3;
+    }
+    return true;
+  }
+
+  // Dense sample of the reference along the (already slab-clipped) z window
+  // — membership-based ground truth for "is there any solid material along
+  // this chord within the slab", independent of exactly where it sits.
+  function chordHasSolidInRange(x: number, y: number, zLo: number, zHi: number, samples = 400): boolean {
+    for (let s = 0; s <= samples; s++) {
+      const z = zLo + ((zHi - zLo) * s) / samples;
+      if (mengerSolid(x, y, z, 2)) return true;
+    }
+    return false;
+  }
+
+  it("carve+slab per-cell hit/hole membership matches the first-principles reference restricted to a mid-hole slab window, regardless of camera angle (this is a membership test, not a rendered projection)", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        // Off the 1/3 base-3 digit boundaries (1/3 is float-inexact), same
+        // precaution the schema-frontend Menger test uses.
+        const x = (col + 0.37) / cols, y = (row + 0.29) / rows;
+        xs.push(x); ys.push(y);
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 1;
+      }
+    }
+    const menger = mengerParams(2);
+    const zLo = 0.3, zHi = 0.7; // a mid-hole slab: excludes both cube caps
+    const output = evaluate(
+      fieldSynth,
+      { ...menger, render: "carve", slabAxis: "z", slabStart: zLo, slabEnd: zHi },
+      { objectPosition, objectExit },
+    );
+    let solidCount = 0, holeCount = 0;
+    for (let i = 0; i < length; i++) {
+      const ref = chordHasSolidInRange(xs[i]!, ys[i]!, zLo, zHi);
+      expect(output.coverage[i]! > 0).toBe(ref);
+      if (ref) solidCount++; else holeCount++;
+    }
+    // Sanity: both solid and hole regions are actually sampled.
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+});
+
+describe("field-synth xray mode — real scene (VOLUMETRIC-2.md acceptance criterion 2, end to end)", () => {
+  it("xray on the depth-2 Menger cube renders non-empty output within the cube's silhouette and retains objectExit only while render is \"xray\"", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols: 60, rows: 40, useColors: false, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 600, rotX: 8, rotY: 8 }),
+    });
+    scene.add(mengerDomainCubePolygons());
+    const menger = mengerParams(2);
+    const layer = scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), ...menger, render: "xray", xrayGain: 6 } as never,
+      blend: "replace",
+      opacity: 1,
+    });
+    let sawObjectExit: boolean | undefined;
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({
+        evaluate({ base }) { sawObjectExit = base.objectExit !== undefined; },
+      }),
+      params: { phase: 0 },
+    });
+    await flushCarveRenders();
+    expect(sawObjectExit).toBe(true);
+    const text = scene.output.textContent ?? "";
+    expect(text.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+
+    layer.params.render = "paint";
+    await flushCarveRenders();
+    expect(sawObjectExit).toBe(false);
+
+    scene.destroy();
+    host.remove();
+  });
+});

@@ -16,9 +16,15 @@ export {
 // primitive or the spectral track's analysis mode plugs into; the types are
 // what a caller needs to build or consume a `GlyphFieldProgram` by hand
 // (`fieldSynth`'s own params→IR compile in `stock.ts` is one such caller).
-export { evaluateFieldProgram as evaluateGlyphFieldProgram, marchField as marchGlyphField } from "./fieldProgram";
+export {
+  evaluateFieldProgram as evaluateGlyphFieldProgram,
+  fieldStepCount as glyphFieldStepCount,
+  integrateField as integrateGlyphField,
+  marchField as marchGlyphField,
+} from "./fieldProgram";
 export type {
   FieldEvalResult as GlyphFieldEvalResult,
+  FieldIntegrateResult as GlyphFieldIntegrateResult,
   FieldLayer as GlyphFieldLayer,
   FieldMarchHit as GlyphFieldMarchHit,
   FieldMarchMiss as GlyphFieldMarchMiss,

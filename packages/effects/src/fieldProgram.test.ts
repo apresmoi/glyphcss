@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateFieldProgram,
+  fieldStepCount,
+  integrateField,
   marchField,
   SYNTH_FIELDS,
   synthWave,
@@ -495,5 +497,86 @@ describe("marchField", () => {
     marchField([0, 0, 0], [1, 0, 0], sampler, { steps: 8, finestFreq: 1e6, maxSteps: 32 });
     // entry sample + up to `maxSteps` marched samples.
     expect(calls.length).toBeLessThanOrEqual(33);
+  });
+});
+
+// VOLUMETRIC-2.md §1 "The integrator": the step-count floor `marchField` used
+// privately is now a shared, exported helper both `marchField` and
+// `integrateField` consume, so the two can never disagree about resolution.
+describe("fieldStepCount", () => {
+  it("floors to the `steps` minimum when finestFreq is absent or 0", () => {
+    expect(fieldStepCount(100)).toBe(48); // schema default
+    expect(fieldStepCount(100, { steps: 12 })).toBe(12);
+    expect(fieldStepCount(100, { steps: 12, finestFreq: 0 })).toBe(12);
+  });
+
+  it("raises the count via the Nyquist floor ceil(2 * chordLength * finestFreq)", () => {
+    expect(fieldStepCount(10, { steps: 8, finestFreq: 1 })).toBe(20);
+    expect(fieldStepCount(3.3, { steps: 8, finestFreq: 9 })).toBe(Math.max(8, Math.ceil(2 * 3.3 * 9)));
+  });
+
+  it("the Nyquist floor never lowers the count below `steps`", () => {
+    expect(fieldStepCount(0.01, { steps: 48, finestFreq: 1 })).toBe(48);
+  });
+
+  it("clamps to maxSteps regardless of how high the Nyquist floor would otherwise go", () => {
+    expect(fieldStepCount(1e6, { steps: 8, finestFreq: 1e6, maxSteps: 64 })).toBe(64);
+  });
+
+  it("clamps `steps` itself to at least 1 and never above maxSteps", () => {
+    expect(fieldStepCount(1, { steps: 0 })).toBe(1);
+    expect(fieldStepCount(1, { steps: 999, maxSteps: 32 })).toBe(32);
+  });
+});
+
+// VOLUMETRIC-2.md §1 "The integrator": `integrateGlyphField`'s internal name.
+// xray's sibling to `marchField` — sampler-agnostic, midpoint quadrature.
+describe("integrateField", () => {
+  it("midpoint quadrature is exact for a constant sampler: sum = value * chordLength", () => {
+    const result = integrateField([0, 0, 0], [10, 0, 0], () => 1, { steps: 5 });
+    expect(result.sum).toBeCloseTo(10, 10);
+    expect(result.steps).toBe(5);
+    expect(result.chordLength).toBeCloseTo(10, 10);
+  });
+
+  it("samples at t_i = (i + 1/2)/steps * chordLength, dt = chordLength/steps — no endpoint double-counting", () => {
+    const positions: number[] = [];
+    integrateField([0, 0, 0], [8, 0, 0], (x) => { positions.push(x); return 1; }, { steps: 4, finestFreq: 0 });
+    expect(positions).toEqual([1, 3, 5, 7]); // (i+0.5)/4 * 8 for i=0..3
+  });
+
+  it("a non-finite sample contributes 0 to the sum, not NaN", () => {
+    // Same 4-sample grid as above; poison the i=1 sample (x=3) with NaN.
+    const clean = integrateField([0, 0, 0], [8, 0, 0], () => 1, { steps: 4 });
+    const poisoned = integrateField([0, 0, 0], [8, 0, 0], (x) => (x === 3 ? NaN : 1), { steps: 4 });
+    expect(Number.isFinite(poisoned.sum)).toBe(true);
+    // Poisoned sum is exactly one sample's worth (dt = 2) less than clean.
+    expect(clean.sum - poisoned.sum).toBeCloseTo(2, 10);
+  });
+
+  it("a degenerate segment (entry === exit) integrates to zero, not a divide-by-zero/NaN", () => {
+    const result = integrateField([2, 3, 4], [2, 3, 4], () => 1, { steps: 8 });
+    expect(result).toEqual({ sum: 0, steps: 0, chordLength: 0 });
+  });
+
+  it("a non-finite entry/exit coordinate also degrades to the zero-sum result, not NaN propagation", () => {
+    const result = integrateField([0, 0, 0], [NaN, 0, 0], () => 1, { steps: 8 });
+    expect(result.sum).toBe(0);
+    expect(result.steps).toBe(0);
+    expect(Number.isFinite(result.chordLength)).toBe(true);
+  });
+
+  it("resolves its step count through the SAME shared `fieldStepCount` helper marchField uses", () => {
+    const opts = { steps: 8, finestFreq: 9, maxSteps: 256 };
+    const chordLength = 3.3;
+    const result = integrateField([0, 0, 0], [chordLength, 0, 0], () => 0, opts);
+    expect(result.steps).toBe(fieldStepCount(chordLength, opts));
+  });
+
+  it("an explicit steps/maxSteps override (finestFreq: 0) forces an EXACT step count regardless of chordLength — the mechanism xray's uniform-step-per-evaluate design relies on", () => {
+    const short = integrateField([0, 0, 0], [1, 0, 0], () => 1, { steps: 40, maxSteps: 40, finestFreq: 0 });
+    const long = integrateField([0, 0, 0], [100, 0, 0], () => 1, { steps: 40, maxSteps: 40, finestFreq: 0 });
+    expect(short.steps).toBe(40);
+    expect(long.steps).toBe(40);
   });
 });

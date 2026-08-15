@@ -967,9 +967,14 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 // neither hoist applies (see `buildRuntime`'s `needsGrad` doc). What's left
 // rejected is genuinely out of this exporter's design, not "not ported yet":
 //
-// - `render: "carve"` and `space: "object"` (the volumetric branch) — a
-//   different export design entirely (a per-cell-per-frame march), not
-//   something this affine-fit/coordinate-table exporter can fake.
+// - `render: "carve"`/`"xray"` and `space: "object"` (the volumetric branch)
+//   — a different export design entirely (a per-cell-per-frame march or
+//   integral), not something this affine-fit/coordinate-table exporter can
+//   fake.
+// - An active slab (`slabAxis !== "none"`) — slab clip is itself only
+//   meaningful under carve/xray + `space: "object"`, all three already
+//   rejected, but it gets its own precise, separately-worded reject (see
+//   below) for the same reason `linearZ`/`originW` do.
 // - `linearZ` on an active voice and `originW` on an active voice — both are
 //   3D-only semantics that can only ever matter under `space: "object"`,
 //   which is already rejected; keeping an explicit, separately-worded reject
@@ -980,17 +985,31 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 //   different questions ("why is my field invisible" vs "why doesn't this
 //   export") into one.
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
-  // Checked before the `space: "object"` reject below so a carve patch names
-  // carve as the reason, not the volumetric branch it happens to require —
-  // carve is its own per-cell march over every animated frame, a
-  // fundamentally different bake than the affine-fit/coordinate-table
-  // exporter this module builds (VOLUMETRIC.md's "Static export": "Baking a
-  // march per cell per frame is a different export design; do not fake it").
-  if (params.render === "carve") {
+  // Checked before the `space: "object"` reject below so a carve/xray patch
+  // names its own render mode as the reason, not the volumetric branch it
+  // happens to require — both are their own per-cell march/integral over
+  // every animated frame, a fundamentally different bake than the
+  // affine-fit/coordinate-table exporter this module builds (VOLUMETRIC.md's
+  // "Static export": "Baking a march per cell per frame is a different
+  // export design; do not fake it" — VOLUMETRIC-2.md §1 extends this to xray).
+  if (params.render !== "paint") {
+    const mode = params.render as string;
+    const why = mode === "carve"
+      ? "carve raymarches the field for a first interior hit"
+      : "xray integrates transmittance along the whole chord";
     throw new Error(
-      'glyphcss: buildGlyphFieldSynthStaticExport does not support render: "carve" — carve raymarches the field '
-      + "per cell per frame, which is a different export design than this baked coordinate-table/affine-fit "
-      + "exporter. Not planned.",
+      `glyphcss: buildGlyphFieldSynthStaticExport does not support render: "${mode}" — ${why} per cell per frame, `
+      + "which is a different export design than this baked coordinate-table/affine-fit exporter. Not planned.",
+    );
+  }
+  // Checked before the `space: "object"` reject below for the same reason —
+  // an active slab names ITSELF as the rejected feature, not the volumetric
+  // branch it's only ever meaningful under.
+  if (params.slabAxis !== "none") {
+    throw new Error(
+      'glyphcss: buildGlyphFieldSynthStaticExport does not support an active slab clip (slabAxis !== "none") — '
+      + "slab clip only has meaning for carve/xray's per-cell-per-frame march, which this baked "
+      + "coordinate-table/affine-fit exporter does not perform. Not planned.",
     );
   }
   if (params.space === "object") {
@@ -1024,12 +1043,12 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
 /**
  * Pure predicate mirroring `assertStaticExportSupported`: true when
  * `buildGlyphFieldSynthStaticExport` would accept `params`, false when it
- * would reject (`render: "carve"`, `space: "object"`, an active `linearZ`
- * voice, or a nonzero `originW` on an active voice — see
- * `assertStaticExportSupported`'s doc for why each is out of this exporter's
- * design). Merges `params` over the effect's own defaults first, exactly like
- * `buildGlyphFieldSynthStaticExport` itself, so a caller can pass a partial
- * patch straight through.
+ * would reject (`render: "carve"` or `"xray"`, `space: "object"`, an active
+ * slab (`slabAxis !== "none"`), an active `linearZ` voice, or a nonzero
+ * `originW` on an active voice — see `assertStaticExportSupported`'s doc for
+ * why each is out of this exporter's design). Merges `params` over the
+ * effect's own defaults first, exactly like `buildGlyphFieldSynthStaticExport`
+ * itself, so a caller can pass a partial patch straight through.
  *
  * This is the single source of truth a UI should gate a static-export button
  * on, instead of duplicating (and inevitably drifting from) this reject list

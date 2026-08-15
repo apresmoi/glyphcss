@@ -11,6 +11,8 @@ import {
 import {
   combineSynth,
   evaluateFieldProgram,
+  fieldStepCount,
+  integrateField,
   marchField,
   sampleFieldVoice,
   SYNTH_COMBINES,
@@ -1304,6 +1306,11 @@ const fieldSynthSchema = {
   // Per-voice colors: when on, each cell's color is the contribution-weighted blend
   // of the active voices' colors (composes colors through the mix). Off keeps the
   // single color/colorB gradient (so existing presets are unchanged).
+  // Documented no-op under render: "xray" (VOLUMETRIC-2.md §1) — xray's
+  // brightness comes from an absorption integral over the WHOLE chord, not a
+  // single winning voice/point, so there is no coherent per-voice color to
+  // report; it always uses the plain color/colorB gradient. The UI hides the
+  // toggle under xray (a website concern, not enforced here).
   voiceColors: { kind: "boolean", default: false, animation: "discrete", label: "Per-voice colors" },
   color1: { kind: "color", default: "#7df9ff", label: "Voice 1 color" },
   color2: { kind: "color", default: "#ff4fa3", label: "Voice 2 color" },
@@ -1372,24 +1379,51 @@ const fieldSynthSchema = {
   layerAmp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 1 amp" },
   layerAmp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 2 amp" },
   layerAmp3: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 3 amp" },
-  // Appended after every pre-existing key (VOLUMETRIC.md's Carve mode:
-  // append-only ordering is load-bearing for the /synth URL codec's
-  // positional decode). "paint" (default) reproduces today's behavior
-  // exactly; "carve" requires the volumetric branch (`validateFieldSynth
-  // Render` below) and raymarches the field for interior structure instead
-  // of shading the entry surface.
-  render: { kind: "string", default: "paint", values: ["paint", "carve"], animation: "discrete", label: "Render" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Carve mode /
+  // VOLUMETRIC-2.md's "March view modes": append-only ordering is load-
+  // bearing for the /synth URL codec's positional decode). "paint" (default)
+  // reproduces today's behavior exactly; "carve" and "xray" both require the
+  // volumetric branch (`validateFieldSynthRender` below) — carve raymarches
+  // for the first interior hit, xray integrates transmittance along the
+  // whole chord instead of shading the entry surface.
+  render: { kind: "string", default: "paint", values: ["paint", "carve", "xray"], animation: "discrete", label: "Render" },
   // Minimum march step count; the implementation raises this per cell via a
   // Nyquist floor (`ceil(2 * chordLength * finestActiveFreq)`) so thin solid
   // walls don't skip past the sampling grid. `bench/carve-march.mjs` measures
   // the depth-2 Menger recipe over a 120x48/half-covered grid: 32 steps ~2.5ms,
   // 48 ~3.3ms, 96 ~5.3ms per evaluate() call (Node, M-series laptop) — 48 stays
   // well under a 16.6ms/60fps budget for one layer while resolving the recipe's
-  // finest (1/9-domain) features comfortably; see bench/carve-march.md.
+  // finest (1/9-domain) features comfortably; see bench/carve-march.md. xray
+  // reads this as its minimum step floor too, but resolves ONE step count for
+  // the whole evaluate() pass (see the `xrayActive` block below), not a
+  // per-cell one.
   marchSteps: { kind: "number", default: 48, min: 1, max: 256, step: 1, label: "March steps" },
   // Domain units; `exp(-marchFade * distance)` fades an interior hit's color
-  // toward black with depth. 0 disables the falloff (factor stays 1).
+  // toward black with depth. 0 disables the falloff (factor stays 1). Carve
+  // only — xray has its own `xrayGain` (see below for why the two can't share
+  // one knob).
   marchFade: { kind: "number", default: 1, min: 0, max: 8, step: 0.05, label: "March fade" },
+  // Appended after every pre-existing key (VOLUMETRIC-2.md §1 "March view
+  // modes" — append-only ordering is load-bearing for the /synth URL codec's
+  // positional decode). xray's own absorption gain, deliberately NOT
+  // `marchFade`: at `marchFade`'s default of 1 a fully solid unit chord only
+  // reaches brightness ~0.63 and a typical preset domain (span ~1) never
+  // saturates, and `0` means opposite things in the two modes (no fade in
+  // carve vs. fully invisible in xray).
+  xrayGain: { kind: "number", default: 4, min: 0, max: 16, step: 0.05, label: "Xray gain" },
+  // Slab clip (orthogonal to render mode; VOLUMETRIC-2.md §1 "Slab clip").
+  // Domain units (the post-`scale` space the field lives in, matching
+  // `freq`) — stable under orbit, unlike anchoring to per-cell object
+  // extents. Axes are domain axes, i.e. pre-voice-`angle`. A documented
+  // no-op under `render: "paint"`; applies to both "carve" and "xray".
+  // "none" is the only full-open representation — `slabStart`/`slabEnd` are
+  // ignored (not validated) when the axis is "none".
+  slabAxis: { kind: "string", default: "none", values: ["none", "x", "y", "z"], animation: "discrete", label: "Slab axis" },
+  // `slabStart >= slabEnd` renders empty (deliberately unvalidated — see
+  // VOLUMETRIC-2.md §1 "Slab clip": the UI enforces start < end, decode does
+  // not reject an inverted interval).
+  slabStart: { kind: "number", default: -1, min: -8, max: 8, step: 0.05, label: "Slab start" },
+  slabEnd: { kind: "number", default: 1, min: -8, max: 8, step: 0.05, label: "Slab end" },
 } as const satisfies GlyphEffectParamSchema;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
@@ -1661,29 +1695,83 @@ function validateFieldSynthLayers(params: AnyParams): void {
   }
 }
 
-// Carve mode (VOLUMETRIC.md's "Carve mode (hollowness)"): requires the
-// volumetric branch, and rejects the two subcell probes whose neighbor
-// finite-differencing has no defined meaning across cells whose hit points
-// sit at different march depths or in holes. In wireframe/voxel modes carve
-// degrades to paint at RUNTIME (no `objectPosition`/`objectExit` retained,
-// same optional-requirement degradation `space: "object"` already uses) —
-// that degradation can't be validated here, since `validateParams` never
-// sees the render mode, only params.
+// Carve/xray march modes (VOLUMETRIC.md's "Carve mode (hollowness)",
+// VOLUMETRIC-2.md §1 "March view modes"): both require the volumetric
+// branch, and both reject the two subcell probes whose neighbor
+// finite-differencing has no defined meaning across cells whose march
+// results (a hit point for carve, an integral for xray) sit at different
+// depths or come from different-length chords. In wireframe/voxel modes
+// carve/xray degrade to paint at RUNTIME (no `objectPosition`/`objectExit`
+// retained, same optional-requirement degradation `space: "object"` already
+// uses) — that degradation can't be validated here, since `validateParams`
+// never sees the render mode, only params.
 function validateFieldSynthRender(params: AnyParams): void {
-  if (params.render !== "carve") return;
+  if (params.render !== "carve" && params.render !== "xray") return;
+  const mode = params.render as string;
   if (params.space !== "object") {
     throw new TypeError(
-      'glyphcss field-synth: render: "carve" requires space: "object" (the volumetric branch) — carve marches '
+      `glyphcss field-synth: render: "${mode}" requires space: "object" (the volumetric branch) — ${mode} marches `
       + "objectPosition -> objectExit, which only exist for a volumetric patch.",
     );
   }
   if (params.subcellRes === "2x4" || params.subcellRes === "ink") {
     throw new TypeError(
-      `glyphcss field-synth: render: "carve" does not support subcellRes: "${params.subcellRes as string}" — its `
-      + "neighbor finite-difference probe has no defined meaning across cells whose hit points sit at different "
-      + 'march depths or in holes. Use subcellRes: "1x1" with carve.',
+      `glyphcss field-synth: render: "${mode}" does not support subcellRes: "${params.subcellRes as string}" — its `
+      + "neighbor finite-difference probe has no defined meaning across cells whose march results sit at "
+      + `different depths or come from different-length chords. Use subcellRes: "1x1" with ${mode}.`,
     );
   }
+}
+
+// Domain-axis index for a slab axis param ("x"/"y"/"z" -> 0/1/2), or -1 for
+// "none" (VOLUMETRIC-2.md §1 "Slab clip").
+function slabAxisIndex(axis: string): number {
+  return axis === "x" ? 0 : axis === "y" ? 1 : axis === "z" ? 2 : -1;
+}
+
+// `slabStart >= slabEnd` has no valid interval — the only full-open
+// representation is `slabAxis: "none"` (see the schema comment on
+// `slabStart`) — so a point never lies "inside" an inverted/degenerate
+// interval, regardless of its coordinate.
+function pointInSlab(coord: number, start: number, end: number): boolean {
+  return start < end && coord >= start && coord <= end;
+}
+
+/**
+ * Clip `[entry, exit]` to a slab interval on one domain axis
+ * (VOLUMETRIC-2.md §1 "Slab clip": "clip the segment, then march"). Returns
+ * `null` when the interval doesn't intersect the segment at all (or
+ * `start >= end`, which is never satisfiable). When BOTH endpoints already
+ * lie inside the interval, the clip is skipped and the original points are
+ * returned completely unchanged — no reparametrization, so a chord entirely
+ * inside an active slab (and, in particular, every chord under
+ * `slabAxis: "none"`, which never calls this at all) stays byte-identical to
+ * the unclipped path.
+ */
+function clipChordToSlab(
+  entry: readonly [number, number, number],
+  exit: readonly [number, number, number],
+  axis: number,
+  start: number,
+  end: number,
+): { readonly entry: readonly [number, number, number]; readonly exit: readonly [number, number, number]; readonly tEntry: number } | null {
+  if (!(start < end)) return null;
+  const e = entry[axis]!;
+  const x = exit[axis]!;
+  if (e >= start && e <= end && x >= start && x <= end) return { entry, exit, tEntry: 0 };
+  const d = x - e;
+  if (d === 0) return null; // constant, out-of-range axis coordinate: no intersection
+  const ta = (start - e) / d;
+  const tb = (end - e) / d;
+  const t0 = Math.max(0, Math.min(ta, tb));
+  const t1 = Math.min(1, Math.max(ta, tb));
+  if (t0 > t1) return null;
+  const dx = exit[0] - entry[0], dy = exit[1] - entry[1], dz = exit[2] - entry[2];
+  return {
+    entry: [entry[0] + dx * t0, entry[1] + dy * t0, entry[2] + dz * t0],
+    exit: [entry[0] + dx * t1, entry[1] + dy * t1, entry[2] + dz * t1],
+    tEntry: t0,
+  };
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1958,11 +2046,11 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
     optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
     // See VOLUMETRIC.md's "Params-aware requirement gating": objectPosition
     // is retained only for patches actually using the volumetric branch, and
-    // objectExit only for patches actually carving (most mounted patches are
-    // 2D and pay for neither).
+    // objectExit only for patches actually carving or x-raying (most mounted
+    // patches are 2D and pay for neither).
     dynamicRequirements(params) {
       if (params.space !== "object") return [];
-      return params.render === "carve" ? ["objectPosition", "objectExit"] : ["objectPosition"];
+      return params.render === "carve" || params.render === "xray" ? ["objectPosition", "objectExit"] : ["objectPosition"];
     },
     validateParams(params) {
       validateGlyphRamp(params);
@@ -2011,21 +2099,73 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const volumetricOriginX = params.originU * scale;
       const volumetricOriginY = params.originV * scale;
 
-      // Carve requires the volumetric branch AND a retained objectExit buffer
-      // (`dynamicRequirements` above asks for it only when render === "carve";
-      // it degrades to absent in wireframe/voxel, same as `objectPosition`
-      // already does for `volumetric` — see VOLUMETRIC.md's "Semantics and
-      // limits"). Gating on both here, not just `params.render`, is what makes
-      // carve degrade to the ordinary paint loop below instead of throwing.
+      // Carve/xray require the volumetric branch AND a retained objectExit
+      // buffer (`dynamicRequirements` above asks for it when render is
+      // "carve" or "xray"; it degrades to absent in wireframe/voxel, same as
+      // `objectPosition` already does for `volumetric` — see VOLUMETRIC.md's
+      // "Semantics and limits"). Gating on both here, not just `params.render`,
+      // is what makes carve/xray degrade to the ordinary paint loop below
+      // instead of throwing.
       const carveActive = params.render === "carve" && volumetric && !!context.base.objectExit;
+      const xrayActive = params.render === "xray" && volumetric && !!context.base.objectExit;
       // The Nyquist floor's f_finest (VOLUMETRIC.md's Carve section): the
       // highest ACTIVE (amp > 0) voice frequency across every layer, computed
-      // once per evaluate() call — `marchField` raises the per-cell step count
-      // to `ceil(2 * chordLength * finestFreq)` so a thin solid wall isn't
-      // stepped over. 0 when no voice is active (no Nyquist floor to apply).
+      // once per evaluate() call — `marchField`/`integrateField` raise the
+      // step count to `ceil(2 * chordLength * finestFreq)` so a thin solid
+      // wall isn't stepped over. 0 when no voice is active (no Nyquist floor
+      // to apply).
       let finestFreq = 0;
       for (const voice of compiledVoices) {
         if (voice.amp > 0 && voice.freq > finestFreq) finestFreq = voice.freq;
+      }
+
+      // Slab clip (VOLUMETRIC-2.md §1 "Slab clip"): orthogonal to render mode
+      // (a documented no-op under "paint"), applies to both carve and xray.
+      const slabActive = params.slabAxis !== "none";
+      const slabAxisIdx = slabAxisIndex(params.slabAxis as string);
+
+      // Shared by carve's march and xray's integral — both sample the SAME
+      // clamp01(bias + gain*v*0.5) density mapping paint itself uses (see
+      // `computeFieldSynthPoint` below), at the fixed volumetric-branch
+      // origin (cx, cy, cz) every carve/xray cell shares (unlike the 2D
+      // branch's per-cell origin).
+      const densitySample = (mx: number, my: number, mz: number, mt: number): number => clamp01(
+        params.bias + params.gain * evaluateFieldProgram(fieldProgram, mx, my, mz, mt, volumetricOriginX, volumetricOriginY, 0).combined * 0.5,
+      );
+
+      // xray computes ONE step count for the whole evaluate() pass, from the
+      // MAX (post-slab-clip) chord over every covered cell — not a per-cell
+      // Nyquist floor the way carve uses. A per-cell count would let
+      // neighboring cells' `ceil()` step-count flip by +-1 or +-2 steps,
+      // which carve's first-hit search tolerates (the error is a sub-step
+      // shift in WHERE the hit lands) but an accumulated integral does not:
+      // two neighboring cells integrating the same density over a
+      // near-identical chord at slightly different step counts can read up
+      // to ~20% apart in brightness, which is visible as per-cell speckle
+      // (VOLUMETRIC-2.md §1 "Uniform step count per evaluate"). This costs a
+      // first pass over every covered cell before the shading pass below.
+      let xrayUniformSteps = 0;
+      if (xrayActive) {
+        const op = context.base.objectPosition!;
+        const exitBuf = context.base.objectExit!;
+        let maxChord = 0;
+        for (let i = 0; i < context.base.length; i++) {
+          if (context.target.coverage[i]! <= 0) continue;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
+          let mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
+          let mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
+          if (slabActive) {
+            const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
+            if (!clip) continue;
+            mEntry = clip.entry; mExit = clip.exit;
+          }
+          const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
+          if (chordLength > maxChord && Number.isFinite(chordLength)) maxChord = chordLength;
+        }
+        xrayUniformSteps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
       }
 
       // One evaluator for the whole program (see `evaluateFieldProgram`) so
@@ -2129,20 +2269,46 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
           const hasExit = Number.isFinite(exx) && Number.isFinite(exy) && Number.isFinite(exz);
           let hitX = entryX, hitY = entryY, hitZ = entryZ, hitDistance = 0;
+          let marched = false;
           if (hasExit) {
             const exitX = exx * scale, exitY = exy * scale, exitZ = exz * scale;
-            const chordLength = Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
-            // A degenerate/non-finite ray (grazing silhouette: entry === exit)
-            // has no chord to march — `marchField` itself already misses this
+            let mEntry: readonly [number, number, number] = [entryX, entryY, entryZ];
+            let mExit: readonly [number, number, number] = [exitX, exitY, exitZ];
+            // Clip-then-march (VOLUMETRIC-2.md §1 "Slab clip"): the entry ->
+            // exit segment is clipped to the slab interval BEFORE step-count
+            // computation and marching, so a narrow slab gets the full step
+            // budget inside the slab rather than most of it spent on samples
+            // outside it. Fade distance stays measured from the TRUE
+            // (pre-clip) entry — `entryOffset` carries the true-entry ->
+            // clipped-entry distance, added back onto the march's own
+            // (clip-relative) `sampleDistance` below.
+            let entryOffset = 0;
+            let slabExcludesChord = false;
+            if (slabActive) {
+              const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
+              if (!clip) {
+                slabExcludesChord = true;
+              } else {
+                mEntry = clip.entry; mExit = clip.exit;
+                entryOffset = clip.tEntry * Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
+              }
+            }
+            // The chord doesn't intersect an active slab at all: nothing is
+            // visible within the cut along this ray. Ordinary compositor
+            // semantics — a hole — not a fallback to the (possibly
+            // outside-the-slab) entry surface.
+            if (slabExcludesChord) continue;
+
+            const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
+            // A degenerate/non-finite ray (grazing silhouette: entry === exit,
+            // or a slab clip that only touches the interval at one point) has
+            // no chord to march — `marchField` itself already misses this
             // case, but the CALLER must not read that miss as a hole: it falls
-            // back to surface sampling, i.e. the entry point at distance 0,
-            // which shares paint's own emission path below unchanged.
+            // back to surface sampling at the TRUE entry (subject to the slab
+            // test below), which shares paint's own emission path unchanged.
             if (chordLength > 0 && Number.isFinite(chordLength)) {
               const result = marchField(
-                [entryX, entryY, entryZ], [exitX, exitY, exitZ],
-                (mx, my, mz, mt) => clamp01(
-                  params.bias + params.gain * evaluateFieldProgram(fieldProgram, mx, my, mz, mt, cx, cy, cz).combined * 0.5,
-                ),
+                mEntry, mExit, densitySample,
                 { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
               );
               // No solid sample anywhere along a genuine (non-degenerate) chord:
@@ -2166,17 +2332,29 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               // the crossing isn't already bracket-exact (VOLUMETRIC.md's
               // Carve section — "hit at parameter t evaluates the paint
               // pipeline at the hit point"). `sampleDistance` is `marchField`'s
-              // own `sampleT * chordLength`, so this can't drift out of sync
-              // again. For the entry-already-solid short-circuit,
-              // `sampleX/Y/Z`/`sampleDistance` already equal the entry point
-              // and 0 respectively, so this is a no-op there.
-              hitDistance = result.sampleDistance;
+              // own `sampleT * chordLength` along the MARCHED (possibly
+              // slab-clipped) chord; `entryOffset` (0 with no active slab)
+              // carries it back to the true entry so this can't drift out of
+              // sync.
+              hitDistance = entryOffset + result.sampleDistance;
               hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
+              marched = true;
             }
           }
           // else: no finite exit for this cell (should not happen once
           // objectExit is retained for a covered cell, but degrades the same
           // way — surface sampling at the entry point).
+          if (!marched) {
+            // The degenerate-chord fallback (paint at the TRUE entry, distance
+            // 0) applies the slab test too — it only fires when the entry
+            // point itself lies inside an active slab (VOLUMETRIC-2.md §1
+            // "Slab clip"): otherwise the "surface" this would paint is
+            // exactly what the cut is supposed to hide.
+            if (slabActive) {
+              const coord = slabAxisIdx === 0 ? entryX : slabAxisIdx === 1 ? entryY : entryZ;
+              if (!pointInSlab(coord, params.slabStart, params.slabEnd)) continue;
+            }
+          }
 
           const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
           // Carve is validated to `subcellRes: "1x1"` only (never ink/2x4), so
@@ -2191,6 +2369,57 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           // wall identically; normalizing by chord would paint a spurious
           // silhouette-tracking gradient (VOLUMETRIC.md's Carve section).
           applyFieldSynthColor(i, point, true, Math.exp(-params.marchFade * hitDistance));
+          continue;
+        }
+
+        if (xrayActive) {
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          const exitBuf = context.base.objectExit!;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          // Unlike carve, xray has NO surface-sampling fallback for a
+          // degenerate/absent chord: this deliberately differs from carve's
+          // paint-at-entry fallback (VOLUMETRIC-2.md §1 "Degenerate chord") —
+          // brightness of a zero-length chord is 0 (no material to absorb
+          // through), and a full-strength rim ring around a transmittance
+          // volume would contradict the mode. The cell just emits nothing.
+          if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
+
+          let mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
+          let mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
+          if (slabActive) {
+            const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
+            if (!clip) continue; // chord doesn't intersect the slab: nothing visible along it
+            mEntry = clip.entry; mExit = clip.exit;
+          }
+          const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
+          if (!(chordLength > 0) || !Number.isFinite(chordLength)) continue; // degenerate -> emits nothing, see above
+
+          const integral = integrateField(mEntry, mExit, densitySample, {
+            steps: xrayUniformSteps, maxSteps: xrayUniformSteps, finestFreq: 0, time,
+          });
+          const transmittance = Math.exp(-params.xrayGain * integral.sum);
+          const brightness = 1 - transmittance;
+          // The `subcellRes: "ink"` full-coverage precedent: a cell that
+          // emits at all gets full coverage (not level-scaled) — half a
+          // transmittance value is still a real, visible brightness, and
+          // fractional-coverage dither would drown the look. Cells under the
+          // 1/255 threshold don't emit at all (VOLUMETRIC-2.md §1 "Output
+          // mapping").
+          if (brightness < 1 / 255) continue;
+
+          setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(brightness * rampMax)))]!);
+          // `voiceColors` is inert under xray (documented no-op on the
+          // schema's `voiceColors` key): an all-zero-weight point makes
+          // `applyFieldSynthColor`'s voiceColors branches fall through to the
+          // plain color/colorB gradient unconditionally, regardless of
+          // `params.voiceColors`.
+          applyFieldSynthColor(i, {
+            active: 1, value: brightness,
+            cr: 0, cg: 0, cbv: 0, cw: 0, co: 0,
+            car: 0, cag: 0, cabv: 0, cao: 0, caw: 0,
+          }, false, 1);
           continue;
         }
 

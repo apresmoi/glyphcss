@@ -405,6 +405,22 @@ export interface FieldMarchOptions {
   readonly time?: number;
 }
 
+/**
+ * The step-count floor shared by `marchField` and `integrateField`
+ * (VOLUMETRIC-2.md §1 "The integrator"): `max(minSteps, min(cap,
+ * ceil(2*chordLength*finestFreq)))`. Carve and xray march/integrate the same
+ * field over the same chord at the same resolution — if each derived its own
+ * step count they could silently disagree about how finely a thin feature is
+ * resolved.
+ */
+export function fieldStepCount(chordLength: number, opts: FieldMarchOptions = {}): number {
+  const maxStepsCap = Math.max(1, Math.round(opts.maxSteps ?? 256));
+  const minSteps = Math.max(1, Math.min(maxStepsCap, Math.round(opts.steps ?? 48)));
+  const finestFreq = opts.finestFreq ?? 0;
+  const nyquistSteps = finestFreq > 0 ? Math.ceil(2 * chordLength * finestFreq) : 0;
+  return Math.max(minSteps, Math.min(maxStepsCap, nyquistSteps));
+}
+
 export interface FieldMarchHit {
   readonly hit: true;
   /** Parameter along entry->exit, 0 at entry, 1 at exit. */
@@ -496,11 +512,7 @@ export function marchField(
   if (!(chordLength > 0) || !Number.isFinite(chordLength)) return { hit: false };
 
   const time = opts.time ?? 0;
-  const maxStepsCap = Math.max(1, Math.round(opts.maxSteps ?? 256));
-  const minSteps = Math.max(1, Math.min(maxStepsCap, Math.round(opts.steps ?? 48)));
-  const finestFreq = opts.finestFreq ?? 0;
-  const nyquistSteps = finestFreq > 0 ? Math.ceil(2 * chordLength * finestFreq) : 0;
-  const steps = Math.max(minSteps, Math.min(maxStepsCap, nyquistSteps));
+  const steps = fieldStepCount(chordLength, opts);
 
   let prevT = 0;
   let prevValue = sampler(ex, ey, ez, time);
@@ -554,4 +566,56 @@ export function marchField(
     prevValue = value;
   }
   return { hit: false };
+}
+
+export interface FieldIntegrateResult {
+  /** `Σ sampler(p(t_i)) * Δt`, in the same units as `entry`/`exit`. */
+  readonly sum: number;
+  /** The step count `glyphFieldStepCount` resolved for this chord (or an explicit `opts.steps`/`opts.maxSteps` override, see that helper). */
+  readonly steps: number;
+  readonly chordLength: number;
+}
+
+/**
+ * Integrate a scalar field along the segment `entry -> exit` (VOLUMETRIC-2.md
+ * §1 "The integrator") — `marchField`'s sibling: it returns a first hit and
+ * cannot express an accumulated quantity like xray's transmittance integral.
+ * Sampler-agnostic, exactly like `marchField`.
+ *
+ * Quadrature is midpoint, not endpoint: `steps` samples are taken at
+ * `t_i = (i + 1/2)/steps * chordLength` for `i` in `[0, steps)`, each
+ * weighted by `Δt = chordLength / steps`. This never double-counts a shared
+ * endpoint between adjacent segments the way a naive trapezoidal/endpoint
+ * rule would. A non-finite sample contributes 0 to the sum, same rule
+ * `marchField` uses for a non-finite grid sample — it is a measurement
+ * failure at that point, not evidence of an empty (zero-valued) field there.
+ *
+ * A degenerate segment (`entry === exit`, non-finite, or otherwise
+ * zero-length) has no chord to integrate over: returns `{ sum: 0, steps: 0,
+ * chordLength }` rather than throwing or fabricating a nonzero sum.
+ */
+export function integrateField(
+  entry: readonly [number, number, number],
+  exit: readonly [number, number, number],
+  sampler: FieldSampler,
+  opts: FieldMarchOptions = {},
+): FieldIntegrateResult {
+  const [ex, ey, ez] = entry;
+  const [xx, xy, xz] = exit;
+  const dx = xx - ex, dy = xy - ey, dz = xz - ez;
+  const chordLength = Math.hypot(dx, dy, dz);
+  if (!(chordLength > 0) || !Number.isFinite(chordLength)) {
+    return { sum: 0, steps: 0, chordLength: Number.isFinite(chordLength) ? chordLength : 0 };
+  }
+
+  const time = opts.time ?? 0;
+  const steps = fieldStepCount(chordLength, opts);
+  const dt = chordLength / steps;
+  let sum = 0;
+  for (let i = 0; i < steps; i++) {
+    const t = (i + 0.5) / steps;
+    const value = sampler(ex + dx * t, ey + dy * t, ez + dz * t, time);
+    if (Number.isFinite(value)) sum += value * dt;
+  }
+  return { sum, steps, chordLength };
 }
