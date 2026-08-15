@@ -2420,6 +2420,17 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             cr: 0, cg: 0, cbv: 0, cw: 0, co: 0,
             car: 0, cag: 0, cabv: 0, cao: 0, caw: 0,
           }, false, 1);
+          // `applyFieldSynthColor`'s shared coverage line folds the resolved
+          // color's alpha into coverage — correct for paint/ink, where alpha
+          // IS the intended coverage. xray's contract is different (checked
+          // above, "full-coverage precedent"): coverage is 1 for any B >=
+          // 1/255 regardless of color alpha, which may still tint the RGB
+          // output (unchanged above) but must never thin the glyph itself —
+          // a translucent xray color is a color choice, not a transmittance
+          // signal. Overriding here (rather than a coverage-forcing flag
+          // threaded through the shared helper) keeps carve/paint's own
+          // alpha-as-coverage behavior untouched.
+          context.output.coverage[i] = 1;
           continue;
         }
 

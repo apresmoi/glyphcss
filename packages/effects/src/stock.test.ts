@@ -13,6 +13,9 @@ import {
 } from "glyphcss";
 import {
   GlyphEffectCatalog,
+  buildFieldSynthVoices,
+  compileFieldSynthProgram,
+  compileFieldVoices,
   defaultGlyphEffectParams,
   fieldSynth,
   flowText,
@@ -22,6 +25,7 @@ import {
   matrixRain,
   noiseDissolve,
   objectVolumetricAlongLane,
+  resolveFieldSynthLayerShapes,
   ripple,
   scan,
   scramble,
@@ -31,6 +35,12 @@ import {
   type AnyParams,
   type GlyphStockEffect,
 } from "./stock";
+// The IR compile/evaluate seam field-synth's own `evaluate()` uses
+// internally (see stock.ts) — reused here, not reimplemented, so the
+// uniform-step-count test below (VOLUMETRIC-2.md §1 "Uniform step count per
+// evaluate", acceptance criterion 2) computes its expected brightness from
+// the SAME integrator, not a parallel hand-derivation that could drift.
+import { evaluateFieldProgram, fieldStepCount, integrateField } from "./fieldProgram";
 
 // A plain union (not a generic parameter) so a narrower union — e.g. the
 // three-effect "cases" arrays below — assigns in directly without invoking
@@ -2673,6 +2683,28 @@ describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptanc
     expect(Array.from(output.channels).every((c) => c === 0)).toBe(true);
   });
 
+  it("coverage is exactly 1 for a translucent color once B >= 1/255 (VOLUMETRIC-2.md:75) — alpha never thins xray coverage", () => {
+    // Reviewer repro: a solid unit chord with a translucent color used to
+    // report coverage 0.25 (the color's own alpha), because xray routed
+    // through the shared paint/ink color helper, which folds alpha into
+    // coverage. xray's own contract is full coverage for any emitting cell,
+    // regardless of color alpha.
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectExit[0] = 1; // cell 0: unit chord along x, solid throughout
+    const output = evaluate(
+      fieldSynth,
+      {
+        space: "object", scale: 1, render: "xray", bias: 2, gain: 0, xrayGain: 4,
+        color: "rgba(255, 0, 0, 0.25)",
+      },
+      { objectPosition, objectExit },
+    );
+    expect(output.coverage[0]).toBeGreaterThan(0);
+    expect(output.coverage[0]).toBe(1);
+  });
+
   it("xrayGain: 0 renders fully transparent regardless of field content", () => {
     const length = 12 * 6;
     const objectPosition = new Float32Array(length * 3);
@@ -2766,25 +2798,86 @@ describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptanc
     expect(hits).toBeLessThan(length);
   });
 
-  it("neighboring same-chord cells (uniform step count pinned) produce identical output for a field uniform along the march axis", () => {
+  it("uniform step count is pinned by the PASS's max chord, not a per-cell ceil (a per-cell implementation fails this)", () => {
+    // Two cells at different (x, y): cell 0 has a SHORT chord (length 1)
+    // along z, cell 1 has a much LONGER chord (length 20) along z. Unlike
+    // the old same-chord version of this test, a per-cell `ceil` implementation
+    // and the spec's pinned-global-max-chord implementation provably diverge
+    // here — cell 0's own chord alone would floor to `marchSteps`, but the
+    // pass-wide max chord (cell 1's) drives every cell's step count far above
+    // that (VOLUMETRIC-2.md §1 "Uniform step count per evaluate").
     const length = 12 * 6;
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
-    // Two cells at different (x, y) but the SAME unit-length chord along z;
-    // the field depends only on z, so both chords see identical content.
-    objectPosition[0 * 3] = 0.1; objectPosition[0 * 3 + 1] = 0.1; objectPosition[0 * 3 + 2] = 0;
-    objectExit[0 * 3] = 0.1; objectExit[0 * 3 + 1] = 0.1; objectExit[0 * 3 + 2] = 1;
-    objectPosition[1 * 3] = 0.9; objectPosition[1 * 3 + 1] = 0.9; objectPosition[1 * 3 + 2] = 0;
-    objectExit[1 * 3] = 0.9; objectExit[1 * 3 + 1] = 0.9; objectExit[1 * 3 + 2] = 1;
-    const params = {
-      space: "object" as const, scale: 1, render: "xray" as const, bias: 0.3, gain: 1, xrayGain: 2,
-      field1: "linearZ", wave1: "square", freq1: 3, duty1: 0.4, speed1: 0, phase1: 0.1, amp1: 1,
+    objectPosition[0 * 3] = 0; objectPosition[0 * 3 + 1] = 0; objectPosition[0 * 3 + 2] = 0;
+    objectExit[0 * 3] = 0; objectExit[0 * 3 + 1] = 0; objectExit[0 * 3 + 2] = 1;
+    objectPosition[1 * 3] = 5; objectPosition[1 * 3 + 1] = 5; objectPosition[1 * 3 + 2] = 0;
+    objectExit[1 * 3] = 5; objectExit[1 * 3 + 1] = 5; objectExit[1 * 3 + 2] = 20;
+
+    const overrides = {
+      space: "object" as const, scale: 1, render: "xray" as const,
+      bias: 0.3, gain: 1, xrayGain: 8, marchSteps: 48,
+      field1: "linearZ", wave1: "square", freq1: 22, duty1: 0.1, speed1: 0, phase1: 0.03, amp1: 1,
       amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, // isolate voice1 (amp2 defaults to 1)
+      // color=black, colorB=white, gradient=1: the output color channel
+      // becomes an 8-bit-resolution encode of raw brightness
+      // (round(255*B) per channel), a far finer probe than the quantized
+      // glyph ramp the old version of this test compared.
+      color: "#000000", colorB: "#ffffff", gradient: 1, voiceColors: false,
     };
+    const params = { ...defaultParamsForSchema(fieldSynth.parameterSchema), ...overrides } as AnyParams;
+
+    // Compile the SAME field-program IR the live evaluator compiles from
+    // these params, via the exact seam `evaluate()` uses internally
+    // (`buildFieldSynthVoices` -> `compileFieldVoices` ->
+    // `compileFieldSynthProgram`) — not a parallel reimplementation that
+    // could silently diverge from the real compile step.
+    const voices = buildFieldSynthVoices(params);
+    const compiledVoices = compileFieldVoices(voices, params.scale as number);
+    const layerShapes = resolveFieldSynthLayerShapes(params);
+    const fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, true);
+    let finestFreq = 0;
+    for (const voice of compiledVoices) if (voice.amp > 0 && voice.freq > finestFreq) finestFreq = voice.freq;
+    const originX = (params.originU as number) * (params.scale as number);
+    const originY = (params.originV as number) * (params.scale as number);
+    const bias = params.bias as number, gain = params.gain as number;
+    const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+    const densitySample = (mx: number, my: number, mz: number, mt: number): number => clamp01(
+      bias + gain * evaluateFieldProgram(fieldProgram, mx, my, mz, mt, originX, originY, 0).combined * 0.5,
+    );
+
+    const shortEntry: readonly [number, number, number] = [0, 0, 0];
+    const shortExit: readonly [number, number, number] = [0, 0, 1];
+    const shortChord = 1, longChord = 20;
+    const marchOpts = { steps: params.marchSteps as number, maxSteps: 256, finestFreq };
+    const globalSteps = fieldStepCount(Math.max(shortChord, longChord), marchOpts);
+    const perCellSteps = fieldStepCount(shortChord, marchOpts);
+    // The setup only discriminates the two implementations if the counts
+    // themselves actually diverge.
+    expect(perCellSteps).toBeLessThan(globalSteps);
+
+    const xrayGain = params.xrayGain as number;
+    const globalSum = integrateField(shortEntry, shortExit, densitySample, {
+      steps: globalSteps, maxSteps: globalSteps, finestFreq: 0, time: 0,
+    }).sum;
+    const perCellSum = integrateField(shortEntry, shortExit, densitySample, {
+      steps: perCellSteps, maxSteps: perCellSteps, finestFreq: 0, time: 0,
+    }).sum;
+    const globalBrightness = 1 - Math.exp(-xrayGain * globalSum);
+    const perCellBrightness = 1 - Math.exp(-xrayGain * perCellSum);
+    // The two references must themselves diverge measurably, or a
+    // per-cell-ceil bug and the correct implementation would be
+    // indistinguishable at cell 0 regardless of which one runs.
+    expect(Math.abs(globalBrightness - perCellBrightness)).toBeGreaterThan(0.02);
+
     const output = evaluate(fieldSynth, params, { objectPosition, objectExit });
-    expect(output.coverage[0]).toBeGreaterThan(0);
-    expect(output.glyph[0]).toBe(output.glyph[1]);
-    expect(output.color[0]).toBe(output.color[1]);
+    expect(output.coverage[0]).toBe(1);
+    const decodedBrightness = (output.color[0]! & 0xff) / 255;
+    // Cell 0's ACTUAL output must match the pinned-global-max-chord
+    // reference, not the per-cell-ceil one a tautological same-chord test
+    // could never have told apart.
+    expect(decodedBrightness).toBeCloseTo(globalBrightness, 2);
+    expect(Math.abs(decodedBrightness - perCellBrightness)).toBeGreaterThan(0.015);
   });
 
   it("voiceColors is inert under xray — output uses the plain color/colorB gradient regardless of the toggle", () => {
