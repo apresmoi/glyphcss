@@ -187,10 +187,10 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
 
 `charMode`, `hiddenLines` and `solidWeightRamp` are pure functions of geometry +
-camera, so a static bake reproduces them exactly — but they are reachable only
-through `compileScene` (the pure function in `glyphcss`). `@glyphcss/compile`'s
-CLI, Vite plugin and `compileFile` do **not** accept them yet; call
-`compileScene` directly if you need them baked.
+camera, so a static bake reproduces them exactly. `compileScene` and
+`GlyphSceneStatic` (React + Vue) accept all three. `@glyphcss/compile`'s CLI,
+Vite plugin and `compileFile` do **not** accept them yet; call `compileScene`
+directly if you need them in those pipelines.
 
 `wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
 in every path — the static bake takes a flat polygon list and cannot represent
@@ -300,11 +300,11 @@ const { html, pen } = buildGlyphFieldSynthStaticExport(polygons, {
 Payload is fixed regardless of loop length and the motion is continuously
 smooth — unlike a frame roll, whose payload grows with `frameCount`. Two bakes
 shrink it further for the common flat-surface case: when every covered cell's
-domain coordinate fits an affine function of `(col, row)` within a tight
-residual, the per-cell coordinate table (normally ~86% of the payload) collapses
-to six fitted scalars; and when the effect covers every cell with
-`blend: "replace"` at opacity 1, the base grid is skipped too. A curved or
-partially covered surface fails those checks and keeps the full table.
+domain coordinate fits an affine function of `(col, row)`, the per-cell
+coordinate table (most of the payload) collapses to six fitted scalars; and
+when the effect covers every cell with `blend: "replace"` at opacity 1, the
+base grid is skipped too. A curved or partially covered surface keeps the full
+table.
 
 Field synth only: another effect id would need its own exported coordinate
 resolver plus a hand-written port of its per-cell math, since there is no way to

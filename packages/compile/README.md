@@ -6,6 +6,8 @@ scene can be rendered ahead of time and inlined into HTML with **zero runtime
 JS**. Defaults match the glyphcss library exactly, so a compiled scene is
 byte-identical to what the runtime would render for the same inputs.
 
+Full documentation: **https://glyphcss.com**
+
 ## Vite plugin
 
 ```ts
@@ -74,7 +76,7 @@ const { html } = compileScene({ polygons, cols: 80, rows: 24 }); // pure, no DOM
 | Option | Query / flag | Default (library) |
 |---|---|---|
 | Camera angle | `rotX` `rotY` / `--rot-x` `--rot-y` | 65 / 45 |
-| Zoom | `zoom` / `--zoom` | 0.3 |
+| Zoom | `zoom` / `--zoom` | 0.65 |
 | Projection | `projection=orthographic` / `--ortho` | perspective |
 | Grid | `cols` `rows` `cellAspect` / `--cols` … | 80 / 24 / 2.0 |
 | Render mode | `mode` / `--mode` | solid |

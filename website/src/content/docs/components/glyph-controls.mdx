@@ -29,7 +29,8 @@ restores full detail on release.
 | `drag` | `boolean` | `true` | Enable click-and-drag rotation |
 | `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
 | `invert` | `boolean \| number` | `false` | Invert drag direction |
-| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation config |
+| `clampPitch` | `boolean` | `true` | Clamp vertical drag to ±90°. Set `false` for globe-style unrestricted tumbling |
+| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation config. `axis` is `"x"` or `"y"` |
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -110,7 +111,7 @@ zooms. Best for top-down maps or floor-plan scenes.
 | `drag` | `boolean` | `true` | Enable pointer-drag pan |
 | `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
 | `invert` | `boolean \| number` | `false` | Invert drag direction |
-| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation |
+| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation. `axis` is `"x"` or `"y"` |
 
 <Tabs syncKey="fw">
   <TabItem label="React">

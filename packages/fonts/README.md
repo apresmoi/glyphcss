@@ -2,6 +2,8 @@
 
 Turn **fonts + text into extruded 3D polygon meshes** for [glyphcss](https://github.com/apresmoi/glyphcss). Framework-agnostic: it returns plain `Polygon[]`, so the same call works in the vanilla, React, and Vue renderers — no per-framework wrappers.
 
+Full documentation: **https://glyphcss.com**
+
 ```bash
 pnpm add @glyphcss/fonts glyphcss
 ```
@@ -56,7 +58,7 @@ const polygons = composeText(font, "Glyph\nCSS", {
   warp: { shape: "arch", amount: 0.6 }, simplify: 0,
 
   // 2 · cross-section / edge profile (one union)
-  profile: { edge: "bevel", coverage: "front" },
+  profile: { edge: "bevel" },
 
   // 3 · per-face material — one `Face` shape for all three
   faces: {
@@ -74,7 +76,7 @@ const polygons = composeText(font, "Glyph\nCSS", {
 |---|---|
 | **Layout** | `size` · `depth` (0 = flat slab, no edges) · `curveSteps` · `letterSpacing` · `lineHeight` · `align` · `scale: [x,y]` · `underline` · `strike` · `warp` · `simplify` |
 | **`profile`** | `"flat"` · `{ edge: "bevel"\|"round", raised?, segments? }` · `{ curve: CubicBezier, segments? }` |
-| **`faces`** | `{ front?, sides?, back? }` · a single `Face` · `FaceStop[]` |
+| **`faces`** | `{ front?, sides?, back? }` (set `sides`/`back` to `false` to skip that geometry) · a single `Face` · `FaceStop[]` |
 | **`outline`** | `{ color, width }` — a colored halo around the front face |
 
 - **`profile` (shape)** and **`faces` (color)** are independent functions of the same depth axis `t ∈ [0,1]` (0 = front, 1 = back). `edge` bevels/rounds the edges (`raised` flips a round to a convex dome); `curve` is a custom edge from a CSS `cubic-bezier` easing.
@@ -102,5 +104,5 @@ This is a focused reader, not a full font library:
 
 - **TrueType (`.ttf`, `glyf`) only.** CFF/OpenType (`.otf`, "OTTO") is rejected with a clear error. Google Fonts ship TrueType, so this covers the common case.
 - **Uncompressed sfnt only** — woff/woff2 are not unpacked (the Google Fonts loader fetches raw `.ttf`).
-- No shaping, kerning, ligatures, or variable-font axes — each character maps to one glyph plus its advance width.
+- No shaping, ligatures, or variable-font axes — each character maps to one glyph plus its advance width. GPOS pair kerning **is** read and applied between adjacent glyphs.
 - Script fonts with heavily self-overlapping contours can leave minor triangulation artifacts.

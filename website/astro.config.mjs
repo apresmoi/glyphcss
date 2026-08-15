@@ -82,8 +82,8 @@ export default defineConfig({
           label: 'Components',
           items: [
             { label: 'GlyphScene', slug: 'components/glyph-scene' },
-            { label: 'GlyphCamera', slug: 'components/glyph-camera' },
-            { label: 'GlyphOrbitControls', slug: 'components/glyph-controls' },
+            { label: 'Cameras', slug: 'components/glyph-camera' },
+            { label: 'Controls', slug: 'components/glyph-controls' },
             { label: 'GlyphHotspot', slug: 'components/glyph-hotspot' },
           ],
         },
@@ -91,6 +91,7 @@ export default defineConfig({
           label: 'Guides',
           items: [
             { label: 'Loading Meshes', slug: 'guides/meshes' },
+            { label: 'Creating Shapes', slug: 'guides/creating-shapes' },
             { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
             { label: 'Performance', slug: 'guides/performance' },
             { label: 'Render Modes', slug: 'guides/render-modes' },

@@ -4,7 +4,9 @@ ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace 
 
 ![glyphcss — ETOPO1 world topography rasterised to ASCII](assets/banner.png)
 
-Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, voxel, and ink render modes with swappable glyph palettes.
+Loads OBJ, glTF, GLB, STL, and MagicaVoxel `.vox` files. Supports wireframe, solid, voxel, and ink render modes with swappable glyph palettes.
+
+**Full documentation: [glyphcss.com](https://glyphcss.com)** — guides, component references, and the features not covered in this README.
 
 > Forked from [polycss](https://github.com/LayoutitStudio/polycss) — the mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition tree, camera math, and input controls carried over intact. The paint backend is rewritten: instead of emitting one CSS-transformed DOM leaf per polygon, the rasteriser walks all polygons, fills a `cols × rows` character grid, and writes a single string to `<pre>.textContent` per render.
 
@@ -94,12 +96,13 @@ Each render pass fills a `cols × rows` character grid and writes the result as 
 | `wireframe` | Polygon edges rasterised as ASCII rules; glyph weight scales with edge prominence |
 | `solid` | Filled polygons; glyph picked from the palette's solid ramp by Lambert-shaded intensity |
 | `voxel` | Cube-aligned geometry; face normals drive glyph selection |
+| `ink` | Silhouette + crease outline only; oriented glyphs trace the contour, interior stays empty |
 
 ### Glyph Palettes
 
 The `glyphPalette` option selects a named character set used for both wireframe tiers and solid shading ramps. Built-in palettes:
 
-`default`, `ascii`, `dots`, `lines`, `blocks`, `stars`, `arrows`, `braille`, `runes`, `math`, `binary`, `hex`
+`default`, `ascii`, `dots`, `lines`, `blocks`, `solid`, `detail`, `stars`, `arrows`, `braille`, `runes`, `math`, `binary`, `hex`
 
 ```tsx
 <GlyphScene mode="wireframe" glyphPalette="braille">
@@ -117,14 +120,14 @@ The `glyphPalette` option selects a named character set used for both wireframe 
 |---|---|---|---|
 | `rotX` | `number` | `65` | Tilt angle in **degrees** |
 | `rotY` | `number` | `45` | Spin angle in **degrees** |
-| `zoom` | `number` | `0.65` | Absolute scale: `zoom=1` → one world unit = 50 px (`BASE_TILE`). Not a viewport fraction. |
+| `zoom` | `number` | `0.65` | Absolute scale in CSS pixels per world unit: `zoom=50` → one world unit = 50 px. Not a viewport fraction. |
 | `center` | `[number, number]` | `[0.5, 0.5]` | Projection center in normalized grid coordinates |
 
 `GlyphPerspectiveCamera` adds:
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `distance` | `number` | `6` | Perspective distance in world units. Larger = flatter. |
+| `distance` | `number` | `0` | Camera pull-back in CSS pixels under the default CSS-perspective projection. Larger = flatter. |
 | `stretch` | `number` | `1.0` | Extra horizontal scale on top of `cellAspect` |
 
 `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Rotation values are in degrees throughout (XYZ Euler) — there are no radians in the public API.
@@ -141,7 +144,7 @@ Must be placed inside a camera component.
 | `cols` | `number` | `80` | Character grid width |
 | `rows` | `number` | `24` | Character grid height |
 | `cellAspect` | `number` | `2.0` | Cell height / width ratio |
-| `directionalLight` | `GlyphDirectionalLight` | `{ direction: [-0.5,-0.7,-0.5], intensity: 1 }` | Key light |
+| `directionalLight` | `GlyphDirectionalLight` | `{ direction: [0.5, 0.7, 0.5], intensity: 1 }` | Key light. `direction` points from the surface toward the light source. |
 | `ambientLight` | `GlyphAmbientLight` | `{ intensity: 0.4 }` | Fill light |
 | `smoothShading` | `boolean` | `false` | Gouraud shading — interpolates Lambert intensity across vertices. Off by default (faceted ASCII look is intentional). |
 | `creaseAngle` | `number` | `60` | Degrees — edges sharper than this stay flat even with `smoothShading` on |
@@ -153,7 +156,7 @@ Must be placed inside a camera component.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `polygons` | `Polygon[]` | — | Pre-parsed geometry. Takes precedence over `src` and `geometry`. |
-| `src` | `string` | — | URL of an OBJ, glTF, GLB, or VOX file (custom elements and `<glyph-mesh>` only; use `loadMesh` imperatively in React/Vue) |
+| `src` | `string` | — | URL of an OBJ, glTF, GLB, STL, or VOX file — fetched and parsed automatically |
 | `geometry` | `GlyphGeometryName` | — | Built-in geometry shortcut (e.g. `"sphere"`, `"cube"`) |
 | `size` | `number` | `1` | Uniform size passed to `resolveGeometry` |
 | `color` | `string` | — | Fill color passed to `resolveGeometry` |
@@ -197,26 +200,16 @@ function tick(now: number) {
 requestAnimationFrame(tick);
 ```
 
-The initial catalog also includes flow text, scan, wipe, scramble, glitch,
-noise dissolve, and ripple. Matrix rain, flow text, and scan use authored UVs
-when available in `auto` mapping; `surface` forces world-position and
-face-normal mapping on solid models:
-world `-Z` is projected into each face so sloped polygons flow downhill and
-differently oriented faces derive different directions. A horizontal face has
-no downhill tangent, so it receives a stable pseudo-random in-plane direction.
-Generated Matrix rain fits each visible coplanar face's world-derived surface
-basis to projected glyph-cell space and evaluates both the sparse trail mask and
-the word in that same orthogonal face-local field. The glyph phase comes from
-distance behind the moving head, so `HOLA…` travels in the strand's direction and
-at its speed despite face shear or foreshortening, without skipping, repeating in
-blocks, or changing phase when a periodic strand wraps.
-Every active trail glyph has full coverage; lane density and trail length create
-the gaps without coverage dithering severing the words.
-Projected scene coordinates remain the fallback outside solid mode. Matrix rain
-can preserve original surface colors or tint every strand with one configurable
-color while retaining the model's lighting and shape. See
-[`ANIMATIONS.md`](./ANIMATIONS.md) for the implemented boundary and the richer
-graph/sampling design.
+The catalog also includes flow text, scan, wipe, scramble, glitch, noise
+dissolve, ripple, and field synth. Flow text and scan default to
+`space: "auto"` (authored UVs when available, generated surface mapping
+otherwise); matrix rain defaults to `space: "object"`, a volumetric field in
+the mesh's own local space. Matrix rain can keep the model's original surface
+colors or tint every strand with one monochrome color while preserving
+lighting and shape.
+
+See the [effects guide](https://glyphcss.com/guides/effects/) for the full
+parameter reference and mapping details.
 
 ### GlyphGround
 
@@ -238,7 +231,7 @@ Convenience ground plane — a horizontal `planePolygons` registered as a mesh.
 | `GlyphMapControls` | Pan-first map-style input |
 | `GlyphFirstPersonControls` | Keyboard and pointer-look navigation |
 
-Props accepted by all controls: `drag`, `wheel`, `touch`.
+`GlyphOrbitControls` and `GlyphMapControls` accept `drag`, `wheel`, `invert`, and `animate`; orbit also accepts `clampPitch`.
 
 ### Hotspots
 
@@ -345,6 +338,7 @@ Supported formats:
 
 - OBJ + MTL, including `map_Kd` textures and UV coordinates
 - glTF / GLB, including embedded images and `TEXCOORD_0`
+- STL (binary and ASCII)
 - MagicaVoxel `.vox`, with face-culling and default or custom palettes
 
 ## Performance

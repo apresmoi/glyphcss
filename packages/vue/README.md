@@ -2,7 +2,9 @@
 
 # @glyphcss/vue
 
-Native Vue 3 components for glyphcss — an ASCII polygon mesh renderer that projects 3D scenes into a single `<pre>` element. Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files; renders the result as monospace text in the browser.
+Native Vue 3 components for glyphcss — an ASCII polygon mesh renderer that projects 3D scenes into a single `<pre>` element. Loads OBJ, glTF, GLB, STL, and MagicaVoxel `.vox` files; renders the result as monospace text in the browser.
+
+Full documentation: **https://glyphcss.com**
 
 ## Install
 
@@ -65,12 +67,12 @@ Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rast
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `cols` | `number` | `80` | Grid width in character cells |
-| `rows` | `number` | `40` | Grid height in character cells |
+| `rows` | `number` | `24` | Grid height in character cells |
 | `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `"solid"` | Render mode |
 
 ### `<GlyphMesh>`
 
-Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
+Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.stl`, `.vox`.
 
 | Prop | Type | Description |
 |---|---|---|
@@ -85,6 +87,7 @@ Mouse/touch/keyboard camera controls.
 
 - `useGlyphCamera()` — access the camera context
 - `useGlyphSceneContext()` — access scene state
+- `useGlyphMesh(polygons, options?)` — register polygon data as a mesh
 - `useGlyphAnimation(clips, controller)` — three.js-style animation mixer
 
 ## License

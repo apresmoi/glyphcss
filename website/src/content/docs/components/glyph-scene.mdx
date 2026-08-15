@@ -7,8 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 import GlyphDemo from "../../../components/GlyphDemo.astro";
 
 `<GlyphScene>` is the visual host. It owns the `<pre>` output element, the sibling
-hit layer, and the measured cell metrics that the projection
-keyframes consume.
+hit layer, and the measured cell metrics the projection uses.
 
 `<GlyphScene>` must be a child of a camera component (`<GlyphCamera>`,
 `<GlyphPerspectiveCamera>`, or `<GlyphOrthographicCamera>`).
@@ -24,14 +23,15 @@ keyframes consume.
 | `rows` | `number` | `24` | Grid height in character rows |
 | `cellAspect` | `number` | `2.0` | Character cell height ÷ width |
 | `glyphPalette` | `string` | `"default"` | Named glyph palette |
-| `charMode` | `"ascii" \| "braille" \| "halfblock" \| "quadrant"` | `"ascii"` | Character encoding for rasterized output. `"braille"` (wireframe-only) packs a 2×4 subcell dot grid into Unicode Braille Patterns for smoother edges. `"halfblock"` (solid-only) packs two independently colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution. `"quadrant"` (solid-only) generalizes that to a full 2×2 subcell split (16 possible glyphs) for both shape AND color resolution. Each is a documented no-op outside the mode it applies to |
-| `wireframeJunctions` | `boolean` | `false` | Box-drawing junction resolve pass for wireframe + `charMode: "ascii"`. Resolves corners/T-junctions/crossings to `┌┐└┘├┤┬┴┼─│` instead of a random per-edge glyph |
-| `hiddenLines` | `"show" \| "hide"` | `"show"` | Hidden-line removal for wireframe (+ `charMode: "braille"`) and `ink`. `"hide"` depth-tests every stroke sample against a solid surface prepass so a farther edge/wall can't paint over a nearer one — wireframe with a slope-scaled depth margin, `ink` by exempting each edge's own local vertex neighborhood from occluding it (so a mesh's own silhouette never self-occludes) plus a small residual gradient-scaled allowance. No-op in `solid` (already depth-buffered) |
-| `solidWeightRamp` | `{ glyph: string; weight: number }[]` | `undefined` | Solid-mode-only second density axis: a font-weight-calibrated `(glyph, weight)[]` ramp (see `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`), ordered darkest → densest. Replaces `glyphPalette`'s solid ramp when set. `undefined` = off, byte-identical. No-op outside `solid` mode, under `charMode: "halfblock"` or `"quadrant"`, and during active `temporalBlend` reprojection |
-| `smoothShading` | `boolean` | `false` | Gouraud shading: per-cell Lambert intensity interpolated from per-vertex normals averaged across adjacent faces within `creaseAngle`. Off by default — the faceted look is part of glyph's identity |
-| `creaseAngle` | `number` | `60` | Max angle in degrees between adjacent faces still averaged into one vertex normal when `smoothShading` is on. Above it, the edge stays hard |
-| `interactiveDownscale` | `number` | `1` | Render at `1/n` resolution *while a control is actively dragging*, restoring full detail on release. Same on-screen size (bigger cell, fewer cells) — cost scales ~quadratically with density, so this is what keeps a high-density scene inside the frame budget mid-gesture |
-| `glyphOutput` | `"visible" \| "semantic"` | `"visible"` | `"semantic"` renders authored class labels instead of shaded glyphs, and makes `scene.getGlyphSemanticCellFrame()` return a lineage snapshot. Requires `sceneManifest` + `dictionary` (JS properties, not attributes — they are data, not strings) |
+| `autoSize` | `boolean` | `false` | Measure the host element and derive `cols`/`rows` from it instead of using the fixed grid |
+| `charMode` | `"ascii" \| "braille" \| "halfblock" \| "quadrant"` | `"ascii"` | Sub-cell character encoding. `"braille"` is wireframe-only; `"halfblock"` and `"quadrant"` are solid-only. No-op outside its mode. See [character encoding](/guides/render-modes/#character-encoding-charmode) |
+| `wireframeJunctions` | `boolean` | `false` | Resolve wireframe corners and crossings to box-drawing glyphs (`┌┐└┘├┤┬┴┼─│`). ASCII wireframe only. See [junctions](/guides/render-modes/#box-drawing-junctions-wireframejunctions) |
+| `hiddenLines` | `"show" \| "hide"` | `"show"` | Hidden-line removal for `wireframe` and `ink`: `"hide"` drops strokes a nearer surface covers. No-op in `solid`. See [hidden-line removal](/guides/render-modes/#hidden-line-removal-hiddenlines) |
+| `solidWeightRamp` | `{ glyph: string; weight: number }[]` | `undefined` | Solid-only shading ramp that varies `font-weight` as well as glyph, ordered darkest → densest. Replaces the palette's solid ramp when set. See [font-weight ramp](/guides/render-modes/#font-weight-density-ramp-solidweightramp) |
+| `smoothShading` | `boolean` | `false` | Gouraud shading from averaged vertex normals. Off by default — the faceted look is part of glyph's identity |
+| `creaseAngle` | `number` | `60` | Max angle (degrees) between adjacent faces still smoothed together when `smoothShading` is on |
+| `interactiveDownscale` | `number` | `1` | Render at `1/n` resolution while a control is dragging, full detail on release. Same on-screen size — this keeps high-density scenes inside the frame budget mid-gesture |
+| `glyphOutput` | `"visible" \| "semantic"` | `"visible"` | `"semantic"` renders authored class labels instead of shaded glyphs and enables `scene.getGlyphSemanticCellFrame()`. Requires the `sceneManifest` + `dictionary` JS properties |
 | `useColors` | `boolean` | `true` | Emit color spans in the output |
 | `directionalLight` | `GlyphDirectionalLight` | — | Directional light for solid mode |
 | `ambientLight` | `GlyphAmbientLight` | — | Ambient fill for solid mode |
@@ -43,15 +43,16 @@ keyframes consume.
 
 ### Vanilla-only scene options
 
-`createGlyphScene` and `compileScene` accept a few options the React and Vue
-components do not expose as props:
+`createGlyphScene` accepts a few options the React and Vue components do not
+expose as props. `compileScene` accepts the first two (`doubleSided` and
+`supersample`) as well:
 
 | Option | Default | What it does |
 |---|---|---|
 | `doubleSided` | `false` | Shade back faces instead of culling them — needed for open meshes and flat planes viewed from behind |
-| `supersample` | `1` | Rasterize at `n×` the cell grid and box-filter down, for coverage antialiasing. `charMode: "halfblock"`/`"quadrant"` force an even supersample of at least 2 internally, since they need a genuine subcell split |
+| `supersample` | `1` | Rasterize at `n×` the cell grid and box-filter down, for coverage antialiasing. `charMode: "halfblock"`/`"quadrant"` force an even supersample of at least 2 internally |
 | `depthEpsilon` | `0` | Depth-test tolerance for coplanar surfaces |
-| `temporalBlend` | `0` | Reprojection TAA: blends the ramp index and RGB against the previous frame. `solidWeightRamp`, `charMode: "halfblock"` and `"quadrant"` are documented no-ops while it is active |
+| `temporalBlend` | `0` | Reprojection TAA: blends the ramp index and RGB against the previous frame. `solidWeightRamp` and `charMode: "halfblock"`/`"quadrant"` are no-ops while it is active |
 
 ## Cell transforms and surface UVs
 

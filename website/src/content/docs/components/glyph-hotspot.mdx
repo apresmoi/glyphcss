@@ -6,7 +6,7 @@ description: Sparse interactive hit anchor over the ASCII render.
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 `<GlyphHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII render,
-tracking a 3D anchor through every baked frame. The `<div>` is `pointer-events: auto`
+tracking a 3D anchor through the live camera. The `<div>` is `pointer-events: auto`
 inside an otherwise transparent hit layer — events fire on it like any normal DOM
 element.
 
@@ -24,13 +24,12 @@ element.
 
 ## Tracking math
 
-For an animated scene, the hotspot is projected once per frame during the bake.
-The projected cell is written straight to the element's inline `transform` on each
-render pass — one assignment per hotspot, no keyframes and no second projection.
+On every render pass the anchor is projected through the current camera and the
+resulting cell is written straight to the element's inline `transform` — one
+assignment per hotspot, no DOM rebuild and no second projection.
 
-When the user drags, the hotspot's `transform` is
-live-updated per pointermove. On release, both animations re-start from the new
-camera state.
+While the user drags, the same projection runs per pointermove, so the hotspot
+stays glued to its anchor through the whole gesture.
 
 ## Full examples
 
