@@ -233,6 +233,45 @@ describe("createGlyphScene — objectExit effect input", () => {
     host.remove();
   });
 
+  it.each(["wireframe", "voxel"] as const)(
+    "a %s-mode layer whose dynamicRequirements ask for objectExit degrades instead of throwing",
+    async (mode) => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, {
+        cols: 30,
+        rows: 20,
+        mode,
+        useColors: false,
+        doubleSided: true,
+        camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+      });
+      scene.add(cubePolygons());
+      let evaluated = false;
+      let sawObjectExit: boolean | undefined;
+      // No STATIC `requirements` (that would fail `assertEffectMode` at mount,
+      // correctly, since a hard requirement is solid-mode-only) — only a
+      // `dynamicRequirements` hook, which cannot see the render mode
+      // (VOLUMETRIC.md) and must therefore degrade rather than hard-fail
+      // when it asks for a solid-mode-only buffer outside solid mode.
+      scene.addEffectLayer({
+        effect: defineGlyphEffect<{ phase: number }>({
+          dynamicRequirements: (): readonly GlyphEffectRequirement[] => ["objectExit"],
+          evaluate({ base }) {
+            evaluated = true;
+            sawObjectExit = base.objectExit !== undefined;
+          },
+        }),
+        params: { phase: 0 },
+      });
+      await flushRenders();
+      expect(evaluated).toBe(true);
+      expect(sawObjectExit).toBe(false);
+      scene.destroy();
+      host.remove();
+    },
+  );
+
   it("rejects an unsupported requirement returned from dynamicRequirements at mount time", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

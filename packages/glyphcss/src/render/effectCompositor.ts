@@ -614,29 +614,34 @@ export function composeRetainedGlyphEffectOutput(
 
   for (const prepared of preparedLayers) {
     const { layer, params } = prepared;
-    // Static `requirements` alone is not the full active set: a
-    // `dynamicRequirements` hook can make a requirement (e.g. field-synth's
-    // `objectExit` under `render: "carve"`) live for THESE params without it
-    // ever appearing in `requirements`. Both must gate the same hard-failure
-    // checks, or a retained base grid missing the dynamically-required buffer
-    // silently evaluates with `undefined` instead of throwing.
-    const activeRequirements = new Set<GlyphEffectRequirement>([
-      ...(layer.program.requirements ?? []),
-      ...(layer.program.dynamicRequirements?.(params) ?? []),
-    ]);
-    if (activeRequirements.has("baseShade") && !base.shade) {
+    // Deliberately STATIC `requirements` only, not `dynamicRequirements`:
+    // `assertEffectMode` (createGlyphScene.ts) already forces a hard STATIC
+    // requirement's mode to `"solid"` at mount time, so these checks only
+    // ever fire where the buffer is actually expected to exist. But
+    // `dynamicRequirements` has no such mode gate (it can't see the render
+    // mode at all — see VOLUMETRIC.md) and is optional-shaped everywhere
+    // else in this pipeline (`effectRequests` uses it only to decide what to
+    // RETAIN, never to hard-fail); folding it into this hard-throw guard
+    // would turn a wireframe/voxel program's dynamic-only `objectExit`
+    // request into a synchronous render-killing error instead of the
+    // documented degrade-to-undefined (the same way `space: "object"`
+    // degrades outside solid mode). Mount-time retention for a LIVE dynamic
+    // requirement in solid mode is handled separately by `needsInputRaster`
+    // (createGlyphScene.ts's `addEffectLayer`), so this guard doesn't need
+    // to duplicate that as a hard failure here.
+    if (layer.program.requirements?.includes("baseShade") && !base.shade) {
       throw new Error("glyphcss: retained base shading is unavailable for an effect that requires baseShade.");
     }
-    if (activeRequirements.has("worldPosition") && !base.worldPosition) {
+    if (layer.program.requirements?.includes("worldPosition") && !base.worldPosition) {
       throw new Error("glyphcss: retained world positions are unavailable for an effect that requires worldPosition.");
     }
-    if (activeRequirements.has("objectPosition") && !base.objectPosition) {
+    if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
       throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
     }
-    if (activeRequirements.has("objectExit") && !base.objectExit) {
+    if (layer.program.requirements?.includes("objectExit") && !base.objectExit) {
       throw new Error("glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
     }
-    if (activeRequirements.has("normal") && !base.normal) {
+    if (layer.program.requirements?.includes("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
     }
     for (let i = 0; i < n; i++) {
