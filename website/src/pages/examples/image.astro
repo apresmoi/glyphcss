@@ -3,7 +3,7 @@ import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
 import BaseHead from "../../components/BaseHead.astro";
 const title = "glyphcss · Image → Glyph";
-const description = "Drop or paste any image and watch it rasterise into shaded, colored ASCII — flat, or escalated into stepped 3D relief along luminance and color boundaries, with glyph effects running on the surface.";
+const description = "Drop or paste any image and watch it rasterise into shaded, colored ASCII — flat, or posterized into color-group shape plates that glyph effects land on, shape by shape.";
 ---
 
 <html lang="en">
@@ -38,7 +38,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
 
     .iso-controls {
       position: absolute; top: 14px; right: 14px; z-index: 10;
-      width: 230px; padding: 12px 14px; max-height: calc(100% - 28px); overflow-y: auto;
+      width: 240px; padding: 12px 14px; max-height: calc(100% - 28px); overflow-y: auto;
       background: rgba(8,12,18,0.9); backdrop-filter: blur(4px);
       border: 1px solid rgba(255,232,184,0.18);
       font-size: 11px; color: rgba(255,232,184,0.7);
@@ -76,6 +76,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     .iso-ctl input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; }
     .iso-ctl input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; border-radius: 0; }
     .iso-ctl select { width: 100%; font: inherit; font-size: 11px; padding: 3px 4px; background: #0b1018; color: rgba(255,232,184,0.9); border: 1px solid rgba(255,232,184,0.2); cursor: pointer; }
+    .iso-ctl input[type="color"] { width: 100%; height: 22px; padding: 0; border: 1px solid rgba(255,232,184,0.2); background: #0b1018; cursor: pointer; }
     .iso-sep { margin: 12px 0 10px; border-top: 1px solid rgba(255,232,184,0.14); }
     .iso-check { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
     .iso-check input { accent-color: #38bdf8; cursor: pointer; }
@@ -93,7 +94,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     <div class="ex-main">
       <header class="map-head">
         <h1>[ IMAGE → GLYPH ]</h1>
-        <p>Drop or paste any image. Flat mode maps it onto a single textured quad; the relief modes escalate it into real 3D — luminance terraces, color-boundary fragments, or per-cell columns — so lighting, ink contours, and glyph effects run on the image's own structure. Drag to orbit.</p>
+        <p>Drop or paste any image. Flat mode maps it onto a single textured quad. Shapes mode posterizes it into color groups — every connected shape becomes a large plate at its group's height, with its own effect domain — so glyph effects land shape by shape, and plates cast drop shadows onto the layers beneath.</p>
       </header>
       <div class="map-stage" id="stage">
         <div class="img-host" id="host"></div>
@@ -118,33 +119,33 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
           </div>
           <div class="iso-sep"></div>
           <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>relief</span></div>
+            <div class="iso-ctl-row"><span>mode</span></div>
             <select id="mode">
-              <option value="flat">flat quad</option>
-              <option value="steps">luminance terraces</option>
-              <option value="regions">color regions</option>
-              <option value="columns">columns</option>
+              <option value="flat">flat image</option>
+              <option value="shapes">color shapes</option>
             </select>
           </div>
+          <div class="iso-ctl" id="ctl-groups" hidden>
+            <div class="iso-ctl-row"><span>color groups</span><span class="val" id="groups-val">5</span></div>
+            <input type="range" id="groups" min="2" max="10" step="1" value="5" />
+          </div>
           <div class="iso-ctl" id="ctl-depth" hidden>
-            <div class="iso-ctl-row"><span>depth</span><span class="val" id="depth-val">0.25</span></div>
-            <input type="range" id="depth" min="0.02" max="0.6" step="0.01" value="0.25" />
-          </div>
-          <div class="iso-ctl" id="ctl-steps" hidden>
-            <div class="iso-ctl-row"><span>steps</span><span class="val" id="steps-val">5</span></div>
-            <input type="range" id="steps" min="2" max="10" step="1" value="5" />
-          </div>
-          <div class="iso-ctl" id="ctl-threshold" hidden>
-            <div class="iso-ctl-row"><span>fragment threshold</span><span class="val" id="threshold-val">0.12</span></div>
-            <input type="range" id="threshold" min="0.02" max="0.4" step="0.01" value="0.12" />
+            <div class="iso-ctl-row"><span>depth</span><span class="val" id="depth-val">0.3</span></div>
+            <input type="range" id="depth" min="0" max="0.6" step="0.01" value="0.3" />
           </div>
           <div class="iso-ctl" id="ctl-res" hidden>
-            <div class="iso-ctl-row"><span>mesh resolution</span><span class="val" id="res-val">48</span></div>
-            <input type="range" id="res" min="16" max="96" step="4" value="48" />
+            <div class="iso-ctl-row"><span>segmentation detail</span><span class="val" id="res-val">80</span></div>
+            <input type="range" id="res" min="32" max="128" step="8" value="80" />
+          </div>
+          <div class="iso-ctl" id="ctl-tex" hidden>
+            <label class="iso-check"><input type="checkbox" id="tex" /> photo texels on plates</label>
+          </div>
+          <div class="iso-ctl" id="ctl-shadow" hidden>
+            <label class="iso-check"><input type="checkbox" id="shadow" checked /> drop shadows</label>
           </div>
           <div class="iso-ctl" id="ctl-light" hidden>
-            <div class="iso-ctl-row"><span>lighting</span><span class="val" id="light-val">0.5</span></div>
-            <input type="range" id="light" min="0" max="1" step="0.05" value="0.5" />
+            <div class="iso-ctl-row"><span>lighting</span><span class="val" id="light-val">0.6</span></div>
+            <input type="range" id="light" min="0" max="1" step="0.05" value="0.6" />
           </div>
           <div class="iso-sep"></div>
           <div class="iso-ctl">
@@ -158,10 +159,15 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
               <option value="replace">replace</option>
             </select>
           </div>
+          <div class="iso-ctl" id="ctl-opacity" hidden>
+            <div class="iso-ctl-row"><span>opacity</span><span class="val" id="opacity-val">1</span></div>
+            <input type="range" id="opacity" min="0" max="1" step="0.05" value="1" />
+          </div>
           <div class="iso-ctl" id="ctl-speed" hidden>
             <div class="iso-ctl-row"><span>speed</span><span class="val" id="speed-val">1</span></div>
             <input type="range" id="speed" min="0" max="3" step="0.1" value="1" />
           </div>
+          <div id="effect-params"></div>
           <div class="iso-sep"></div>
           <div class="iso-ctl">
             <button type="button" class="iso-btn" id="copy" disabled>copy</button>
@@ -170,7 +176,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
         </div>
       </div>
       <footer class="map-foot">
-        <span>image → relief mesh · glyphcss per-cell sampling</span>
+        <span>image → shape plates · glyphcss per-cell sampling</span>
         <span id="status">no image</span>
       </footer>
     </div>
@@ -180,12 +186,11 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     import {
       createGlyphScene,
       createGlyphOrthographicCamera,
-      createGlyphOrbitControls,
       WIREFRAME_PALETTES,
     } from "glyphcss";
     import type { GlyphEffectLayerHandle } from "glyphcss";
     import { GlyphEffectCatalog } from "@glyphcss/effects";
-    import { buildReliefPolygons, sampleImageToGrid, type ReliefMode } from "../../lib/image-relief";
+    import { buildFlatQuad, buildShapePlates, sampleImageToGrid } from "../../lib/image-relief";
     import {
       createExampleQuerySync,
       readQueryBoolean,
@@ -201,6 +206,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     const modeSel = document.getElementById("mode") as HTMLSelectElement;
     const effectSel = document.getElementById("effect") as HTMLSelectElement;
     const blendSel = document.getElementById("blend") as HTMLSelectElement;
+    const paramsPanel = document.getElementById("effect-params") as HTMLElement;
     const copyBtn = document.getElementById("copy") as HTMLButtonElement;
     const dims = document.getElementById("dims") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
@@ -230,11 +236,13 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     const ctl = {
       density: document.getElementById("density") as HTMLInputElement,
       color: document.getElementById("color") as HTMLInputElement,
+      groups: document.getElementById("groups") as HTMLInputElement,
       depth: document.getElementById("depth") as HTMLInputElement,
-      steps: document.getElementById("steps") as HTMLInputElement,
-      threshold: document.getElementById("threshold") as HTMLInputElement,
       res: document.getElementById("res") as HTMLInputElement,
+      tex: document.getElementById("tex") as HTMLInputElement,
+      shadow: document.getElementById("shadow") as HTMLInputElement,
       light: document.getElementById("light") as HTMLInputElement,
+      opacity: document.getElementById("opacity") as HTMLInputElement,
       speed: document.getElementById("speed") as HTMLInputElement,
     };
     const BASE_FONT_SIZE = 13;
@@ -242,27 +250,27 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     ctl.density.value = String(readQueryNumber(query, "density", 1.6, { min: 0.75, max: 4, step: 0.05 }));
     paletteSel.value = readQueryString(query, "palette", "default", (value) => paletteNames.includes(value));
     ctl.color.checked = readQueryBoolean(query, "color", true);
-    modeSel.value = readQueryString(query, "mode", "flat", (v) => ["flat", "steps", "regions", "columns"].includes(v));
-    ctl.depth.value = String(readQueryNumber(query, "depth", 0.25, { min: 0.02, max: 0.6, step: 0.01 }));
-    ctl.steps.value = String(readQueryNumber(query, "steps", 5, { min: 2, max: 10, step: 1 }));
-    ctl.threshold.value = String(readQueryNumber(query, "threshold", 0.12, { min: 0.02, max: 0.4, step: 0.01 }));
-    ctl.res.value = String(readQueryNumber(query, "res", 48, { min: 16, max: 96, step: 4 }));
-    ctl.light.value = String(readQueryNumber(query, "light", 0.5, { min: 0, max: 1, step: 0.05 }));
+    modeSel.value = readQueryString(query, "mode", "flat", (v) => v === "flat" || v === "shapes");
+    ctl.groups.value = String(readQueryNumber(query, "groups", 5, { min: 2, max: 10, step: 1 }));
+    ctl.depth.value = String(readQueryNumber(query, "depth", 0.3, { min: 0, max: 0.6, step: 0.01 }));
+    ctl.res.value = String(readQueryNumber(query, "res", 80, { min: 32, max: 128, step: 8 }));
+    ctl.tex.checked = readQueryBoolean(query, "tex", false);
+    ctl.shadow.checked = readQueryBoolean(query, "shadow", true);
+    ctl.light.value = String(readQueryNumber(query, "light", 0.6, { min: 0, max: 1, step: 0.05 }));
     effectSel.value = readQueryString(query, "effect", "", (v) => effectIds.includes(v));
     blendSel.value = readQueryString(query, "blend", "over", (v) => v === "over" || v === "replace");
+    ctl.opacity.value = String(readQueryNumber(query, "opacity", 1, { min: 0, max: 1, step: 0.05 }));
     ctl.speed.value = String(readQueryNumber(query, "speed", 1, { min: 0, max: 3, step: 0.1 }));
 
     function syncControlVisibility(): void {
-      const mode = modeSel.value as ReliefMode;
-      const relief = mode !== "flat";
-      document.getElementById("ctl-depth")!.hidden = !relief;
-      document.getElementById("ctl-steps")!.hidden = mode !== "steps";
-      document.getElementById("ctl-threshold")!.hidden = mode !== "regions";
-      document.getElementById("ctl-res")!.hidden = !relief;
-      document.getElementById("ctl-light")!.hidden = !relief;
+      const shapes = modeSel.value === "shapes";
+      for (const id of ["ctl-groups", "ctl-depth", "ctl-res", "ctl-tex", "ctl-shadow", "ctl-light"]) {
+        document.getElementById(id)!.hidden = !shapes;
+      }
       const hasEffect = effectSel.value !== "";
-      document.getElementById("ctl-blend")!.hidden = !hasEffect;
-      document.getElementById("ctl-speed")!.hidden = !hasEffect;
+      for (const id of ["ctl-blend", "ctl-opacity", "ctl-speed"]) {
+        document.getElementById(id)!.hidden = !hasEffect;
+      }
     }
 
     function applyDensity(): void {
@@ -277,6 +285,8 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     applyDensity();
     syncControlVisibility();
 
+    // Head-on orthographic camera — the plates are depth-staged for shadows
+    // and effects, not for orbiting. The view stays flat like the image.
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
     const scene = createGlyphScene(host, {
       mode: "solid",
@@ -288,20 +298,21 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       directionalLight: { direction: [0, 0, 1], intensity: 0 },
       ambientLight: { intensity: 1 },
     });
-    createGlyphOrbitControls(scene, { drag: true, wheel: false });
 
     const querySync = createExampleQuerySync(() => ({
       density: Number(ctl.density.value),
       palette: paletteSel.value,
       color: ctl.color.checked,
       mode: modeSel.value,
+      groups: Number(ctl.groups.value),
       depth: Number(ctl.depth.value),
-      steps: Number(ctl.steps.value),
-      threshold: Number(ctl.threshold.value),
       res: Number(ctl.res.value),
+      tex: ctl.tex.checked,
+      shadow: ctl.shadow.checked,
       light: Number(ctl.light.value),
       effect: effectSel.value,
       blend: blendSel.value,
+      opacity: Number(ctl.opacity.value),
       speed: Number(ctl.speed.value),
     }));
     querySync.write();
@@ -313,20 +324,22 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     let sampled: { rows: number; data: ImageData } | null = null;
 
     // Flat mode = full ambient so each texel passes through unshaded (the
-    // original page behavior). Relief modes trade ambient for a key light so
-    // the terraces and walls actually read as 3D.
+    // original behavior). Shapes mode trades ambient for an off-axis key light
+    // so the plate stack shades and its drop shadows land offset.
     function applyLighting(): void {
       if (modeSel.value === "flat") {
         scene.setOptions({
           directionalLight: { direction: [0, 0, 1], intensity: 0 },
           ambientLight: { intensity: 1 },
+          shadow: undefined,
         });
         return;
       }
       const l = Number(ctl.light.value);
       scene.setOptions({
-        directionalLight: { direction: [0.45, 0.4, 0.8], intensity: l },
-        ambientLight: { intensity: 1 - 0.55 * l },
+        directionalLight: { direction: [0.35, 0.45, 0.85], intensity: l },
+        ambientLight: { intensity: 1 - 0.5 * l },
+        shadow: ctl.shadow.checked ? { opacity: 0.3, lift: 0.05 } : undefined,
       });
     }
 
@@ -341,50 +354,32 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
 
     function rebuildMesh(): void {
       if (!sourceImg) return;
-      const mode = modeSel.value as ReliefMode;
-      const rows = Number(ctl.res.value);
-      if (mode !== "flat" && (!sampled || sampled.rows !== rows)) {
-        sampled = { rows, data: sampleImageToGrid(sourceImg, rows).data };
+      if (meshHandle) { meshHandle.dispose(); meshHandle = null; }
+      if (modeSel.value === "flat") {
+        meshHandle = scene.add(buildFlatQuad(textureUrl, aspect));
+        statusEl.textContent = `${sourceImg.naturalWidth}×${sourceImg.naturalHeight}`;
+      } else {
+        const rows = Number(ctl.res.value);
+        if (!sampled || sampled.rows !== rows) {
+          sampled = { rows, data: sampleImageToGrid(sourceImg, rows).data };
+        }
+        const result = buildShapePlates(sampled.data, {
+          textureUrl,
+          aspect,
+          groups: Number(ctl.groups.value),
+          depth: Number(ctl.depth.value),
+          texture: ctl.tex.checked,
+        });
+        meshHandle = scene.add(result.polygons, { castShadow: true, receiveShadow: true });
+        statusEl.textContent =
+          `${sourceImg.naturalWidth}×${sourceImg.naturalHeight} · ${result.groupCount} groups · ` +
+          `${result.shapeCount} shapes · ${result.polygons.length} plates`;
       }
-      const grid = mode === "flat"
-        ? new ImageData(1, 1)
-        : sampled!.data;
-      const result = buildReliefPolygons(grid, {
-        mode,
-        textureUrl,
-        aspect,
-        depth: Number(ctl.depth.value),
-        steps: Number(ctl.steps.value),
-        threshold: Number(ctl.threshold.value),
-      });
-      if (meshHandle) meshHandle.dispose();
-      meshHandle = scene.add(result.polygons);
-      statusEl.textContent = mode === "flat"
-        ? `${sourceImg.naturalWidth}×${sourceImg.naturalHeight}`
-        : `${sourceImg.naturalWidth}×${sourceImg.naturalHeight} · ${result.polygons.length} polys · ${result.regionCount} regions`;
       requestAnimationFrame(fit);
     }
 
-    // Auto-tilt into 3D when leaving flat (only if the user hasn't orbited),
-    // and back to head-on when returning to flat.
-    let lastMode = modeSel.value;
-    function onModeChange(): void {
-      const mode = modeSel.value;
-      if (mode !== "flat" && lastMode === "flat" && camera.rotX === 0 && camera.rotY === 0) {
-        camera.rotX = 38; camera.rotY = 14;
-      } else if (mode === "flat") {
-        camera.rotX = 0; camera.rotY = 0;
-      }
-      lastMode = mode;
-      syncControlVisibility();
-      applyLighting();
-      rebuildMesh();
-      querySync.schedule();
-    }
-
-    // ── Effect layer ─────────────────────────────────────────────────────
+    // ── Effect composer ──────────────────────────────────────────────────
     let effectLayer: GlyphEffectLayerHandle<Record<string, unknown>> | null = null;
-    let effectHasClock = false;
     let effectTime = 0;
     let effectPrev = 0;
     let effectRaf = 0;
@@ -398,9 +393,83 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       effectRaf = requestAnimationFrame(tickEffect);
     }
 
+    // Build a control row per schema param — the composer is generated from
+    // the effect's own parameterSchema, so every stock effect is fully
+    // adjustable without hand-written UI.
+    function buildParamPanel(def: (typeof GlyphEffectCatalog)[number]): void {
+      paramsPanel.replaceChildren();
+      for (const [name, spec] of Object.entries(def.parameterSchema)) {
+        if (name === "time") continue;
+        const row = document.createElement("div");
+        row.className = "iso-ctl";
+        const label = document.createElement("div");
+        label.className = "iso-ctl-row";
+        const nameEl = document.createElement("span");
+        nameEl.textContent = spec.label ?? name;
+        label.appendChild(nameEl);
+        row.appendChild(label);
+        const set = (value: unknown): void => { effectLayer?.setParams({ [name]: value }); };
+
+        if (spec.kind === "number") {
+          const valEl = document.createElement("span");
+          valEl.className = "val";
+          valEl.textContent = String(spec.default);
+          label.appendChild(valEl);
+          const input = document.createElement("input");
+          input.type = "range";
+          const min = spec.min ?? 0;
+          const max = spec.max ?? (spec.default > 0 ? spec.default * 4 : 1);
+          input.min = String(min);
+          input.max = String(max);
+          input.step = String(spec.step ?? ((max - min) / 100 || 0.01));
+          input.value = String(spec.default);
+          input.addEventListener("input", () => {
+            valEl.textContent = input.value;
+            set(Number(input.value));
+          });
+          row.appendChild(input);
+        } else if (spec.kind === "string" && spec.values?.length) {
+          const select = document.createElement("select");
+          for (const v of spec.values) {
+            const opt = document.createElement("option");
+            opt.value = v; opt.textContent = v;
+            select.appendChild(opt);
+          }
+          select.value = spec.default;
+          select.addEventListener("change", () => set(select.value));
+          row.appendChild(select);
+        } else if (spec.kind === "string") {
+          const input = document.createElement("input");
+          input.type = "text";
+          input.value = spec.default;
+          input.style.width = "100%";
+          input.addEventListener("input", () => set(input.value));
+          row.appendChild(input);
+        } else if (spec.kind === "boolean") {
+          label.remove();
+          const check = document.createElement("label");
+          check.className = "iso-check";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = spec.default;
+          input.addEventListener("input", () => set(input.checked));
+          check.append(input, document.createTextNode(` ${spec.label ?? name}`));
+          row.appendChild(check);
+        } else if (spec.kind === "color") {
+          const input = document.createElement("input");
+          input.type = "color";
+          input.value = spec.default;
+          input.addEventListener("input", () => set(input.value));
+          row.appendChild(input);
+        }
+        paramsPanel.appendChild(row);
+      }
+    }
+
     function applyEffect(): void {
       if (effectLayer) { effectLayer.dispose(); effectLayer = null; }
       cancelAnimationFrame(effectRaf);
+      paramsPanel.replaceChildren();
       const def = GlyphEffectCatalog.find((d) => d.id === effectSel.value);
       if (!def) { syncControlVisibility(); return; }
       const params: Record<string, unknown> = {};
@@ -414,8 +483,9 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
         target: "surfaces",
         blend: blendSel.value as "over" | "replace",
       }) as GlyphEffectLayerHandle<Record<string, unknown>>;
-      effectHasClock = "time" in def.parameterSchema;
-      if (effectHasClock) {
+      effectLayer.opacity = Number(ctl.opacity.value);
+      buildParamPanel(def);
+      if ("time" in def.parameterSchema) {
         effectTime = 0;
         effectPrev = performance.now();
         effectRaf = requestAnimationFrame(tickEffect);
@@ -455,19 +525,25 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       scene.setOptions({ glyphPalette: paletteSel.value });
       querySync.schedule();
     });
-    modeSel.addEventListener("change", onModeChange);
-    for (const [input, label, fmt] of [
-      [ctl.depth, "depth", (v: string) => v],
-      [ctl.steps, "steps", (v: string) => v],
-      [ctl.threshold, "threshold", (v: string) => v],
-      [ctl.res, "res", (v: string) => v],
+    modeSel.addEventListener("change", () => {
+      syncControlVisibility();
+      applyLighting();
+      rebuildMesh();
+      querySync.schedule();
+    });
+    for (const [input, label] of [
+      [ctl.groups, "groups"],
+      [ctl.depth, "depth"],
+      [ctl.res, "res"],
     ] as const) {
       input.addEventListener("input", () => {
-        showVal(label, fmt(input.value));
+        showVal(label, input.value);
         rebuildMesh();
         querySync.schedule();
       });
     }
+    ctl.tex.addEventListener("input", () => { rebuildMesh(); querySync.schedule(); });
+    ctl.shadow.addEventListener("input", () => { applyLighting(); querySync.schedule(); });
     ctl.light.addEventListener("input", () => {
       showVal("light", ctl.light.value);
       applyLighting();
@@ -478,19 +554,23 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       effectLayer?.setOptions({ blend: blendSel.value as "over" | "replace" });
       querySync.schedule();
     });
+    ctl.opacity.addEventListener("input", () => {
+      showVal("opacity", ctl.opacity.value);
+      if (effectLayer) effectLayer.opacity = Number(ctl.opacity.value);
+      querySync.schedule();
+    });
     ctl.speed.addEventListener("input", () => {
       showVal("speed", ctl.speed.value);
       querySync.schedule();
     });
 
-    // Restore URL-loaded relief/effect state.
+    // Restore URL-loaded state.
+    showVal("groups", ctl.groups.value);
     showVal("depth", ctl.depth.value);
-    showVal("steps", ctl.steps.value);
-    showVal("threshold", ctl.threshold.value);
     showVal("res", ctl.res.value);
     showVal("light", ctl.light.value);
+    showVal("opacity", ctl.opacity.value);
     showVal("speed", ctl.speed.value);
-    if (modeSel.value !== "flat") { camera.rotX = 38; camera.rotY = 14; lastMode = modeSel.value; }
     applyLighting();
     if (effectSel.value) applyEffect();
 
