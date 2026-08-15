@@ -42,6 +42,7 @@ const SUPPORTED_REQUIREMENTS = new Set<GlyphEffectRequirement>([
   "normal",
   "worldPosition",
   "objectPosition",
+  "objectExit",
   "uv0",
 ]);
 
@@ -158,13 +159,19 @@ function isDefinition(value: unknown): value is GlyphEffectDefinition<GlyphEffec
   return !!value && typeof value === "object" && "parameterSchema" in value && "program" in value;
 }
 
-function assertProgram(program: AnyProgram): void {
+function assertProgram(program: AnyProgram, initialParams: AnyParams): void {
   if (!program || typeof program !== "object" || typeof program.evaluate !== "function") {
     throw new TypeError("glyphcss: an effect program must define evaluate().");
   }
   for (const requirement of [
     ...(program.requirements ?? []),
     ...(program.optionalRequirements ?? []),
+    // Only the INITIAL params are checked here (mount time); `dynamicRequirements`
+    // is re-evaluated per params transaction thereafter (see `effectRequests` in
+    // `createGlyphScene.ts`), so a requirement name that only becomes reachable
+    // through a later param value is caught the first time that value is live,
+    // not necessarily at mount.
+    ...(program.dynamicRequirements?.(initialParams) ?? []),
   ]) {
     if (!SUPPORTED_REQUIREMENTS.has(requirement)) {
       throw new Error(`glyphcss: effect requirement "${requirement}" is not supported by this runtime slice.`);
@@ -214,10 +221,29 @@ function paramsEqual(a: Readonly<AnyParams>, b: Readonly<AnyParams>): boolean {
   return keys.every((key) => Object.is(a[key], b[key]));
 }
 
+function requirementSetKey(requirements: readonly GlyphEffectRequirement[] | undefined): string {
+  if (!requirements || requirements.length === 0) return "";
+  return Array.from(new Set(requirements)).sort().join(",");
+}
+
+/**
+ * Whether a params change altered `program.dynamicRequirements`'s result
+ * (order-independent). A plain params change only needs a cheap retained-
+ * effect recompose; a REQUIREMENTS change additionally invalidates whatever
+ * retained input buffers the previous requirement set produced (e.g. a
+ * newly-live `objectExit` need), which only a full geometry render repopulates
+ * — see the `onDirty(requirementsChanged)` callers below and their
+ * `createGlyphScene.ts` handling.
+ */
+function dynamicRequirementsChanged(program: AnyProgram, before: Readonly<AnyParams>, after: Readonly<AnyParams>): boolean {
+  if (!program.dynamicRequirements) return false;
+  return requirementSetKey(program.dynamicRequirements(before)) !== requirementSetKey(program.dynamicRequirements(after));
+}
+
 export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>, State>(
   options: GlyphEffectDefinitionLayerOptions<any, State> | GlyphEffectProgramLayerOptions<P, State>,
   declarationOrder: number,
-  onDirty: () => void,
+  onDirty: (requirementsChanged?: boolean) => void,
   onDispose: (layer: RuntimeGlyphEffectLayer) => void,
 ): RuntimeGlyphEffectLayer {
   const effect = options.effect as unknown;
@@ -252,7 +278,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     }
   }
 
-  assertProgram(program);
+  assertProgram(program, initial);
   program.validateParams?.(initial);
 
   const paramsTarget: AnyParams = { ...initial };
@@ -270,8 +296,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       }
       assertParamValue(value, schema?.[property], property);
       if (Object.is(target[property], value)) return true;
+      const before = { ...target };
       target[property] = value;
-      onDirty();
+      onDirty(dynamicRequirementsChanged(program, before, target));
       return true;
     },
     defineProperty(target, property, descriptor): boolean {
@@ -291,8 +318,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       if (!("value" in descriptor)) return Reflect.defineProperty(target, property, descriptor);
       assertParamValue(descriptor.value, schema?.[property], property);
       const changed = !Object.is(target[property], descriptor.value);
+      const before = { ...target };
       const defined = Reflect.defineProperty(target, property, descriptor);
-      if (defined && changed) onDirty();
+      if (defined && changed) onDirty(dynamicRequirementsChanged(program, before, target));
       return defined;
     },
     deleteProperty(target, property): boolean {
@@ -320,8 +348,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     }
     program.validateParams?.(candidateParams);
     if (paramsEqual(candidateParams, paramsTarget)) return;
+    const before = { ...paramsTarget };
     copyParams(paramsTarget, candidateParams);
-    onDirty();
+    onDirty(dynamicRequirementsChanged(program, before, paramsTarget));
   }
 
   function setOptions(partial: Partial<{
@@ -458,6 +487,7 @@ export function retainGlyphEffectOutput(
     ...(baseGrid.shade ? { shade: baseGrid.shade } : {}),
     ...(baseGrid.worldPosition ? { worldPosition: baseGrid.worldPosition } : {}),
     ...(baseGrid.objectPosition ? { objectPosition: baseGrid.objectPosition } : {}),
+    ...(baseGrid.objectExit ? { objectExit: baseGrid.objectExit } : {}),
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
   };
   return {
@@ -551,6 +581,9 @@ export function composeRetainedGlyphEffectOutput(
   if (workingGrid.objectPosition && baseGrid.objectPosition) {
     workingGrid.objectPosition.set(baseGrid.objectPosition);
   }
+  if (workingGrid.objectExit && baseGrid.objectExit) {
+    workingGrid.objectExit.set(baseGrid.objectExit);
+  }
   if (workingGrid.normal && baseGrid.normal) workingGrid.normal.set(baseGrid.normal);
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
@@ -589,6 +622,9 @@ export function composeRetainedGlyphEffectOutput(
     }
     if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
       throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
+    }
+    if (layer.program.requirements?.includes("objectExit") && !base.objectExit) {
+      throw new Error("glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
     }
     if (layer.program.requirements?.includes("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");

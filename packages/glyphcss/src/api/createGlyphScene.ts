@@ -488,11 +488,16 @@ export function createGlyphScene(
     return effectLayers.length > 0;
   }
 
-  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition"): boolean {
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition" | "objectExit"): boolean {
     return effectLayers.some((layer) => (
       !layer.disposed && (
         layer.program.requirements?.includes(requirement) === true
         || layer.program.optionalRequirements?.includes(requirement) === true
+        // Params-aware gating (VOLUMETRIC.md "Step 1"): re-evaluated against the
+        // layer's LIVE params every render, so a requirement that only becomes
+        // reachable under a particular param value (e.g. field-synth's carve
+        // render mode) doesn't force every mounted instance to pay for it.
+        || layer.program.dynamicRequirements?.(layer.paramsTarget).includes(requirement) === true
       )
     ));
   }
@@ -716,6 +721,7 @@ export function createGlyphScene(
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
     const basePolygonGlobalIndexes: number[] = [];
+    const basePolygonMeshIds: number[] = [];
     const castShadowFlags: boolean[] = [];
     const receiveShadowFlags: boolean[] = [];
     const depthBiases: number[] = [];
@@ -740,6 +746,7 @@ export function createGlyphScene(
         const p = transformed[polygonIndex]!;
         allPolygons.push(p);
         basePolygonGlobalIndexes.push(globalOffset + polygonIndex);
+        basePolygonMeshIds.push(entry.id);
         castShadowFlags.push(cast);
         receiveShadowFlags.push(receive);
         depthBiases.push(bias);
@@ -783,6 +790,7 @@ export function createGlyphScene(
     const retainWorldPosition = effectsActive && effectRequests("worldPosition");
     const retainNormal = effectsActive && effectRequests("normal");
     const retainObjectPosition = effectsActive && effectRequests("objectPosition");
+    const retainObjectExit = effectsActive && effectRequests("objectExit");
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -846,10 +854,12 @@ export function createGlyphScene(
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
+      polygonMeshIds: retainObjectExit ? basePolygonMeshIds : undefined,
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
       retainObjectPosition,
+      retainObjectExit,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -914,6 +924,7 @@ export function createGlyphScene(
       retainWorldPosition,
       retainNormal,
       retainObjectPosition,
+      retainObjectExit,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -1115,6 +1126,7 @@ export function createGlyphScene(
     retainWorldPosition: boolean,
     retainNormal: boolean,
     retainObjectPosition: boolean,
+    retainObjectExit: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -1293,6 +1305,11 @@ export function createGlyphScene(
           retainWorldPosition,
           retainNormal,
           retainObjectPosition,
+          // No `polygonMeshIds` needed: a detail layer's `tp` is always a single
+          // mesh's own polygons, so the winner-mesh buffer's `-1` fallback (both
+          // written in the entry pass and matched in the exit sweep) trivially
+          // agrees on every covered cell.
+          retainObjectExit,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = textureSamplers;
@@ -1413,7 +1430,16 @@ export function createGlyphScene(
     const layer = createRuntimeGlyphEffectLayer(
       effectOptions,
       nextEffectDeclarationOrder++,
-      scheduleEffectRender,
+      // A plain params change only needs a cheap retained-effect recompose;
+      // a `dynamicRequirements`-changing one (e.g. field-synth's `render`
+      // flipping to `"carve"`) additionally invalidates whatever retained
+      // input buffers the previous requirement set produced — only a full
+      // geometry render (which recomputes `effectRequests`/`retainObjectExit`
+      // and reruns the exit sweep) repopulates those.
+      (requirementsChanged) => {
+        if (requirementsChanged) scheduleRender();
+        else scheduleEffectRender();
+      },
       (disposedLayer) => {
         const index = effectLayers.indexOf(disposedLayer);
         if (index >= 0) effectLayers.splice(index, 1);

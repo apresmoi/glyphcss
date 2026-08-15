@@ -196,6 +196,15 @@ export interface RasterizeContextOptions {
   /** Per-polygon relative depth bias (parallel to `polygons`). `pixelDepth *= 1 + bias`. */
   depthBiases?: number[];
   /**
+   * Per-polygon owning-mesh id (parallel to `polygons`), the same
+   * `globalPolygonOffsets` mesh-identity convention the semantic winner
+   * buffer uses. Only meaningful (and only supplied) when `retainObjectExit`
+   * is active: the exit sweep restricts its farthest-depth scan per cell to
+   * the mesh that won that cell in the main pass, so a farther, non-winning
+   * mesh's back face can never leak into another mesh's exit point.
+   */
+  polygonMeshIds?: number[];
+  /**
    * Global depth-test deadband (0 = exact, the default). A polygon replaces the
    * current cell only when nearer by more than this relative fraction, so
    * near-coplanar surfaces (overlapping brushes, decals, a translucent plane
@@ -223,6 +232,15 @@ export interface RasterizeContextOptions {
    * for an effect input (`space: "object"`).
    */
   retainObjectPosition?: boolean;
+  /**
+   * Retain the farthest object-space intersection of the depth-winning mesh
+   * along each cell's view ray (`objectExit` effect input — see
+   * VOLUMETRIC.md "Step 1"). Requires a second, all-faces, near-plane-
+   * clipping farthest-depth sweep restricted per cell to the winning mesh
+   * (via `polygonMeshIds`), so this is allocated and run ONLY when a mounted
+   * effect's requirement asks for it — zero cost otherwise.
+   */
+  retainObjectExit?: boolean;
   /**
    * Retain the positional source-polygon index that won each solid cell.
    * `-1` marks an empty cell. This is an opaque lookup key for durable control
@@ -308,6 +326,8 @@ export interface RasterizeContext {
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
   depthBiases?: number[];
+  /** Per-polygon owning-mesh id — see {@link RasterizeContextOptions.polygonMeshIds}. */
+  polygonMeshIds?: number[];
   /** Global depth-test deadband — see {@link RasterizeContextOptions.depthEpsilon}. */
   depthEpsilon?: number;
   /** Optional cross-frame shading cache (see {@link ShadeCache}). */
@@ -331,6 +351,8 @@ export interface RasterizeContext {
   retainNormal?: boolean;
   /** Retain depth-winning pre-transform (mesh-local) positions for an effect input. */
   retainObjectPosition?: boolean;
+  /** Retain the farthest object-space exit position for an effect input — see {@link RasterizeContextOptions.retainObjectExit}. */
+  retainObjectExit?: boolean;
   /** Retain the positional source-polygon winner for durable control capture. */
   retainWinnerPolygon?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
@@ -399,10 +421,12 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainWorldPosition: opts.retainWorldPosition ?? false,
     retainNormal: opts.retainNormal ?? false,
     retainObjectPosition: opts.retainObjectPosition ?? false,
+    retainObjectExit: opts.retainObjectExit ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
     retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
+    ...(opts.polygonMeshIds ? { polygonMeshIds: opts.polygonMeshIds } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
     ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),

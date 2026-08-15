@@ -57,6 +57,15 @@ export interface CellGrid {
    */
   objectPosition?: Float32Array;
   /**
+   * Interleaved object-space EXIT positions: `[x0, y0, z0, ...]` — the
+   * farthest intersection of the depth-winning mesh along each cell's view
+   * ray, in the same pre-transform frame as `objectPosition`. Empty cells
+   * contain `NaN`. Present only when requested by an effect program
+   * (`objectExit` requirement). The object-space ray is not its own field —
+   * it is `normalize(objectExit − objectPosition)` per cell.
+   */
+  objectExit?: Float32Array;
+  /**
    * Interleaved depth-winning geometric face normals: `[x0, y0, z0, ...]`.
    * Empty cells contain `NaN`. Present only when requested by an effect program.
    */
@@ -149,6 +158,7 @@ export function buildCellGrid(
   targetRgbSrc: Uint32Array | null = null,
   weightSrc: Uint16Array | null = null,
   objectPositionSrc: Float32Array | null = null,
+  objectExitSrc: Float32Array | null = null,
 ): CellGrid {
   const n = cols * rows;
   const outChar = char.slice(0, n);
@@ -183,6 +193,9 @@ export function buildCellGrid(
   if (objectPositionSrc !== null && objectPositionSrc.length >= n * 3) {
     grid.objectPosition = new Float32Array(objectPositionSrc.subarray(0, n * 3));
   }
+  if (objectExitSrc !== null && objectExitSrc.length >= n * 3) {
+    grid.objectExit = new Float32Array(objectExitSrc.subarray(0, n * 3));
+  }
   if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
     grid.winnerPolygon = new Int32Array(winnerPolygonSrc.subarray(0, n));
   }
@@ -215,6 +228,7 @@ function assertCellGridShape(grid: CellGrid): void {
   if (grid.shade) assertCellBufferLength(grid.shade, n, "cell-grid shade buffer");
   if (grid.worldPosition) assertCellBufferLength(grid.worldPosition, n * 3, "cell-grid worldPosition buffer");
   if (grid.objectPosition) assertCellBufferLength(grid.objectPosition, n * 3, "cell-grid objectPosition buffer");
+  if (grid.objectExit) assertCellBufferLength(grid.objectExit, n * 3, "cell-grid objectExit buffer");
   if (grid.normal) assertCellBufferLength(grid.normal, n * 3, "cell-grid normal buffer");
   if (grid.winnerPolygon) assertCellBufferLength(grid.winnerPolygon, n, "cell-grid winnerPolygon buffer");
   if (grid.albedoRgb) assertCellBufferLength(grid.albedoRgb, n, "cell-grid albedoRgb buffer");
@@ -239,6 +253,7 @@ export function cloneCellGrid(grid: CellGrid): CellGrid {
   if (grid.shade) clone.shade = new Float32Array(grid.shade.subarray(0, n));
   if (grid.worldPosition) clone.worldPosition = new Float32Array(grid.worldPosition.subarray(0, n * 3));
   if (grid.objectPosition) clone.objectPosition = new Float32Array(grid.objectPosition.subarray(0, n * 3));
+  if (grid.objectExit) clone.objectExit = new Float32Array(grid.objectExit.subarray(0, n * 3));
   if (grid.normal) clone.normal = new Float32Array(grid.normal.subarray(0, n * 3));
   if (grid.winnerPolygon) clone.winnerPolygon = new Int32Array(grid.winnerPolygon.subarray(0, n));
   if (grid.albedoRgb) clone.albedoRgb = new Uint32Array(grid.albedoRgb.subarray(0, n));
@@ -485,6 +500,7 @@ export function applyCellHook(
   targetRgbSrc: Uint32Array | null = null,
   objectPositionSrc: Float32Array | null = null,
   weightSrc: Uint16Array | null = null,
+  objectExitSrc: Float32Array | null = null,
 ): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
   if (!hook) return { char, color, weight: weightSrc };
   const n = cols * rows;
@@ -504,6 +520,7 @@ export function applyCellHook(
   }
   if (normalSrc !== null && normalSrc.length >= n * 3) grid.normal = normalSrc;
   if (objectPositionSrc !== null && objectPositionSrc.length >= n * 3) grid.objectPosition = objectPositionSrc;
+  if (objectExitSrc !== null && objectExitSrc.length >= n * 3) grid.objectExit = objectExitSrc;
   if (surfaceUvSrc !== null && surfaceUvSrc.length >= cols * rows * 2) {
     grid.surfaceUv = surfaceUvSrc;
   }

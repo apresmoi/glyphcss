@@ -1,5 +1,5 @@
 import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
-import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
@@ -1109,6 +1109,7 @@ function rasterizeSolid(
   const rows = outRows * supersample;
   const { camera: rawCamera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, doubleSided, castShadowFlags, receiveShadowFlags } = scene;
   const depthBiases = scene.depthBiases;
+  const polygonMeshIds = scene.polygonMeshIds;
   const depthEpsilon = scene.depthEpsilon ?? 0;
   const scaledMetrics: GlyphProjectionMetrics = supersample > 1
     ? {
@@ -1161,6 +1162,9 @@ function rasterizeSolid(
       normal: Float32Array | null;
       surfaceUv: Float32Array | null;
       winnerPolygon: Int32Array | null;
+      winnerMesh: Int32Array | null;
+      objectExit: Float32Array | null;
+      objectExitDepth: Float64Array | null;
       albedoRgb: Uint32Array | null;
       targetRgb: Uint32Array | null;
       weight: Uint16Array | null;
@@ -1179,6 +1183,9 @@ function rasterizeSolid(
       normal: null,
       surfaceUv: null,
       winnerPolygon: null,
+      winnerMesh: null,
+      objectExit: null,
+      objectExitDepth: null,
       albedoRgb: null,
       targetRgb: null,
       weight: null,
@@ -1242,6 +1249,18 @@ function rasterizeSolid(
     }
     winnerPolygonBuf = scratch.winnerPolygon;
     winnerPolygonBuf.fill(-1);
+  }
+  // Winner-mesh buffer: which mesh id won each cell in THIS pass, at the
+  // pass's supersample resolution. Independent of `retainWinnerPolygon`
+  // (semantic-mode-only) — this is allocated for `retainObjectExit` in
+  // normal visible-mode rendering, and exists purely to restrict the exit
+  // sweep's farthest-depth scan per cell to the mesh that actually won there
+  // (never exposed on `CellGrid`).
+  let winnerMeshBuf: Int32Array | null = null;
+  if (scene.retainObjectExit) {
+    if (!scratch.winnerMesh || scratch.winnerMesh.length !== n) scratch.winnerMesh = new Int32Array(n);
+    winnerMeshBuf = scratch.winnerMesh;
+    winnerMeshBuf.fill(-1);
   }
   let albedoRgbBuf: Uint32Array | null = null;
   if (scene.retainAlbedoRgb) {
@@ -1349,6 +1368,11 @@ function rasterizeSolid(
     if (verts.length < 3) continue;
     // Pre-transform vertices, parallel to `verts` — see `objectPosBuf`.
     const objVerts = poly.objectVertices ?? verts;
+    // Owning-mesh id for the winner-mesh buffer (`objectExit`'s second sweep
+    // restricts its farthest-depth scan to whichever mesh won each cell
+    // here). `-1` when the scene didn't supply `polygonMeshIds` (retainObjectExit
+    // off, or a single-mesh detail layer where every cell trivially matches).
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : -1;
     // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
     // projection/shading/scan-fill. `triT` must still advance by this polygon's
     // triangle count so the positional cross-frame shadeCache stays aligned when
@@ -1572,6 +1596,7 @@ function rasterizeSolid(
           ambIntensity, ambRgb, keyRgb,
           poly.color ?? "#ffffff",
           weightRamp, weightBuf,
+          meshId, winnerMeshBuf,
         );
       } else {
         // Straddles the near plane: clip the triangle to the visible half-space
@@ -1669,6 +1694,7 @@ function rasterizeSolid(
               ambIntensity, ambRgb, keyRgb,
               poly.color ?? "#ffffff",
               weightRamp, weightBuf,
+              meshId, winnerMeshBuf,
             );
           }
         }
@@ -1722,12 +1748,39 @@ function rasterizeSolid(
             surfaceUvBuf[idx * 2 + 1] = NaN;
           }
           if (winnerPolygonBuf) winnerPolygonBuf[idx] = -1;
+          if (winnerMeshBuf) winnerMeshBuf[idx] = -1;
           if (albedoRgbBuf) albedoRgbBuf[idx] = 0;
           if (targetRgbBuf) targetRgbBuf[idx] = 0;
           if (weightBuf) weightBuf[idx] = 0;
         }
       }
     }
+  }
+
+  // Second sweep — `objectExit` (see VOLUMETRIC.md "Step 1"): the farthest
+  // intersection of the depth-winning mesh along each cell's view ray, in
+  // that mesh's own pre-transform frame. Cannot be produced inside the pass
+  // above (the winner is only final after the last polygon, and back faces
+  // never reach scan-fill there at all — they're culled before it). Runs at
+  // this pass's supersample resolution, gated per cell by `winnerMeshBuf` so
+  // a farther, non-winning mesh's back face never leaks in. Allocated and
+  // run ONLY when a mounted effect's requirement asked for it.
+  let exitPosBuf: Float32Array | null = null;
+  if (scene.retainObjectExit && winnerMeshBuf !== null) {
+    if (!scratch.objectExit || scratch.objectExit.length !== n * 3) {
+      scratch.objectExit = new Float32Array(n * 3);
+    }
+    exitPosBuf = scratch.objectExit;
+    exitPosBuf.fill(NaN);
+    if (!scratch.objectExitDepth || scratch.objectExitDepth.length !== n) {
+      scratch.objectExitDepth = new Float64Array(n);
+    }
+    const exitDepthBuf = scratch.objectExitDepth;
+    exitDepthBuf.fill(Infinity);
+    rasterizeObjectExit(
+      polygons, polygonMeshIds ?? null, camera, cols, rows, cellAspect, scaledMetrics,
+      winnerMeshBuf, depthBiases, depthEpsilon, exitPosBuf, exitDepthBuf,
+    );
   }
 
   if (__detail) { (__detail.loop ??= []).push(performance.now() - __tLoop); }
@@ -1739,6 +1792,7 @@ function rasterizeSolid(
   let finalShade: Float32Array | null = shadeBuf;
   let finalWorldPos: Float32Array | null = worldPosBuf;
   let finalObjectPos: Float32Array | null = objectPosBuf;
+  let finalExitPos: Float32Array | null = exitPosBuf;
   let finalNormal: Float32Array | null = normalBuf;
   let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
   let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
@@ -1784,6 +1838,7 @@ function rasterizeSolid(
       ramp,
       objectPosBuf,
       weightRamp,
+      exitPosBuf,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1796,6 +1851,7 @@ function rasterizeSolid(
     finalAlbedoRgb = ds.albedoRgb;
     finalTargetRgb = ds.targetRgb;
     finalObjectPos = ds.objectPos;
+    finalExitPos = ds.exitPos;
     finalWeight = ds.weight;
   }
   if (reproject) {
@@ -1822,6 +1878,7 @@ function rasterizeSolid(
       finalTargetRgb,
       finalObjectPos,
       finalWeight,
+      finalExitPos,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -1974,6 +2031,10 @@ function downsampleSolid(
   // `font-weight` always describe the same ramp step — never a glyph from
   // one step paired with the weight of another. `null` → no weight buffer.
   weightRamp: Uint16Array | null = null,
+  // `objectExit` (opt-in): downsampled from the SAME representative subcell
+  // as `objectPosIn` — the exit sweep is gated by the entry pass's own
+  // winner buffer, so entry and exit always describe one subcell's ray.
+  exitPosIn: Float32Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -1987,6 +2048,7 @@ function downsampleSolid(
   targetRgb: Uint32Array | null;
   objectPos: Float32Array | null;
   weight: Uint16Array | null;
+  exitPos: Float32Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -2004,6 +2066,7 @@ function downsampleSolid(
   const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
   const otarget: Uint32Array | null = targetRgbIn ? new Uint32Array(outCols * outRows) : null;
   const oobj: Float32Array | null = objectPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const oexit: Float32Array | null = exitPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const oweight: Uint16Array | null = weightRamp ? new Uint16Array(outCols * outRows) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
@@ -2063,9 +2126,14 @@ function downsampleSolid(
         oobj[oi * 3 + 1] = objectPosIn![representative * 3 + 1]!;
         oobj[oi * 3 + 2] = objectPosIn![representative * 3 + 2]!;
       }
+      if (oexit && representative >= 0) {
+        oexit[oi * 3] = exitPosIn![representative * 3]!;
+        oexit[oi * 3 + 1] = exitPosIn![representative * 3 + 1]!;
+        oexit[oi * 3 + 2] = exitPosIn![representative * 3 + 2]!;
+      }
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit };
 }
 
 /**
@@ -2601,6 +2669,11 @@ function scanFillTriangle(
   // unset — `weightBuf` is never written and output stays byte-identical.
   weightRamp: Uint16Array | null = null,
   weightBuf: Uint16Array | null = null,
+  // Winning MESH id for this polygon (see `RasterizeContext.polygonMeshIds`)
+  // + the per-cell winner-mesh buffer it's written into. `-1`/`null` when the
+  // scene didn't request `objectExit` — the exit sweep is the only reader.
+  meshId = -1,
+  winnerMeshBuf: Int32Array | null = null,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -2656,6 +2729,7 @@ function scanFillTriangle(
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
         if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
+        if (winnerMeshBuf !== null) winnerMeshBuf[idx] = meshId;
         const invQ = interpolatePerspective
           ? 1 / (wA * aq + wB * bq + wC * cq)
           : invArea2;
@@ -2843,6 +2917,201 @@ function scanFillTriangle(
 }
 
 /**
+ * Farthest-depth scan-fill for the `objectExit` second sweep. Unlike
+ * `scanFillTriangle`, this ALWAYS fills both windings (no backface cull —
+ * the far side of a closed mesh is by definition a back face from the
+ * camera) and keeps the FARTHEST depth instead of the nearest, restricted
+ * per cell to `meshId === winnerMeshBuf[idx]` (a farther, non-winning mesh's
+ * geometry must never leak into another mesh's exit point). Interpolates
+ * ONLY the pre-transform (object-space) position — no shading, color, or
+ * UV — since this buffer feeds a volumetric effect's marcher, not a glyph.
+ */
+function exitScanFillTriangle(
+  ax: number, ay: number, az: number, aq: number,
+  bx: number, by: number, bz: number, bq: number,
+  cx: number, cy: number, cz: number, cq: number,
+  ov0: Vec3, ov1: Vec3, ov2: Vec3,
+  exitPosBuf: Float32Array,
+  exitDepthBuf: Float64Array,
+  meshId: number,
+  winnerMeshBuf: Int32Array,
+  depthEpsilon: number,
+  cols: number,
+  rows: number,
+): void {
+  const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (area2 === 0) return;
+  const invArea2 = 1 / area2;
+  const ccw = area2 > 0;
+  const perspectiveAttributes = aq !== 1 || bq !== 1 || cq !== 1;
+
+  let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
+  let maxX = ax > bx ? ax : bx; if (cx > maxX) maxX = cx;
+  let minY = ay < by ? ay : by; if (cy < minY) minY = cy;
+  let maxY = ay > by ? ay : by; if (cy > maxY) maxY = cy;
+  const colLeft = Math.max(0, Math.ceil(minX));
+  const colRight = Math.min(cols - 1, Math.floor(maxX));
+  const rowTop = Math.max(0, Math.ceil(minY));
+  const rowBot = Math.min(rows - 1, Math.floor(maxY));
+  if (colLeft > colRight || rowTop > rowBot) return;
+
+  for (let row = rowTop; row <= rowBot; row++) {
+    const py = row;
+    for (let col = colLeft; col <= colRight; col++) {
+      const px = col;
+      const wA = (bx - px) * (cy - py) - (by - py) * (cx - px);
+      const wB = (cx - px) * (ay - py) - (cy - py) * (ax - px);
+      const wC = (ax - px) * (by - py) - (ay - py) * (bx - px);
+      // Inside test only (no winding cull): both windings share this same
+      // "all three weights share the sign of area2" condition.
+      if (ccw ? (wA < 0 || wB < 0 || wC < 0) : (wA > 0 || wB > 0 || wC > 0)) continue;
+
+      const idx = row * cols + col;
+      // Restrict to the mesh that actually won this cell in the entry pass.
+      if (winnerMeshBuf[idx] !== meshId) continue;
+
+      const pixelDepth = (wA * az + wB * bz + wC * cz) * invArea2;
+      const prevDepth = exitDepthBuf[idx]!;
+      // Mirror of the entry pass's draw-order deadband, sign-flipped: keep
+      // the FARTHEST (smallest) depth, with the same relative slack so
+      // near-coplanar back faces don't z-fight sweep to sweep.
+      if (pixelDepth < (prevDepth < Infinity ? prevDepth * (1 + depthEpsilon) : prevDepth)) {
+        exitDepthBuf[idx] = pixelDepth;
+        const invQ = perspectiveAttributes ? 1 / (wA * aq + wB * bq + wC * cq) : invArea2;
+        const o = idx * 3;
+        if (perspectiveAttributes) {
+          exitPosBuf[o] = (wA * aq * ov0[0]! + wB * bq * ov1[0]! + wC * cq * ov2[0]!) * invQ;
+          exitPosBuf[o + 1] = (wA * aq * ov0[1]! + wB * bq * ov1[1]! + wC * cq * ov2[1]!) * invQ;
+          exitPosBuf[o + 2] = (wA * aq * ov0[2]! + wB * bq * ov1[2]! + wC * cq * ov2[2]!) * invQ;
+        } else {
+          exitPosBuf[o] = (wA * ov0[0]! + wB * ov1[0]! + wC * ov2[0]!) * invArea2;
+          exitPosBuf[o + 1] = (wA * ov0[1]! + wB * ov1[1]! + wC * ov2[1]!) * invArea2;
+          exitPosBuf[o + 2] = (wA * ov0[2]! + wB * ov1[2]! + wC * ov2[2]!) * invArea2;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * `objectExit`'s second sweep (see VOLUMETRIC.md "Step 1"). Walks every
+ * polygon of every solid mesh a second time — back faces included, no
+ * culling — clipping any triangle that straddles the near plane instead of
+ * skipping it (a perspective camera near or inside the mesh is the
+ * marquee volumetric case; skipping would NaN the exit there). For each
+ * covered cell, keeps the FARTHEST depth among triangles belonging to the
+ * mesh that won that cell in the entry pass (`winnerMeshBuf`), barycentric-
+ * interpolating `objectVertices` at that depth into `exitPosBuf`.
+ *
+ * Same per-mesh `biasScale`/`depthEpsilon` and perspective-z convention as
+ * the entry pass, so entry and exit depths are directly comparable.
+ */
+function rasterizeObjectExit(
+  polygons: Polygon[],
+  polygonMeshIds: number[] | null,
+  camera: GlyphCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  winnerMeshBuf: Int32Array,
+  depthBiases: number[] | undefined,
+  depthEpsilon: number,
+  exitPosBuf: Float32Array,
+  exitDepthBuf: Float64Array,
+): void {
+  const projScratch: [number, number, number, number?][] = [];
+  for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
+    const poly = polygons[polyIdx]!;
+    const verts = poly.vertices;
+    if (verts.length < 3 || poly.hidden) continue;
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : -1;
+    const objVerts = poly.objectVertices ?? verts;
+    const biasScale = 1 + (depthBiases?.[polyIdx] ?? 0);
+
+    for (let k = 0; k < verts.length; k++) {
+      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, metrics);
+    }
+
+    for (let fanIdx = 1; fanIdx < verts.length - 1; fanIdx++) {
+      const vi0 = 0, vi1 = fanIdx, vi2 = fanIdx + 1;
+      const v0 = verts[vi0]! as Vec3;
+      const v1 = verts[vi1]! as Vec3;
+      const v2 = verts[vi2]! as Vec3;
+      const ov0 = objVerts[vi0]! as Vec3;
+      const ov1 = objVerts[vi1]! as Vec3;
+      const ov2 = objVerts[vi2]! as Vec3;
+
+      const pa = projScratch[vi0]!;
+      const pb = projScratch[vi1]!;
+      const pc = projScratch[vi2]!;
+      const nanCount =
+        (pa[0] !== pa[0] ? 1 : 0) + (pb[0] !== pb[0] ? 1 : 0) + (pc[0] !== pc[0] ? 1 : 0);
+      if (nanCount === 3) continue;
+
+      if (nanCount === 0) {
+        exitScanFillTriangle(
+          pa[0], pa[1], (pa[3] ?? pa[2]) * biasScale, pa[3] ?? 1,
+          pb[0], pb[1], (pb[3] ?? pb[2]) * biasScale, pb[3] ?? 1,
+          pc[0], pc[1], (pc[3] ?? pc[2]) * biasScale, pc[3] ?? 1,
+          ov0, ov1, ov2,
+          exitPosBuf, exitDepthBuf, meshId, winnerMeshBuf, depthEpsilon, cols, rows,
+        );
+      } else {
+        // Straddles the near plane: clip to the visible half-space exactly
+        // like the entry pass, but only carrying position (`cw`) and
+        // object-space position (`cow`) — no intensity/UV interpolation.
+        const cw: Vec3[] = [];
+        const cow: Vec3[] = [];
+        const tri: Vec3[] = [v0, v1, v2];
+        const objTri: Vec3[] = [ov0, ov1, ov2];
+        const d0 = camera.eyeDepth(v0);
+        const d1 = camera.eyeDepth(v1);
+        const d2 = camera.eyeDepth(v2);
+        const triD = [d0, d1, d2];
+        for (let e = 0; e < 3; e++) {
+          const n = (e + 1) % 3;
+          const de = triD[e]!;
+          const dn = triD[n]!;
+          if (de > 0) {
+            cw.push(tri[e]!);
+            cow.push(objTri[e]!);
+          }
+          if ((de > 0) !== (dn > 0)) {
+            const t = de / (de - dn);
+            const ve = tri[e]!, vn = tri[n]!;
+            cw.push([
+              ve[0] + t * (vn[0] - ve[0]),
+              ve[1] + t * (vn[1] - ve[1]),
+              ve[2] + t * (vn[2] - ve[2]),
+            ] as Vec3);
+            const oe = objTri[e]!, on = objTri[n]!;
+            cow.push([
+              oe[0] + t * (on[0] - oe[0]),
+              oe[1] + t * (on[1] - oe[1]),
+              oe[2] + t * (on[2] - oe[2]),
+            ] as Vec3);
+          }
+        }
+        if (cw.length >= 3) {
+          const cp = cw.map((w) => camera.project(w, cols, rows, cellAspect, metrics));
+          for (let f = 1; f < cw.length - 1; f++) {
+            const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
+            exitScanFillTriangle(
+              qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, qa[3] ?? 1,
+              qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, qb[3] ?? 1,
+              qc[0], qc[1], (qc[3] ?? qc[2]) * biasScale, qc[3] ?? 1,
+              cow[0]!, cow[f]!, cow[f + 1]!,
+              exitPosBuf, exitDepthBuf, meshId, winnerMeshBuf, depthEpsilon, cols, rows,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * Compute per-polygon, per-vertex smoothed normals for Gouraud shading.
  *
  * Vertices are bucketed by their exact world-space position (string key).
@@ -2991,6 +3260,7 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.targetRgb ?? null,
       g.weight ?? null,
       g.objectPosition ?? null,
+      g.objectExit ?? null,
     );
   };
   rasterize({

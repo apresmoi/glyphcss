@@ -108,6 +108,18 @@ export interface GlyphEffectFrameView extends GlyphEffectImageView {
    * rather than a per-face UV surface.
    */
   readonly objectPosition?: GlyphReadonlyNumberArray;
+  /**
+   * Interleaved object-space EXIT positions: the farthest intersection of
+   * the depth-winning mesh along the cell's view ray, in the same
+   * pre-transform frame as `objectPosition`. NaN for empty cells, same
+   * contract as `objectPosition`/`worldPosition`. The object-space ray a
+   * volumetric effect marches is not its own buffer — it is
+   * `normalize(objectExit − objectPosition)` — so a cell where the two
+   * coincide (a grazing silhouette) is a degenerate ray; treat a
+   * non-finite or zero-length ray as "no volume". Requested via the
+   * `"objectExit"` requirement.
+   */
+  readonly objectExit?: GlyphReadonlyNumberArray;
   readonly surfaceKey?: GlyphReadonlyNumberArray;
   readonly uv0?: GlyphReadonlyNumberArray;
 }
@@ -198,6 +210,7 @@ export type GlyphEffectRequirement =
   | "normal"
   | "worldPosition"
   | "objectPosition"
+  | "objectExit"
   | "surfaceKey"
   | "uv0"
   | "uv0Footprint";
@@ -210,6 +223,19 @@ export interface GlyphEffectProgramBase<P extends object, S> {
    * render mode, so evaluate() must provide a fallback.
    */
   readonly optionalRequirements?: readonly GlyphEffectRequirement[];
+  /**
+   * Params-aware requirement gating. Requirements are otherwise static per
+   * program, and `optionalRequirements` is retention-equivalent to hard
+   * requirements — so a program whose requirement depends on a param (e.g.
+   * only marching a volume under one render mode) would otherwise force
+   * every mounted instance, including ones that never touch that mode, to
+   * pay for the retained input. When present, the returned requirements are
+   * merged with the static `requirements`/`optionalRequirements` arrays and
+   * re-evaluated on every params transaction — a requirements change
+   * invalidates retained inputs the same way a params change already
+   * schedules a recompose.
+   */
+  dynamicRequirements?(params: Readonly<P>): readonly GlyphEffectRequirement[];
   readonly sceneSampling?: "nearest";
   readonly scratch?: GlyphEffectScratchRequirements;
   validateParams?(params: Readonly<P>): void;
