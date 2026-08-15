@@ -2064,6 +2064,52 @@ describe("field-synth voice layers (VOLUMETRIC.md's Step 3)", () => {
   });
 });
 
+describe("field-synth argmax voice color identity (reviewer P1: layer-local winner index vs. flat voice order)", () => {
+  it("reports the WINNING voice's own color, not the color at its layer-local fold position", () => {
+    // Exact reviewer repro: only voice5 (red) and voice6 (blue) are active,
+    // both assigned to layer 3 — the only populated layer, so single-layer
+    // argmax validation still passes. `foldVoices` loops layer 3's filtered
+    // voice array (just [voice5, voice6]) at LOCAL indices 0/1; a winner
+    // reported as that local index would read `parsedVoiceColors[0]`
+    // (voice1's default color) instead of voice5's red.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    objectPosition[iA * 3] = 0.25; objectPosition[iA * 3 + 1] = 0; objectPosition[iA * 3 + 2] = 0;
+
+    const out = evaluate(fieldSynth, {
+      space: "object", scale: 1, voiceColors: true, combine: "argmax",
+      amp1: 0, amp2: 0, amp3: 0, amp4: 0,
+      field5: "linearX", wave5: "sin", freq5: 1, speed5: 0, amp5: 1, layer5: 3, color5: "#ff0000",
+      field6: "linearY", wave6: "sin", freq6: 1, speed6: 0, amp6: 1, layer6: 3, color6: "#0000ff",
+    }, { objectPosition });
+
+    // At (0.25, 0, 0): voice5 (linearX) samples sin(0.25*2π)=1 (its peak);
+    // voice6 (linearY) samples sin(0)=0 — voice5 wins outright.
+    expect(out.color[iA]).toBe(0xff0000);
+  });
+
+  it("pins the single-layer (default layer 1) argmax + voiceColors case unchanged — the Cube tiles preset hash covers this end-to-end", () => {
+    // Same shape as the reviewer repro, but both voices sit on the DEFAULT
+    // (single) layer — the fallback path (`sourceIndex ?? k`) where
+    // layer-local index and flat index coincide, so this must be byte-
+    // identical to pre-fix behavior.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    objectPosition[iA * 3] = 0.25; objectPosition[iA * 3 + 1] = 0; objectPosition[iA * 3 + 2] = 0;
+
+    const out = evaluate(fieldSynth, {
+      space: "object", scale: 1, voiceColors: true, combine: "argmax",
+      field1: "linearX", wave1: "sin", freq1: 1, speed1: 0, amp1: 1, color1: "#ff0000",
+      field2: "linearY", wave2: "sin", freq2: 1, speed2: 0, amp2: 1, color2: "#0000ff",
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    }, { objectPosition });
+
+    expect(out.color[iA]).toBe(0xff0000);
+  });
+});
+
 describe("field-synth layer argmax validation (VOLUMETRIC.md's Step 3, \"argmax and voice colors\")", () => {
   it("rejects when a populated layer resolves (via inherited patch-level combine) to argmax while more than one layer is populated", () => {
     const params = {

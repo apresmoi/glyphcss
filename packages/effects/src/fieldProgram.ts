@@ -122,6 +122,20 @@ export interface FieldVoice {
    */
   readonly origin: { readonly u: number; readonly v: number; readonly w: number };
   readonly color: string;
+  /**
+   * This voice's position in its FLAT original source order (e.g.
+   * field-synth's voice1..6), independent of which layer it was grouped
+   * into. `foldVoices` reports THIS as the argmax winner identity (falling
+   * back to the voice's position within its own layer's array when omitted)
+   * so a caller indexing a flat per-voice table (e.g. `voiceColors`) by the
+   * reported winner always lands on the voice that actually won, even when
+   * layers reorder/filter voices out of flat order. Optional: a hand-built
+   * IR program (tests, a future SDF-sourced program) with no meaningful flat
+   * source order can omit it, and for a single-layer program the fallback
+   * (layer-local position) already equals flat position, so pre-layers
+   * behavior is unaffected.
+   */
+  readonly sourceIndex?: number;
 }
 
 export interface FieldLayer {
@@ -159,10 +173,10 @@ export interface FieldProgram {
 export interface FieldEvalResult {
   readonly combined: number;
   /**
-   * The winning voice index, meaningful only when exactly one layer is
-   * populated AND that layer's combine is "argmax" (argmax is categorical
-   * and — per VOLUMETRIC.md's Step 3 — deliberately stays single-layer).
-   * -1 otherwise.
+   * The winning voice's FLAT source index (see `FieldVoice.sourceIndex`),
+   * meaningful only when exactly one layer is populated AND that layer's
+   * combine is "argmax" (argmax is categorical and — per VOLUMETRIC.md's
+   * Step 3 — deliberately stays single-layer). -1 otherwise.
    */
   readonly winner: number;
   /** Total active voices across every layer. */
@@ -261,7 +275,13 @@ function foldVoices(
     const o = sampleFieldVoice(voice, x, y, z, cx, cy, cz, time, volumetric);
     if (argmax) {
       const contribution = voice.amp * o;
-      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
+      // `winner` is reported in FLAT source order (see `FieldVoice.sourceIndex`'s
+      // doc) so a caller indexing a flat per-voice table by it always lands on
+      // the voice that actually won, regardless of which layer it folded into.
+      // `winnerOrder` stays layer-local — it only spaces the level output evenly
+      // across THIS layer's active voices, which has nothing to do with the
+      // voice's original identity.
+      if (contribution > best) { best = contribution; winner = voice.sourceIndex ?? k; winnerOrder = active; }
     } else if (active === 0) {
       combined = voice.amp * o;
     } else {

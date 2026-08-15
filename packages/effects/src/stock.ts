@@ -1489,7 +1489,7 @@ type CompiledFieldVoice = FieldVoice & { readonly layer: number };
 // never needs to know about `scale` at all — it only combines a voice's
 // relative origin with the call-level origin it's given.
 function compileFieldVoices(voices: readonly SynthVoice[], scale: number): readonly CompiledFieldVoice[] {
-  return voices.map((voice) => ({
+  return voices.map((voice, sourceIndex) => ({
     field: voice.field,
     wave: voice.wave,
     freq: voice.freq,
@@ -1501,6 +1501,12 @@ function compileFieldVoices(voices: readonly SynthVoice[], scale: number): reado
     origin: { u: voice.originU * scale, v: voice.originV * scale, w: voice.originW * scale },
     color: voice.color,
     layer: voice.layer,
+    // Flat position in `voices` (field-synth's voice1..6 order), the same
+    // order `parsedVoiceColors` is indexed by — carried through so an argmax
+    // winner reported by `evaluateFieldProgram` always identifies the
+    // original voice, not its position within whichever layer it folded
+    // into (see `FieldVoice.sourceIndex`'s doc).
+    sourceIndex,
   }));
 }
 
