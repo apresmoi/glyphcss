@@ -43,6 +43,21 @@ interface ProjectCamera {
 const HLR_BIAS = 0.03;
 const HLR_SLOPE_SCALE = 0.5;
 
+// `winnerMeshBuf`'s "no winner yet" / occlusion-blanked sentinel (see its
+// declaration and `exitScanFillTriangle`'s gate below) is `-1`. A polygon's
+// meshId fallback when the caller supplies no `polygonMeshIds` array at all
+// must be a DIFFERENT constant — otherwise every polygon implicitly carries
+// the same value as an unclaimed cell, and the exit sweep's
+// `winnerMeshBuf[idx] !== meshId` restriction passes on every cell in a
+// triangle's bounding box regardless of whether that cell actually has a
+// winner, leaking finite `objectExit` data into empty/occluded cells (a
+// back-facing-only polygon is the sharpest case: it never wins any cell in
+// the entry pass, so every cell it touches in the exit sweep must be
+// rejected). `NO_MESH_ID_SUPPLIED` is used consistently by both the entry
+// and exit sweeps' meshId fallback, so a legitimately-won cell in a
+// no-mesh-ids scene still matches itself in the exit sweep.
+const NO_MESH_ID_SUPPLIED = -2;
+
 function projectionMetricsForGrid(
   cols: number,
   rows: number,
@@ -1370,9 +1385,9 @@ function rasterizeSolid(
     const objVerts = poly.objectVertices ?? verts;
     // Owning-mesh id for the winner-mesh buffer (`objectExit`'s second sweep
     // restricts its farthest-depth scan to whichever mesh won each cell
-    // here). `-1` when the scene didn't supply `polygonMeshIds` (retainObjectExit
-    // off, or a single-mesh detail layer where every cell trivially matches).
-    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : -1;
+    // here). `NO_MESH_ID_SUPPLIED` when the scene didn't supply `polygonMeshIds`
+    // — distinct from the `-1` "no winner" sentinel; see its declaration.
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : NO_MESH_ID_SUPPLIED;
     // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
     // projection/shading/scan-fill. `triT` must still advance by this polygon's
     // triangle count so the positional cross-frame shadeCache stays aligned when
@@ -3025,7 +3040,7 @@ function rasterizeObjectExit(
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3 || poly.hidden) continue;
-    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : -1;
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : NO_MESH_ID_SUPPLIED;
     const objVerts = poly.objectVertices ?? verts;
     const biasScale = 1 + (depthBiases?.[polyIdx] ?? 0);
 

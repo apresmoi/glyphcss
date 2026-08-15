@@ -208,11 +208,32 @@ describe("objectExit — second-sweep farthest object-space exit point", () => {
 
   it("perspective (including camera near/inside the mesh): entry/exit lie on the cube surface, exit no nearer, both on-screen, and near-plane-straddling triangles still produce finite exits", () => {
     const cols = 40, rows = 24, cellAspect = 2;
-    // `distance: -0.5` pulls the camera INSIDE the unit cube (half-extent 1) —
-    // the marquee volumetric case, forcing the exit sweep's near-plane clip
-    // path (VOLUMETRIC.md: skipping instead of clipping would NaN the exit
-    // exactly here).
-    const camera = createGlyphPerspectiveCamera({ rotX: 25, rotY: 35, zoom: 800, perspective: 2000, distance: -0.5 });
+    // `distance` is CSS PIXELS (AGENTS.md numeric conventions), not world
+    // units — `-0.5` here does NOT put the camera inside the unit cube: with
+    // `perspective: 2000` every vertex still projects finitely and the
+    // near-plane clip branch in `rasterizeObjectExit`/`exitScanFillTriangle`
+    // gets zero coverage. Genuinely entering the cube (half-extent 1) takes a
+    // pull-back near `-2000`; `-1990` measured 12 of the cube's 24 raw
+    // vertex projections landing on the far/invisible side of the near plane
+    // (straddling triangles), which is exactly the case the clip path exists
+    // for.
+    const distance = -1990;
+    const camera = createGlyphPerspectiveCamera({ rotX: 25, rotY: 35, zoom: 800, perspective: 2000, distance });
+
+    // Confirm the premise directly, independent of the rasterizer: project
+    // the cube's own vertices and require some of them to be non-finite
+    // (past the near plane) — otherwise every triangle would be fully
+    // in-front and `exitScanFillTriangle`'s straddling-triangle clip branch
+    // (`nanCount` between 1 and 2 in `rasterizeObjectExit`) would never run.
+    let nanVertexProjections = 0;
+    for (const poly of cubePolygons()) {
+      for (const v of poly.vertices) {
+        const p = camera.project(v, cols, rows, cellAspect);
+        if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) nanVertexProjections++;
+      }
+    }
+    expect(nanVertexProjections).toBeGreaterThan(0);
+
     const grid = rasterizeToCells(buildRasterizeContext({
       camera,
       grid: { cols, rows, cellAspect },
@@ -223,8 +244,38 @@ describe("objectExit — second-sweep farthest object-space exit point", () => {
       retainObjectPosition: true,
       retainObjectExit: true,
     }));
+    // Despite the near-plane straddling above, every covered cell's exit
+    // stays finite (the clip path, not a NaN-producing skip) and the usual
+    // surface/ordering/on-screen invariants still hold.
     const checked = checkEntryExitInvariants(grid, camera, cols, rows, cellAspect);
     expect(checked).toBeGreaterThan(20);
+  });
+
+  it("perspective near-plane clip: entry/exit stay finite on the mesh surface across a range of camera pull-backs that straddle the near plane", () => {
+    const cols = 40, rows = 24, cellAspect = 2;
+    // -1960/-1990/-1999 (9/12/15 of 24 vertex projections non-finite) all
+    // exercise the clip branch; confirm it holds across the range, not just
+    // one hand-picked value.
+    for (const distance of [-1960, -1990, -1999]) {
+      const camera = createGlyphPerspectiveCamera({ rotX: 25, rotY: 35, zoom: 800, perspective: 2000, distance });
+      const grid = rasterizeToCells(buildRasterizeContext({
+        camera,
+        grid: { cols, rows, cellAspect },
+        polygons: cubePolygons(),
+        mode: "solid",
+        useColors: false,
+        doubleSided: true,
+        retainObjectPosition: true,
+        retainObjectExit: true,
+      }));
+      let coveredChecked = 0;
+      for (let i = 0; i < grid.depth.length; i++) {
+        if (grid.depth[i] === -Infinity) continue;
+        coveredChecked++;
+        expect(Number.isFinite(grid.objectExit![i * 3]!)).toBe(true);
+      }
+      expect(coveredChecked).toBeGreaterThan(20);
+    }
   });
 
   it("perspective, camera outside the mesh: entry/exit lie on the cube surface, exit no nearer, both on-screen", () => {
@@ -283,6 +334,158 @@ describe("objectExit — second-sweep farthest object-space exit point", () => {
       aWinnerCells++;
     }
     expect(aWinnerCells).toBeGreaterThan(30);
+  });
+
+  it("object-space entry/exit are distinguished from world space under non-uniform scale", () => {
+    // `objectVertices` (pre-transform, canonical unit cube) vs `vertices`
+    // (world-space, scaled [3, 5, 7] per axis) — every fixture elsewhere in
+    // this file omits `objectVertices`, so `objectVertices ?? verts` falls
+    // back to `verts` and object space trivially equals world space. This
+    // fixture is the one place the distinction is load-bearing: a bug that
+    // interpolated `verts` instead of `objectVertices` (or mixed the two)
+    // would produce object-space output that tracks the [3, 5, 7] scale
+    // instead of the canonical unit cube.
+    const scale: Vec3 = [3, 5, 7];
+    function scaledCubePolygons(): Polygon[] {
+      return cubePolygons().map((p) => ({
+        ...p,
+        vertices: p.vertices.map(([x, y, z]) => [x * scale[0], y * scale[1], z * scale[2]] as Vec3),
+        objectVertices: p.vertices,
+      }));
+    }
+    const cols = 40, rows = 24, cellAspect = 2;
+    const camera = createGlyphOrthographicCamera({ rotX: 25, rotY: 35, zoom: 60 });
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera,
+      grid: { cols, rows, cellAspect },
+      polygons: scaledCubePolygons(),
+      mode: "solid",
+      useColors: false,
+      retainObjectPosition: true,
+      retainObjectExit: true,
+      retainWorldPosition: true,
+    }));
+    let checked = 0;
+    for (let i = 0; i < grid.depth.length; i++) {
+      if (grid.depth[i] === -Infinity) continue;
+      const entry: Vec3 = [grid.objectPosition![i * 3]!, grid.objectPosition![i * 3 + 1]!, grid.objectPosition![i * 3 + 2]!];
+      const exit: Vec3 = [grid.objectExit![i * 3]!, grid.objectExit![i * 3 + 1]!, grid.objectExit![i * 3 + 2]!];
+      if (!Number.isFinite(entry[0]) || !Number.isFinite(exit[0])) continue;
+
+      // Object-space endpoints lie on the CANONICAL unit cube regardless of
+      // the world-space scale.
+      expect(Math.max(...entry.map(Math.abs))).toBeCloseTo(1, 2);
+      expect(Math.max(...exit.map(Math.abs))).toBeCloseTo(1, 2);
+
+      // The retained world position for the SAME winning cell/depth is the
+      // object-space entry scaled by [3, 5, 7] — proving object and world
+      // space are genuinely different buffers here, not the same value
+      // read twice.
+      const world: Vec3 = [grid.worldPosition![i * 3]!, grid.worldPosition![i * 3 + 1]!, grid.worldPosition![i * 3 + 2]!];
+      for (let axis = 0; axis < 3; axis++) {
+        expect(world[axis]!).toBeCloseTo(entry[axis]! * scale[axis]!, 1);
+      }
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it("supersample > 1: entry and exit stay consistent with the same subcell's ray", () => {
+    // `objectExit` is produced at the pass's supersample resolution and
+    // downsampled by the same representative-subcell selection as
+    // `objectPosition` (VOLUMETRIC.md: "so entry and exit describe the same
+    // subcell's ray"). If they instead picked independent subcells, the
+    // surface/no-nearer/on-screen invariants below would be the first thing
+    // to break, especially near the silhouette where neighboring subcells
+    // can disagree on which face is even covered.
+    const cols = 40, rows = 24, cellAspect = 2;
+    const camera = createGlyphOrthographicCamera({ rotX: 25, rotY: 35, zoom: 300 });
+    for (const supersample of [2, 3]) {
+      const grid = rasterizeToCells(buildRasterizeContext({
+        camera,
+        grid: { cols, rows, cellAspect },
+        polygons: cubePolygons(),
+        mode: "solid",
+        useColors: false,
+        retainObjectPosition: true,
+        retainObjectExit: true,
+        supersample,
+      }));
+      const checked = checkEntryExitInvariants(grid, camera, cols, rows, cellAspect);
+      expect(checked).toBeGreaterThan(50);
+    }
+  });
+
+  it("a back-facing polygon with no polygonMeshIds never leaks a finite exit into cells it never won", () => {
+    // Single flat quad, entirely BACK-facing to the camera (never wins any
+    // cell in the entry pass — the entry pass backface-culls it), and no
+    // `polygonMeshIds` supplied at all. The winner-mesh buffer's
+    // "unclaimed"/occlusion-blanked sentinel and a no-`polygonMeshIds`
+    // polygon's fallback meshId must be different values, or the exit
+    // sweep's `winnerMeshBuf[idx] !== meshId` restriction trivially passes
+    // on every cell this quad's own back face covers, even though none of
+    // them have an entry-pass winner.
+    const backFacingQuad: Polygon[] = [{
+      // Outward normal is -Z (CCW winding as seen from -Z); the camera below
+      // looks along -Z from +Z, so this quad is back-facing and produces no
+      // entry-pass winner anywhere.
+      vertices: [[-1, -1, 0], [-1, 1, 0], [1, 1, 0], [1, -1, 0]],
+      color: "#8899cc",
+    }];
+    const cols = 40, rows = 24, cellAspect = 2;
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 300 });
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera,
+      grid: { cols, rows, cellAspect },
+      polygons: backFacingQuad,
+      mode: "solid",
+      useColors: false,
+      retainObjectPosition: true,
+      retainObjectExit: true,
+      // Deliberately no `polygonMeshIds` — this is the reported collision case.
+    }));
+    let emptyCells = 0, leakedExits = 0;
+    for (let i = 0; i < grid.depth.length; i++) {
+      if (grid.depth[i] !== -Infinity) continue; // no entry-pass winner here
+      emptyCells++;
+      if (Number.isFinite(grid.objectExit![i * 3]!)) leakedExits++;
+    }
+    expect(emptyCells).toBeGreaterThan(0);
+    expect(leakedExits).toBe(0);
+  });
+
+  it("cross-layer occlusion-blanked cells never leak a finite exit, with no polygonMeshIds", () => {
+    // An ordinary front-facing cube that WOULD win every covered cell in the
+    // entry pass, but a cross-layer occlusion map claims every reference
+    // cell for a different layer id — blanking `winnerMeshBuf` back to its
+    // "unclaimed" sentinel (see the occlusion pass in `rasterizeSolid`,
+    // which resets depth/position buffers alongside it) for every cell.
+    // With no `polygonMeshIds` supplied, this pins the same sentinel
+    // collision as the back-facing-quad case above, from the other cause
+    // (`rasterizeSolid`'s occlusion blank vs. the entry pass never drawing
+    // at all).
+    const cols = 40, rows = 24, cellAspect = 2;
+    const camera = createGlyphOrthographicCamera({ rotX: 25, rotY: 35, zoom: 300 });
+    const idMap = new Int32Array(cols * rows).fill(2); // a different layer id everywhere
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera,
+      grid: { cols, rows, cellAspect },
+      polygons: cubePolygons(),
+      mode: "solid",
+      useColors: false,
+      retainObjectPosition: true,
+      retainObjectExit: true,
+      occlusion: { idMap, layerId: 1, cols, rows, colScale: 1, colOffset: 0, rowScale: 1, rowOffset: 0 },
+    }));
+    let coveredCells = 0, leakedExits = 0;
+    for (let i = 0; i < grid.depth.length; i++) {
+      if (grid.depth[i] !== -Infinity) coveredCells++;
+      if (Number.isFinite(grid.objectExit![i * 3]!)) leakedExits++;
+    }
+    // Every cell is blanked by occlusion — the cube would otherwise cover a
+    // large chunk of the grid, confirming this isn't just an empty scene.
+    expect(coveredCells).toBe(0);
+    expect(leakedExits).toBe(0);
   });
 
   it("byte-identity regression: rasterize() output for a scene that never touches objectExit is pinned to its pre-change hash", () => {

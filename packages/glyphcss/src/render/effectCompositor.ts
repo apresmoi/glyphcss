@@ -614,19 +614,29 @@ export function composeRetainedGlyphEffectOutput(
 
   for (const prepared of preparedLayers) {
     const { layer, params } = prepared;
-    if (layer.program.requirements?.includes("baseShade") && !base.shade) {
+    // Static `requirements` alone is not the full active set: a
+    // `dynamicRequirements` hook can make a requirement (e.g. field-synth's
+    // `objectExit` under `render: "carve"`) live for THESE params without it
+    // ever appearing in `requirements`. Both must gate the same hard-failure
+    // checks, or a retained base grid missing the dynamically-required buffer
+    // silently evaluates with `undefined` instead of throwing.
+    const activeRequirements = new Set<GlyphEffectRequirement>([
+      ...(layer.program.requirements ?? []),
+      ...(layer.program.dynamicRequirements?.(params) ?? []),
+    ]);
+    if (activeRequirements.has("baseShade") && !base.shade) {
       throw new Error("glyphcss: retained base shading is unavailable for an effect that requires baseShade.");
     }
-    if (layer.program.requirements?.includes("worldPosition") && !base.worldPosition) {
+    if (activeRequirements.has("worldPosition") && !base.worldPosition) {
       throw new Error("glyphcss: retained world positions are unavailable for an effect that requires worldPosition.");
     }
-    if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
+    if (activeRequirements.has("objectPosition") && !base.objectPosition) {
       throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
     }
-    if (layer.program.requirements?.includes("objectExit") && !base.objectExit) {
+    if (activeRequirements.has("objectExit") && !base.objectExit) {
       throw new Error("glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
     }
-    if (layer.program.requirements?.includes("normal") && !base.normal) {
+    if (activeRequirements.has("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
     }
     for (let i = 0; i < n; i++) {

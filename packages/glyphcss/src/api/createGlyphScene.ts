@@ -1305,10 +1305,15 @@ export function createGlyphScene(
           retainWorldPosition,
           retainNormal,
           retainObjectPosition,
-          // No `polygonMeshIds` needed: a detail layer's `tp` is always a single
-          // mesh's own polygons, so the winner-mesh buffer's `-1` fallback (both
-          // written in the entry pass and matched in the exit sweep) trivially
-          // agrees on every covered cell.
+          // A detail layer's `tp` is always a single mesh's own polygons, but
+          // the winner-mesh buffer's uninitialized/occlusion-blanked cells
+          // ALSO default to `-1` — the same value every polygon here would
+          // carry if `polygonMeshIds` were omitted (see `RasterizeContext.polygonMeshIds`'s
+          // "no mesh ids supplied" fallback in rasterize.ts). That collision let
+          // a back-facing-only polygon's exit sweep leak into cells with no
+          // entry-pass winner at all. Supplying this mesh's own real (>=1) id
+          // for every polygon keeps the winner-mesh sentinel unambiguous.
+          polygonMeshIds: retainObjectExit ? tp.map(() => entry.id) : undefined,
           retainObjectExit,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
@@ -1451,11 +1456,14 @@ export function createGlyphScene(
     const requested = new Set([
       ...(layer.program.requirements ?? []),
       ...(layer.program.optionalRequirements ?? []),
+      ...(layer.program.dynamicRequirements?.(layer.paramsTarget) ?? []),
     ]);
     const needsInputRaster = Array.from(retainedEffectOutputs.values()).some((output) => (
       (requested.has("baseShade") && !output.base.shade)
       || (requested.has("worldPosition") && !output.base.worldPosition)
       || (requested.has("normal") && !output.base.normal)
+      || (requested.has("objectPosition") && !output.base.objectPosition)
+      || (requested.has("objectExit") && !output.base.objectExit)
     ));
     if (needsInputRaster) scheduleRender();
     else if (retainedEffectOutputs.size > 0) scheduleEffectRender();

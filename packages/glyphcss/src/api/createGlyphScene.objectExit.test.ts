@@ -134,6 +134,105 @@ describe("createGlyphScene — objectExit effect input", () => {
     host.remove();
   });
 
+  it("mounting a hard-objectExit layer while another layer's output is already retained triggers a full render", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols: 30,
+      rows: 20,
+      useColors: false,
+      doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+    });
+    scene.add(cubePolygons());
+    // First layer never touches objectExit — its mount is what populates
+    // `retainedEffectOutputs` with a base grid lacking that buffer.
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({ evaluate() {} }),
+      params: { phase: 0 },
+    });
+    await flushRenders();
+
+    let evaluated = false;
+    let sawObjectExit: boolean | undefined;
+    // Second layer has a HARD `objectExit` requirement, mounted AFTER the
+    // first layer's retained output already exists
+    // (`retainedEffectOutputs.size > 0`) — the exact precondition for the
+    // `addEffectLayer` mount-time probe gap (VOLUMETRIC.md "Step 1"):
+    // `needsInputRaster` must recognize the new layer needs a buffer the
+    // existing retained output doesn't have, and schedule a full geometry
+    // render instead of the cheap `scheduleEffectRender()` recompose.
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({
+        requirements: ["objectExit"],
+        evaluate({ base }) {
+          evaluated = true;
+          sawObjectExit = base.objectExit !== undefined;
+        },
+      }),
+      params: { phase: 0 },
+    });
+    await flushRenders();
+    expect(evaluated).toBe(true);
+    expect(sawObjectExit).toBe(true);
+
+    // A subsequent recompose (any further render pass) must keep succeeding —
+    // not throw "retained object exit positions are unavailable" forever.
+    evaluated = false;
+    scene.add(cubePolygons());
+    await flushRenders();
+    expect(evaluated).toBe(true);
+
+    scene.destroy();
+    host.remove();
+  });
+
+  it("mounting a layer whose dynamicRequirements ask for objectExit at INITIAL params, while another layer's output is already retained, sees a real buffer instead of silently evaluating against undefined", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols: 30,
+      rows: 20,
+      useColors: false,
+      doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 25, rotY: 35 }),
+    });
+    scene.add(cubePolygons());
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ phase: number }>({ evaluate() {} }),
+      params: { phase: 0 },
+    });
+    await flushRenders();
+
+    let evaluated = false;
+    let sawObjectExit: boolean | undefined;
+    let coveredFinite: boolean | undefined;
+    // Mirrors field-synth mounting directly into `render: "carve"` — the
+    // dynamic requirement is already live on the FIRST evaluation, not
+    // reached later through a params change.
+    scene.addEffectLayer({
+      effect: defineGlyphEffect<{ carve: boolean }>({
+        dynamicRequirements: (params): readonly GlyphEffectRequirement[] => (params.carve ? ["objectExit"] : []),
+        evaluate({ base }) {
+          evaluated = true;
+          sawObjectExit = base.objectExit !== undefined;
+          if (base.objectExit) {
+            const covered = Array.from(base.coverage).findIndex((v) => v > 0);
+            coveredFinite = covered >= 0 && Number.isFinite(base.objectExit[covered * 3]!);
+          }
+        },
+      }),
+      params: { carve: true },
+    });
+    await flushRenders();
+    expect(evaluated).toBe(true);
+    expect(sawObjectExit).toBe(true);
+    expect(coveredFinite).toBe(true);
+
+    scene.destroy();
+    host.remove();
+  });
+
   it("rejects an unsupported requirement returned from dynamicRequirements at mount time", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
