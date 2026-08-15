@@ -3506,15 +3506,44 @@ describe("field-synth xray mode — real scene (VOLUMETRIC-2.md acceptance crite
 // distinct levels — "which labyrinth half" — instead of averaging into fog.
 // That claim had no targeted real-scene test: the Menger xray real-scene
 // test above only asserts non-empty output, which a uniformly foggy render
-// would satisfy just as well. This proves the actual contrast.
+// would satisfy just as well.
+//
+// Round 1 of this test used raw spread/median-split statistics over all
+// covered cells and it was NOT discriminative: on a real projected cube,
+// chord length itself varies continuously (short grazing chords near the
+// silhouette edge, long chords through the middle), and `B = 1 -
+// exp(-xrayGain * integral)` is monotone in chord length even for a
+// perfectly UNIFORM density field — so that geometric confound alone
+// produces a wide min/max spread and a large median-split gap regardless of
+// whether the field itself carries any structure. Verified directly: the
+// no-threshold ("fog") variant below reproduces round 1's assertions
+// (spread, median gap) almost exactly.
+//
+// The chord-controlled fix: fog predicts B is (nearly) a function of chord
+// length ALONE, so grouping covered cells into narrow chord-length bins and
+// looking at brightness spread WITHIN each bin isolates the field's own
+// contribution from the geometric confound — a fog field's within-bin
+// spread should collapse toward ~0 (same chord length -> same B), while the
+// thresholded preset's within-bin spread should stay large (same chord
+// length, but different position along it crosses different amounts of
+// solid vs. hole). The test below computes this for the real shipped preset
+// AND, as a negative control, for a `layerThresholdOn1: false` variant on
+// the exact same captured real chords — proving the statistic actually
+// separates the two, not just that the shipped preset clears a hand-picked
+// number.
 describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRIC-2.md §1 P2)", () => {
-  it("renders at least two distinct absorption bands across the cube's covered cells, not a uniform fog average", async () => {
-    const cols = 48, rows = 30, length = cols * rows;
+  // Real per-cell entry/exit chords, captured once from an actual rendered
+  // scene (real camera + real cube mesh projection) and reused to evaluate
+  // both the shipped preset and its no-threshold negative control — so both
+  // variants are compared on IDENTICAL geometry, isolating the field-level
+  // difference the test is actually about.
+  async function captureRealCubeChords(): Promise<{ cols: number; rows: number; length: number; objectPosition: Float32Array; objectExit: Float32Array }> {
+    const cols = 96, rows = 60, length = cols * rows;
     const host = document.createElement("div");
     document.body.appendChild(host);
     const scene = createGlyphScene(host, {
       cols, rows, useColors: false, doubleSided: true,
-      camera: createGlyphOrthographicCamera({ zoom: 260, rotX: 22, rotY: 30 }),
+      camera: createGlyphOrthographicCamera({ zoom: 560, rotX: 22, rotY: 30 }),
     });
     scene.add(carveCubePolygons());
     // The real, shipped preset, mounted exactly as `applyPreset`
@@ -3540,21 +3569,29 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     expect(text.split("\n").some((row) => row.trim().length > 0)).toBe(true); // real render, non-empty
     scene.destroy();
     host.remove();
-
     expect(captured.objectPosition).toBeDefined();
     expect(captured.objectExit).toBeDefined();
+    return { cols, rows, length, objectPosition: captured.objectPosition!, objectExit: captured.objectExit! };
+  }
 
-    // Decode absorption brightness from the SAME real per-cell chords the
-    // render above just used, via the file's own established grayscale-probe
-    // technique (the uniform-step-count pinned test earlier in this file):
-    // `color`/`colorB`/`gradient` are purely cosmetic value-gradient mapping
-    // — B itself is computed upstream from density/xrayGain, so overriding
-    // them to black/white/1 can't perturb the absorption result under test,
-    // only make it exactly decodable via the color channel's low byte.
+  // Evaluates the (real, shipped) field program against the captured real
+  // chords, decoding brightness via the file's own established grayscale-
+  // probe technique (the uniform-step-count pinned test earlier in this
+  // file): `color`/`colorB`/`gradient` are purely cosmetic value-gradient
+  // mapping — B itself is computed upstream from density/xrayGain, so
+  // overriding them to black/white/1 can't perturb the absorption result
+  // under test, only make it exactly decodable via the color channel's low
+  // byte. `overrides` swaps in the no-threshold negative control.
+  function evaluateBrightness(
+    chords: { cols: number; rows: number; length: number; objectPosition: Float32Array; objectExit: Float32Array },
+    overrides: Record<string, number | string | boolean> = {},
+  ): { chordLength: number; brightness: number }[] {
+    const { cols, rows, length, objectPosition, objectExit } = chords;
     const params = {
       ...defaultGlyphEffectParams(fieldSynth),
       ...(gyroidXrayPreset.params as Record<string, number | string | boolean>),
       color: "#000000", colorB: "#ffffff", gradient: 1,
+      ...overrides,
     };
     const glyph = new Array<string>(length).fill("#");
     // `target.coverage` is the BASE MESH's already-rasterized silhouette —
@@ -3562,11 +3599,11 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     // stock.ts's `xrayUniformSteps`/per-cell loops, both gated on
     // `context.target.coverage[i] > 0` before touching that cell at all).
     // The real render's own base mesh silhouette is exactly "every cell
-    // `captured.objectPosition` has finite data for" — mirror that here
-    // (the shared `evaluate()` helper above defaults this to a fully-`1`
+    // `objectPosition` has finite data for" — mirror that here (the shared
+    // `evaluate()` helper elsewhere in this file defaults this to a fully-`1`
     // mock canvas; this scene isn't full-frame, so it must be per-cell).
     const coverage = new Float32Array(length);
-    for (let i = 0; i < length; i++) if (Number.isFinite(captured.objectPosition?.[i * 3])) coverage[i] = 1;
+    for (let i = 0; i < length; i++) if (Number.isFinite(objectPosition[i * 3])) coverage[i] = 1;
     const color = new Uint32Array(length).fill(GlyphEffectNoColor);
     const output = {
       glyph: new Array<string>(length).fill(" "),
@@ -3578,7 +3615,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     fieldSynth.program.evaluate({
       params,
       state: undefined,
-      base: { cols, rows, length, glyph, coverage, color, objectPosition: captured.objectPosition, objectExit: captured.objectExit },
+      base: { cols, rows, length, glyph, coverage, color, objectPosition, objectExit },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },
       coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
@@ -3586,36 +3623,89 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
       output,
     } as never);
 
-    const brightness: number[] = [];
+    const samples: { chordLength: number; brightness: number }[] = [];
     for (let i = 0; i < length; i++) {
-      if (output.coverage[i]! > 0) brightness.push((output.color[i]! & 0xff) / 255);
+      if (output.coverage[i]! <= 0) continue;
+      const ex = objectPosition[i * 3]!, ey = objectPosition[i * 3 + 1]!, ez = objectPosition[i * 3 + 2]!;
+      const xx = objectExit[i * 3]!, xy = objectExit[i * 3 + 1]!, xz = objectExit[i * 3 + 2]!;
+      const chordLength = Math.hypot(xx - ex, xy - ey, xz - ez);
+      if (!Number.isFinite(chordLength) || chordLength <= 0) continue;
+      samples.push({ chordLength, brightness: (output.color[i]! & 0xff) / 255 });
     }
-    expect(brightness.length).toBeGreaterThan(20); // enough covered cells to judge a distribution, not a handful of samples
+    return samples;
+  }
 
-    // "Fog" would be a tight cluster (VOLUMETRIC-2.md §1: within 0.01-0.1 of
-    // a single reference value). A real projected cube's chords vary
-    // continuously in length (short near the silhouette edge, long through
-    // the middle), so the covered-cell distribution isn't a clean two-value
-    // histogram even with the fix applied — the robust bimodality signal is
-    // splitting the SORTED distribution at its median and comparing the two
-    // halves' means: fog collapses both halves toward the same value, while
-    // real low/high structure keeps them far apart regardless of how the
-    // middle fills in.
-    const sorted = [...brightness].sort((a, b) => a - b);
-    const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
-    const mid = Math.floor(sorted.length / 2);
-    const lowMean = mean(sorted.slice(0, mid));
-    const highMean = mean(sorted.slice(mid));
-    // Loosely pins VOLUMETRIC-2.md §1's own ~0.53/~0.90 two-level claim (a
-    // ~0.37 gap between the two levels) without being brittle to this test's
-    // own camera/cube choice — a real scene's continuum brings the two
-    // half-means closer than two idealized point samples would be, so this
-    // threshold sits comfortably below that reference gap, not at it.
-    expect(highMean - lowMean).toBeGreaterThan(0.25);
-    // Loose absolute sanity against the documented ~0.53 (hole-dominated)
-    // and ~0.90 (solid-dominated) reference levels: something reads low,
-    // something reads high near saturation.
-    expect(sorted[0]!).toBeLessThan(0.6);
-    expect(sorted[sorted.length - 1]!).toBeGreaterThan(0.8);
+  // Fog predicts B is (nearly) a function of chord length alone — grouping
+  // into narrow RELATIVE-width (8%) chord-length bins isolates that
+  // confound: within a bin, chord length is nearly constant, so any
+  // remaining brightness spread comes from the field's own structure, not
+  // geometry. Bins need >= minCount members for a meaningful spread reading
+  // (a 1-2-cell bin's "spread" is just noise). Per-bin STANDARD DEVIATION
+  // (not just max-min range) is the primary statistic — a mean-of-ranges
+  // statistic grows with how many samples happen to land in a bin (more
+  // draws -> a wider observed extreme), which is a sample-size artifact, not
+  // a spread difference; std is far less sensitive to that. Swept relWidth
+  // in {0.02..0.2} and minCount in {3,5,8,10} empirically (not shipped, see
+  // commit description): the shipped preset's within-bin std consistently
+  // ran ~1.35-1.45x the no-threshold control's, stable across every
+  // combination and a 4x grid-resolution change — a real, reproducible
+  // separation, not a tuned coincidence.
+  function withinBinSpread(samples: { chordLength: number; brightness: number }[], relWidth = 0.08, minCount = 8): { stat: number; qualifyingBins: number; totalBins: number } {
+    const minLen = Math.min(...samples.map((s) => s.chordLength));
+    const bins = new Map<number, number[]>();
+    for (const s of samples) {
+      const idx = Math.floor(Math.log(s.chordLength / minLen) / Math.log(1 + relWidth));
+      const arr = bins.get(idx);
+      if (arr) arr.push(s.brightness); else bins.set(idx, [s.brightness]);
+    }
+    let sumStd = 0, qualifying = 0;
+    for (const arr of bins.values()) {
+      if (arr.length < minCount) continue;
+      const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+      const variance = arr.reduce((a, b) => a + (b - m) * (b - m), 0) / arr.length;
+      sumStd += Math.sqrt(variance);
+      qualifying++;
+    }
+    return { stat: qualifying > 0 ? sumStd / qualifying : 0, qualifyingBins: qualifying, totalBins: bins.size };
+  }
+
+  it("has high within-chord-length-bin brightness spread for the shipped (thresholded) preset, and the statistic genuinely fails a no-threshold ('fog') negative control on the SAME real chords", async () => {
+    const chords = await captureRealCubeChords();
+
+    const thresholded = evaluateBrightness(chords);
+    expect(thresholded.length).toBeGreaterThan(200); // enough covered cells to bin meaningfully at 8% relative width
+
+    // Negative control: same real chords, same field/xrayGain, but
+    // `layerThresholdOn1: false` — the raw continuous gyroid value, i.e.
+    // the un-thresholded "fog" failure mode VOLUMETRIC-2.md §1 documents.
+    const fog = evaluateBrightness(chords, { layerThresholdOn1: false });
+    expect(fog.length).toBeGreaterThan(200);
+
+    const thresholdedStat = withinBinSpread(thresholded);
+    const fogStat = withinBinSpread(fog);
+    // eslint-disable-next-line no-console
+    console.log("Gyroid xray P2 chord-controlled within-bin brightness std:", {
+      thresholded: { ...thresholdedStat, n: thresholded.length },
+      fog: { ...fogStat, n: fog.length },
+      ratio: thresholdedStat.stat / fogStat.stat,
+    });
+
+    // Both sides need a real sample of qualifying bins, not 1-2 lucky ones.
+    expect(thresholdedStat.qualifyingBins).toBeGreaterThan(15);
+    expect(fogStat.qualifyingBins).toBeGreaterThan(15);
+
+    // A single shared bound: the shipped preset must clear it (real field
+    // structure survives chord-length control) and the negative control
+    // must fail it (proving the statistic actually discriminates structure
+    // from the geometric confound, not just that the shipped preset clears
+    // an arbitrary number). Measured ~0.069 (thresholded) vs ~0.049 (fog);
+    // 0.058 sits with margin on both sides.
+    const bound = 0.058;
+    expect(thresholdedStat.stat).toBeGreaterThan(bound);
+    expect(fogStat.stat).toBeLessThan(bound);
+    // Consistent-ratio corroboration (measured ~1.35-1.45x, stable across
+    // the bin-parameter sweep and a 4x resolution change) — well below that
+    // observed range so it isn't brittle to small evaluator changes.
+    expect(thresholdedStat.stat / fogStat.stat).toBeGreaterThan(1.15);
   });
 });
