@@ -614,7 +614,7 @@ per-voice `angleN`/`originUN`/`originVN`, and `subcellRes: "2x4"`/`"ink"` — al
 (the volumetric branch) and `render: "carve"`, plus an active voice
 (`ampN > 0`) using `linearZ` or a nonzero `originWN` — all 3D-only semantics a
 per-cell coordinate bake can't fake, since carve in particular needs a march
-per cell per frame. Call `isStaticExportSupported(params)` to check before
+per cell per frame. Call `isGlyphFieldSynthStaticExportSupported(params)` to check before
 exporting rather than duplicating this list; the `/synth` page's CodePen
 button uses it to decide which export to offer. A volumetric or carve patch
 still exports through the

@@ -17,7 +17,7 @@ import {
   type Polygon,
   type RetainedGlyphEffectOutput,
 } from "glyphcss";
-import { buildGlyphFieldSynthStaticExport, isStaticExportSupported, type GlyphFieldSynthStaticExportOptions } from "./staticExport";
+import { buildGlyphFieldSynthStaticExport, isGlyphFieldSynthStaticExportSupported, type GlyphFieldSynthStaticExportOptions } from "./staticExport";
 import { fieldSynth, defaultGlyphEffectParams, type AnyContext, type AnyParams } from "./stock";
 
 function mesh(): Polygon[] {
@@ -604,29 +604,29 @@ describe("buildGlyphFieldSynthStaticExport", () => {
   // || render==="carve") that missed two of the exporter's own reject cases
   // (an active linearZ voice, a nonzero originW on an active voice) — a
   // URL-loaded patch carrying either without being volumetric/carve made the
-  // button throw. `isStaticExportSupported` is the exporter's own predicate,
+  // button throw. `isGlyphFieldSynthStaticExportSupported` is the exporter's own predicate,
   // mirroring `assertStaticExportSupported` exactly, so a UI reading it can
   // never drift from what actually gets rejected.
-  describe("isStaticExportSupported", () => {
+  describe("isGlyphFieldSynthStaticExportSupported", () => {
     it("is true for a plain 2D patch (matches buildGlyphFieldSynthStaticExport succeeding)", () => {
-      expect(isStaticExportSupported(baseOptions().params)).toBe(true);
+      expect(isGlyphFieldSynthStaticExportSupported(baseOptions().params)).toBe(true);
     });
 
     it("is false for space: \"object\" and for render: \"carve\"", () => {
-      expect(isStaticExportSupported({ ...baseOptions().params, space: "object" })).toBe(false);
-      expect(isStaticExportSupported({ ...baseOptions().params, space: "object", render: "carve" })).toBe(false);
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, space: "object" })).toBe(false);
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, space: "object", render: "carve" })).toBe(false);
     });
 
     it("is false when an active voice has field: \"linearZ\" (not just volumetric/carve)", () => {
-      expect(isStaticExportSupported({ ...baseOptions().params, field1: "linearZ", amp1: 1 })).toBe(false);
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, field1: "linearZ", amp1: 1 })).toBe(false);
     });
 
     it("is false when an active voice has a nonzero originW (not just volumetric/carve)", () => {
-      expect(isStaticExportSupported({ ...baseOptions().params, originW1: 0.5, amp1: 1 })).toBe(false);
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, originW1: 0.5, amp1: 1 })).toBe(false);
     });
 
     it("is true when the voice carrying linearZ/originW is inactive (amp 0) — same as the exporter itself", () => {
-      expect(isStaticExportSupported({ ...baseOptions().params, amp3: 0, field3: "linearZ", originW3: 0.9 })).toBe(true);
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, amp3: 0, field3: "linearZ", originW3: 0.9 })).toBe(true);
     });
   });
 

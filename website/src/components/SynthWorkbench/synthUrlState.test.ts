@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
 import {
   MAX_VOICES,
   SYNTH_PARAM_DEFAULTS,
@@ -182,5 +183,33 @@ describe("synth url state — VOLUMETRIC.md acceptance 7", () => {
     const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
     expect(restored.params.field3).toBe("linearZ");
     expect(restored.params.render).toBe("carve");
+  });
+});
+
+// ── Final-gate fix: cross-field-invalid {space, render} hydration ──────────
+// A hand-crafted URL can encode {space: any non-"object", render: "carve"}
+// directly — no live UI write can ever produce it (every `space` write routes
+// through `resolveSpaceChange`), but decode has no gate of its own, so that
+// combination used to decode cleanly and hand `fieldSynth.program
+// .validateParams` a patch it throws on the moment `addEffectLayer` mounts it
+// (`validateFieldSynthRender` requires `space: "object"` for `render:
+// "carve"`), crashing the /synth React island to a blank stage.
+describe("synth url state — carve/space hydration is sanitized", () => {
+  it("a v2 URL encoding {space:'surface', render:'carve'} decodes to params that pass validateParams (render coerced to paint)", () => {
+    const patch = { ...representativePatch(), params: { ...representativePatch().params, space: "surface", render: "carve" } };
+    const packed = encodeSynthUrlState(patch);
+    const restored = decodeSynthUrlState(packed);
+    expect(restored.params.space).toBe("surface");
+    expect(restored.params.render).toBe("paint");
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("control: a legit {space:'object', render:'carve'} URL round-trips carve intact", () => {
+    const patch = { ...representativePatch(), params: { ...representativePatch().params, space: "object", render: "carve", subcellRes: "1x1" } };
+    const packed = encodeSynthUrlState(patch);
+    const restored = decodeSynthUrlState(packed);
+    expect(restored.params.space).toBe("object");
+    expect(restored.params.render).toBe("carve");
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
   });
 });

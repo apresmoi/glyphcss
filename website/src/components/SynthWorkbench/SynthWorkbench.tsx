@@ -19,7 +19,7 @@ import {
   combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
-  isStaticExportSupported,
+  isGlyphFieldSynthStaticExportSupported,
   measureGlyphInkCoverage,
   synthWave,
 } from "@glyphcss/effects";
@@ -292,7 +292,7 @@ export default function SynthWorkbench() {
   // different export design — see AGENTS.md's "Static export"), an active
   // `linearZ` voice, and a nonzero `originW` on an active voice (both
   // 3D-only semantics with no meaning in the 2D branch this exporter ports).
-  // `isStaticExportSupported` is the exporter's OWN predicate (from
+  // `isGlyphFieldSynthStaticExportSupported` is the exporter's OWN predicate (from
   // `@glyphcss/effects`, mirroring `assertStaticExportSupported` exactly) —
   // reading it here instead of duplicating the condition list means this
   // button can never drift out of sync with what the exporter actually
@@ -303,7 +303,7 @@ export default function SynthWorkbench() {
   // "Export" code window's OWN CodePen action (`handleExportCodepenDynamic`)
   // is unaffected — it mounts a LIVE effect at runtime from the CDN, which
   // handles every one of these cases fine.
-  const staticExportSupported = useMemo(() => isStaticExportSupported(params), [params]);
+  const staticExportSupported = useMemo(() => isGlyphFieldSynthStaticExportSupported(params), [params]);
 
   // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
   // bakes for the standalone "Open in CodePen" button — reads the mesh, the

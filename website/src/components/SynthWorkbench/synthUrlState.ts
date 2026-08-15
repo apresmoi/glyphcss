@@ -118,6 +118,18 @@ export const synthCodec = createUrlCodec<SynthUrlState>(SYNTH_SCHEMA_VERSION, sy
 const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
 const SYNTH_PARAM = "s";
 
+// Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
+// / 2D-3D-toggle guard): `render: "carve"` only validates under `space:
+// "object"` (`validateFieldSynthRender` in @glyphcss/effects's stock.ts) —
+// anything else must fall back to "paint". A live write can never produce an
+// invalid combination because every `space` write routes through
+// `resolveSpaceChange`, but a hand-crafted URL can encode one directly
+// (decode has no such gate of its own), so decode applies the same rule here
+// before params ever reach `addEffectLayer`/`validateParams`.
+export function sanitizeCarveRenderForSpace(space: unknown, render: string): string {
+  return render === "carve" && space !== "object" ? "paint" : render;
+}
+
 export interface SynthInitialState {
   shape: string;
   params: Params;
@@ -165,9 +177,11 @@ function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState
 export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
   const decoded = { ...SYNTH_URL_DEFAULTS, ...decodeOuterState(raw) };
   const overrides = decodeEffectParamsPacked(fieldSynth.parameterSchema, decoded.paramsPacked);
+  const params = { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params;
+  params.render = sanitizeCarveRenderForSpace(params.space, params.render as string);
   return {
     shape: decoded.shape,
-    params: { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params,
+    params,
     timeScale: decoded.timeScale,
     density: decoded.density,
     lighting: {

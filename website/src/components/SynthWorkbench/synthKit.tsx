@@ -29,7 +29,7 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 
 
-import type { Lighting } from "./synthUrlState";
+import { sanitizeCarveRenderForSpace, type Lighting } from "./synthUrlState";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -416,7 +416,7 @@ export function ModeToggle({ volumetric, onSetMode }: { volumetric: boolean; onS
 // 2D entry still forces "plane" on top of this, as its own separate UX
 // default — see `setMode` in `SynthDock` below.)
 export function resolveSpaceChange(nextSpace: string): { shape?: string; render?: string } {
-  return nextSpace === "object" ? { shape: "cube" } : { render: "paint" };
+  return nextSpace === "object" ? { shape: "cube" } : { render: sanitizeCarveRenderForSpace(nextSpace, "carve") };
 }
 
 export const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };

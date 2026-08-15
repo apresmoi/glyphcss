@@ -1036,7 +1036,7 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
  * next to the button — the website's `/synth` page's "Open in CodePen" button
  * is the reference caller.
  */
-export function isStaticExportSupported(params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>): boolean {
+export function isGlyphFieldSynthStaticExportSupported(params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>): boolean {
   const merged = { ...defaultGlyphEffectParams(fieldSynth), ...params, time: 0 } as GlyphEffectParamsOf<typeof fieldSynth>;
   try {
     fieldSynth.program.validateParams?.(merged);

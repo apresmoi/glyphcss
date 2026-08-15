@@ -106,7 +106,7 @@ Also exported: `calibrateWeightedGlyphRamp` (measures a glyph × font-weight
 ramp for glyphcss's `solidWeightRamp` scene option) and
 `buildGlyphFieldSynthStaticExport` (bakes an effect-only, static-camera
 field-synth scene into a self-contained snippet with zero runtime imports;
-`isStaticExportSupported(params)` checks first — the volumetric branch and
+`isGlyphFieldSynthStaticExportSupported(params)` checks first — the volumetric branch and
 `render: "carve"` reject explicitly, since a march needs a different,
 per-cell-per-frame export design). The field-program IR itself is also public
 — `evaluateGlyphFieldProgram`, `marchGlyphField`, and the `GlyphFieldProgram`/
