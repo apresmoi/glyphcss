@@ -1410,7 +1410,7 @@ for (let layer = 1; layer <= SYNTH_LAYERS; layer++) {
   }
 }
 
-interface SynthVoice {
+export interface SynthVoice {
   readonly field: string;
   readonly wave: string;
   readonly freq: number;
@@ -1434,6 +1434,36 @@ interface SynthVoice {
   readonly phase: number;
   /** Which of the (up to `SYNTH_LAYERS`) layers this voice folds into. Default 1. */
   readonly layer: number;
+}
+
+// Reads field-synth's flat field1..6/layer1..6 params into the SynthVoice
+// frontend shape (VOLUMETRIC.md's "The flat param schema is a frontend that
+// compiles to the IR"). Exported so `evaluate()` below and the static
+// exporter (`staticExport.ts`) build this list from the exact same code —
+// the whole reason the static exporter's older port silently diverged on
+// `angleN`/per-voice origins was a hand-copied second construction of this
+// list that fell out of sync; a shared source makes that class of bug
+// impossible.
+export function buildFieldSynthVoices(params: AnyParams): readonly SynthVoice[] {
+  const voices: SynthVoice[] = [];
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    voices.push({
+      field: params[`field${k}`] as string,
+      wave: params[`wave${k}`] as string,
+      freq: params[`freq${k}`] as number,
+      speed: params[`speed${k}`] as number,
+      amp: params[`amp${k}`] as number,
+      color: params[`color${k}`] as string,
+      angle: params[`angle${k}`] as number,
+      originU: params[`originU${k}`] as number,
+      originV: params[`originV${k}`] as number,
+      originW: params[`originW${k}`] as number,
+      duty: params[`duty${k}`] as number,
+      phase: params[`phase${k}`] as number,
+      layer: params[`layer${k}`] as number,
+    });
+  }
+  return voices;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1502,12 +1532,16 @@ const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] =
 // and the voiceColors fallback loop in `evaluate()` reads the FLAT list (see
 // that function) so per-voice color contribution is never affected by which
 // layer a voice happens to fold into.
-type CompiledFieldVoice = FieldVoice & { readonly layer: number };
+export type CompiledFieldVoice = FieldVoice & { readonly layer: number };
 
 // Voice origins are pre-scaled here (`* scale`) so `evaluateFieldProgram`
 // never needs to know about `scale` at all — it only combines a voice's
-// relative origin with the call-level origin it's given.
-function compileFieldVoices(voices: readonly SynthVoice[], scale: number): readonly CompiledFieldVoice[] {
+// relative origin with the call-level origin it's given. Exported alongside
+// `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram` so the static
+// exporter (`staticExport.ts`) compiles the SAME IR the live evaluator runs,
+// instead of a second, driftable compile step (VOLUMETRIC.md: "the static
+// exporter ports the IR evaluator, not the schema").
+export function compileFieldVoices(voices: readonly SynthVoice[], scale: number): readonly CompiledFieldVoice[] {
   return voices.map((voice, sourceIndex) => ({
     field: voice.field,
     wave: voice.wave,
@@ -1536,7 +1570,7 @@ function compileFieldVoices(voices: readonly SynthVoice[], scale: number): reado
 // always has, including when `combine` is `"argmax"` (see
 // `validateFieldSynthLayers` below for why an EXPLICIT per-layer override can
 // never be `"argmax"` — the schema's `layerCombineL` values exclude it).
-interface FieldLayerShape {
+export interface FieldLayerShape {
   readonly combine: string;
   readonly thresholdOn: boolean;
   readonly threshold: number;
@@ -1545,7 +1579,7 @@ interface FieldLayerShape {
   readonly amp: number;
 }
 
-function resolveFieldSynthLayerShapes(params: AnyParams): readonly FieldLayerShape[] {
+export function resolveFieldSynthLayerShapes(params: AnyParams): readonly FieldLayerShape[] {
   const patchCombine = params.combine as string;
   const shapes: FieldLayerShape[] = [];
   for (let l = 1; l <= SYNTH_LAYERS; l++) {
@@ -1572,7 +1606,7 @@ function resolveFieldSynthLayerShapes(params: AnyParams): readonly FieldLayerSha
 // assigned are still emitted (not omitted) — `evaluateFieldProgram` already
 // skips a layer with zero ACTIVE (amp > 0) voices at fold time, exactly like
 // an amp-0 voice, so compile doesn't need to duplicate that logic.
-function compileFieldSynthProgram(
+export function compileFieldSynthProgram(
   compiledVoices: readonly CompiledFieldVoice[],
   layerShapes: readonly FieldLayerShape[],
   volumetric: boolean,
@@ -1918,14 +1952,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
-      const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1, originW: params.originW1, duty: params.duty1, phase: params.phase1, layer: params.layer1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2, originW: params.originW2, duty: params.duty2, phase: params.phase2, layer: params.layer2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3, originW: params.originW3, duty: params.duty3, phase: params.phase3, layer: params.layer3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4, originW: params.originW4, duty: params.duty4, phase: params.phase4, layer: params.layer4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5, originW: params.originW5, duty: params.duty5, phase: params.phase5, layer: params.layer5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6, originW: params.originW6, duty: params.duty6, phase: params.phase6, layer: params.layer6 },
-      ];
+      const voices = buildFieldSynthVoices(params as unknown as AnyParams);
       const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
       const rampMax = glyphs.length - 1;

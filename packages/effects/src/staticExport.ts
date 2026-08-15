@@ -19,6 +19,18 @@
  * text, because that is the entire point of the deliverable: a standalone
  * evaluator with no glyphcss import.
  *
+ * The PER-FRAME oscillator/layer math (RUNTIME_JS) is a hand port of the
+ * field-program IR evaluator (`evaluateFieldProgram`/`foldVoices`/
+ * `sampleFieldVoice`'s 2D branch, packages/effects/src/fieldProgram.ts), not
+ * of field-synth's flat schema — VOLUMETRIC.md's "The field program IR": "the
+ * static exporter ports the IR evaluator, not the schema, so the frontend can
+ * grow without touching the exporter again." `buildRuntime` compiles the
+ * SAME program the live runtime evaluates (`compileFieldVoices`/
+ * `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram`, imported from
+ * `./stock` for exactly this reuse) and bakes it as plain JSON; only the
+ * evaluator that walks that program is duplicated as JS text, since that is
+ * the one piece that has to run standalone with zero glyphcss import.
+ *
  * Scope: field-synth only. Generalizing to another stock effect needs two more
  * things per effect id: (1) that effect's own coordinate resolver exported the
  * same way fieldSynthCoordinate is, and (2) a hand-written inlined JS port of
@@ -63,12 +75,16 @@ import {
   generatedSurfaceField,
   fieldSynthCoordinate,
   defaultGlyphEffectParams,
-  SYNTH_LAYERS,
+  buildFieldSynthVoices,
+  compileFieldVoices,
+  resolveFieldSynthLayerShapes,
+  compileFieldSynthProgram,
   SYNTH_VOICES,
   type AnyContext,
   type AnyParams,
   type EffectSpace,
 } from "./stock";
+import type { FieldLayer, FieldVoice } from "./fieldProgram";
 
 export type GlyphFieldSynthStaticExportEffect = "field-synth";
 
@@ -365,32 +381,58 @@ function jsonForScript(value: unknown): string {
 }
 
 // Shared vanilla-JS runtime, generalized from the bench's validated
-// Strategy B evaluator: N active oscillators (not a fixed set), the general
-// blend formula (`over` OR `replace`, with opacity) instead of a
-// replace-only shortcut, and optional per-voice color mixing. Reproduces
-// `combineSynth`/`synthOsc`/`synthWave`/`synthNoise3`/`lerpPacked`/
-// `scalePackedColor` (packages/effects/src/stock.ts) and the compositor's
-// blend + Bayer coverage dither (packages/glyphcss/src/render/
-// effectCompositor.ts `blendPackedColor`/`coverageThreshold`) as plain JS —
-// this text is the one piece that can't be "reused" instead of hand-written,
-// since it has to run with zero glyphcss/effects code alongside it.
+// Strategy B evaluator. \`evalProgram\`/\`foldVoices\`/\`sampleVoice\` are a
+// faithful hand port of \`evaluateFieldProgram\`/\`foldVoices\`/
+// \`sampleFieldVoice\`'s 2D branch (packages/effects/src/fieldProgram.ts) —
+// the IR evaluator, not field-synth's flat schema (VOLUMETRIC.md: "the
+// static exporter ports the IR evaluator, not the schema"), consuming the
+// COMPILED \`CFG.program\` (an array of layers, each an array of active
+// voices) that \`buildRuntime\` bakes via the real \`compileFieldSynthProgram\`.
+// Reproduces \`lerpPacked\`/\`scalePackedColor\` (packages/effects/src/stock.ts)
+// and the compositor's blend + Bayer coverage dither
+// (packages/glyphcss/src/render/effectCompositor.ts
+// \`blendPackedColor\`/\`coverageThreshold\`) as plain JS — this text is the one
+// piece that can't be "reused" instead of hand-written, since it has to run
+// with zero glyphcss/effects code alongside it.
 const RUNTIME_JS = `
 "use strict";
-var D=typeof DATA<"u"?DATA:0,C=CFG,N=C.full?C.cols*C.rows:D.c.length,ramp=C.ramp,rmax=ramp.length-1,V=C.voices;
+var D=typeof DATA<"u"?DATA:0,C=CFG,N=C.full?C.cols*C.rows:D.c.length,ramp=C.ramp,rmax=ramp.length-1,P=C.program;
+var FLAT=(function(){var out=[];for(var li=0;li<P.length;li++){var vs=P[li].voices;for(var vi=0;vi<vs.length;vi++)out.push(vs[vi])}
+out.sort(function(a,b){return a.si-b.si});return out})();
 var BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
 function pmod(a,m){return((a%m)+m)%m}
 function clamp01(v){return v<0?0:v>1?1:v}
-function wave(k,t){var p=t-Math.floor(t);if(k==="triangle")return 4*Math.abs(p-0.5)-1;if(k==="saw")return 2*p-1;if(k==="square")return p<0.5?1:-1;return Math.sin(t*Math.PI*2)}
+function synthWave(k,t,duty){var p=t-Math.floor(t);if(k==="triangle")return 4*Math.abs(p-0.5)-1;if(k==="saw")return 2*p-1;if(k==="square")return p<duty?1:-1;return Math.sin(t*Math.PI*2)}
 function h3(x,y,z){var h=Math.sin(x*127.1+y*311.7+z*74.7)*43758.5453;return h-Math.floor(h)}
 function noise3(x,y,z){var xi=Math.floor(x),yi=Math.floor(y),zi=Math.floor(z),xf=x-xi,yf=y-yi,zf=z-zi;
 var u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf),w=zf*zf*(3-2*zf);
 var a000=h3(xi,yi,zi),a100=h3(xi+1,yi,zi),a010=h3(xi,yi+1,zi),a110=h3(xi+1,yi+1,zi),a001=h3(xi,yi,zi+1),a101=h3(xi+1,yi,zi+1),a011=h3(xi,yi+1,zi+1),a111=h3(xi+1,yi+1,zi+1);
 var f0=(a000*(1-u)+a100*u)*(1-v)+(a010*(1-u)+a110*u)*v,f1=(a001*(1-u)+a101*u)*(1-v)+(a011*(1-u)+a111*u)*v;return f0*(1-w)+f1*w}
-function osc(o,x,y,cx,cy,t){if(o.field==="noise")return 2*noise3(x*o.freq,y*o.freq,t*o.speed)-1;var raw;
-switch(o.field){case"linearX":raw=x;break;case"linearY":raw=y;break;case"diagonal":raw=(x+y)*0.70710678;break;
-case"angular":raw=Math.atan2(y-cy,x-cx)/(Math.PI*2);break;case"spiral":raw=Math.hypot(x-cx,y-cy)+Math.atan2(y-cy,x-cx)/(Math.PI*2);break;default:raw=Math.hypot(x-cx,y-cy)}
-return wave(o.wave,raw*o.freq-t*o.speed)}
-function combine(a,b){switch(C.combine){case"add":return a+b;case"max":return Math.max(a,b);case"min":return Math.min(a,b);case"difference":return Math.abs(a-b);default:return a*b}}
+function sampleVoice(v,x,y,cx,cy,t){var sx=x,sy=y;
+if(v.angle!==0){var a=(-v.angle*Math.PI)/180,dx=x-cx,dy=y-cy,ca=Math.cos(a),sa=Math.sin(a);sx=cx+dx*ca-dy*sa;sy=cy+dx*sa+dy*ca}
+if(v.field==="noise")return 2*noise3(sx*v.freq,sy*v.freq,t*v.speed)-1;
+var raw;
+switch(v.field){case"linearX":raw=sx;break;case"linearY":raw=sy;break;case"diagonal":raw=(sx+sy)*0.70710678;break;
+case"angular":raw=Math.atan2(sy-cy,sx-cx)/(Math.PI*2);break;case"spiral":raw=Math.hypot(sx-cx,sy-cy)+Math.atan2(sy-cy,sx-cx)/(Math.PI*2);break;default:raw=Math.hypot(sx-cx,sy-cy)}
+return synthWave(v.wave,raw*v.freq-t*v.speed+v.phase,v.duty)}
+function combineOp(mode,a,b){switch(mode){case"add":return a+b;case"max":return Math.max(a,b);case"min":return Math.min(a,b);case"difference":return Math.abs(a-b);case"argmax":return Math.max(a,b);default:return a*b}}
+function foldVoices(voices,mode,x,y,ox,oy,t){var combined=0,active=0,best=-Infinity,winner=-1,winnerOrder=-1,argmax=mode==="argmax";
+for(var k=0;k<voices.length;k++){var v=voices[k],cx=ox+v.origin.u,cy=oy+v.origin.v,o=sampleVoice(v,x,y,cx,cy,t);
+if(argmax){var contribution=v.amp*o;if(contribution>best){best=contribution;winner=v.si;winnerOrder=active}}
+else if(active===0){combined=v.amp*o}else{combined+=v.amp*(combineOp(mode,combined,o)-combined)}
+active++}
+if(argmax)combined=active>1?(2*winnerOrder+1)/active-1:0;
+return{combined:combined,winner:winner,active:active}}
+function evalProgram(prog,x,y,ox,oy,t){var stackValue=0,stackActive=0,populated=0,singleWinner=-1,applied=0;
+for(var li=0;li<prog.length;li++){var layer=prog[li],r=foldVoices(layer.voices,layer.combine,x,y,ox,oy,t);
+if(r.active===0)continue;
+populated++;singleWinner=populated===1?r.winner:-1;stackActive+=r.active;
+var v=r.combined;
+if(layer.thresholdOn)v=v>layer.threshold?1:-1;
+if(layer.invert)v=-v;
+if(applied===0){stackValue=layer.amp*v}else{stackValue+=layer.amp*(combineOp(layer.blend,stackValue,v)-stackValue)}
+applied++}
+return{combined:stackValue,winner:populated===1?singleWinner:-1,active:stackActive}}
 function lerp(a,b,t){var ar=(a>>16)&255,ag=(a>>8)&255,ab=a&255,br=(b>>16)&255,bg=(b>>8)&255,bb=b&255;
 return(Math.round(ar+(br-ar)*t)<<16)|(Math.round(ag+(bg-ag)*t)<<8)|Math.round(ab+(bb-ab)*t)}
 function shadeColor(p,s){var r=Math.round(((p>>16)&255)*s),g=Math.round(((p>>8)&255)*s),b=Math.round((p&255)*s);return(r<<16)|(g<<8)|b}
@@ -411,13 +453,16 @@ var x=C.aff?C.aff[0]*col0+C.aff[1]*row0+C.aff[2]:D.x[k];
 var y=C.aff?C.aff[3]*col0+C.aff[4]*row0+C.aff[5]:D.y[k];
 var cx=C.cxFixed?C.cx:D.cx[k],cy=C.cyFixed?C.cy:D.cy[k];
 var sh=C.shFixed?C.sh:D.sh[k];
-var combined=0,active=0,cr=0,cg=0,cbv=0,cw=0,co=0,car=0,cag=0,cabv=0,caw=0,cao=0;
-for(var j=0;j<V.length;j++){var o=osc(V[j],x,y,cx,cy,t);
-if(active===0)combined=V[j].amp*o;else combined+=V[j].amp*(combine(combined,o)-combined);
-active++;
-if(C.voiceColors){var w=V[j].amp*Math.abs(o),c=V[j].color,r=(c.p>>16)&255,g=(c.p>>8)&255,b=c.p&255;
-cr+=r*w;cg+=g*w;cbv+=b*w;co+=c.o*w;cw+=w;car+=r*V[j].amp;cag+=g*V[j].amp;cabv+=b*V[j].amp;cao+=c.o*V[j].amp;caw+=V[j].amp}}
-var value=clamp01(C.bias+C.gain*combined*0.5);
+var stack=evalProgram(P,x,y,cx,cy,t);
+var cr=0,cg=0,cbv=0,cw=0,co=0,car=0,cag=0,cabv=0,caw=0,cao=0;
+if(C.voiceColors){
+if(stack.winner>=0){var wc=C.voiceColorsAll[stack.winner];
+cr=(wc.p>>16)&255;cg=(wc.p>>8)&255;cbv=wc.p&255;co=wc.o;cw=1;car=cr;cag=cg;cabv=cbv;cao=co;caw=1
+}else{
+for(var j=0;j<FLAT.length;j++){var v=FLAT[j],ox=cx+v.origin.u,oy=cy+v.origin.v,o=sampleVoice(v,x,y,ox,oy,t);
+var w=v.amp*Math.abs(o),c=C.voiceColorsAll[v.si],r=(c.p>>16)&255,g=(c.p>>8)&255,b=c.p&255;
+cr+=r*w;cg+=g*w;cbv+=b*w;co+=c.o*w;cw+=w;car+=r*v.amp;cag+=g*v.amp;cabv+=b*v.amp;cao+=c.o*v.amp;caw+=v.amp}}}
+var value=clamp01(C.bias+C.gain*stack.combined*0.5);
 var packed=-1,resolvedOpacity=0;
 if(value>0){
 if(C.voiceColors&&cw>0){packed=(Math.round(cr/cw)<<16)|(Math.round(cg/cw)<<8)|Math.round(cbv/cw);resolvedOpacity=co/cw}
@@ -531,20 +576,71 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   if (!shFixed) data.sh = SH;
   const hasData = Object.keys(data).length > 0;
 
-  const voices: { field: string; wave: string; freq: number; speed: number; amp: number; color: { p: number; o: number } }[] = [];
-  for (let k = 1; k <= SYNTH_VOICES; k++) {
-    const amp = (params as unknown as AnyParams)[`amp${k}`] as number;
-    if (!(amp > 0)) continue;
-    const parsedColor = parseGlyphEffectColor((params as unknown as AnyParams)[`color${k}`] as string);
-    voices.push({
-      field: (params as unknown as AnyParams)[`field${k}`] as string,
-      wave: (params as unknown as AnyParams)[`wave${k}`] as string,
-      freq: (params as unknown as AnyParams)[`freq${k}`] as number,
-      speed: (params as unknown as AnyParams)[`speed${k}`] as number,
-      amp,
+  // Compile the SAME IR the live evaluator runs (VOLUMETRIC.md: "the static
+  // exporter ports the IR evaluator, not the schema") — `compileFieldVoices`/
+  // `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram` are the exact
+  // functions `fieldSynth.program.evaluate()` calls, imported from "./stock"
+  // for exactly this reuse. `volumetric` is always `false` here:
+  // `assertStaticExportSupported` rejects `space: "object"` before `bake()`
+  // ever runs, so the compiled program's domain is always "2d" and its
+  // `origin.w`/`linearZ` branch is dead — the serialized payload below drops
+  // both accordingly.
+  const anyParams = params as unknown as AnyParams;
+  const synthVoices = buildFieldSynthVoices(anyParams);
+  const compiledVoices = compileFieldVoices(synthVoices, params.scale);
+  const layerShapes = resolveFieldSynthLayerShapes(anyParams);
+  const program = compileFieldSynthProgram(compiledVoices, layerShapes, false);
+
+  // Serialize layers/voices, dropping what the evaluator would skip anyway
+  // (payload optimization, not a behavior change): an inactive voice
+  // (`amp <= 0`) never contributes to `foldVoices`, and a layer left with no
+  // active voices after that filter is skipped wholesale by
+  // `evaluateFieldProgram` — see fieldProgram.ts's `foldVoices`/
+  // `evaluateFieldProgram`. Relative layer order is preserved (`.filter`
+  // keeps array order), which is what the fold's "first populated layer
+  // seeds the stack" rule depends on.
+  const serializeVoice = (voice: FieldVoice) => {
+    const parsedColor = parseGlyphEffectColor(voice.color);
+    return {
+      field: voice.field,
+      wave: voice.wave,
+      freq: voice.freq,
+      speed: voice.speed,
+      amp: voice.amp,
+      duty: voice.duty,
+      phase: voice.phase,
+      angle: voice.angle,
+      origin: { u: voice.origin.u, v: voice.origin.v },
       color: { p: parsedColor.packed, o: parsedColor.opacity },
-    });
-  }
+      si: voice.sourceIndex,
+    };
+  };
+  const serializedProgram = program.layers
+    .map((layer: FieldLayer) => ({
+      voices: layer.voices.filter((v) => v.amp > 0).map(serializeVoice),
+      combine: layer.combine,
+      thresholdOn: layer.thresholdOn,
+      threshold: layer.threshold,
+      invert: layer.invert,
+      blend: layer.blend,
+      amp: layer.amp,
+    }))
+    .filter((layer) => layer.voices.length > 0);
+
+  // `stack.winner` (argmax mode) and the voiceColors fallback loop both index
+  // by a voice's FLAT source position (0..SYNTH_VOICES-1, see
+  // `FieldVoice.sourceIndex`'s doc in fieldProgram.ts) — so unlike the
+  // per-layer voice records above, this table can't be filtered to active
+  // voices only; it must stay indexable at any original voice number that
+  // could ever appear as a winner or fallback contributor. Only baked when
+  // `voiceColors` is on (the one thing that reads it).
+  const voiceColorsAll = params.voiceColors
+    ? Array.from({ length: SYNTH_VOICES }, (_, k) => {
+        const parsedColor = parseGlyphEffectColor(anyParams[`color${k + 1}`] as string);
+        return { p: parsedColor.packed, o: parsedColor.opacity };
+      })
+    : undefined;
+
   const cA = parseGlyphEffectColor(params.color);
   const cB = parseGlyphEffectColor(params.colorB);
 
@@ -560,7 +656,8 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     cA: { p: cA.packed, o: cA.opacity },
     cB: { p: cB.packed, o: cB.opacity },
     voiceColors: params.voiceColors,
-    voices,
+    ...(voiceColorsAll ? { voiceColorsAll } : {}),
+    program: serializedProgram,
     blend: options.blend,
     opacity: clamp01(options.opacity ?? 1),
     useColors: options.useColors ?? true,
@@ -597,24 +694,36 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   return { js, gridCols, gridRows };
 }
 
-// Phase 2 (VOLUMETRIC.md) added a field-program IR + 3D voices to the live
-// runtime (stock.ts): `space: "object"` volumetric fields, per-voice
-// `dutyN`/`phaseN`/`originWN`, and the `linearZ` field. Phase 3 added voice
-// layers: per-voice `layerN` plus per-layer `layerCombineL`/
-// `layerThresholdOnL`/`layerThresholdL`/`layerInvertL`/`layerBlendL`/
-// `layerAmpL`. RUNTIME_JS is a hand port of the OLD single-layer 2D
-// generated-surface/scene/auto evaluator only — porting the volumetric
-// branch, duty-cycle square waves, phase offsets, the Z origin, and voice
-// layers is Phase 5's job. Silently baking a patch that uses any of these
-// would emit a pen that renders a different picture than the runtime with no
-// error, so reject explicitly instead — same policy as the unsupported
-// `effect` id check above. Only ACTIVE voices (ampN > 0) are checked for the
-// per-voice params: the evaluator (both live and inlined) skips amp-0 voices
-// entirely, so an unported field/duty/phase/originW/layer on a voice that
-// never contributes can't diverge anything. The per-layer shaping params are
-// checked the same way, one level up: a layer with zero active voices
-// assigned to it is skipped by the evaluator exactly like an amp-0 voice, so
-// its shaping params can't diverge anything either.
+// Phase 5 (VOLUMETRIC.md's "Static export") ports the field-program IR
+// evaluator itself into RUNTIME_JS: layers, thresholds, invert, layer blend,
+// duty, phase, per-voice angle, and per-voice 2D origin (`originU`/`originV`)
+// all now export and match the live runtime bit-for-bit (see
+// staticExport.test.ts's parity suite). What's left rejected is genuinely
+// out of this exporter's design, not "not ported yet":
+//
+// - `render: "carve"` and `space: "object"` (the volumetric branch) — a
+//   different export design entirely (a per-cell-per-frame march), not
+//   something this affine-fit/coordinate-table exporter can fake.
+// - `linearZ` on an active voice and `originW` on an active voice — both are
+//   3D-only semantics that can only ever matter under `space: "object"`,
+//   which is already rejected; keeping an explicit, separately-worded reject
+//   for them (rather than letting the generic `space` reject cover it
+//   implicitly) means a 2D patch that mistakenly sets one of these — most
+//   likely an author who meant to also flip `space` to `"object"` — gets a
+//   precise error naming the actual mistake, not a report that garbles two
+//   different questions ("why is my field invisible" vs "why doesn't this
+//   export") into one.
+// - `subcellRes: "2x4"`/`"ink"` — the OLD (pre-Phase-5) exporter silently
+//   ignored these (a documented pre-existing divergence: VOLUMETRIC.md's
+//   "Pre-existing divergence, to file separately"). Porting them faithfully
+//   needs the subcell finite-difference neighbor probe
+//   (`fieldSynthAnySubcellGradient` in stock.ts), which reads NEIGHBORING
+//   cells' resolved coordinates — a different shape of work than the affine-
+//   fit/per-cell-table optimizations this exporter already does for the
+//   scalar (x,y) coordinate alone, and out of this phase's verified scope.
+//   Rejecting explicitly is strictly better than the old silent divergence
+//   (VOLUMETRIC.md: "rejecting a previously-silently-wrong case is an
+//   improvement, not a break").
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
   // Checked before the `space: "object"` reject below so a carve patch names
   // carve as the reason, not the volumetric branch it happens to require —
@@ -632,93 +741,33 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
   if (params.space === "object") {
     throw new Error(
       "glyphcss: buildGlyphFieldSynthStaticExport does not support space: \"object\" (volumetric fields) yet — "
-      + "the inlined runtime only ports the 2D generated-surface/scene/auto paths. Porting the volumetric "
-      + "evaluator is Phase 5's job.",
+      + "the inlined runtime only ports the 2D generated-surface/scene/auto paths. A per-cell-per-frame volumetric "
+      + "march is a different export design; not planned (see VOLUMETRIC.md's \"Static export\").",
+    );
+  }
+  if (params.subcellRes === "2x4" || params.subcellRes === "ink") {
+    throw new Error(
+      `glyphcss: buildGlyphFieldSynthStaticExport does not support subcellRes: "${params.subcellRes as string}" — `
+      + "the inlined runtime only ports the plain (1x1) ramp path. Porting the subcell finite-difference neighbor "
+      + "probe is unverified and out of scope; not planned.",
     );
   }
   const p = params as unknown as AnyParams;
-  const layerPopulated: boolean[] = new Array(SYNTH_LAYERS).fill(false) as boolean[];
   for (let k = 1; k <= SYNTH_VOICES; k++) {
     if (!((p[`amp${k}`] as number) > 0)) continue;
     if (p[`field${k}`] === "linearZ") {
       throw new Error(
         `glyphcss: buildGlyphFieldSynthStaticExport does not support field${k}: "linearZ" (a volumetric-only `
-        + `field) on an active voice (amp${k} > 0) yet — the inlined runtime has no volumetric case. Porting it `
-        + "is Phase 5's job.",
-      );
-    }
-    if ((p[`duty${k}`] as number) !== 0.5) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support duty${k} !== 0.5 on an active voice `
-        + `(amp${k} > 0) yet — the inlined runtime's square wave is hardcoded to a fixed 50% duty. Porting duty `
-        + "support is Phase 5's job.",
-      );
-    }
-    if ((p[`phase${k}`] as number) !== 0) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support phase${k} !== 0 on an active voice `
-        + `(amp${k} > 0) yet — the inlined runtime's wave() has no phase offset. Porting phase support is `
-        + "Phase 5's job.",
+        + `field) on an active voice (amp${k} > 0) — it has no meaning in the 2D branch this exporter ports `
+        + "(VOLUMETRIC.md's \"Primitives in 3D\": linearZ falls back to radial in 2D, which would silently alias "
+        + "a different field than intended). Not planned.",
       );
     }
     if ((p[`originW${k}`] as number) !== 0) {
       throw new Error(
         `glyphcss: buildGlyphFieldSynthStaticExport does not support originW${k} !== 0 on an active voice `
-        + `(amp${k} > 0) yet — the inlined runtime has no volumetric Z origin. Porting originW support is `
-        + "Phase 5's job.",
-      );
-    }
-    const layer = p[`layer${k}`] as number;
-    if (layer !== 1) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layer${k} !== 1 on an active voice `
-        + `(amp${k} > 0) yet — the inlined runtime has no voice-layer grouping. Porting layers is Phase 5's job.`,
-      );
-    }
-    if (layer >= 1 && layer <= SYNTH_LAYERS) layerPopulated[layer - 1] = true;
-  }
-  for (let l = 1; l <= SYNTH_LAYERS; l++) {
-    if (!layerPopulated[l - 1]) continue;
-    if ((p[`layerCombine${l}`] as string) !== "inherit") {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerCombine${l} !== "inherit" on a `
-        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer combine `
-        + "override. Porting layers is Phase 5's job.",
-      );
-    }
-    if ((p[`layerThresholdOn${l}`] as boolean) !== false) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerThresholdOn${l} !== false on a `
-        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer threshold. `
-        + "Porting layers is Phase 5's job.",
-      );
-    }
-    if ((p[`layerThreshold${l}`] as number) !== 0) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerThreshold${l} !== 0 on a populated `
-        + `layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer threshold. Porting `
-        + "layers is Phase 5's job.",
-      );
-    }
-    if ((p[`layerInvert${l}`] as boolean) !== false) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerInvert${l} !== false on a populated `
-        + `layer (layer ${l} has an active voice) yet — the inlined runtime has no per-layer invert. Porting `
-        + "layers is Phase 5's job.",
-      );
-    }
-    if ((p[`layerBlend${l}`] as string) !== "multiply") {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerBlend${l} !== "multiply" on a `
-        + `populated layer (layer ${l} has an active voice) yet — the inlined runtime has no layer stack to blend `
-        + "into. Porting layers is Phase 5's job.",
-      );
-    }
-    if ((p[`layerAmp${l}`] as number) !== 1) {
-      throw new Error(
-        `glyphcss: buildGlyphFieldSynthStaticExport does not support layerAmp${l} !== 1 on a populated layer `
-        + `(layer ${l} has an active voice) yet — the inlined runtime has no layer stack to mix into. Porting `
-        + "layers is Phase 5's job.",
+        + `(amp${k} > 0) — origin W is a volumetric-only (3D) semantic and is always ignored in the 2D branch `
+        + "this exporter ports. Not planned.",
       );
     }
   }
