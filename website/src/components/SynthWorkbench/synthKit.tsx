@@ -584,14 +584,29 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
 // `field` itself only has meaning in 2D, so it isn't part of this projection).
 export const WAVE_SAMPLES = 72;
 
+// `step` (VOLUMETRIC-2.md §2) is non-periodic: its argument sweep must not
+// scale with `freq` the way every periodic wave's does (`raw * freq`, which
+// shows exactly `freq` cycles across the plot). A `0..1` sweep puts the
+// argument's zero crossing — the only place a non-periodic wave's edge is
+// visible at all — at `raw = -(-time*speed+phase)/freq`, which sits AT or
+// OUTSIDE the window's edge for every default (time 0, phase 0, freq > 0:
+// crossing at raw 0 exactly), previewing as a constant line rather than a
+// step. A symmetric window centered on 0 keeps the crossing near the middle
+// of the plot for the common case instead.
+function isNonPeriodicWave(wave: string): boolean {
+  return wave === "step";
+}
+
 export function buildWavePathD(wave: string, freq: number, speed: number, amp: number, time: number, width: number, height: number, duty = 0.5, phase = 0): string {
   const midY = height / 2;
   const halfH = midY - 2;
+  const nonPeriodic = isNonPeriodicWave(wave);
   let d = "";
   for (let i = 0; i < WAVE_SAMPLES; i++) {
-    const raw = i / (WAVE_SAMPLES - 1);
+    const t = i / (WAVE_SAMPLES - 1); // 0..1, always the ON-SCREEN sweep fraction
+    const raw = nonPeriodic ? t - 0.5 : t; // symmetric -0.5..0.5 window for non-periodic waves
     const value = amp * synthWave(wave, raw * freq - time * speed + phase, duty);
-    const x = raw * width;
+    const x = t * width;
     const y = midY - value * halfH;
     d += `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)} `;
   }

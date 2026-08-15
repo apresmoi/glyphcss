@@ -543,15 +543,34 @@ out.sort(function(a,b){return a.si-b.si});return out})();
 var BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
 function pmod(a,m){return((a%m)+m)%m}
 function clamp01(v){return v<0?0:v>1?1:v}
-function synthWave(k,t,duty){var p=t-Math.floor(t);if(k==="triangle")return 4*Math.abs(p-0.5)-1;if(k==="saw")return 2*p-1;if(k==="square")return p<duty?1:-1;return Math.sin(t*Math.PI*2)}
+function synthWave(k,t,duty){if(k==="step")return t>=0?1:-1;var p=t-Math.floor(t);if(k==="triangle")return 4*Math.abs(p-0.5)-1;if(k==="saw")return 2*p-1;if(k==="square")return p<duty?1:-1;return Math.sin(t*Math.PI*2)}
 function h3(x,y,z){var h=Math.sin(x*127.1+y*311.7+z*74.7)*43758.5453;return h-Math.floor(h)}
 function noise3(x,y,z){var xi=Math.floor(x),yi=Math.floor(y),zi=Math.floor(z),xf=x-xi,yf=y-yi,zf=z-zi;
 var u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf),w=zf*zf*(3-2*zf);
 var a000=h3(xi,yi,zi),a100=h3(xi+1,yi,zi),a010=h3(xi,yi+1,zi),a110=h3(xi+1,yi+1,zi),a001=h3(xi,yi,zi+1),a101=h3(xi+1,yi,zi+1),a011=h3(xi,yi+1,zi+1),a111=h3(xi+1,yi+1,zi+1);
 var f0=(a000*(1-u)+a100*u)*(1-v)+(a010*(1-u)+a110*u)*v,f1=(a001*(1-u)+a101*u)*(1-v)+(a011*(1-u)+a111*u)*v;return f0*(1-w)+f1*w}
+function sdfBox(px,py,pz,bx,by,bz){var dx=Math.abs(px)-bx,dy=Math.abs(py)-by,dz=Math.abs(pz)-bz,ax=Math.max(dx,0),ay=Math.max(dy,0),az=Math.max(dz,0);return Math.hypot(ax,ay,az)+Math.min(Math.max(dx,Math.max(dy,dz)),0)}
+function mengerSdf(x,y,z,iter){var px=(x-0.5)*2,py=(y-0.5)*2,pz=(z-0.5)*2,d=sdfBox(px,py,pz,1,1,1),s=1;
+for(var m=0;m<iter;m++){var ax=pmod(px*s,2)-1,ay=pmod(py*s,2)-1,az=pmod(pz*s,2)-1;s*=3;
+var rx=Math.abs(1-3*Math.abs(ax)),ry=Math.abs(1-3*Math.abs(ay)),rz=Math.abs(1-3*Math.abs(az));
+var da=Math.max(rx,ry),db=Math.max(ry,rz),dc=Math.max(rz,rx),c=(Math.min(da,Math.min(db,dc))-1)/s;d=Math.max(d,c)}
+return d/2}
+var SIERP_CENTERS=[[-0.25,-0.25,-0.25],[0.25,-0.25,-0.25],[-0.25,0.25,-0.25],[-0.25,-0.25,0.25]];
+function sierpKeptSdf(cx,cy,cz){var best=Infinity;
+for(var i=0;i<4;i++){var o=SIERP_CENTERS[i],d=sdfBox(cx-o[0],cy-o[1],cz-o[2],0.25,0.25,0.25);if(d<best)best=d}
+return best}
+function sierpinskiSdf(x,y,z,iter){var px=x-0.5,py=y-0.5,pz=z-0.5,d=sdfBox(px,py,pz,0.5,0.5,0.5),s=1;
+for(var m=0;m<iter;m++){var lx=pmod(x*s,1)-0.5,ly=pmod(y*s,1)-0.5,lz=pmod(z*s,1)-0.5;s*=2;
+var c=sierpKeptSdf(lx,ly,lz)/s;d=Math.max(d,c)}
+return d}
 function sampleVoice(v,x,y,cx,cy,t){var sx=x,sy=y;
 if(v.angle!==0){var a=(-v.angle*Math.PI)/180,dx=x-cx,dy=y-cy,ca=Math.cos(a),sa=Math.sin(a);sx=cx+dx*ca-dy*sa;sy=cy+dx*sa+dy*ca}
 if(v.field==="noise")return 2*noise3(sx*v.freq,sy*v.freq,t*v.speed)-1;
+if(v.field==="gyroid"||v.field==="menger"||v.field==="sierpinski"){
+var fx=(sx-cx)*v.freq,fy=(sy-cy)*v.freq,fz=0,sdfRaw;
+if(v.field==="gyroid"){var tp=Math.PI*2;sdfRaw=Math.sin(tp*fx)*Math.cos(tp*fy)+Math.sin(tp*fy)*Math.cos(tp*fz)+Math.sin(tp*fz)*Math.cos(tp*fx)}
+else{var iter=Math.max(1,Math.min(4,Math.round(v.iter)));sdfRaw=-(v.field==="menger"?mengerSdf(fx,fy,fz,iter):sierpinskiSdf(fx,fy,fz,iter))}
+return synthWave(v.wave,sdfRaw-t*v.speed+v.phase,v.duty)}
 var raw;
 switch(v.field){case"linearX":raw=sx;break;case"linearY":raw=sy;break;case"diagonal":raw=(sx+sy)*0.70710678;break;
 case"angular":raw=Math.atan2(sy-cy,sx-cx)/(Math.PI*2);break;case"spiral":raw=Math.hypot(sx-cx,sy-cy)+Math.atan2(sy-cy,sx-cx)/(Math.PI*2);break;default:raw=Math.hypot(sx-cx,sy-cy)}
@@ -856,6 +875,10 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
       origin: { u: voice.origin.u, v: voice.origin.v },
       color: { p: parsedColor.packed, o: parsedColor.opacity },
       si: voice.sourceIndex,
+      // Menger/Sierpinski recursion depth (VOLUMETRIC-2.md §2); every other
+      // field ignores it. Always baked, same precedent as `duty` (a
+      // square-only knob) always being baked regardless of `field`.
+      iter: voice.iter ?? 3,
     };
   };
   const serializedProgram = program.layers

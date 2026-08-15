@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  effectiveVoiceFinestFreq,
   evaluateFieldProgram,
   fieldStepCount,
   integrateField,
   marchField,
+  sampleFieldVoice,
   SYNTH_FIELDS,
+  SYNTH_WAVES,
   synthWave,
   type FieldLayer,
   type FieldProgram,
@@ -33,8 +36,17 @@ function singleLayerProgram(voices: readonly FieldVoice[], combine = "add", doma
 }
 
 describe("SYNTH_FIELDS", () => {
-  it("appends linearZ at the end — append-only ordering (the /synth URL codec encodes enum values by index)", () => {
-    expect(SYNTH_FIELDS).toEqual(["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ"]);
+  it("appends linearZ, then the SDF family (gyroid, menger, sierpinski) at the end — append-only ordering (the /synth URL codec encodes enum values by index)", () => {
+    expect(SYNTH_FIELDS).toEqual([
+      "radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ",
+      "gyroid", "menger", "sierpinski",
+    ]);
+  });
+});
+
+describe("SYNTH_WAVES", () => {
+  it("appends step at the end — append-only ordering (the /synth URL codec encodes enum values by index)", () => {
+    expect(SYNTH_WAVES).toEqual(["sin", "triangle", "saw", "square", "step"]);
   });
 });
 
@@ -258,6 +270,245 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
     // (otherwise the assertion above would pass vacuously).
     expect(solidCount).toBeGreaterThan(0);
     expect(holeCount).toBeGreaterThan(0);
+  });
+});
+
+describe("synthWave: step (VOLUMETRIC-2.md §2, non-periodic)", () => {
+  it("thresholds at 0: +1 when t >= 0, else -1", () => {
+    expect(synthWave("step", -0.001)).toBe(-1);
+    expect(synthWave("step", 0)).toBe(1);
+    expect(synthWave("step", 0.001)).toBe(1);
+    expect(synthWave("step", -50)).toBe(-1);
+    expect(synthWave("step", 50)).toBe(1);
+  });
+
+  it("phase shifts the threshold (it's added to t before the caller ever reaches synthWave, so this exercises the same knob a voice's phase drives)", () => {
+    // A voice adds phase to the wave argument, so probing synthWave directly
+    // at t + phase is exactly equivalent.
+    const t = 0.3;
+    expect(synthWave("step", t + -0.4)).toBe(-1); // 0.3 - 0.4 = -0.1 < 0
+    expect(synthWave("step", t + -0.2)).toBe(1); // 0.3 - 0.2 = 0.1 >= 0
+  });
+
+  it("duty is ignored (a step has no cycle to shape)", () => {
+    expect(synthWave("step", 0.5, 0)).toBe(synthWave("step", 0.5, 1));
+    expect(synthWave("step", -0.5, 0)).toBe(synthWave("step", -0.5, 1));
+  });
+
+  it("is non-periodic: unlike every other wave, output does not repeat every 1 cycle", () => {
+    // A periodic wave (e.g. sin) folds t into 0..1 first, so t and t+1 always
+    // agree. Step does not fold: crossing exactly one full "cycle" past the
+    // threshold does not un-cross it.
+    expect(synthWave("step", -0.5)).toBe(-1);
+    expect(synthWave("step", -0.5 + 1)).toBe(1); // would still be -1 if step folded like a periodic wave
+    expect(synthWave("step", -0.5 + 100)).toBe(1);
+  });
+});
+
+// Depth-`iter` first-principles membership references (VOLUMETRIC-2.md §2 /
+// its addendum), independent of `mengerFractalSdf`/`sierpinskiFractalSdf` —
+// these are hand-derived digit rules, not a re-derivation of the engine's own
+// SDF construction, so agreement between the two is a genuine cross-check.
+// `mengerSolid` mirrors the "3D seam proof" test above (base-3 middle-third
+// digit); `sierpinskiSolid` is its base-2 sibling from the corner-tetra
+// recipe (VOLUMETRIC-2.md's addendum: "at every binary scale, at most one
+// axis is in its upper half").
+function mengerSolidRef(x: number, y: number, z: number, depth: number): boolean {
+  let cx = x, cy = y, cz = z;
+  for (let d = 0; d < depth; d++) {
+    cx *= 3; cy *= 3; cz *= 3;
+    const mx = ((cx % 3) + 3) % 3, my = ((cy % 3) + 3) % 3, mz = ((cz % 3) + 3) % 3;
+    const midCount = (mx > 1 && mx < 2 ? 1 : 0) + (my > 1 && my < 2 ? 1 : 0) + (mz > 1 && mz < 2 ? 1 : 0);
+    if (midCount >= 2) return false;
+    cx -= Math.floor(cx / 3) * 3; cy -= Math.floor(cy / 3) * 3; cz -= Math.floor(cz / 3) * 3;
+  }
+  return true;
+}
+
+function sierpinskiSolidRef(x: number, y: number, z: number, depth: number): boolean {
+  let cx = x, cy = y, cz = z;
+  for (let d = 0; d < depth; d++) {
+    cx *= 2; cy *= 2; cz *= 2;
+    const mx = ((cx % 2) + 2) % 2, my = ((cy % 2) + 2) % 2, mz = ((cz % 2) + 2) % 2;
+    const upperCount = (mx >= 1 ? 1 : 0) + (my >= 1 ? 1 : 0) + (mz >= 1 ? 1 : 0);
+    if (upperCount >= 2) return false;
+    cx -= Math.floor(cx / 2) * 2; cy -= Math.floor(cy / 2) * 2; cz -= Math.floor(cz / 2) * 2;
+  }
+  return true;
+}
+
+describe("sampleFieldVoice: SDF voice family (VOLUMETRIC-2.md §2, acceptance 5)", () => {
+  // The engine reads `menger`/`sierpinski` as `raw = -sdf`, so a solid point
+  // (sdf < 0) reads `raw > 0`; at phase 0/speed 0/time 0, `t = raw`, so
+  // `t > 0` (equivalently the plain > 0 check every other sign-agreement
+  // assertion in this file already uses) is "solid" per the engine.
+  function engineSolid(field: "menger" | "sierpinski", x: number, y: number, z: number, iter: number): boolean {
+    const o = sampleFieldVoice(voice({ field, freq: 1, iter }), x, y, z, 0, 0, 0, 0, false);
+    return o > 0;
+  }
+
+  it("menger(iter 2) sign-agrees with the depth-2 recipe reference on a sampled grid away from band boundaries", () => {
+    const N = 27;
+    let checked = 0, solidCount = 0, holeCount = 0;
+    for (let ix = 0; ix < N; ix++) {
+      for (let iy = 0; iy < N; iy++) {
+        for (let iz = 0; iz < N; iz++) {
+          const x = (ix + 0.37) / N, y = (iy + 0.37) / N, z = (iz + 0.37) / N;
+          // Skip points near a depth-2 (1/9) band boundary — 0.37/N keeps the
+          // grid off any exact third, but guard defensively anyway.
+          let nearBoundary = false;
+          for (const c of [x, y, z]) {
+            const frac9 = ((c * 9) % 1 + 1) % 1;
+            if (frac9 < 0.05 || frac9 > 0.95) nearBoundary = true;
+          }
+          if (nearBoundary) continue;
+          const ref = mengerSolidRef(x, y, z, 2);
+          const eng = engineSolid("menger", x, y, z, 2);
+          expect(eng).toBe(ref);
+          checked++;
+          if (ref) solidCount++; else holeCount++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+
+  it("sierpinski(iter 2) sign-agrees with the depth-2 corner-tetra recipe reference on a sampled grid away from band boundaries", () => {
+    const N = 27;
+    let checked = 0, solidCount = 0, holeCount = 0;
+    for (let ix = 0; ix < N; ix++) {
+      for (let iy = 0; iy < N; iy++) {
+        for (let iz = 0; iz < N; iz++) {
+          const x = (ix + 0.37) / N, y = (iy + 0.37) / N, z = (iz + 0.37) / N;
+          let nearBoundary = false;
+          for (const c of [x, y, z]) {
+            const frac4 = ((c * 4) % 1 + 1) % 1;
+            if (frac4 < 0.05 || frac4 > 0.95) nearBoundary = true;
+          }
+          if (nearBoundary) continue;
+          const ref = sierpinskiSolidRef(x, y, z, 2);
+          const eng = engineSolid("sierpinski", x, y, z, 2);
+          expect(eng).toBe(ref);
+          checked++;
+          if (ref) solidCount++; else holeCount++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+
+  it("gyroid is 2π-normalized: raw is periodic with period 1 domain unit along every axis (freq 1)", () => {
+    const gv = voice({ field: "gyroid", wave: "sin", freq: 1, speed: 0, phase: 0 });
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 4 - 1, y = Math.random() * 4 - 1, z = Math.random() * 4 - 1;
+      const a = sampleFieldVoice(gv, x, y, z, 0, 0, 0, 0, false);
+      const bx = sampleFieldVoice(gv, x + 1, y, z, 0, 0, 0, 0, false);
+      const by = sampleFieldVoice(gv, x, y + 1, z, 0, 0, 0, 0, false);
+      const bz = sampleFieldVoice(gv, x, y, z + 1, 0, 0, 0, 0, false);
+      expect(bx).toBeCloseTo(a, 9);
+      expect(by).toBeCloseTo(a, 9);
+      expect(bz).toBeCloseTo(a, 9);
+    }
+  });
+
+  it("SDF origin translation moves the fractal: sampling at (origin + p) equals sampling the untranslated field at p", () => {
+    // gyroid(0,0,0) = sin(0)cos(0)+sin(0)cos(0)+sin(0)cos(0) = 0 exactly —
+    // an analytic zero, no reference implementation needed.
+    const gv = voice({ field: "gyroid", wave: "step", freq: 1, speed: 0, phase: 0 });
+    // Translated by (0.05, 0.05, 0.6): sampling AT that offset lands exactly
+    // on the analytic zero (q = p - origin = 0), so t = 0 -> step = +1.
+    const atTranslatedZero = sampleFieldVoice(gv, 0.05, 0.05, 0.6, 0.05, 0.05, 0.6, 0, false);
+    expect(atTranslatedZero).toBe(1);
+    // A linear field would ignore cx/cy/cz entirely (this exact call would
+    // read identically to the untranslated one) — the SDF branch must not:
+    // evaluating the SAME absolute point without the origin lands on the
+    // gyroid's NEGATIVE side instead, proving the origin genuinely moved the
+    // fractal rather than being a no-op.
+    const untranslatedSamePoint = sampleFieldVoice(gv, 0.05, 0.05, 0.6, 0, 0, 0, 0, false);
+    expect(untranslatedSamePoint).toBe(-1);
+    // Translating by the origin is equivalent to shifting the sample point by
+    // the SAME amount in the opposite direction with no origin at all.
+    const shiftedNoOrigin = sampleFieldVoice(gv, 0, 0, 0, 0, 0, 0, 0, false);
+    expect(atTranslatedZero).toBe(shiftedNoOrigin);
+  });
+
+  it("phase erodes/dilates the SDF iso-surface (an iso-level offset, not a translation)", () => {
+    // gyroid(0,0,0) = 0 exactly (see above) -> t = phase at that point
+    // (speed 0, time 0) -> step's threshold sits exactly at phase = 0.
+    const below = voice({ field: "gyroid", wave: "step", freq: 1, speed: 0, phase: -0.01 });
+    const at = voice({ field: "gyroid", wave: "step", freq: 1, speed: 0, phase: 0 });
+    const above = voice({ field: "gyroid", wave: "step", freq: 1, speed: 0, phase: 0.01 });
+    expect(sampleFieldVoice(below, 0, 0, 0, 0, 0, 0, 0, false)).toBe(-1); // eroded away
+    expect(sampleFieldVoice(at, 0, 0, 0, 0, 0, 0, 0, false)).toBe(1);
+    expect(sampleFieldVoice(above, 0, 0, 0, 0, 0, 0, 0, false)).toBe(1); // dilated
+
+    // Broader monotonicity check over a grid: increasing phase never turns a
+    // solid cell into a hole (dilation only grows the solid set).
+    const loPhaseVoice = voice({ field: "menger", wave: "step", freq: 1, iter: 2, speed: 0, phase: -0.5 });
+    const hiPhaseVoice = voice({ field: "menger", wave: "step", freq: 1, iter: 2, speed: 0, phase: 0.5 });
+    let anyDifference = false;
+    for (let ix = 0; ix < 12; ix++) {
+      for (let iy = 0; iy < 12; iy++) {
+        for (let iz = 0; iz < 12; iz++) {
+          const x = (ix + 0.5) / 12, y = (iy + 0.5) / 12, z = (iz + 0.5) / 12;
+          const lo = sampleFieldVoice(loPhaseVoice, x, y, z, 0, 0, 0, 0, false);
+          const hi = sampleFieldVoice(hiPhaseVoice, x, y, z, 0, 0, 0, 0, false);
+          if (lo === 1) expect(hi).toBe(1); // never erodes a point that was already solid at lower phase
+          if (lo !== hi) anyDifference = true;
+        }
+      }
+    }
+    expect(anyDifference).toBe(true); // sanity: phase actually moved the boundary somewhere
+  });
+
+  it("applies freq exactly ONCE (to the SDF/implicit's own domain argument, not again on the wave argument) — the freq^2 shells regression is the pinned counter-case", () => {
+    // Two (x, freq) pairs holding q = x*freq constant must produce IDENTICAL
+    // output if freq applies exactly once, at the SDF-argument stage: a
+    // second `* freq` on the wave argument (the shipped `raw*freq - ...`
+    // line every other field uses) would make freq 2's output differ from
+    // freq 4's despite the SDF/gyroid's own raw value being identical.
+    const pairs: readonly (readonly [number, number])[] = [[0.3, 2], [0.15, 4], [0.6, 1]];
+    for (const field of ["gyroid", "menger", "sierpinski"] as const) {
+      const outputs = pairs.map(([x, freq]) => {
+        const y = x, z = x; // scale all three axes together to keep q constant on every axis
+        const v = voice({ field, wave: "sin", freq, iter: 2, speed: 0, phase: 0 });
+        return sampleFieldVoice(v, x, y, z, 0, 0, 0, 0, false);
+      });
+      for (let i = 1; i < outputs.length; i++) {
+        expect(outputs[i]).toBeCloseTo(outputs[0]!, 10);
+      }
+    }
+  });
+});
+
+describe("effectiveVoiceFinestFreq (VOLUMETRIC-2.md §2)", () => {
+  it("menger: freq * 3^iter", () => {
+    expect(effectiveVoiceFinestFreq(voice({ field: "menger", freq: 2, iter: 3 }))).toBeCloseTo(2 * 27, 10);
+    expect(effectiveVoiceFinestFreq(voice({ field: "menger", freq: 1, iter: 4 }))).toBeCloseTo(81, 10);
+  });
+
+  it("sierpinski: freq * 2^iter", () => {
+    expect(effectiveVoiceFinestFreq(voice({ field: "sierpinski", freq: 2, iter: 3 }))).toBeCloseTo(2 * 8, 10);
+    expect(effectiveVoiceFinestFreq(voice({ field: "sierpinski", freq: 1, iter: 4 }))).toBeCloseTo(16, 10);
+  });
+
+  it("gyroid: freq * 2, independent of iter", () => {
+    expect(effectiveVoiceFinestFreq(voice({ field: "gyroid", freq: 3 }))).toBeCloseTo(6, 10);
+  });
+
+  it("every other field: unchanged (exactly freq)", () => {
+    for (const field of ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ"]) {
+      expect(effectiveVoiceFinestFreq(voice({ field, freq: 5 }))).toBe(5);
+    }
+  });
+
+  it("menger/sierpinski default to iter 3 when omitted, matching the schema default", () => {
+    expect(effectiveVoiceFinestFreq(voice({ field: "menger", freq: 1 }))).toBeCloseTo(27, 10);
+    expect(effectiveVoiceFinestFreq(voice({ field: "sierpinski", freq: 1 }))).toBeCloseTo(8, 10);
   });
 });
 

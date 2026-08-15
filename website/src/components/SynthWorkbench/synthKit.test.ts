@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
-import { resolveSpaceChange, soloParams, synthDefaults } from "./synthKit";
+import { buildWavePathD, resolveSpaceChange, soloParams, synthDefaults } from "./synthKit";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
 // the previewed voice onto default layer 1 and default (unshaped) layer
@@ -73,5 +73,43 @@ describe("resolveSpaceChange", () => {
     const params = { ...synthDefaults(), space: "object", render: "carve" };
     const next = { ...params, space: "surface" };
     expect(() => fieldSynth.program.validateParams?.(next as never)).toThrow();
+  });
+});
+
+// VOLUMETRIC-2.md §2: a non-periodic `step` wave swept across the old 0..1
+// window (`raw * freq - time*speed + phase`, with `raw` in 0..1) never
+// crosses zero for the common freq>0/time=0/phase=0 case, previewing as a
+// constant line. `buildWavePathD` must use a symmetric sweep window for
+// non-periodic waves instead, so the edge is visible.
+describe("buildWavePathD", () => {
+  function pathYValues(d: string): number[] {
+    return d.trim().split(/\s+/)
+      .filter((tok) => tok !== "")
+      .map((tok) => Number(tok.replace(/^[ML]/, "")))
+      .filter((_, i) => i % 2 === 1); // every other numeric token is a y coordinate (M x y L x y ...)
+  }
+
+  it("a step wave at default freq/time/phase is NOT a constant line (the regression this fix targets)", () => {
+    const d = buildWavePathD("step", 3, 0, 1, 0, 100, 30);
+    const ys = pathYValues(d);
+    const distinct = new Set(ys.map((y) => Math.round(y * 100)));
+    expect(distinct.size).toBeGreaterThan(1);
+  });
+
+  it("a step wave's preview shows both the low and high level (a real edge, not just noise)", () => {
+    const d = buildWavePathD("step", 3, 0, 1, 0, 100, 30);
+    const ys = pathYValues(d);
+    const midY = 15;
+    expect(Math.min(...ys)).toBeLessThan(midY - 5); // amp*(-1) side
+    expect(Math.max(...ys)).toBeGreaterThan(midY + 5); // amp*(+1) side
+  });
+
+  it("a periodic wave (sin) keeps sweeping the un-shifted 0..1 window (unaffected by this fix)", () => {
+    const withPhase = buildWavePathD("sin", 1, 0, 1, 0, 100, 30, 0.5, 0);
+    // At raw=0 (the first sample), sin's argument is `0*freq - 0 + 0 = 0` ->
+    // synthWave("sin", 0) = 0 -> y = midY. Confirms the window still starts
+    // at raw=0, not -0.5, for a periodic wave.
+    const ys = pathYValues(withPhase);
+    expect(ys[0]).toBeCloseTo(15, 5);
   });
 });

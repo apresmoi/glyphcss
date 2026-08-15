@@ -579,6 +579,18 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       expect(rInk.js).toContain("requestAnimationFrame");
     });
 
+    // VOLUMETRIC-2.md §2: gyroid/menger/sierpinski and the `step` wave have a
+    // genuine 2D (z=0 slice) meaning, unlike linearZ/originW above — no new
+    // reject class for this phase.
+    it("does NOT reject the SDF field family (gyroid/menger/sierpinski) or the step wave on an active voice", () => {
+      for (const field of ["gyroid", "menger", "sierpinski"]) {
+        const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+          params: { ...baseOptions().params, field1: field, wave1: "step", iter1: 2, amp1: 1 },
+        }));
+        expect(result.js).toContain("requestAnimationFrame");
+      }
+    });
+
     it("does NOT reject linearZ/originW when the voice carrying them is inactive (amp 0)", () => {
       const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
         params: { ...baseOptions().params, amp3: 0, field3: "linearZ", originW3: 0.9 },
@@ -867,6 +879,35 @@ describe("buildGlyphFieldSynthStaticExport", () => {
         amp4: 0, amp5: 0, amp6: 0,
         voiceColors: true, color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b",
         gain: 3, bias: 1, glyphs: "░▒█",
+      });
+    });
+
+    it("gyroid (2D z=0 slice) matches the live render (VOLUMETRIC-2.md §2)", async () => {
+      await runParity({
+        space: "surface", scale: 1.5, combine: "add",
+        field1: "gyroid", wave1: "sin", freq1: 3, speed1: 0.2, amp1: 1,
+        field2: "gyroid", wave2: "step", freq2: 2, phase2: 0.1, amp2: 0.6,
+        amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " .:-=+*#%@", color: "#7df9ff", colorB: "#ff4fa3", gradient: 0.6,
+      });
+    });
+
+    it("menger (2D z=0 slice, iter 2) matches the live render (VOLUMETRIC-2.md §2)", async () => {
+      await runParity({
+        space: "surface", scale: 1, combine: "add",
+        field1: "menger", wave1: "step", freq1: 1, iter1: 2, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " █", color: "#8affc1",
+      });
+    });
+
+    it("sierpinski (2D z=0 slice, iter 2, origin translation + phase) matches the live render (VOLUMETRIC-2.md §2)", async () => {
+      await runParity({
+        space: "surface", scale: 1, combine: "add",
+        field1: "sierpinski", wave1: "step", freq1: 1, iter1: 2, phase1: 0.05,
+        originU1: 0.1, originV1: -0.05, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " █", color: "#ffcf5a",
       });
     });
 

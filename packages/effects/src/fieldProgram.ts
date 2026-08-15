@@ -19,8 +19,8 @@
 // ---- basis-kind enums (append-only; the /synth URL codec encodes these by
 // index, so a new value is always appended, never inserted) ----------------
 
-export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ"] as const;
-export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
+export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ", "gyroid", "menger", "sierpinski"] as const;
+export const SYNTH_WAVES = ["sin", "triangle", "saw", "square", "step"] as const;
 export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
 
 // ---- waveform + noise primitives -------------------------------------
@@ -31,6 +31,14 @@ export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "a
 // fraction of its cycle, `p < duty ? 1 : -1`); every other kind ignores it.
 // Default 0.5 reproduces the pre-duty `p < 0.5` split exactly.
 export function synthWave(kind: string, t: number, duty = 0.5): number {
+  // Non-periodic: `+1` when `t >= 0`, else `-1` — duty ignored (there is no
+  // cycle to shape). Checked before the `p = t - floor(t)` periodic
+  // reduction every other wave shares, since folding `t` into 0..1 would
+  // destroy the very discontinuity this wave exists to expose. Legal on
+  // every field — e.g. a `linearX` step is a half-space — but every SDF
+  // preset depends on this exact line: inside the solid `sdf < 0` ->
+  // `raw > 0` -> `t > 0` -> `step = +1` -> `d > 0.5` at default bias -> solid.
+  if (kind === "step") return t >= 0 ? 1 : -1;
   const p = t - Math.floor(t); // 0..1
   switch (kind) {
     case "triangle": return 4 * Math.abs(p - 0.5) - 1;
@@ -99,6 +107,121 @@ function synthNoise4(x: number, y: number, z: number, t: number): number {
 
 const INV_SQRT3 = 1 / Math.sqrt(3);
 
+// ---- SDF voice family (VOLUMETRIC-2.md §2) ------------------------------
+
+// Exact box SDF: `length(max(q,0)) + min(max(q.x,max(q.y,q.z)),0)`, `q =
+// abs(p) - b`. Negative inside, positive outside — the sign convention every
+// SDF primitive below shares.
+function sdfBox(px: number, py: number, pz: number, bx: number, by: number, bz: number): number {
+  const dx = Math.abs(px) - bx, dy = Math.abs(py) - by, dz = Math.abs(pz) - bz;
+  const ax = Math.max(dx, 0), ay = Math.max(dy, 0), az = Math.max(dz, 0);
+  return Math.hypot(ax, ay, az) + Math.min(Math.max(dx, Math.max(dy, dz)), 0);
+}
+
+// Floored modulo (`Math.floor`-consistent, unlike JS's `%`), the same
+// convention `synthNoise3`'s lattice indexing relies on.
+function sdfMod(a: number, m: number): number {
+  return ((a % m) + m) % m;
+}
+
+// Signed distance to the depth-`iter` Menger sponge approximation on the
+// unit cell [0,1]^3 (matching the recipe / pyramid stage) — the union of
+// solid boxes left after `iter` rounds of removing each cube's center + 6
+// face-center sub-cubes (the 20-of-27 division), NOT a limit-set distance
+// estimator: the true limit set has measure zero, so its exact SDF is
+// positive almost everywhere and carves to nothing, and the classic folded
+// distance-bound estimators are unsigned Lipschitz bounds with unevenly
+// spaced `sin`-shell artifacts rather than a genuine depth-capped solid.
+//
+// This is Inigo Quilez's iterative cross-subtraction Menger construction
+// (a half-extent-1, origin-centered domain: base cube minus a `sdCross`-
+// shaped hole subtracted at each of `iter` scales via `max`, i.e. CSG
+// intersection with the hole's complement), remapped to this module's
+// [0,1]^3 convention by a factor-2 rescale (`f(k*p)/k` is the SDF of `f`
+// scaled by `k`). Each loop iteration's periodic `sdfMod` reduction is
+// evaluated in the SAME (shifted) centered frame the box test uses, which
+// this cross construction tolerates because the cross's own removed region
+// is symmetric under that shift — unlike `sierpinskiFractalSdf` below, which
+// keeps an intentionally asymmetric 4-of-8 octant union and cannot use this
+// shortcut (see that function's own comment). Sign-verified against the
+// base-3 "middle-third" digit-rule reference (`fieldProgram.test.ts`'s
+// Menger membership test) at depths 1-3 with zero mismatches on a sampled
+// grid away from band boundaries.
+function mengerFractalSdf(x: number, y: number, z: number, iter: number): number {
+  const px = (x - 0.5) * 2, py = (y - 0.5) * 2, pz = (z - 0.5) * 2;
+  let d = sdfBox(px, py, pz, 1, 1, 1);
+  let s = 1;
+  for (let m = 0; m < iter; m++) {
+    const ax = sdfMod(px * s, 2) - 1, ay = sdfMod(py * s, 2) - 1, az = sdfMod(pz * s, 2) - 1;
+    s *= 3;
+    const rx = Math.abs(1 - 3 * Math.abs(ax));
+    const ry = Math.abs(1 - 3 * Math.abs(ay));
+    const rz = Math.abs(1 - 3 * Math.abs(az));
+    const da = Math.max(rx, ry), db = Math.max(ry, rz), dc = Math.max(rz, rx);
+    const c = (Math.min(da, Math.min(db, dc)) - 1) / s;
+    d = Math.max(d, c);
+  }
+  return d / 2;
+}
+
+// Signed distance to the nearest of the 4 kept (of 8) octant boxes at ONE
+// binary scale — the base-2 sibling of Menger's cross subtraction. The
+// addendum's recipe: solid octants are the one with every axis in its lower
+// half plus the three with exactly ONE axis in its upper half (`v in {0, e1,
+// e2, e3}`, the corner-tetra IFS); the other 4 (>=2 axes upper) are holes.
+// `(cx, cy, cz)` is this level's LOCAL centered coordinate (see the caller).
+function sierpinskiKeptOctantSdf(cx: number, cy: number, cz: number): number {
+  const half = 0.25;
+  const centers: readonly (readonly [number, number, number])[] = [
+    [-half, -half, -half], [half, -half, -half], [-half, half, -half], [-half, -half, half],
+  ];
+  let best = Infinity;
+  for (const [ox, oy, oz] of centers) {
+    const d = sdfBox(cx - ox, cy - oy, cz - oz, half, half, half);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// Signed distance to the depth-`iter` corner-tetra Sierpinski approximation
+// on the unit cell [0,1]^3 (VOLUMETRIC-2.md's addendum) — `mengerFractalSdf`'s
+// base-2 sibling: same "union of solid boxes at THIS depth, not the limit
+// set" contract, same per-level CSG accumulation (`d = max(d, levelSdf/scale)`
+// growing the running distance by intersecting each finer level's own kept-
+// region test), but the kept region here is a genuinely ASYMMETRIC 4-of-8
+// octant union rather than a point-symmetric cross, so it cannot reuse
+// Menger's shift-tolerant centered `sdfMod` shortcut: the local coordinate at
+// each level must be the true, non-shifted fractional position within that
+// level's cell — computed from the UNTRANSLATED [0,1) domain coordinate
+// (`x`, `y`, `z`, not the centered `px`/`py`/`pz`), since `sdfMod(u * s, 1)`
+// is only a no-op reduction (recovers `u` itself) at `s = 1` when `u` is
+// already in `[0, 1)`. Sign-verified against the binary "at most one axis
+// upper half" digit-rule reference at depths 1-3 with zero mismatches on a
+// sampled grid away from band boundaries.
+function sierpinskiFractalSdf(x: number, y: number, z: number, iter: number): number {
+  const px = x - 0.5, py = y - 0.5, pz = z - 0.5;
+  let d = sdfBox(px, py, pz, 0.5, 0.5, 0.5);
+  let s = 1;
+  for (let m = 0; m < iter; m++) {
+    const lx = sdfMod(x * s, 1) - 0.5, ly = sdfMod(y * s, 1) - 0.5, lz = sdfMod(z * s, 1) - 0.5;
+    s *= 2;
+    const c = sierpinskiKeptOctantSdf(lx, ly, lz) / s;
+    d = Math.max(d, c);
+  }
+  return d;
+}
+
+// `iter1..6`'s schema range is integer 1..4 (capped there because
+// carve/xray's march resolution caps at 256 steps — menger iter 4 needs
+// ~162 steps on a unit chord and fits, iter 5 needs ~486 and would render
+// guaranteed false holes). Defensive here too, since `FieldVoice` is a hand-
+// buildable IR (tests, a future SDF-sourced program) with no schema between
+// it and this sampler.
+function clampSdfIter(iter: number | undefined): number {
+  const n = Math.round(iter ?? 3);
+  return Math.max(1, Math.min(4, Number.isFinite(n) ? n : 3));
+}
+
 // ---- IR types ----------------------------------------------------------
 
 export interface FieldVoice {
@@ -116,12 +239,20 @@ export interface FieldVoice {
   /**
    * This voice's origin, RELATIVE to whatever call-level origin
    * `evaluateFieldProgram` is invoked with (see that function's doc) — not
-   * an absolute domain coordinate. Only radial/angular/spiral and the
-   * `angle` rotation pivot read it; linear fields ignore origin entirely,
-   * matching field-synth's documented axis-projection behavior.
+   * an absolute domain coordinate. Only radial/angular/spiral, the `angle`
+   * rotation pivot, and the SDF family (`gyroid`/`menger`/`sierpinski`,
+   * VOLUMETRIC-2.md §2 — as a full pre-evaluation TRANSLATION of the sample,
+   * the opposite of every linear field's convention) read it; linear fields
+   * ignore origin entirely, matching field-synth's documented axis-
+   * projection behavior.
    */
   readonly origin: { readonly u: number; readonly v: number; readonly w: number };
   readonly color: string;
+  /**
+   * Menger/Sierpinski recursion depth (integer, schema range 1..4, default
+   * 3 when omitted — see `clampSdfIter`). Every other field ignores it.
+   */
+  readonly iter?: number;
   /**
    * This voice's position in its FLAT original source order (e.g.
    * field-synth's voice1..6), independent of which layer it was grouped
@@ -223,6 +354,51 @@ export function sampleFieldVoice(
     return 2 * n - 1;
   }
 
+  if (voice.field === "gyroid" || voice.field === "menger" || voice.field === "sierpinski") {
+    // SDF voice family (VOLUMETRIC-2.md §2), a dedicated branch like noise's
+    // above — and, unlike every 2D/3D-split branch below, the SAME formula
+    // in both domains: a 2D call already arrives here with `z = 0, cz = 0`
+    // (see `computeFieldSynthPoint`'s non-volumetric branch in stock.ts),
+    // which is exactly the documented "2D domain: evaluated at z=0 (a
+    // slice)" contract — no
+    // separate 2D reading to invent, the way `diagonal`/`noise` need one.
+    //
+    // Translation: the voice origin is read as a PRE-EVALUATION TRANSLATION
+    // of the domain point — deliberately the OPPOSITE of every linear field
+    // above, which ignores `cx`/`cy`/`cz` entirely. An SDF has no field-
+    // driven anchor the way radial's distance-from-center has, so without
+    // translating the sample itself the voice could never be aligned to its
+    // host mesh (or to another SDF voice); `phase` below is an ISO-LEVEL
+    // offset, not a substitute for this.
+    const qx = sx - cx;
+    const qy = sy - cy;
+    const qz = z - cz;
+    // `freq` is the lattice scale, applied ONCE here to the translated
+    // sample — NOT a second time on the wave argument below, unlike every
+    // other field's `raw * voice.freq` line. Reapplying it there would
+    // double the frequency (shells at freq^2 density instead of freq): the
+    // shipped projection `t = raw * freq - time*speed + phase` must NOT be
+    // reused for this branch, which is why this returns through its own
+    // `synthWave` call below instead of falling into the shared one at the
+    // bottom of the function.
+    const fx = qx * voice.freq, fy = qy * voice.freq, fz = qz * voice.freq;
+    let sdfRaw: number;
+    if (voice.field === "gyroid") {
+      // 2π-normalized so `freq` means cycles-per-domain-unit like every
+      // other voice (and so the effective finest frequency `freq*2` is
+      // actually true). Used directly as `raw` — no `-sdf` negation — its
+      // sign is "positive = one labyrinth half", not an inside/outside
+      // solid convention the way menger/sierpinski's is.
+      const tp = Math.PI * 2;
+      sdfRaw = Math.sin(tp * fx) * Math.cos(tp * fy) + Math.sin(tp * fy) * Math.cos(tp * fz) + Math.sin(tp * fz) * Math.cos(tp * fx);
+    } else {
+      const iter = clampSdfIter(voice.iter);
+      const sdf = voice.field === "menger" ? mengerFractalSdf(fx, fy, fz, iter) : sierpinskiFractalSdf(fx, fy, fz, iter);
+      sdfRaw = -sdf; // positive inside the solid
+    }
+    return synthWave(voice.wave, sdfRaw - time * voice.speed + voice.phase, voice.duty);
+  }
+
   let raw: number;
   if (volumetric) {
     switch (voice.field) {
@@ -250,6 +426,26 @@ export function sampleFieldVoice(
     }
   }
   return synthWave(voice.wave, raw * voice.freq - time * voice.speed + voice.phase, voice.duty);
+}
+
+/**
+ * The finest ACTIVE oscillation frequency a single voice contributes, in
+ * domain units — the per-voice generalization the shared carve/xray step
+ * floor (`fieldStepCount`'s `finestFreq` parameter, below) consumes
+ * (VOLUMETRIC-2.md §2). A menger/sierpinski voice's finest FEATURE is `iter`
+ * recursion levels deep, each level tripling (menger) or doubling
+ * (sierpinski) the box density relative to `freq`'s own lattice scale; a
+ * gyroid voice's implicit completes 2 periods per `freq` cycle (its sign
+ * pattern repeats twice as fast as a single `sin`/`cos` term would); every
+ * other field stays exactly `freq`, unchanged.
+ */
+export function effectiveVoiceFinestFreq(voice: FieldVoice): number {
+  switch (voice.field) {
+    case "menger": return voice.freq * 3 ** clampSdfIter(voice.iter);
+    case "sierpinski": return voice.freq * 2 ** clampSdfIter(voice.iter);
+    case "gyroid": return voice.freq * 2;
+    default: return voice.freq;
+  }
 }
 
 function foldVoices(

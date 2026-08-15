@@ -10,6 +10,7 @@ import {
 } from "glyphcss";
 import {
   combineSynth,
+  effectiveVoiceFinestFreq,
   evaluateFieldProgram,
   fieldStepCount,
   integrateField,
@@ -1424,6 +1425,21 @@ const fieldSynthSchema = {
   // not reject an inverted interval).
   slabStart: { kind: "number", default: -1, min: -8, max: 8, step: 0.05, label: "Slab start" },
   slabEnd: { kind: "number", default: 1, min: -8, max: 8, step: 0.05, label: "Slab end" },
+  // Appended after every pre-existing key (VOLUMETRIC-2.md §2: append-only
+  // ordering is load-bearing for the /synth URL codec's positional decode).
+  // Menger/Sierpinski recursion depth; every other field ignores it. Capped
+  // at 4 because carve/xray's march resolution caps at 256 steps — menger
+  // iter 4 needs ~162 steps on a unit chord and fits, iter 5 needs ~486 and
+  // would render guaranteed false holes (see `effectiveVoiceFinestFreq`,
+  // fieldProgram.ts). Default 3 matches `clampSdfIter`'s own fallback there,
+  // so a hand-built IR voice that omits `iter` behaves identically to a
+  // schema voice at its default.
+  iter1: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 1 iterations" },
+  iter2: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 2 iterations" },
+  iter3: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 3 iterations" },
+  iter4: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 4 iterations" },
+  iter5: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 5 iterations" },
+  iter6: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 6 iterations" },
 } as const satisfies GlyphEffectParamSchema;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
@@ -1468,6 +1484,8 @@ export interface SynthVoice {
   readonly phase: number;
   /** Which of the (up to `SYNTH_LAYERS`) layers this voice folds into. Default 1. */
   readonly layer: number;
+  /** Menger/Sierpinski recursion depth (schema range 1..4, default 3); every other field ignores it. */
+  readonly iter: number;
 }
 
 // Reads field-synth's flat field1..6/layer1..6 params into the SynthVoice
@@ -1495,6 +1513,7 @@ export function buildFieldSynthVoices(params: AnyParams): readonly SynthVoice[] 
       duty: params[`duty${k}`] as number,
       phase: params[`phase${k}`] as number,
       layer: params[`layer${k}`] as number,
+      iter: params[`iter${k}`] as number,
     });
   }
   return voices;
@@ -1591,6 +1610,7 @@ export function compileFieldVoices(voices: readonly SynthVoice[], scale: number)
     origin: { u: voice.originU * scale, v: voice.originV * scale, w: voice.originW * scale },
     color: voice.color,
     layer: voice.layer,
+    iter: voice.iter,
     // Flat position in `voices` (field-synth's voice1..6 order), the same
     // order `parsedVoiceColors` is indexed by — carried through so an argmax
     // winner reported by `evaluateFieldProgram` always identifies the
@@ -2113,10 +2133,18 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       // once per evaluate() call — `marchField`/`integrateField` raise the
       // step count to `ceil(2 * chordLength * finestFreq)` so a thin solid
       // wall isn't stepped over. 0 when no voice is active (no Nyquist floor
-      // to apply).
+      // to apply). Reads each voice's own EFFECTIVE finest frequency
+      // (VOLUMETRIC-2.md §2), not the raw `freq` param: a menger/sierpinski
+      // voice's finest feature is `iter` recursion levels finer than `freq`
+      // alone would suggest, and a gyroid voice's implicit is twice as fine
+      // — see `effectiveVoiceFinestFreq` (fieldProgram.ts) for the exact
+      // per-field multipliers.
       let finestFreq = 0;
       for (const voice of compiledVoices) {
-        if (voice.amp > 0 && voice.freq > finestFreq) finestFreq = voice.freq;
+        if (voice.amp > 0) {
+          const voiceFinestFreq = effectiveVoiceFinestFreq(voice);
+          if (voiceFinestFreq > finestFreq) finestFreq = voiceFinestFreq;
+        }
       }
 
       // Slab clip (VOLUMETRIC-2.md §1 "Slab clip"): orthogonal to render mode
