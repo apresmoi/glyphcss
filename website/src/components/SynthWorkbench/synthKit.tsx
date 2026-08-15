@@ -1276,9 +1276,13 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
+export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, orbitAuto, onOrbitAuto, orbitSpeed, onOrbitSpeed, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
+  /** Camera auto-orbit (user request) — independent of `paused`/`timeScale`,
+   *  which drive the MESH's own spin; this drifts the CAMERA. */
+  orbitAuto: boolean; onOrbitAuto: (b: boolean) => void;
+  orbitSpeed: number; onOrbitSpeed: (n: number) => void;
   density: number; onDensity: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
@@ -1318,6 +1322,18 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   useSlider(stage, "Density", { min: 0.5, max: 4, step: 0.1 }, density, onDensity);
   useSlider(stage, "Speed", { min: 0.05, max: 8, step: 0.05 }, timeScale, onTimeScale);
   useToggle(stage, "Paused", paused, onPaused);
+  // Camera auto-orbit: independent of Speed/Paused above (those spin the
+  // MESH about one axis; this drifts the CAMERA's rotX/rotY). The flat plane
+  // keeps its camera locked head-on (no drag-orbit either — see the
+  // scene-rebuild effect), so the toggle hides there rather than offering a
+  // control with nothing to move. "Orbit speed" hides unless orbit is on,
+  // same show-only-when-relevant idiom as the Volume folder's render-mode
+  // rows below.
+  const flatStage = isFlat(shape);
+  const orbitCtrl = useToggle(stage, "Orbit", orbitAuto, onOrbitAuto);
+  const orbitSpeedCtrl = useSlider(stage, "Orbit speed", { min: 0.1, max: 4, step: 0.05 }, orbitSpeed, onOrbitSpeed);
+  useEffect(() => { orbitCtrl?.setVisible(!flatStage); }, [orbitCtrl, flatStage]);
+  useEffect(() => { orbitSpeedCtrl?.setVisible(!flatStage && orbitAuto); }, [orbitSpeedCtrl, flatStage, orbitAuto]);
 
   const mix = useFolder(gui, "Mix", { open: true });
   // Scope goes first so `useDockSlot`'s insertBefore(…, firstChild) lands it

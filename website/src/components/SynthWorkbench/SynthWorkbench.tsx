@@ -55,6 +55,20 @@ const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 const DEFAULT_CAMERA_ROT_X = 58;
 const DEFAULT_CAMERA_ROT_Y = 32;
 
+// Camera auto-orbit pace (user request, "screensaver, not spin cycle") at
+// `orbitSpeed: 1`, the slider's default — a full yaw revolution takes a
+// minute, and the pitch ping-pong's own period (~135° of travel at 4°/s, one
+// way) isn't a clean multiple of the yaw period, so the combined path reads
+// as a gentle Lissajous drift rather than an obviously looping tour. Pitch
+// bounces between MIN and MAX instead of wrapping through the poles — a full
+// -90..90 sweep would flip past looking straight down/up, which reads as a
+// glitch, not a drift — but the range still dips below and rises above the
+// horizontal (0°) so both the top and underside of the stage come into view.
+const ORBIT_YAW_DEG_PER_SEC = 6;
+const ORBIT_PITCH_DEG_PER_SEC = 4;
+const ORBIT_PITCH_MIN = -55;
+const ORBIT_PITCH_MAX = 80;
+
 import {
   MAX_LAYERS,
   MAX_VOICES,
@@ -95,6 +109,15 @@ export default function SynthWorkbench() {
   const [density, setDensity] = useState(initial.density);
   const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
+  // Camera auto-orbit (user request, separate from `paused`/mesh-spin): a
+  // gentle screensaver-style two-axis drift of the CAMERA itself, independent
+  // of the Stage folder's existing Speed/Paused (which spins the MESH about
+  // one axis). Page state only — camera angles aren't URL-persisted today
+  // (see `cameraAnglesRef`'s own doc above), so neither is this.
+  const [orbitAuto, setOrbitAuto] = useState(false);
+  const [orbitSpeed, setOrbitSpeed] = useState(1);
+  const orbitAutoRef = useRef(orbitAuto); orbitAutoRef.current = orbitAuto;
+  const orbitSpeedRef = useRef(orbitSpeed); orbitSpeedRef.current = orbitSpeed;
   // Camera orbit angle for the NEXT scene rebuild (a stage-hint's rotX/rotY —
   // VOLUMETRIC-2.md §3 — or the plain default). Not React state: nothing
   // needs to re-render off it, and it must be read fresh by the scene-rebuild
@@ -131,7 +154,13 @@ export default function SynthWorkbench() {
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
-    if (!flat) createGlyphOrbitControls(scene, { drag: true, wheel: true });
+    // Handle captured (not discarded) so the auto-orbit tick below can listen for
+    // drag start/end and pause/resume around it — see `orbitDragging`.
+    const orbitControls = flat ? null : createGlyphOrbitControls(scene, { drag: true, wheel: true });
+    let orbitDragging = false;
+    orbitControls?.addEventListener("start", () => { orbitDragging = true; });
+    orbitControls?.addEventListener("end", () => { orbitDragging = false; });
+    let orbitPitchDir: 1 | -1 = 1;
     const polys = shapePolys(shape);
     meshRef.current = scene.add(polys, shapeTransform(shape)) as { dispose: () => void };
     scene.fit();
@@ -146,10 +175,24 @@ export default function SynthWorkbench() {
     let last = performance.now(), t = 0, raf = 0;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
-      if (pausedRef.current) { last = now; return; }
       const dt = Math.min((now - last) / 1000, 0.1); last = now;
-      t += dt * tsRef.current;
-      layerRef.current?.setParams({ time: t });
+      // Mesh spin (`paused`) and camera auto-orbit (`orbitAuto`) are
+      // independent: pausing one must not pause the other.
+      if (!pausedRef.current) {
+        t += dt * tsRef.current;
+        layerRef.current?.setParams({ time: t });
+      }
+      if (!flat && orbitAutoRef.current && !orbitDragging) {
+        camera.rotY = camera.rotY + ORBIT_YAW_DEG_PER_SEC * dt * orbitSpeedRef.current;
+        // Ping-pong pitch off the current rotX — not a stored/absolute phase —
+        // so a user drag, a preset's stage hint, or resuming after the pointer
+        // lifts all continue the drift from wherever the camera actually is.
+        let nextPitch = camera.rotX + orbitPitchDir * ORBIT_PITCH_DEG_PER_SEC * dt * orbitSpeedRef.current;
+        if (nextPitch >= ORBIT_PITCH_MAX) { nextPitch = ORBIT_PITCH_MAX; orbitPitchDir = -1; }
+        else if (nextPitch <= ORBIT_PITCH_MIN) { nextPitch = ORBIT_PITCH_MIN; orbitPitchDir = 1; }
+        camera.rotX = nextPitch;
+        scene.rerender();
+      }
     };
     raf = requestAnimationFrame(tick);
     // Camera.zoom is CSS px per world unit, independent of host size — resizing
@@ -166,7 +209,7 @@ export default function SynthWorkbench() {
       });
       resizeObserver.observe(host);
     }
-    return () => { cancelAnimationFrame(raf); resizeObserver?.disconnect(); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
+    return () => { cancelAnimationFrame(raf); resizeObserver?.disconnect(); orbitControls?.destroy(); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
@@ -503,7 +546,7 @@ export default function SynthWorkbench() {
           )}
         </InstrumentMain>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
         </Dock>
       </InstrumentBody>
       <InstrumentTray id="synth-presets-panel" label="Pattern presets" open={mobilePanel === "presets"}>

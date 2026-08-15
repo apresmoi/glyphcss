@@ -9,8 +9,11 @@
 // `createRoot`/`act` pattern packages/react's own camera component tests use
 // — the smallest addition (`happy-dom` as a devDependency, already used by
 // four sibling packages) that lets a control's actual change → re-render
-// wiring be asserted instead of only read from source.
-import React, { act } from "react";
+// wiring be asserted instead of only read from source. JSX (not
+// `React.createElement`) so children merges through LayerGroup's required
+// `children: ReactNode` prop the way the library-managed-attributes overload
+// expects.
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,11 +47,9 @@ function renderLayerGroup(params: Params, onParam: (key: string, value: ParamVal
   const root = createRoot(container);
   act(() => {
     root.render(
-      React.createElement(
-        LayerGroup,
-        { layer: 1, params, onParam, onAddVoice: () => {}, canAddVoice: true },
-        React.createElement("div", { "data-testid": "voice-slot" }),
-      ),
+      <LayerGroup layer={1} params={params} onParam={onParam} onAddVoice={() => {}} canAddVoice={true}>
+        <div data-testid="voice-slot" />
+      </LayerGroup>,
     );
   });
   return { container, root };
@@ -91,21 +92,19 @@ describe("LayerGroup — combine control (VOLUMETRIC-2.md §4 P1 fix)", () => {
     function rerender(): void {
       act(() => {
         root.render(
-          React.createElement(
-            LayerGroup,
-            {
-              layer: 1,
-              params,
-              onParam: (key: string, value: ParamValue) => {
-                calls.push([key, value]);
-                params = { ...params, [key]: value };
-                rerender();
-              },
-              onAddVoice: () => {},
-              canAddVoice: true,
-            },
-            React.createElement("div", null),
-          ),
+          <LayerGroup
+            layer={1}
+            params={params}
+            onParam={(key, value) => {
+              calls.push([key, value]);
+              params = { ...params, [key]: value };
+              rerender();
+            }}
+            onAddVoice={() => {}}
+            canAddVoice={true}
+          >
+            <div />
+          </LayerGroup>,
         );
       });
     }
@@ -135,11 +134,9 @@ describe("LayerGroup — combine control (VOLUMETRIC-2.md §4 P1 fix)", () => {
     const root = createRoot(container);
     act(() => {
       root.render(
-        React.createElement(
-          LayerGroup,
-          { layer: 2, params, onParam: () => {}, onAddVoice: () => {}, canAddVoice: true },
-          React.createElement("div", null),
-        ),
+        <LayerGroup layer={2} params={params} onParam={() => {}} onAddVoice={() => {}} canAddVoice={true}>
+          <div />
+        </LayerGroup>,
       );
     });
     expect(combineSelect(container).value).toBe("difference");
