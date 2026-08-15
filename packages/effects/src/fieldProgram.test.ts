@@ -273,6 +273,70 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
     expect(solidCount).toBeGreaterThan(0);
     expect(holeCount).toBeGreaterThan(0);
   });
+
+  it("evaluates a hand-built multi-layer (2 layers x 3 voices) Sierpinski-membership program at depth 3 — the base-2 seam proof (VOLUMETRIC-2.md acceptance 4, \"scale 3 via IR\")", () => {
+    // The corner-tetra recipe's binary-ladder sibling of the Menger seam
+    // proof above: base-2 digit k of an axis is selected by `freq 2^(k-1)`,
+    // `wave: square`, `duty: 1/2`, `phase: -1/2` (upper-half selector,
+    // VOLUMETRIC-2.md's addendum), same add/threshold/invert/min shape. The
+    // schema-level "Sierpinski pyramid" preset only ships 2 scales (its
+    // pyramid stage caps at depth 2 — see stock.ts), so this hand-built
+    // 3-layer IR program is the only place depth 3 is exercised at all,
+    // proving the IR itself is not limited to the shipped preset's depth.
+    function scaleLayer(k: number): FieldLayer {
+      const freq = 2 ** (k - 1);
+      const axisVoice = (field: string): FieldVoice => voice({ field, wave: "square", freq, speed: 0, duty: 1 / 2, phase: -1 / 2, amp: 1 });
+      return {
+        voices: [axisVoice("linearX"), axisVoice("linearY"), axisVoice("linearZ")],
+        combine: "add",
+        thresholdOn: true,
+        threshold: 0,
+        invert: true,
+        blend: "min",
+        amp: 1,
+      };
+    }
+    const program: FieldProgram = { domain: "3d", layers: [scaleLayer(1), scaleLayer(2), scaleLayer(3)] };
+
+    function sierpinskiSolid(x: number, y: number, z: number, depth: number): boolean {
+      let cx = x, cy = y, cz = z;
+      for (let d = 0; d < depth; d++) {
+        cx *= 2; cy *= 2; cz *= 2;
+        const mx = ((cx % 2) + 2) % 2, my = ((cy % 2) + 2) % 2, mz = ((cz % 2) + 2) % 2;
+        const upperCount = (mx >= 1 ? 1 : 0) + (my >= 1 ? 1 : 0) + (mz >= 1 ? 1 : 0);
+        if (upperCount >= 2) return false;
+        cx = cx - Math.floor(cx / 2) * 2; cy = cy - Math.floor(cy / 2) * 2; cz = cz - Math.floor(cz / 2) * 2;
+      }
+      return true;
+    }
+
+    // Off the half-boundaries (0.5 is float-exact but the digit boundaries at
+    // deeper scales, e.g. 1/4, are not) — offset grid over the unit cube at
+    // scale-8 (2^3) resolution so depth-3 features are resolvable.
+    let checked = 0;
+    let solidCount = 0;
+    let holeCount = 0;
+    for (let ix = 0; ix < 24; ix++) {
+      for (let iy = 0; iy < 24; iy++) {
+        for (let iz = 0; iz < 24; iz++) {
+          const x = (ix + 0.37) / 24;
+          const y = (iy + 0.37) / 24;
+          const z = (iz + 0.37) / 24;
+          const result = evaluateFieldProgram(program, x, y, z, 0, 0, 0, 0);
+          const engineIsSolid = result.combined > 0;
+          const refIsSolid = sierpinskiSolid(x, y, z, 3);
+          expect(engineIsSolid).toBe(refIsSolid);
+          checked++;
+          if (refIsSolid) solidCount++; else holeCount++;
+        }
+      }
+    }
+    expect(checked).toBe(24 * 24 * 24);
+    // Sanity: the sampled grid actually contains both solid and hole regions
+    // (otherwise the assertion above would pass vacuously).
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
 });
 
 describe("synthWave: step (VOLUMETRIC-2.md §2, non-periodic)", () => {

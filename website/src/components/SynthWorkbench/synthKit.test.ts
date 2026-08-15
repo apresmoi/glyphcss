@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
-import { buildWavePathD, resolveSpaceChange, soloParams, synthDefaults } from "./synthKit";
+import { PYRAMID_STAGE_SIZE, SHAPES, STAGE_HINTS, buildWavePathD, resolveSpaceChange, shapePolys, soloParams, stagePreviewShape, synthDefaults } from "./synthKit";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
 // the previewed voice onto default layer 1 and default (unshaped) layer
@@ -111,5 +111,77 @@ describe("buildWavePathD", () => {
     // at raw=0, not -0.5, for a periodic wave.
     const ys = pathYValues(withPhase);
     expect(ys[0]).toBeCloseTo(15, 5);
+  });
+});
+
+// VOLUMETRIC-2.md §3: STAGE_HINTS is keyed by the imported preset OBJECT's
+// identity, not its display name — a name-keyed `Record<string, Hint>` (the
+// old `PRESET_DENSITY` shape) would silently drop a hint the moment someone
+// renames a preset's `.name`. This proves the binding actually survives a
+// rename, not just that the table happens to be a Map.
+describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
+  it("looks up by preset object identity — renaming a preset's display name after the fact doesn't drop its hint", () => {
+    const preset = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge");
+    expect(preset).toBeDefined();
+    const before = STAGE_HINTS.get(preset!);
+    expect(before).toBeDefined();
+    expect(before?.shape).toBe("cube");
+
+    const original = preset!.name;
+    (preset as { name: string }).name = "Renamed sponge";
+    try {
+      // A `Record<string, Hint>` keyed on the OLD name would now miss.
+      expect(STAGE_HINTS.get(preset!)).toBe(before);
+      expect(stagePreviewShape(preset!)).toBe("cube");
+    } finally {
+      (preset as { name: string }).name = original;
+    }
+  });
+
+  it("every shipped stage-hinted preset resolves through STAGE_HINTS, and an un-hinted preset falls back to the space-derived default", () => {
+    const menger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge")!;
+    const sierpinski = (fieldSynth.presets ?? []).find((p) => p.name === "Sierpinski pyramid")!;
+    const gyroid = (fieldSynth.presets ?? []).find((p) => p.name === "Gyroid xray")!;
+    const sunburst = (fieldSynth.presets ?? []).find((p) => p.name === "Sunburst")!;
+    expect(stagePreviewShape(menger)).toBe("cube");
+    expect(stagePreviewShape(sierpinski)).toBe("pyramid");
+    expect(stagePreviewShape(gyroid)).toBe("cube");
+    // Sunburst has no stage hint and isn't volumetric (`space` defaults away
+    // from "object") — falls back to the flat plane.
+    expect(STAGE_HINTS.get(sunburst)).toBeUndefined();
+    expect(stagePreviewShape(sunburst)).toBe("plane");
+  });
+});
+
+// VOLUMETRIC-2.md §3: the `pyramid` stage is a binding contract, not
+// cosmetics — its vertices must be EXACTLY the uncentered corner tetra
+// (0,0,0), (s,0,0), (0,s,0), (0,0,s), not a centered variant (the "solid
+// mass in the wrong octants" failure mode stock.test.ts's own stage-
+// alignment counter-case pins on the effects side).
+describe("shapePolys(\"pyramid\") (VOLUMETRIC-2.md §3, uncentered corner tetra)", () => {
+  it("is appended at the END of the shape enum (append-only — URL-index-encoded)", () => {
+    expect(SHAPES[SHAPES.length - 1]).toBe("pyramid");
+  });
+
+  it("produces exactly 4 triangular faces with vertices at the origin and the three axis corners at s = PYRAMID_STAGE_SIZE — not recentered", () => {
+    const polys = shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[];
+    expect(polys.length).toBe(4);
+    const s = PYRAMID_STAGE_SIZE;
+    const expected: [number, number, number][] = [[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]];
+    const seen = new Set<string>();
+    for (const face of polys) {
+      expect(face.vertices.length).toBe(3);
+      for (const v of face.vertices) seen.add(v.join(","));
+    }
+    for (const v of expected) expect(seen.has(v.join(","))).toBe(true);
+    expect(seen.size).toBe(4); // exactly these four points, no others
+
+    // Uncentered: the bounding box spans [0, s] on every axis, not
+    // [-s/2, s/2] — its centroid sits well away from the origin, unlike
+    // every OTHER stage shape (which centers on `center`, default [0,0,0]).
+    let minc = Infinity, maxc = -Infinity;
+    for (const v of seen) for (const n of v.split(",").map(Number)) { if (n < minc) minc = n; if (n > maxc) maxc = n; }
+    expect(minc).toBe(0);
+    expect(maxc).toBe(s);
   });
 });

@@ -1948,6 +1948,10 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // same way as every preset above it, just not part of the pre-refactor
       // baseline this describe block otherwise guards.
       "Menger sponge": "c6e1efad",
+      // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
+      // preset above it.
+      "Sierpinski pyramid": "945f235b",
+      "Gyroid xray": "770251e5",
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
@@ -2306,6 +2310,144 @@ describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md accep
   });
 });
 
+// The base-2 sibling of `mengerAxisVoice`/`mengerLayerShape`/`mengerParams`
+// above: `duty 1/2`/`phase -1/2` (upper-half selector) and `freq 2^(k-1)`
+// instead of the middle-third/base-3 constants — exactly the shipped
+// "Sierpinski pyramid" preset's own recipe (stock.ts), reproduced here
+// param-key-for-param-key rather than imported, so a preset-authoring typo
+// would show up as a test failure instead of both sides agreeing by
+// construction.
+function sierpinskiAxisVoice(prefix: number, field: string, freq: number, layer: number): Record<string, number | string | boolean> {
+  return {
+    [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
+    [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 2, [`phase${prefix}`]: -1 / 2, [`layer${prefix}`]: layer,
+  };
+}
+
+function sierpinskiLayerShape(layer: number): Record<string, number | string | boolean> {
+  return {
+    [`layerCombine${layer}`]: "add",
+    [`layerThresholdOn${layer}`]: true,
+    [`layerThreshold${layer}`]: 0,
+    [`layerInvert${layer}`]: true,
+    [`layerBlend${layer}`]: "min",
+    [`layerAmp${layer}`]: 1,
+  };
+}
+
+function sierpinskiParams(depth: 1 | 2): Record<string, number | string | boolean> {
+  const params: Record<string, number | string | boolean> = {
+    space: "object", scale: 1,
+    ...sierpinskiAxisVoice(1, "linearX", 1, 1),
+    ...sierpinskiAxisVoice(2, "linearY", 1, 1),
+    ...sierpinskiAxisVoice(3, "linearZ", 1, 1),
+    ...sierpinskiLayerShape(1),
+  };
+  if (depth === 2) {
+    Object.assign(
+      params,
+      sierpinskiAxisVoice(4, "linearX", 2, 2),
+      sierpinskiAxisVoice(5, "linearY", 2, 2),
+      sierpinskiAxisVoice(6, "linearZ", 2, 2),
+      sierpinskiLayerShape(2),
+    );
+  }
+  return params;
+}
+
+describe("field-synth Sierpinski membership — schema frontend (VOLUMETRIC-2.md acceptance criterion 4)", () => {
+  // First-principles reference, identical to fieldProgram.test.ts's own
+  // depth-3 IR test and its `sierpinskiSolidRef` — reused as a REFERENCE,
+  // not by importing the evaluator under test.
+  function sierpinskiSolid(x: number, y: number, z: number, depth: number): boolean {
+    let cx = x, cy = y, cz = z;
+    for (let d = 0; d < depth; d++) {
+      cx *= 2; cy *= 2; cz *= 2;
+      const mx = ((cx % 2) + 2) % 2, my = ((cy % 2) + 2) % 2, mz = ((cz % 2) + 2) % 2;
+      const upperCount = (mx >= 1 ? 1 : 0) + (my >= 1 ? 1 : 0) + (mz >= 1 ? 1 : 0);
+      if (upperCount >= 2) return false;
+      cx = cx - Math.floor(cx / 2) * 2; cy = cy - Math.floor(cy / 2) * 2; cz = cz - Math.floor(cz / 2) * 2;
+    }
+    return true;
+  }
+
+  // Offset grid over the unit cube, off the 1/2 (and deeper 1/4) base-2
+  // digit boundaries — same construction as the Menger grid above.
+  const GRID_N = 24;
+  function evaluateSierpinskiGrid(depth: 1 | 2) {
+    const cols = GRID_N * GRID_N, rows = GRID_N, length = GRID_N * GRID_N * GRID_N;
+    const objectPosition = new Float32Array(length * 3);
+    const points: [number, number, number][] = [];
+    let idx = 0;
+    for (let ix = 0; ix < GRID_N; ix++) {
+      for (let iy = 0; iy < GRID_N; iy++) {
+        for (let iz = 0; iz < GRID_N; iz++) {
+          const x = (ix + 0.37) / GRID_N, y = (iy + 0.37) / GRID_N, z = (iz + 0.37) / GRID_N;
+          objectPosition[idx * 3] = x; objectPosition[idx * 3 + 1] = y; objectPosition[idx * 3 + 2] = z;
+          points.push([x, y, z]);
+          idx++;
+        }
+      }
+    }
+    const glyph = new Array<string>(length).fill("#");
+    const coverage = new Float32Array(length).fill(1);
+    const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(length).fill(" "),
+      color: new Uint32Array(length).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(length),
+      channels: new Uint8Array(length),
+    };
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...sierpinskiParams(depth) };
+    fieldSynth.program.validateParams?.(params as never);
+    fieldSynth.program.evaluate({
+      params,
+      state: undefined,
+      base: { cols, rows, length, glyph, coverage, color, objectPosition },
+      input: { cols, rows, length, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+    return { output, points };
+  }
+
+  it.each([1, 2] as const)("depth %i solid/hole membership matches the first-principles corner-tetra reference", (depth) => {
+    const { output, points } = evaluateSierpinskiGrid(depth);
+    let solidCount = 0, holeCount = 0;
+    for (let i = 0; i < points.length; i++) {
+      const [x, y, z] = points[i]!;
+      const refSolid = sierpinskiSolid(x, y, z, depth);
+      const engineSolid = output.coverage[i]! > 0;
+      expect(engineSolid).toBe(refSolid);
+      if (refSolid) solidCount++; else holeCount++;
+    }
+    // Sanity: both solid and hole regions are actually sampled (otherwise the
+    // per-point assertion above would pass vacuously).
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+
+  it("default bias 0.5 / gain 1 maps hole (-1) to clamp01(0)=0 and solid (+1) to 1 with no bespoke tuning", () => {
+    const { output, points } = evaluateSierpinskiGrid(1);
+    let checkedHole = false, checkedSolid = false;
+    for (let i = 0; i < points.length && !(checkedHole && checkedSolid); i++) {
+      const [x, y, z] = points[i]!;
+      const refSolid = sierpinskiSolid(x, y, z, 1);
+      if (refSolid && !checkedSolid) {
+        expect(output.coverage[i]).toBe(1);
+        checkedSolid = true;
+      }
+      if (!refSolid && !checkedHole) {
+        expect(output.coverage[i]).toBe(0);
+        checkedHole = true;
+      }
+    }
+    expect(checkedHole && checkedSolid).toBe(true);
+  });
+});
+
 function carveCubePolygons(): Polygon[] {
   const faces: Vec3[][] = [
     [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]],
@@ -2630,6 +2772,179 @@ describe("field-synth carve mode — real scene (VOLUMETRIC.md acceptance criter
 
     scene.destroy();
     host.remove();
+  });
+});
+
+// The `pyramid` /synth stage's own geometry (synthKit.tsx's
+// `cornerTetraPolygons`, `s = 3` — matching every other stage's `size: 3`
+// footprint) re-derived independently here, same precedent as
+// `carveCubePolygons`/`mengerDomainCubePolygons` above: an UNCENTERED corner
+// tetrahedron, vertices exactly `(0,0,0)`, `(s,0,0)`, `(0,s,0)`, `(0,0,s)`,
+// each face wound CCW-from-outside.
+function pyramidDomainPolygons(s: number): Polygon[] {
+  const O: Vec3 = [0, 0, 0], A: Vec3 = [s, 0, 0], B: Vec3 = [0, s, 0], C: Vec3 = [0, 0, s];
+  const faces: Vec3[][] = [
+    [A, B, C], // opposite O
+    [O, B, A], // opposite C (z=0 plane)
+    [O, C, B], // opposite A (x=0 plane)
+    [O, A, C], // opposite B (y=0 plane)
+  ];
+  return faces.map((vertices) => ({ vertices, color: "#c98fff" }));
+}
+
+function shippedSierpinskiPresetParams(): Record<string, number | string | boolean> {
+  const preset = (fieldSynth.presets ?? []).find((p) => p.name === "Sierpinski pyramid");
+  if (!preset) throw new Error('missing shipped preset "Sierpinski pyramid"');
+  return { ...defaultGlyphEffectParams(fieldSynth), ...(preset.params as Record<string, number | string | boolean>) };
+}
+
+describe("field-synth Sierpinski pyramid stage alignment (VOLUMETRIC-2.md acceptance 4, \"stage alignment\")", () => {
+  function sierpinskiSolidUnit(x: number, y: number, z: number, depth: number): boolean {
+    let cx = x, cy = y, cz = z;
+    for (let d = 0; d < depth; d++) {
+      cx *= 2; cy *= 2; cz *= 2;
+      const mx = ((cx % 2) + 2) % 2, my = ((cy % 2) + 2) % 2, mz = ((cz % 2) + 2) % 2;
+      const upperCount = (mx >= 1 ? 1 : 0) + (my >= 1 ? 1 : 0) + (mz >= 1 ? 1 : 0);
+      if (upperCount >= 2) return false;
+      cx = cx - Math.floor(cx / 2) * 2; cy = cy - Math.floor(cy / 2) * 2; cz = cz - Math.floor(cz / 2) * 2;
+    }
+    return true;
+  }
+
+  const STAGE_SIZE = 3; // matches synthKit.tsx's PYRAMID_STAGE_SIZE
+  // A grid over the pyramid stage's own `[0, STAGE_SIZE]^3` authoring box
+  // (NOT [0,1]^3 — this is the point: these are the tetra's real object-space
+  // coordinates), off the depth-2 (STAGE_SIZE/4) digit boundaries.
+  const GRID_N = 24;
+  function stageGridPoints(): [number, number, number][] {
+    const points: [number, number, number][] = [];
+    for (let ix = 0; ix < GRID_N; ix++) {
+      for (let iy = 0; iy < GRID_N; iy++) {
+        for (let iz = 0; iz < GRID_N; iz++) {
+          points.push([(ix + 0.37) / GRID_N * STAGE_SIZE, (iy + 0.37) / GRID_N * STAGE_SIZE, (iz + 0.37) / GRID_N * STAGE_SIZE]);
+        }
+      }
+    }
+    return points;
+  }
+
+  function evaluateAtObjectPoints(params: Record<string, number | string | boolean>, points: readonly [number, number, number][]) {
+    const length = points.length, cols = length, rows = 1;
+    const objectPosition = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = points[i]![0]; objectPosition[i * 3 + 1] = points[i]![1]; objectPosition[i * 3 + 2] = points[i]![2];
+    }
+    const glyph = new Array<string>(length).fill("#");
+    const coverage = new Float32Array(length).fill(1);
+    const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(length).fill(" "),
+      color: new Uint32Array(length).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(length),
+      channels: new Uint8Array(length),
+    };
+    fieldSynth.program.validateParams?.(params as never);
+    fieldSynth.program.evaluate({
+      params,
+      state: undefined,
+      base: { cols, rows, length, glyph, coverage, color, objectPosition },
+      input: { cols, rows, length, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+    return output;
+  }
+
+  it("solid cells on the pyramid stage's own [0, s]^3 box, scaled by the shipped preset's `scale` pin, match the corner-tetra reference exactly", () => {
+    const params = shippedSierpinskiPresetParams();
+    const points = stageGridPoints();
+    const output = evaluateAtObjectPoints(params, points);
+    let solidCount = 0, holeCount = 0;
+    for (let i = 0; i < points.length; i++) {
+      const [x, y, z] = points[i]!;
+      // The preset's `scale: 1/STAGE_SIZE` (see stock.ts's comment) maps this
+      // point back onto the recipe's assumed [0,1]^3 window.
+      const refSolid = sierpinskiSolidUnit(x / STAGE_SIZE, y / STAGE_SIZE, z / STAGE_SIZE, 2);
+      const engineSolid = output.coverage[i]! > 0;
+      expect(engineSolid).toBe(refSolid);
+      if (refSolid) solidCount++; else holeCount++;
+    }
+    expect(solidCount).toBeGreaterThan(0);
+    expect(holeCount).toBeGreaterThan(0);
+  });
+
+  it("pinned counter-case: a CENTERED window (the same recipe applied as if the stage's own box straddled the origin instead of cornering it there) disagrees with the reference on a large fraction of points — this is exactly why the pyramid stage is authored uncentered", () => {
+    const params = shippedSierpinskiPresetParams();
+    const points = stageGridPoints();
+    // Shift every sampled point by -STAGE_SIZE/2 on every axis before
+    // evaluating — i.e. pretend the mesh had been authored the way every
+    // OTHER shape helper in this codebase centers its geometry (vertices at
+    // `center +/- size/2`), so its bounding box spans
+    // `[-STAGE_SIZE/2, STAGE_SIZE/2]` instead of `[0, STAGE_SIZE]`. The
+    // recipe's `phase -1/2` selectors still assume the window's corner sits
+    // at the domain origin, so this shift is exactly the failure mode
+    // VOLUMETRIC-2.md §3 describes.
+    const shift = STAGE_SIZE / 2;
+    const shiftedPoints = points.map(([x, y, z]) => [x - shift, y - shift, z - shift] as [number, number, number]);
+    const output = evaluateAtObjectPoints(params, shiftedPoints);
+    let mismatches = 0;
+    for (let i = 0; i < points.length; i++) {
+      const [x, y, z] = points[i]!; // reference uses the TRUE uncentered point
+      const refSolid = sierpinskiSolidUnit(x / STAGE_SIZE, y / STAGE_SIZE, z / STAGE_SIZE, 2);
+      const engineSolid = output.coverage[i]! > 0;
+      if (engineSolid !== refSolid) mismatches++;
+    }
+    // Not "every point disagrees" (some octants coincidentally still agree),
+    // but the misalignment is pervasive, not a rounding-edge fringe effect.
+    expect(mismatches / points.length).toBeGreaterThan(0.3);
+  });
+});
+
+describe("field-synth Sierpinski pyramid — carve smoke (VOLUMETRIC-2.md acceptance 4 \"carve smoke\" + acceptance 7 \"pyramid stage renders\")", () => {
+  it("carving the pyramid stage with the shipped preset produces both hole cells and non-empty interior structure, without throwing", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const cols = 60, rows = 40;
+    const scene = createGlyphScene(host, {
+      cols, rows, useColors: false, doubleSided: true,
+      // A near-head-on view onto the O-A-B face (z=0 plane), same small-tilt
+      // reasoning as `renderFieldSynthCube` above: a fully head-on ray either
+      // starts inside a hole or hits solid immediately at the surface, never
+      // showing an interior wall; a small tilt exercises both.
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 8, rotY: 8 }),
+    });
+    scene.add(pyramidDomainPolygons(3));
+    const baselineScene = createGlyphScene(document.createElement("div"), {
+      cols, rows, useColors: false, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 200, rotX: 8, rotY: 8 }),
+    });
+    baselineScene.add(pyramidDomainPolygons(3));
+    baselineScene.rerender();
+    const baselineText = baselineScene.output.textContent ?? "";
+    baselineScene.destroy();
+
+    scene.addEffectLayer({ effect: fieldSynth, params: shippedSierpinskiPresetParams() as never, blend: "replace", opacity: 1 });
+    await Promise.resolve(); await Promise.resolve();
+    const carveText = scene.output.textContent ?? "";
+    scene.destroy();
+    host.remove();
+
+    const baseRows = baselineText.split("\n");
+    const carveRows = carveText.split("\n");
+    let holeCells = 0, solidCells = 0;
+    for (let r = 0; r < rows; r++) {
+      const baseRow = baseRows[r] ?? "";
+      const carveRow = carveRows[r] ?? "";
+      for (let c = 0; c < cols; c++) {
+        if (!baseRow[c] || baseRow[c] === " ") continue; // outside the tetra's silhouette
+        const carveEmpty = !carveRow[c] || carveRow[c] === " ";
+        if (carveEmpty) holeCells++; else solidCells++;
+      }
+    }
+    expect(holeCells).toBeGreaterThan(0);
+    expect(solidCells).toBeGreaterThan(0);
   });
 });
 

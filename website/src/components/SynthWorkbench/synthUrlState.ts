@@ -30,7 +30,10 @@ export interface Lighting {
 
 export const DEFAULT_LIGHTING: Lighting = { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 };
 
-const SHAPES = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"] as const;
+// Append-only (VOLUMETRIC-2.md §3): this array is encoded by INDEX in the
+// packed `?s=` URL param, so a new entry must go at the end — never
+// inserted. Keep in sync with synthKit.tsx's own duplicate `SHAPES` array.
+const SHAPES = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron", "pyramid"] as const;
 export const MAX_VOICES = 6;
 
 export type Params = Record<string, number | string | boolean>;

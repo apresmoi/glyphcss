@@ -2017,6 +2017,78 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
     layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
     glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+    // Raised from the schema default (1) — VOLUMETRIC-2.md §3's "menger
+    // invisible at the oblique camera" backlog item. The /synth stage hint
+    // table (SynthWorkbench) now points the camera at a face-on-ish angle
+    // for this preset, but a shallower angle alone still reads as a flat,
+    // evenly-lit texture — the carved holes need a depth cue independent of
+    // viewing angle. A stronger `exp(-marchFade * distance)` interior falloff
+    // supplies that: near (shallow) carved walls stay bright, walls several
+    // recursion levels deep fade toward black, so the sponge's actual 3D
+    // recursive structure pops even head-on.
+    marchFade: 2.5,
+  } },
+  // The base-2 sibling of the Menger recipe above (VOLUMETRIC-2.md's
+  // addendum: "at every binary scale, at most one axis is in its upper
+  // half" — the corner-tetra Sierpinski rule), reusing the exact same
+  // per-scale shape (three axis voices, `add` fold, threshold at 0, invert,
+  // `min`-blend across scales) with base-2 constants instead of base-3:
+  // `duty 1/2`/`phase -1/2` select each axis's upper half instead of its
+  // middle third, and `freq 2^(k-1)` (1, then 2) doubles the lattice each
+  // scale instead of tripling it. Reviewer-verified numerically (see this
+  // file's header comment / VOLUMETRIC-2.md's addendum) and pinned against
+  // `sierpinskiSolidRef` (a hand-derived first-principles reference,
+  // independent of this recipe) in fieldProgram.test.ts and stock.test.ts.
+  //
+  // `scale: 1/3` mirrors the Menger preset's own domain-normalizing pin: the
+  // /synth `pyramid` stage's corner tetra is authored at `s = 3` (matching
+  // every other stage's `size: 3` footprint — see synthKit.tsx), so
+  // `1/scale = 3` remaps `objectPosition`'s `[0,3]^3` authoring box onto the
+  // `[0,1]^3` window this recipe's `phase -1/2` selectors assume. That
+  // window's own corner must sit at the domain origin (not centered) for the
+  // upper-half selectors to land in the right octants — the `pyramid` stage
+  // is authored uncentered for exactly this reason (see its vertices in
+  // synthKit.tsx).
+  { name: "Sierpinski pyramid", params: {
+    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 2, phase1: -1 / 2, layer1: 1,
+    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 2, phase2: -1 / 2, layer2: 1,
+    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 2, phase3: -1 / 2, layer3: 1,
+    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+    field4: "linearX", wave4: "square", freq4: 2, speed4: 0, amp4: 1, duty4: 1 / 2, phase4: -1 / 2, layer4: 2,
+    field5: "linearY", wave5: "square", freq5: 2, speed5: 0, amp5: 1, duty5: 1 / 2, phase5: -1 / 2, layer5: 2,
+    field6: "linearZ", wave6: "square", freq6: 2, speed6: 0, amp6: 1, duty6: 1 / 2, phase6: -1 / 2, layer6: 2,
+    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    glyphs: " .:-=+*#%@", color: "#ffb454", colorB: "#ff5da2", gradient: 0.4, lit: 1,
+    // A sane, moderate depth cue — same rationale as the Menger retrofit
+    // above, at a lower value: the corner-tetra's own uncentered geometry
+    // (mass concentrated toward one corner rather than spread through a
+    // centered cube) already reads its recursive structure more readily
+    // than a centered sponge does, so it needs less compensating fade.
+    marchFade: 2,
+  } },
+  // A single `gyroid` voice, absorption-mode xray (VOLUMETRIC-2.md §1's own
+  // rationale: an oscillating field integrates to ~`bias` per unit length —
+  // "structure averages into fog" — unless shaped near-binary first).
+  // Thresholding the layer (not raising `gain`/`bias`) is the more literal
+  // fix: it turns the gyroid's continuous implicit into an exact two-level
+  // read of "which labyrinth half" at every point, at the SCHEMA's default
+  // bias/gain (0.5/1) — so absorbing through a hole-dominated chord and a
+  // solid-dominated chord land at genuinely different brightness levels
+  // (~0.53 vs ~0.90 at the tuned `xrayGain` below) instead of both washing
+  // out toward the same mid-gray fog average.
+  // `xrayGain: 1.5` (below the schema default of 4) is deliberate: at 4,
+  // even a hole-dominated chord's much weaker 0.25 density already
+  // integrates to near-total absorption over a couple of domain units,
+  // flattening the whole image to solid white and hiding exactly the
+  // structure this preset exists to show. 1.5 keeps both halves' brightness
+  // visibly distinct across the cube stage's typical chord lengths.
+  { name: "Gyroid xray", params: {
+    space: "object", scale: 1, render: "xray", xrayGain: 1.5,
+    field1: "gyroid", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, phase1: 0,
+    amp2: 0, amp3: 0,
+    layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: false,
+    glyphs: " .:-=+*#%@", color: "#8fd8ff", colorB: "#c9a6ff", gradient: 0.6, lit: 1,
   } },
 ];
 

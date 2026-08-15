@@ -49,14 +49,15 @@ import "../GalleryWorkbench/gallery-workbench.css";
 // actually renders with.
 const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 
-/** Stage density a preset wants, by name. Only for patterns whose read depends
- *  on cell size — everything else keeps whatever density you were already on. */
-const PRESET_DENSITY: Record<string, number> = {
-  "Cube tiles": 1.5,
-};
+// Default (non-flat) orbit camera angle — matches the scene-rebuild effect's
+// own literals below. Kept as a named pair so `applyPreset`'s stage-hint
+// reset can restore exactly this, not a magic-number duplicate of it.
+const DEFAULT_CAMERA_ROT_X = 58;
+const DEFAULT_CAMERA_ROT_Y = 32;
 
 import {
   MAX_VOICES,
+  STAGE_HINTS,
   buildLighting,
   synthDefaults,
   shapePolys,
@@ -91,6 +92,12 @@ export default function SynthWorkbench() {
   const [density, setDensity] = useState(initial.density);
   const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
+  // Camera orbit angle for the NEXT scene rebuild (a stage-hint's rotX/rotY —
+  // VOLUMETRIC-2.md §3 — or the plain default). Not React state: nothing
+  // needs to re-render off it, and it must be read fresh by the scene-rebuild
+  // effect below without adding itself as a dependency (that would tear the
+  // scene down and rebuild it on every orbit drag).
+  const cameraAnglesRef = useRef<{ rotX: number; rotY: number }>({ rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y });
 
   // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
   // Mirrors the gallery's `mobilePanel` pattern (same tab-bar/drawer mechanism,
@@ -116,7 +123,7 @@ export default function SynthWorkbench() {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const flat = isFlat(shape);
-    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : 58, rotY: flat ? 0 : 32, zoom: 46 });
+    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : cameraAnglesRef.current.rotX, rotY: flat ? 0 : cameraAnglesRef.current.rotY, zoom: 46 });
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
@@ -192,24 +199,48 @@ export default function SynthWorkbench() {
   }, [params, shape, timeScale, density, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
-  // Density is STAGE state, not part of the patch, so a `GlyphEffectPreset`
-  // cannot carry it — the same preset has to work on a loader tile, a mesh face
-  // and this viewport. A few patterns only read correctly at a particular cell
-  // size though, so the page keeps its own hint per preset name and applies it
-  // alongside the params.
+  // Stage presentation (density, camera angle, shape, paused) is STAGE
+  // state, not part of the patch, so a `GlyphEffectPreset` cannot carry it —
+  // the same preset has to work on a loader tile, a mesh face and this
+  // viewport. A few patterns only read correctly with a particular hint
+  // though (VOLUMETRIC-2.md §3), so the page keeps ONE consolidated table
+  // (`STAGE_HINTS`, keyed by preset object identity — synthKit.tsx) and
+  // applies it alongside the params. Fields the hint doesn't specify are
+  // left exactly as the user had them (this preserves the old
+  // `PRESET_DENSITY` behavior of "everything else keeps whatever density you
+  // were already on", extended to angle/paused too).
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
     const next = { ...synthDefaults(), ...(preset.params as Params) };
     setParams(next);
     setVoiceSlots(Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(next[`amp${k}`]) > 0));
-    const stageDensity = PRESET_DENSITY[preset.name];
-    if (stageDensity !== undefined) setDensity(stageDensity);
-    // A preset's own `space` fully determines its mode (same rule the 2D/3D
-    // toggle applies manually — see synthKit.tsx's `ModeToggle`): a
-    // volumetric preset needs the cube stage to render meaningfully, and a
-    // 2D preset needs the fullscreen plane back, regardless of whichever
-    // stage was active before applying it.
-    setShape(next.space === "object" ? "cube" : "plane");
-  }, []);
+    const hint = STAGE_HINTS.get(preset);
+    if (hint?.density !== undefined) setDensity(hint.density);
+    if (hint?.paused !== undefined) setPaused(hint.paused);
+    // `hint.shape` overrides the plain `space`-derived stage default (a
+    // volumetric preset needs SOME 3D stage to render meaningfully, and a 2D
+    // preset needs the fullscreen plane back) — otherwise a non-cube
+    // volumetric preset like the pyramid-stage Sierpinski one would land on
+    // the cube (VOLUMETRIC-2.md §3).
+    const nextShape = hint?.shape ?? (next.space === "object" ? "cube" : "plane");
+    const shapeChanging = nextShape !== shape;
+    if (hint?.rotX !== undefined || hint?.rotY !== undefined) {
+      cameraAnglesRef.current = { rotX: hint.rotX ?? cameraAnglesRef.current.rotX, rotY: hint.rotY ?? cameraAnglesRef.current.rotY };
+    } else if (shapeChanging) {
+      // No angle hint: a stage rebuild (triggered below) would otherwise
+      // inherit whatever a PREVIOUS preset's hint left in the ref — reset to
+      // the plain default so an un-hinted preset always starts from the
+      // same angle a fresh stage always used to, before hints existed.
+      cameraAnglesRef.current = { rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y };
+    }
+    setShape(nextShape);
+    if (!shapeChanging && (hint?.rotX !== undefined || hint?.rotY !== undefined) && !isFlat(nextShape)) {
+      // No shape change means the scene-rebuild effect (keyed on `[shape]`)
+      // won't fire to pick up the new angle from the ref — apply it to the
+      // already-live camera directly instead.
+      const camera = cameraRef.current;
+      if (camera) { camera.rotX = cameraAnglesRef.current.rotX; camera.rotY = cameraAnglesRef.current.rotY; sceneRef.current?.rerender(); }
+    }
+  }, [shape]);
 
   const addVoice = useCallback(() => {
     const slots = voiceSlotsRef.current;
@@ -406,7 +437,7 @@ export default function SynthWorkbench() {
           open={mobilePanel === "voices"}
         >
             {voiceSlots.map((slot, i) => (
-              <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
+              <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} />
             ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
         </InstrumentRail>

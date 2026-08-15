@@ -69,7 +69,10 @@ export const COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"
 // against, so the two can never desync.
 export const SPACES = ["auto", "surface", "scene", "object"] as const;
 export const SUBCELL_RES = ["1x1", "2x4", "ink"] as const;
-export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
+// Append-only (VOLUMETRIC-2.md §3): the /synth URL codec encodes `shape` by
+// index into this array (see synthUrlState.ts's own duplicate of this list —
+// keep both in sync), so a new entry must go at the END, never inserted.
+export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron", "pyramid"];
 // Layer shaping ops (VOLUMETRIC.md's Step 3) — mirrors `LAYER_COMBINE_VALUES`/
 // `LAYER_VALUE_OPS` in packages/effects/src/stock.ts (not publicly exported,
 // so re-declared here the same way `COMBINES`/`FIELDS`/`WAVES` above already
@@ -77,6 +80,12 @@ export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dode
 export const LAYER_VALUE_OPS = ["add", "multiply", "max", "min", "difference"] as const;
 export const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
 export const RENDER_MODES = ["paint", "carve"] as const;
+// The volumetric `pyramid` stage's own authoring size — matches every other
+// stage's `size: 3` footprint below (an edge length of 3, same as the
+// cube's), so the shipped "Sierpinski pyramid" preset's `scale: 1/3` pin
+// (stock.ts) correctly remaps this box back onto the recipe's assumed
+// `[0,1]^3` window.
+export const PYRAMID_STAGE_SIZE = 3;
 
 export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 export const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
@@ -466,8 +475,39 @@ export function withFaceUvs(polys: Polys): Polys {
     return { ...p, uvs: proj.map(([pu, pv]) => [(pu - mnu) / su, (pv - mnv) / sv]) };
   }) as unknown as Polys;
 }
+// The `pyramid` stage: an UNCENTERED corner tetrahedron, object-space
+// vertices EXACTLY (0,0,0), (s,0,0), (0,s,0), (0,0,s) — NOT recentered on
+// the mesh's own centroid the way `resolveGeometry`'s other shapes center on
+// `center`. This is a binding contract, not a cosmetic choice
+// (VOLUMETRIC-2.md §3): the Sierpinski recipe's uniform `phase: -1/2`
+// selectors pick each axis's UPPER half of a `[0,1]`-aligned window, and
+// that only lands in the right octants when the window's own corner sits AT
+// the domain origin. A centered window (this shape's own bounding-box
+// centroid at the origin, like every other stage here) would put the solid
+// mass in the wrong octants — and a linear field has no origin-shift knob
+// that could compensate; `originU/V/W` are ignored by linear fields
+// entirely (see AGENTS.md's field-synth section). Presentation — framing,
+// centering on screen, picking a flattering angle — is the CAMERA's job via
+// the stage hint table below, never these vertices.
+//
+// Each face is wound CCW-from-outside (outward normal away from the solid's
+// interior), matching every hand-authored geometry helper in
+// `packages/core/src/helpers` (e.g. `tetrahedronPolygons`/`cubePolygons`).
+function cornerTetraPolygons(s: number): Polys {
+  const O: V3 = [0, 0, 0], A: V3 = [s, 0, 0], B: V3 = [0, s, 0], C: V3 = [0, 0, s];
+  const faces: V3[][] = [
+    [A, B, C], // opposite O
+    [O, B, A], // opposite C (z=0 plane)
+    [O, C, B], // opposite A (x=0 plane)
+    [O, A, C], // opposite B (y=0 plane)
+  ];
+  return faces.map((vertices) => ({ vertices })) as unknown as Polys;
+}
+
 export function shapePolys(name: string): Polys {
-  return name === "plane" ? flatQuad(3) : withFaceUvs(resolveGeometry(name as GlyphGeometryName, { size: 3 }));
+  if (name === "plane") return flatQuad(3);
+  if (name === "pyramid") return withFaceUvs(cornerTetraPolygons(PYRAMID_STAGE_SIZE));
+  return withFaceUvs(resolveGeometry(name as GlyphGeometryName, { size: 3 }));
 }
 export const isFlat = (name: string) => name === "plane";
 
@@ -543,25 +583,33 @@ export function soloParams(params: Params, slot: number): Params {
 }
 
 // Small live preview. Head-on on a FLAT square by default (a plain 2D read of
-// the field). `volumetric` (a voice/preset's `space === "object"`) swaps that
-// for a small tilted cube instead — a flat quad has zero depth, so entry and
-// exit coincide everywhere and a volumetric/carve patch would preview as a
-// degenerate point-sample rather than the 3D structure it actually renders
-// (see AGENTS.md's "Note preset gallery previews" precedent). `onTick` (if
-// given) fires every frame alongside the layer's own time update, with the
-// SAME `t` — so a waveform trendline drawn from it stays exactly in sync with
-// what the adjacent preview square renders, using this loop instead of a second one.
-export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void, volumetric = false): void {
+// the field). `previewShape !== "plane"` (a voice/preset's `space ===
+// "object"`) swaps that for a small tilted `shapePolys(previewShape)` mesh
+// instead — a flat quad has zero depth, so entry and exit coincide
+// everywhere and a volumetric/carve patch would preview as a degenerate
+// point-sample rather than the 3D structure it actually renders (see
+// AGENTS.md's "Note preset gallery previews" precedent). `previewShape`
+// defaults to "cube" was the old hardcoded behavior; callers that care which
+// volumetric mesh actually reads (the live stage shape, or a preset's own
+// stage hint — VOLUMETRIC-2.md §3, "a pyramid-stage voice preview would
+// lie") now pass it explicitly. `onTick` (if given) fires every frame
+// alongside the layer's own time update, with the SAME `t` — so a waveform
+// trendline drawn from it stays exactly in sync with what the adjacent
+// preview square renders, using this loop instead of a second one. Defaults
+// to "plane" (flat, non-volumetric) — the same default the old `volumetric =
+// false` parameter had — so an omitted 5th argument still previews flat.
+export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void, previewShape = "plane"): void {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
+  const volumetric = previewShape !== "plane";
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const camera = createGlyphOrthographicCamera(volumetric ? { rotX: 58, rotY: 32, zoom: 16 } : { rotX: 0, rotY: 0, zoom: 20 });
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
-    const polys = volumetric ? shapePolys("cube") : flatQuad(3);
+    const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
     scene.add(polys); scene.fit(); scene.rerender();
     frameObject(scene, camera, polys, volumetric ? 0.8 : 0.98, false);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
@@ -572,7 +620,7 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host, volumetric]);
+  }, [host, volumetric, previewShape]);
   useEffect(() => { layerRef.current?.setParams(getParams()); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
@@ -917,7 +965,7 @@ export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }
   );
 }
 
-export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
+export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, stageShape = "cube" }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
   /** Fires this card's slot while the pointer is on it (and null when it
@@ -925,6 +973,12 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
    *  Optional — /synth doesn't use it. Pointer-over covers dragging too, since
    *  the pointer stays on the card for the whole drag. */
   onHover?: (slot: number | null) => void;
+  /** The page's CURRENT stage mesh (VOLUMETRIC-2.md §3) — used only for this
+   *  card's own volumetric preview, so e.g. a voice edited on the `pyramid`
+   *  stage previews on a pyramid too, not a hardcoded cube. Callers with no
+   *  stage concept of their own (the loaders gallery) omit it and keep the
+   *  old cube preview. */
+  stageShape?: string;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const f = (k: string) => String(params[`${k}${slot}`]);
@@ -941,7 +995,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick, volumetric);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane");
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The
@@ -1011,11 +1065,64 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   );
 }
 
+// ── Stage hints (VOLUMETRIC-2.md §3) ──────────────────────────────────────────
+// Presentation hints per shipped preset: which stage mesh/camera angle makes
+// it actually read. Density was the only such hint before this — it's now
+// folded into the SAME table instead of its own separate `PRESET_DENSITY`
+// map. Keyed by the imported preset OBJECT's identity, not its display name
+// (a `Map`, not a `Record<string, …>`): looking a preset up by name at
+// apply-time and keying off THAT string would silently drop the hint the
+// moment someone renames a preset. Built once, from the live
+// `fieldSynth.presets` array, by finding each preset by its name AT MODULE
+// LOAD — after that, the map key is the object itself, so a later rename of
+// `.name` can't detach it from its hint.
+export interface SynthStageHint {
+  /** Overrides `applyPreset`'s `space`-derived stage default (otherwise a
+   *  non-cube volumetric preset — e.g. the pyramid-stage Sierpinski preset —
+   *  would land on the cube). */
+  shape?: string;
+  rotX?: number;
+  rotY?: number;
+  paused?: boolean;
+  /** Stage render font-size hint — same meaning as the old `PRESET_DENSITY`
+   *  map this table absorbs. */
+  density?: number;
+}
+
+function shippedPreset(name: string): GlyphEffectPreset<never> {
+  const preset = ((fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[]).find((p) => p.name === name);
+  if (!preset) throw new Error(`stage hint: no shipped field-synth preset named "${name}"`);
+  return preset;
+}
+
+export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> = new Map([
+  [shippedPreset("Cube tiles"), { density: 1.5 }],
+  // Face-on-ish so the sponge reads unaided (the "menger invisible at the
+  // oblique camera" backlog item) — a shallow tilt keeps one face nearly
+  // square to the viewer while still showing enough depth to read as a 3D
+  // carve rather than a flat texture, unlike the default orbit's much
+  // steeper 58°/32° isometric-ish angle (which foreshortens the sponge's
+  // fine recursive grid into visual noise). Paired with the preset's own
+  // raised `marchFade` (stock.ts) for the depth cue that does the rest.
+  [shippedPreset("Menger sponge"), { shape: "cube", rotX: 15, rotY: 40 }],
+  // The pyramid stage's recursive detail concentrates toward the origin
+  // corner where all three axis-aligned faces meet; this angle keeps that
+  // corner in view alongside the far hypotenuse face (the base triangle
+  // opposite it), rather than looking squarely down one flat face.
+  [shippedPreset("Sierpinski pyramid"), { shape: "pyramid", rotX: 35, rotY: 40 }],
+  [shippedPreset("Gyroid xray"), { shape: "cube" }],
+]);
+
+/** The stage mesh a preset should preview/apply on: its own hint's `shape`
+ *  if it has one, else the same `space`-derived default `applyPreset` uses. */
+export function stagePreviewShape(preset: GlyphEffectPreset<never>): string {
+  return STAGE_HINTS.get(preset)?.shape ?? ((preset.params as Params).space === "object" ? "cube" : "plane");
+}
+
 // ── Live preset tile (flat square) ────────────────────────────────────────────
 export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onApply: () => void }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  const volumetric = (preset.params as Params).space === "object";
-  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host], undefined, volumetric);
+  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host], undefined, stagePreviewShape(preset));
   return (
     <button className="synth-tile" onClick={onApply} title={`Apply “${preset.name}”`}>
       <span className="synth-tile-scene" ref={setHost} />
