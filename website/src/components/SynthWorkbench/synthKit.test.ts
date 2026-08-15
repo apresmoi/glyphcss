@@ -60,6 +60,16 @@ describe("soloParams", () => {
     expect(solo.layerInvert1).toBe(false);
     expect(solo.layerAmp1).toBe(1);
   });
+
+  // Gate finding — soloParams never copied `iter${slot}`, so a menger/
+  // sierpinski voice card always previewed the schema default (iter 3)
+  // regardless of what the voice's own iter knob was set to.
+  it("copies the voice's own iter (menger/sierpinski recursion depth) onto layer 1", () => {
+    const params = { ...synthDefaults(), amp2: 0.5, field2: "menger", iter2: 1 };
+    const solo = soloParams(params, 2);
+    expect(solo.field1).toBe("menger");
+    expect(solo.iter1).toBe(1);
+  });
 });
 
 // P1-3 — the Mapping dropdown wrote `space` directly, bypassing the 2D/3D

@@ -59,6 +59,41 @@ function renderHarness(animate: boolean, onTickCount: (n: number) => void): { co
   };
 }
 
+// A second harness whose preview params carry a caller-supplied threshold —
+// standing in for a LayerGroup shaping param (e.g. `layerThreshold1`) — so a
+// test can prove `useSynthPreview` re-renders the STATIC frame when a param
+// this hook's caller lists in `deps` changes, without starting a running
+// loop. This is the missing static-refresh case the gate flagged: every
+// existing test above only ever exercises the `animate` toggle, never a
+// param edit while static.
+// `onTick` fires with no payload — the caller's own closure counts calls.
+// (Counting via a local variable INSIDE the component body, like
+// `PreviewHarness` above, would reset that counter every re-render, which
+// is exactly the re-render this test triggers via `setThreshold` — so it
+// can't be used to prove a tick happened AFTER an edit.)
+function ParamEditHarness({ threshold, onTick }: { threshold: number; onTick: () => void }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  useSynthPreview(
+    host,
+    () => ({ ...synthDefaults(), layerThreshold1: threshold }),
+    [threshold],
+    onTick,
+    "plane",
+    false,
+  );
+  return <div ref={setHost} />;
+}
+
+function renderParamEditHarness(threshold: number, onTick: () => void): { setThreshold: (v: number) => void } {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let current = threshold;
+  const paint = (): void => { act(() => { root.render(<ParamEditHarness threshold={current} onTick={onTick} />); }); };
+  paint();
+  return { setThreshold: (v: number) => { current = v; paint(); } };
+}
+
 describe("useSynthPreview — static-by-default, hover-to-animate (item 4)", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
@@ -126,5 +161,29 @@ describe("useSynthPreview — static-by-default, hover-to-animate (item 4)", () 
     const settled = ticks;
     act(() => { vi.advanceTimersByTime(1000); });
     expect(ticks).toBe(settled);
+  });
+
+  // Gate finding — the missing static-refresh test: a param edit while
+  // `animate` stays `false` must still re-render the static frame (so a
+  // voice card's preview/trendline reflects the edit), without that edit
+  // ever starting a running loop.
+  it("editing a deps param while static re-renders the frame without starting a running loop", () => {
+    let ticks = 0;
+    const { setThreshold } = renderParamEditHarness(0, () => { ticks += 1; });
+    const afterMount = ticks;
+    expect(afterMount).toBeGreaterThan(0);
+
+    // No running loop yet: advancing time alone must not tick further.
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(ticks).toBe(afterMount);
+
+    // Editing the threshold param (a deps entry) re-renders exactly once,
+    // synchronously, without scheduling a loop.
+    setThreshold(0.5);
+    expect(ticks).toBeGreaterThan(afterMount);
+    const afterEdit = ticks;
+
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(ticks).toBe(afterEdit);
   });
 });

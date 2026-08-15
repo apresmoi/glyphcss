@@ -609,6 +609,11 @@ export function soloParams(params: Params, slot: number): Params {
   base.originW1 = params[`originW${slot}`];
   base.duty1 = params[`duty${slot}`]; base.phase1 = params[`phase${slot}`];
   base.freq1 = params[`freq${slot}`]; base.speed1 = params[`speed${slot}`]; base.amp1 = 1;
+  // The menger/sierpinski recursion depth is per-voice (`iter${slot}`), not
+  // covered by any of the field/wave/freq copies above — omitted, a solo
+  // preview always showed the schema default (3) regardless of the voice's
+  // own `iter` knob.
+  base.iter1 = params[`iter${slot}`];
   // The solo voice always lands on layer 1 (a solo preview is always a
   // single active voice, and layer 1 is the only populated layer) — but its
   // SOURCE layer's shaping must come along, or a thresholded/inverted layer
@@ -1125,7 +1130,16 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", hoverToAnimate ? hovered : true);
+  // `soloParams` also copies the SOURCE layer's shaping (see its own doc) and
+  // the voice's own `iter${slot}` — so the deps list below must track the
+  // voice's `layer${slot}` assignment, `iter${slot}`, and every layer's
+  // combine/threshold/invert/blend/amp, or an edit to any of those leaves
+  // this card's preview and trendline rendering a stale patch.
+  const layerShapingDeps = Array.from({ length: MAX_LAYERS }, (_, i) => i + 1).flatMap((l) => [
+    params[`layerCombine${l}`], params[`layerThresholdOn${l}`], params[`layerThreshold${l}`],
+    params[`layerInvert${l}`], params[`layerBlend${l}`], params[`layerAmp${l}`],
+  ]);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params[`iter${slot}`], params[`layer${slot}`], ...layerShapingDeps, params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", hoverToAnimate ? hovered : true);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The

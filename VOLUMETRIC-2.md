@@ -121,9 +121,10 @@ the clip is skipped — full-open remains byte-identical to
 `slabAxis: "none"`. Carve's fade distance stays measured from the TRUE
 (pre-clip) entry, so a cut face renders with its real depth fade. The
 interval is `slabStart < slabEnd`; **`slabStart ≥ slabEnd` is empty**
-(the only full-open representation is `"none"`; UI enforces
-start < end, decode does not reject — an inverted interval just renders
-empty). The **degenerate-chord fallbacks apply the slab test too**: carve's
+(the only full-open representation is `"none"`; the sliders are
+uncoupled, so nothing enforces `start < end` — an inverted interval is a
+legal, empty patch by spec, not a rejected one). The **degenerate-chord
+fallbacks apply the slab test too**: carve's
 paint-at-entry only fires if the entry point lies inside the slab; xray's
 degenerate case is already empty.
 
@@ -387,3 +388,22 @@ a general schema audit.
 - Drag-to-reorder; >3 schema layers; `iter` > 4.
 - Equilateral-tetra shear authoring (affine display is enough).
 - Everything in VOLUMETRIC.md's spectral-track table.
+
+## Reconciliation
+
+The handful of places shipped behavior sharpened or corrected the design
+text above (design sections are left as the record of intent, not rewritten
+to match after the fact):
+
+- **Sierpinski needs no SDF primitive.** The slice-1 discussion assumed the
+  corner-tetra variant would; the recipe-based construction (§ intro,
+  "Recorded correction to the *slice-1 discussion*") reproduces it exactly
+  through the existing field/layer machinery instead.
+- **Two shipped additions beyond the phase plan.** §4's /synth restructure
+  phase shipped a camera auto-orbit toggle and hover-to-animate voice
+  previews (`hoverToAnimate`) — both user-directed during implementation,
+  neither in the original phase plan.
+- **`LayerGroup`'s header list.** §4's Layer groups section originally
+  omitted `layerCombineL` from the group header controls; shipped with it
+  included alongside `layerBlendL` — without it a layer's own fold override
+  had no control surface.

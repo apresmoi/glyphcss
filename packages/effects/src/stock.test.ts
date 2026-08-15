@@ -14,6 +14,7 @@ import {
 import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphEffectCatalog,
+  INK_LEVELS_MAX,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
@@ -1792,6 +1793,28 @@ describe("field-synth ink mode", () => {
     }, { withUv: true }).glyph.filter((g) => g !== " ").length;
     // Each added cut is another contour line through the same field.
     expect(at(6)).toBeGreaterThan(at(1));
+  });
+
+  // Hostile-URL safety (pre-existing issue, fixed here): the URL repair
+  // gate only catches enum/string validation failures, never a numeric
+  // range, so a crafted URL setting `inkLevels` far past the schema's
+  // slider max reaches this loop unclamped — one level-crossing check per
+  // level per cell, which used to hang the tab. `evaluate()` must clamp to
+  // `INK_LEVELS_MAX` itself and complete promptly, producing the exact same
+  // output as the clamp ceiling.
+  it("clamps an enormous inkLevels instead of hanging", () => {
+    const params = {
+      subcellRes: "ink" as const, space: "scene" as const,
+      field1: "radial" as const, wave1: "sin" as const, freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 2, gain: 1, bias: 0.5,
+    };
+    const start = performance.now();
+    const hostile = evaluate(fieldSynth, { ...params, inkLevels: 5e6 }, { withUv: true });
+    const elapsedMs = performance.now() - start;
+    const clamped = evaluate(fieldSynth, { ...params, inkLevels: INK_LEVELS_MAX }, { withUv: true });
+
+    expect(elapsedMs).toBeLessThan(1000);
+    expect(hostile.glyph).toEqual(clamped.glyph);
   });
 
   it("leaves 1x1 and 2x4 untouched", () => {

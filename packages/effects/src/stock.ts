@@ -1244,6 +1244,14 @@ export const SYNTH_VOICES = 6;
 // `SYNTH_VOICES` has to the voice IR.
 export const SYNTH_LAYERS = 3;
 
+// `subcellRes: "ink"`'s contour count. Shared by the schema bound below AND
+// the evaluate-path clamp (see `inkLevels` usage in `computeFieldSynthPoint`'s
+// caller) so a hostile URL that sets `inkLevels` far past the schema's own
+// slider max (e.g. 5e6) can't turn the per-cell level-crossing loop into a
+// tab-hanging scan — the repair gate only catches enum/string violations,
+// never a numeric range, so the evaluate path must clamp itself.
+export const INK_LEVELS_MAX = 12;
+
 // `layerBlendL` (how a layer's shaped output enters the stack) has no
 // "argmax" value — layers are value-folded, not selected by identity (see
 // `FieldLayer.blend`'s doc in fieldProgram.ts). `layerCombineL` (the
@@ -1335,7 +1343,7 @@ const fieldSynthSchema = {
   // "ink" reads the field's SHAPE rather than its level: see `inkGlyphForField`.
   // How many evenly spaced cuts through the amplitude axis to contour — a
   // topographic map of the field, not a single iso-line.
-  inkLevels: { kind: "number", default: 4, min: 1, max: 12, step: 1, label: "Ink levels" },
+  inkLevels: { kind: "number", default: 4, min: 1, max: INK_LEVELS_MAX, step: 1, label: "Ink levels" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -2660,7 +2668,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           // Contour every level, not just one: `n / (levels + 1)` spreads the
           // cuts across the interior of the range so neither extreme (a flat
           // floor or a saturated ceiling) gets a degenerate line of its own.
-          const levels = Math.max(1, Math.round(params.inkLevels));
+          // Clamp past the schema max (not just floor it) — a crafted URL
+          // can set `inkLevels` to an arbitrary number (e.g. 5e6), bypassing
+          // the slider's own bound, and this loop runs once per level per
+          // cell: unclamped, that hangs the tab (pre-existing hostile-URL
+          // hole; see `INK_LEVELS_MAX`'s doc).
+          const levels = Math.min(INK_LEVELS_MAX, Math.max(1, Math.round(params.inkLevels)));
           let crosses = false;
           for (let n = 1; n <= levels && !crosses; n++) {
             const level = n / (levels + 1);
