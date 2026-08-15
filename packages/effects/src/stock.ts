@@ -2088,7 +2088,6 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               // semantics (VOLUMETRIC.md's Carve section) — not a fallback to
               // the entry point.
               if (!result.hit) continue;
-              hitDistance = result.distance;
               // Emit at the CONFIRMED-solid raw grid sample, not the
               // interpolated `result.x/y/z`: `marchField`'s secant refinement
               // is exact for an affine field, but a hard-thresholded field
@@ -2098,10 +2097,18 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               // can land exactly on that plateau's edge and resample non-solid
               // (see `marchField`'s doc). `sampleX/Y/Z` is guaranteed to
               // resample > 0 by construction — it IS the raw sample that
-              // triggered this hit. `hitDistance` (the marchFade falloff
-              // below) stays the interpolated, more precise `distance`; for
-              // the entry-already-solid short-circuit, `sampleX/Y/Z` already
-              // equals the entry point exactly, so this is a no-op there.
+              // triggered this hit. `hitDistance` must describe that SAME
+              // point: pairing the emission point with the interpolated
+              // `distance` instead fades the point as if it sat wherever the
+              // secant root landed, which is a different position whenever
+              // the crossing isn't already bracket-exact (VOLUMETRIC.md's
+              // Carve section — "hit at parameter t evaluates the paint
+              // pipeline at the hit point"). `sampleDistance` is `marchField`'s
+              // own `sampleT * chordLength`, so this can't drift out of sync
+              // again. For the entry-already-solid short-circuit,
+              // `sampleX/Y/Z`/`sampleDistance` already equal the entry point
+              // and 0 respectively, so this is a no-op there.
+              hitDistance = result.sampleDistance;
               hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
             }
           }

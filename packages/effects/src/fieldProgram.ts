@@ -429,6 +429,21 @@ export interface FieldMarchHit {
   readonly sampleX: number;
   readonly sampleY: number;
   readonly sampleZ: number;
+  /**
+   * `sampleT * chordLength` — the raw confirmed-solid sample's own absolute
+   * distance from entry, in the same units as `distance`. Generally
+   * DIFFERENT from `distance`: the secant refinement can place the
+   * interpolated hit (`t`/`distance`) short of the raw sample it was
+   * bracketed by (e.g. a hard threshold sampled exactly `0` one step before
+   * a `1`, which collapses the secant root to the earlier, non-solid
+   * sample's position). Exposed directly so a caller that emits at
+   * `sampleX/Y/Z` (e.g. carve, to sidestep a hard-thresholded sampler's
+   * plateau — see the comment above) has a matching distance to drive
+   * positional falloff from; pairing that emission point with `distance`
+   * instead fades the point as if it sat somewhere else along the chord
+   * than where it was actually emitted.
+   */
+  readonly sampleDistance: number;
 }
 
 export interface FieldMarchMiss {
@@ -454,6 +469,19 @@ export type FieldMarchResult = FieldMarchHit | FieldMarchMiss;
  * last non-solid sample and the first solid one (exact when the field is
  * affine in `t` along the ray, e.g. a planar boundary), rather than snapping
  * to the step grid.
+ *
+ * **Non-finite (`NaN`/`Infinity`) samples never contribute positional
+ * evidence.** A hit requires the CURRENT sample to be finite and solid; a
+ * non-finite sample is never treated as "not solid at this grid position"
+ * for interpolation purposes — it invalidates the crossing bracket instead.
+ * Concretely: a sample immediately preceded by a non-finite sample is
+ * reported unbracketed — hit at that raw, confirmed-solid sample position
+ * (`t === sampleT`, no interpolation) rather than secant-interpolated
+ * against the non-finite neighbor. The sample itself being finite and solid
+ * is real evidence of matter; what would be wrong is deriving a POSITION
+ * from a non-finite bracket. If no finite solid sample exists anywhere
+ * along the chord, the march misses, same as an ordinary never-crosses
+ * field.
  */
 export function marchField(
   entry: readonly [number, number, number],
@@ -476,7 +504,10 @@ export function marchField(
 
   let prevT = 0;
   let prevValue = sampler(ex, ey, ez, time);
-  if (prevValue > 0) return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez, sampleT: 0, sampleX: ex, sampleY: ey, sampleZ: ez };
+  let prevFinite = Number.isFinite(prevValue);
+  if (prevFinite && prevValue > 0) {
+    return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez, sampleT: 0, sampleX: ex, sampleY: ey, sampleZ: ez, sampleDistance: 0 };
+  }
 
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
@@ -484,30 +515,26 @@ export function marchField(
     const y = ey + dy * t;
     const z = ez + dz * t;
     const value = sampler(x, y, z, time);
-    if (value > 0) {
-      // `denom !== 0` alone does not guard a NaN `prevValue` (a prior NaN
-      // sampler sample poisoning the running state): `NaN !== 0` is `true`,
-      // so that branch was reachable with `denom` itself NaN, producing NaN
-      // hit coordinates downstream. Requiring `Number.isFinite(denom)` makes
-      // the fallback (snap to the last known-finite `prevT`, i.e. treat the
-      // crossing as landing exactly at the last good sample) actually fire.
-      //
-      // This secant root is exact for an affine field, including the
-      // degenerate case where `prevValue` is itself exactly 0 (the root then
-      // trivially IS `prevT`) — see the "hits an analytic slab" test just
-      // above, whose boundary happens to land exactly on a sample. A
-      // saturating sampler (a hard plateau at 0, e.g. carve's
-      // `clamp01(bias + gain*v*0.5)` mapping under a hard-thresholded field —
-      // VOLUMETRIC.md's Carve section) hits this same degenerate case for
-      // every crossing, and the reported position then resamples to exactly
-      // 0 too — not solid, by the caller's own `> 0` test. That is a CALLER
-      // concern (this marcher has no way to distinguish "genuine smooth zero
-      // crossing" from "clamped-off plateau" from two samples alone) — see
-      // `sampleT`/`sampleX`/`sampleY`/`sampleZ` below, the confirmed-solid
-      // raw grid sample a caller can fall back to.
-      const denom = value - prevValue;
-      const localT = Number.isFinite(denom) && denom !== 0 ? -prevValue / denom : 0;
-      const hitT = prevT + localT * (t - prevT);
+    const finite = Number.isFinite(value);
+    if (finite && value > 0) {
+      // Bracketed secant interpolation only fires when the IMMEDIATELY
+      // preceding sample was itself finite — a non-finite neighbor carries
+      // no evidence about where the field actually crossed zero, so `denom`
+      // can never be non-finite here (both operands are finite by
+      // construction) and the old `Number.isFinite(denom)` guard is no
+      // longer needed. When the previous sample was non-finite, the bracket
+      // is invalid outright: report the hit at the raw sample position
+      // (`t`, unbracketed, no interpolation) instead of silently snapping
+      // to `prevT` (the position of a sample that was never confirmed
+      // non-solid — it was simply unmeasurable).
+      let hitT: number;
+      if (prevFinite) {
+        const denom = value - prevValue;
+        const localT = denom !== 0 ? -prevValue / denom : 0;
+        hitT = prevT + localT * (t - prevT);
+      } else {
+        hitT = t;
+      }
       return {
         hit: true,
         t: hitT,
@@ -519,8 +546,10 @@ export function marchField(
         sampleX: x,
         sampleY: y,
         sampleZ: z,
+        sampleDistance: t * chordLength,
       };
     }
+    prevFinite = finite;
     prevT = t;
     prevValue = value;
   }

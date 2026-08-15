@@ -398,10 +398,11 @@ describe("marchField", () => {
 
   it("hardens against a NaN sampler value mid-march: never returns NaN hit coordinates (carve's per-cell caller could otherwise emit an unrenderable cell)", () => {
     // The sampler is NaN for x < 3 (poisoning `prevValue` across several
-    // marched steps), then a real step function crosses to solid at x = 6.
-    // Before the fix, `denom !== 0` was reachable with `denom` itself NaN
-    // (`NaN !== 0` is `true`), so the crossing refinement divided by that NaN
-    // and returned `{ x: NaN, y: NaN, z: NaN, t: NaN, distance: NaN }`.
+    // marched steps), then a real step function crosses to solid at x = 6 —
+    // several finite, non-solid samples (x = 3, 4, 5) intervene between the
+    // NaN region and the crossing, so the crossing itself is ordinarily
+    // bracketed and this pins plain finite-coordinate hardening, not the
+    // NaN-adjacent-bracket case (see the tests below for that).
     const entry: [number, number, number] = [0, 0, 0];
     const exit: [number, number, number] = [10, 0, 0];
     const sampler = (x: number): number => (x < 3 ? NaN : x - 6 > 0 ? 1 : -1);
@@ -416,7 +417,12 @@ describe("marchField", () => {
     }
   });
 
-  it("hardens against a sampler that is NaN at the exact step immediately before a solid crossing (prevValue is NaN at the crossing)", () => {
+  it("reports the raw sample position (not an earlier, interpolated one) when the sample immediately before a solid crossing is NaN", () => {
+    // Regression for the reviewer's repro: a sampler that is NaN until x = 3
+    // and solid from x = 3 on previously reported a hit at x = 2 (the
+    // position of the last NaN sample, via `denom` collapsing to NaN and the
+    // old `Number.isFinite(denom)` fallback snapping to `prevT`) instead of
+    // the correct x = 3 — a false position derived from an invalid bracket.
     let call = 0;
     const sampler = (): number => {
       call++;
@@ -427,10 +433,59 @@ describe("marchField", () => {
     const result = marchField([0, 0, 0], [4, 0, 0], sampler, { steps: 4 });
     expect(result.hit).toBe(true);
     if (result.hit) {
-      expect(Number.isFinite(result.x)).toBe(true);
-      expect(Number.isFinite(result.y)).toBe(true);
-      expect(Number.isFinite(result.z)).toBe(true);
-      expect(Number.isFinite(result.distance)).toBe(true);
+      // Unbracketed: no interpolation, hit lands exactly on the raw solid
+      // sample (t = 1, x = 4) — never at the preceding (NaN) sample's t = 0.75.
+      expect(result.t).toBe(1);
+      expect(result.x).toBe(4);
+      expect(result.sampleT).toBe(1);
+      expect(result.sampleX).toBe(4);
+      expect(result.distance).toBe(4);
+      expect(result.sampleDistance).toBe(4);
+    }
+  });
+
+  it("reports a miss when the sampler is NaN everywhere along the chord (no finite solid sample exists)", () => {
+    const result = marchField([0, 0, 0], [10, 0, 0], () => NaN, { steps: 8 });
+    expect(result.hit).toBe(false);
+  });
+
+  it("does not bridge a false crossing interpolation across a NaN gap: a finite non-solid sample two steps back must not bracket a later solid sample across an intervening NaN", () => {
+    // x=0..8, step 1. Two separate NaN gaps (x=2 and x=4) sit between finite
+    // non-solid samples (x=1, x=3) and the eventual solid sample (x=5). A
+    // fix that merely "skipped" NaN samples and kept reaching back to the
+    // last finite value would interpolate a crossing between x=3 (-0.4) and
+    // x=5 (1) — landing somewhere around x=3.6, which is not a real
+    // position this field ever reported evidence for. The correct contract
+    // treats the NaN at x=4 (the sample immediately before the hit) as
+    // invalidating the bracket outright: hit at the raw x=5 sample.
+    const sampler = (x: number): number => (x === 2 || x === 4 ? NaN : x < 5 ? -1 : 1);
+    const result = marchField([0, 0, 0], [8, 0, 0], sampler, { steps: 8 });
+    expect(result.hit).toBe(true);
+    if (result.hit) {
+      expect(result.t).toBeCloseTo(5 / 8, 10);
+      expect(result.x).toBeCloseTo(5, 10);
+      expect(result.sampleX).toBeCloseTo(5, 10);
+    }
+  });
+
+  it("P1-B regression: the emission point and the falloff distance describe the same location, not the interpolated crossing vs. the raw sample", () => {
+    // Reviewer's exact repro: a threshold field that is 0 before x = 0.5 and
+    // 1 from x = 0.5 on, marched in 4 steps over a unit chord. The secant
+    // refinement collapses to the bracket's start (`prevValue` is exactly 0
+    // at x = 0.25, so `localT = -0/1 = 0`), reporting `distance = 0.25` —
+    // but the confirmed-solid raw sample carve actually emits at is x = 0.5.
+    // A caller pairing that emission point with the interpolated `distance`
+    // (as carve did pre-fix) fades the point as if it were twice as close as
+    // it actually is. `sampleDistance` is the fix: it always describes the
+    // same point as `sampleX/Y/Z`.
+    const sampler = (x: number): number => (x < 0.5 ? 0 : 1);
+    const result = marchField([0, 0, 0], [1, 0, 0], sampler, { steps: 4 });
+    expect(result.hit).toBe(true);
+    if (result.hit) {
+      expect(result.distance).toBeCloseTo(0.25, 10);
+      expect(result.sampleX).toBeCloseTo(0.5, 10);
+      expect(result.sampleDistance).toBeCloseTo(0.5, 10);
+      expect(result.sampleDistance).not.toBeCloseTo(result.distance, 5);
     }
   });
 
