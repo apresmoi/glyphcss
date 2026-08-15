@@ -633,6 +633,16 @@ export function soloParams(params: Params, slot: number): Params {
   return base;
 }
 
+// Fixed representative time for a STATIC (non-animating) preview — picked
+// well inside the range the old always-on loop already passed through every
+// couple of seconds (`t += dt * 0.8`), so it's not an exotic value, just a
+// frozen point on the same trajectory. Nonzero so a `speed: 0`-agnostic wave
+// (sin/triangle/saw/square all read `raw - t*speed + phase`) doesn't preview
+// at its own degenerate `t = 0` frame, which for several wave/phase
+// combinations is a flat or symmetric-looking snapshot that hides the
+// pattern's actual character.
+const PREVIEW_STATIC_TIME = 1.2;
+
 // Small live preview. Head-on on a FLAT square by default (a plain 2D read of
 // the field). `previewShape !== "plane"` (a voice/preset's `space ===
 // "object"`) swaps that for a small tilted `shapePolys(previewShape)` mesh
@@ -649,11 +659,37 @@ export function soloParams(params: Params, slot: number): Params {
 // preview square renders, using this loop instead of a second one. Defaults
 // to "plane" (flat, non-volumetric) — the same default the old `volumetric =
 // false` parameter had — so an omitted 5th argument still previews flat.
-export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void, previewShape = "plane"): void {
+//
+// `animate` (default `true`, preserving every existing call's behavior
+// unchanged) gates the continuous rAF loop: with dozens of voice-card/preset
+// previews mountable at once, each running its own `createGlyphScene` render
+// loop wrecks page performance (glyphcss's own gallery of loaders + a full
+// voice sidebar can easily reach 20+ concurrently mounted previews). Callers
+// that want hover-to-animate (see `VoiceCard`'s `hoverToAnimate` prop and
+// `PresetTile` below) drive this from local pointer-enter/leave state; a
+// `false` value renders exactly ONE frame at `PREVIEW_STATIC_TIME` and stops
+// the loop — no requestAnimationFrame runs until `animate` flips back to
+// `true`, at which point the loop resumes counting up from that same fixed
+// point (not from wherever a previous hover session left off), so a
+// non-animating preview always looks identical, deterministic across
+// mounts/hovers. `onTick` still fires once per static (re-)render, so a
+// dependent trendline (VoiceCard's own waveform SVG) stays in sync with
+// param edits made while NOT hovering, instead of going stale until the next
+// hover starts.
+export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void, previewShape = "plane", animate = true): void {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
+  const animateRef = useRef(animate);
+  animateRef.current = animate;
   const volumetric = previewShape !== "plane";
+  // Imperative start/stop/freeze for the CURRENT scene's rAF loop — a ref
+  // (not state) because toggling it must not itself trigger a re-render or
+  // recreate the scene. Set by the mount effect below; read by both the
+  // deps-effect (static-mode re-renders on param change) and the
+  // `animate`-effect (hover start/stop) that follow it.
+  const loopRef = useRef<{ start: () => void; stop: () => void; renderStatic: () => void } | null>(null);
+
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
@@ -666,14 +702,48 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
-    let last = performance.now(), t = 0, raf = 0;
+    let last = performance.now(), t = PREVIEW_STATIC_TIME, raf = 0;
     const tick = (now: number): void => { raf = requestAnimationFrame(tick); const dt = Math.min((now - last) / 1000, 0.1); last = now; t += dt * 0.8; layerRef.current?.setParams({ time: t }); onTickRef.current?.(t); };
-    raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); layer.dispose(); scene.destroy(); };
+    const start = (): void => {
+      if (raf) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = (): void => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const renderStatic = (): void => {
+      stop(); // freezing means the loop must actually stop, not just repaint once
+      t = PREVIEW_STATIC_TIME;
+      layerRef.current?.setParams({ time: t });
+      onTickRef.current?.(t);
+    };
+    loopRef.current = { start, stop, renderStatic };
+    // Establishes the initial frame itself (rather than deferring entirely to
+    // the `animate`-effect below) so a scene remount — a shape/stage change,
+    // which re-runs THIS effect but not necessarily the `animate`-effect,
+    // since `animate`'s own value may not have changed — still lands on the
+    // right frame instead of the schema's own degenerate `t = 0` default.
+    // The `animate`-effect fires too (same commit, same initial mount, or on
+    // every later toggle) and may redundantly repeat this exact call; that's
+    // a harmless one-time extra `onTick` at rest, never a second running loop.
+    if (animateRef.current) start(); else renderStatic();
+    return () => { stop(); loopRef.current = null; layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, volumetric, previewShape]);
-  useEffect(() => { layerRef.current?.setParams(getParams()); // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    layerRef.current?.setParams(getParams());
+    // Not animating: the rAF loop that would otherwise pick up these new
+    // params on its next frame isn't running, so re-render the static frame
+    // explicitly (and re-fire `onTick`, keeping a dependent trendline SVG in
+    // sync with the edit) instead of going stale until the next hover.
+    if (!animateRef.current) loopRef.current?.renderStatic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+  useEffect(() => {
+    if (animate) loopRef.current?.start(); else loopRef.current?.renderStatic();
+  }, [animate]);
 }
 
 // ── Waveform trendlines (per-voice + combined) ────────────────────────────────
@@ -1016,7 +1086,7 @@ export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }
   );
 }
 
-export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, stageShape = "cube" }: {
+export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, stageShape = "cube", hoverToAnimate = false }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
   /** Fires this card's slot while the pointer is on it (and null when it
@@ -1030,8 +1100,17 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
    *  stage concept of their own (the loaders gallery) omit it and keep the
    *  old cube preview. */
   stageShape?: string;
+  /** When `true`, this card's own mini preview (and trendline) only animates
+   *  while the pointer is over the card — otherwise it renders one static,
+   *  representative frame and stays there (perf: a voice sidebar can mount
+   *  many of these at once, each with its own render loop). Default `false`
+   *  keeps every EXISTING caller's continuous-animation behavior unchanged
+   *  (the loaders gallery mounts a card per loader and has never gated this
+   *  on hover) — `/synth`'s own sidebar opts in explicitly. */
+  hoverToAnimate?: boolean;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState(false);
   const f = (k: string) => String(params[`${k}${slot}`]);
   const num = (k: string) => Number(params[`${k}${slot}`]);
   const volumetric = params.space === "object";
@@ -1046,7 +1125,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane");
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", hoverToAnimate ? hovered : true);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The
@@ -1064,7 +1143,11 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
   useEffect(() => { setPlacementOverride(null); }, [patchUsesPlacement]);
   const placementOpen = placementOverride ?? patchUsesPlacement;
   return (
-    <div className="voice-card" onPointerEnter={() => onHover?.(slot)} onPointerLeave={() => onHover?.(null)}>
+    <div
+      className="voice-card"
+      onPointerEnter={() => { onHover?.(slot); if (hoverToAnimate) setHovered(true); }}
+      onPointerLeave={() => { onHover?.(null); if (hoverToAnimate) setHovered(false); }}
+    >
       <div className="voice-left">
         <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
@@ -1177,11 +1260,23 @@ export function stagePreviewShape(preset: GlyphEffectPreset<never>): string {
 }
 
 // ── Live preset tile (flat square) ────────────────────────────────────────────
+// Hover-to-animate, unconditionally (this component has no other caller —
+// unlike `VoiceCard`, there's no LoadersWorkbench-style shared usage to
+// preserve): the preset tray can hold a couple dozen tiles, each mounting its
+// own `createGlyphScene` render loop, so animating all of them at once was
+// the bulk of the perf problem this fixed.
 export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onApply: () => void }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host], undefined, stagePreviewShape(preset));
+  const [hovered, setHovered] = useState(false);
+  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host], undefined, stagePreviewShape(preset), hovered);
   return (
-    <button className="synth-tile" onClick={onApply} title={`Apply “${preset.name}”`}>
+    <button
+      className="synth-tile"
+      onClick={onApply}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      title={`Apply “${preset.name}”`}
+    >
       <span className="synth-tile-scene" ref={setHost} />
       <span className="synth-tile-label">{preset.name}</span>
     </button>

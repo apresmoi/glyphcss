@@ -505,7 +505,7 @@ export default function SynthWorkbench() {
               .map(({ layer, slots }) => (
                 <LayerGroup key={layer} layer={layer} params={params} onParam={onParam} onAddVoice={addVoiceToLayer} canAddVoice={voiceSlots.length < MAX_VOICES}>
                   {slots.map((slot) => (
-                    <VoiceCard key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} />
+                    <VoiceCard key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} hoverToAnimate />
                   ))}
                 </LayerGroup>
               ))}
