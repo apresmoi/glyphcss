@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
-import { PYRAMID_STAGE_SIZE, SHAPES, STAGE_HINTS, buildWavePathD, resolveSpaceChange, shapePolys, shapeTransform, soloParams, stagePreviewShape, synthDefaults } from "./synthKit";
+import {
+  FIELDS,
+  FIELDS_3D,
+  PYRAMID_STAGE_SIZE,
+  RENDER_MODES,
+  SHAPES,
+  SLAB_AXES,
+  STAGE_HINTS,
+  WAVES,
+  buildWavePathD,
+  isSdfField,
+  isSdfIterField,
+  resolveSpaceChange,
+  shapePolys,
+  shapeTransform,
+  soloParams,
+  stagePreviewShape,
+  synthDefaults,
+} from "./synthKit";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
 // the previewed voice onto default layer 1 and default (unshaped) layer
@@ -58,6 +76,22 @@ describe("resolveSpaceChange", () => {
 
   it("entering \"object\" syncs the stage to the cube shape, not render", () => {
     expect(resolveSpaceChange("object")).toEqual({ shape: "cube" });
+  });
+
+  // VOLUMETRIC-2.md §4: leaving "object" must also restore `render: "xray"`
+  // back to "paint" (xray, like carve, only validates under `space:
+  // "object"`) — `resolveSpaceChange` doesn't special-case xray because it
+  // never inspects the CURRENT render value at all: leaving "object" always
+  // resolves to `{ render: "paint" }` unconditionally, via the shared
+  // `sanitizeCarveRenderForSpace` guard (extended in synthUrlState.ts to
+  // check both "carve" and "xray").
+  it("repro: object+xray, then Mapping dropdown -> surface yields params that pass validateParams", () => {
+    const params = { ...synthDefaults(), space: "object", render: "xray" };
+    const change = resolveSpaceChange("surface");
+    const next = { ...params, space: "surface", ...(change.render ? { render: change.render } : {}) };
+
+    expect(next.render).toBe("paint");
+    expect(() => fieldSynth.program.validateParams?.(next as never)).not.toThrow();
   });
 
   it("repro: object+carve, then Mapping dropdown -> surface yields params that pass validateParams", () => {
@@ -279,5 +313,57 @@ describe("shapeTransform(\"pyramid\") (P1-C, world-centered stage via mesh posit
       if (shape === "pyramid") continue;
       expect(shapeTransform(shape)).toEqual({});
     }
+  });
+});
+
+// VOLUMETRIC-2.md §1/§4: "xray" append-only in whatever list drives the
+// Render dropdown, and slab axes ship a "none" full-open representation.
+describe("RENDER_MODES / SLAB_AXES (VOLUMETRIC-2.md §1, new-control wiring)", () => {
+  it("appends \"xray\" at the end of RENDER_MODES — append-only, matches the schema enum order in packages/effects/src/stock.ts", () => {
+    expect(RENDER_MODES).toEqual(["paint", "carve", "xray"]);
+  });
+
+  it("SLAB_AXES starts with \"none\" (the only full-open representation)", () => {
+    expect(SLAB_AXES[0]).toBe("none");
+    expect(SLAB_AXES).toEqual(["none", "x", "y", "z"]);
+  });
+});
+
+// VOLUMETRIC-2.md §2: `step` is selectable on every voice (wave toggle has
+// no 2D/3D split), while the three SDF fields are 3D-mapping-only — offered
+// via FIELDS_3D exactly like `linearZ` was, not the base 2D `FIELDS` list.
+describe("WAVES / FIELDS / FIELDS_3D (VOLUMETRIC-2.md §2, new-control wiring)", () => {
+  it("appends \"step\" at the end of WAVES — selectable everywhere, matches the schema enum order", () => {
+    expect(WAVES).toEqual(["sin", "triangle", "saw", "square", "step"]);
+  });
+
+  it("the base 2D FIELDS list does NOT include the SDF family — they're 3D-mapping-only, like linearZ", () => {
+    expect(FIELDS).not.toContain("gyroid");
+    expect(FIELDS).not.toContain("menger");
+    expect(FIELDS).not.toContain("sierpinski");
+    expect(FIELDS).not.toContain("linearZ");
+  });
+
+  it("FIELDS_3D appends linearZ then the SDF family, in schema enum order", () => {
+    expect(FIELDS_3D).toEqual([...FIELDS, "linearZ", "gyroid", "menger", "sierpinski"]);
+  });
+});
+
+// VOLUMETRIC-2.md §2: `iter` (recursion depth) only means anything for the
+// two fractal-union fields (menger/sierpinski) — gyroid is a smooth implicit
+// with no iteration knob.
+describe("isSdfField / isSdfIterField (VOLUMETRIC-2.md §2)", () => {
+  it("isSdfField is true for gyroid/menger/sierpinski, false for every other field", () => {
+    expect(isSdfField("gyroid")).toBe(true);
+    expect(isSdfField("menger")).toBe(true);
+    expect(isSdfField("sierpinski")).toBe(true);
+    for (const field of FIELDS) expect(isSdfField(field)).toBe(false);
+    expect(isSdfField("linearZ")).toBe(false);
+  });
+
+  it("isSdfIterField is true only for menger/sierpinski, not gyroid", () => {
+    expect(isSdfIterField("menger")).toBe(true);
+    expect(isSdfIterField("sierpinski")).toBe(true);
+    expect(isSdfIterField("gyroid")).toBe(false);
   });
 });

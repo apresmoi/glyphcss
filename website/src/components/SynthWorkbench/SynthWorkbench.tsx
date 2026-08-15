@@ -56,6 +56,7 @@ const DEFAULT_CAMERA_ROT_X = 58;
 const DEFAULT_CAMERA_ROT_Y = 32;
 
 import {
+  MAX_LAYERS,
   MAX_VOICES,
   STAGE_HINTS,
   buildLighting,
@@ -64,6 +65,7 @@ import {
   shapeTransform,
   isFlat,
   frameObject,
+  LayerGroup,
   VoiceCard,
   PresetTile,
   SynthDock,
@@ -243,14 +245,20 @@ export default function SynthWorkbench() {
     }
   }, [shape]);
 
-  const addVoice = useCallback(() => {
+  // Adds a voice assigned to `layer` (VOLUMETRIC-2.md §4's LayerGroup "+ Add
+  // to layer N" affordance). Every voice's `layerN` schema default is
+  // already 1 (packages/effects/src/stock.ts), so the GLOBAL "+ Add" button
+  // (the rail header's own action, used for layer 1 / the empty state) is
+  // just this same function called with `1` — one add path, not two.
+  const addVoiceToLayer = useCallback((layer: number) => {
     const slots = voiceSlotsRef.current;
     let slot = 0;
     for (let k = 1; k <= MAX_VOICES; k++) if (!slots.includes(k)) { slot = k; break; }
     if (!slot) return;
     setVoiceSlots([...slots, slot].sort((a, b) => a - b));
-    setParams((p) => ({ ...p, [`amp${slot}`]: 1 }));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 1, [`layer${slot}`]: layer }));
   }, []);
+  const addVoice = useCallback(() => addVoiceToLayer(1), [addVoiceToLayer]);
   const removeVoice = useCallback((slot: number) => {
     setVoiceSlots((slots) => slots.filter((s) => s !== slot));
     setParams((p) => ({ ...p, [`amp${slot}`]: 0 }));
@@ -437,9 +445,27 @@ export default function SynthWorkbench() {
           action={<button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>}
           open={mobilePanel === "voices"}
         >
-            {voiceSlots.map((slot, i) => (
-              <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} />
-            ))}
+            {/* Grouped by layer (VOLUMETRIC-2.md §4's LayerGroup rewrite) — a
+                group renders only when it has at least one voice card; every
+                EXISTING voice slot lives in exactly one group (moving a voice
+                via its own 1/2/3 layer buttons re-renders it into a different
+                group, since this is derived straight from `layerN`, not a
+                separate list). The global "+ Add" above always lands on
+                layer 1 (every `layerN` schema default is 1), so an
+                all-empty page needs no special-cased empty group here. */}
+            {Array.from({ length: MAX_LAYERS }, (_, i) => i + 1)
+              .map((layer) => ({
+                layer,
+                slots: voiceSlots.filter((slot) => Math.round(Number(params[`layer${slot}`] ?? 1)) === layer),
+              }))
+              .filter(({ slots }) => slots.length > 0)
+              .map(({ layer, slots }) => (
+                <LayerGroup key={layer} layer={layer} params={params} onParam={onParam} onAddVoice={addVoiceToLayer} canAddVoice={voiceSlots.length < MAX_VOICES}>
+                  {slots.map((slot) => (
+                    <VoiceCard key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} />
+                  ))}
+                </LayerGroup>
+              ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
         </InstrumentRail>
         <InstrumentMain>

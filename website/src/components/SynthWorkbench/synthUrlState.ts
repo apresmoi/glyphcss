@@ -122,15 +122,130 @@ const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
 const SYNTH_PARAM = "s";
 
 // Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
-// / 2D-3D-toggle guard): `render: "carve"` only validates under `space:
-// "object"` (`validateFieldSynthRender` in @glyphcss/effects's stock.ts) —
-// anything else must fall back to "paint". A live write can never produce an
-// invalid combination because every `space` write routes through
-// `resolveSpaceChange`, but a hand-crafted URL can encode one directly
-// (decode has no such gate of its own), so decode applies the same rule here
-// before params ever reach `addEffectLayer`/`validateParams`.
+// guard, now the ONLY space control — VOLUMETRIC-2.md §4 removed the 2D/3D
+// toggle): `render: "carve"` or `render: "xray"` only validates under
+// `space: "object"` (`validateFieldSynthRender` in @glyphcss/effects's
+// stock.ts) — anything else must fall back to "paint". A live write can
+// never produce an invalid combination because every `space` write routes
+// through `resolveSpaceChange`, but a hand-crafted URL can encode one
+// directly (decode has no such gate of its own), so decode applies the same
+// rule here before params ever reach `addEffectLayer`/`validateParams`.
 export function sanitizeCarveRenderForSpace(space: unknown, render: string): string {
-  return render === "carve" && space !== "object" ? "paint" : render;
+  return (render === "carve" || render === "xray") && space !== "object" ? "paint" : render;
+}
+
+// ── URL hydration validity gate (VOLUMETRIC-2.md §4) ───────────────────────
+// `validateParams` throws opaque errors — "reset the offending key" isn't
+// derivable from the exception, so this is NOT a try/catch-and-parse. It's a
+// two-tier repair: an ORDERED table of independent predicate -> reset-keys
+// rows (each checked directly against the params, never against the thrown
+// message), applied and re-validated; if validation still throws (a future
+// validator with no table row), tier 2 resets the WHOLE effect-param object
+// to schema defaults rather than leaving a half-repaired, still-invalid
+// patch. Applied AFTER decode (both the v1-legacy and v2 codec paths funnel
+// through `decodeSynthUrlState` below) and after the carve/xray-space
+// coercion above.
+const MAX_LAYERS = Number((fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).layer1?.max ?? 3);
+
+function populatedLayers(p: Params): boolean[] {
+  const populated: boolean[] = new Array(MAX_LAYERS).fill(false) as boolean[];
+  for (let k = 1; k <= MAX_VOICES; k++) {
+    if (!(Number(p[`amp${k}`] ?? 0) > 0)) continue;
+    const layer = Math.round(Number(p[`layer${k}`] ?? 1));
+    if (layer >= 1 && layer <= MAX_LAYERS) populated[layer - 1] = true;
+  }
+  return populated;
+}
+
+// Mirrors `validateFieldSynthLayers` in packages/effects/src/stock.ts:
+// argmax is categorical and stays single-layer — a patch is invalid when
+// argmax is EFFECTIVE (a populated layer's resolved combine — its own
+// override, else the inherited patch-level `combine`) in more than one
+// populated layer's worth of context.
+function hasMultiLayerEffectiveArgmax(p: Params): boolean {
+  const populated = populatedLayers(p);
+  if (populated.filter(Boolean).length <= 1) return false;
+  const patchCombine = String(p.combine ?? SYNTH_PARAM_DEFAULTS.combine);
+  for (let l = 1; l <= MAX_LAYERS; l++) {
+    if (!populated[l - 1]) continue;
+    const raw = String(p[`layerCombine${l}`] ?? "inherit");
+    const resolved = raw === "inherit" ? patchCombine : raw;
+    if (resolved === "argmax") return true;
+  }
+  return false;
+}
+
+export interface SynthRepairRule {
+  readonly name: string;
+  readonly predicate: (params: Params) => boolean;
+  /** Keys reset to `SYNTH_PARAM_DEFAULTS` when `predicate` matches. */
+  readonly reset: readonly string[];
+}
+
+// Ordered — see the module doc above. Every row here mirrors exactly one
+// `validateParams` throw site in `packages/effects/src/stock.ts`'s
+// `fieldSynth.program.validateParams` (`validateGlyphRamp`,
+// `validatePositiveScale`, `validateFieldSynthLayers`,
+// `validateFieldSynthRender`'s subcellRes reject). `validateFieldSynthRender`'s
+// OTHER reject — carve/xray requiring `space: "object"` — has no row here
+// because `sanitizeCarveRenderForSpace` above already coerces it before this
+// gate ever runs (one guard, not two competing ones). The repair-table
+// completeness test in synthUrlState.test.ts pins this list against that
+// file's actual throw sites — a validator added there without a matching
+// row (or documented coercion) fails that test instead of rotting silently.
+export const SYNTH_REPAIR_TABLE: readonly SynthRepairRule[] = [
+  {
+    name: "empty glyphs",
+    predicate: (p) => typeof p.glyphs !== "string" || p.glyphs.length === 0,
+    reset: ["glyphs"],
+  },
+  {
+    name: "non-positive scale",
+    predicate: (p) => !(Number(p.scale) > 0),
+    reset: ["scale"],
+  },
+  {
+    name: "multi-layer effective argmax",
+    predicate: hasMultiLayerEffectiveArgmax,
+    reset: ["combine"],
+  },
+  {
+    name: "carve/xray with subcellRes 2x4/ink",
+    predicate: (p) => (p.render === "carve" || p.render === "xray") && (p.subcellRes === "2x4" || p.subcellRes === "ink"),
+    reset: ["subcellRes"],
+  },
+];
+
+function applyRepairRow(params: Params, keys: readonly string[]): Params {
+  const next = { ...params };
+  for (const key of keys) next[key] = SYNTH_PARAM_DEFAULTS[key];
+  return next;
+}
+
+function fieldSynthValidatesClean(params: Params): boolean {
+  try {
+    fieldSynth.program.validateParams?.({ ...params, time: (params.time as number | undefined) ?? 0 } as never);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Two-tier URL hydration validity gate — see the module doc above. Pure
+ *  (no `window` access), so it's the piece under test for repair-table
+ *  coverage. */
+export function applySynthValidityGate(params: Params): Params {
+  let next = params;
+  for (const rule of SYNTH_REPAIR_TABLE) {
+    if (rule.predicate(next)) next = applyRepairRow(next, rule.reset);
+  }
+  if (fieldSynthValidatesClean(next)) return next;
+  // Tier 2: a validator with no table row still threw — reset the WHOLE
+  // effect-param object to schema defaults rather than ship a
+  // half-repaired, still-invalid patch. Non-effect URL state (shape,
+  // density, lighting, camera) lives outside `params` entirely and is
+  // untouched by this function.
+  return { ...SYNTH_PARAM_DEFAULTS };
 }
 
 export interface SynthInitialState {
@@ -180,8 +295,9 @@ function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState
 export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
   const decoded = { ...SYNTH_URL_DEFAULTS, ...decodeOuterState(raw) };
   const overrides = decodeEffectParamsPacked(fieldSynth.parameterSchema, decoded.paramsPacked);
-  const params = { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params;
+  let params = { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params;
   params.render = sanitizeCarveRenderForSpace(params.space, params.render as string);
+  params = applySynthValidityGate(params);
   return {
     shape: decoded.shape,
     params,

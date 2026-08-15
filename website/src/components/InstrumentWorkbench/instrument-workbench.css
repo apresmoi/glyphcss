@@ -66,6 +66,54 @@
 .synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
+/* Layer group (VOLUMETRIC-2.md §4's LayerGroup rewrite) — a collapsible
+   wrapper around the voice cards assigned to one layer, with the layer's
+   own shaping controls (blend, mix, threshold, invert) in its header.
+   Replaces the dock's old lil-gui "Layers" folder entirely; this is the
+   single place a layer's controls now live. */
+.layer-group {
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  background: #030509;
+}
+.layer-group-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  font: inherit; text-align: left; cursor: pointer;
+  padding: 6px 9px;
+  background: #070a10; border: 0;
+  color: rgba(56, 189, 248, 0.95);
+}
+.layer-group-head:hover { background: #0c111a; }
+.layer-group-caret { font-size: 9px; color: rgba(255, 232, 184, 0.55); width: 8px; }
+.layer-group-title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+.layer-group-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12);
+}
+.layer-group-controls { display: flex; flex-direction: column; gap: 5px; }
+.layer-group-row {
+  display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 7px; font-size: 11px;
+}
+.layer-group-row span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
+.layer-group-mix { grid-template-columns: 34px 1fr 34px; }
+.layer-group-toggles { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.layer-group-check {
+  display: flex; align-items: center; gap: 5px; font-size: 11px;
+  color: rgba(255, 232, 184, 0.70); cursor: pointer;
+}
+.layer-group-check input[type="checkbox"] { cursor: pointer; accent-color: #38bdf8; }
+.layer-group-threshold-track { flex: 1 1 80px; min-width: 60px; }
+.layer-group-voices { display: flex; flex-direction: column; gap: 9px; }
+.layer-group-add {
+  align-self: flex-start;
+  font: inherit; font-size: 10px; letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08);
+  color: rgba(56, 189, 248, 0.9); border-radius: 0; cursor: pointer;
+  transition: background 0.12s ease;
+}
+.layer-group-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.18); }
+.layer-group-add:disabled { opacity: 0.35; cursor: not-allowed; }
+
 /* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
   display: grid;
@@ -370,28 +418,6 @@
 }
 .dock-subcell .gx-toggle { flex: 1 1 auto; }
 .dock-subcell .gx-toggle-btn { padding: 3px 0; }
-
-/* 2D / 3D mode toggle (VOLUMETRIC.md's "/synth page" section) — portaled
-   above every other Stage control (`useDockSlot(stage, { position: "top" })`
-   in synthKit.tsx) so it reads as the page's headline mode switch, not one
-   control among many. Bigger and bolder than `.gx-toggle-btn` — this is the
-   prominent, deliberate switch the doc calls for, not another segmented icon
-   strip. */
-.dn-floating-controls .lil-gui .dock-mode-slot {
-  padding: var(--spacing, 5px) var(--padding, 6px) var(--spacing, 5px);
-}
-.dock-mode-toggle { display: flex; gap: 4px; }
-.dock-mode-btn {
-  flex: 1; font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
-  padding: 7px 0; text-align: center; cursor: pointer;
-  background: #0d1118; color: rgba(255, 232, 184, 0.55);
-  border: 1px solid rgba(255, 232, 184, 0.22);
-}
-.dock-mode-btn:hover:not(.is-active) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
-.dock-mode-btn.is-active {
-  background: rgba(56, 189, 248, 0.22); color: rgba(56, 189, 248, 1);
-  border-color: rgba(56, 189, 248, 0.85); box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.85);
-}
 
 /* Ramp picker density bars — portaled below the "Ramp" dropdown in the
    Output folder (`useDockSlot(out, { position: "bottom" })` in

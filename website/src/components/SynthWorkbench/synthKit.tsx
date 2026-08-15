@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
-import type { GUI } from "lil-gui";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -65,15 +64,28 @@ export const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "s
 // radial for it) — kept out of `FIELDS`/`FIELD_TOGGLE` so a 2D patch never
 // offers a field that silently degrades, and offered instead via
 // `FIELDS_3D`/`FIELD_TOGGLE_3D` only while a voice card is in 3D mode.
-export const FIELDS_3D = [...FIELDS, "linearZ"] as const;
-export const WAVES = ["sin", "triangle", "saw", "square"] as const;
+// SDF voice family (gyroid/menger/sierpinski, VOLUMETRIC-2.md §2) is offered
+// only in the 3D field toggle — like `linearZ`, appended here rather than to
+// the base `FIELDS` list, so a 2D patch's field toggle never advertises a
+// primitive whose UI selection path is volumetric-only. Order matches
+// `SYNTH_FIELDS` in packages/effects/src/fieldProgram.ts (append-only, the
+// /synth URL codec encodes field by index).
+export const FIELDS_3D = [...FIELDS, "linearZ", "gyroid", "menger", "sierpinski"] as const;
+// `step` (VOLUMETRIC-2.md §2) is legal on every field, in both 2D and 3D —
+// unlike the field list above, the wave toggle has no 2D/3D split.
+export const WAVES = ["sin", "triangle", "saw", "square", "step"] as const;
 export const COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
 // "object" is the volumetric branch (VOLUMETRIC.md's Step 2) — reachable
-// directly from this dropdown, and the single source of truth the 2D/3D
-// mode toggle (`ModeToggle` below) reads and writes the same `space` param
-// against, so the two can never desync.
+// directly from this dropdown, the SOLE control for `space` since
+// VOLUMETRIC-2.md §4 removed the 2D/3D toggle (Mapping duplicated it).
 export const SPACES = ["auto", "surface", "scene", "object"] as const;
 export const SUBCELL_RES = ["1x1", "2x4", "ink"] as const;
+// SDF fields, per `sampleFieldVoice` in packages/effects/src/fieldProgram.ts
+// (VOLUMETRIC-2.md §2): a dedicated branch like `noise`, not a linear-field
+// wave projection. `iter` (recursion depth) only means anything for the two
+// fractal-union fields, not the smooth `gyroid` implicit.
+export const isSdfIterField = (field: string): boolean => field === "menger" || field === "sierpinski";
+export const isSdfField = (field: string): boolean => field === "gyroid" || isSdfIterField(field);
 // Append-only (VOLUMETRIC-2.md §3): the /synth URL codec encodes `shape` by
 // index into this array (see synthUrlState.ts's own duplicate of this list —
 // keep both in sync), so a new entry must go at the END, never inserted.
@@ -84,7 +96,12 @@ export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dode
 // mirror their schema-internal counterparts rather than importing them).
 export const LAYER_VALUE_OPS = ["add", "multiply", "max", "min", "difference"] as const;
 export const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
-export const RENDER_MODES = ["paint", "carve"] as const;
+// "xray" (VOLUMETRIC-2.md §1) appended — order matches the `render` schema
+// enum in packages/effects/src/stock.ts (append-only).
+export const RENDER_MODES = ["paint", "carve", "xray"] as const;
+// Slab clip (VOLUMETRIC-2.md §1): "none" is the only full-open
+// representation — `slabStart`/`slabEnd` stay whatever they were, unread.
+export const SLAB_AXES = ["none", "x", "y", "z"] as const;
 // The volumetric `pyramid` stage's own authoring size — matches every other
 // stage's `size: 3` footprint below (an edge length of 3, same as the
 // cube's), so the shipped "Sierpinski pyramid" preset's `scale: 1/3` pin
@@ -95,6 +112,7 @@ export const PYRAMID_STAGE_SIZE = 3;
 export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 export const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
 export const LAYER_COMBINE_OPTS = opts(LAYER_COMBINE_VALUES), LAYER_BLEND_OPTS = opts(LAYER_VALUE_OPS), RENDER_OPTS = opts(RENDER_MODES);
+export const SLAB_AXIS_OPTS = opts(SLAB_AXES);
 // "Calibrated" measures the VIEWER'S actual resolved font (not an authored
 // guess) at pick time — see `useRampCalibration` below. Its result is a
 // plain ramp string, same as any `GlyphRamps` entry, so it writes into
@@ -250,6 +268,10 @@ export const WAVE_ICONS: Record<string, ReactNode> = {
   triangle: <ToggleIcon><path d="M2 12 L5 4 L8 12 L11 4 L14 12" /></ToggleIcon>,
   saw: <ToggleIcon strokeLinecap="square" strokeLinejoin="miter"><path d="M2 13 L8 3 L8 13 L14 3" /></ToggleIcon>,
   square: <ToggleIcon strokeWidth={1.4} strokeLinecap="square" strokeLinejoin="miter"><path d="M2 6 H6 V11 H10 V6 H14" /></ToggleIcon>,
+  // A SINGLE riser (flat, then one hard edge up, then flat) — deliberately
+  // distinct from `square`'s repeated up-down plateaus, since `step` is
+  // non-periodic (VOLUMETRIC-2.md §2): one edge, not a repeating pulse.
+  step: <ToggleIcon strokeWidth={1.4} strokeLinecap="square" strokeLinejoin="miter"><path d="M2 12 H7 V4 H14" /></ToggleIcon>,
 };
 
 export const FIELD_ICONS: Record<string, ReactNode> = {
@@ -299,6 +321,35 @@ export const FIELD_ICONS: Record<string, ReactNode> = {
       <line x1="8.5" y1="8.5" x2="5.5" y2="5.5" />
     </ToggleIcon>
   ),
+  // SDF voice family (VOLUMETRIC-2.md §2) — 3D-only, so these three only ever
+  // appear in `FIELD_TOGGLE_3D`.
+  // Gyroid: a triply-periodic labyrinth, not built from wave layers — two
+  // interleaved wavy strands suggest the woven implicit surface.
+  gyroid: (
+    <ToggleIcon strokeWidth={1.2}>
+      <path d="M1 5 C3 1 5 1 7 5 C9 9 11 9 13 5 C15 1 15 1 15 1" />
+      <path d="M1 11 C3 7 5 7 7 11 C9 15 11 15 13 11" opacity={0.55} />
+    </ToggleIcon>
+  ),
+  // Menger: 2D carpet motif — four corner blocks, a cross-shaped hole where
+  // the middle row/column were removed (the first-iteration cross-section).
+  menger: (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <rect x="2" y="2" width="4.5" height="4.5" />
+      <rect x="9.5" y="2" width="4.5" height="4.5" />
+      <rect x="2" y="9.5" width="4.5" height="4.5" />
+      <rect x="9.5" y="9.5" width="4.5" height="4.5" />
+    </ToggleIcon>
+  ),
+  // Sierpinski: the classic depth-1 gasket silhouette — three corner
+  // triangles, hollow middle.
+  sierpinski: (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <path d="M8 2 L11 7 L5 7 Z" />
+      <path d="M2 13 L5 8 L8 13 Z" />
+      <path d="M8 13 L11 8 L14 13 Z" />
+    </ToggleIcon>
+  ),
 };
 // Short, concrete per-option hover copy — each button's `title` names the
 // shape AND says what it does, so a voice card is self-explanatory without
@@ -314,12 +365,16 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = {
   spiral: "winds outward from a center point",
   noise: "randomized, non-repeating — no directional structure",
   linearZ: "sweeps along the third (depth) axis — volumetric (3D) only",
+  gyroid: "triply-periodic labyrinth implicit — a smooth surface, not a wave layer",
+  menger: "signed distance to a depth-limited box fractal (Menger sponge)",
+  sierpinski: "signed distance to a depth-limited corner-tetra fractal (Sierpinski)",
 };
 export const WAVE_DESCRIPTIONS: Record<string, string> = {
   sin: "smooth, rounded oscillation",
   triangle: "linear ramp up, then down",
   saw: "linear ramp up, then a hard snap back down",
   square: "hard on/off, no ramp",
+  step: "a single hard edge, non-periodic — +1 past the crossing, -1 before it",
 };
 export const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
 export const FIELD_TOGGLE_3D = FIELDS_3D.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
@@ -377,58 +432,32 @@ export function IconToggle({ options, value, onChange, groupTitle }: {
   );
 }
 
-// ── 2D / 3D mode toggle ────────────────────────────────────────────────────
-// Bundles Mapping + stage together (VOLUMETRIC.md's "/synth page" section):
-// 2D is the existing default (space auto/surface/scene + the fullscreen-plane
-// stage), 3D is `space: "object"` + a cube stage. `space` is otherwise
-// reachable directly from the "Mapping" dropdown too (it gained "object" as a
-// value) — the two never desync because both write the same `space` param;
-// this toggle is the fast, obvious path, the dropdown is the precise one.
-export function ModeToggle({ volumetric, onSetMode }: { volumetric: boolean; onSetMode: (mode: "2d" | "3d") => void }) {
-  return (
-    <div className="dock-mode-toggle" role="group" aria-label="2D / 3D mode">
-      <button
-        type="button"
-        className={`dock-mode-btn${!volumetric ? " is-active" : ""}`}
-        onClick={() => onSetMode("2d")}
-        title="2D — the pattern paints a flat/generated surface (Mapping: auto/surface/scene) on the fullscreen-plane stage."
-      >
-        2D
-      </button>
-      <button
-        type="button"
-        className={`dock-mode-btn${volumetric ? " is-active" : ""}`}
-        onClick={() => onSetMode("3d")}
-        title="3D — volumetric: the field fills the mesh's own 3D volume (Mapping: object) on a cube stage. Enables Render: carve, which raymarches the field into interior structure — holes and interior walls, no sponge geometry required."
-      >
-        3D
-      </button>
-    </div>
-  );
-}
-
 // ── Space-change validity guard ───────────────────────────────────────────
-// Every `space` write — the Mapping dropdown AND the 2D/3D `ModeToggle` —
-// must route through this, or either path can leave the patch outside
-// `validateParams`: `render: "carve"` is only valid under `space: "object"`,
-// so writing `space` directly (as the Mapping dropdown used to) from
-// {space:"object", render:"carve"} to any other space persists an invalid
-// {space:"surface", render:"carve"}. Pure so it's testable without mounting
-// the Dock (lil-gui needs a real DOM element).
+// Every `space` write — the "Mapping" dropdown, the SOLE control for `space`
+// now that VOLUMETRIC-2.md §4 removed the 2D/3D toggle (it duplicated this
+// dropdown; `space` IS the semantic switch) — must route through this, or a
+// direct write can leave the patch outside `validateParams`: `render:
+// "carve"`/`"xray"` are only valid under `space: "object"`, so writing
+// `space` directly from {space:"object", render:"carve"} to any other space
+// persists an invalid {space:"surface", render:"carve"}. Pure so it's
+// testable without mounting the Dock (lil-gui needs a real DOM element).
 //
-// Leaving "object" forcing `render` back to "paint" is VALIDITY-required.
+// Leaving "object" forcing `render` back to "paint" is VALIDITY-required —
+// covers `render: "carve"` AND `render: "xray"` (the literal "carve" passed
+// to `sanitizeCarveRenderForSpace` below is not a narrowing: that helper
+// itself checks BOTH values, and this call already only runs when
+// `nextSpace !== "object"`, so it unconditionally resolves to "paint"
+// regardless of which volumetric render mode was active — one guard, shared
+// with the URL decode gate in synthUrlState.ts, not two that could drift).
 // Entering "object" forcing the stage to the cube shape is not a validity
 // requirement (shape has no bearing on `validateParams`) but mirrors the
 // established space -> shape convention already used elsewhere (`applyPreset`
-// in SynthWorkbench.tsx, and the 2D/3D toggle's own 3D entry) — a flat plane
-// has zero depth and can't preview the volumetric branch meaningfully.
-// Leaving "object" deliberately does NOT force shape back to "plane" here:
-// `space: "surface"/"scene"` is valid on any shape (that's the whole point of
-// generated-surface mapping), so forcing "plane" on every dropdown pick that
-// merely selects among the 2D mappings would over-couple the dropdown's
-// precise, shape-preserving path to the toggle's blunt one. (The toggle's own
-// 2D entry still forces "plane" on top of this, as its own separate UX
-// default — see `setMode` in `SynthDock` below.)
+// in SynthWorkbench.tsx) — a flat plane has zero depth and can't preview the
+// volumetric branch meaningfully. Leaving "object" deliberately does NOT
+// force shape back to "plane" here: `space: "surface"/"scene"` is valid on
+// any shape (that's the whole point of generated-surface mapping), so
+// forcing "plane" on every dropdown pick that merely selects among the 2D
+// mappings would erase whatever 3D shape the user was already looking at.
 export function resolveSpaceChange(nextSpace: string): { shape?: string; render?: string } {
   return nextSpace === "object" ? { shape: "cube" } : { render: sanitizeCarveRenderForSpace(nextSpace, "carve") };
 }
@@ -1057,7 +1086,8 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
         {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction. 0.5 (default) is an even on/off split; a smaller value selects a narrower high band (e.g. 1/3 for a middle-third selector)."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`duty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
-        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice. For a menger/sierpinski voice, phase is an ISO-LEVEL offset instead — it erodes/dilates the solid, not a translation."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        {isSdfIterField(f("field")) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal. Capped at 4: carve/xray's march resolution caps at 256 steps, and iteration 5 would need ~486 and render guaranteed false holes."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`iter${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
         <div className="voice-layer-row" title="Layer — which of up to 3 groups this voice folds into before layers combine. All voices default to layer 1, which folds exactly like today's flat mix.">
           <span className="voice-layer-label">layer</span>
           <IconToggle groupTitle="Layer assignment" options={LAYER_TOGGLE} value={String(num("layer"))} onChange={(v) => onParam(`layer${slot}`, Number(v))} />
@@ -1077,7 +1107,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         {angleApplies(f("field")) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
         <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
         <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
-        {volumetric && <label className="voice-slider" title="Origin W — as Origin U/V, on the volumetric branch's third (depth) axis. No effect on the flat 2D field."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`originW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
+        {(volumetric || isSdfField(f("field"))) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis. No effect on a 2D linear/angular/radial/noise field, but an SDF voice (gyroid/menger/sierpinski) reads it even in 2D — the field is evaluated as a z=0 slice, and Origin W moves that slice through the volume."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`originW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
             </div>
           </div>
         )}
@@ -1158,32 +1188,75 @@ export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<neve
   );
 }
 
-// ── Layer section (VOLUMETRIC.md's Step 3) ────────────────────────────────────
-// A lil-gui subfolder per layer, own hooks so each is its own component
-// instance (calling `use*` in a raw loop inside one component would break the
-// Rules of Hooks even over a fixed-length range) — same reasoning as why
-// voice cards are separate components rather than a loop of hook calls.
-// Hidden (not unmounted) when the layer has no active (amp > 0) voice
-// assigned to it, mirroring the show/hide-not-destroy pattern the Ramp/Chars
-// rows already use for `subcellRes: "2x4"`/"ink".
-function LayerSection({ gui, layer, params, onParam, populated }: {
-  gui: GUI | null; layer: number; params: Params; onParam: (key: string, value: ParamValue) => void; populated: boolean;
+// ── Layer group (VOLUMETRIC-2.md §4, a rewrite of the old lil-gui
+// LayerSection above — not a relocation): the voice sidebar is React, and
+// this component now OWNS both the group's own shaping controls AND the
+// nested voice cards, replacing the dock's separate "Layers" lil-gui folder
+// entirely (that folder held only the shaping knobs; the cards lived in a
+// flat list elsewhere — two places for one concept). Header = blend-mode
+// dropdown (`layerBlendL`), a "mix" slider (`layerAmpL` — same label as a
+// voice's own "mix" on purpose: group opacity vs. element opacity),
+// threshold toggle + value, invert. `layerCombineL` (how the layer's OWN
+// voices fold together before the layer blends into the stack) is
+// deliberately NOT exposed here — VOLUMETRIC-2.md §4's header list omits it;
+// it stays fully functional via presets/URL/params at its "inherit" default,
+// just not a live control in this rewrite.
+export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, children }: {
+  layer: number; params: Params; onParam: (key: string, value: ParamValue) => void;
+  onAddVoice: (layer: number) => void; canAddVoice: boolean; children: ReactNode;
 }) {
+  const [open, setOpen] = useState(true);
   const s = (k: string) => String(params[`${k}${layer}`] ?? "");
   const n = (k: string) => Number(params[`${k}${layer}`] ?? 0);
   const b = (k: string) => params[`${k}${layer}`] === true;
-  const folder = useFolder(gui, `Layer ${layer}`, { open: false });
-  useEffect(() => { if (folder) (populated ? folder.show() : folder.hide()); }, [folder, populated]);
-  const combineCtrl = useOption(folder, "Combine", LAYER_COMBINE_OPTS, s("layerCombine"), (v) => onParam(`layerCombine${layer}`, v));
-  useEffect(() => {
-    if (combineCtrl) combineCtrl.raw.$name.title = "Combine — how this layer's own voices fold together. \"inherit\" (default) uses the patch-level Combine, which is what keeps a single populated layer folding exactly like today's flat mix.";
-  }, [combineCtrl]);
-  useToggle(folder, "Threshold on", b("layerThresholdOn"), (v) => onParam(`layerThresholdOn${layer}`, v));
-  useSlider(folder, "Threshold", { min: -3, max: 3, step: 0.05 }, n("layerThreshold"), (v) => onParam(`layerThreshold${layer}`, v));
-  useToggle(folder, "Invert", b("layerInvert"), (v) => onParam(`layerInvert${layer}`, v));
-  useOption(folder, "Blend", LAYER_BLEND_OPTS, s("layerBlend"), (v) => onParam(`layerBlend${layer}`, v));
-  useSlider(folder, "Amp", { min: 0, max: 1, step: 0.05 }, n("layerAmp"), (v) => onParam(`layerAmp${layer}`, v));
-  return null;
+  const thresholdOn = b("layerThresholdOn");
+  const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
+  return (
+    <div className="layer-group">
+      <button type="button" className="layer-group-head" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`Layer ${layer} — collapse/expand its own group`}>
+        <span className="layer-group-caret">{open ? "▾" : "▸"}</span>
+        <span className="layer-group-title">Layer {layer}</span>
+      </button>
+      {open && (
+        <div className="layer-group-body">
+          <div className="layer-group-controls">
+            <label className="layer-group-row" title="Blend — how this layer's shaped output folds into the running result across layers.">
+              <span>blend</span>
+              <span className="gx-select">
+                <select value={s("layerBlend")} onChange={(e) => onParam(`layerBlend${layer}`, e.target.value)}>
+                  {LAYER_VALUE_OPS.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </span>
+            </label>
+            <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
+              <span>mix</span>
+              <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
+              <b>{n("layerAmp").toFixed(2)}</b>
+            </label>
+            <div className="layer-group-toggles">
+              <label className="layer-group-check" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
+                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
+                <span>threshold</span>
+              </label>
+              {thresholdOn && (
+                <span className="voice-slider-track layer-group-threshold-track">
+                  <input type="range" min={-3} max={3} step={0.05} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} />
+                </span>
+              )}
+              <label className="layer-group-check" title="Invert — flips which side of the layer's result counts as solid.">
+                <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
+                <span>invert</span>
+              </label>
+            </div>
+          </div>
+          <div className="layer-group-voices">{children}</div>
+          <button type="button" className="layer-group-add" onClick={() => onAddVoice(layer)} disabled={!canAddVoice} title={`Add a voice assigned to layer ${layer}`}>
+            + Add to layer {layer}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
@@ -1209,33 +1282,21 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // shape, never the ramp. Both modes therefore dim Ramp/Chars.
   const subcellIsInk = s("subcellRes") === "ink";
   const ramplessSubcell = subcellIs2x4 || subcellIsInk;
-  // Single source of truth for "is this patch volumetric" — the 2D/3D toggle,
-  // the Mapping dropdown, and the Layers/Volume folders below all read this
-  // same derived flag, so none of them can desync from `params.space`.
+  // Single source of truth for "is this patch volumetric" — the Mapping
+  // dropdown (the sole `space` control, VOLUMETRIC-2.md §4) and the
+  // Volume folder below both read this same derived flag, so neither can
+  // desync from `params.space`.
   const volumetric = s("space") === "object";
-  // Remembers the last non-"object" Mapping value so 3D -> 2D restores a sane
-  // 2D state instead of always collapsing to "auto" (VOLUMETRIC.md's "/synth
-  // page" section: "Switching back to 2D must restore a sane 2D state").
-  const last2dSpaceRef = useRef<string>(volumetric ? "auto" : s("space"));
-  useEffect(() => { if (!volumetric) last2dSpaceRef.current = s("space"); });
-  // The one guard both the toggle and the Mapping dropdown route every
-  // `space` write through (see `resolveSpaceChange`'s doc above).
+  // The one guard the Mapping dropdown routes every `space` write through
+  // (see `resolveSpaceChange`'s doc above).
   const applySpace = useCallback((nextSpace: string) => {
     const change = resolveSpaceChange(nextSpace);
     if (change.shape) onShape(change.shape);
     if (change.render) onParam("render", change.render);
     onParam("space", nextSpace);
   }, [onShape, onParam]);
-  const setMode = useCallback((mode: "2d" | "3d") => {
-    // The toggle's own 2D-entry default — the dropdown does not do this
-    // (see `resolveSpaceChange`'s doc for why forcing "plane" there would
-    // over-couple its precise, shape-preserving path).
-    if (mode === "2d") onShape("plane");
-    applySpace(mode === "3d" ? "object" : last2dSpaceRef.current);
-  }, [applySpace, onShape]);
 
   const stage = useFolder(gui, "Stage", { open: true });
-  const modeSlot = useDockSlot(stage, { position: "top", className: "dock-mode-slot" });
   useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
   useOption(stage, "Mapping", SPACE_OPTS, s("space"), applySpace);
   useSlider(stage, "Density", { min: 0.5, max: 4, step: 0.1 }, density, onDensity);
@@ -1270,26 +1331,35 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
     biasCtrl?.raw.name(subcellIs2x4 ? "Brightness (dot threshold)" : "Brightness");
   }, [gainCtrl, biasCtrl, subcellIs2x4]);
 
-  // Voice layers (VOLUMETRIC.md's Step 3) — orthogonal to volumetric/carve:
-  // grouping and per-layer shaping work in 2D too, so this folder is always
-  // present; only a layer's own subfolder hides when it has no active voice
-  // assigned (see `LayerSection`'s doc).
-  const layers = useFolder(gui, "Layers", { open: false });
-  const layerPopulated: boolean[] = new Array(MAX_LAYERS).fill(false) as boolean[];
-  for (let k = 1; k <= MAX_VOICES; k++) {
-    if (!(n(`amp${k}`) > 0)) continue;
-    const l = n(`layer${k}`);
-    if (l >= 1 && l <= MAX_LAYERS) layerPopulated[l - 1] = true;
-  }
-
-  // Volumetric-only render controls (VOLUMETRIC.md's Carve mode): the whole
-  // folder hides in 2D rather than unmounting, same show/hide-not-destroy
-  // discipline as every other conditional row on this page.
+  // Volumetric-only render controls (VOLUMETRIC.md's Carve mode, extended by
+  // VOLUMETRIC-2.md §1 with xray + the slab clip): the whole folder hides in
+  // 2D rather than unmounting, same show/hide-not-destroy discipline as
+  // every other conditional row on this page. Within it, individual rows
+  // hide per render mode: March fade is carve's own falloff, Xray gain is
+  // xray's own absorption gain (the two can't share a knob — see
+  // VOLUMETRIC-2.md §1), March steps applies to both, and the slab controls
+  // (Slab axis/start/end) apply to both and are meaningless — hidden — under
+  // "paint".
   const volume = useFolder(gui, "Volume", { open: true });
   useEffect(() => { if (volume) (volumetric ? volume.show() : volume.hide()); }, [volume, volumetric]);
-  useOption(volume, "Render", RENDER_OPTS, s("render"), (v) => onParam("render", v));
-  useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
-  useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
+  const renderMode = s("render");
+  const showMarchSteps = renderMode === "carve" || renderMode === "xray";
+  const showSlab = renderMode === "carve" || renderMode === "xray";
+  useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => onParam("render", v));
+  const marchStepsCtrl = useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
+  const marchFadeCtrl = useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
+  const xrayGainCtrl = useSlider(volume, "Xray gain", { min: 0, max: 16, step: 0.05 }, n("xrayGain"), (v) => onParam("xrayGain", v));
+  const slabAxisCtrl = useOption(volume, "Slab axis", SLAB_AXIS_OPTS, s("slabAxis"), (v) => onParam("slabAxis", v));
+  const slabStartCtrl = useSlider(volume, "Slab start", { min: -8, max: 8, step: 0.05 }, n("slabStart"), (v) => onParam("slabStart", v));
+  const slabEndCtrl = useSlider(volume, "Slab end", { min: -8, max: 8, step: 0.05 }, n("slabEnd"), (v) => onParam("slabEnd", v));
+  useEffect(() => {
+    marchStepsCtrl?.setVisible(showMarchSteps);
+    marchFadeCtrl?.setVisible(renderMode === "carve");
+    xrayGainCtrl?.setVisible(renderMode === "xray");
+    slabAxisCtrl?.setVisible(showSlab);
+    slabStartCtrl?.setVisible(showSlab);
+    slabEndCtrl?.setVisible(showSlab);
+  }, [marchStepsCtrl, marchFadeCtrl, xrayGainCtrl, slabAxisCtrl, slabStartCtrl, slabEndCtrl, showMarchSteps, showSlab, renderMode]);
 
   const out = useFolder(gui, "Output", { open: true });
   // Subcell GATES Ramp/Chars/density below it (2x4 never reads the ramp — see
@@ -1366,7 +1436,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // How many cuts through the amplitude axis to contour — only meaningful in
   // ink, so it appears with the mode rather than sitting inert.
   const voiceColorsOn = params.voiceColors === true;
-  useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
+  // `voiceColors` is inert under `render: "xray"` (xray reads only the
+  // absorbed density, not per-voice color — VOLUMETRIC-2.md §1) — hidden
+  // there rather than left as a live-looking control that silently no-ops,
+  // the same duty-only-for-square precedent used elsewhere on this page.
+  const voiceColorsCtrl = useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
+  useEffect(() => { voiceColorsCtrl?.setVisible(s("render") !== "xray"); }, [voiceColorsCtrl, params.render]);
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
   const colorBCtrl = useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
   const gradientCtrl = useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
@@ -1390,10 +1465,6 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
 
   return (
     <>
-      {Array.from({ length: MAX_LAYERS }, (_, i) => i + 1).map((layer) => (
-        <LayerSection key={layer} gui={layers} layer={layer} params={params} onParam={onParam} populated={layerPopulated[layer - 1] ?? false} />
-      ))}
-      {modeSlot && createPortal(<ModeToggle volumetric={volumetric} onSetMode={setMode} />, modeSlot)}
       {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
       {scaleSlot && createPortal(
         <LogSliderRow

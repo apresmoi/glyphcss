@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
 import {
   MAX_VOICES,
   SYNTH_PARAM_DEFAULTS,
+  SYNTH_REPAIR_TABLE,
   SYNTH_URL_DEFAULTS,
+  applySynthValidityGate,
   decodeSynthUrlState,
   encodeSynthUrlState,
+  sanitizeCarveRenderForSpace,
   synthCodec,
   type Lighting,
   type Params,
@@ -211,5 +214,178 @@ describe("synth url state — carve/space hydration is sanitized", () => {
     expect(restored.params.space).toBe("object");
     expect(restored.params.render).toBe("carve");
     expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  // VOLUMETRIC-2.md §4: the coercion extends to xray the same way it already
+  // covers carve.
+  it("a v2 URL encoding {space:'surface', render:'xray'} decodes to params that pass validateParams (render coerced to paint)", () => {
+    const patch = { ...representativePatch(), params: { ...representativePatch().params, space: "surface", render: "xray" } };
+    const packed = encodeSynthUrlState(patch);
+    const restored = decodeSynthUrlState(packed);
+    expect(restored.params.space).toBe("surface");
+    expect(restored.params.render).toBe("paint");
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("control: a legit {space:'object', render:'xray'} URL round-trips xray intact", () => {
+    const patch = { ...representativePatch(), params: { ...representativePatch().params, space: "object", render: "xray", subcellRes: "1x1" } };
+    const packed = encodeSynthUrlState(patch);
+    const restored = decodeSynthUrlState(packed);
+    expect(restored.params.space).toBe("object");
+    expect(restored.params.render).toBe("xray");
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("sanitizeCarveRenderForSpace itself treats \"carve\" and \"xray\" identically", () => {
+    expect(sanitizeCarveRenderForSpace("surface", "carve")).toBe("paint");
+    expect(sanitizeCarveRenderForSpace("surface", "xray")).toBe("paint");
+    expect(sanitizeCarveRenderForSpace("object", "carve")).toBe("carve");
+    expect(sanitizeCarveRenderForSpace("object", "xray")).toBe("xray");
+    expect(sanitizeCarveRenderForSpace("surface", "paint")).toBe("paint");
+  });
+});
+
+// ── URL hydration validity gate (VOLUMETRIC-2.md §4) ────────────────────────
+describe("synth url state — hydration validity gate (VOLUMETRIC-2.md §4)", () => {
+  it("a crafted carve+2x4 URL hydrates to a working page: subcellRes resets to the schema default and render/subcellRes both validate", () => {
+    const patch = {
+      ...representativePatch(),
+      params: { ...representativePatch().params, space: "object", render: "carve", subcellRes: "2x4" },
+    };
+    const packed = encodeSynthUrlState(patch);
+    const restored = decodeSynthUrlState(packed);
+    expect(restored.params.render).toBe("carve"); // space:"object" makes carve itself legal
+    expect(restored.params.subcellRes).toBe(SYNTH_PARAM_DEFAULTS.subcellRes);
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("a crafted xray+ink URL hydrates the same way", () => {
+    const patch = {
+      ...representativePatch(),
+      params: { ...representativePatch().params, space: "object", render: "xray", subcellRes: "ink" },
+    };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    expect(restored.params.render).toBe("xray");
+    expect(restored.params.subcellRes).toBe(SYNTH_PARAM_DEFAULTS.subcellRes);
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("a crafted multi-layer-argmax URL hydrates to a working page: combine resets to the schema default", () => {
+    const patch = {
+      ...representativePatch(),
+      params: {
+        ...representativePatch().params,
+        combine: "argmax",
+        amp1: 1, layer1: 1, layerCombine1: "inherit",
+        amp2: 1, layer2: 2, layerCombine2: "inherit",
+      },
+    };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    expect(restored.params.combine).toBe(SYNTH_PARAM_DEFAULTS.combine);
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("empty glyphs and non-positive scale both repair to the schema default", () => {
+    const emptyGlyphs = decodeSynthUrlState(encodeSynthUrlState({
+      ...representativePatch(),
+      params: { ...representativePatch().params, glyphs: "" },
+    }));
+    expect(emptyGlyphs.params.glyphs).toBe(SYNTH_PARAM_DEFAULTS.glyphs);
+
+    const badScale = applySynthValidityGate({ ...SYNTH_PARAM_DEFAULTS, scale: 0 } as Params);
+    expect(badScale.scale).toBe(SYNTH_PARAM_DEFAULTS.scale);
+    expect(() => fieldSynth.program.validateParams?.({ ...badScale, time: 0 } as never)).not.toThrow();
+  });
+
+  it("a single populated layer resolving to argmax stays legal (argmax is single-layer-only, not banned outright)", () => {
+    const params = { ...SYNTH_PARAM_DEFAULTS, combine: "argmax", amp1: 1, layer1: 1 } as Params;
+    const repaired = applySynthValidityGate(params);
+    expect(repaired.combine).toBe("argmax"); // untouched — nothing to repair
+    expect(() => fieldSynth.program.validateParams?.({ ...repaired, time: 0 } as never)).not.toThrow();
+  });
+
+  it("a legit volumetric URL with no invalid combination round-trips completely untouched by the gate", () => {
+    const patch = {
+      ...representativePatch(),
+      params: { ...representativePatch().params, space: "object", render: "carve", subcellRes: "1x1", marchSteps: 96, marchFade: 2.5 },
+    };
+    const gated = applySynthValidityGate({ ...SYNTH_PARAM_DEFAULTS, ...patch.params } as Params);
+    expect(gated).toEqual({ ...SYNTH_PARAM_DEFAULTS, ...patch.params });
+  });
+
+  it("tier 2: if a hypothetical future validator throws for a combination no repair-table row fixes, the WHOLE effect-param object resets to schema defaults", () => {
+    // Simulate a throw the repair table doesn't (and can't) know about —
+    // mock the REAL validator to throw unconditionally, on an otherwise
+    // perfectly valid patch. `applySynthValidityGate` must not loop forever
+    // or return a still-"invalid" (per the mock) patch; it must fall back to
+    // the full schema defaults.
+    const spy = vi.spyOn(fieldSynth.program, "validateParams").mockImplementation(() => {
+      throw new TypeError("a future validator this repair table doesn't know about");
+    });
+    try {
+      const gated = applySynthValidityGate({ ...SYNTH_PARAM_DEFAULTS });
+      expect(gated).toEqual(SYNTH_PARAM_DEFAULTS);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // Completeness: every `validateParams` throw site in
+  // `packages/effects/src/stock.ts`'s `fieldSynth.program.validateParams`
+  // either has a `SYNTH_REPAIR_TABLE` row, or is handled by the
+  // carve/xray-space coercion that runs before the gate (documented on
+  // `SYNTH_REPAIR_TABLE` itself). This list is a manually-maintained mirror
+  // of that file's validators (website-only scope can't import its private
+  // `validateGlyphRamp`/`validatePositiveScale`/`validateFieldSynthLayers`/
+  // `validateFieldSynthRender` functions directly) — the first assertion
+  // below (the trigger still throws against the REAL validator) is what
+  // makes a stale mirror fail loudly instead of rotting silently: if stock.ts
+  // changes what a known trigger does, this breaks. A NEW validator added to
+  // stock.ts with no corresponding entry here (and no repair-table row) is
+  // NOT caught by this test — that gap is inherent to website-only scope —
+  // but the size-parity assertion below at least ensures nobody can add a
+  // known throw site to this list without also adding its repair-table row.
+  interface KnownThrowSite {
+    readonly name: string;
+    readonly make: (base: Params) => Params;
+    readonly handledBy: "repairTable" | "coercion";
+  }
+  const KNOWN_THROW_SITES: readonly KnownThrowSite[] = [
+    { name: "empty glyphs (validateGlyphRamp)", make: (p) => ({ ...p, glyphs: "" }), handledBy: "repairTable" },
+    { name: "scale <= 0 (validatePositiveScale)", make: (p) => ({ ...p, scale: 0 }), handledBy: "repairTable" },
+    {
+      name: "multi-layer effective argmax (validateFieldSynthLayers)",
+      make: (p) => ({ ...p, combine: "argmax", amp1: 1, layer1: 1, layerCombine1: "inherit", amp2: 1, layer2: 2, layerCombine2: "inherit" }),
+      handledBy: "repairTable",
+    },
+    {
+      name: "carve/xray + subcellRes 2x4/ink (validateFieldSynthRender)",
+      make: (p) => ({ ...p, space: "object", render: "carve", subcellRes: "2x4" }),
+      handledBy: "repairTable",
+    },
+    {
+      name: "carve/xray + non-object space (validateFieldSynthRender)",
+      make: (p) => ({ ...p, space: "surface", render: "carve" }),
+      handledBy: "coercion",
+    },
+  ];
+
+  it("every known validateParams throw site is repaired by the full decode pipeline (coercion + repair table)", () => {
+    for (const site of KNOWN_THROW_SITES) {
+      const base = { ...SYNTH_PARAM_DEFAULTS, time: 0 } as Params;
+      const malformed = site.make(base);
+      // Sanity: the trigger still throws against the REAL validator — proves
+      // this list isn't stale.
+      expect(() => fieldSynth.program.validateParams?.(malformed as never), site.name).toThrow();
+
+      const afterCoercion = { ...malformed, render: sanitizeCarveRenderForSpace(malformed.space, malformed.render as string) };
+      const repaired = applySynthValidityGate(afterCoercion as Params);
+      expect(() => fieldSynth.program.validateParams?.({ ...repaired, time: 0 } as never), site.name).not.toThrow();
+    }
+  });
+
+  it("the repair table has exactly one row per repair-table-handled known site (a new validator without an accompanying row desyncs this count)", () => {
+    const repairTableHandled = KNOWN_THROW_SITES.filter((s) => s.handledBy === "repairTable").length;
+    expect(SYNTH_REPAIR_TABLE.length).toBe(repairTableHandled);
   });
 });
