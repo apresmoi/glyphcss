@@ -111,17 +111,144 @@ const INV_SQRT3 = 1 / Math.sqrt(3);
 
 // Exact box SDF: `length(max(q,0)) + min(max(q.x,max(q.y,q.z)),0)`, `q =
 // abs(p) - b`. Negative inside, positive outside — the sign convention every
-// SDF primitive below shares.
+// SDF primitive below shares. Exact (not a bound) for a single box, and a
+// UNION of boxes' SDF is exactly `min` of their individual SDFs (unlike CSG
+// subtraction/intersection, union-via-min is a textbook-exact identity —
+// this is what `fractalUnionSdf` below leans on).
 function sdfBox(px: number, py: number, pz: number, bx: number, by: number, bz: number): number {
   const dx = Math.abs(px) - bx, dy = Math.abs(py) - by, dz = Math.abs(pz) - bz;
   const ax = Math.max(dx, 0), ay = Math.max(dy, 0), az = Math.max(dz, 0);
   return Math.hypot(ax, ay, az) + Math.min(Math.max(dx, Math.max(dy, dz)), 0);
 }
 
-// Floored modulo (`Math.floor`-consistent, unlike JS's `%`), the same
-// convention `synthNoise3`'s lattice indexing relies on.
-function sdfMod(a: number, m: number): number {
-  return ((a % m) + m) % m;
+// A prior implementation used Inigo Quilez's iterative cross-subtraction
+// Menger construction and its base-2 "corner octant" adaptation for
+// Sierpinski. Both are cheap, sign-exact CSG-max approximations, but the
+// review that motivated this rewrite found neither is a genuine Euclidean
+// SDF to the finite depth-iter box/tetra union the spec requires (menger
+// iter-1 at the domain center: 0.166667 vs the true 0.235702) — the max-of-
+// folds construction does not preserve distance, and Sierpinski's own
+// periodic `mod` reduction leaks outside the unit cell, reporting a
+// near-zero false surface just past the domain corner instead of growing
+// distance with separation (sierpinski iter-1 near (1.00375,1.00375,1.00375):
+// 0.006495 vs the true 0.712420).
+//
+// Replacement: `fractalUnionSdf` recursively descends the SAME kept-child
+// tree the digit-rule membership test walks (menger: 20-of-27 axis-aligned
+// subcubes per level, keeping any subcube with at most one coordinate index
+// in the middle third; sierpinski: 4-of-8 octants per level, keeping the
+// all-lower octant plus the three single-upper-axis octants — VOLUMETRIC-2.
+// md's addendum), but instead of an analytic max-fold it computes the EXACT
+// distance to the union of the leaf boxes at depth `iter`: `sdf_union(p) =
+// min_i sdf_box_i(p)` is an exact identity for a union of boxes (not a
+// Lipschitz bound), so as long as every LEAF box's own SDF is exact — which
+// `sdfBox` is — the recursive min is exact too, at every depth, inside and
+// outside the unit cell alike (there is no periodic reduction anywhere in
+// this construction, so nothing can leak past the domain boundary).
+//
+// Cost is bounded by branch-and-bound pruning: `sdfBox` to a PARENT box is a
+// valid, cheap lower bound for the SDF of any of its descendants (subset
+// containment implies `sdf_parent(p) <= sdf_descendant(p)` for every p, both
+// inside and outside), so a child whose own bounding-box distance already
+// exceeds the best union distance found so far cannot improve it and is
+// skipped without descending. Children are visited nearest-bound-first (a
+// small insertion sort — at most 20 entries) so the running best tightens
+// early and a single `break` (not just `continue`) prunes every remaining,
+// farther-sorted sibling at once. `iter <= 4` (the schema cap) keeps the
+// worst case small; near a genuine surface, only a handful of nodes per
+// level survive pruning (bench/sdf-carve-march.mjs).
+interface FractalChildOffset { readonly ox: number; readonly oy: number; readonly oz: number }
+
+// 20 of 27: every (ox,oy,oz) in {-1,0,1}^3 with at most one coordinate 0 (the
+// "middle third" digit) — excludes the 1 center cube (all three 0) and the 6
+// face-center cubes (exactly two 0), matching `mengerSolidRef`'s "midCount
+// >= 2 -> hole" digit rule (fieldProgram.test.ts).
+const MENGER_CHILD_OFFSETS: readonly FractalChildOffset[] = (() => {
+  const out: FractalChildOffset[] = [];
+  for (let oz = -1; oz <= 1; oz++) {
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const zeros = (ox === 0 ? 1 : 0) + (oy === 0 ? 1 : 0) + (oz === 0 ? 1 : 0);
+        if (zeros <= 1) out.push({ ox, oy, oz });
+      }
+    }
+  }
+  return out;
+})();
+
+// 4 of 8: every (ox,oy,oz) in {-1,1}^3 with at most one coordinate +1 (the
+// "upper half" digit) — the all-lower octant plus the three single-upper-
+// axis octants, matching `sierpinskiSolidRef`'s "upperCount >= 2 -> hole"
+// digit rule (VOLUMETRIC-2.md's addendum, fieldProgram.test.ts).
+const SIERPINSKI_CHILD_OFFSETS: readonly FractalChildOffset[] = (() => {
+  const out: FractalChildOffset[] = [];
+  for (let oz = -1; oz <= 1; oz += 2) {
+    for (let oy = -1; oy <= 1; oy += 2) {
+      for (let ox = -1; ox <= 1; ox += 2) {
+        const uppers = (ox === 1 ? 1 : 0) + (oy === 1 ? 1 : 0) + (oz === 1 ? 1 : 0);
+        if (uppers <= 1) out.push({ ox, oy, oz });
+      }
+    }
+  }
+  return out;
+})();
+
+// Recursively descend `depthRemaining` more levels below a node centered at
+// (cx, cy, cz) with half-extent `half`, splitting into `offsets.length`
+// equal children per level (menger: 3-way per axis via `MENGER_CHILD_
+// OFFSETS`; sierpinski: 2-way via `SIERPINSKI_CHILD_OFFSETS`) — a child's
+// center sits `offset * childHalf * (divisor - 1)` from its parent's, the
+// closed form for splitting an interval of half-extent `half` into `divisor`
+// equal parts. `best` is the running minimum SDF found so far (branch-and-
+// bound state, not a public parameter — always called with `Infinity` from
+// the two entry points below).
+function fractalUnionSdf(
+  px: number, py: number, pz: number,
+  cx: number, cy: number, cz: number,
+  half: number,
+  depthRemaining: number,
+  divisor: number,
+  offsets: readonly FractalChildOffset[],
+  best: number,
+): number {
+  if (depthRemaining === 0) {
+    const d = sdfBox(px - cx, py - cy, pz - cz, half, half, half);
+    return d < best ? d : best;
+  }
+  const childHalf = half / divisor;
+  const centerScale = childHalf * (divisor - 1);
+  const n = offsets.length;
+  const bounds = new Array<number>(n);
+  const order = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    const o = offsets[i]!;
+    const ccx = cx + o.ox * centerScale, ccy = cy + o.oy * centerScale, ccz = cz + o.oz * centerScale;
+    // A parent-box distance is a valid lower bound for every descendant's
+    // SDF (see the doc above), so this is cheap, safe pruning bait.
+    bounds[i] = sdfBox(px - ccx, py - ccy, pz - ccz, childHalf, childHalf, childHalf);
+    order[i] = i;
+  }
+  // Insertion sort by ascending bound (n <= 20) — nearest child first, so
+  // `best` tightens as early as possible and the loop below can `break` the
+  // instant a bound can no longer help, pruning every remaining (farther)
+  // sibling in one step instead of testing each individually.
+  for (let i = 1; i < n; i++) {
+    const oi = order[i]!, bi = bounds[oi]!;
+    let j = i - 1;
+    while (j >= 0 && bounds[order[j]!]! > bi) { order[j + 1] = order[j]!; j--; }
+    order[j + 1] = oi;
+  }
+  let curBest = best;
+  for (let idx = 0; idx < n; idx++) {
+    const i = order[idx]!;
+    const bound = bounds[i]!;
+    if (bound >= curBest) break; // sorted ascending: every remaining sibling is >= too
+    const o = offsets[i]!;
+    const ccx = cx + o.ox * centerScale, ccy = cy + o.oy * centerScale, ccz = cz + o.oz * centerScale;
+    const d = fractalUnionSdf(px, py, pz, ccx, ccy, ccz, childHalf, depthRemaining - 1, divisor, offsets, curBest);
+    if (d < curBest) curBest = d;
+  }
+  return curBest;
 }
 
 // Signed distance to the depth-`iter` Menger sponge approximation on the
@@ -129,86 +256,36 @@ function sdfMod(a: number, m: number): number {
 // solid boxes left after `iter` rounds of removing each cube's center + 6
 // face-center sub-cubes (the 20-of-27 division), NOT a limit-set distance
 // estimator: the true limit set has measure zero, so its exact SDF is
-// positive almost everywhere and carves to nothing, and the classic folded
-// distance-bound estimators are unsigned Lipschitz bounds with unevenly
-// spaced `sin`-shell artifacts rather than a genuine depth-capped solid.
-//
-// This is Inigo Quilez's iterative cross-subtraction Menger construction
-// (a half-extent-1, origin-centered domain: base cube minus a `sdCross`-
-// shaped hole subtracted at each of `iter` scales via `max`, i.e. CSG
-// intersection with the hole's complement), remapped to this module's
-// [0,1]^3 convention by a factor-2 rescale (`f(k*p)/k` is the SDF of `f`
-// scaled by `k`). Each loop iteration's periodic `sdfMod` reduction is
-// evaluated in the SAME (shifted) centered frame the box test uses, which
-// this cross construction tolerates because the cross's own removed region
-// is symmetric under that shift — unlike `sierpinskiFractalSdf` below, which
-// keeps an intentionally asymmetric 4-of-8 octant union and cannot use this
-// shortcut (see that function's own comment). Sign-verified against the
-// base-3 "middle-third" digit-rule reference (`fieldProgram.test.ts`'s
+// positive almost everywhere and carves to nothing. See `fractalUnionSdf`'s
+// doc for the construction and its exactness argument. Sign-verified against
+// the base-3 "middle-third" digit-rule reference (`fieldProgram.test.ts`'s
 // Menger membership test) at depths 1-3 with zero mismatches on a sampled
-// grid away from band boundaries.
-function mengerFractalSdf(x: number, y: number, z: number, iter: number): number {
-  const px = (x - 0.5) * 2, py = (y - 0.5) * 2, pz = (z - 0.5) * 2;
-  let d = sdfBox(px, py, pz, 1, 1, 1);
-  let s = 1;
-  for (let m = 0; m < iter; m++) {
-    const ax = sdfMod(px * s, 2) - 1, ay = sdfMod(py * s, 2) - 1, az = sdfMod(pz * s, 2) - 1;
-    s *= 3;
-    const rx = Math.abs(1 - 3 * Math.abs(ax));
-    const ry = Math.abs(1 - 3 * Math.abs(ay));
-    const rz = Math.abs(1 - 3 * Math.abs(az));
-    const da = Math.max(rx, ry), db = Math.max(ry, rz), dc = Math.max(rz, rx);
-    const c = (Math.min(da, Math.min(db, dc)) - 1) / s;
-    d = Math.max(d, c);
-  }
-  return d / 2;
-}
-
-// Signed distance to the nearest of the 4 kept (of 8) octant boxes at ONE
-// binary scale — the base-2 sibling of Menger's cross subtraction. The
-// addendum's recipe: solid octants are the one with every axis in its lower
-// half plus the three with exactly ONE axis in its upper half (`v in {0, e1,
-// e2, e3}`, the corner-tetra IFS); the other 4 (>=2 axes upper) are holes.
-// `(cx, cy, cz)` is this level's LOCAL centered coordinate (see the caller).
-function sierpinskiKeptOctantSdf(cx: number, cy: number, cz: number): number {
-  const half = 0.25;
-  const centers: readonly (readonly [number, number, number])[] = [
-    [-half, -half, -half], [half, -half, -half], [-half, half, -half], [-half, -half, half],
-  ];
-  let best = Infinity;
-  for (const [ox, oy, oz] of centers) {
-    const d = sdfBox(cx - ox, cy - oy, cz - oz, half, half, half);
-    if (d < best) best = d;
-  }
-  return best;
+// grid away from band boundaries; distance-verified against an independent
+// brute-force leaf-box enumeration (same test file) at depths 1-2, inside,
+// outside, and near-surface.
+// Exported (alongside `sierpinskiFractalSdf` below), like `synthWave`/
+// `combineSynth`/`effectiveVoiceFinestFreq` above, for direct testing —
+// `sampleFieldVoice`'s public surface only exposes the raw value through a
+// nonlinear `synthWave`, which can't recover the exact signed-distance
+// magnitude the P1-A distance-fidelity tests need to pin against a
+// brute-force reference.
+export function mengerFractalSdf(x: number, y: number, z: number, iter: number): number {
+  const px = x - 0.5, py = y - 0.5, pz = z - 0.5;
+  return fractalUnionSdf(px, py, pz, 0, 0, 0, 0.5, iter, 3, MENGER_CHILD_OFFSETS, Infinity);
 }
 
 // Signed distance to the depth-`iter` corner-tetra Sierpinski approximation
 // on the unit cell [0,1]^3 (VOLUMETRIC-2.md's addendum) — `mengerFractalSdf`'s
-// base-2 sibling: same "union of solid boxes at THIS depth, not the limit
-// set" contract, same per-level CSG accumulation (`d = max(d, levelSdf/scale)`
-// growing the running distance by intersecting each finer level's own kept-
-// region test), but the kept region here is a genuinely ASYMMETRIC 4-of-8
-// octant union rather than a point-symmetric cross, so it cannot reuse
-// Menger's shift-tolerant centered `sdfMod` shortcut: the local coordinate at
-// each level must be the true, non-shifted fractional position within that
-// level's cell — computed from the UNTRANSLATED [0,1) domain coordinate
-// (`x`, `y`, `z`, not the centered `px`/`py`/`pz`), since `sdfMod(u * s, 1)`
-// is only a no-op reduction (recovers `u` itself) at `s = 1` when `u` is
-// already in `[0, 1)`. Sign-verified against the binary "at most one axis
-// upper half" digit-rule reference at depths 1-3 with zero mismatches on a
-// sampled grid away from band boundaries.
-function sierpinskiFractalSdf(x: number, y: number, z: number, iter: number): number {
+// base-2 sibling, same construction and exactness argument, over the 4-of-8
+// kept-octant tree instead of the 20-of-27 kept-subcube tree. Sign-verified
+// against the binary "at most one axis upper half" digit-rule reference at
+// depths 1-3 with zero mismatches on a sampled grid away from band
+// boundaries; distance-verified (including the reviewer's outside-domain-
+// corner counterexample) against an independent brute-force leaf-box
+// enumeration.
+export function sierpinskiFractalSdf(x: number, y: number, z: number, iter: number): number {
   const px = x - 0.5, py = y - 0.5, pz = z - 0.5;
-  let d = sdfBox(px, py, pz, 0.5, 0.5, 0.5);
-  let s = 1;
-  for (let m = 0; m < iter; m++) {
-    const lx = sdfMod(x * s, 1) - 0.5, ly = sdfMod(y * s, 1) - 0.5, lz = sdfMod(z * s, 1) - 0.5;
-    s *= 2;
-    const c = sierpinskiKeptOctantSdf(lx, ly, lz) / s;
-    d = Math.max(d, c);
-  }
-  return d;
+  return fractalUnionSdf(px, py, pz, 0, 0, 0, 0.5, iter, 2, SIERPINSKI_CHILD_OFFSETS, Infinity);
 }
 
 // `iter1..6`'s schema range is integer 1..4 (capped there because

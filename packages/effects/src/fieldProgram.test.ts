@@ -5,7 +5,9 @@ import {
   fieldStepCount,
   integrateField,
   marchField,
+  mengerFractalSdf,
   sampleFieldVoice,
+  sierpinskiFractalSdf,
   SYNTH_FIELDS,
   SYNTH_WAVES,
   synthWave,
@@ -340,10 +342,18 @@ function sierpinskiSolidRef(x: number, y: number, z: number, depth: number): boo
 describe("sampleFieldVoice: SDF voice family (VOLUMETRIC-2.md §2, acceptance 5)", () => {
   // The engine reads `menger`/`sierpinski` as `raw = -sdf`, so a solid point
   // (sdf < 0) reads `raw > 0`; at phase 0/speed 0/time 0, `t = raw`, so
-  // `t > 0` (equivalently the plain > 0 check every other sign-agreement
-  // assertion in this file already uses) is "solid" per the engine.
+  // `t > 0` is "solid" per the engine. Uses `wave: "step"` explicitly
+  // (P1-A fixer pass): the distance-fidelity rewrite makes `raw` a genuine
+  // Euclidean distance, no longer bounded near [-0.5, 0.5] the way the old
+  // CSG-max approximation happened to stay — the DEFAULT `sin` wave this
+  // helper used to rely on wraps sign every half cycle, so a `|raw| > 0.5`
+  // point (routine now, e.g. deep inside a large kept region) can read
+  // `sin(2*pi*t) > 0` while `t < 0`. `step` (`t >= 0 ? 1 : -1`) is what every
+  // real SDF preset actually uses (VOLUMETRIC-2.md §2's `step` section) and
+  // is monotonic in sign for any magnitude, which is what this helper's own
+  // "t > 0 is solid" contract requires.
   function engineSolid(field: "menger" | "sierpinski", x: number, y: number, z: number, iter: number): boolean {
-    const o = sampleFieldVoice(voice({ field, freq: 1, iter }), x, y, z, 0, 0, 0, 0, false);
+    const o = sampleFieldVoice(voice({ field, wave: "step", freq: 1, iter }), x, y, z, 0, 0, 0, 0, false);
     return o > 0;
   }
 
@@ -480,6 +490,181 @@ describe("sampleFieldVoice: SDF voice family (VOLUMETRIC-2.md §2, acceptance 5)
       });
       for (let i = 1; i < outputs.length; i++) {
         expect(outputs[i]).toBeCloseTo(outputs[0]!, 10);
+      }
+    }
+  });
+});
+
+// P1-A fixer pass: the shipped construction (IQ's CSG-max cross-subtraction
+// for menger, and its base-2 sierpinski sibling) is sign-exact but NOT a
+// genuine Euclidean signed distance to the depth-`iter` box/tetra union —
+// the max-fold doesn't preserve distance, and sierpinski's periodic `mod`
+// reduction leaked outside the unit cell. `mengerFractalSdf`/
+// `sierpinskiFractalSdf` were rewritten to a recursive box-union descent
+// (min of exact leaf-box SDFs, branch-and-bound pruned) — these tests pin
+// the review's own counterexamples and cross-check genuine distance fidelity
+// against an independent brute-force leaf-box enumeration, not a
+// re-derivation of the fix's own algorithm.
+describe("mengerFractalSdf / sierpinskiFractalSdf: distance fidelity (VOLUMETRIC-2.md §2, P1-A fixer pass)", () => {
+  // Same exact box SDF `fractalUnionSdf` uses internally — re-derived here,
+  // not imported, so this brute-force reference can't share a bug with the
+  // implementation under test.
+  function sdfBoxRef(px: number, py: number, pz: number, bx: number, by: number, bz: number): number {
+    const dx = Math.abs(px) - bx, dy = Math.abs(py) - by, dz = Math.abs(pz) - bz;
+    const ax = Math.max(dx, 0), ay = Math.max(dy, 0), az = Math.max(dz, 0);
+    return Math.hypot(ax, ay, az) + Math.min(Math.max(dx, Math.max(dy, dz)), 0);
+  }
+
+  // Brute-force: explicitly enumerate EVERY kept leaf box at depth `depth`
+  // (no pruning, no shared code with `fractalUnionSdf`) and take the min
+  // distance — the textbook-exact "distance to a union of boxes" formula,
+  // used here as ground truth rather than as an optimization. Kept
+  // conditions mirror `mengerSolidRef`/`sierpinskiSolidRef` above (the
+  // "midCount"/"upperCount" digit rules), not the fix's own offset tables.
+  function mengerBoxes(depth: number): { cx: number; cy: number; cz: number; half: number }[] {
+    let boxes = [{ cx: 0, cy: 0, cz: 0, half: 0.5 }];
+    for (let lvl = 0; lvl < depth; lvl++) {
+      const next: typeof boxes = [];
+      for (const b of boxes) {
+        const childHalf = b.half / 3;
+        for (let oz = -1; oz <= 1; oz++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              const zeros = (ox === 0 ? 1 : 0) + (oy === 0 ? 1 : 0) + (oz === 0 ? 1 : 0);
+              if (zeros >= 2) continue; // matches mengerSolidRef's "midCount >= 2 -> hole"
+              next.push({ cx: b.cx + ox * childHalf * 2, cy: b.cy + oy * childHalf * 2, cz: b.cz + oz * childHalf * 2, half: childHalf });
+            }
+          }
+        }
+      }
+      boxes = next;
+    }
+    return boxes;
+  }
+  function sierpinskiBoxes(depth: number): { cx: number; cy: number; cz: number; half: number }[] {
+    let boxes = [{ cx: 0, cy: 0, cz: 0, half: 0.5 }];
+    for (let lvl = 0; lvl < depth; lvl++) {
+      const next: typeof boxes = [];
+      for (const b of boxes) {
+        const childHalf = b.half / 2;
+        for (let oz = -1; oz <= 1; oz += 2) {
+          for (let oy = -1; oy <= 1; oy += 2) {
+            for (let ox = -1; ox <= 1; ox += 2) {
+              const uppers = (ox === 1 ? 1 : 0) + (oy === 1 ? 1 : 0) + (oz === 1 ? 1 : 0);
+              if (uppers >= 2) continue; // matches sierpinskiSolidRef's "upperCount >= 2 -> hole"
+              next.push({ cx: b.cx + ox * childHalf, cy: b.cy + oy * childHalf, cz: b.cz + oz * childHalf, half: childHalf });
+            }
+          }
+        }
+      }
+      boxes = next;
+    }
+    return boxes;
+  }
+  function bruteForceSdf(boxes: { cx: number; cy: number; cz: number; half: number }[], x: number, y: number, z: number): number {
+    const px = x - 0.5, py = y - 0.5, pz = z - 0.5;
+    let best = Infinity;
+    for (const b of boxes) {
+      const d = sdfBoxRef(px - b.cx, py - b.cy, pz - b.cz, b.half, b.half, b.half);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  it("menger: matches the brute-force box union on a grid — inside, outside, and near-surface (iter 1-2)", () => {
+    for (const iter of [1, 2]) {
+      const boxes = mengerBoxes(iter);
+      let checked = 0;
+      // Covers [-0.3, 1.3]^3 at a coarse step: inside the unit cell, well
+      // outside it, and (via the irregular 0.37 offset) plenty of near-
+      // surface samples without landing exactly on a boundary.
+      for (let ix = -3; ix <= 13; ix++) {
+        for (let iy = -3; iy <= 13; iy++) {
+          for (let iz = -3; iz <= 13; iz++) {
+            const x = (ix + 0.37) / 10, y = (iy + 0.37) / 10, z = (iz + 0.37) / 10;
+            const ref = bruteForceSdf(boxes, x, y, z);
+            const got = mengerFractalSdf(x, y, z, iter);
+            expect(got).toBeCloseTo(ref, 9);
+            checked++;
+          }
+        }
+      }
+      expect(checked).toBeGreaterThan(0);
+    }
+  });
+
+  it("sierpinski: matches the brute-force box union on a grid — inside, outside, and near-surface (iter 1-2)", () => {
+    for (const iter of [1, 2]) {
+      const boxes = sierpinskiBoxes(iter);
+      let checked = 0;
+      for (let ix = -3; ix <= 13; ix++) {
+        for (let iy = -3; iy <= 13; iy++) {
+          for (let iz = -3; iz <= 13; iz++) {
+            const x = (ix + 0.37) / 10, y = (iy + 0.37) / 10, z = (iz + 0.37) / 10;
+            const ref = bruteForceSdf(boxes, x, y, z);
+            const got = sierpinskiFractalSdf(x, y, z, iter);
+            expect(got).toBeCloseTo(ref, 9);
+            checked++;
+          }
+        }
+      }
+      expect(checked).toBeGreaterThan(0);
+    }
+  });
+
+  // The review's own three counterexamples, pinned exactly.
+  it("pins the reviewer's menger iter-1 counterexample at the domain center: true distance 0.235702, not the old construction's 0.166667", () => {
+    expect(mengerFractalSdf(0.5, 0.5, 0.5, 1)).toBeCloseTo(0.235702, 5);
+  });
+
+  it("pins the reviewer's sierpinski iter-1 counterexample just outside the domain corner: true distance 0.712420, not the old construction's near-zero leak (0.006495)", () => {
+    const d = sierpinskiFractalSdf(1.00375, 1.00375, 1.00375, 1);
+    expect(d).toBeCloseTo(0.712420, 5);
+    // The old periodic-`mod` construction reported this point as almost ON
+    // the surface — a real fix must land nowhere near that value.
+    expect(Math.abs(d - 0.006495)).toBeGreaterThan(0.5);
+  });
+
+  it("sierpinski: errors do not grow through iter 1-3 outside the domain — every iter agrees with its own brute-force reference at the same outside point", () => {
+    const x = 1.00375, y = 1.00375, z = 1.00375;
+    for (const iter of [1, 2, 3]) {
+      const ref = bruteForceSdf(sierpinskiBoxes(iter), x, y, z);
+      expect(sierpinskiFractalSdf(x, y, z, iter)).toBeCloseTo(ref, 6);
+    }
+  });
+
+  it("outside the unit cell, distance grows monotonically with separation from the domain (no periodic leak)", () => {
+    for (const field of ["menger", "sierpinski"] as const) {
+      const sample = (t: number) => field === "menger" ? mengerFractalSdf(t, t, t, 3) : sierpinskiFractalSdf(t, t, t, 3);
+      let prev = sample(1.0);
+      for (let t = 1.05; t <= 3; t += 0.05) {
+        const cur = sample(t);
+        // Monotone non-decreasing along a ray moving straight away from the
+        // domain's far corner — a periodic construction would instead
+        // oscillate back down near zero at each repeated period.
+        expect(cur).toBeGreaterThanOrEqual(prev - 1e-9);
+        prev = cur;
+      }
+      // And genuinely large far away — not a bounded periodic residual.
+      expect(sample(3)).toBeGreaterThan(2);
+    }
+  });
+
+  it("sign-exactness is preserved: distance-fidelity fix agrees with the existing digit-rule membership tests (menger/sierpinski, depth 2)", () => {
+    const N = 12;
+    for (let ix = 0; ix < N; ix++) {
+      for (let iy = 0; iy < N; iy++) {
+        for (let iz = 0; iz < N; iz++) {
+          const x = (ix + 0.37) / N, y = (iy + 0.37) / N, z = (iz + 0.37) / N;
+          let nearBoundary = false;
+          for (const c of [x, y, z]) {
+            const frac9 = ((c * 9) % 1 + 1) % 1;
+            if (frac9 < 0.05 || frac9 > 0.95) nearBoundary = true;
+          }
+          if (nearBoundary) continue;
+          expect(mengerFractalSdf(x, y, z, 2) < 0).toBe(mengerSolidRef(x, y, z, 2));
+          expect(sierpinskiFractalSdf(x, y, z, 2) < 0).toBe(sierpinskiSolidRef(x, y, z, 2));
+        }
       }
     }
   });

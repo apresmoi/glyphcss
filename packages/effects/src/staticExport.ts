@@ -550,24 +550,36 @@ var u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf),w=zf*zf*(3-2*zf);
 var a000=h3(xi,yi,zi),a100=h3(xi+1,yi,zi),a010=h3(xi,yi+1,zi),a110=h3(xi+1,yi+1,zi),a001=h3(xi,yi,zi+1),a101=h3(xi+1,yi,zi+1),a011=h3(xi,yi+1,zi+1),a111=h3(xi+1,yi+1,zi+1);
 var f0=(a000*(1-u)+a100*u)*(1-v)+(a010*(1-u)+a110*u)*v,f1=(a001*(1-u)+a101*u)*(1-v)+(a011*(1-u)+a111*u)*v;return f0*(1-w)+f1*w}
 function sdfBox(px,py,pz,bx,by,bz){var dx=Math.abs(px)-bx,dy=Math.abs(py)-by,dz=Math.abs(pz)-bz,ax=Math.max(dx,0),ay=Math.max(dy,0),az=Math.max(dz,0);return Math.hypot(ax,ay,az)+Math.min(Math.max(dx,Math.max(dy,dz)),0)}
-function mengerSdf(x,y,z,iter){var px=(x-0.5)*2,py=(y-0.5)*2,pz=(z-0.5)*2,d=sdfBox(px,py,pz,1,1,1),s=1;
-for(var m=0;m<iter;m++){var ax=pmod(px*s,2)-1,ay=pmod(py*s,2)-1,az=pmod(pz*s,2)-1;s*=3;
-var rx=Math.abs(1-3*Math.abs(ax)),ry=Math.abs(1-3*Math.abs(ay)),rz=Math.abs(1-3*Math.abs(az));
-var da=Math.max(rx,ry),db=Math.max(ry,rz),dc=Math.max(rz,rx),c=(Math.min(da,Math.min(db,dc))-1)/s;d=Math.max(d,c)}
-return d/2}
-var SIERP_CENTERS=[[-0.25,-0.25,-0.25],[0.25,-0.25,-0.25],[-0.25,0.25,-0.25],[-0.25,-0.25,0.25]];
-function sierpKeptSdf(cx,cy,cz){var best=Infinity;
-for(var i=0;i<4;i++){var o=SIERP_CENTERS[i],d=sdfBox(cx-o[0],cy-o[1],cz-o[2],0.25,0.25,0.25);if(d<best)best=d}
-return best}
-function sierpinskiSdf(x,y,z,iter){var px=x-0.5,py=y-0.5,pz=z-0.5,d=sdfBox(px,py,pz,0.5,0.5,0.5),s=1;
-for(var m=0;m<iter;m++){var lx=pmod(x*s,1)-0.5,ly=pmod(y*s,1)-0.5,lz=pmod(z*s,1)-0.5;s*=2;
-var c=sierpKeptSdf(lx,ly,lz)/s;d=Math.max(d,c)}
-return d}
+function fracOffsets(menger){var out=[];
+if(menger){for(var oz=-1;oz<=1;oz++)for(var oy=-1;oy<=1;oy++)for(var ox=-1;ox<=1;ox++){var zeros=(ox===0?1:0)+(oy===0?1:0)+(oz===0?1:0);if(zeros<=1)out.push([ox,oy,oz])}}
+else{for(var oz2=-1;oz2<=1;oz2+=2)for(var oy2=-1;oy2<=1;oy2+=2)for(var ox2=-1;ox2<=1;ox2+=2){var uppers=(ox2===1?1:0)+(oy2===1?1:0)+(oz2===1?1:0);if(uppers<=1)out.push([ox2,oy2,oz2])}}
+return out}
+var MENGER_OFFSETS=fracOffsets(true),SIERP_OFFSETS=fracOffsets(false);
+// Exact recursive box-union SDF (P1-A fixer pass) — mirrors fieldProgram.ts's
+// fractalUnionSdf exactly: sdf_union = min of exact leaf-box distances,
+// pruned via the parent-box distance's lower-bound property (nearest-bound-
+// first, break once a bound can no longer help).
+function fracSdf(px,py,pz,cx,cy,cz,half,depth,div,offs,best){
+if(depth===0){var d=sdfBox(px-cx,py-cy,pz-cz,half,half,half);return d<best?d:best}
+var ch=half/div,cs=ch*(div-1),n=offs.length,bounds=[],order=[];
+for(var i=0;i<n;i++){var o=offs[i],ccx=cx+o[0]*cs,ccy=cy+o[1]*cs,ccz=cz+o[2]*cs;bounds[i]=sdfBox(px-ccx,py-ccy,pz-ccz,ch,ch,ch);order[i]=i}
+for(var i2=1;i2<n;i2++){var oi=order[i2],bi=bounds[oi],j=i2-1;while(j>=0&&bounds[order[j]]>bi){order[j+1]=order[j];j--}order[j+1]=oi}
+var cur=best;
+for(var k2=0;k2<n;k2++){var ii=order[k2],bound=bounds[ii];if(bound>=cur)break;
+var o2=offs[ii],ccx2=cx+o2[0]*cs,ccy2=cy+o2[1]*cs,ccz2=cz+o2[2]*cs;
+var d2=fracSdf(px,py,pz,ccx2,ccy2,ccz2,ch,depth-1,div,offs,cur);if(d2<cur)cur=d2}
+return cur}
+function mengerSdf(x,y,z,iter){var px=x-0.5,py=y-0.5,pz=z-0.5;return fracSdf(px,py,pz,0,0,0,0.5,iter,3,MENGER_OFFSETS,Infinity)}
+function sierpinskiSdf(x,y,z,iter){var px=x-0.5,py=y-0.5,pz=z-0.5;return fracSdf(px,py,pz,0,0,0,0.5,iter,2,SIERP_OFFSETS,Infinity)}
 function sampleVoice(v,x,y,cx,cy,t){var sx=x,sy=y;
 if(v.angle!==0){var a=(-v.angle*Math.PI)/180,dx=x-cx,dy=y-cy,ca=Math.cos(a),sa=Math.sin(a);sx=cx+dx*ca-dy*sa;sy=cy+dx*sa+dy*ca}
 if(v.field==="noise")return 2*noise3(sx*v.freq,sy*v.freq,t*v.speed)-1;
 if(v.field==="gyroid"||v.field==="menger"||v.field==="sierpinski"){
-var fx=(sx-cx)*v.freq,fy=(sy-cy)*v.freq,fz=0,sdfRaw;
+// z=0 always (the 2D branch this exporter ports); the live-path call-level
+// originZ is always 0 too (stock.ts's 2D branch), so a voice's own SDF-
+// family cz reduces to its serialized origin.w exactly (P1-B fixer pass —
+// see fieldProgram.ts's qz = z - cz in sampleFieldVoice's SDF branch).
+var fx=(sx-cx)*v.freq,fy=(sy-cy)*v.freq,fz=(0-v.origin.w)*v.freq,sdfRaw;
 if(v.field==="gyroid"){var tp=Math.PI*2;sdfRaw=Math.sin(tp*fx)*Math.cos(tp*fy)+Math.sin(tp*fy)*Math.cos(tp*fz)+Math.sin(tp*fz)*Math.cos(tp*fx)}
 else{var iter=Math.max(1,Math.min(4,Math.round(v.iter)));sdfRaw=-(v.field==="menger"?mengerSdf(fx,fy,fz,iter):sierpinskiSdf(fx,fy,fz,iter))}
 return synthWave(v.wave,sdfRaw-t*v.speed+v.phase,v.duty)}
@@ -727,10 +739,17 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   // for exactly this reuse. `volumetric` is always `false` here:
   // `assertStaticExportSupported` rejects `space: "object"` before `bake()`
   // ever runs, so the compiled program's domain is always "2d" and its
-  // `origin.w`/`linearZ` branch is dead — the serialized payload below drops
-  // both accordingly. Computed here (before the affine decision, not just
-  // before serialization) because `affineDecisionsMatch` needs the real
-  // compiled program to verify the fit against.
+  // `linearZ` branch is dead — the serialized payload below still drops it.
+  // `origin.w` is NOT dead, though (P1-B fixer pass): the SDF voice family
+  // (gyroid/menger/sierpinski) reads it even in the 2D branch — it's the
+  // slice offset along the field's own local Z axis (VOLUMETRIC-2.md §2's
+  // "translation" contract, `fieldProgram.ts`'s `qz = z - cz` in
+  // `sampleFieldVoice`'s SDF branch) — so it IS serialized and ported below,
+  // and `assertStaticExportSupported` only rejects a nonzero `originW` on a
+  // non-SDF active voice, where it genuinely has no effect. Computed here
+  // (before the affine decision, not just before serialization) because
+  // `affineDecisionsMatch` needs the real compiled program to verify the fit
+  // against.
   const anyParams = params as unknown as AnyParams;
   const synthVoices = buildFieldSynthVoices(anyParams);
   const compiledVoices = compileFieldVoices(synthVoices, params.scale);
@@ -872,7 +891,11 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
       duty: voice.duty,
       phase: voice.phase,
       angle: voice.angle,
-      origin: { u: voice.origin.u, v: voice.origin.v },
+      // `w` (P1-B fixer pass): the SDF voice family's own local-Z slice
+      // offset, read even in this 2D exporter (see this function's doc for
+      // why it isn't dead like `linearZ`). Harmless on every other field,
+      // which never reads it — same precedent as `iter` above.
+      origin: { u: voice.origin.u, v: voice.origin.v, w: voice.origin.w },
       color: { p: parsedColor.packed, o: parsedColor.opacity },
       si: voice.sourceIndex,
       // Menger/Sierpinski recursion depth (VOLUMETRIC-2.md §2); every other
@@ -998,15 +1021,20 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 //   meaningful under carve/xray + `space: "object"`, all three already
 //   rejected, but it gets its own precise, separately-worded reject (see
 //   below) for the same reason `linearZ`/`originW` do.
-// - `linearZ` on an active voice and `originW` on an active voice — both are
-//   3D-only semantics that can only ever matter under `space: "object"`,
-//   which is already rejected; keeping an explicit, separately-worded reject
-//   for them (rather than letting the generic `space` reject cover it
-//   implicitly) means a 2D patch that mistakenly sets one of these — most
-//   likely an author who meant to also flip `space` to `"object"` — gets a
-//   precise error naming the actual mistake, not a report that garbles two
-//   different questions ("why is my field invisible" vs "why doesn't this
-//   export") into one.
+// - `linearZ` on an active voice, and `originW` on an active NON-SDF voice —
+//   both are 3D-only semantics that can only ever matter under
+//   `space: "object"`, which is already rejected; keeping an explicit,
+//   separately-worded reject for them (rather than letting the generic
+//   `space` reject cover it implicitly) means a 2D patch that mistakenly
+//   sets one of these — most likely an author who meant to also flip `space`
+//   to `"object"` — gets a precise error naming the actual mistake, not a
+//   report that garbles two different questions ("why is my field
+//   invisible" vs "why doesn't this export") into one. `originW` on an
+//   active gyroid/menger/sierpinski voice is exempt from this reject (P1-B
+//   fixer pass): the SDF voice family reads its origin's `w` as a genuine
+//   2D-meaningful slice offset even outside `space: "object"` (see
+//   `buildRuntime`'s `serializeVoice` doc), so it's ported and exported, not
+//   rejected.
 function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSynth>): void {
   // Checked before the `space: "object"` reject below so a carve/xray patch
   // names its own render mode as the reason, not the volumetric branch it
@@ -1053,11 +1081,17 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
         + "a different field than intended). Not planned.",
       );
     }
-    if ((p[`originW${k}`] as number) !== 0) {
+    // The SDF voice family reads origin W even in the 2D branch (P1-B fixer
+    // pass — see `buildRuntime`'s `serializeVoice` doc), so it's exported,
+    // not rejected here, for those three fields. Every other field genuinely
+    // ignores W in 2D — the reject stands for them.
+    const field = p[`field${k}`] as string;
+    const isSdfFamily = field === "gyroid" || field === "menger" || field === "sierpinski";
+    if (!isSdfFamily && (p[`originW${k}`] as number) !== 0) {
       throw new Error(
         `glyphcss: buildGlyphFieldSynthStaticExport does not support originW${k} !== 0 on an active voice `
         + `(amp${k} > 0) — origin W is a volumetric-only (3D) semantic and is always ignored in the 2D branch `
-        + "this exporter ports. Not planned.",
+        + "this exporter ports for this field. Not planned.",
       );
     }
   }
@@ -1068,8 +1102,9 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
  * `buildGlyphFieldSynthStaticExport` would accept `params`, false when it
  * would reject (`render: "carve"` or `"xray"`, `space: "object"`, an active
  * slab (`slabAxis !== "none"`), an active `linearZ` voice, or a nonzero
- * `originW` on an active voice — see `assertStaticExportSupported`'s doc for
- * why each is out of this exporter's design). Merges `params` over the
+ * `originW` on an active NON-SDF voice — see `assertStaticExportSupported`'s
+ * doc for why each is out of this exporter's design, and why the SDF voice
+ * family is exempt from the `originW` reject). Merges `params` over the
  * effect's own defaults first, exactly like `buildGlyphFieldSynthStaticExport`
  * itself, so a caller can pass a partial patch straight through.
  *

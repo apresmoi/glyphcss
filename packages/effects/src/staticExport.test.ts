@@ -911,6 +911,49 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       });
     });
 
+    // P1-B fixer pass: the live SDF branch samples `qz = z - cz` (z=0 in the
+    // 2D branch, cz = the call-level originZ [always 0 in 2D] + the voice's
+    // own `origin.w`), so a nonzero `originW` genuinely shifts WHICH z-slice
+    // of the 3D fractal a 2D patch renders — it's a "translation", not a
+    // volumetric-only no-op, for the SDF voice family specifically (unlike
+    // every other field). The old exporter both rejected any active voice's
+    // nonzero originW outright AND, independently, hardcoded `fz=0` and
+    // dropped `origin.w` from serialization in RUNTIME_JS — so even after
+    // relaxing the reject for SDF fields, the export would have silently
+    // rendered the WRONG z-slice. The reviewer's own counterexample (gyroid,
+    // step wave, originW .25, point (.1,.1,0): live raw -0.3334887 -> step
+    // -1, export raw (old, fz hardcoded 0) 1.0633135 -> step +1) is the
+    // shape of bug this full-grid, real-oracle parity test would have caught.
+    it("gyroid with a nonzero originW (P1-B counterexample class: the z-slice offset) matches the live render", async () => {
+      await runParity({
+        space: "surface", scale: 1.5, combine: "add",
+        field1: "gyroid", wave1: "step", freq1: 2, originW1: 0.25, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " █", color: "#7df9ff",
+      });
+    });
+
+    it("sierpinski (2D z=0 slice, iter 2) with a nonzero originW matches the live render (P1-B: an originW-set full-parity case for a fractal field)", async () => {
+      await runParity({
+        space: "surface", scale: 1, combine: "add",
+        field1: "sierpinski", wave1: "step", freq1: 1, iter1: 2, originW1: 0.15, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        glyphs: " █", color: "#ffcf5a",
+      });
+    });
+
+    it("does NOT reject a nonzero originW on an active SDF-family voice (gyroid/menger/sierpinski), unlike every other field (P1-B fixer pass)", () => {
+      for (const field of ["gyroid", "menger", "sierpinski"]) {
+        const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+          params: { ...baseOptions().params, field1: field, wave1: "step", iter1: 2, originW1: 0.3, amp1: 1 },
+        }));
+        expect(result.js).toContain("requestAnimationFrame");
+      }
+      expect(isGlyphFieldSynthStaticExportSupported({
+        ...baseOptions().params, field1: "menger", wave1: "step", iter1: 2, originW1: 0.3, amp1: 1,
+      })).toBe(true);
+    });
+
     it("existing preset 'Sunburst' still matches the live render (regression)", async () => {
       const preset = fieldSynth.presets.find((p) => p.name === "Sunburst");
       expect(preset).toBeDefined();
