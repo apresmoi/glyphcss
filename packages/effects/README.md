@@ -70,9 +70,8 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   which a flat voice fold cannot reach. Under `space: "object"` (a volumetric field
   in the mesh's own 3D frame, like matrix rain's `"object"` mode), `render: "carve"`
   raymarches the field into hollow interior structure, and `render: "xray"`
-  integrates density along the whole chord into a transmittance brightness instead
-  — both can be cut down to a cross-section with the `slabAxis`/`slabStart`/
-  `slabEnd` clip. The SDF fields (`menger`/`sierpinski` at recursion depth `iterN`,
+  integrates density along the whole chord into a transmittance brightness instead.
+  The SDF fields (`menger`/`sierpinski` at recursion depth `iterN`,
   1..4) are exact signed distances to the depth-`iterN` box/tetra union, not a
   distance-estimator approximation. Ships with a curated set of presets (Sunburst,
   Ring pulse, Plaid weave, Menger sponge, Sierpinski pyramid, Gyroid xray, and
@@ -116,9 +115,9 @@ ramp for glyphcss's `solidWeightRamp` scene option) and
 `buildGlyphFieldSynthStaticExport` (bakes an effect-only, static-camera
 field-synth scene into a self-contained snippet with zero runtime imports;
 `isGlyphFieldSynthStaticExportSupported(params)` checks first — the volumetric
-branch, `render: "carve"`/`"xray"`, and an active slab clip reject explicitly,
-since a march or a mid-march clip needs a different, per-cell-per-frame export
-design; the SDF fields and the `step` wave export normally in the 2D branch).
+branch and `render: "carve"`/`"xray"` reject explicitly, since a per-cell-per-
+frame march needs a different export design; the SDF fields and the `step`
+wave export normally in the 2D branch).
 The field-program IR itself is also public — `evaluateGlyphFieldProgram`,
 `marchGlyphField`, its integral sibling `integrateGlyphField` (used by xray),
 the shared step-count floor `glyphFieldStepCount`, and the `GlyphFieldProgram`/

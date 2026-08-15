@@ -6,7 +6,6 @@ import {
   PYRAMID_STAGE_SIZE,
   RENDER_MODES,
   SHAPES,
-  SLAB_AXES,
   STAGE_HINTS,
   WAVES,
   buildWavePathD,
@@ -326,16 +325,11 @@ describe("shapeTransform(\"pyramid\") (P1-C, world-centered stage via mesh posit
   });
 });
 
-// VOLUMETRIC-2.md §1/§4: "xray" append-only in whatever list drives the
-// Render dropdown, and slab axes ship a "none" full-open representation.
-describe("RENDER_MODES / SLAB_AXES (VOLUMETRIC-2.md §1, new-control wiring)", () => {
+// VOLUMETRIC-2.md §1: "xray" append-only in whatever list drives the Render
+// dropdown.
+describe("RENDER_MODES (VOLUMETRIC-2.md §1, new-control wiring)", () => {
   it("appends \"xray\" at the end of RENDER_MODES — append-only, matches the schema enum order in packages/effects/src/stock.ts", () => {
     expect(RENDER_MODES).toEqual(["paint", "carve", "xray"]);
-  });
-
-  it("SLAB_AXES starts with \"none\" (the only full-open representation)", () => {
-    expect(SLAB_AXES[0]).toBe("none");
-    expect(SLAB_AXES).toEqual(["none", "x", "y", "z"]);
   });
 });
 

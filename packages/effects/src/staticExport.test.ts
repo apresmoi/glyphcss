@@ -618,28 +618,6 @@ describe("buildGlyphFieldSynthStaticExport", () => {
         params: { ...baseOptions().params, space: "object", render: "xray" },
       }))).toThrow(/xray/i);
     });
-
-    // Slab clip is unconditionally rejected — it's only ever meaningful under
-    // carve/xray + space: "object", but it gets its own precise, separately-
-    // worded reject rather than falling through to the generic space error,
-    // even for a plain 2D patch that never reaches carve/xray at all.
-    it('rejects an active slab (slabAxis !== "none"), naming the slab as the reason, even for a plain 2D patch', () => {
-      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
-        params: { ...baseOptions().params, slabAxis: "x" },
-      }))).toThrow(/slab/i);
-    });
-
-    it('orders the slab reject before the space reject: an active slab + space: "object" names the slab, not the volumetric branch', () => {
-      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
-        params: { ...baseOptions().params, space: "object", slabAxis: "x" },
-      }))).toThrow(/slab/i);
-    });
-
-    it('orders the render reject before the slab reject: render: "xray" + an active slab names xray, not the slab', () => {
-      expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
-        params: { ...baseOptions().params, space: "object", render: "xray", slabAxis: "x" },
-      }))).toThrow(/xray/i);
-    });
   });
 
   // P1-2 fixer pass: the website's static "Open in CodePen" button used to
@@ -659,11 +637,6 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, space: "object" })).toBe(false);
       expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, space: "object", render: "carve" })).toBe(false);
       expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, space: "object", render: "xray" })).toBe(false);
-    });
-
-    it("is false for an active slab (slabAxis !== \"none\"), even on an otherwise-supported 2D patch", () => {
-      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, slabAxis: "x" })).toBe(false);
-      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, slabAxis: "none" })).toBe(true);
     });
 
     it("is false when an active voice has field: \"linearZ\" (not just volumetric/carve)", () => {

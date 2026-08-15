@@ -20,6 +20,7 @@ import {
   encodeEffectParamsPacked,
   readUrlParam,
   scheduleCompactedUrlWrite,
+  type EffectParamSchemaLike,
   type UrlField,
 } from "../../lib/urlState";
 
@@ -106,22 +107,58 @@ const synthFields: readonly UrlField<SynthUrlState>[] = [
   { key: "paramsPacked", token: "p", type: { kind: "string" }, default: SYNTH_URL_DEFAULTS.paramsPacked },
 ];
 
-// Bumped 1 -> 2 alongside `encodeEffectParamsPacked`/`decodeEffectParamsPacked`
-// gaining a multi-char index escape (see urlState.ts) that fixes indices >= 62
-// (`lit`, `voiceColors`, `color1..6`, and everything VOLUMETRIC.md's phases
-// appended after them) silently dropping from `paramsPacked`. The escape
-// format is byte-compatible with every pre-fix link on its own (a pre-fix
-// string never used index >= 62, so it never contains the escape char) — the
-// version bump plus `synthCodecLegacyV1` below exist so that guarantee is an
-// explicit, tested decode path rather than an implicit property of the format.
-const SYNTH_SCHEMA_VERSION = "2";
+// `decodeEffectParamsPacked`/`encodeEffectParamsPacked` key `paramsPacked`'s
+// tokens by POSITION in `Object.keys(schema)` — append-only growth (every
+// VOLUMETRIC.md/VOLUMETRIC-2.md phase) never disturbs an existing link,
+// because a new key only ever lands after every index an older link could
+// have used. Removing the slab feature's `slabAxis`/`slabStart`/`slabEnd`
+// (packages/effects/src/stock.ts's schema, removed post-implementation —
+// see VOLUMETRIC-2.md §1's Reconciliation entry) broke that guarantee for
+// the first time: those three keys sat BEFORE `iter1..6` (and every
+// Phase-4 key after them), so deleting them shifts every later key's index
+// down by 3. A link encoded against the old schema must therefore be
+// decoded against the OLD key order, or its `iter1..6`/later overrides
+// silently land on the wrong param. `LEGACY_V2_FIELD_SYNTH_SCHEMA`
+// reconstructs that old order by splicing the three retired specs back in
+// at their original position (right after `xrayGain`) — decode-only; the
+// three resulting values are discarded (see `decodeSynthUrlState`), never
+// merged into `Params`, since the feature no longer exists.
+const LEGACY_SLAB_AXIS_SPEC: EffectParamSchemaLike[string] = { kind: "string", default: "none", values: ["none", "x", "y", "z"] };
+const LEGACY_SLAB_RANGE_SPEC: EffectParamSchemaLike[string] = { kind: "number", default: -1, step: 0.05 };
+function buildLegacyV2FieldSynthSchema(): EffectParamSchemaLike {
+  const current = fieldSynth.parameterSchema as unknown as EffectParamSchemaLike;
+  const legacy: Record<string, EffectParamSchemaLike[string]> = {};
+  for (const [key, spec] of Object.entries(current)) {
+    legacy[key] = spec;
+    if (key === "xrayGain") {
+      legacy.slabAxis = LEGACY_SLAB_AXIS_SPEC;
+      legacy.slabStart = LEGACY_SLAB_RANGE_SPEC;
+      legacy.slabEnd = LEGACY_SLAB_RANGE_SPEC;
+    }
+  }
+  return legacy;
+}
+export const LEGACY_V2_FIELD_SYNTH_SCHEMA: EffectParamSchemaLike = buildLegacyV2FieldSynthSchema();
+
+// Bumped 2 -> 3 for the slab removal above (an inner-schema key-order change,
+// not the 1 -> 2 escape-format fix below): the OUTER `?s=` version tag is
+// what routes a link's `paramsPacked` to the right key order at decode time
+// (see `decodeSynthUrlState`).
+const SYNTH_SCHEMA_VERSION = "3";
 export const synthCodec = createUrlCodec<SynthUrlState>(SYNTH_SCHEMA_VERSION, synthFields);
 // Decodes a URL shared before the version bump (`raw[1] === "1"`). Same field
 // list — only `paramsPacked`'s internal token format changed, and that change
 // is backward compatible — but `createUrlCodec`'s version gate rejects a
 // version it wasn't built with, so a distinct instance is required to accept
-// "1"-tagged input at all.
+// "1"-tagged input at all. A "1"-tagged link predates the escape fix, so its
+// `paramsPacked` can only ever reference indices < 62 — comfortably below
+// where the now-removed slab keys sat — so it's decoded against the CURRENT
+// (post-slab-removal) schema below, unaffected by the shift.
 const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
+// Decodes a "2"-tagged link (the version live from the escape fix through
+// the slab feature's removal) — same outer field list, but `paramsPacked`
+// must be decoded against `LEGACY_V2_FIELD_SYNTH_SCHEMA`'s old key order.
+const synthCodecLegacyV2 = createUrlCodec<SynthUrlState>("2", synthFields);
 const SYNTH_PARAM = "s";
 
 // Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
@@ -317,17 +354,35 @@ export function encodeSynthUrlState(state: SynthPatch): string {
   });
 }
 
-/** Dispatches to the legacy (pre-bump) codec for a "1"-tagged link, else the
- *  live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
+/** Dispatches to the legacy (pre-bump) codec for a "1"- or "2"-tagged link,
+ *  else the live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
 function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState> {
   if (raw && raw[1] === "1") return synthCodecLegacyV1.decode(raw);
+  if (raw && raw[1] === "2") return synthCodecLegacyV2.decode(raw);
   return synthCodec.decode(raw);
+}
+
+/** "1"- and "2"-tagged links both predate the slab removal, so their
+ *  `paramsPacked` must decode against the OLD (pre-removal) key order — see
+ *  `LEGACY_V2_FIELD_SYNTH_SCHEMA`'s doc. */
+function paramsSchemaFor(raw: string | null | undefined): EffectParamSchemaLike {
+  return raw && (raw[1] === "1" || raw[1] === "2")
+    ? LEGACY_V2_FIELD_SYNTH_SCHEMA
+    : (fieldSynth.parameterSchema as unknown as EffectParamSchemaLike);
 }
 
 /** Pure decode: packed `?s=` value -> patch (defaults for absent/garbage). */
 export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
   const decoded = { ...SYNTH_URL_DEFAULTS, ...decodeOuterState(raw) };
-  const overrides = decodeEffectParamsPacked(fieldSynth.parameterSchema, decoded.paramsPacked);
+  const overrides = decodeEffectParamsPacked(paramsSchemaFor(raw), decoded.paramsPacked);
+  // The retired slab keys only ever appear when `overrides` was decoded
+  // against `LEGACY_V2_FIELD_SYNTH_SCHEMA` (a "1"/"2"-tagged link) — discard
+  // them unconditionally rather than branch on which schema was used: the
+  // feature no longer exists, and `SYNTH_PARAM_DEFAULTS` no longer has these
+  // keys either.
+  delete overrides.slabAxis;
+  delete overrides.slabStart;
+  delete overrides.slabEnd;
   let params = { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params;
   params.render = sanitizeCarveRenderForSpace(params.space, params.render as string);
   params = applySynthValidityGate(params);

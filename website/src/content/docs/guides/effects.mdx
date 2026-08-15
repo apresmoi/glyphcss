@@ -535,21 +535,6 @@ structure averages into fog. Shaping a voice with a layer threshold (turning
 it into a flat two-level field) before feeding it to xray reads its actual
 structure instead; the shipped **Gyroid xray** preset does exactly this.
 
-### Slab clip
-
-`slabAxis` (`"none"` / `"x"` / `"y"` / `"z"`, default `"none"`) plus
-`slabStart`/`slabEnd` (default `-1`/`1`, range `-8..8`) cut carve or xray down
-to a cross-section on one axis — a no-op under `render: "paint"`. The values
-are in **domain units** (the same space `freq`/`scale` live in), not world
-units, so the cut plane doesn't drift as the camera orbits; it does move if
-`scale` changes.
-
-The segment is clipped to the slab interval analytically before marching, so
-a thin slab still gets the full step budget rather than samples being
-skipped over it. `slabStart >= slabEnd` renders empty — `"none"` is the only
-representation of "no clip," so there's no separate flag to disable slabbing
-with an inverted range.
-
 ### Example
 
 ```ts
@@ -722,16 +707,15 @@ per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and —
 since slice 2 — the SDF fields (`gyroid`/`menger`/`sierpinski`, with `iterN`)
 and the `step` waveform, all at real-renderer exact parity, all 2D. It
 rejects, with a specific error naming the reason: `space: "object"` (the
-volumetric branch), `render: "carve"`/`"xray"`, an active slab clip
-(`slabAxis !== "none"`), and an active voice (`ampN > 0`) using `linearZ` or a
-nonzero `originWN` — all 3D-only semantics a per-cell coordinate bake can't
-fake, since carve/xray in particular need a march per cell per frame. The
-`originWN` reject is waived for an active SDF voice: `gyroid`/`menger`/
-`sierpinski` genuinely read `originW` even in the 2D branch (it's part of
-their translation contract), so that combination exports normally. Call
-`isGlyphFieldSynthStaticExportSupported(params)` to check before exporting
-rather than duplicating this list; the `/synth` page's CodePen button uses it
-to decide which export to offer. A volumetric, carve, xray, or active-slab
-patch still exports through the
+volumetric branch), `render: "carve"`/`"xray"`, and an active voice
+(`ampN > 0`) using `linearZ` or a nonzero `originWN` — all 3D-only semantics a
+per-cell coordinate bake can't fake, since carve/xray in particular need a
+march per cell per frame. The `originWN` reject is waived for an active SDF
+voice: `gyroid`/`menger`/`sierpinski` genuinely read `originW` even in the 2D
+branch (it's part of their translation contract), so that combination exports
+normally. Call `isGlyphFieldSynthStaticExportSupported(params)` to check
+before exporting rather than duplicating this list; the `/synth` page's
+CodePen button uses it to decide which export to offer. A volumetric or
+carve/xray patch still exports through the
 [interactive export](/guides/compile#interactive-export) — it ships and
 evaluates the live effect runtime instead of a baked approximation.

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { GLYPH_FIELD_SYNTH_VALIDATION_RULES, GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
+import { createUrlCodec, encodeEffectParamsPacked } from "../../lib/urlState";
 import {
   COERCION_HANDLED_RULES,
+  LEGACY_V2_FIELD_SYNTH_SCHEMA,
   MAX_VOICES,
   SYNTH_PARAM_DEFAULTS,
   SYNTH_REPAIR_TABLE,
@@ -13,6 +15,7 @@ import {
   synthCodec,
   type Lighting,
   type Params,
+  type SynthUrlState,
 } from "./synthUrlState";
 
 function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; lighting: Lighting; voiceSlots: number[] } {
@@ -51,7 +54,7 @@ describe("synth url state", () => {
       lighting: { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 },
       voiceSlots: [1, 2],
     });
-    expect(packed).toBe("p2");
+    expect(packed).toBe("p3");
   });
 
   it("round-trips a representative multi-voice patch", () => {
@@ -187,6 +190,99 @@ describe("synth url state — VOLUMETRIC.md acceptance 7", () => {
     const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
     expect(restored.params.field3).toBe("linearZ");
     expect(restored.params.render).toBe("carve");
+  });
+});
+
+// ── Slab removal: SYNTH_SCHEMA_VERSION 2 -> 3 (VOLUMETRIC-2.md §1 Reconciliation) ──
+// Slab's three schema keys sat BEFORE `iter1..6` (and every later Phase-4
+// key), not at the schema tail, so removing them shifts every later key's
+// positional index in the packed `paramsPacked` token stream. A "2"-tagged
+// link's `paramsPacked` must therefore decode against the OLD key order
+// (`LEGACY_V2_FIELD_SYNTH_SCHEMA`) to land iter1..6/etc. correctly — these
+// tests build a genuine "p2..."-tagged link the same way the live v2 encoder
+// once did (against the OLD schema, since the current encoder only ever
+// produces "p3").
+function maskFromSlots(slots: readonly number[]): number {
+  let mask = 0;
+  for (const slot of slots) mask |= 1 << (slot - 1);
+  return mask;
+}
+const LEGACY_V2_DEFAULTS: Params = { ...SYNTH_PARAM_DEFAULTS, slabAxis: "none", slabStart: -1, slabEnd: 1 };
+const legacyV2OuterCodec = createUrlCodec<SynthUrlState>("2", synthCodec.fields);
+function encodeLegacyV2(state: ReturnType<typeof representativePatch>, legacyParams: Params): string {
+  const paramsPacked = encodeEffectParamsPacked(LEGACY_V2_FIELD_SYNTH_SCHEMA, LEGACY_V2_DEFAULTS, legacyParams);
+  return legacyV2OuterCodec.encode({
+    shape: state.shape,
+    timeScale: state.timeScale,
+    density: state.density,
+    voiceSlotMask: maskFromSlots(state.voiceSlots),
+    lightAzimuth: state.lighting.azimuth,
+    lightElevation: state.lighting.elevation,
+    lightKeyIntensity: state.lighting.keyIntensity,
+    lightKeyColor: state.lighting.keyColor,
+    lightAmbient: state.lighting.ambient,
+    paramsPacked,
+  });
+}
+
+describe("synth url state — v2 legacy decode (post-slab-removal)", () => {
+  it("a v2 URL with slab params set decodes to the same patch, minus slab (the values are parsed then discarded)", () => {
+    const patch = representativePatch();
+    const legacyParams: Params = { ...patch.params, slabAxis: "z", slabStart: 0.3, slabEnd: 0.7, iter1: 4, iter2: 2 };
+    const packed = encodeLegacyV2(patch, legacyParams);
+    expect(packed[1]).toBe("2"); // sanity: genuinely v2-tagged
+    const restored = decodeSynthUrlState(packed);
+    expect("slabAxis" in restored.params).toBe(false);
+    expect("slabStart" in restored.params).toBe(false);
+    expect("slabEnd" in restored.params).toBe(false);
+    // Every non-slab override (including iter1/iter2, which sit AFTER slab in
+    // the old key order) must still land correctly despite the index shift.
+    for (const [key, value] of Object.entries(legacyParams)) {
+      if (key === "time" || key === "slabAxis" || key === "slabStart" || key === "slabEnd") continue;
+      if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
+      else expect(restored.params[key], key).toBe(value);
+    }
+    expect(restored.params.iter1).toBeCloseTo(4, 3);
+    expect(restored.params.iter2).toBeCloseTo(2, 3);
+  });
+
+  it("a v2 URL without any slab override decodes identically to the equivalent v3 link", () => {
+    const patch = representativePatch();
+    const packedLegacy = encodeLegacyV2(patch, patch.params);
+    const packedCurrent = encodeSynthUrlState(patch);
+    const restoredLegacy = decodeSynthUrlState(packedLegacy);
+    const restoredCurrent = decodeSynthUrlState(packedCurrent);
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (key === "time") continue;
+      if (typeof value === "number") {
+        expect(restoredLegacy.params[key], key).toBeCloseTo(value, 3);
+        expect(restoredLegacy.params[key], key).toBeCloseTo(restoredCurrent.params[key] as number, 3);
+      } else {
+        expect(restoredLegacy.params[key], key).toBe(value);
+        expect(restoredLegacy.params[key], key).toBe(restoredCurrent.params[key]);
+      }
+    }
+  });
+
+  it("v3 (current) links round-trip and are tagged \"p3\"", () => {
+    const patch = representativePatch();
+    const packed = encodeSynthUrlState(patch);
+    expect(packed[1]).toBe("3");
+    const restored = decodeSynthUrlState(packed);
+    expect("slabAxis" in restored.params).toBe(false);
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (key === "time") continue;
+      if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
+      else expect(restored.params[key], key).toBe(value);
+    }
+  });
+
+  it("the v1 path is unaffected: a \"p1\"-tagged link still decodes against the current (post-removal) schema with no slab leakage", () => {
+    const legacy = "p1s2t3g7cd1ia23ce21ok1uK9zelmm16p1j.5563722382-o91gd6e1f1xg1ih1cR4S21eT12Uc.  ..--==##@@Z1c";
+    const restored = decodeSynthUrlState(legacy);
+    expect(restored.shape).toBe("sphere");
+    expect(restored.params.field1).toBe("spiral");
+    expect("slabAxis" in restored.params).toBe(false);
   });
 });
 

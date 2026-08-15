@@ -1017,10 +1017,6 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
 //   — a different export design entirely (a per-cell-per-frame march or
 //   integral), not something this affine-fit/coordinate-table exporter can
 //   fake.
-// - An active slab (`slabAxis !== "none"`) — slab clip is itself only
-//   meaningful under carve/xray + `space: "object"`, all three already
-//   rejected, but it gets its own precise, separately-worded reject (see
-//   below) for the same reason `linearZ`/`originW` do.
 // - `linearZ` on an active voice, and `originW` on an active NON-SDF voice —
 //   both are 3D-only semantics that can only ever matter under
 //   `space: "object"`, which is already rejected; keeping an explicit,
@@ -1051,16 +1047,6 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
     throw new Error(
       `glyphcss: buildGlyphFieldSynthStaticExport does not support render: "${mode}" — ${why} per cell per frame, `
       + "which is a different export design than this baked coordinate-table/affine-fit exporter. Not planned.",
-    );
-  }
-  // Checked before the `space: "object"` reject below for the same reason —
-  // an active slab names ITSELF as the rejected feature, not the volumetric
-  // branch it's only ever meaningful under.
-  if (params.slabAxis !== "none") {
-    throw new Error(
-      'glyphcss: buildGlyphFieldSynthStaticExport does not support an active slab clip (slabAxis !== "none") — '
-      + "slab clip only has meaning for carve/xray's per-cell-per-frame march, which this baked "
-      + "coordinate-table/affine-fit exporter does not perform. Not planned.",
     );
   }
   if (params.space === "object") {
@@ -1101,10 +1087,10 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
  * Pure predicate mirroring `assertStaticExportSupported`: true when
  * `buildGlyphFieldSynthStaticExport` would accept `params`, false when it
  * would reject (`render: "carve"` or `"xray"`, `space: "object"`, an active
- * slab (`slabAxis !== "none"`), an active `linearZ` voice, or a nonzero
- * `originW` on an active NON-SDF voice — see `assertStaticExportSupported`'s
- * doc for why each is out of this exporter's design, and why the SDF voice
- * family is exempt from the `originW` reject). Merges `params` over the
+ * `linearZ` voice, or a nonzero `originW` on an active NON-SDF voice — see
+ * `assertStaticExportSupported`'s doc for why each is out of this exporter's
+ * design, and why the SDF voice family is exempt from the `originW` reject).
+ * Merges `params` over the
  * effect's own defaults first, exactly like `buildGlyphFieldSynthStaticExport`
  * itself, so a caller can pass a partial patch straight through.
  *

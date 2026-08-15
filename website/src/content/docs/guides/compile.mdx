@@ -315,14 +315,13 @@ This exporter ports field synth's 2D machinery — layers, `duty`, `phase`,
 per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and the
 [SDF fields and `step` wave](/guides/effects#sdf-fields-gyroid-menger-sierpinski)
 (`gyroid`/`menger`/`sierpinski`, at real-renderer exact parity) — but rejects
-the [volumetric branch, carve/xray, and an active slab clip](/guides/effects#volumetric-fields-space-object)
-explicitly (`space: "object"`, `render: "carve"`/`"xray"`,
-`slabAxis !== "none"`, or an active voice using `linearZ`/a nonzero
-`originWN`): a march or a mid-march clip is a different, per-cell-per-frame
-export design this affine-fit/coordinate-table bake can't fake. The
+the [volumetric branch and carve/xray](/guides/effects#volumetric-fields-space-object)
+explicitly (`space: "object"`, `render: "carve"`/`"xray"`, or an active voice
+using `linearZ`/a nonzero `originWN`): a per-cell-per-frame march is a
+different export design this affine-fit/coordinate-table bake can't fake. The
 `originWN` reject is waived for an active SDF voice, since that family reads
 `originW` even in the 2D branch. Check
 `isGlyphFieldSynthStaticExportSupported(params)` before calling; a
-volumetric, carve, xray, or active-slab patch exports through the
+volumetric or carve/xray patch exports through the
 [interactive export](#interactive-export) instead, which ships and evaluates
 the live effect runtime rather than a baked approximation.

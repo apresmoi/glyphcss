@@ -1456,19 +1456,6 @@ const fieldSynthSchema = {
   // saturates, and `0` means opposite things in the two modes (no fade in
   // carve vs. fully invisible in xray).
   xrayGain: { kind: "number", default: 4, min: 0, max: 16, step: 0.05, label: "Xray gain" },
-  // Slab clip (orthogonal to render mode; VOLUMETRIC-2.md §1 "Slab clip").
-  // Domain units (the post-`scale` space the field lives in, matching
-  // `freq`) — stable under orbit, unlike anchoring to per-cell object
-  // extents. Axes are domain axes, i.e. pre-voice-`angle`. A documented
-  // no-op under `render: "paint"`; applies to both "carve" and "xray".
-  // "none" is the only full-open representation — `slabStart`/`slabEnd` are
-  // ignored (not validated) when the axis is "none".
-  slabAxis: { kind: "string", default: "none", values: ["none", "x", "y", "z"], animation: "discrete", label: "Slab axis" },
-  // `slabStart >= slabEnd` renders empty (deliberately unvalidated — see
-  // VOLUMETRIC-2.md §1 "Slab clip": the UI enforces start < end, decode does
-  // not reject an inverted interval).
-  slabStart: { kind: "number", default: -1, min: -8, max: 8, step: 0.05, label: "Slab start" },
-  slabEnd: { kind: "number", default: 1, min: -8, max: 8, step: 0.05, label: "Slab end" },
   // Appended after every pre-existing key (VOLUMETRIC-2.md §2: append-only
   // ordering is load-bearing for the /synth URL codec's positional decode).
   // Menger/Sierpinski recursion depth; every other field ignores it. Capped
@@ -1794,57 +1781,6 @@ function validateFieldSynthRender(params: AnyParams): void {
       "carve-subcell-unsupported",
     );
   }
-}
-
-// Domain-axis index for a slab axis param ("x"/"y"/"z" -> 0/1/2), or -1 for
-// "none" (VOLUMETRIC-2.md §1 "Slab clip").
-function slabAxisIndex(axis: string): number {
-  return axis === "x" ? 0 : axis === "y" ? 1 : axis === "z" ? 2 : -1;
-}
-
-// `slabStart >= slabEnd` has no valid interval — the only full-open
-// representation is `slabAxis: "none"` (see the schema comment on
-// `slabStart`) — so a point never lies "inside" an inverted/degenerate
-// interval, regardless of its coordinate.
-function pointInSlab(coord: number, start: number, end: number): boolean {
-  return start < end && coord >= start && coord <= end;
-}
-
-/**
- * Clip `[entry, exit]` to a slab interval on one domain axis
- * (VOLUMETRIC-2.md §1 "Slab clip": "clip the segment, then march"). Returns
- * `null` when the interval doesn't intersect the segment at all (or
- * `start >= end`, which is never satisfiable). When BOTH endpoints already
- * lie inside the interval, the clip is skipped and the original points are
- * returned completely unchanged — no reparametrization, so a chord entirely
- * inside an active slab (and, in particular, every chord under
- * `slabAxis: "none"`, which never calls this at all) stays byte-identical to
- * the unclipped path.
- */
-function clipChordToSlab(
-  entry: readonly [number, number, number],
-  exit: readonly [number, number, number],
-  axis: number,
-  start: number,
-  end: number,
-): { readonly entry: readonly [number, number, number]; readonly exit: readonly [number, number, number]; readonly tEntry: number } | null {
-  if (!(start < end)) return null;
-  const e = entry[axis]!;
-  const x = exit[axis]!;
-  if (e >= start && e <= end && x >= start && x <= end) return { entry, exit, tEntry: 0 };
-  const d = x - e;
-  if (d === 0) return null; // constant, out-of-range axis coordinate: no intersection
-  const ta = (start - e) / d;
-  const tb = (end - e) / d;
-  const t0 = Math.max(0, Math.min(ta, tb));
-  const t1 = Math.min(1, Math.max(ta, tb));
-  if (t0 > t1) return null;
-  const dx = exit[0] - entry[0], dy = exit[1] - entry[1], dz = exit[2] - entry[2];
-  return {
-    entry: [entry[0] + dx * t0, entry[1] + dy * t0, entry[2] + dz * t0],
-    exit: [entry[0] + dx * t1, entry[1] + dy * t1, entry[2] + dz * t1],
-    tEntry: t0,
-  };
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -2315,11 +2251,6 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         }
       }
 
-      // Slab clip (VOLUMETRIC-2.md §1 "Slab clip"): orthogonal to render mode
-      // (a documented no-op under "paint"), applies to both carve and xray.
-      const slabActive = params.slabAxis !== "none";
-      const slabAxisIdx = slabAxisIndex(params.slabAxis as string);
-
       // Shared by carve's march and xray's integral — both sample the SAME
       // clamp01(bias + gain*v*0.5) density mapping paint itself uses (see
       // `computeFieldSynthPoint` below), at the fixed volumetric-branch
@@ -2330,7 +2261,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       );
 
       // xray computes ONE step count for the whole evaluate() pass, from the
-      // MAX (post-slab-clip) chord over every covered cell — not a per-cell
+      // MAX chord over every covered cell — not a per-cell
       // Nyquist floor the way carve uses. A per-cell count would let
       // neighboring cells' `ceil()` step-count flip by +-1 or +-2 steps,
       // which carve's first-hit search tolerates (the error is a sub-step
@@ -2351,14 +2282,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
           const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
           if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
-          let mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
-          let mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
-          if (slabActive) {
-            const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
-            if (!clip) continue;
-            mEntry = clip.entry; mExit = clip.exit;
-          }
-          const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
+          const chordLength = Math.hypot((exx - px) * scale, (exy - py) * scale, (exz - pz) * scale);
           if (chordLength > maxChord && Number.isFinite(chordLength)) maxChord = chordLength;
         }
         xrayUniformSteps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
@@ -2465,46 +2389,17 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
           const hasExit = Number.isFinite(exx) && Number.isFinite(exy) && Number.isFinite(exz);
           let hitX = entryX, hitY = entryY, hitZ = entryZ, hitDistance = 0;
-          let marched = false;
           if (hasExit) {
             const exitX = exx * scale, exitY = exy * scale, exitZ = exz * scale;
-            let mEntry: readonly [number, number, number] = [entryX, entryY, entryZ];
-            let mExit: readonly [number, number, number] = [exitX, exitY, exitZ];
-            // Clip-then-march (VOLUMETRIC-2.md §1 "Slab clip"): the entry ->
-            // exit segment is clipped to the slab interval BEFORE step-count
-            // computation and marching, so a narrow slab gets the full step
-            // budget inside the slab rather than most of it spent on samples
-            // outside it. Fade distance stays measured from the TRUE
-            // (pre-clip) entry — `entryOffset` carries the true-entry ->
-            // clipped-entry distance, added back onto the march's own
-            // (clip-relative) `sampleDistance` below.
-            let entryOffset = 0;
-            let slabExcludesChord = false;
-            if (slabActive) {
-              const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
-              if (!clip) {
-                slabExcludesChord = true;
-              } else {
-                mEntry = clip.entry; mExit = clip.exit;
-                entryOffset = clip.tEntry * Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
-              }
-            }
-            // The chord doesn't intersect an active slab at all: nothing is
-            // visible within the cut along this ray. Ordinary compositor
-            // semantics — a hole — not a fallback to the (possibly
-            // outside-the-slab) entry surface.
-            if (slabExcludesChord) continue;
-
-            const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
-            // A degenerate/non-finite ray (grazing silhouette: entry === exit,
-            // or a slab clip that only touches the interval at one point) has
-            // no chord to march — `marchField` itself already misses this
+            const chordLength = Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
+            // A degenerate/non-finite ray (grazing silhouette: entry === exit)
+            // has no chord to march — `marchField` itself already misses this
             // case, but the CALLER must not read that miss as a hole: it falls
-            // back to surface sampling at the TRUE entry (subject to the slab
-            // test below), which shares paint's own emission path unchanged.
+            // back to surface sampling at the TRUE entry, which shares paint's
+            // own emission path unchanged.
             if (chordLength > 0 && Number.isFinite(chordLength)) {
               const result = marchField(
-                mEntry, mExit, densitySample,
+                [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
                 { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
               );
               // No solid sample anywhere along a genuine (non-degenerate) chord:
@@ -2528,29 +2423,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               // the crossing isn't already bracket-exact (VOLUMETRIC.md's
               // Carve section — "hit at parameter t evaluates the paint
               // pipeline at the hit point"). `sampleDistance` is `marchField`'s
-              // own `sampleT * chordLength` along the MARCHED (possibly
-              // slab-clipped) chord; `entryOffset` (0 with no active slab)
-              // carries it back to the true entry so this can't drift out of
-              // sync.
-              hitDistance = entryOffset + result.sampleDistance;
+              // own `sampleT * chordLength` along the marched chord.
+              hitDistance = result.sampleDistance;
               hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
-              marched = true;
             }
           }
           // else: no finite exit for this cell (should not happen once
           // objectExit is retained for a covered cell, but degrades the same
           // way — surface sampling at the entry point).
-          if (!marched) {
-            // The degenerate-chord fallback (paint at the TRUE entry, distance
-            // 0) applies the slab test too — it only fires when the entry
-            // point itself lies inside an active slab (VOLUMETRIC-2.md §1
-            // "Slab clip"): otherwise the "surface" this would paint is
-            // exactly what the cut is supposed to hide.
-            if (slabActive) {
-              const coord = slabAxisIdx === 0 ? entryX : slabAxisIdx === 1 ? entryY : entryZ;
-              if (!pointInSlab(coord, params.slabStart, params.slabEnd)) continue;
-            }
-          }
 
           const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
           // Carve is validated to `subcellRes: "1x1"` only (never ink/2x4), so
@@ -2582,13 +2462,8 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           // volume would contradict the mode. The cell just emits nothing.
           if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
 
-          let mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
-          let mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
-          if (slabActive) {
-            const clip = clipChordToSlab(mEntry, mExit, slabAxisIdx, params.slabStart, params.slabEnd);
-            if (!clip) continue; // chord doesn't intersect the slab: nothing visible along it
-            mEntry = clip.entry; mExit = clip.exit;
-          }
+          const mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
+          const mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
           const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
           if (!(chordLength > 0) || !Number.isFinite(chordLength)) continue; // degenerate -> emits nothing, see above
 

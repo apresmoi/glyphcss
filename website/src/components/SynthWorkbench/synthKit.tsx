@@ -99,9 +99,6 @@ export const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
 // "xray" (VOLUMETRIC-2.md §1) appended — order matches the `render` schema
 // enum in packages/effects/src/stock.ts (append-only).
 export const RENDER_MODES = ["paint", "carve", "xray"] as const;
-// Slab clip (VOLUMETRIC-2.md §1): "none" is the only full-open
-// representation — `slabStart`/`slabEnd` stay whatever they were, unread.
-export const SLAB_AXES = ["none", "x", "y", "z"] as const;
 // The volumetric `pyramid` stage's own authoring size — matches every other
 // stage's `size: 3` footprint below (an edge length of 3, same as the
 // cube's), so the shipped "Sierpinski pyramid" preset's `scale: 1/3` pin
@@ -112,7 +109,6 @@ export const PYRAMID_STAGE_SIZE = 3;
 export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 export const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
 export const LAYER_COMBINE_OPTS = opts(LAYER_COMBINE_VALUES), LAYER_BLEND_OPTS = opts(LAYER_VALUE_OPS), RENDER_OPTS = opts(RENDER_MODES);
-export const SLAB_AXIS_OPTS = opts(SLAB_AXES);
 // "Calibrated" measures the VIEWER'S actual resolved font (not an authored
 // guess) at pick time — see `useRampCalibration` below. Its result is a
 // plain ramp string, same as any `GlyphRamps` entry, so it writes into
@@ -1473,34 +1469,25 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   }, [gainCtrl, biasCtrl, subcellIs2x4]);
 
   // Volumetric-only render controls (VOLUMETRIC.md's Carve mode, extended by
-  // VOLUMETRIC-2.md §1 with xray + the slab clip): the whole folder hides in
-  // 2D rather than unmounting, same show/hide-not-destroy discipline as
-  // every other conditional row on this page. Within it, individual rows
-  // hide per render mode: March fade is carve's own falloff, Xray gain is
-  // xray's own absorption gain (the two can't share a knob — see
-  // VOLUMETRIC-2.md §1), March steps applies to both, and the slab controls
-  // (Slab axis/start/end) apply to both and are meaningless — hidden — under
-  // "paint".
+  // VOLUMETRIC-2.md §1 with xray): the whole folder hides in 2D rather than
+  // unmounting, same show/hide-not-destroy discipline as every other
+  // conditional row on this page. Within it, individual rows hide per render
+  // mode: March fade is carve's own falloff, Xray gain is xray's own
+  // absorption gain (the two can't share a knob — see VOLUMETRIC-2.md §1),
+  // March steps applies to both.
   const volume = useFolder(gui, "Volume", { open: true });
   useEffect(() => { if (volume) (volumetric ? volume.show() : volume.hide()); }, [volume, volumetric]);
   const renderMode = s("render");
   const showMarchSteps = renderMode === "carve" || renderMode === "xray";
-  const showSlab = renderMode === "carve" || renderMode === "xray";
   useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => onParam("render", v));
   const marchStepsCtrl = useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
   const marchFadeCtrl = useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
   const xrayGainCtrl = useSlider(volume, "Xray gain", { min: 0, max: 16, step: 0.05 }, n("xrayGain"), (v) => onParam("xrayGain", v));
-  const slabAxisCtrl = useOption(volume, "Slab axis", SLAB_AXIS_OPTS, s("slabAxis"), (v) => onParam("slabAxis", v));
-  const slabStartCtrl = useSlider(volume, "Slab start", { min: -8, max: 8, step: 0.05 }, n("slabStart"), (v) => onParam("slabStart", v));
-  const slabEndCtrl = useSlider(volume, "Slab end", { min: -8, max: 8, step: 0.05 }, n("slabEnd"), (v) => onParam("slabEnd", v));
   useEffect(() => {
     marchStepsCtrl?.setVisible(showMarchSteps);
     marchFadeCtrl?.setVisible(renderMode === "carve");
     xrayGainCtrl?.setVisible(renderMode === "xray");
-    slabAxisCtrl?.setVisible(showSlab);
-    slabStartCtrl?.setVisible(showSlab);
-    slabEndCtrl?.setVisible(showSlab);
-  }, [marchStepsCtrl, marchFadeCtrl, xrayGainCtrl, slabAxisCtrl, slabStartCtrl, slabEndCtrl, showMarchSteps, showSlab, renderMode]);
+  }, [marchStepsCtrl, marchFadeCtrl, xrayGainCtrl, showMarchSteps, renderMode]);
 
   const out = useFolder(gui, "Output", { open: true });
   // Subcell GATES Ramp/Chars/density below it (2x4 never reads the ramp — see

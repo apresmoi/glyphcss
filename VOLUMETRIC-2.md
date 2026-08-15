@@ -100,9 +100,18 @@ integral in absolute domain units, brightness `B = 1 − T`.
   (max-density) accumulation mode is a recorded future option, out of
   scope here.
 
-### Slab clip (orthogonal; carve and xray)
+### Slab clip (orthogonal; carve and xray) — REMOVED
 
-Appended params: `slabAxis` (`"none" | "x" | "y" | "z"`, default
+**Status: removed post-implementation (see "Reconciliation" at the end of
+this file).** The user's original "slabs" request was reinterpreted by this
+phase as an object-space clip-then-march plane pair; that reading
+over-interpreted the intent, so the feature was deleted outright — schema
+keys, clip plumbing, UI rows, tests, docs — rather than kept and re-scoped.
+The text below is left exactly as designed/shipped, per this file's
+record-of-intent convention (design sections aren't rewritten to match
+after the fact), struck through to mark it dead:
+
+~~Appended params: `slabAxis` (`"none" | "x" | "y" | "z"`, default
 `"none"`), `slabStart` (default −1), `slabEnd` (default 1), range −8..8,
 in **domain units** (the post-`scale` space the field lives in — the
 natural per-cell object extents visible to the effect are view-dependent,
@@ -110,9 +119,9 @@ so anchoring to them would make the slab drift under orbit; domain units
 are stable and match `freq`). Slab axes are domain axes, i.e.
 pre-voice-`angle` — stated so a rotated voice's pattern doesn't move the
 slab. Docs note: the slab plane moves if `scale` changes, like
-everything else in domain units.
+everything else in domain units.~~
 
-Semantics — **clip the segment, then march**: the entry→exit segment is
+~~Semantics — **clip the segment, then march**: the entry→exit segment is
 clipped to the axis interval analytically (axis-aligned, exact) before
 step-count computation and marching, so a narrow slab gets the full step
 budget inside the slab (sample-rejection would skip thin walls exactly
@@ -126,11 +135,11 @@ uncoupled, so nothing enforces `start < end` — an inverted interval is a
 legal, empty patch by spec, not a rejected one). The **degenerate-chord
 fallbacks apply the slab test too**: carve's
 paint-at-entry only fires if the entry point lies inside the slab; xray's
-degenerate case is already empty.
+degenerate case is already empty.~~
 
-Slab under `render: "paint"` is a documented no-op and the slab controls
+~~Slab under `render: "paint"` is a documented no-op and the slab controls
 are hidden unless `render ∈ {carve, xray}`. A view-space depth-slab and
-multiple simultaneous slabs are out of scope.
+multiple simultaneous slabs are out of scope.~~
 
 ## 2. SDF voice family
 
@@ -407,3 +416,21 @@ to match after the fact):
   omitted `layerCombineL` from the group header controls; shipped with it
   included alongside `layerBlendL` — without it a layer's own fold override
   had no control surface.
+- **Slab clip removed.** §1's "Slab clip" section (struck through above) shipped
+  as designed, then was deleted outright on user direction: the object-space
+  clip-then-march plane pair over-interpreted the original "slabs" request.
+  Removal covered the schema keys (`slabAxis`/`slabStart`/`slabEnd`), the
+  clip-then-march plumbing in both carve and xray (including the
+  degenerate-chord fallbacks, which revert to their pre-slab form — carve's
+  paint-at-entry unconditional again, xray's degenerate case unchanged since
+  it was always empty), the static-exporter reject, the `/synth` Volume-folder
+  controls, and every acceptance-3 slab test. Byte-identity for every
+  patch that never set slab params was the explicit removal bar (slice 2's
+  own design already made `slabAxis: "none"` byte-identical to the unclipped
+  path, so deleting the feature had to preserve that, not just re-achieve
+  it) — the pre-existing hash/acceptance suites are the proof. Because slab's
+  three keys sat mid-schema (before `iter1..6`, not at the tail), removing
+  them shifts every later key's positional index in the `/synth` URL codec;
+  `SYNTH_SCHEMA_VERSION` bumped 2→3 with a legacy v2 decode path (parses a
+  v2-tagged link's packed params against the OLD key order, then discards the
+  three slab values) so already-shared links keep working.
