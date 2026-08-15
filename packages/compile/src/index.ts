@@ -6,7 +6,7 @@
  *   - `compileFile(p, opts)` Node: load a file → compiled `<pre>` (static)
  *   - `compileInteractive`   Node: load → decimate → self-contained interactive snippet
  *   - `glyphcssCompile()`    Vite plugin (also at "@glyphcss/compile/vite")
- *   - CLI: `glyphcss-compile <file> …`
+ *   - CLI: `glyphcss <file> …`
  */
 export { compileScene } from "glyphcss";
 export type { CompileSceneOptions, CompileSceneResult } from "glyphcss";

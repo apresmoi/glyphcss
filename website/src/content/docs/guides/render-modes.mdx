@@ -91,10 +91,10 @@ Patterns (`U+2800`..`U+28FF`), giving up to 8 independent "pixels" per glyph —
 visibly smoother diagonal and curved edges than a single ASCII rule glyph per
 cell.
 
-`charMode: "braille"` is a documented no-op in `solid` and `voxel` modes:
-braille dot coverage is binary, so it cannot carry a Lambert shade ramp or a
-voxel face-normal glyph. Those modes always render ASCII regardless of this
-option.
+`charMode: "braille"` is a documented no-op in `solid`, `voxel`, and `ink`
+modes: braille dot coverage is binary, so it cannot carry a Lambert shade
+ramp, a voxel face-normal glyph, or ink's oriented direction glyph. Those
+modes always render ASCII regardless of this option.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -175,43 +175,24 @@ on `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 ### Hidden-line removal (`hiddenLines`)
 
 The wireframe path has no depth reference by default: edges draw in mesh
-order, and a contested cell resolves by edge WEIGHT, not by which edge is
-actually nearer the camera. On any mesh where a farther edge (another mesh's
-far side, an extruded side wall behind a front face) projects into the same
-cell as a nearer one, the farther edge can paint over the nearer one —
-visible as cross-object bleed-through, `charMode: "braille"` strokes mixing
-with a farther stroke's dots, or a darker `sideColor` edge overwriting a
-brighter front-face color.
+order, and a contested cell resolves by edge weight, not by which edge is
+nearer the camera. A farther edge — another mesh's far side, an extruded side
+wall behind a front face — can paint over a nearer one. This shows up as
+cross-object bleed-through, braille strokes mixing with a farther stroke's
+dots, or a darker `sideColor` edge overwriting a brighter front-face color.
 
-`hiddenLines: "hide"` (default `"show"`, today's behavior) depth-tests every
-wireframe stroke sample against a solid surface prepass — the same
-triangle-depth rasterizer cross-layer occlusion uses — with a slope-scaled
-depth bias (the standard shadow-map technique: a grazing silhouette earns a
-larger allowance than a head-on crease, since a smooth surface's own
-silhouette lies ON the contour it outlines). Applies to both `charMode:
-"ascii"` and `charMode: "braille"`. Documented no-op in `solid` mode (already
-depth-buffered per cell).
+`hiddenLines: "hide"` (default `"show"`) depth-tests every wireframe stroke
+against a solid surface prepass, with a slope-scaled bias so a smooth
+surface's own silhouette isn't eaten by the surface it outlines. It applies to
+both `charMode: "ascii"` and `"braille"`, and is a documented no-op in `solid`
+mode (already depth-buffered per cell).
 
 `ink` mode also wires `hiddenLines: "hide"`, fixing the same defect on
-extruded text and other closed meshes (an extrusion's back/side walls no
-longer paint over its own front face, or a nearer letter's face, when the
-camera angle puts them in the same cell). It uses an IDENTITY-based test, not
-a margin reused from wireframe: two earlier margin attempts (a flat bias, then
-wireframe's slope-scaled bias, tried both per-sample and per-edge) fought
-SELF-occlusion — a sphere's silhouette lies ON the sphere, so the surface
-occludes its own outline, and any margin large enough to prevent that ate
-38-46% of the silhouette anyway. The fix excludes each kept edge's own local
-neighborhood (the triangles touching its endpoints, one vertex-ring hop out)
-from occluding it — the same principle as excluding the caster from its own
-shadow map — so a stroke is hidden only when a genuinely DIFFERENT, non-exempt
-surface wins that cell by more than a small `depthGradient`-scaled residual
-(needed only for discretization noise between a fine mesh's neighboring
-facets, not for self-occlusion). This holds the convex-mesh regression to
-exactly 0 (cube, icosahedron, sphere at two subdivision levels, across five
-world scales/projections) while running per-SAMPLE rather than per-edge, so a
-wall only partly behind a cap now hides just the covered portion. See
-`research/contour-first-text/decisions.md` for the measurements behind both
-ruled-out margin attempts and the shipped identity-based design.
+extruded text and other closed meshes. Its test is identity-based: a stroke is
+never occluded by its own local surface neighborhood, only by genuinely
+different geometry. Silhouettes survive intact, while an extrusion's back and
+side walls stop painting over its own front face — and a wall only partly
+behind a cap hides just the covered portion.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -411,17 +392,15 @@ documented no-op outside `solid` mode, and no-op when combined with a
 
 ### Font-weight density ramp (`solidWeightRamp`)
 
-`solidWeightRamp` adds a SECOND density axis to `solid` shading: CSS
+`solidWeightRamp` adds a second density axis to `solid` shading: CSS
 `font-weight`, alongside the usual glyph-shape ramp. Bold does not change
-monospace advance width in any tested stack (Menlo, Courier New, Monaco,
-Andale Mono, `ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace`
-— including a browser-synthesized bold), so a weight-bearing span can never
-desync the character grid.
+monospace advance width (verified across common stacks, including
+browser-synthesized bold), so a weight-bearing span can never desync the
+character grid.
 
-The ramp itself is measurement data, not a plain string — a list of
+The ramp is measurement data, not a plain string — a list of
 `(glyph, weight)` steps ordered darkest → densest by real ink coverage,
-produced by `@glyphcss/effects`'s `calibrateWeightedGlyphRamp` (never a
-hand-authored table):
+produced by `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`:
 
 ```ts
 import { calibrateWeightedGlyphRamp } from "@glyphcss/effects";
@@ -434,11 +413,10 @@ const { steps } = calibrateWeightedGlyphRamp({
 const solidWeightRamp = steps.map(({ glyph, weight }) => ({ glyph, weight: Number(weight) }));
 ```
 
-When set, `solidWeightRamp` REPLACES `glyphPalette`'s solid ramp — shading
-picks both a glyph and a weight from the calibrated steps, buying more
-perceptual shading buckets than glyph shape alone provides (measured: a
-10-glyph Menlo pool reaches 10 steps / coverage 0.3295 on its own; weighted,
-the same pool reaches 15 steps / coverage 0.4508).
+When set, `solidWeightRamp` **replaces** `glyphPalette`'s solid ramp —
+shading picks both a glyph and a weight from the calibrated steps, buying
+more distinguishable shading buckets and a darker dark end than glyph shape
+alone provides.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -466,13 +444,12 @@ const scene = createGlyphScene(document.querySelector("#scene")!, {
   </TabItem>
 </Tabs>
 
-`undefined` (the default) is byte-identical to before this option existed.
-Documented no-op outside `solid` mode, under `charMode: "halfblock"` or
-`"quadrant"` (both two-color-per-cell encodings have no font-weight span
-either), and during active `temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS
-property on `<glyph-scene>` (data, not an attribute — same rule
-`sceneManifest`/`dictionary` use) and `solidWeightRamp` on
-`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also reachable from
+`undefined` (the default) leaves the render byte-identical. Documented no-op
+outside `solid` mode, under `charMode: "halfblock"` or `"quadrant"` (their
+two-color encodings have no font-weight span), and during active
+`temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS property on
+`<glyph-scene>` (the ramp is data, not an attribute) and `solidWeightRamp` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
 `compileScene` — the ramp is plain step data, so a weighted-ramp render bakes
 at build time too.
 
@@ -527,9 +504,8 @@ scene.add(polygons);
 </Tabs>
 
 Today `voxel` routes through the wireframe rasterizer rather than owning a
-separate path (`// wireframe (and voxel falls through to wireframe for now)` in
-`rasterize.ts`), so it renders cell-aligned geometry as edges. The colour →
-glyph-density mapping described for a dedicated voxel pass does not exist yet.
+separate path, so it renders cell-aligned geometry as edges. A dedicated
+voxel color → glyph-density mapping does not exist yet.
 
 Best for: voxel art, chunky low-poly aesthetics.
 

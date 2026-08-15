@@ -224,14 +224,13 @@ Precedence: explicit `fontSize`/`lineHeight` → `density` → shared grid.
   per frame; the cross-layer occlusion pass only runs when an opaque detail mesh
   is present. Meshes left in the shared grid are unchanged. Use detail
   sparingly — a few hero meshes over a low-res backdrop, not everything.
-- **Smooth dragging at high resolution.** A very small cell (high scene-wide
-  density / tiny font) means a lot of glyphs to shade, stringify, and repaint
-  every frame — dragging can stutter. Set **`interactiveDownscale`** on the
-  scene (e.g. `2`) to render at ¼ the cells *while a control is dragging* and
-  snap back to full detail on release — same on-screen size, just coarser
-  mid-gesture. Cost scales ~quadratically with density (font ÷ d → cells × d²),
-  so keep the render font ≥ ~6px, or lean on `interactiveDownscale`, for fluid
-  interaction.
+- **Smooth dragging at high resolution.** A very small cell means many glyphs
+  to shade, stringify, and repaint every frame, and cost scales roughly
+  quadratically with density — dragging can stutter. Set
+  **`interactiveDownscale`** on the scene (e.g. `2`) to render coarser *while
+  a control is dragging* and snap back to full detail on release, at the same
+  on-screen size. Keep the render font ≥ ~6px, or lean on
+  `interactiveDownscale`, for fluid interaction.
 - **Static compile / export.** `compileScene`, `GlyphSceneStatic`, the CLI/Vite
   plugin, and the interactive/CodePen export work from a flat polygon list, so
   per-mesh detail layers aren't represented there. For a static whole-scene

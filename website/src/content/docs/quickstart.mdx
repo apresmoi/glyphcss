@@ -95,10 +95,10 @@ function onClick() { alert("vertex"); }
 
 ## What you get
 
-- A single `<pre>` rendered as ASCII glyphs, animating a full rotation in ~6 seconds.
+- A single `<pre>` rendered as ASCII glyphs — no canvas, no WebGL.
+- Drag-to-orbit and scroll-to-zoom out of the box via `<GlyphOrbitControls>`.
 - One absolutely-positioned `<div class="glyph-hotspot">` for each `<GlyphHotspot>`,
-  tracking the rotating mesh exactly (re-projected through the same camera each render).
-- Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphOrbitControls>`.
+  re-projected through the same camera each render so it stays glued to the mesh.
 
 ## Try a Platonic solid
 

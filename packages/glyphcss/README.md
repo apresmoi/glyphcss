@@ -29,7 +29,7 @@ Import `glyphcss/elements` once to register the `<glyph-*>` tags, then compose a
 </glyph-camera>
 ```
 
-Tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-camera>` (orthographic alias), `<glyph-orthographic-camera>`, `<glyph-perspective-camera>`, `<glyph-orbit-controls>`, `<glyph-map-controls>`, `<glyph-first-person-controls>`.
+Tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-effect-layer>`, `<glyph-hotspot>`, `<glyph-camera>` (orthographic alias), `<glyph-orthographic-camera>`, `<glyph-perspective-camera>`, `<glyph-orbit-controls>`, `<glyph-map-controls>`, `<glyph-first-person-controls>`.
 
 ## Quickstart — imperative API
 
@@ -85,7 +85,7 @@ Units match three.js / voxcss:
 | `solid` *(default)* | Lambert-shaded intensity picked from a glyph ramp |
 | `wireframe` | polygon edges rasterized as ASCII rules |
 | `voxel` | cube-aligned geometry; face normals drive glyph selection |
-| `ink` | silhouette + crease outlines only; oriented glyph (`_ / \| \ - ‾`) traces the smoothed contour tangent, interior stays empty |
+| `ink` | silhouette + crease outlines only; oriented glyph (`_ - ‾ ▔ / \| \ ▏ ▕ ·`) traces the smoothed contour tangent, interior stays empty |
 
 `charMode: "ascii" | "braille" | "halfblock" | "quadrant"` (default `"ascii"`)
 selects the character encoding used for rasterized output. `"braille"` packs
@@ -119,16 +119,17 @@ unaffected and keep the default slope-glyph behavior. Mirrored as
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 
 `hiddenLines: "show" | "hide"` (default `"show"`) is hidden-line removal for
-the `wireframe` path (including `charMode: "braille"`). The wireframe path has
-no depth reference by default — edges draw in mesh order, and a contested
-cell resolves by edge WEIGHT, not by which edge is nearer the camera, so a
-farther edge (another mesh's far side, an extruded side wall behind a front
-face) can paint over a nearer one. `"hide"` depth-tests every stroke sample
-against a solid surface prepass with a slope-scaled depth bias (the standard
-shadow-map technique — a grazing silhouette earns a larger allowance than a
-head-on crease). Documented no-op in `solid` (already depth-buffered per
-cell) and `ink` (not wired — a flat-bias attempt regressed every convex mesh
-there). Mirrored as `hidden-lines` on `<glyph-scene>` and `hiddenLines` on
+the `wireframe` and `ink` paths (including `charMode: "braille"`). The
+wireframe path has no depth reference by default — edges draw in mesh order,
+and a contested cell resolves by edge WEIGHT, not by which edge is nearer the
+camera, so a farther edge (another mesh's far side, an extruded side wall
+behind a front face) can paint over a nearer one. `"hide"` depth-tests every
+stroke sample against a solid surface prepass with a slope-scaled depth bias
+(the standard shadow-map technique — a grazing silhouette earns a larger
+allowance than a head-on crease). In `ink`, the test additionally exempts each
+edge's own local surface so a mesh's silhouette can't occlude itself.
+Documented no-op in `solid` (already depth-buffered per cell). Mirrored as
+`hidden-lines` on `<glyph-scene>` and `hiddenLines` on
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
 `compileScene`/`GlyphSceneStatic`, unlike `wireframeJunctions`.
 

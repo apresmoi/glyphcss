@@ -23,7 +23,7 @@ export type { ExtrudeProfile };
 export interface TextPolygonsOptions {
   /** Cap-em size in world units. Defaults to 100. */
   size?: number;
-  /** Extrusion depth along the world Z axis, in world units. Defaults to size*0.2. */
+  /** Extrusion depth along the world X axis, in world units. Defaults to size*0.2. */
   depth?: number;
   /** Bézier flattening: segments per curve. Higher = smoother, more polys. */
   curveSteps?: number;

@@ -4,7 +4,9 @@
 
 Framework-agnostic math, parsers, and helpers for ASCII polygon-mesh rendering. Zero browser globals: runs in Node, workers, or any JS environment.
 
-This package contains the entire non-rendering side of glyphcss: OBJ / glTF / GLB / MagicaVoxel parsers, polygon normalization, coplanar merge, Lambert lighting, isometric camera state, and all shared TypeScript types.
+This package contains the entire non-rendering side of glyphcss: OBJ / glTF / GLB / STL / MagicaVoxel parsers, polygon normalization, coplanar merge, Lambert lighting, isometric camera state, and all shared TypeScript types.
+
+Full documentation: **https://glyphcss.com**
 
 ## When to use directly
 
@@ -28,10 +30,10 @@ npm install @glyphcss/core
 |---|---|
 | `Vec2` | `[number, number]`: 2D point or UV coordinate |
 | `Vec3` | `[number, number, number]`: 3D point or direction |
-| `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data` |
+| `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data`, `material`, `textureWrap`, `textureTriangles`, `hidden`, `objectVertices` |
 | `GlyphDirectionalLight` | Directional light: `direction`, optional `color`, optional `intensity` |
 | `GlyphAmbientLight` | Ambient fill light: optional `color`, optional `intensity` |
-| `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings` |
+| `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings`, optional `animation` |
 | `ObjParseOptions` | Options for `parseObj` |
 | `GltfParseOptions` | Options for `parseGltf` |
 | `VoxParseOptions` | Options for `parseVox` |
@@ -54,10 +56,11 @@ npm install @glyphcss/core
 | `parseMtl(text)` | Parses MTL text into `{ colors, textures }`. |
 | `parseGltf(buffer, options?)` | Parses GLB or glTF `ArrayBuffer` into `ParseResult`. Extracts embedded textures as blob URLs. |
 | `parseVox(buffer, options?)` | Parses MagicaVoxel `.vox` `ArrayBuffer` into `ParseResult`. Face-culls interior voxel faces. |
-| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>`. |
+| `parseStl(source, options?)` | Parses binary or ASCII STL into `ParseResult`. |
+| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`, `.stl`, `.vox`). Returns `Promise<ParseResult>`. |
 | `parseColor(input)` | Parse any CSS color string to `{ r, g, b, a }`. |
-| `shadeColor(input, lambert, ...)` | Apply Lambert shading factor to a color. |
-| `computeShapeLighting(normal, baseColor, light?)` | Compute shaded color for a polygon face given a directional light and surface normal. |
+| `shadeColor(base, delta)` | Lighten/darken a color by an additive per-channel delta. |
+| `computeShapeLighting(normal, baseColor, directional?, ambient?)` | Compute shaded color for a polygon face given directional and ambient lights and a surface normal. |
 
 ## Examples
 

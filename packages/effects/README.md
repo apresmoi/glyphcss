@@ -49,11 +49,17 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
 - **fieldSynth** — a composable oscillator synth: up to six voices, each pairing a
   field (`radial`/`linearX`/`linearY`/`diagonal`/`angular`/`spiral`/`noise`) with a
   waveform (`sin`/`triangle`/`saw`/`square`), combined (`add`/`multiply`/`max`/`min`/
-  `difference`) into one scalar mapped to a glyph ramp and color over a `space`. `amp`
-  is a per-voice mix weight rather than a gain, `lit` modulates the output color by
-  surface shading, and `voiceColors` blends each active voice's own color instead of a
-  single value gradient. Ships with a curated set of presets (Sunburst, Ring pulse,
-  Plaid weave, and more).
+  `difference`/`argmax`) into one scalar mapped to a glyph ramp and color over a
+  `space`. `argmax` is categorical — each region takes the winning voice's flat
+  level (and, with `voiceColors`, its color), which makes hard-edged tilings
+  possible. Each voice also carries `angleN` (rotates its sampling frame) and
+  `originUN`/`originVN` (its own center offset). `amp` is a per-voice mix weight
+  rather than a gain, `lit` modulates the output color by surface shading, and
+  `voiceColors` blends each active voice's own color instead of a single value
+  gradient. `subcellRes` picks the output encoding: `"1x1"` (one ramp glyph per
+  cell), `"2x4"` (Braille subcell dots), or `"ink"` (contour lines of the field,
+  with `inkLevels` setting how many). Ships with a curated set of presets
+  (Sunburst, Ring pulse, Plaid weave, and more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are
@@ -76,17 +82,21 @@ Other exports: `GlyphEffectCatalog` (array of every stock definition),
 `glyphEffectHasColor(definition)` (whether a definition exposes a color parameter),
 and `GlyphEffectNoColor` (the packed-color sentinel meaning a cell writes no color).
 
-Matrix rain, flow text, and scan prefer authored UVs in `auto` mapping, generate
-orientation-aware coordinates from world position and face normal when UVs are
-absent, and fall back to projected coordinates when those fields are absent.
-`surface` forces the generated geometry mapping even when UVs exist; `scene`
-forces projected coordinates.
-Generated `down` projects world `-Z` into each face's tangent plane. Slopes
-therefore flow downhill, coplanar triangles agree, differently oriented faces
-diverge, and horizontal planes use a stable pseudo-random tangent direction.
-Matrix rain fits each quantized coplanar surface basis to projected glyph-cell
-space and uses the resulting orthogonal face-local field for both its sparse mask
-and its glyph lookup. Letters are indexed by periodic distance behind the head,
-which makes the word and trail share one direction and velocity even on a sheared
-or foreshortened roof. Active trail cells emit full coverage; density and trail
-extent provide sparsity without dithered gaps.
+The `space` parameter has four values. `auto` (flow text and scan's default)
+prefers authored UVs, then generated surface coordinates, then projected scene
+coordinates. `surface` forces the generated geometry mapping even when UVs
+exist; `scene` forces projected coordinates. `object` treats the pattern as a
+volumetric field in the mesh's own local space — matrix rain's default, since
+falling strands have a natural 3D form that continues across face seams.
+Generated `down` projects world `-Z` into each face's tangent plane, so slopes
+flow downhill and horizontal planes get a stable pseudo-random direction.
+When matrix rain runs on generated surface coordinates instead, it fits each
+coplanar surface basis to projected glyph-cell space so the word and trail
+share one direction and velocity even on sheared or foreshortened faces.
+
+Also exported: `calibrateWeightedGlyphRamp` (measures a glyph × font-weight
+ramp for glyphcss's `solidWeightRamp` scene option) and
+`buildGlyphFieldSynthStaticExport` (bakes an effect-only, static-camera
+field-synth scene into a self-contained snippet with zero runtime imports).
+
+Full documentation: **https://glyphcss.com/guides/effects/**
