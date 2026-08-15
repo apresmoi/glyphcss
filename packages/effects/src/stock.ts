@@ -8,6 +8,25 @@ import {
   type GlyphEffectParamSchema,
   type GlyphEffectParamValues,
 } from "glyphcss";
+import {
+  combineSynth,
+  evaluateFieldProgram,
+  sampleFieldVoice,
+  SYNTH_COMBINES,
+  SYNTH_FIELDS,
+  SYNTH_WAVES,
+  synthWave,
+  type FieldLayer,
+  type FieldProgram,
+  type FieldVoice,
+} from "./fieldProgram";
+
+// Re-exported so `staticExport.ts` and the wider `@glyphcss/effects` public
+// surface keep importing these names from "./stock" unchanged — the field
+// program IR (voices, layers, `evaluateFieldProgram`, `marchField`) now lives
+// in `fieldProgram.ts`, but these three predate the IR split and have
+// external consumers.
+export { combineSynth, SYNTH_COMBINES, SYNTH_FIELDS, SYNTH_WAVES, synthWave };
 
 export interface GlyphEffectPreset<Schema extends GlyphEffectParamSchema> {
   readonly name: string;
@@ -1170,83 +1189,15 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // sampled through a WAVEFORM, combined into one scalar field that maps to a
 // glyph ramp + color. Composing/interfering the oscillators is where emergent
 // patterns (moiré, plaid, sonar, lattices) come from. Runs over surfaces via
-// `space`.
+// `space`. The actual evaluation (voices, layers, waveform/noise primitives)
+// lives in `fieldProgram.ts` as the field-program IR (see VOLUMETRIC.md's
+// "The field program IR"); this module compiles the flat schema down to that
+// IR once per `evaluate()` call and re-exports a few of its pieces that
+// already have external consumers (`staticExport.ts`, the website).
 
-// Exported so `staticExport.ts` can enumerate voices / validate field-wave-
-// combine names against the same lists the schema uses, instead of a second
-// hardcoded copy that could drift.
+// `SYNTH_VOICES` caps the flat SCHEMA only — see fieldProgram.ts's module doc
+// for why the IR/evaluator stay uncapped.
 export const SYNTH_VOICES = 6;
-export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
-export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
-export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
-
-// Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
-// plot the exact same shape+phase math the engine evaluates, instead of a
-// second copy that could drift.
-export function synthWave(kind: string, t: number): number {
-  const p = t - Math.floor(t); // 0..1
-  switch (kind) {
-    case "triangle": return 4 * Math.abs(p - 0.5) - 1;
-    case "saw": return 2 * p - 1;
-    case "square": return p < 0.5 ? 1 : -1;
-    default: return Math.sin(t * Math.PI * 2); // sin
-  }
-}
-
-function synthHash3(x: number, y: number, z: number): number {
-  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
-  return h - Math.floor(h);
-}
-
-// Time is a third lattice axis (not an x-translation), so the pattern morphs
-// in place — trilinear interpolation between the z and z+1 lattice frames —
-// instead of sliding sideways as `time` advances.
-function synthNoise3(x: number, y: number, z: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
-  const xf = x - xi, yf = y - yi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
-  const a000 = synthHash3(xi, yi, zi), a100 = synthHash3(xi + 1, yi, zi);
-  const a010 = synthHash3(xi, yi + 1, zi), a110 = synthHash3(xi + 1, yi + 1, zi);
-  const a001 = synthHash3(xi, yi, zi + 1), a101 = synthHash3(xi + 1, yi, zi + 1);
-  const a011 = synthHash3(xi, yi + 1, zi + 1), a111 = synthHash3(xi + 1, yi + 1, zi + 1);
-  const frame0 = (a000 * (1 - u) + a100 * u) * (1 - v) + (a010 * (1 - u) + a110 * u) * v;
-  const frame1 = (a001 * (1 - u) + a101 * u) * (1 - v) + (a011 * (1 - u) + a111 * u) * v;
-  return frame0 * (1 - w) + frame1 * w; // 0..1
-}
-
-// One oscillator → value in ~[-amp, amp].
-function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number, angle = 0): number {
-  if (amp === 0) return 0;
-  if (angle !== 0) {
-    // Rotate the SAMPLE about this voice's own centre rather than rotating the
-    // field: radial/spiral then stay anchored where they were, and a linear
-    // field becomes a plane wave at `angle`.
-    const a = (-angle * Math.PI) / 180;
-    const dx = x - cx;
-    const dy = y - cy;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
-    x = cx + dx * ca - dy * sa;
-    y = cy + dx * sa + dy * ca;
-  }
-  if (field === "noise") {
-    return amp * (2 * synthNoise3(x * freq, y * freq, time * speed) - 1);
-  }
-  let raw: number;
-  switch (field) {
-    case "linearX": raw = x; break;
-    case "linearY": raw = y; break;
-    case "diagonal": raw = (x + y) * 0.70710678; break;
-    // atan2/(2π) jumps by 1 crossing the -x ray; a wave sampled at raw*freq
-    // is seamless there only when freq lands on an integer number of cycles
-    // per revolution. Non-integer freq leaves a visible seam along that ray —
-    // topological to the angular coordinate, not fixable by clamping freq.
-    case "angular": raw = Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
-    case "spiral": raw = Math.hypot(x - cx, y - cy) + Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
-    default: raw = Math.hypot(x - cx, y - cy); // radial
-  }
-  return amp * synthWave(wave, raw * freq - time * speed);
-}
 
 function lerpPacked(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
@@ -1343,6 +1294,34 @@ const fieldSynthSchema = {
   color4: { kind: "color", default: "#ffcf5a", label: "Voice 4 color" },
   color5: { kind: "color", default: "#c78bff", label: "Voice 5 color" },
   color6: { kind: "color", default: "#ff7a45", label: "Voice 6 color" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Step 2: append-
+  // only ordering is load-bearing for the /synth URL codec's positional
+  // decode). Defaults reproduce today's behavior exactly: duty 0.5 is the
+  // pre-duty `p < 0.5` square split, phase 0 adds nothing to the wave
+  // argument, originW 0 leaves the volumetric branch's Z origin untouched.
+  duty1: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 1 duty" },
+  duty2: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 2 duty" },
+  duty3: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 3 duty" },
+  duty4: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 4 duty" },
+  duty5: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 5 duty" },
+  duty6: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 6 duty" },
+  // Cycles. Schema min/max/step are UI hints, not validation — a preset value
+  // like -1/3 (the Menger middle-third selector) is carried at full float
+  // precision regardless of `step`.
+  phase1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 1 phase" },
+  phase2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 2 phase" },
+  phase3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 3 phase" },
+  phase4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 4 phase" },
+  phase5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 5 phase" },
+  phase6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 6 phase" },
+  // Volumetric-branch-only third origin component (see "Domain" in
+  // VOLUMETRIC.md's Step 2) — a no-op in the 2D branch.
+  originW1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin W" },
+  originW2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin W" },
+  originW3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin W" },
+  originW4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin W" },
+  originW5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin W" },
+  originW6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin W" },
 } as const satisfies GlyphEffectParamSchema;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
@@ -1372,6 +1351,12 @@ interface SynthVoice {
    *  figure, unreachable at any voice count while the centre was shared). */
   readonly originU: number;
   readonly originV: number;
+  /** Volumetric-branch-only third origin component; unused in 2D. */
+  readonly originW: number;
+  /** Square wave's high fraction; other wave kinds ignore it. Default 0.5. */
+  readonly duty: number;
+  /** Cycles, added to the wave argument for every field/wave kind. Default 0. */
+  readonly phase: number;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1435,73 +1420,38 @@ const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] =
   [0x08, 0x10, 0x20, 0x80],
 ];
 
-// Same voice-fold as the main evaluate() loop below, minus the color
-// bookkeeping the main loop needs — used to resample the scalar field at each
-// of a cell's 8 Braille subcell offsets, where only the scalar matters.
-/**
- * Evaluate the whole voice stack at one point. `winner` is only meaningful under
- * `combine: "argmax"`, where the output is CATEGORICAL — which voice won, not
- * how much it won by. Every other mode folds values as before and reports -1.
- *
- * argmax is what makes hard-edged tilings possible: the pairwise ops all return
- * a value, so a region's shading keeps varying inside it, whereas selecting by
- * identity gives each region one flat level (and, with per-voice colors, the
- * winning voice's own colour).
- */
-function evaluateVoices(
-  voices: readonly SynthVoice[],
-  combine: string,
-  x: number,
-  y: number,
-  cx: number,
-  cy: number,
-  time: number,
-  scale: number,
-): { combined: number; winner: number; active: number } {
-  let combined = 0;
-  let active = 0;
-  let best = -Infinity;
-  let winner = -1;
-  let winnerOrder = -1;
-  const argmax = combine === "argmax";
-  for (let k = 0; k < SYNTH_VOICES; k++) {
-    const voice = voices[k]!;
-    if (!(voice.amp > 0)) continue;
-    // Same units as the global origin, which `fieldSynthCoordinate` already
-    // scaled (`originU * scale`) — adding a raw offset here made a voice's
-    // centre drift by half the grid at scale 2 and by 1% of it at scale 100.
-    const vcx = cx + voice.originU * scale;
-    const vcy = cy + voice.originV * scale;
-    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, vcx, vcy, time, voice.angle);
-    if (argmax) {
-      const contribution = voice.amp * o;
-      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
-    } else if (active === 0) {
-      combined = voice.amp * o;
-    } else {
-      combined += voice.amp * (combineSynth(combine, combined, o) - combined);
-    }
-    active++;
-  }
-  if (argmax) {
-    // Evenly spaced flat levels across the range, one per ACTIVE voice, so the
-    // ramp (or ink) reads each region as a single constant tone.
-    combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
-  }
-  return { combined, winner, active };
-}
-
-function subcellFieldValue(
-  voices: readonly SynthVoice[],
-  combine: string,
-  x: number,
-  y: number,
-  cx: number,
-  cy: number,
-  time: number,
-  scale: number,
-): number {
-  return evaluateVoices(voices, combine, x, y, cx, cy, time, scale).combined;
+// Compiles field-synth's flat per-voice params into a single-layer field
+// program — the frontend→IR compile step (VOLUMETRIC.md's "The field program
+// IR"), called once per `evaluate()` call, from params only. Voice origins
+// are pre-scaled here (`* scale`) so `evaluateFieldProgram` never needs to
+// know about `scale` at all — it only combines a voice's relative origin with
+// the call-level origin it's given. A single layer with threshold/invert off
+// and amp 1 folds to exactly `combine`'s own output (see
+// `evaluateFieldProgram`'s doc), which is what keeps every pre-layers preset
+// byte-identical.
+function compileFieldSynthProgram(voices: readonly SynthVoice[], combine: string, scale: number): FieldProgram {
+  const compiled: FieldVoice[] = voices.map((voice) => ({
+    field: voice.field,
+    wave: voice.wave,
+    freq: voice.freq,
+    speed: voice.speed,
+    amp: voice.amp,
+    phase: voice.phase,
+    duty: voice.duty,
+    angle: voice.angle,
+    origin: { u: voice.originU * scale, v: voice.originV * scale, w: voice.originW * scale },
+    color: voice.color,
+  }));
+  const layer: FieldLayer = {
+    voices: compiled,
+    combine,
+    thresholdOn: false,
+    threshold: 0,
+    invert: false,
+    blend: "multiply",
+    amp: 1,
+  };
+  return [layer];
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1555,19 +1505,74 @@ function fieldSynthSubcellGradient<P extends AnyParams>(
   return [dxCol, dyCol, dxRow, dyRow];
 }
 
-// Exported for the same reason as `synthWave` above — reuse the exact
-// per-voice mix-weight fold instead of re-deriving it.
-export function combineSynth(mode: string, a: number, b: number): number {
-  switch (mode) {
-    // Pairwise, argmax can only report the winning VALUE; the winning identity
-    // is resolved by `evaluateVoices`, which sees the whole stack at once.
-    case "argmax": return Math.max(a, b);
-    case "add": return a + b;
-    case "max": return Math.max(a, b);
-    case "min": return Math.min(a, b);
-    case "difference": return Math.abs(a - b);
-    default: return a * b; // multiply
+// The volumetric-branch counterpart to `fieldSynthSubcellGradient`: the
+// resolved coordinate is `objectPosition * scale` directly (see fieldSynth's
+// `evaluate()`), so the neighbor probe finite-differences `objectPosition`
+// itself instead of re-deriving it through `fieldSynthCoordinate` — same
+// local-affine approximation, now in 3D (VOLUMETRIC.md's "Subcell modes").
+function fieldSynthVolumetricSubcellGradient<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  scale: number,
+  x: number,
+  y: number,
+  z: number,
+): readonly [number, number, number, number, number, number] {
+  const cols = context.base.cols;
+  const rows = context.base.rows;
+  const col = index % cols;
+  const row = (index / cols) | 0;
+  const op = context.base.objectPosition!;
+  let dxCol = 0, dyCol = 0, dzCol = 0, dxRow = 0, dyRow = 0, dzRow = 0;
+  if (cols > 1) {
+    const hasRight = col + 1 < cols;
+    const rightIndex = hasRight ? index + 1 : index - 1;
+    const rx = op[rightIndex * 3]!, ry = op[rightIndex * 3 + 1]!, rz = op[rightIndex * 3 + 2]!;
+    if (Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rz)) {
+      const sign = hasRight ? 1 : -1;
+      dxCol = (rx * scale - x) * sign;
+      dyCol = (ry * scale - y) * sign;
+      dzCol = (rz * scale - z) * sign;
+    }
   }
+  if (rows > 1) {
+    const hasDown = row + 1 < rows;
+    const downIndex = hasDown ? index + cols : index - cols;
+    const dxp = op[downIndex * 3]!, dyp = op[downIndex * 3 + 1]!, dzp = op[downIndex * 3 + 2]!;
+    if (Number.isFinite(dxp) && Number.isFinite(dyp) && Number.isFinite(dzp)) {
+      const sign = hasDown ? 1 : -1;
+      dxRow = (dxp * scale - x) * sign;
+      dyRow = (dyp * scale - y) * sign;
+      dzRow = (dzp * scale - z) * sign;
+    }
+  }
+  return [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow];
+}
+
+// Dispatches to the 2D or volumetric subcell gradient probe and normalizes
+// both to the same 6-component (col, row) x/y/z shape — the 2D probe has no
+// z gradient, so it pads with 0 in the correct (not spread-appended) slots.
+function fieldSynthAnySubcellGradient<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  space: EffectSpace,
+  uvBounds: boolean,
+  scale: number,
+  originU: number,
+  originV: number,
+  sceneCols: number,
+  sceneRows: number,
+  generatedSurface: GeneratedSurfaceField | null | undefined,
+  x: number,
+  y: number,
+  z: number,
+  volumetric: boolean,
+): readonly [number, number, number, number, number, number] {
+  if (volumetric) return fieldSynthVolumetricSubcellGradient(context, index, scale, x, y, z);
+  const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+    context, index, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface, x, y,
+  );
+  return [dxCol, dyCol, 0, dxRow, dyRow, 0];
 }
 
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
@@ -1664,6 +1669,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   presets: fieldSynthPresets,
   program: {
     optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
+    // See VOLUMETRIC.md's "Params-aware requirement gating": objectPosition
+    // is retained only for patches actually using the volumetric branch, not
+    // for every mounted field-synth patch (most of which are 2D).
+    dynamicRequirements(params) {
+      return params.space === "object" ? ["objectPosition"] : [];
+    },
     validateParams(params) {
       validateGlyphRamp(params);
       validatePositiveScale(params);
@@ -1675,47 +1686,66 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
       const scale = params.scale;
-      const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
+      // Guarded exactly like matrixRain's own volumetric branch: `space:
+      // "object"` with a retained objectPosition buffer (solid mode only —
+      // wireframe/voxel degrade to the 2D surface/scene fallback below).
+      const volumetric = params.space === "object" && !!context.base.objectPosition;
+      const generatedSurface = !volumetric && params.space !== "scene" && !(params.space === "auto" && uvBounds)
         ? generatedSurfaceField(context)
         : undefined;
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
       const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6 },
+        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1, originW: params.originW1, duty: params.duty1, phase: params.phase1 },
+        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2, originW: params.originW2, duty: params.duty2, phase: params.phase2 },
+        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3, originW: params.originW3, duty: params.duty3, phase: params.phase3 },
+        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4, originW: params.originW4, duty: params.duty4, phase: params.phase4 },
+        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5, originW: params.originW5, duty: params.duty5, phase: params.phase5 },
+        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6, originW: params.originW6, duty: params.duty6, phase: params.phase6 },
       ];
       const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
       const rampMax = glyphs.length - 1;
+      // Compile once per evaluate() call, from params only (VOLUMETRIC.md's
+      // "The field program IR") — the per-cell loop below only ever calls the
+      // IR evaluator, never touches `params.field1`-style flat accessors
+      // again. `fieldProgram[0]!.voices` (pre-scaled origins) is reused by
+      // the voiceColors fallback loop and the subcell probes below so every
+      // scalar read in this function comes from the same compiled program.
+      const fieldProgram = compileFieldSynthProgram(voices, params.combine, scale);
+      const compiledVoices = fieldProgram[0]!.voices;
+      // Global pattern origin: same `originU/originV * scale` resolution the
+      // 2D "scene"/"auto"-without-UV path already uses (see
+      // `fieldSynthCoordinate`). The volumetric branch has no schema-level Z
+      // origin control (only each voice's own `originW`), so cz is always 0.
+      const volumetricOriginX = params.originU * scale;
+      const volumetricOriginY = params.originV * scale;
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
-        const coord = fieldSynthCoordinate(
-          context,
-          i,
-          params.space as EffectSpace,
-          uvBounds,
-          scale,
-          params.originU,
-          params.originV,
-          sceneCols,
-          sceneRows,
-          generatedSurface,
-        );
-        if (!coord) continue;
-        const [x, y, cx, cy] = coord;
-        // One evaluator for the whole stack (see `evaluateVoices`) so the
-        // scalar here, the 2x4 subcell probes and the ink gradient probes can
-        // never disagree about what the patch sounds like. `amp` is a MIX
+        let x: number, y: number, z: number, cx: number, cy: number, cz: number;
+        if (volumetric) {
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          x = px * scale; y = py * scale; z = pz * scale;
+          cx = volumetricOriginX; cy = volumetricOriginY; cz = 0;
+        } else {
+          const coord = fieldSynthCoordinate(
+            context, i, params.space as EffectSpace, uvBounds, scale,
+            params.originU, params.originV, sceneCols, sceneRows, generatedSurface,
+          );
+          if (!coord) continue;
+          x = coord[0]; y = coord[1]; cx = coord[2]; cy = coord[3]; z = 0; cz = 0;
+        }
+        // One evaluator for the whole program (see `evaluateFieldProgram`) so
+        // the scalar here, the 2x4 subcell probes and the ink gradient probes
+        // can never disagree about what the patch sounds like. `amp` is a MIX
         // WEIGHT, not a signal gain: the first voice enters at its weight, each
         // later voice blends the result toward `combine(result, voice)` by its
         // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
         // instead of `multiply` crushing the field to zero.
-        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time, scale);
+        const stack = evaluateFieldProgram(fieldProgram, x, y, z, time, cx, cy, cz, volumetric);
         const combined = stack.combined;
         const active = stack.active;
         // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
@@ -1734,11 +1764,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             car = cr; cag = cg; cabv = cbv; cao = co; caw = 1;
           } else {
             for (let k = 0; k < SYNTH_VOICES; k++) {
-              const voice = voices[k]!;
+              const voice = compiledVoices[k]!;
               if (!(voice.amp > 0)) continue;
-              const o = synthOsc(
-                voice.field, voice.wave, voice.freq, voice.speed, 1,
-                x, y, cx + voice.originU * scale, cy + voice.originV * scale, time, voice.angle,
+              const o = sampleFieldVoice(
+                voice, x, y, z,
+                cx + voice.origin.u, cy + voice.origin.v, cz + voice.origin.w,
+                time, volumetric,
               );
               const w = voice.amp * Math.abs(o);
               const c = parsedVoiceColors[k]!;
@@ -1756,14 +1787,16 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // Dropping it here would draw only the inner edge of every contour.
         if (!inkMode && value <= 0) continue;
         if (inkMode) {
-          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+          const [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow] = fieldSynthAnySubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
-            sceneCols, sceneRows, generatedSurface, x, y,
+            sceneCols, sceneRows, generatedSurface, x, y, z, volumetric,
           );
-          const sample = (ox: number, oy: number): number =>
-            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time, scale) * 0.5);
-          const right = sample(dxCol, dyCol);
-          const down = sample(dxRow, dyRow);
+          const sample = (ox: number, oy: number, oz: number): number =>
+            clamp01(params.bias + params.gain * evaluateFieldProgram(
+              fieldProgram, x + ox, y + oy, z + oz, time, cx, cy, cz, volumetric,
+            ).combined * 0.5);
+          const right = sample(dxCol, dyCol, dzCol);
+          const down = sample(dxRow, dyRow, dzRow);
           const gx = right - value;
           const gy = down - value;
           // Contour every level, not just one: `n / (levels + 1)` spreads the
@@ -1779,9 +1812,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (!crosses) continue;
           setGlyph(context, i, inkGlyphForField(gx, gy));
         } else if (params.subcellRes === "2x4") {
-          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+          const [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow] = fieldSynthAnySubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
-            sceneCols, sceneRows, generatedSurface, x, y,
+            sceneCols, sceneRows, generatedSurface, x, y, z, volumetric,
           );
           let mask = 0;
           for (let dotCol = 0; dotCol < 2; dotCol++) {
@@ -1790,7 +1823,8 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               const fy = (dotRow + 0.5) / 4 - 0.5;
               const subX = x + fx * dxCol + fy * dxRow;
               const subY = y + fx * dyCol + fy * dyRow;
-              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time, scale);
+              const subZ = z + fx * dzCol + fy * dzRow;
+              const subCombined = evaluateFieldProgram(fieldProgram, subX, subY, subZ, time, cx, cy, cz, volumetric).combined;
               const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
               if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
             }

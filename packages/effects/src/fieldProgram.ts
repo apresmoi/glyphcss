@@ -1,0 +1,453 @@
+/**
+ * The field program IR — the "steering seam" described in VOLUMETRIC.md's
+ * "The field program IR" section. Plain data: an array of layers, each an
+ * array of voices, with no fixed length anywhere. Field-synth's flat
+ * `field1..6`/`layer1..6` schema (packages/effects/src/stock.ts) is a
+ * FRONTEND that compiles down to this IR every `evaluate()` call —
+ * `SYNTH_VOICES` and the six-voice schema cap that frontend, never this
+ * evaluator or the sampler-agnostic marcher below, both of which are
+ * unbounded and exported for reuse (a future SDF-sourced program, the
+ * spectral track's analysis-mode output, or carve's per-cell march all plug
+ * into the same two functions).
+ *
+ * Kept dependency-free of `GlyphEffectEvaluateContext` on purpose: this
+ * module is pure spatial math, reusable outside a mounted glyphcss effect
+ * (e.g. a future field-authoritative primitive). Context-shaped glue
+ * (`fieldSynthCoordinate`, the schema, presets) stays in `stock.ts`.
+ */
+
+// ---- basis-kind enums (append-only; the /synth URL codec encodes these by
+// index, so a new value is always appended, never inserted) ----------------
+
+export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ"] as const;
+export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
+export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
+
+// ---- waveform + noise primitives -------------------------------------
+
+// Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
+// plot the exact same shape+phase math the engine evaluates, instead of a
+// second copy that could drift. `duty` only shapes the square wave (the high
+// fraction of its cycle, `p < duty ? 1 : -1`); every other kind ignores it.
+// Default 0.5 reproduces the pre-duty `p < 0.5` split exactly.
+export function synthWave(kind: string, t: number, duty = 0.5): number {
+  const p = t - Math.floor(t); // 0..1
+  switch (kind) {
+    case "triangle": return 4 * Math.abs(p - 0.5) - 1;
+    case "saw": return 2 * p - 1;
+    case "square": return p < duty ? 1 : -1;
+    default: return Math.sin(t * Math.PI * 2); // sin
+  }
+}
+
+function synthHash3(x: number, y: number, z: number): number {
+  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+// Time is a third lattice axis (not an x-translation), so the pattern morphs
+// in place — trilinear interpolation between the z and z+1 lattice frames —
+// instead of sliding sideways as `time` advances.
+function synthNoise3(x: number, y: number, z: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const a000 = synthHash3(xi, yi, zi), a100 = synthHash3(xi + 1, yi, zi);
+  const a010 = synthHash3(xi, yi + 1, zi), a110 = synthHash3(xi + 1, yi + 1, zi);
+  const a001 = synthHash3(xi, yi, zi + 1), a101 = synthHash3(xi + 1, yi, zi + 1);
+  const a011 = synthHash3(xi, yi + 1, zi + 1), a111 = synthHash3(xi + 1, yi + 1, zi + 1);
+  const frame0 = (a000 * (1 - u) + a100 * u) * (1 - v) + (a010 * (1 - u) + a110 * u) * v;
+  const frame1 = (a001 * (1 - u) + a101 * u) * (1 - v) + (a011 * (1 - u) + a111 * u) * v;
+  return frame0 * (1 - w) + frame1 * w; // 0..1
+}
+
+function synthHash4(x: number, y: number, z: number, w: number): number {
+  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + w * 269.5) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+// The volumetric noise voice's 4th axis: the 2D path's `synthNoise3` already
+// spends its third lattice axis on `time` (see above), so a genuinely
+// volumetric noise field — spatial x/y/z plus a still-independent time axis —
+// needs a fourth. Quadrilinear interpolation over the hypercube's 16 corners,
+// same corner-hash-then-smoothstep-blend construction as `synthNoise3`, one
+// dimension up.
+function synthNoise4(x: number, y: number, z: number, t: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), ti = Math.floor(t);
+  const xf = x - xi, yf = y - yi, zf = z - zi, tf = t - ti;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const w = zf * zf * (3 - 2 * zf), r = tf * tf * (3 - 2 * tf);
+  const c0000 = synthHash4(xi, yi, zi, ti), c1000 = synthHash4(xi + 1, yi, zi, ti);
+  const c0100 = synthHash4(xi, yi + 1, zi, ti), c1100 = synthHash4(xi + 1, yi + 1, zi, ti);
+  const c0010 = synthHash4(xi, yi, zi + 1, ti), c1010 = synthHash4(xi + 1, yi, zi + 1, ti);
+  const c0110 = synthHash4(xi, yi + 1, zi + 1, ti), c1110 = synthHash4(xi + 1, yi + 1, zi + 1, ti);
+  const c0001 = synthHash4(xi, yi, zi, ti + 1), c1001 = synthHash4(xi + 1, yi, zi, ti + 1);
+  const c0101 = synthHash4(xi, yi + 1, zi, ti + 1), c1101 = synthHash4(xi + 1, yi + 1, zi, ti + 1);
+  const c0011 = synthHash4(xi, yi, zi + 1, ti + 1), c1011 = synthHash4(xi + 1, yi, zi + 1, ti + 1);
+  const c0111 = synthHash4(xi, yi + 1, zi + 1, ti + 1), c1111 = synthHash4(xi + 1, yi + 1, zi + 1, ti + 1);
+
+  const y0t0 = (c0000 * (1 - u) + c1000 * u) * (1 - v) + (c0100 * (1 - u) + c1100 * u) * v;
+  const y1t0 = (c0010 * (1 - u) + c1010 * u) * (1 - v) + (c0110 * (1 - u) + c1110 * u) * v;
+  const frame0 = y0t0 * (1 - w) + y1t0 * w;
+
+  const y0t1 = (c0001 * (1 - u) + c1001 * u) * (1 - v) + (c0101 * (1 - u) + c1101 * u) * v;
+  const y1t1 = (c0011 * (1 - u) + c1011 * u) * (1 - v) + (c0111 * (1 - u) + c1111 * u) * v;
+  const frame1 = y0t1 * (1 - w) + y1t1 * w;
+
+  return frame0 * (1 - r) + frame1 * r; // 0..1
+}
+
+const INV_SQRT3 = 1 / Math.sqrt(3);
+
+// ---- IR types ----------------------------------------------------------
+
+export interface FieldVoice {
+  readonly field: string;
+  readonly wave: string;
+  readonly freq: number;
+  readonly speed: number;
+  readonly amp: number;
+  /** Cycles, added to the wave argument for every field/wave kind. */
+  readonly phase: number;
+  /** Square wave's high fraction (`p < duty ? 1 : -1`); other waves ignore it. */
+  readonly duty: number;
+  /** Degrees; rotates this voice's sampling frame about its own origin (XY plane only). */
+  readonly angle: number;
+  /**
+   * This voice's origin, RELATIVE to whatever call-level origin
+   * `evaluateFieldProgram` is invoked with (see that function's doc) — not
+   * an absolute domain coordinate. Only radial/angular/spiral and the
+   * `angle` rotation pivot read it; linear fields ignore origin entirely,
+   * matching field-synth's documented axis-projection behavior.
+   */
+  readonly origin: { readonly u: number; readonly v: number; readonly w: number };
+  readonly color: string;
+}
+
+export interface FieldLayer {
+  readonly voices: readonly FieldVoice[];
+  /** Intra-layer voice fold op (mix-weight fold, `voice.amp` as the weight). */
+  readonly combine: string;
+  readonly thresholdOn: boolean;
+  /** Range roughly -3..3 for an add-fold of up to 3 unit-amplitude voices. */
+  readonly threshold: number;
+  readonly invert: boolean;
+  /** How this layer's shaped output enters the layer stack. No "argmax" — layers are value-folded, not selected by identity. */
+  readonly blend: string;
+  /** Mix weight for this layer entering the stack, mirroring `voice.amp` one level up. */
+  readonly amp: number;
+}
+
+/** An array of layers; a layer with no active (amp > 0) voices is skipped in the fold. */
+export type FieldProgram = readonly FieldLayer[];
+
+export interface FieldEvalResult {
+  readonly combined: number;
+  /**
+   * The winning voice index, meaningful only when exactly one layer is
+   * populated AND that layer's combine is "argmax" (argmax is categorical
+   * and — per VOLUMETRIC.md's Step 3 — deliberately stays single-layer).
+   * -1 otherwise.
+   */
+  readonly winner: number;
+  /** Total active voices across every layer. */
+  readonly active: number;
+}
+
+// One voice → value in ~[-1, 1] (voice.amp is applied by the caller's
+// mix-weight fold, not here — matching field-synth's existing convention of
+// always sampling voices at unit weight and letting the fold apply amp).
+//
+// `volumetric` selects a genuinely separate 3D branch rather than z=0 through
+// one formula: `diagonal` and `noise` are NOT the same function at z=0 as in
+// 2D (see VOLUMETRIC.md's "Primitives in 3D" table) — changing that would
+// silently alter every existing 2D diagonal/noise patch.
+export function sampleFieldVoice(
+  voice: FieldVoice,
+  x: number, y: number, z: number,
+  cx: number, cy: number, cz: number,
+  time: number,
+  volumetric: boolean,
+): number {
+  let sx = x;
+  let sy = y;
+  if (voice.angle !== 0) {
+    // Rotate the SAMPLE about this voice's own centre rather than rotating
+    // the field: radial/spiral then stay anchored where they were, and a
+    // linear field becomes a plane wave at `angle`. Z is untouched — angle
+    // is always a rotation about Z, in both the 2D and volumetric branches.
+    const a = (-voice.angle * Math.PI) / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    sx = cx + dx * ca - dy * sa;
+    sy = cy + dx * sa + dy * ca;
+  }
+
+  if (voice.field === "noise") {
+    const n = volumetric
+      ? synthNoise4(sx * voice.freq, sy * voice.freq, z * voice.freq, time * voice.speed)
+      : synthNoise3(sx * voice.freq, sy * voice.freq, time * voice.speed);
+    // Noise bypasses synthWave entirely (it has no "wave argument"), so
+    // `phase`/`duty` — both defined in terms of that argument — don't apply.
+    return 2 * n - 1;
+  }
+
+  let raw: number;
+  if (volumetric) {
+    switch (voice.field) {
+      case "linearX": raw = sx; break;
+      case "linearY": raw = sy; break;
+      case "linearZ": raw = z; break;
+      case "diagonal": raw = (sx + sy + z) * INV_SQRT3; break;
+      // atan2/(2π) jumps by 1 crossing the -x ray — see the 2D branch's
+      // identical note. angular/spiral stay XY-plane-only (documented scope).
+      case "angular": raw = Math.atan2(sy - cy, sx - cx) / (Math.PI * 2); break;
+      case "spiral": raw = Math.hypot(sx - cx, sy - cy) + Math.atan2(sy - cy, sx - cx) / (Math.PI * 2); break;
+      default: raw = Math.hypot(sx - cx, sy - cy, z - cz); // radial: spherical distance
+    }
+  } else {
+    switch (voice.field) {
+      case "linearX": raw = sx; break;
+      case "linearY": raw = sy; break;
+      case "diagonal": raw = (sx + sy) * 0.70710678; break;
+      case "angular": raw = Math.atan2(sy - cy, sx - cx) / (Math.PI * 2); break;
+      case "spiral": raw = Math.hypot(sx - cx, sy - cy) + Math.atan2(sy - cy, sx - cx) / (Math.PI * 2); break;
+      // "linearZ" has no 2D meaning (no z axis to project onto) — falls
+      // through to the same default (radial) an unrecognized field name
+      // already gets, rather than inventing a bespoke 2D reading of it.
+      default: raw = Math.hypot(sx - cx, sy - cy); // radial
+    }
+  }
+  return synthWave(voice.wave, raw * voice.freq - time * voice.speed + voice.phase, voice.duty);
+}
+
+function foldVoices(
+  voices: readonly FieldVoice[],
+  combine: string,
+  x: number, y: number, z: number,
+  originX: number, originY: number, originZ: number,
+  time: number,
+  volumetric: boolean,
+): { combined: number; winner: number; active: number } {
+  let combined = 0;
+  let active = 0;
+  let best = -Infinity;
+  let winner = -1;
+  let winnerOrder = -1;
+  const argmax = combine === "argmax";
+  for (let k = 0; k < voices.length; k++) {
+    const voice = voices[k]!;
+    if (!(voice.amp > 0)) continue;
+    const cx = originX + voice.origin.u;
+    const cy = originY + voice.origin.v;
+    const cz = originZ + voice.origin.w;
+    const o = sampleFieldVoice(voice, x, y, z, cx, cy, cz, time, volumetric);
+    if (argmax) {
+      const contribution = voice.amp * o;
+      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
+    } else if (active === 0) {
+      combined = voice.amp * o;
+    } else {
+      combined += voice.amp * (combineSynth(combine, combined, o) - combined);
+    }
+    active++;
+  }
+  if (argmax) {
+    // Evenly spaced flat levels across the range, one per ACTIVE voice, so
+    // the ramp (or ink) reads each region as a single constant tone.
+    combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
+  }
+  return { combined, winner, active };
+}
+
+// Exported for the same reason as `synthWave` above — reuse the exact
+// per-voice/per-layer mix-weight fold instead of re-deriving it. Also the
+// layer-blend fold (Step 3): layers have no "argmax" blend value, so this is
+// never asked to resolve one at the layer level.
+export function combineSynth(mode: string, a: number, b: number): number {
+  switch (mode) {
+    // Pairwise, argmax can only report the winning VALUE; the winning
+    // identity is resolved by `foldVoices`, which sees the whole voice list
+    // at once.
+    case "argmax": return Math.max(a, b);
+    case "add": return a + b;
+    case "max": return Math.max(a, b);
+    case "min": return Math.min(a, b);
+    case "difference": return Math.abs(a - b);
+    default: return a * b; // multiply
+  }
+}
+
+/**
+ * Evaluate a whole field program (every layer, every voice) at one point.
+ *
+ * `(x, y, z)` is the domain coordinate every voice samples (raw, unshifted —
+ * linear fields ignore origin entirely, matching field-synth's documented
+ * behavior). `(originX, originY, originZ)` is the call-level pattern centre
+ * that combines with each voice's own relative `origin` offset — field-synth
+ * resolves this per call (a fixed point for `space: "scene"`/`"auto"`) or per
+ * coplanar surface group (`space: "surface"`), which is why it is a runtime
+ * argument here rather than baked into the compiled program: the program
+ * itself is compiled once from flat params per `evaluate()` call, while the
+ * origin can vary across a call when a mesh has multiple visible faces.
+ * Defaults to the domain origin (0, 0, 0) for callers with no such concept
+ * (a bounding-volume march, a future field-authoritative primitive).
+ *
+ * `volumetric` selects the 3D branch (see `sampleFieldVoice`) — false (2D)
+ * by default.
+ *
+ * Layers fold in array order with `layer.amp` as the mix weight, mirroring
+ * the voice fold one level up (VOLUMETRIC.md's Step 3): the first populated
+ * layer enters at its own weight, each later one blends the stack toward
+ * `layer.blend(stack, shapedLayerValue)` by that weight. A layer with no
+ * active voices is skipped, exactly like an amp-0 voice. Per-layer
+ * threshold/invert apply to that layer's folded value before it enters the
+ * stack. A single-layer program (field-synth's Phase 2 compile output, and
+ * every pre-layers patch under the structural-compatibility rule) reduces
+ * exactly to `foldVoices`'s own result — this is what keeps every existing
+ * field-synth preset byte-identical.
+ */
+export function evaluateFieldProgram(
+  program: FieldProgram,
+  x: number, y: number, z: number,
+  time: number,
+  originX = 0, originY = 0, originZ = 0,
+  volumetric = false,
+): FieldEvalResult {
+  let stackValue = 0;
+  let stackActive = 0;
+  let populatedLayers = 0;
+  let singleLayerWinner = -1;
+  let appliedLayers = 0;
+
+  for (let li = 0; li < program.length; li++) {
+    const layer = program[li]!;
+    const result = foldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric);
+    if (result.active === 0) continue; // skip empty layers, like an amp-0 voice
+    populatedLayers++;
+    singleLayerWinner = populatedLayers === 1 ? result.winner : -1;
+    stackActive += result.active;
+
+    let v = result.combined;
+    if (layer.thresholdOn) v = v > layer.threshold ? 1 : -1;
+    if (layer.invert) v = -v;
+
+    if (appliedLayers === 0) {
+      stackValue = layer.amp * v;
+    } else {
+      stackValue += layer.amp * (combineSynth(layer.blend, stackValue, v) - stackValue);
+    }
+    appliedLayers++;
+  }
+
+  return {
+    combined: stackValue,
+    winner: populatedLayers === 1 ? singleLayerWinner : -1,
+    active: stackActive,
+  };
+}
+
+// ---- sampler-agnostic marcher -------------------------------------------
+
+export type FieldSampler = (x: number, y: number, z: number, time: number) => number;
+
+export interface FieldMarchOptions {
+  /** Minimum step count (default 48, per VOLUMETRIC.md's Carve section). */
+  readonly steps?: number;
+  /** Hard cap on step count regardless of the Nyquist floor (default 256). */
+  readonly maxSteps?: number;
+  /**
+   * The highest active oscillator frequency along the marched field, in
+   * domain units. When set, raises the step count to
+   * `ceil(2 * chordLength * finestFreq)` — the sampling floor below which a
+   * thin solid wall is skipped and renders as a false hole. `steps` is a
+   * MINIMUM; this can only raise the count, never lower it below `steps`.
+   */
+  readonly finestFreq?: number;
+  readonly time?: number;
+}
+
+export interface FieldMarchHit {
+  readonly hit: true;
+  /** Parameter along entry->exit, 0 at entry, 1 at exit. */
+  readonly t: number;
+  /** Distance from entry, in the same units as entry/exit. */
+  readonly distance: number;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+export interface FieldMarchMiss {
+  readonly hit: false;
+}
+
+export type FieldMarchResult = FieldMarchHit | FieldMarchMiss;
+
+/**
+ * March a scalar field along the segment `entry -> exit`, sampling `sampler`
+ * at up to `steps` points and reporting the first point where the sampled
+ * value crosses from <=0 to >0 ("solid"). `sampler` is any
+ * `(x, y, z, t) => number` — this function knows nothing about voices,
+ * layers, or field-synth; the carve path (VOLUMETRIC.md's Carve mode) calls
+ * it with `evaluateFieldProgram`'s compiled-program result run through the
+ * ramp's `clamp01(bias + gain*v*0.5)` mapping, but any field-valued function
+ * plugs in — including a future bounding-volume segment against a
+ * field-authoritative primitive (see VOLUMETRIC.md's Spectral track table).
+ *
+ * A degenerate segment (`entry === exit`, e.g. a grazing silhouette where a
+ * volumetric ray's endpoints coincide) always misses — there is no chord to
+ * march. The hit position is refined by linearly interpolating between the
+ * last non-solid sample and the first solid one (exact when the field is
+ * affine in `t` along the ray, e.g. a planar boundary), rather than snapping
+ * to the step grid.
+ */
+export function marchField(
+  entry: readonly [number, number, number],
+  exit: readonly [number, number, number],
+  sampler: FieldSampler,
+  opts: FieldMarchOptions = {},
+): FieldMarchResult {
+  const [ex, ey, ez] = entry;
+  const [xx, xy, xz] = exit;
+  const dx = xx - ex, dy = xy - ey, dz = xz - ez;
+  const chordLength = Math.hypot(dx, dy, dz);
+  if (!(chordLength > 0) || !Number.isFinite(chordLength)) return { hit: false };
+
+  const time = opts.time ?? 0;
+  const maxStepsCap = Math.max(1, Math.round(opts.maxSteps ?? 256));
+  const minSteps = Math.max(1, Math.min(maxStepsCap, Math.round(opts.steps ?? 48)));
+  const finestFreq = opts.finestFreq ?? 0;
+  const nyquistSteps = finestFreq > 0 ? Math.ceil(2 * chordLength * finestFreq) : 0;
+  const steps = Math.max(minSteps, Math.min(maxStepsCap, nyquistSteps));
+
+  let prevT = 0;
+  let prevValue = sampler(ex, ey, ez, time);
+  if (prevValue > 0) return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez };
+
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = ex + dx * t;
+    const y = ey + dy * t;
+    const z = ez + dz * t;
+    const value = sampler(x, y, z, time);
+    if (value > 0) {
+      const denom = value - prevValue;
+      const localT = denom !== 0 ? -prevValue / denom : 0;
+      const hitT = prevT + localT * (t - prevT);
+      return {
+        hit: true,
+        t: hitT,
+        distance: hitT * chordLength,
+        x: ex + dx * hitT,
+        y: ey + dy * hitT,
+        z: ez + dz * hitT,
+      };
+    }
+    prevT = t;
+    prevValue = value;
+  }
+  return { hit: false };
+}

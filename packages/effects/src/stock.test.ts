@@ -23,6 +23,7 @@ import {
   ripple,
   scan,
   scramble,
+  synthWave,
   wipe,
   type AnyContext,
   type AnyParams,
@@ -1835,5 +1836,183 @@ describe("field-synth per-voice frame and argmax", () => {
       field3: "diagonal", wave3: "sin", freq3: 2, speed3: 0, amp3: 1,
     });
     expect(new Set(blended.glyph.filter((g) => g !== " ")).size).toBeGreaterThan(3);
+  });
+});
+
+describe("field-synth field-program IR refactor: byte-identity regression", () => {
+  // Independently confirmed via `git stash` against the parent commit
+  // (before this file's IR/volumetric/duty/phase changes existed): these are
+  // the EXACT hashes `fieldSynth.program.evaluate()` produced for default
+  // params and every shipped preset, at both 1x1 and (subcellRes-sensitive)
+  // 2x4/ink, before the refactor. Phase 2 must keep producing them forever —
+  // `evaluate()` now compiles to and runs through the field-program IR
+  // (`evaluateFieldProgram`) for the ENTIRE 2D path, and this is the proof
+  // that compile is behavior-preserving (VOLUMETRIC.md acceptance
+  // criterion 1). See `packages/glyphcss/src/render/objectExit.test.ts`'s
+  // own "byte-identity regression" test for the same pattern.
+  function fnv1a(s: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function pinnedEvaluate(overrides: Record<string, number | string | boolean> = {}) {
+    const cols = 24, rows = 12, length = cols * rows;
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...overrides };
+    const glyph = new Array<string>(length).fill("#");
+    const coverage = new Float32Array(length).fill(1);
+    const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+    const uv0 = new Float32Array(length * 2);
+    for (let i = 0; i < length; i++) {
+      uv0[i * 2] = (i % cols) / (cols - 1);
+      uv0[i * 2 + 1] = ((i / cols) | 0) / (rows - 1);
+    }
+    const shade = new Float32Array(length).fill(0.8);
+    const output = {
+      glyph: new Array<string>(length).fill(" "),
+      color: new Uint32Array(length).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(length),
+      channels: new Uint8Array(length),
+    };
+    fieldSynth.program.validateParams?.(params as never);
+    fieldSynth.program.evaluate({
+      params,
+      state: undefined,
+      base: { cols, rows, length, glyph, coverage, color, uv0, shade },
+      input: { cols, rows, length, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+    return output;
+  }
+
+  function hashOf(overrides: Record<string, number | string | boolean> = {}): string {
+    const output = pinnedEvaluate(overrides);
+    return fnv1a(
+      output.glyph.join("") + "|"
+      + Array.from(output.color).join(",") + "|"
+      + Array.from(output.coverage).map((v) => v.toFixed(6)).join(","),
+    );
+  }
+
+  it("reproduces the pre-refactor hash for default params, at 1x1/2x4/ink", () => {
+    expect(hashOf()).toBe("7d1375dc");
+    expect(hashOf({ subcellRes: "2x4" })).toBe("38ffa16d");
+    expect(hashOf({ subcellRes: "ink" })).toBe("694ada7d");
+  });
+
+  it("reproduces the pre-refactor hash for every shipped preset", () => {
+    const expected: Record<string, string> = {
+      "Ink cells": "7fa42eeb",
+      "Cube tiles": "c91fca95",
+      Sunburst: "73166434",
+      "Ring pulse": "bf16c9f7",
+      "Plaid weave": "def63013",
+      "Sonar ping": "e0a1b9a6",
+      Lattice: "182f881a",
+      Vortex: "479de6c0",
+      Lava: "13f39efc",
+      "Static rain": "7b1403a1",
+      "Moiré rings": "972334a7",
+      Checkerboard: "931fc935",
+      "Warp core": "b9699196",
+      Bubbles: "0c45d5d0",
+      Aurora: "83b81a3f",
+      Zebra: "ed2427c1",
+      Kaleidoscope: "0da9183a",
+      Halftone: "77ba200a",
+      Weave: "fd19e86f",
+      "Pulse grid": "829c38e1",
+      Nebula: "987c9199",
+    };
+    const presets = fieldSynth.presets ?? [];
+    expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
+    for (const preset of presets) {
+      expect(hashOf(preset.params as Record<string, number | string | boolean>)).toBe(expected[preset.name]);
+    }
+  });
+});
+
+describe("field-synth volumetric (space: \"object\")", () => {
+  it("dynamicRequirements asks for objectPosition only when space is \"object\"", () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(fieldSynth.program.dynamicRequirements?.(defaults)).toEqual([]);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object" })).toEqual(["objectPosition"]);
+  });
+
+  it("resolves the volumetric domain coordinate from objectPosition * scale: the same object-space point renders identically regardless of grid position (matches the matrixRain volumetric pattern)", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    const iB = length - 1;
+    const point: [number, number, number] = [1.3, -0.7, 2.1];
+    objectPosition[iA * 3] = point[0]; objectPosition[iA * 3 + 1] = point[1]; objectPosition[iA * 3 + 2] = point[2];
+    objectPosition[iB * 3] = point[0]; objectPosition[iB * 3 + 1] = point[1]; objectPosition[iB * 3 + 2] = point[2];
+
+    const output = evaluate(fieldSynth, {
+      space: "object", field1: "radial", wave1: "sin", freq1: 3, speed1: 0.4, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", time: 1.5, scale: 2,
+    }, { objectPosition });
+
+    expect(output.coverage[iA]).toBe(output.coverage[iB]);
+    expect(output.glyph[iA]).toBe(output.glyph[iB]);
+    expect(output.color[iA]).toBe(output.color[iB]);
+  });
+
+  it("is invariant to the mesh's world position/rotation — only objectPosition drives it", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = (i % cols) - cols / 2;
+      objectPosition[i * 3 + 1] = Math.floor(i / cols) - rows / 2;
+      objectPosition[i * 3 + 2] = Math.sin(i) * 2;
+    }
+    const worldA = new Float32Array(length * 3).fill(1);
+    const worldB = new Float32Array(length * 3).fill(-99);
+    const params = {
+      space: "object", field1: "linearZ", wave1: "sin", freq1: 2, speed1: 0.3, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", time: 1.1, scale: 1.5,
+    };
+    const outputA = evaluate(fieldSynth, params, { objectPosition, worldPosition: worldA });
+    const outputB = evaluate(fieldSynth, params, { objectPosition, worldPosition: worldB });
+    expect(outputA.glyph).toEqual(outputB.glyph);
+    expect(Array.from(outputA.color)).toEqual(Array.from(outputB.color));
+    expect(Array.from(outputA.coverage)).toEqual(Array.from(outputB.coverage));
+  });
+
+  it("degrades to the generated-surface fallback when objectPosition is unavailable (wireframe/voxel)", () => {
+    const output = evaluate(fieldSynth, {
+      space: "object", field1: "radial", wave1: "sin", freq1: 3, speed1: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", time: 0, scale: 2,
+    }, cubeSurface("wall"));
+    expect(Array.from(output.coverage).some((v) => v > 0)).toBe(true);
+  });
+
+  it("supports 2x4 and ink subcell modes under the volumetric branch by finite-differencing neighboring objectPosition", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = ((i % cols) - cols / 2) * 0.3;
+      objectPosition[i * 3 + 1] = (Math.floor(i / cols) - rows / 2) * 0.3;
+      objectPosition[i * 3 + 2] = 0;
+    }
+    const base = {
+      space: "object", field1: "linearX", wave1: "square", freq1: 2, speed1: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", time: 0, scale: 1,
+    };
+    const braille = evaluate(fieldSynth, { ...base, subcellRes: "2x4" }, { objectPosition });
+    const dots = braille.glyph.filter((g) => g !== " ");
+    expect(dots.length).toBeGreaterThan(0);
+    for (const g of dots) expect(g.codePointAt(0)!).toBeGreaterThanOrEqual(0x2800);
+
+    const ink = evaluate(fieldSynth, { ...base, subcellRes: "ink", inkLevels: 2, gain: 1, bias: 0.5 }, { objectPosition });
+    const marks = ink.glyph.filter((g) => g !== " ");
+    expect(marks.length).toBeGreaterThan(0);
+    for (const g of marks) expect(["-", "\\", "|", "/"]).toContain(g);
   });
 });
