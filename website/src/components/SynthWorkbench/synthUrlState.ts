@@ -100,8 +100,22 @@ const synthFields: readonly UrlField<SynthUrlState>[] = [
   { key: "paramsPacked", token: "p", type: { kind: "string" }, default: SYNTH_URL_DEFAULTS.paramsPacked },
 ];
 
-const SYNTH_SCHEMA_VERSION = "1";
+// Bumped 1 -> 2 alongside `encodeEffectParamsPacked`/`decodeEffectParamsPacked`
+// gaining a multi-char index escape (see urlState.ts) that fixes indices >= 62
+// (`lit`, `voiceColors`, `color1..6`, and everything VOLUMETRIC.md's phases
+// appended after them) silently dropping from `paramsPacked`. The escape
+// format is byte-compatible with every pre-fix link on its own (a pre-fix
+// string never used index >= 62, so it never contains the escape char) — the
+// version bump plus `synthCodecLegacyV1` below exist so that guarantee is an
+// explicit, tested decode path rather than an implicit property of the format.
+const SYNTH_SCHEMA_VERSION = "2";
 export const synthCodec = createUrlCodec<SynthUrlState>(SYNTH_SCHEMA_VERSION, synthFields);
+// Decodes a URL shared before the version bump (`raw[1] === "1"`). Same field
+// list — only `paramsPacked`'s internal token format changed, and that change
+// is backward compatible — but `createUrlCodec`'s version gate rejects a
+// version it wasn't built with, so a distinct instance is required to accept
+// "1"-tagged input at all.
+const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
 const SYNTH_PARAM = "s";
 
 export interface SynthInitialState {
@@ -140,9 +154,16 @@ export function encodeSynthUrlState(state: SynthPatch): string {
   });
 }
 
+/** Dispatches to the legacy (pre-bump) codec for a "1"-tagged link, else the
+ *  live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
+function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState> {
+  if (raw && raw[1] === "1") return synthCodecLegacyV1.decode(raw);
+  return synthCodec.decode(raw);
+}
+
 /** Pure decode: packed `?s=` value -> patch (defaults for absent/garbage). */
 export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
-  const decoded = { ...SYNTH_URL_DEFAULTS, ...synthCodec.decode(raw) };
+  const decoded = { ...SYNTH_URL_DEFAULTS, ...decodeOuterState(raw) };
   const overrides = decodeEffectParamsPacked(fieldSynth.parameterSchema, decoded.paramsPacked);
   return {
     shape: decoded.shape,

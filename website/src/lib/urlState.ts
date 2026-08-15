@@ -397,13 +397,46 @@ export type EffectParamSchemaLike = Readonly<Record<string, EffectParamSpecLike>
 
 const BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-function toBase62Char(index: number): string | undefined {
-  return BASE62[index];
-}
 function fromBase62Char(char: string | undefined): number | undefined {
   if (char === undefined) return undefined;
   const index = BASE62.indexOf(char);
   return index < 0 ? undefined : index;
+}
+
+// A single BASE62 char only reaches indices 0..61. `fieldSynthSchema` alone
+// is past 120 keys (duty/phase/originW/layer/layer*/render/march params all
+// landed past that cap across VOLUMETRIC.md's phases), so indices >= 62 need
+// a second form. `INDEX_ESCAPE` is a char OUTSIDE the BASE62 alphabet, so it
+// can only ever be read as an escape at a fresh token-start position —
+// decoding is strictly positional (every value is length-prefixed or
+// fixed-width and self-delimiting), so this char can never appear mid-value
+// and be misread as a token. An escaped index is 2 BASE62 digits
+// (big-endian), covering 0..3843 — comfortably past any schema this codec
+// packs. A pre-fix packed string never contains `_` (indices >= 62 were
+// silently DROPPED, never encoded — see the `encodeEffectParamsPacked` doc
+// below), so every previously shared link decodes through this same path
+// unchanged; `synthUrlState.ts`'s version bump is the belt-and-suspenders
+// legacy path for the OUTER codec regardless.
+const INDEX_ESCAPE = "_";
+
+function encodeTokenIndex(index: number): string {
+  if (index < BASE62.length) return BASE62[index]!;
+  const hi = Math.floor(index / BASE62.length);
+  const lo = index % BASE62.length;
+  return `${INDEX_ESCAPE}${BASE62[hi]}${BASE62[lo]}`;
+}
+
+function decodeTokenIndex(raw: string, index: number): { value: number; next: number } | undefined {
+  const char = raw[index];
+  if (char === undefined) return undefined;
+  if (char === INDEX_ESCAPE) {
+    const hi = fromBase62Char(raw[index + 1]);
+    const lo = fromBase62Char(raw[index + 2]);
+    if (hi === undefined || lo === undefined) return undefined;
+    return { value: hi * BASE62.length + lo, next: index + 3 };
+  }
+  const i = fromBase62Char(char);
+  return i === undefined ? undefined : { value: i, next: index + 1 };
 }
 
 function specStep(spec: EffectParamSpecLike): number {
@@ -444,10 +477,11 @@ function sameSpecValue(spec: EffectParamSpecLike, a: unknown, b: unknown): boole
 }
 
 /** Diff `values` against `defaults` and pack the overrides against `schema`,
- *  keyed by each param's position in `Object.keys(schema)` (a single base62
- *  char — every stock effect schema is well under 62 params). Returns "" for
- *  no overrides. `time`/`skipKeys` are excluded (animated/derived, not part
- *  of a shareable link). */
+ *  keyed by each param's position in `Object.keys(schema)` — a single base62
+ *  char for indices 0..61, an `INDEX_ESCAPE`-prefixed 2-char form beyond that
+ *  (see `encodeTokenIndex`; `fieldSynthSchema` is already past 120 keys, so
+ *  this isn't a theoretical case). Returns "" for no overrides. `time`/
+ *  `skipKeys` are excluded (animated/derived, not part of a shareable link). */
 export function encodeEffectParamsPacked(
   schema: EffectParamSchemaLike,
   defaults: Record<string, unknown>,
@@ -462,10 +496,10 @@ export function encodeEffectParamsPacked(
     if (!spec) continue;
     if (sameSpecValue(spec, value, defaults[name])) continue;
     const index = keys.indexOf(name);
-    const token = toBase62Char(index);
+    if (index < 0) continue;
     const encoded = encodeSpecValue(spec, value);
-    if (token === undefined || encoded === undefined) continue;
-    out += token + encoded;
+    if (encoded === undefined) continue;
+    out += encodeTokenIndex(index) + encoded;
   }
   return out;
 }
@@ -482,10 +516,10 @@ export function decodeEffectParamsPacked(
   let index = 0;
   try {
     while (index < packed.length) {
-      const charIndex = fromBase62Char(packed[index]);
-      if (charIndex === undefined) break;
-      index += 1;
-      const name = keys[charIndex];
+      const token = decodeTokenIndex(packed, index);
+      if (!token) break;
+      index = token.next;
+      const name = keys[token.value];
       const spec = name ? schema[name] : undefined;
       if (!name || !spec) break;
       const decoded = decodeSpecValue(spec, packed, index);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
+import type { GUI } from "lil-gui";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -54,14 +55,32 @@ export type Polys = ReturnType<typeof resolveGeometry>;
 
 export const MAX_VOICES = 6;
 export const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
+// `linearZ` only has meaning under the volumetric (`space: "object"`) branch
+// (see AGENTS.md's field-synth section — the 2D branch falls through to
+// radial for it) — kept out of `FIELDS`/`FIELD_TOGGLE` so a 2D patch never
+// offers a field that silently degrades, and offered instead via
+// `FIELDS_3D`/`FIELD_TOGGLE_3D` only while a voice card is in 3D mode.
+export const FIELDS_3D = [...FIELDS, "linearZ"] as const;
 export const WAVES = ["sin", "triangle", "saw", "square"] as const;
 export const COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
-export const SPACES = ["auto", "surface", "scene"] as const;
+// "object" is the volumetric branch (VOLUMETRIC.md's Step 2) — reachable
+// directly from this dropdown, and the single source of truth the 2D/3D
+// mode toggle (`ModeToggle` below) reads and writes the same `space` param
+// against, so the two can never desync.
+export const SPACES = ["auto", "surface", "scene", "object"] as const;
 export const SUBCELL_RES = ["1x1", "2x4", "ink"] as const;
 export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
+// Layer shaping ops (VOLUMETRIC.md's Step 3) — mirrors `LAYER_COMBINE_VALUES`/
+// `LAYER_VALUE_OPS` in packages/effects/src/stock.ts (not publicly exported,
+// so re-declared here the same way `COMBINES`/`FIELDS`/`WAVES` above already
+// mirror their schema-internal counterparts rather than importing them).
+export const LAYER_VALUE_OPS = ["add", "multiply", "max", "min", "difference"] as const;
+export const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
+export const RENDER_MODES = ["paint", "carve"] as const;
 
 export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 export const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
+export const LAYER_COMBINE_OPTS = opts(LAYER_COMBINE_VALUES), LAYER_BLEND_OPTS = opts(LAYER_VALUE_OPS), RENDER_OPTS = opts(RENDER_MODES);
 // "Calibrated" measures the VIEWER'S actual resolved font (not an authored
 // guess) at pick time — see `useRampCalibration` below. Its result is a
 // plain ramp string, same as any `GlyphRamps` entry, so it writes into
@@ -256,6 +275,16 @@ export const FIELD_ICONS: Record<string, ReactNode> = {
       <circle cx="6" cy="13" r="0.9" />
     </ToggleIcon>
   ),
+  // Third-axis (depth) sweep — only meaningful in the volumetric branch, so
+  // this reads as "into the screen" rather than another in-plane direction:
+  // two receding squares joined by a diagonal, the classic isometric depth cue.
+  linearZ: (
+    <ToggleIcon strokeWidth={1.3}>
+      <rect x="2.5" y="2.5" width="6" height="6" />
+      <rect x="7.5" y="7.5" width="6" height="6" />
+      <line x1="8.5" y1="8.5" x2="5.5" y2="5.5" />
+    </ToggleIcon>
+  ),
 };
 // Short, concrete per-option hover copy — each button's `title` names the
 // shape AND says what it does, so a voice card is self-explanatory without
@@ -270,6 +299,7 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = {
   angular: "angle around a center point — rotational bands",
   spiral: "winds outward from a center point",
   noise: "randomized, non-repeating — no directional structure",
+  linearZ: "sweeps along the third (depth) axis — volumetric (3D) only",
 };
 export const WAVE_DESCRIPTIONS: Record<string, string> = {
   sin: "smooth, rounded oscillation",
@@ -278,6 +308,7 @@ export const WAVE_DESCRIPTIONS: Record<string, string> = {
   square: "hard on/off, no ramp",
 };
 export const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
+export const FIELD_TOGGLE_3D = FIELDS_3D.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
 export const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], label: v, desc: WAVE_DESCRIPTIONS[v] }));
 
 // Single filled cell (one glyph per cell, ramp-based) vs. a braille-style
@@ -328,6 +359,36 @@ export function IconToggle({ options, value, onChange, groupTitle }: {
           {o.icon}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── 2D / 3D mode toggle ────────────────────────────────────────────────────
+// Bundles Mapping + stage together (VOLUMETRIC.md's "/synth page" section):
+// 2D is the existing default (space auto/surface/scene + the fullscreen-plane
+// stage), 3D is `space: "object"` + a cube stage. `space` is otherwise
+// reachable directly from the "Mapping" dropdown too (it gained "object" as a
+// value) — the two never desync because both write the same `space` param;
+// this toggle is the fast, obvious path, the dropdown is the precise one.
+export function ModeToggle({ volumetric, onSetMode }: { volumetric: boolean; onSetMode: (mode: "2d" | "3d") => void }) {
+  return (
+    <div className="dock-mode-toggle" role="group" aria-label="2D / 3D mode">
+      <button
+        type="button"
+        className={`dock-mode-btn${!volumetric ? " is-active" : ""}`}
+        onClick={() => onSetMode("2d")}
+        title="2D — the pattern paints a flat/generated surface (Mapping: auto/surface/scene) on the fullscreen-plane stage."
+      >
+        2D
+      </button>
+      <button
+        type="button"
+        className={`dock-mode-btn${volumetric ? " is-active" : ""}`}
+        onClick={() => onSetMode("3d")}
+        title="3D — volumetric: the field fills the mesh's own 3D volume (Mapping: object) on a cube stage. Enables Render: carve, which raymarches the field into interior structure — holes and interior walls, no sponge geometry required."
+      >
+        3D
+      </button>
     </div>
   );
 }
@@ -428,7 +489,12 @@ export function soloParams(params: Params, slot: number): Params {
   for (let k = 1; k <= MAX_VOICES; k++) base[`amp${k}`] = 0;
   base.field1 = params[`field${slot}`]; base.wave1 = params[`wave${slot}`];
   base.angle1 = params[`angle${slot}`]; base.originU1 = params[`originU${slot}`]; base.originV1 = params[`originV${slot}`];
+  base.originW1 = params[`originW${slot}`];
+  base.duty1 = params[`duty${slot}`]; base.phase1 = params[`phase${slot}`];
   base.freq1 = params[`freq${slot}`]; base.speed1 = params[`speed${slot}`]; base.amp1 = 1;
+  // `layer1` is left at its `synthDefaults()` value (1) — a solo preview is
+  // always a single active voice, which folds identically on any layer, so
+  // copying the original voice's layer assignment would add nothing.
   base.space = params.space; base.scale = params.scale; base.glyphs = params.glyphs;
   base.voiceColors = params.voiceColors === true;
   base.color1 = params[`color${slot}`];
@@ -437,23 +503,28 @@ export function soloParams(params: Params, slot: number): Params {
   return base;
 }
 
-// Small live preview on a FLAT square, viewed head-on (a plain 2D read of the field).
-// `onTick` (if given) fires every frame alongside the layer's own time update, with
-// the SAME `t` — so a waveform trendline drawn from it stays exactly in sync with
+// Small live preview. Head-on on a FLAT square by default (a plain 2D read of
+// the field). `volumetric` (a voice/preset's `space === "object"`) swaps that
+// for a small tilted cube instead — a flat quad has zero depth, so entry and
+// exit coincide everywhere and a volumetric/carve patch would preview as a
+// degenerate point-sample rather than the 3D structure it actually renders
+// (see AGENTS.md's "Note preset gallery previews" precedent). `onTick` (if
+// given) fires every frame alongside the layer's own time update, with the
+// SAME `t` — so a waveform trendline drawn from it stays exactly in sync with
 // what the adjacent preview square renders, using this loop instead of a second one.
-export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void): void {
+export function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void, volumetric = false): void {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const onTickRef = useRef(onTick);
   onTickRef.current = onTick;
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
-    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 20 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: true, directionalLight: LIGHT, ambientLight: AMBIENT });
+    const camera = createGlyphOrthographicCamera(volumetric ? { rotX: 58, rotY: 32, zoom: 16 } : { rotX: 0, rotY: 0, zoom: 20 });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
-    const polys = flatQuad(3);
+    const polys = volumetric ? shapePolys("cube") : flatQuad(3);
     scene.add(polys); scene.fit(); scene.rerender();
-    frameObject(scene, camera, polys, 0.98);
+    frameObject(scene, camera, polys, volumetric ? 0.8 : 0.98, false);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
@@ -462,7 +533,7 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host]);
+  }, [host, volumetric]);
   useEffect(() => { layerRef.current?.setParams(getParams()); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
@@ -474,13 +545,13 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
 // `field` itself only has meaning in 2D, so it isn't part of this projection).
 export const WAVE_SAMPLES = 72;
 
-export function buildWavePathD(wave: string, freq: number, speed: number, amp: number, time: number, width: number, height: number): string {
+export function buildWavePathD(wave: string, freq: number, speed: number, amp: number, time: number, width: number, height: number, duty = 0.5, phase = 0): string {
   const midY = height / 2;
   const halfH = midY - 2;
   let d = "";
   for (let i = 0; i < WAVE_SAMPLES; i++) {
     const raw = i / (WAVE_SAMPLES - 1);
-    const value = amp * synthWave(wave, raw * freq - time * speed);
+    const value = amp * synthWave(wave, raw * freq - time * speed + phase, duty);
     const x = raw * width;
     const y = midY - value * halfH;
     d += `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)} `;
@@ -488,7 +559,11 @@ export function buildWavePathD(wave: string, freq: number, speed: number, amp: n
   return d;
 }
 
-export interface CombinedVoice { readonly wave: string; readonly freq: number; readonly speed: number; readonly amp: number; }
+export interface CombinedVoice {
+  readonly wave: string; readonly freq: number; readonly speed: number; readonly amp: number;
+  /** Default 0.5/0 — byte-identical to a voice that never set them. */
+  readonly duty?: number; readonly phase?: number;
+}
 
 // Folds active voices exactly like `fieldSynth`'s evaluate loop: each oscillator
 // samples at amp=1 (`synthOsc`'s own amp is fixed to 1 there), the first active
@@ -505,7 +580,7 @@ export function buildCombinedPathD(voices: readonly CombinedVoice[], combineMode
     let combined = 0;
     let active = 0;
     for (const voice of voices) {
-      const o = synthWave(voice.wave, raw * voice.freq - time * voice.speed);
+      const o = synthWave(voice.wave, raw * voice.freq - time * voice.speed + (voice.phase ?? 0), voice.duty ?? 0.5);
       if (active === 0) combined = voice.amp * o;
       else combined += voice.amp * (combineSynth(combineMode, combined, o) - combined);
       active++;
@@ -546,10 +621,13 @@ export function SynthScope({ paramsRef, tsRef, pausedRef }: {
         const amp = Number(p[`amp${slot}`] ?? 0);
         const path = voicePathRefs.current[k];
         if (!(amp > 0)) { path?.setAttribute("d", ""); continue; }
-        const voice: CombinedVoice = { wave: String(p[`wave${slot}`]), freq: Number(p[`freq${slot}`]), speed: Number(p[`speed${slot}`]), amp };
+        const voice: CombinedVoice = {
+          wave: String(p[`wave${slot}`]), freq: Number(p[`freq${slot}`]), speed: Number(p[`speed${slot}`]), amp,
+          duty: Number(p[`duty${slot}`] ?? 0.5), phase: Number(p[`phase${slot}`] ?? 0),
+        };
         active.push(voice);
         if (path) {
-          path.setAttribute("d", buildWavePathD(voice.wave, voice.freq, voice.speed, voice.amp, t, width, height));
+          path.setAttribute("d", buildWavePathD(voice.wave, voice.freq, voice.speed, voice.amp, t, width, height, voice.duty, voice.phase));
           path.style.stroke = String(p[`color${slot}`] ?? "#7df9ff");
         }
       }
@@ -593,6 +671,21 @@ export const FREQ_MAX = Number(
 const scaleSpecOf = (fieldSynth.parameterSchema as unknown as Record<string, { min?: number; max?: number }>).scale;
 export const SCALE_MIN = Number(scaleSpecOf?.min ?? 0.1);
 export const SCALE_MAX = Number(scaleSpecOf?.max ?? 12);
+/** Same rule for the voice layer count. */
+export const MAX_LAYERS = Number(
+  (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).layer1?.max ?? 3,
+);
+/** Same rule for march steps' upper bound. */
+export const MARCH_STEPS_MAX = Number(
+  (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).marchSteps?.max ?? 256,
+);
+/** Per-voice layer assignment (VOLUMETRIC.md's Step 3) — a compact numbered
+ *  segmented control, reusing `IconToggle`'s markup with a text label instead
+ *  of a shape icon (a layer has no natural glyph the way a field/wave does). */
+export const LAYER_TOGGLE = Array.from({ length: MAX_LAYERS }, (_, i) => {
+  const n = i + 1;
+  return { value: String(n), icon: <span className="gx-toggle-text">{n}</span>, label: `Layer ${n}`, desc: `assigns this voice to layer ${n} — voices on the same layer fold together before layers combine` };
+});
 export const freqFromSlider = (pos: number, max: number): number => {
   const v = max * Math.pow(Math.min(1, Math.max(0, pos)), FREQ_TAPER);
   // Finer quantization down low, where the taper hands you the resolution: a
@@ -701,7 +794,11 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
  * their phase reference, `noise` is sampled at rotated coordinates, and the
  * linear family is the whole point of having the control.
  */
-const angleApplies = (field: string): boolean => field !== "radial";
+// `linearZ` is likewise invariant: `angle` is always a rotation about Z (see
+// AGENTS.md), which leaves the Z axis itself unchanged — `sampleFieldVoice`'s
+// volumetric branch reads `raw = z` directly, untouched by the angle-rotated
+// sample coordinates linearX/Y read.
+const angleApplies = (field: string): boolean => field !== "radial" && field !== "linearZ";
 
 export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }) {
   const size = 100;
@@ -731,6 +828,15 @@ export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }
         <g key={key} stroke={color} fill="none">
           <circle cx={ox} cy={oy} r={16} strokeWidth={1.2} strokeDasharray={field === "noise" ? "3 3" : undefined} vectorEffect="non-scaling-stroke" />
           <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
+        </g>,
+      );
+    } else if (field === "linearZ") {
+      // A genuinely out-of-plane axis has no 2D direction to draw — mark the
+      // centre and label it rather than drawing a direction this map can't show.
+      marks.push(
+        <g key={key}>
+          <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
+          <text x={ox + 6} y={oy + 3} fontSize="9" fill={color}>Z</text>
         </g>,
       );
     } else {
@@ -769,18 +875,19 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const f = (k: string) => String(params[`${k}${slot}`]);
   const num = (k: string) => Number(params[`${k}${slot}`]);
+  const volumetric = params.space === "object";
   // Always-fresh ref (not a dep) — the trendline reads it from inside the
   // preview's own rAF tick, which must stay mounted across param changes.
-  const trendRef = useRef({ wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp") });
-  trendRef.current = { wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp") };
+  const trendRef = useRef({ wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp"), duty: num("duty"), phase: num("phase") });
+  trendRef.current = { wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp"), duty: num("duty"), phase: num("phase") };
   const pathRef = useRef<SVGPathElement | null>(null);
   const onTick = useCallback((t: number) => {
     const path = pathRef.current;
     if (!path) return;
     const v = trendRef.current;
-    path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30));
+    path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick, volumetric);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The
@@ -790,7 +897,8 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   const patchUsesPlacement = Array.from({ length: MAX_VOICES }, (_, k) => k + 1).some((v) =>
     Number(params[`amp${v}`] ?? 0) > 0
     && ((angleApplies(String(params[`field${v}`])) && Number(params[`angle${v}`] ?? 0) !== 0)
-      || Number(params[`originU${v}`] ?? 0) !== 0 || Number(params[`originV${v}`] ?? 0) !== 0));
+      || Number(params[`originU${v}`] ?? 0) !== 0 || Number(params[`originV${v}`] ?? 0) !== 0
+      || Number(params[`originW${v}`] ?? 0) !== 0));
   const [placementOverride, setPlacementOverride] = useState<boolean | null>(null);
   // Applying a preset flips `patchUsesPlacement`; clear any manual choice so the
   // new patch decides, instead of a stale click hiding what it configured.
@@ -814,10 +922,16 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
           </span>
         </div>
         <IconToggle groupTitle="Wave — the oscillator shape sampled across this voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
-        <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
+        <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={volumetric ? FIELD_TOGGLE_3D : FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), FREQ_MAX)} style={fill(freqToSlider(num("freq"), FREQ_MAX), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, FREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction. 0.5 (default) is an even on/off split; a smaller value selects a narrower high band (e.g. 1/3 for a middle-third selector)."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`duty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
+        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        <div className="voice-layer-row" title="Layer — which of up to 3 groups this voice folds into before layers combine. All voices default to layer 1, which folds exactly like today's flat mix.">
+          <span className="voice-layer-label">layer</span>
+          <IconToggle groupTitle="Layer assignment" options={LAYER_TOGGLE} value={String(num("layer"))} onChange={(v) => onParam(`layer${slot}`, Number(v))} />
+        </div>
         <button
           type="button"
           className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
@@ -833,6 +947,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
         {angleApplies(f("field")) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
         <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
         <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
+        {volumetric && <label className="voice-slider" title="Origin W — as Origin U/V, on the volumetric branch's third (depth) axis. No effect on the flat 2D field."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`originW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
             </div>
           </div>
         )}
@@ -845,13 +960,42 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
 // ── Live preset tile (flat square) ────────────────────────────────────────────
 export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onApply: () => void }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host]);
+  const volumetric = (preset.params as Params).space === "object";
+  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host], undefined, volumetric);
   return (
     <button className="synth-tile" onClick={onApply} title={`Apply “${preset.name}”`}>
       <span className="synth-tile-scene" ref={setHost} />
       <span className="synth-tile-label">{preset.name}</span>
     </button>
   );
+}
+
+// ── Layer section (VOLUMETRIC.md's Step 3) ────────────────────────────────────
+// A lil-gui subfolder per layer, own hooks so each is its own component
+// instance (calling `use*` in a raw loop inside one component would break the
+// Rules of Hooks even over a fixed-length range) — same reasoning as why
+// voice cards are separate components rather than a loop of hook calls.
+// Hidden (not unmounted) when the layer has no active (amp > 0) voice
+// assigned to it, mirroring the show/hide-not-destroy pattern the Ramp/Chars
+// rows already use for `subcellRes: "2x4"`/"ink".
+function LayerSection({ gui, layer, params, onParam, populated }: {
+  gui: GUI | null; layer: number; params: Params; onParam: (key: string, value: ParamValue) => void; populated: boolean;
+}) {
+  const s = (k: string) => String(params[`${k}${layer}`] ?? "");
+  const n = (k: string) => Number(params[`${k}${layer}`] ?? 0);
+  const b = (k: string) => params[`${k}${layer}`] === true;
+  const folder = useFolder(gui, `Layer ${layer}`, { open: false });
+  useEffect(() => { if (folder) (populated ? folder.show() : folder.hide()); }, [folder, populated]);
+  const combineCtrl = useOption(folder, "Combine", LAYER_COMBINE_OPTS, s("layerCombine"), (v) => onParam(`layerCombine${layer}`, v));
+  useEffect(() => {
+    if (combineCtrl) combineCtrl.raw.$name.title = "Combine — how this layer's own voices fold together. \"inherit\" (default) uses the patch-level Combine, which is what keeps a single populated layer folding exactly like today's flat mix.";
+  }, [combineCtrl]);
+  useToggle(folder, "Threshold on", b("layerThresholdOn"), (v) => onParam(`layerThresholdOn${layer}`, v));
+  useSlider(folder, "Threshold", { min: -3, max: 3, step: 0.05 }, n("layerThreshold"), (v) => onParam(`layerThreshold${layer}`, v));
+  useToggle(folder, "Invert", b("layerInvert"), (v) => onParam(`layerInvert${layer}`, v));
+  useOption(folder, "Blend", LAYER_BLEND_OPTS, s("layerBlend"), (v) => onParam(`layerBlend${layer}`, v));
+  useSlider(folder, "Amp", { min: 0, max: 1, step: 0.05 }, n("layerAmp"), (v) => onParam(`layerAmp${layer}`, v));
+  return null;
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
@@ -877,8 +1021,30 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // shape, never the ramp. Both modes therefore dim Ramp/Chars.
   const subcellIsInk = s("subcellRes") === "ink";
   const ramplessSubcell = subcellIs2x4 || subcellIsInk;
+  // Single source of truth for "is this patch volumetric" — the 2D/3D toggle,
+  // the Mapping dropdown, and the Layers/Volume folders below all read this
+  // same derived flag, so none of them can desync from `params.space`.
+  const volumetric = s("space") === "object";
+  // Remembers the last non-"object" Mapping value so 3D -> 2D restores a sane
+  // 2D state instead of always collapsing to "auto" (VOLUMETRIC.md's "/synth
+  // page" section: "Switching back to 2D must restore a sane 2D state").
+  const last2dSpaceRef = useRef<string>(volumetric ? "auto" : s("space"));
+  useEffect(() => { if (!volumetric) last2dSpaceRef.current = s("space"); });
+  const setMode = useCallback((mode: "2d" | "3d") => {
+    if (mode === "3d") {
+      onShape("cube");
+      onParam("space", "object");
+    } else {
+      onShape("plane");
+      onParam("space", last2dSpaceRef.current);
+      // Carve is invalid off-object (`validateParams` rejects it) — never
+      // leave the patch in a rejected state on the way back to 2D.
+      onParam("render", "paint");
+    }
+  }, [onShape, onParam]);
 
   const stage = useFolder(gui, "Stage", { open: true });
+  const modeSlot = useDockSlot(stage, { position: "top", className: "dock-mode-slot" });
   useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
   useOption(stage, "Mapping", SPACE_OPTS, s("space"), (v) => onParam("space", v));
   useSlider(stage, "Density", { min: 0.5, max: 4, step: 0.1 }, density, onDensity);
@@ -912,6 +1078,27 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
     gainCtrl?.raw.name(subcellIs2x4 ? "Contrast (dot threshold)" : "Contrast");
     biasCtrl?.raw.name(subcellIs2x4 ? "Brightness (dot threshold)" : "Brightness");
   }, [gainCtrl, biasCtrl, subcellIs2x4]);
+
+  // Voice layers (VOLUMETRIC.md's Step 3) — orthogonal to volumetric/carve:
+  // grouping and per-layer shaping work in 2D too, so this folder is always
+  // present; only a layer's own subfolder hides when it has no active voice
+  // assigned (see `LayerSection`'s doc).
+  const layers = useFolder(gui, "Layers", { open: false });
+  const layerPopulated: boolean[] = new Array(MAX_LAYERS).fill(false) as boolean[];
+  for (let k = 1; k <= MAX_VOICES; k++) {
+    if (!(n(`amp${k}`) > 0)) continue;
+    const l = n(`layer${k}`);
+    if (l >= 1 && l <= MAX_LAYERS) layerPopulated[l - 1] = true;
+  }
+
+  // Volumetric-only render controls (VOLUMETRIC.md's Carve mode): the whole
+  // folder hides in 2D rather than unmounting, same show/hide-not-destroy
+  // discipline as every other conditional row on this page.
+  const volume = useFolder(gui, "Volume", { open: true });
+  useEffect(() => { if (volume) (volumetric ? volume.show() : volume.hide()); }, [volume, volumetric]);
+  useOption(volume, "Render", RENDER_OPTS, s("render"), (v) => onParam("render", v));
+  useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
+  useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
 
   const out = useFolder(gui, "Output", { open: true });
   // Subcell GATES Ramp/Chars/density below it (2x4 never reads the ramp — see
@@ -1012,6 +1199,10 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
 
   return (
     <>
+      {Array.from({ length: MAX_LAYERS }, (_, i) => i + 1).map((layer) => (
+        <LayerSection key={layer} gui={layers} layer={layer} params={params} onParam={onParam} populated={layerPopulated[layer - 1] ?? false} />
+      ))}
+      {modeSlot && createPortal(<ModeToggle volumetric={volumetric} onSetMode={setMode} />, modeSlot)}
       {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
       {scaleSlot && createPortal(
         <LogSliderRow

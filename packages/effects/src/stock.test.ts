@@ -1933,6 +1933,11 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       Weave: "fd19e86f",
       "Pulse grid": "829c38e1",
       Nebula: "987c9199",
+      // Added in VOLUMETRIC.md's Phase 6 (the /synth preset gallery), after
+      // this file's IR/volumetric/duty/phase changes existed — pinned the
+      // same way as every preset above it, just not part of the pre-refactor
+      // baseline this describe block otherwise guards.
+      "Menger sponge": "c6e1efad",
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());

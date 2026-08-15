@@ -202,6 +202,12 @@ export default function SynthWorkbench() {
     setVoiceSlots(Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(next[`amp${k}`]) > 0));
     const stageDensity = PRESET_DENSITY[preset.name];
     if (stageDensity !== undefined) setDensity(stageDensity);
+    // A preset's own `space` fully determines its mode (same rule the 2D/3D
+    // toggle applies manually — see synthKit.tsx's `ModeToggle`): a
+    // volumetric preset needs the cube stage to render meaningfully, and a
+    // 2D preset needs the fullscreen plane back, regardless of whichever
+    // stage was active before applying it.
+    setShape(next.space === "object" ? "cube" : "plane");
   }, []);
 
   const addVoice = useCallback(() => {
@@ -280,6 +286,15 @@ export default function SynthWorkbench() {
     form.remove();
   }
 
+  // `buildGlyphFieldSynthStaticExport` explicitly REJECTS a volumetric/carve
+  // patch (baking a march per cell per frame is a different export design —
+  // see AGENTS.md's "Static export"). The static "Open in CodePen" button
+  // below is disabled for exactly this condition instead of letting that
+  // throw reach the user; the "Export" code window's OWN CodePen action
+  // (`handleExportCodepenDynamic`) is unaffected — it mounts a LIVE effect at
+  // runtime from the CDN, which handles carve fine.
+  const isVolumetricPatch = params.space === "object" || params.render === "carve";
+
   // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
   // bakes for the standalone "Open in CodePen" button — reads the mesh, the
   // current patch, the camera, the density-driven grid, and the blend the
@@ -289,6 +304,7 @@ export default function SynthWorkbench() {
   // wall-clock wait, and vice-versa; the exported clock is otherwise
   // independent — it starts fresh from `time=0` on load.
   const buildSynthExport = useCallback((): GlyphFieldSynthStaticExportResult | null => {
+    if (isVolumetricPatch) return null;
     const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
     if (!scene || !camera || !host) return null;
     const pre = host.querySelector("pre.glyph-output") as HTMLElement | null;
@@ -391,8 +407,10 @@ export default function SynthWorkbench() {
               type="button"
               className="gw-code-panel__action gw-code-panel__action--codepen"
               onClick={handleExportCodepenStatic}
-              disabled={exporting}
-              title="Open the current rendered patch as a static, zero-runtime CodePen"
+              disabled={exporting || isVolumetricPatch}
+              title={isVolumetricPatch
+                ? "Volumetric/carve patches can't bake to a static, zero-runtime CodePen — a march can't be prebaked per cell per frame. Use \"Export\" instead, which ships a live effect from the CDN."
+                : "Open the current rendered patch as a static, zero-runtime CodePen"}
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
             </button>
