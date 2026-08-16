@@ -268,56 +268,97 @@ describe("shapePolys(\"pyramid\") (VOLUMETRIC-2.md §3, uncentered corner tetra)
   });
 });
 
-// P1-C: the uncentered corner tetra's own bounding-box centroid sits at
-// (s/4, s/4, s/4), not the origin every other stage renders around, so left
-// alone the stage renders and orbits off-center. `shapeTransform("pyramid")`
-// centers it via the mesh's WORLD-space position instead of touching its
-// object-space vertices — the pyramid stage's field recipe (VOLUMETRIC-2.md
-// §3) requires those to stay exactly the uncentered `[0,s]^3` corner form.
+// Upright reorientation: the uncentered corner tetra's own bounding-box
+// centroid sits at (s/4, s/4, s/4), not the origin every other stage renders
+// around, so left alone (and the OLD translation-only fix's own residual
+// off-balance look) the stage renders lying on a right-angle face rather
+// than reading as the classic apex-up Sierpinski pyramid. `shapeTransform
+// ("pyramid")` now rotates AND translates it via the mesh's WORLD-space
+// transform instead of touching its object-space vertices — the pyramid
+// stage's field recipe (VOLUMETRIC-2.md §3) requires those to stay exactly
+// the uncentered `[0,s]^3` corner form.
 //
-// `createGlyphScene.ts`'s `applyTransform` (a) captures `objectVertices` as
-// the ORIGINAL, untransformed `polygons[i].vertices` reference before a
-// position/rotation/scale is applied, and (b) with rotation `[0,0,0]` and
-// scale `1` (both omitted here — `shapeTransform` only ever sets `position`),
-// its rotate-then-translate math reduces to a plain `vertex + position`. That
-// composition is what this test exercises: it doesn't reimplement
-// `applyTransform`'s general rotate/scale math, only the translation-only
-// identity `shapeTransform` actually relies on.
-describe("shapeTransform(\"pyramid\") (P1-C, world-centered stage via mesh position)", () => {
-  it("centers the uncentered corner tetra's WORLD-space vertex centroid near the origin, while its object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
+// `createGlyphScene.ts`'s `applyTransform` composes `Rx * Ry * Rz` (Rz acts
+// first on the point), matching `rotateWorld` below exactly, then translates.
+// `objectVertices` (the pre-transform `polygons[i].vertices` reference
+// `applyTransform` aliases unmodified) is untouched by any of this — only the
+// WORLD-space mesh transform changes, so the Sierpinski recipe's `[0,1]^3`-
+// aligned field never sees the reorientation.
+function rotateWorld([vx, vy, vz]: readonly [number, number, number], [rxDeg, ryDeg, rzDeg]: readonly [number, number, number]): [number, number, number] {
+  const D = Math.PI / 180;
+  const rx = rxDeg * D, ry = ryDeg * D, rz = rzDeg * D;
+  const cosX = Math.cos(rx), sinX = Math.sin(rx);
+  const cosY = Math.cos(ry), sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
+  let x = vx, y = vy, z = vz;
+  let nx = cosZ * x - sinZ * y;
+  let ny = sinZ * x + cosZ * y;
+  let nz = z;
+  x = cosY * nx + sinY * nz;
+  y = ny;
+  z = -sinY * nx + cosY * nz;
+  nx = x;
+  ny = cosX * y - sinX * z;
+  nz = sinX * y + cosX * z;
+  return [nx, ny, nz];
+}
+
+describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + center via mesh transform)", () => {
+  it("rotates the apex above a ground-parallel base and centers the ROTATED shape's bbox near the origin, while object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
     const s = PYRAMID_STAGE_SIZE;
     const raw = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
       .flatMap((face) => face.vertices);
 
     // Sanity: the raw (pre-transform / objectVertices) box is NOT already
-    // centered — its own bounding-box centroid sits at (s/4, s/4, s/4), the
-    // failure mode this fix addresses.
+    // centered — its own bounding-box centroid sits at (s/4, s/4, s/4).
     const rawCentroidPerAxis = (axis: number) => raw.reduce((sum, v) => sum + v[axis]!, 0) / raw.length;
     for (let axis = 0; axis < 3; axis++) expect(rawCentroidPerAxis(axis)).toBeCloseTo(s / 4, 10);
 
-    const transform = shapeTransform("pyramid");
-    expect(transform.position).toEqual([-s / 4, -s / 4, -s / 4]);
-    expect(transform.rotation).toBeUndefined();
-    expect(transform.scale).toBeUndefined();
-    const [px, py, pz] = transform.position!;
-
-    // objectVertices (== the raw, pre-transform vertices `applyTransform`
-    // aliases unmodified) still is exactly the uncentered corner form.
+    // objectVertices stays exactly the uncentered corner form regardless.
     const expected: [number, number, number][] = [[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]];
     const seenRaw = new Set(raw.map((v) => v.join(",")));
     for (const v of expected) expect(seenRaw.has(v.join(","))).toBe(true);
     expect(seenRaw.size).toBe(4);
 
-    // World vertices (translation-only `applyTransform`: vertex + position)
-    // have a centroid within floating-point epsilon of the origin.
-    const world = raw.map(([x, y, z]) => [x + px, y + py, z + pz] as const);
+    const transform = shapeTransform("pyramid");
+    expect(transform.rotation).toBeDefined();
+    expect(transform.scale).toBeUndefined();
+    const rotation = transform.rotation as [number, number, number];
+    const [px, py, pz] = transform.position as [number, number, number];
+
+    // Apply the SAME rotate-then-translate `applyTransform` performs.
+    const world = raw.map((v) => {
+      const [rx, ry, rz] = rotateWorld(v, rotation);
+      return [rx + px, ry + py, rz + pz] as const;
+    });
+    // Deduplicate back to the 4 logical vertices (O, A, B, C each appear on
+    // multiple faces) by matching against the raw uncentered corner form's
+    // index order — `raw`'s first occurrence of each of the 4 points anchors
+    // which transformed point is which.
+    const indexOfFirst = (needle: readonly [number, number, number]) =>
+      raw.findIndex((v) => v[0] === needle[0] && v[1] === needle[1] && v[2] === needle[2]);
+    const worldO = world[indexOfFirst([0, 0, 0])]!;
+    const worldA = world[indexOfFirst([s, 0, 0])]!;
+    const worldB = world[indexOfFirst([0, s, 0])]!;
+    const worldC = world[indexOfFirst([0, 0, s])]!;
+
+    // Base (A, B, C) is parallel to the ground: constant world Y.
+    expect(worldA[1]).toBeCloseTo(worldB[1], 8);
+    expect(worldB[1]).toBeCloseTo(worldC[1], 8);
+    // Apex (O) sits ABOVE the base plane along world Y (glyphcss's native
+    // vertical axis — see `alignCornerTetraApexEuler`'s doc in synthKit.tsx).
+    expect(worldO[1]).toBeGreaterThan(worldA[1]);
+
+    // bbox center of the 4 (rotated, translated) vertices is within
+    // floating-point epsilon of the origin.
     for (let axis = 0; axis < 3; axis++) {
-      const centroid = world.reduce((sum, v) => sum + v[axis]!, 0) / world.length;
-      expect(centroid).toBeCloseTo(0, 10);
+      const vals = [worldO[axis]!, worldA[axis]!, worldB[axis]!, worldC[axis]!];
+      const center = (Math.min(...vals) + Math.max(...vals)) / 2;
+      expect(center).toBeCloseTo(0, 8);
     }
   });
 
-  it("is the identity (no position) for every other stage shape", () => {
+  it("is the identity (no position/rotation) for every other stage shape", () => {
     for (const shape of SHAPES) {
       if (shape === "pyramid") continue;
       expect(shapeTransform(shape)).toEqual({});

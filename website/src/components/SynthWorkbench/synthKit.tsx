@@ -541,19 +541,99 @@ export function shapePolys(name: string): Polys {
 }
 export const isFlat = (name: string) => name === "plane";
 
+// Duplicates `createGlyphScene.ts`'s `applyTransform` rotation math exactly
+// (Rz first on the point, then Ry, then Rx — matrix product Rx*Ry*Rz) so the
+// bbox math below previews the SAME rotated shape the renderer will actually
+// produce. There is no exported rotate-only utility to reuse; this is
+// deliberately kept in lockstep with that function's composition order, not
+// a generic decomposition assumption.
+function rotateOnly([vx, vy, vz]: V3, [rxDeg, ryDeg, rzDeg]: V3): V3 {
+  const DEG2RAD = Math.PI / 180;
+  const rx = rxDeg * DEG2RAD, ry = ryDeg * DEG2RAD, rz = rzDeg * DEG2RAD;
+  const cosX = Math.cos(rx), sinX = Math.sin(rx);
+  const cosY = Math.cos(ry), sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
+  let x = vx, y = vy, z = vz;
+  let nx = cosZ * x - sinZ * y;
+  let ny = sinZ * x + cosZ * y;
+  let nz = z;
+  x = cosY * nx + sinY * nz;
+  y = ny;
+  z = -sinY * nx + cosY * nz;
+  nx = x;
+  ny = cosX * y - sinX * z;
+  nz = sinX * y + cosX * z;
+  return [nx, ny, nz];
+}
+
+// The corner tetra's O -> centroid(A,B,C) axis is the (1,1,1) direction — the
+// classic Sierpinski look wants the OPPOSITE of that as "up": apex (O) above
+// a base (face ABC) parallel to the ground, i.e. the direction FROM the base
+// TOWARD the apex, centroid(ABC) -> O, mapped onto world +Y. +Y (not +Z) is
+// glyphcss's native VERTICAL/camera-up axis: `project()`
+// (packages/core/src/math/projection.ts) computes screen row as
+// `rows*cy - v[1]*r*persp`, so larger Y lands at a SMALLER row (higher on
+// screen), and every hand-authored "vertical" primitive agrees — e.g.
+// `conePolygons` documents itself as "a closed cone along the Y axis" with
+// the apex at `y + height/2`. (AGENTS.md's "+Z = up" convention is scoped to
+// `@glyphcss/fonts`'s own text-authoring space, which needs a `rotX: 90`
+// CAMERA compensation to read vertically for exactly this reason — it is not
+// the native primitive/camera convention.) That direction is
+// -(1,1,1)/sqrt(3), regardless of the tetra's size `s` (a pure direction).
+// Solved as the minimal (shortest-arc) axis-angle rotation from that source
+// vector to +Y via Rodrigues' formula, then decomposed into the XYZ Euler
+// triple `applyTransform` actually composes (R = Rx*Ry*Rz applied to the
+// point): ry = asin(R02), rx = atan2(-R12, R22), rz = atan2(-R01, R00) — the
+// standard closed-form extraction for this exact matrix layout, valid here
+// since asin's principal branch keeps cos(ry) >= 0 (no gimbal-lock special
+// case needed for this particular source/target pair). Numerically verified
+// (see synthKit.test.ts): apex ends up above the base plane, the base is
+// parallel to the ground, and rebuilding R from the returned angles
+// reproduces the same target vector.
+function alignCornerTetraApexEuler(): V3 {
+  const source = vnorm([-1, -1, -1]);
+  const target: V3 = [0, 1, 0];
+  const axis = vcross(source, target);
+  const axisLen = Math.hypot(axis[0], axis[1], axis[2]);
+  const cosAngle = Math.min(1, Math.max(-1, vdot(source, target)));
+  const angle = Math.acos(cosAngle);
+  const [ux, uy, uz] = axisLen > 1e-12 ? vnorm(axis) : [1, 0, 0];
+  const c = Math.cos(angle), s = Math.sin(angle), t = 1 - c;
+  const r00 = t * ux * ux + c, r01 = t * ux * uy - s * uz, r02 = t * ux * uz + s * uy;
+  const r12 = t * uy * uz - s * ux;
+  const r22 = t * uz * uz + c;
+  const RAD2DEG = 180 / Math.PI;
+  const ry = Math.asin(Math.min(1, Math.max(-1, r02)));
+  const rx = Math.atan2(-r12, r22);
+  const rz = Math.atan2(-r01, r00);
+  return [rx * RAD2DEG, ry * RAD2DEG, rz * RAD2DEG];
+}
+const CORNER_TETRA_APEX_EULER: V3 = alignCornerTetraApexEuler();
+
 // The pyramid stage's corner tetra is deliberately UNCENTERED in object
 // space (see `cornerTetraPolygons` above — a binding contract for the
-// Sierpinski recipe's `[0,1]^3` window, not to be touched). Its own
-// bounding-box centroid sits at `(s/4, s/4, s/4)`, not the origin every
-// other stage here is authored around, so left alone it renders and orbits
-// off-center. Center it in WORLD space instead, via the mesh's transform:
-// `createGlyphScene`'s `applyTransform` captures `objectVertices` BEFORE
-// this offset is applied, so the field recipe never sees it — only the
-// camera/orbit-pivot-facing world position moves.
+// Sierpinski recipe's `[0,1]^3` window, not to be touched). Left alone it
+// also renders lying on one of its right-angle faces, off-center, and
+// spinning about an off-axis, off-center pivot — not the classic Sierpinski
+// "apex up" look. Fixed entirely in WORLD space, via the mesh's transform
+// (`createGlyphScene`'s `applyTransform` captures `objectVertices` BEFORE
+// this transform is applied, so the field recipe never sees it): rotate by
+// `CORNER_TETRA_APEX_EULER` so the apex sits above a ground-parallel base,
+// then center on the ROTATED shape's bounding-box center (not its centroid —
+// this tetra's mass is lopsided toward the apex, so a centroid center still
+// reads visually off-balance under orbit) so orbit/spin read symmetric.
 export function shapeTransform(name: string): GlyphMeshTransform {
   if (name === "pyramid") {
-    const c = PYRAMID_STAGE_SIZE / 4;
-    return { position: [-c, -c, -c] };
+    const s = PYRAMID_STAGE_SIZE;
+    const rotation = CORNER_TETRA_APEX_EULER;
+    const corners: V3[] = [[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]].map((v) => rotateOnly(v as V3, rotation));
+    const xs = corners.map((v) => v[0]), ys = corners.map((v) => v[1]), zs = corners.map((v) => v[2]);
+    const bboxCenter: V3 = [
+      (Math.min(...xs) + Math.max(...xs)) / 2,
+      (Math.min(...ys) + Math.max(...ys)) / 2,
+      (Math.min(...zs) + Math.max(...zs)) / 2,
+    ];
+    return { rotation, position: [-bboxCenter[0], -bboxCenter[1], -bboxCenter[2]] };
   }
   return {};
 }
@@ -1251,15 +1331,21 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // fine recursive grid into visual noise). Paired with the preset's own
   // raised `marchFade` (stock.ts) for the depth cue that does the rest.
   [GlyphMengerSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
-  // The pyramid stage's recursive detail concentrates toward the origin
-  // corner where all three axis-aligned faces meet; this angle keeps that
-  // corner in view alongside the far hypotenuse face (the base triangle
-  // opposite it), rather than looking squarely down one flat face. P1-C:
-  // the pyramid stage itself is now world-centered (`shapeTransform`) — a
-  // pure translation, so it doesn't change which faces this angle shows —
-  // this hint's angles were re-checked against the recentered stage and
-  // still read the same, so they're unchanged.
-  [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid", rotX: 35, rotY: 40 }],
+  // Re-checked after the pyramid stage's upright reorientation
+  // (`shapeTransform`/`alignCornerTetraApexEuler` above): the old hint
+  // (rotX 35, rotY 40) was tuned to keep the origin corner in view alongside
+  // the far hypotenuse face on the PREVIOUS lying-on-a-face orientation —
+  // meaningless now that the mesh itself stands apex-up. The corner tetra's
+  // apex isn't always the single topmost screen pixel at every camera
+  // angle/roll (it's a lopsided "cube corner" shape, not a regular pyramid,
+  // and its recursive fractal detail — not a clean flat base — is what
+  // actually reads as "the interesting part"), so rather than chase a
+  // pixel-exact top vertex, this omits a custom angle entirely and falls
+  // back to the same default isometric-ish camera (rotX 58, rotY 32) every
+  // other non-special-cased volumetric shape already uses — visually
+  // verified centered and well-framed on the reoriented stage, and the
+  // Stage folder's auto-orbit (VOLUMETRIC-2.md §4) cycles the azimuth anyway.
+  [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
   [GlyphGyroidXrayPreset as GlyphEffectPreset<never>, { shape: "cube" }],
 ]);
 
