@@ -32,8 +32,8 @@ export function InstrumentRail({
   </aside>;
 }
 
-export function InstrumentMain({ children }: { readonly children: ReactNode }) {
-  return <main className="synth-main">{children}</main>;
+export function InstrumentMain({ children, elementRef }: { readonly children: ReactNode; readonly elementRef?: Ref<HTMLElement> }) {
+  return <main className="synth-main" ref={elementRef}>{children}</main>;
 }
 
 export function InstrumentViewport({ children, className, elementRef }: { readonly children?: ReactNode; readonly className?: string; readonly elementRef?: Ref<HTMLDivElement> }) {

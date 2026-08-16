@@ -307,11 +307,22 @@
    only needs to override the base `.gw-code-panel` rule's position so it
    sits above the bar instead of on top of it, and to redo the mobile
    drawer sizing scoped to `.dn-root--synth` (the gallery's own mobile
-   override only matches `.dn-root--gallery`, so it never applies here). */
+   override only matches `.dn-root--gallery`, so it never applies here).
+
+   BOTH rules below use a plain 12px `bottom`, not `var(--overlay-bottom)`:
+   that variable folds in `--synth-footer-height` (see `.synth-shell.dn-root`
+   above) so the Dock's own floating panel — a SIBLING of `.synth-main`,
+   positioned against `.synth-body` — doesn't visually overflow into the
+   preset footer strip below. `.synth-export-bar`/`.synth-code-panel` are
+   positioned against `.synth-main` instead (`position: relative` above),
+   whose own flex-computed height ALREADY stops before the footer — reusing
+   the footer-inflated variable here double-counts that clearance and pins
+   both mid-viewport instead of at the bottom (found live: floating well
+   above the bottom edge, not flush with it). */
 .synth-export-bar {
   position: absolute;
   left: var(--overlay-left, 12px);
-  bottom: var(--overlay-bottom, 12px);
+  bottom: 12px;
   z-index: 15;
   display: flex;
   gap: 6px;
@@ -333,7 +344,7 @@
    would then lose the cascade to `.gw-code-panel`'s base rule. The extra
    specificity makes this override win regardless of chunk/link order. */
 .synth-code-panel.gw-code-panel {
-  bottom: calc(var(--overlay-bottom, 12px) + 34px);
+  bottom: calc(12px + 34px);
   width: clamp(360px, 42vw, 640px);
   /* `.gw-code-panel`'s own max-height formula assumes the gallery's taller
      chrome above the panel (`- 60vh`) and starves this shorter `.synth-main`

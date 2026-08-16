@@ -28,6 +28,7 @@ import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
+import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
 import { readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
 import {
@@ -103,6 +104,10 @@ import {
 export default function SynthWorkbench() {
   const initial = useMemo(() => readInitialSynthState(), []);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // State, not a ref: StatsOverlay mounts imperatively into this element,
+  // and a ref mutation would not re-run its effect (same pattern as
+  // /wordart's own `stageHost`).
+  const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
   const sceneRef = useRef<GlyphSceneHandle | null>(null);
   const cameraRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
@@ -517,8 +522,9 @@ export default function SynthWorkbench() {
               ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
         </InstrumentRail>
-        <InstrumentMain>
+        <InstrumentMain elementRef={setStageHost}>
           <InstrumentViewport elementRef={hostRef} />
+          <StatsOverlay anchor="top-left" container={stageHost} />
           <div className="synth-export-bar">
             <button
               type="button"
