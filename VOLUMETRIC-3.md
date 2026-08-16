@@ -297,8 +297,9 @@ non-periodic (unaffected); sin/triangle/saw keep `freq`.
 
 This makes the depth-3 recipe safe: finest band 1/27 → 94 steps, well
 inside the 256 cap. (Slice-1's "depth-3 = 1/81 features ≥ 281 steps"
-rationale was wrong by 3× — corrected in VOLUMETRIC-2's reconciliation
-as part of this slice's docs phase.) With 9 voices the **depth-3 Menger
+rationale was wrong by 3× — corrected in place in VOLUMETRIC.md as part
+of this slice's docs phase, not in VOLUMETRIC-2's reconciliation, which
+never carried this claim.) With 9 voices the **depth-3 Menger
 recipe preset ships** — gated on an EMPIRICAL acceptance check (hit-set
 equality vs a 256-step ground-truth march on the acceptance scene), not
 formula trust: no frequency bound can guarantee thresholded folds don't
@@ -347,7 +348,7 @@ produce thinner walls.
    website): 9 voices, finest-freq fix, depth-3 preset + empirical gate,
    builder/validator/program-as-data, exporter reject. Acceptance 6.
 5. **Docs finale + `project()` deletion + final gate.** AGENTS.md,
-   effects.mdx, VOLUMETRIC-2 reconciliation correction, this file →
+   effects.mdx, VOLUMETRIC.md depth-3 correction, this file →
    implemented.
 
 ## Acceptance criteria

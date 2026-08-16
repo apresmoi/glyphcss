@@ -353,9 +353,11 @@ program IR"):
   the highest active `freq` — the sampling floor below which thin solid
   walls are skipped and render as false holes that shimmer under orbit).
   The 256 cap plus depth-2 field content (finest features 1/9 of the
-  domain) keeps that floor comfortably reachable; depth-3 content (1/81
-  features, ≥ ~281 steps on a cube diagonal) is out of carve's v1 envelope
-  — consistent with the voice-count ceiling above.
+  domain) keeps that floor comfortably reachable; depth-3 content (finest
+  features 1/27 of the domain, ~94 steps on a cube diagonal — this passage
+  originally read 1/81 features and ≥ ~281 steps, wrong by 3×, corrected
+  here per slice 3's analysis) is out of carve's v1 envelope — consistent
+  with the voice-count ceiling above.
 - **Solid test.** The field value at the sample, through the same
   `clamp01(bias + gain·v·0.5)` mapping the ramp already uses, is solid when
   > 0. No new iso parameter — bias is the level knob, and the ±1 layer
