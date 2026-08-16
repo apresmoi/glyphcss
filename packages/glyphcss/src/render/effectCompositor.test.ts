@@ -362,3 +362,153 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
     )).toThrow(/at least one GlyphMeshHandle/i);
   });
 });
+
+// `program` is a definition-layer-only option (VOLUMETRIC-3.md §4): a raw
+// `GlyphEffectProgramLayerOptions` effect (a bare `defineGlyphEffect(...)`
+// result, like `emitEverywhereIgnoringTarget` above) has no separate
+// definition-level `validateProgram` hook to call it through — only a full
+// `GlyphEffectDefinition` (id/version/parameterSchema/program) does, the
+// same "definition" shape `isDefinition()` (effectCompositor.ts) checks.
+function definitionOf(program: ReturnType<typeof defineGlyphEffect<{ phase: number }>>): GlyphEffectDefinition<{ phase: { kind: "number"; default: 0 } }> {
+  return {
+    id: "test.program-as-data",
+    version: 1,
+    parameterSchema: { phase: { kind: "number", default: 0 } },
+    program,
+  } satisfies GlyphEffectDefinition<{ phase: { kind: "number"; default: 0 } }>;
+}
+
+describe("program-as-data (VOLUMETRIC-3.md §4)", () => {
+  it("forwards a mounted layer's `program` option onto the evaluate context unchanged", () => {
+    let seenProgram: unknown;
+    const reportsProgram = definitionOf(defineGlyphEffect<{ phase: number }>({
+      evaluate({ program, output }) {
+        seenProgram = program;
+        output.coverage.fill(0);
+      },
+    }));
+    const payload = { domain: "2d", layers: [] };
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: reportsProgram, params: { phase: 0 }, program: payload },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
+    expect(seenProgram).toBe(payload);
+  });
+
+  it("leaves context.program undefined when no `program` option was supplied", () => {
+    let seenProgram: unknown = "sentinel";
+    let sawProgramKey = true;
+    const reportsProgram = definitionOf(defineGlyphEffect<{ phase: number }>({
+      evaluate(context) {
+        seenProgram = context.program;
+        sawProgramKey = "program" in context;
+        context.output.coverage.fill(0);
+      },
+    }));
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: reportsProgram, params: { phase: 0 } },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
+    expect(seenProgram).toBeUndefined();
+    expect(sawProgramKey).toBe(false);
+  });
+
+  it("calls the definition's own validateProgram hook once at mount when a program option is present, and never when absent", () => {
+    const validateProgram = vi.fn();
+    const withValidator = definitionOf(defineGlyphEffect<{ phase: number }>({
+      validateProgram,
+      evaluate({ output }) { output.coverage.fill(0); },
+    }));
+    createRuntimeGlyphEffectLayer(
+      { effect: withValidator, params: { phase: 0 }, program: { domain: "2d", layers: [] } },
+      0,
+      () => {},
+      () => {},
+    );
+    expect(validateProgram).toHaveBeenCalledTimes(1);
+    expect(validateProgram).toHaveBeenCalledWith({ domain: "2d", layers: [] });
+
+    validateProgram.mockClear();
+    createRuntimeGlyphEffectLayer(
+      { effect: withValidator, params: { phase: 0 } },
+      1,
+      () => {},
+      () => {},
+    );
+    expect(validateProgram).not.toHaveBeenCalled();
+  });
+
+  it("a validateProgram hook that throws on a malformed payload rejects the layer at mount, not silently later", () => {
+    const strict = definitionOf(defineGlyphEffect<{ phase: number }>({
+      validateProgram(program) {
+        if (!program || typeof program !== "object" || !("layers" in program)) {
+          throw new TypeError("bad program");
+        }
+      },
+      evaluate({ output }) { output.coverage.fill(0); },
+    }));
+    expect(() => createRuntimeGlyphEffectLayer(
+      { effect: strict, params: { phase: 0 }, program: "not a program" },
+      0,
+      () => {},
+      () => {},
+    )).toThrow(/bad program/);
+  });
+
+  it("a program option on a definition with no validateProgram hook mounts fine and still forwards the payload", () => {
+    let seenProgram: unknown;
+    const noValidator = definitionOf(defineGlyphEffect<{ phase: number }>({
+      evaluate({ program, output }) {
+        seenProgram = program;
+        output.coverage.fill(0);
+      },
+    }));
+    const payload = { anything: true };
+    expect(() => createRuntimeGlyphEffectLayer(
+      { effect: noValidator, params: { phase: 0 }, program: payload },
+      0,
+      () => {},
+      () => {},
+    )).not.toThrow();
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: noValidator, params: { phase: 0 }, program: payload },
+      1,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
+    expect(seenProgram).toBe(payload);
+  });
+
+  it("setOptions rejects a DIFFERENT program value; the SAME value (by reference) is a no-op", () => {
+    const noop = definitionOf(defineGlyphEffect<{ phase: number }>({ evaluate({ output }) { output.coverage.fill(0); } }));
+    const payload = { domain: "2d", layers: [] };
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: noop, params: { phase: 0 }, program: payload },
+      0,
+      () => {},
+      () => {},
+    );
+    expect(() => layer.handle.setOptions({ program: payload } as never)).not.toThrow();
+    expect(() => layer.handle.setOptions({ program: { domain: "2d", layers: [] } } as never))
+      .toThrow(/immutable after mount/i);
+    // A layer mounted with NO program option can't gain one post-mount either.
+    const bareLayer = createRuntimeGlyphEffectLayer(
+      { effect: noop, params: { phase: 0 } },
+      1,
+      () => {},
+      () => {},
+    );
+    expect(() => bareLayer.handle.setOptions({ program: payload } as never))
+      .toThrow(/immutable after mount/i);
+  });
+});

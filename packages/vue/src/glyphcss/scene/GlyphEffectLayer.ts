@@ -68,6 +68,8 @@ type GlyphEffectLayerPropsFor<
   ? {
     effect: Effect;
     params?: Partial<GlyphEffectParamValues<Schema>>;
+    /** Program-as-data (VOLUMETRIC-3.md §4) — see `RuntimeProps.program`'s doc below. */
+    program?: unknown;
   } & GlyphEffectLayerCommonOptions
   : {
     effect: Effect & GlyphEffectProgramLike<P>;
@@ -93,6 +95,17 @@ interface RuntimeProps {
   opacity?: number;
   order?: number;
   enabled?: boolean;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — a definition-layer-only option
+   * (opaque to glyphcss and this wrapper alike), forwarded to
+   * `scene.addEffectLayer` ONLY at layer creation: it's immutable after
+   * mount (the imperative handle's `setOptions` throws on a change — see
+   * `GlyphEffectDefinitionLayerOptions.program`'s own doc), so this wrapper
+   * doesn't diff/re-apply it the way `target`/`blend`/etc. are. Changing
+   * the prop after creation is a silent no-op here, matching that
+   * immutability rather than throwing from inside a watcher.
+   */
+  program?: unknown;
 }
 
 interface NormalizedLayerOptions {
@@ -201,6 +214,7 @@ const GlyphEffectLayerRuntime = defineComponent({
     opacity: { type: Number, default: undefined },
     order: { type: Number, default: undefined },
     enabled: { type: Boolean, default: undefined },
+    program: { type: null as unknown as PropType<unknown>, default: undefined },
   },
   setup(props, { expose }) {
     const context = inject(GlyphSceneContextKey);
@@ -252,6 +266,7 @@ const GlyphEffectLayerRuntime = defineComponent({
       handleRef.value = scene.addEffectLayer({
         effect: props.effect,
         ...(props.params !== undefined ? { params: props.params } : {}),
+        ...(props.program !== undefined ? { program: props.program } : {}),
         ...options,
       } as never) as RuntimeHandle;
       previousParams = snapshotParams(props.params);

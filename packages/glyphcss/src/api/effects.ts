@@ -218,6 +218,16 @@ export interface GlyphEffectEvaluateContext<P extends object, S> {
   readonly coordinates: GlyphEffectCoordinates;
   readonly scratch: GlyphEffectScratchView;
   readonly output: GlyphEffectOutput;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4): the definition-layer `program`
+   * option, forwarded unchanged. glyphcss treats this as fully opaque —
+   * it's the DEFINITION's own program shape (e.g. `@glyphcss/effects`'s
+   * field-synth `GlyphFieldProgram`), which this package must not import
+   * (the dependency points the other way: `@glyphcss/effects` depends on
+   * `glyphcss`, never the reverse). `undefined` when no `program` option
+   * was supplied at mount.
+   */
+  readonly program?: unknown;
 }
 
 export type GlyphEffectRequirement =
@@ -256,6 +266,21 @@ export interface GlyphEffectProgramBase<P extends object, S> {
   readonly sceneSampling?: "nearest";
   readonly scratch?: GlyphEffectScratchRequirements;
   validateParams?(params: Readonly<P>): void;
+  /**
+   * Program-as-data validator (VOLUMETRIC-3.md §4): when a layer mounts with
+   * a `program` option (`GlyphEffectDefinitionLayerOptions.program`), the
+   * compositor calls this once, at mount, with that opaque payload — never
+   * on every params transaction the way `validateParams` is. glyphcss
+   * itself never interprets `program`; a definition owns its own program's
+   * shape (e.g. field-synth's `GlyphFieldProgram`, validated through
+   * `@glyphcss/effects`'s own `validateGlyphFieldProgram`) and validates it
+   * here, throwing on a malformed payload exactly like `validateParams`
+   * does for flat params. Absent (or a no-op) on a program that doesn't
+   * support program-as-data at all — an unvalidated `program` option is
+   * still forwarded onto the evaluate context unchanged, opaque to
+   * glyphcss either way.
+   */
+  validateProgram?(program: unknown): void;
   prepare?(context: GlyphEffectPrepareContext<P>, state: S): void;
   evaluate(context: GlyphEffectEvaluateContext<P, S>): void;
 }
@@ -357,6 +382,20 @@ export interface GlyphEffectDefinitionLayerOptions<
 > extends GlyphEffectLayerCommonOptions {
   effect: GlyphEffectDefinition<Schema, State>;
   params?: Partial<GlyphEffectParamValues<Schema>>;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4): an opaque program payload owned by
+   * the effect DEFINITION, not by glyphcss — plumbed onto
+   * `GlyphEffectEvaluateContext.program` unchanged, and (when present)
+   * validated once at mount via the definition's own `program.validateProgram`
+   * hook. When set, the definition's own semantics decide what — if
+   * anything — of `params` still applies (field-synth: `params` still
+   * governs space/render/march/output mapping; every per-voice/per-layer
+   * param is ignored as the field definition). Immutable after mount:
+   * `setOptions` with a DIFFERENT `program` value throws (remove and re-add
+   * the layer to change it) — mirroring mesh-handle `target`'s own
+   * immutable-after-mount rule (VOLUMETRIC-3.md §1).
+   */
+  program?: unknown;
 }
 
 export interface GlyphEffectProgramLayerOptions<

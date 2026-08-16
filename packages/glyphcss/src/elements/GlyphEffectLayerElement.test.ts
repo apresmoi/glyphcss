@@ -172,4 +172,22 @@ describe("GlyphEffectLayerElement", () => {
     await flush();
     expect(onReady).toHaveBeenCalledTimes(1);
   });
+
+  it("forwards a `program` option only at layer creation (VOLUMETRIC-3.md §4, JS property — program-as-data is not attribute-serializable)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const payload = { domain: "2d", layers: [] };
+    element.configure({ effect: effectA, program: payload });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ program: payload }));
+
+    // A later flush on the SAME (already-mounted) handle never forwards
+    // `program` through setOptions — it's immutable after mount, so this
+    // wrapper doesn't even attempt to re-apply it.
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalled();
+    for (const call of (handles[0]!.setOptions as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[0]).not.toHaveProperty("program");
+    }
+  });
 });

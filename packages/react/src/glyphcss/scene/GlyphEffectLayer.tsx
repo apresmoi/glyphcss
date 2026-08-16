@@ -43,6 +43,17 @@ interface RuntimeProps {
   opacity?: number;
   order?: number;
   enabled?: boolean;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — a definition-layer-only option
+   * (opaque to glyphcss and this wrapper alike), forwarded to
+   * `scene.addEffectLayer` ONLY at mount: it's immutable after mount (the
+   * imperative handle's `setOptions` throws on a change — see
+   * `GlyphEffectDefinitionLayerOptions.program`'s own doc), so this wrapper
+   * doesn't diff/re-apply it on every render the way `target`/`blend`/etc.
+   * are. Changing the prop after mount is a silent no-op here, matching
+   * that immutability rather than throwing from inside a render effect.
+   */
+  program?: unknown;
 }
 
 interface NormalizedLayerOptions {
@@ -162,6 +173,7 @@ function GlyphEffectLayerInner(
     const layer = scene.addEffectLayer({
       effect: props.effect,
       ...(props.params !== undefined ? { params: props.params } : {}),
+      ...(props.program !== undefined ? { program: props.program } : {}),
       ...options,
     } as never) as RuntimeHandle;
 

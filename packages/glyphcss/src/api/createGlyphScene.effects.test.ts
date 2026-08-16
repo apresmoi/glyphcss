@@ -355,4 +355,36 @@ describe("createGlyphScene effects", () => {
     expect(queued.disposed).toBe(true);
     expect(host.querySelector(".glyph-scene")).toBeNull();
   });
+
+  it("program-as-data (VOLUMETRIC-3.md §4): addEffectLayer's `program` option reaches evaluate() through the real render pipeline, and setOptions rejects changing it", async () => {
+    let seenProgram: unknown;
+    const schema = { phase: { kind: "number", default: 0 } } as const;
+    const definition = {
+      id: "test.program-as-data",
+      version: 1,
+      parameterSchema: schema,
+      program: defineGlyphEffect<{ phase: number }>({
+        evaluate({ target, program, output }) {
+          seenProgram = program;
+          for (let i = 0; i < output.coverage.length; i++) {
+            if (target.coverage[i]! <= 0) continue;
+            output.glyph[i] = "P";
+            output.coverage[i] = 1;
+            output.channels[i] = GlyphEffectOutputChannel.Glyph;
+          }
+        },
+      }),
+    } satisfies GlyphEffectDefinition<typeof schema>;
+    const scene = createGlyphScene(host, { cols: 20, rows: 10, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    scene.add(makeCubePolygons());
+    const payload = { domain: "2d" as const, layers: [] };
+    const layer = scene.addEffectLayer({ effect: definition, params: { phase: 0 }, program: payload });
+    await flushRenders();
+    expect(seenProgram).toBe(payload);
+    expect(scene.output.textContent).toContain("P");
+
+    expect(() => layer.setOptions({ program: { domain: "2d", layers: [] } } as never))
+      .toThrow(/immutable after mount/i);
+    scene.destroy();
+  });
 });

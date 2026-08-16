@@ -269,6 +269,33 @@ describe("GlyphEffectLayer (Vue)", () => {
     mounted.app.unmount();
   });
 
+  it("forwards a `program` option (VOLUMETRIC-3.md §4) at mount, and does not re-forward it through setOptions on a later options-only re-render", async () => {
+    const handle = createHandle();
+    const { scene, addEffectLayer } = createScene([handle]);
+    const payload = { domain: "2d", layers: [] };
+    const mounted = mountLayer(scene, {
+      effect: effectA,
+      params: { time: 1 },
+      program: payload,
+    });
+    await nextTick();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ program: payload }));
+
+    mounted.props.value = {
+      effect: effectA,
+      params: { time: 1 },
+      program: payload,
+      opacity: 0.5,
+    };
+    await nextTick();
+
+    expect(addEffectLayer).toHaveBeenCalledOnce();
+    expect(handle.setOptions).toHaveBeenCalledOnce();
+    expect(handle.setOptions).toHaveBeenCalledWith(expect.not.objectContaining({ program: expect.anything() }));
+
+    mounted.app.unmount();
+  });
+
   it("recreates a raw-program layer when its parameter schema changes", async () => {
     const first = createHandle();
     const second = createHandle();

@@ -81,6 +81,13 @@ export interface RuntimeGlyphEffectLayer {
   readonly committedParams: AnyParams;
   readonly state: unknown;
   readonly handle: GlyphEffectLayerHandle<AnyParams>;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — the definition-layer `program`
+   * option, opaque to glyphcss, forwarded onto the evaluate context
+   * unchanged. `undefined` when no `program` option was supplied at mount.
+   * Immutable after mount (see `setOptions` below).
+   */
+  readonly programOption: unknown;
   target: RuntimeGlyphEffectTarget;
   blend: GlyphEffectBlend;
   opacity: number;
@@ -302,6 +309,10 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
   let schema: GlyphEffectParamSchema | undefined;
   let program: AnyProgram;
   const initial: AnyParams = {};
+  // Program-as-data (VOLUMETRIC-3.md §4) — only a `GlyphEffectDefinitionLayerOptions`
+  // carries this; a raw `GlyphEffectProgramLayerOptions` has no separate
+  // definition-level `validateProgram` hook to call it through.
+  let programOption: unknown;
 
   if (isDefinition(effect)) {
     if (typeof effect.id !== "string" || !effect.id.trim()) throw new TypeError("glyphcss: an effect definition needs a non-empty id.");
@@ -318,6 +329,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       assertParamValue(value, spec, key);
       initial[key] = value;
     }
+    programOption = (options as GlyphEffectDefinitionLayerOptions<any, State>).program;
   } else {
     program = effect as AnyProgram;
     const supplied = (options as GlyphEffectProgramLayerOptions<P, State>).params as unknown;
@@ -332,6 +344,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
 
   assertProgram(program, initial);
   program.validateParams?.(initial);
+  if (programOption !== undefined) program.validateProgram?.(programOption);
 
   const paramsTarget: AnyParams = { ...initial };
   const candidateParams: AnyParams = { ...initial };
@@ -413,6 +426,13 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     enabled: boolean;
   }>): void {
     assertLive();
+    // Program-as-data is immutable after mount (VOLUMETRIC-3.md §4), same
+    // rule as mesh-set `target` below — `program` isn't part of `setOptions`'s
+    // typed signature, but a caller can still pass it through untyped JS, so
+    // this guards the runtime contract regardless of what TS enforces.
+    if ("program" in partial && !Object.is((partial as Record<string, unknown>).program, layer.programOption)) {
+      throw new Error("glyphcss: an effect layer's program-as-data payload is immutable after mount; remove and re-add the layer to change it.");
+    }
     const nextTarget = "target" in partial ? normalizeTarget(partial.target) : layer.target;
     // Mesh-set targeting is immutable after mount (VOLUMETRIC-3.md §1): once
     // either side of the comparison is a mesh-id set, an equivalent set is a
@@ -471,6 +491,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     committedParams,
     state,
     handle,
+    programOption,
     target: normalizeTarget(options.target),
     blend: normalizeBlend(options.blend),
     opacity: normalizeOpacity(options.opacity),
@@ -757,6 +778,7 @@ export function composeRetainedGlyphEffectOutput(
       coordinates,
       scratch: EMPTY_SCRATCH,
       output: emission,
+      ...(layer.programOption !== undefined ? { program: layer.programOption } : {}),
     });
 
     for (let i = 0; i < n; i++) {

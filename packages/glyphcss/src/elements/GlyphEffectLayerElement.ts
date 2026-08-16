@@ -32,6 +32,18 @@ export interface GlyphEffectLayerElementConfig {
   opacity?: number;
   order?: number;
   enabled?: boolean;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — JS property, not an attribute
+   * (the program is data, the same rule `sceneManifest`/`dictionary` use
+   * elsewhere): configured through `.configure()` or by setting
+   * `.effect`/a fresh `configure()` call, never through a DOM attribute.
+   * Forwarded to `scene.addEffectLayer` only when the underlying handle is
+   * (re)created (a new `effect` reference) — it's immutable after mount
+   * (`setOptions` throws on a change), so changing `program` alone on an
+   * already-mounted layer's config is a silent no-op, matching that
+   * immutability rather than throwing from inside the flush microtask.
+   */
+  program?: unknown;
 }
 
 function parseFinite(value: string | null): number | undefined {
@@ -204,6 +216,7 @@ export class GlyphEffectLayerElement extends ELEMENT_BASE {
         const handle = scene.addEffectLayer({
           effect: config.effect,
           params,
+          ...(config.program !== undefined ? { program: config.program } : {}),
           ...options,
         }) as RuntimeHandle;
         this._handle = handle;
