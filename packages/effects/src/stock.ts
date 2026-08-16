@@ -42,7 +42,8 @@ export interface GlyphEffectPreset<Schema extends GlyphEffectParamSchema> {
 
 export interface GlyphStockEffectDefinition<
   Schema extends GlyphEffectParamSchema = GlyphEffectParamSchema,
-> extends GlyphEffectDefinition<Schema> {
+  State = undefined,
+> extends GlyphEffectDefinition<Schema, State> {
   readonly label: string;
   readonly description: string;
   readonly defaultBlend: GlyphEffectBlend;
@@ -53,8 +54,14 @@ export interface GlyphStockEffectDefinition<
 // Exported (alongside a handful of coordinate-resolution internals below) so
 // `staticExport.ts`'s build-time baker can construct the same evaluate()
 // context shape and reuse the real surface-basis math instead of copying it.
+// `S` (default `undefined`, matching every stateless stock effect) lets the
+// handful of module-level helpers shared across effects (`setGlyph`,
+// `setColor`, `findUvBounds`, `generatedSurfaceField`) stay generic over
+// whichever effect calls them — field-synth is the one definition with real
+// per-layer `state` (see `FieldSynthState` below), inferred automatically at
+// each of its call sites without touching the stateless callers.
 export type AnyParams = Record<string, number | string | boolean>;
-export type AnyContext<P extends AnyParams> = GlyphEffectEvaluateContext<P, undefined>;
+export type AnyContext<P extends AnyParams, S = undefined> = GlyphEffectEvaluateContext<P, S>;
 
 const GLYPH = GlyphEffectOutputChannel.Glyph;
 const COLOR = GlyphEffectOutputChannel.Color;
@@ -200,7 +207,7 @@ function glyphRamp(value: string): string[] {
 // Callers only truth-test the result as an "authored UVs are usable" gate —
 // no caller reads bound values, so this returns the gate directly instead of
 // a bounds struct.
-export function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boolean {
+export function findUvBounds<P extends AnyParams, S = undefined>(context: AnyContext<P, S>): boolean {
   const uv = context.base.uv0;
   if (!uv) return false;
   let minU = Infinity;
@@ -222,7 +229,7 @@ export function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boole
   return Number.isFinite(spanU) && Number.isFinite(spanV) && Math.max(spanU, spanV) >= 1e-6;
 }
 
-function sceneCoordinate<P extends AnyParams>(context: AnyContext<P>, index: number): [number, number] {
+function sceneCoordinate<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number): [number, number] {
   const col = index % context.base.cols;
   const row = (index / context.base.cols) | 0;
   const [a, b, c, d, e, f] = context.coordinates.cellToSceneGrid;
@@ -252,8 +259,8 @@ interface SurfaceBasisSample {
 // per-cell, per-frame template-string allocation it immediately discards.
 // generatedSurfaceField still needs the key to group cells into coplanar
 // surfaces, so it calls surfaceGroupKey directly on the basis it already has.
-function surfaceBasisSample<P extends AnyParams>(
-  context: AnyContext<P>,
+function surfaceBasisSample<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
 ): SurfaceBasisSample | null {
   const position = context.base.worldPosition;
@@ -376,8 +383,8 @@ function surfaceGroupKey(basis: SurfaceBasisSample): string {
   return `${Math.round(basis.nx * 4096)},${Math.round(basis.ny * 4096)},${Math.round(basis.nz * 4096)},${Math.round(basis.planeOffset * basis.worldToSceneScale * 1024)},${Math.round(basis.horizontalX * 4096)},${Math.round(basis.horizontalY * 4096)},${Math.round(basis.horizontalZ * 4096)},${Math.round(basis.verticalX * 4096)},${Math.round(basis.verticalY * 4096)},${Math.round(basis.verticalZ * 4096)}`;
 }
 
-function generatedSurfaceSample<P extends AnyParams>(
-  context: AnyContext<P>,
+function generatedSurfaceSample<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
 ): readonly [number, number] | null {
   const basis = surfaceBasisSample(context, index);
@@ -445,7 +452,7 @@ function solveSurfaceMetric(group: SurfaceMetricAccumulator): void {
   group.dyDv = dyDv * vScale;
 }
 
-export function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): GeneratedSurfaceField | null {
+export function generatedSurfaceField<P extends AnyParams, S = undefined>(context: AnyContext<P, S>): GeneratedSurfaceField | null {
   const position = context.base.worldPosition;
   const normal = context.base.normal;
   if (!position || !normal || typeof position !== "object" || typeof normal !== "object") return null;
@@ -650,12 +657,12 @@ function projectedSurfaceDirection(
   ];
 }
 
-function setGlyph<P extends AnyParams>(context: AnyContext<P>, index: number, glyph: string): void {
+function setGlyph<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number, glyph: string): void {
   context.output.glyph[index] = glyph;
   context.output.channels[index] |= GLYPH;
 }
 
-function setColor<P extends AnyParams>(context: AnyContext<P>, index: number, packed: number): void {
+function setColor<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number, packed: number): void {
   context.output.color[index] = packed;
   context.output.channels[index] |= COLOR;
 }
@@ -1648,8 +1655,8 @@ export function buildFieldSynthVoices(params: AnyParams): readonly SynthVoice[] 
 // matrixRain reads, just with min/max also tracked), returning a per-cell
 // (cx, cy) alongside (x, y). UV and scene branches keep the original
 // origin*scale center untouched.
-export function fieldSynthCoordinate<P extends AnyParams>(
-  context: AnyContext<P>,
+export function fieldSynthCoordinate<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
@@ -1888,8 +1895,8 @@ function validateFieldSynthRender(params: AnyParams): void {
 // `bake()` runs) so `staticExport.ts` can bake the SAME gradient the live
 // `subcellRes: "2x4"`/`"ink"` path reads, instead of a second, driftable
 // derivation.
-export function fieldSynthSubcellGradient<P extends AnyParams>(
-  context: AnyContext<P>,
+export function fieldSynthSubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
@@ -1935,8 +1942,8 @@ export function fieldSynthSubcellGradient<P extends AnyParams>(
 // `evaluate()`), so the neighbor probe finite-differences `objectPosition`
 // itself instead of re-deriving it through `fieldSynthCoordinate` — same
 // local-affine approximation, now in 3D (VOLUMETRIC.md's "Subcell modes").
-function fieldSynthVolumetricSubcellGradient<P extends AnyParams>(
-  context: AnyContext<P>,
+function fieldSynthVolumetricSubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   scale: number,
   x: number,
@@ -1977,8 +1984,8 @@ function fieldSynthVolumetricSubcellGradient<P extends AnyParams>(
 // Dispatches to the 2D or volumetric subcell gradient probe and normalizes
 // both to the same 6-component (col, row) x/y/z shape — the 2D probe has no
 // z gradient, so it pads with 0 in the correct (not spread-appended) slots.
-function fieldSynthAnySubcellGradient<P extends AnyParams>(
-  context: AnyContext<P>,
+function fieldSynthAnySubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
@@ -2464,7 +2471,63 @@ export function inkGlyphForField(gx: number, gy: number): string {
   return INK_STROKES[bucket]!;
 }
 
-export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
+// Ink-over-carve's per-evaluate() scratch (VOLUMETRIC-3.md §2's "pooling is
+// a recorded optimization" item, coming due — see `runCarveInkResolve`
+// below). `hitState`/`hitDistance`/`hitPacked`/`hitOpacity` were plain
+// `new TypedArray(length)` allocations inside `runCarveInkResolve`, i.e. one
+// fresh 4-buffer set per `evaluate()` call — under camera orbit (a full
+// geometry re-render, and so a fresh `evaluate()`, every animation frame)
+// this is the loop's own dominant allocation source. Every element of every
+// buffer is unconditionally written before it is ever read within the SAME
+// `runCarveInkResolve()` call (pass 1 writes `hitState[i]` for every `i` up
+// front, including a `CARVE_INK_OUT` default; `hitDistance`/`hitPacked`/
+// `hitOpacity` are only read in pass 2 for an index whose `hitState` is
+// confirmed `CARVE_INK_HIT`, which only happens where pass 1 already wrote
+// them) — so reusing the previous evaluate's buffers instead of zeroing or
+// reallocating them is byte-identical, not just "probably fine".
+interface CarveInkScratch {
+  length: number;
+  hitState: Uint8Array;
+  hitDistance: Float32Array;
+  hitPacked: Uint32Array;
+  hitOpacity: Float32Array;
+}
+
+function createCarveInkScratch(): CarveInkScratch {
+  return {
+    length: 0,
+    hitState: new Uint8Array(0),
+    hitDistance: new Float32Array(0),
+    hitPacked: new Uint32Array(0),
+    hitOpacity: new Float32Array(0),
+  };
+}
+
+// Grow-or-shrink-to-exact-size on a cell-count change (grid resize, density
+// change, a preview thumbnail's own resolution) — same reallocate-on-mismatch
+// idiom `rasterize.ts`'s `camHost.__glyphScratch` already uses, so a resize
+// never leaves a stale, wrongly-sized buffer behind.
+function ensureCarveInkScratch(scratch: CarveInkScratch, length: number): void {
+  if (scratch.length === length) return;
+  scratch.length = length;
+  scratch.hitState = new Uint8Array(length);
+  scratch.hitDistance = new Float32Array(length);
+  scratch.hitPacked = new Uint32Array(length);
+  scratch.hitOpacity = new Float32Array(length);
+}
+
+// Field-synth is the one stock effect with real per-layer `state`
+// (`createState()` below) — every other definition in this file stays
+// `GlyphStockEffectDefinition<Schema>` (state `undefined`), unaffected by
+// this. The pooled scratch is layer-scoped (one `FieldSynthState` per
+// mounted `addEffectLayer` call, per `effectCompositor.ts`'s
+// `createRuntimeGlyphEffectLayer`), so concurrent layers/scenes — including
+// the many preview scenes a gallery page mounts — never share a buffer.
+interface FieldSynthState {
+  readonly carveInk: CarveInkScratch;
+}
+
+export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, FieldSynthState> = {
   id: "field-synth",
   version: 1,
   label: "Field synth",
@@ -2473,6 +2536,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   parameterSchema: fieldSynthSchema,
   presets: fieldSynthPresets,
   program: {
+    createState(): FieldSynthState {
+      return { carveInk: createCarveInkScratch() };
+    },
     optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
     // See VOLUMETRIC.md's "Params-aware requirement gating": objectPosition
     // is retained only for patches actually using the volumetric branch, and
@@ -2857,10 +2923,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         function meshBoundary(selfState: number, selfMesh: number, nState: number, nMesh: number): boolean {
           return selfState === CARVE_INK_HIT && nState === CARVE_INK_HIT && selfMesh >= 0 && nMesh >= 0 && selfMesh !== nMesh;
         }
-        const hitState = new Uint8Array(length);
-        const hitDistance = new Float32Array(length);
-        const hitPacked = new Uint32Array(length);
-        const hitOpacity = new Float32Array(length);
+        const carveInkScratch = context.state.carveInk;
+        ensureCarveInkScratch(carveInkScratch, length);
+        const { hitState, hitDistance, hitPacked, hitOpacity } = carveInkScratch;
 
         for (let i = 0; i < length; i++) {
           if (context.target.coverage[i]! <= 0) { hitState[i] = CARVE_INK_OUT; continue; }
@@ -3521,15 +3586,17 @@ export function getGlyphEffect(id: string): GlyphStockEffect | undefined {
   return registry.get(id);
 }
 
-export function defaultGlyphEffectParams<Schema extends GlyphEffectParamSchema>(
-  definition: GlyphStockEffectDefinition<Schema>,
+export function defaultGlyphEffectParams<Schema extends GlyphEffectParamSchema, State = undefined>(
+  definition: GlyphStockEffectDefinition<Schema, State>,
 ): GlyphEffectParamValues<Schema> {
   const params: Record<string, number | string | boolean> = {};
   for (const [key, spec] of Object.entries(definition.parameterSchema)) params[key] = spec.default;
   return params as GlyphEffectParamValues<Schema>;
 }
 
-export function glyphEffectHasColor(definition: GlyphStockEffectDefinition): boolean {
+export function glyphEffectHasColor<Schema extends GlyphEffectParamSchema, State = undefined>(
+  definition: GlyphStockEffectDefinition<Schema, State>,
+): boolean {
   return Object.values(definition.parameterSchema).some((spec) => spec.kind === "color");
 }
 

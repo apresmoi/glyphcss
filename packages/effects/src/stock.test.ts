@@ -135,7 +135,7 @@ function evaluate(
   definition.program.validateParams?.(params as never);
   definition.program.evaluate({
     params,
-    state: undefined,
+    state: definition.program.createState ? definition.program.createState() : undefined,
     base: {
       cols,
       rows,
@@ -1979,7 +1979,7 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
     fieldSynth.program.validateParams?.(params as never);
     fieldSynth.program.evaluate({
       params,
-      state: undefined,
+      state: fieldSynth.program.createState!(),
       base: { cols, rows, length, glyph, coverage, color, uv0, shade },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },
@@ -2472,7 +2472,7 @@ describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md accep
     fieldSynth.program.validateParams?.(params as never);
     fieldSynth.program.evaluate({
       params,
-      state: undefined,
+      state: fieldSynth.program.createState!(),
       base: { cols, rows, length, glyph, coverage, color, objectPosition },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },
@@ -2610,7 +2610,7 @@ describe("field-synth Sierpinski membership — schema frontend (VOLUMETRIC-2.md
     fieldSynth.program.validateParams?.(params as never);
     fieldSynth.program.evaluate({
       params,
-      state: undefined,
+      state: fieldSynth.program.createState!(),
       base: { cols, rows, length, glyph, coverage, color, objectPosition },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },
@@ -3325,7 +3325,7 @@ function evaluateFieldSynthGrid(
   fieldSynth.program.validateParams?.(fullParams as never);
   fieldSynth.program.evaluate({
     params: fullParams,
-    state: undefined,
+    state: fieldSynth.program.createState!(),
     base: {
       cols, rows, length, glyph, coverage: baseCoverage, color,
       objectPosition: buffers.objectPosition,
@@ -4296,7 +4296,7 @@ describe("field-synth Sierpinski pyramid stage alignment (VOLUMETRIC-2.md accept
     fieldSynth.program.validateParams?.(params as never);
     fieldSynth.program.evaluate({
       params,
-      state: undefined,
+      state: fieldSynth.program.createState!(),
       base: { cols, rows, length, glyph, coverage, color, objectPosition },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },
@@ -4813,7 +4813,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     fieldSynth.program.validateParams?.(params as never);
     fieldSynth.program.evaluate({
       params,
-      state: undefined,
+      state: fieldSynth.program.createState!(),
       base: { cols, rows, length, glyph, coverage, color, objectPosition, objectExit },
       input: { cols, rows, length, glyph, coverage, color },
       target: { coverage },

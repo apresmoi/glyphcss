@@ -204,6 +204,13 @@ function liveComposedGrid(
   };
   const context: AnyContext<AnyParams> = {
     params: params as unknown as AnyParams,
+    // Carve/ink is unreachable through this helper: `buildRasterizeContext`
+    // above doesn't retain `objectPosition`/`objectExit`, so
+    // `fieldSynth.program.evaluate()`'s own `carveActive` gate is always
+    // false here regardless of `params.render` — `runCarveInkResolve` (the
+    // only reader of `context.state.carveInk`) never runs, so `undefined`
+    // stays a valid stand-in for the real per-layer state this harness
+    // doesn't otherwise construct.
     state: undefined,
     base: baked.base,
     input: baked.base,
