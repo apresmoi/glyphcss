@@ -225,6 +225,22 @@ function hasMultiLayerEffectiveArgmax(p: Params): boolean {
   return false;
 }
 
+// Mirrors `validateFieldSynthGeometryNormalFields` in packages/effects/src/
+// stock.ts (VOLUMETRIC-4.md §1): the four normal-derived field kinds
+// (`normalX`/`normalY`/`normalZ`/`incidence`) are legal ONLY in the colour
+// voice stack — never on an active GEOMETRY voice (`field1..N`), on or off
+// the stack.
+const NORMAL_DERIVED_SYNTH_FIELDS = new Set(["normalX", "normalY", "normalZ", "incidence"]);
+const ALL_GEOMETRY_FIELD_KEYS: readonly string[] = Array.from({ length: MAX_VOICES }, (_, i) => `field${i + 1}`);
+
+function hasActiveGeometryNormalField(p: Params): boolean {
+  for (let k = 1; k <= MAX_VOICES; k++) {
+    if (!(Number(p[`amp${k}`] ?? 0) > 0)) continue;
+    if (NORMAL_DERIVED_SYNTH_FIELDS.has(String(p[`field${k}`]))) return true;
+  }
+  return false;
+}
+
 export interface SynthRepairRule {
   readonly predicate: (params: Params) => boolean;
   /** Keys reset to `SYNTH_PARAM_DEFAULTS` when `predicate` matches. */
@@ -266,6 +282,14 @@ export const SYNTH_REPAIR_TABLE: Partial<Record<GlyphFieldSynthValidationRuleId,
   "xray-subcell-unsupported": {
     predicate: (p) => p.render === "xray" && (p.subcellRes === "2x4" || p.subcellRes === "ink"),
     reset: ["subcellRes"],
+  },
+  // Resets every geometry voice's field choice (blunt, same precedent as
+  // `multi-layer-argmax`'s shared `combine` reset above) rather than trying
+  // to identify just the offending voice(s) — `reset` is a static key list,
+  // and a patch this malformed has no single "right" field to fall back to.
+  "normal-field-requires-color-stack": {
+    predicate: hasActiveGeometryNormalField,
+    reset: ALL_GEOMETRY_FIELD_KEYS,
   },
 };
 

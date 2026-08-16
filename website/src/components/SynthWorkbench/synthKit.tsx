@@ -18,6 +18,8 @@ import {
   GlyphBreathingGyroidPreset,
   GlyphCubeTilesPreset,
   GlyphGyroidXrayPreset,
+  GlyphIridescentShellPreset,
+  GlyphIridescentSpongePreset,
   GlyphMengerFlowPreset,
   GlyphMengerSdfPreset,
   GlyphMengerSpongePreset,
@@ -1594,6 +1596,18 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // then sits at its empty end state forever; wrapping `time` back to 0
   // every 15s replays the full arc instead.
   [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40, loopSeconds: 15 }],
+  // The colour voice stack's shipped patch (VOLUMETRIC-4.md §1) — same
+  // cube/face-on-ish pairing as `mengerSpongePreset` above (this preset IS
+  // that recipe, plus the colour stack), since the "three face tones"
+  // measurement it exists to show is specifically an ortho-camera-on-an-
+  // axis-aligned-mesh phenomenon.
+  [GlyphIridescentSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
+  // Sphere stage: unlike the sponge above, the object-space normal varies
+  // CONTINUOUSLY over a sphere's surface, so this is the preset that shows
+  // genuine continuous iridescence rather than a cycling three-tone palette.
+  // Default (isometric-ish) camera angle — there's no "menger invisible at
+  // oblique angles" concern for a smooth sphere.
+  [GlyphIridescentShellPreset as GlyphEffectPreset<never>, { shape: "sphere" }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`
