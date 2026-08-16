@@ -596,6 +596,20 @@ export function isTimeInvariantPatch(params: Params): boolean {
   return true;
 }
 
+// A preset's `STAGE_HINTS.loopSeconds` (e.g. `sdfBloomPreset`'s one-way SDF
+// erosion) wraps the monotonically-accumulated tick clock back into a
+// repeating cycle instead of letting the driven `time` grow forever — see
+// `SynthStageHint.loopSeconds`'s own doc. `((t % p) + p) % p`, not a bare
+// `t % p`: JS `%` is remainder (sign-preserving), not mathematical modulo,
+// so a bare `t % p` would return a negative value for negative `t` — `t`
+// only grows in practice (the tick loop's own accumulator), but this stays
+// correct regardless. `loopSeconds` absent/undefined/non-positive is a
+// no-op (today's plain monotonic `time`, byte-identical).
+export function wrapDrivenTime(t: number, loopSeconds: number | null | undefined): number {
+  if (!loopSeconds || loopSeconds <= 0) return t;
+  return ((t % loopSeconds) + loopSeconds) % loopSeconds;
+}
+
 // Duplicates `createGlyphScene.ts`'s `applyTransform` rotation math exactly
 // (Rz first on the point, then Ry, then Rx — matrix product Rx*Ry*Rz) so the
 // bbox math below previews the SAME rotated shape the renderer will actually
@@ -1481,6 +1495,20 @@ export interface SynthStageHint {
   /** Stage render font-size hint — same meaning as the old `PRESET_DENSITY`
    *  map this table absorbs. */
   density?: number;
+  /**
+   * Wrap the driven `params.time` modulo this many seconds instead of
+   * letting it grow monotonically. For a preset whose animation is a
+   * one-way arc that never returns to its start (e.g. `sdfBloomPreset`'s
+   * `wave: "step"` SDF voice, which can only ever ERODE over time — a
+   * periodic wave would restore looping but drop the voice out of
+   * `buildGlyphFieldDistanceOracle`'s sphere-tracing-eligible predicate,
+   * see that preset's own doc in stock.ts), an un-hinted monotonic `time`
+   * plays the arc once and then sits at its fully-dissolved end state
+   * forever — reading as broken, not as "finished". Undefined (the
+   * default) keeps today's plain monotonic `time`, byte-identical for
+   * every preset that doesn't declare this.
+   */
+  loopSeconds?: number;
 }
 
 export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> = new Map([
@@ -1527,7 +1555,13 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // presets exist to show.
   [GlyphMengerFlowPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   [GlyphBreathingGyroidPreset as GlyphEffectPreset<never>, { shape: "cube" }],
-  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
+  // `loopSeconds: 15` — `sdfBloomPreset`'s own doc (stock.ts): `speed1:
+  // 0.0012` spans the fractal's whole visible-to-fully-eroded window over
+  // ~15s of `time` (0.0012 * 15 = 0.018, measured directly against the real
+  // preset). Without a loop hint the preset plays that dissolve once and
+  // then sits at its empty end state forever; wrapping `time` back to 0
+  // every 15s replays the full arc instead.
+  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40, loopSeconds: 15 }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`

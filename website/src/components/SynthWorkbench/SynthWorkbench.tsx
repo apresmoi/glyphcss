@@ -86,6 +86,7 @@ import {
   shapeTransform,
   isFlat,
   isTimeInvariantPatch,
+  wrapDrivenTime,
   frameObject,
   LayerGroup,
   VoiceCard,
@@ -136,6 +137,13 @@ export default function SynthWorkbench() {
   // effect below without adding itself as a dependency (that would tear the
   // scene down and rebuild it on every orbit drag).
   const cameraAnglesRef = useRef<{ rotX: number; rotY: number }>({ rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y });
+  // A preset's own `STAGE_HINTS` entry (e.g. `sdfBloomPreset`'s `loopSeconds:
+  // 15`) for a one-way animation that should replay instead of playing once
+  // and sitting at its end state — read fresh by the tick loop below, same
+  // "not React state, no re-render needed" rationale as `cameraAnglesRef`.
+  // Always reset on `applyPreset` (never carried over from a previous
+  // preset — see that callback), so an un-hinted preset is unaffected.
+  const loopSecondsRef = useRef<number | null>(null);
 
   // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
   // Mirrors the gallery's `mobilePanel` pattern (same tab-bar/drawer mechanism,
@@ -219,7 +227,15 @@ export default function SynthWorkbench() {
       // geometry and forces the effect to re-evaluate regardless of `time`.
       if (!pausedRef.current && tsRef.current !== 0 && !isTimeInvariantPatch(paramsRef.current)) {
         t += dt * tsRef.current;
-        layerRef.current?.setParams({ time: t });
+        // `t` itself keeps growing monotonically (simplest accumulator, no
+        // precision concerns from re-deriving it). A preset whose
+        // `STAGE_HINTS` entry declares `loopSeconds` (e.g. `sdfBloomPreset`
+        // — a one-way SDF erosion that never returns to its start on its
+        // own, see that hint's own doc in synthKit.tsx) instead gets the
+        // WRAPPED value here, so the driven `time` cycles back to 0 and
+        // replays the arc instead of settling at its fully-dissolved end
+        // state forever.
+        layerRef.current?.setParams({ time: wrapDrivenTime(t, loopSecondsRef.current) });
       }
       if (!flat && orbitAutoRef.current && !orbitDragging) {
         camera.rotY = camera.rotY + ORBIT_YAW_DEG_PER_SEC * dt * orbitSpeedRef.current;
@@ -301,6 +317,10 @@ export default function SynthWorkbench() {
     const hint = STAGE_HINTS.get(preset);
     if (hint?.density !== undefined) setDensity(hint.density);
     if (hint?.paused !== undefined) setPaused(hint.paused);
+    // Always reset (never carried over from a previous preset, unlike
+    // density/paused above): a loop period belongs to the specific one-way
+    // animation that needed it, not to "whatever the user had before".
+    loopSecondsRef.current = hint?.loopSeconds ?? null;
     // `hint.shape` overrides the plain `space`-derived stage default (a
     // volumetric preset needs SOME 3D stage to render meaningfully, and a 2D
     // preset needs the fullscreen plane back) — otherwise a non-cube

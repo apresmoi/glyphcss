@@ -51,6 +51,7 @@ import {
   soloParams,
   stagePreviewShape,
   synthDefaults,
+  wrapDrivenTime,
 } from "./synthKit";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
@@ -299,6 +300,24 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
     expect(STAGE_HINTS.get(sunburst)).toBeUndefined();
     expect(stagePreviewShape(sunburst)).toBe("plane");
   });
+
+  // Perf packet follow-up: "SDF bloom" (stock.ts) is a one-way SDF erosion
+  // (`wave: "step"`, non-periodic — required to stay sphere-tracing
+  // eligible) that never returns to its start on its own. Its hint must
+  // declare `loopSeconds` so the page replays the arc instead of playing it
+  // once and sitting at the fully-eroded end state forever.
+  it("declares loopSeconds on the SDF bloom preset's hint, and leaves every other preset unset (today's plain monotonic time)", () => {
+    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
+    expect(bloom).toBeDefined();
+    expect(STAGE_HINTS.get(bloom)?.loopSeconds).toBe(15);
+
+    const menger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge")!;
+    const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
+    const mengerFlow = (fieldSynth.presets ?? []).find((p) => p.name === "Menger flow")!;
+    for (const preset of [menger, mengerSdf, mengerFlow]) {
+      expect(STAGE_HINTS.get(preset)?.loopSeconds).toBeUndefined();
+    }
+  });
 });
 
 describe("isTimeInvariantPatch", () => {
@@ -320,6 +339,27 @@ describe("isTimeInvariantPatch", () => {
   it("is false as soon as one of several active voices has nonzero speed", () => {
     const params = { ...synthDefaults(), amp1: 1, speed1: 0, amp2: 1, speed2: 0, amp3: 1, speed3: 2 } as never;
     expect(isTimeInvariantPatch(params)).toBe(false);
+  });
+});
+
+describe("wrapDrivenTime", () => {
+  it("is a no-op (returns t unchanged) when loopSeconds is absent/null/undefined/non-positive — today's plain monotonic time", () => {
+    expect(wrapDrivenTime(47.3, undefined)).toBe(47.3);
+    expect(wrapDrivenTime(47.3, null)).toBe(47.3);
+    expect(wrapDrivenTime(47.3, 0)).toBe(47.3);
+    expect(wrapDrivenTime(47.3, -5)).toBe(47.3);
+  });
+
+  it("wraps t into [0, loopSeconds)", () => {
+    expect(wrapDrivenTime(0, 15)).toBe(0);
+    expect(wrapDrivenTime(7, 15)).toBe(7);
+    expect(wrapDrivenTime(15, 15)).toBe(0);
+    expect(wrapDrivenTime(22, 15)).toBeCloseTo(7, 10);
+    expect(wrapDrivenTime(150.5, 15)).toBeCloseTo(0.5, 10);
+  });
+
+  it("stays correct (mathematical modulo, not JS remainder) even for a t that were somehow negative", () => {
+    expect(wrapDrivenTime(-3, 15)).toBeCloseTo(12, 10);
   });
 });
 
