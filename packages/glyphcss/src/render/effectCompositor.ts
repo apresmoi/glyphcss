@@ -541,9 +541,58 @@ function composedCellColor(retained: RetainedGlyphEffectOutput, index: number, p
   return color;
 }
 
+// Structural (not value) shape match for the WORKING scratch grid a pooled
+// `RetainedGlyphEffectOutput` can safely reuse — see `retainGlyphEffectOutput`'s
+// `previous` doc below. `composeRetainedGlyphEffectOutput` only copies an
+// optional field from `baseGrid` into `workingGrid` when `workingGrid`
+// ALREADY has that field (`if (workingGrid.shade && baseGrid.shade) ...`),
+// so a stale/undersized `workingGrid` would silently drop data instead of
+// throwing — this check is what makes falling back to a fresh
+// `cloneCellGrid` the safe default whenever a mounted effect's retained
+// requirements (or the grid resolution) changed since the previous frame.
+function cellGridShapeMatches(a: CellGrid, b: CellGrid): boolean {
+  return a.cols === b.cols && a.rows === b.rows
+    && !!a.shade === !!b.shade
+    && !!a.worldPosition === !!b.worldPosition
+    && !!a.objectPosition === !!b.objectPosition
+    && !!a.objectExit === !!b.objectExit
+    && !!a.normal === !!b.normal
+    && !!a.winnerPolygon === !!b.winnerPolygon
+    && !!a.winnerMesh === !!b.winnerMesh
+    && !!a.albedoRgb === !!b.albedoRgb
+    && !!a.targetRgb === !!b.targetRgb
+    && !!a.surfaceUv === !!b.surfaceUv
+    && !!a.weight === !!b.weight;
+}
+
+/**
+ * `previous` (optional): the output this same `metadata.id` retained on the
+ * LAST full geometry render, when one exists at the matching resolution —
+ * under camera orbit, a full render (and so a fresh `retainGlyphEffectOutput`
+ * call) happens every animation frame, and before this, EVERY buffer below
+ * was a brand-new allocation each time (measured as the dominant per-frame
+ * allocator during orbit on a dense scene — see the perf work that added
+ * this parameter). `baseGrid`/`base`/`baseColor`/`baseCoverage` are this
+ * frame's own ground-truth snapshot and are ALWAYS freshly allocated
+ * (never reused): `createGlyphScene.ts`'s `commitRender` can roll a failed
+ * transaction back to the PREVIOUS retained output
+ * (`retainedEffectOutputs = oldRetained`), so mutating `previous`'s ground
+ * truth in place would corrupt that rollback target. Everything else —
+ * `inputGlyph`/`inputColor`/`inputCoverage`/`targetCoverage`/`emission`/
+ * `packedColorCache`/`workingGrid` — is pure working scratch: every element
+ * is unconditionally overwritten before it's ever read, on EVERY call to
+ * `composeRetainedGlyphEffectOutput` (which already reuses these same
+ * buffers across repeated param-only recomposes of one retained output —
+ * this just extends that to survive a fresh geometry render too), so
+ * reusing them from `previous` — when its shape still matches this frame's
+ * — is byte-identical output, not an approximation. A shape mismatch (grid
+ * resize, or a mounted effect's retained requirements changing) falls back
+ * to the exact pre-pooling fresh-allocation behavior.
+ */
 export function retainGlyphEffectOutput(
   grid: CellGrid,
   metadata: GlyphEffectOutputMetadata,
+  previous?: RetainedGlyphEffectOutput,
 ): RetainedGlyphEffectOutput {
   const baseGrid = cloneCellGrid(grid);
   const n = baseGrid.cols * baseGrid.rows;
@@ -574,24 +623,27 @@ export function retainGlyphEffectOutput(
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
     ...(baseGrid.winnerMesh ? { winnerMesh: baseGrid.winnerMesh } : {}),
   };
+  const reusable = previous && previous.inputColor.length === n && cellGridShapeMatches(previous.workingGrid, baseGrid)
+    ? previous
+    : null;
   return {
     metadata,
     baseGrid,
     base,
     baseColor,
     baseCoverage,
-    inputGlyph: new Array<string>(n).fill(" "),
-    inputColor: new Uint32Array(n),
-    inputCoverage: new Float32Array(n),
-    targetCoverage: new Float32Array(n),
-    emission: {
+    inputGlyph: reusable ? reusable.inputGlyph : new Array<string>(n).fill(" "),
+    inputColor: reusable ? reusable.inputColor : new Uint32Array(n),
+    inputCoverage: reusable ? reusable.inputCoverage : new Float32Array(n),
+    targetCoverage: reusable ? reusable.targetCoverage : new Float32Array(n),
+    emission: reusable ? reusable.emission : {
       glyph: new Array<string>(n).fill(" "),
       color: new Uint32Array(n),
       coverage: new Float32Array(n),
       channels: new Uint8Array(n),
     },
-    packedColorCache: new Map(),
-    workingGrid: cloneCellGrid(baseGrid),
+    packedColorCache: reusable ? reusable.packedColorCache : new Map(),
+    workingGrid: reusable ? reusable.workingGrid : cloneCellGrid(baseGrid),
   };
 }
 

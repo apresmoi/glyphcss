@@ -528,7 +528,17 @@ export function createGlyphScene(
     if (!activePreparedEffects || !collectingEffectOutputs || !currentEffectOutputMetadata) {
       throw new Error("glyphcss: effect compositor ran outside an active render transaction.");
     }
-    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata);
+    // Pool this output's pure working scratch across full geometry renders
+    // (e.g. every frame of a camera orbit) by handing the LAST successfully
+    // committed retained output for this same id, if any, to
+    // `retainGlyphEffectOutput` as a reuse candidate — see that function's
+    // own doc for why only its working-scratch fields are eligible and why
+    // `retainedEffectOutputs` (not `collectingEffectOutputs`, which only
+    // holds outputs already staged for the transaction IN PROGRESS) is the
+    // right source: it is never mutated once a render commits, exactly the
+    // "safe to hand out, never itself corrupted by a failed frame" contract
+    // `retainGlyphEffectOutput` documents.
+    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
   };
