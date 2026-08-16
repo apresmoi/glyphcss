@@ -2620,27 +2620,65 @@ export const sdfBloomPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
 //   Menger look (its palette was face-indexed and advanced with the rotation
 //   cycle). The claim here is "we reproduce it", NOT "we make it
 //   continuous" — see "Iridescent shell" below for that.
+//
+//   `hueLight: 75` (retuned from an initial 55 — see VOLUMETRIC-4.md's
+//   Reconciliation): `resolveFieldSynthColor` (this file) multiplies the
+//   hue-mapped colour by the cube's real per-cell Lambert shade whenever
+//   `lit > 0` (kept at its schema default, 1 — that shading is what makes
+//   the sponge read as lit geometry rather than a flat decal, so the fix
+//   compensates by raising the pre-shade base lightness instead of
+//   flattening the lighting response). Measured on the real mounted `/synth`
+//   cube stage (`renderAt`-style: `createGlyphScene` + `addEffectLayer`,
+//   64x40 grid, the real orthographic camera `rotX:15, rotY:40, zoom:380`,
+//   average of every rendered `<span style="color:#...">`'s HSL lightness):
+//   `hueLight: 55` (pre-fix) → avgL 0.325 (minL 0.043, maxL 0.494, reading
+//   as near-black navy/maroon, matching the reported "dark blue / dark red"
+//   complaint); `hueLight: 75` → avgL 0.443 (minL 0.059, maxL 0.675, +36%
+//   brighter on average) while the three hues stay exactly as distinct
+//   (`hueSat`/`hueRange`/`hueOffset` untouched, so the pinned "exactly three
+//   distinct incidence-driven tones" test is unaffected).
 export const iridescentSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Iridescent sponge", params: {
     ...(mengerSpongePreset.params as AnyParams),
     colorStackOn: true, colorMode: "hue",
     cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
-    hueRange: 360, hueOffset: 0, hueSat: 80, hueLight: 55,
+    hueRange: 360, hueOffset: 0, hueSat: 80, hueLight: 75,
   } as never,
 };
 
 // - "Iridescent shell": the SAME colour stack (mirrored `cfield1`/`cwave1`/
-//   `cspeed1`, only `hueSat` differs), on a SPHERE stage instead — the
-//   object-space normal varies CONTINUOUSLY over a sphere's surface, so
-//   `incidence` sweeps smoothly from 0 (face-on, the silhouette's own
-//   center) to 1 (grazing, the silhouette's rim) instead of collapsing to a
-//   handful of flat per-face tones. This is the patch that shows what the
-//   feature adds beyond cssGraphics: true continuous iridescence, not a
-//   cycling three-tone palette. Geometry is deliberately flat (`bias: 1,
-//   gain: 0` forces full coverage regardless of `field1`'s own value, and a
-//   single-glyph ramp keeps every covered cell the same dense glyph) so the
-//   colour stack owns the entire visible result — nothing about the shape
-//   itself competes with the iridescence for attention.
+//   `cspeed1`), on a SPHERE stage instead — the object-space normal varies
+//   CONTINUOUSLY over a sphere's surface, so `incidence` sweeps smoothly from
+//   0 (face-on, the silhouette's own center) to 1 (grazing, the silhouette's
+//   rim) instead of collapsing to a handful of flat per-face tones like the
+//   sponge above. What this buys is genuinely SMOOTH per-facet incidence, not
+//   a continuous glyph gradient — glyphcss is a flat-shaded rasterizer
+//   (`objectNormal` is the constant GEOMETRIC face normal, AGENTS.md), so a
+//   coarse sphere still shows its tessellation as visible facets; see
+//   VOLUMETRIC-4.md's Reconciliation for the corrected claim and why fixing
+//   that (vertex-interpolated/smooth normals) is out of scope here. Geometry
+//   is deliberately flat (`bias: 1, gain: 0` forces full coverage regardless
+//   of `field1`'s own value, and a single-glyph ramp keeps every covered cell
+//   the same dense glyph) so the colour stack owns the entire visible result
+//   — nothing about the shape itself competes with the iridescence for
+//   attention.
+//
+//   `hueSat: 45, hueRange: 150` (retuned from an initial `hueSat: 90,
+//   hueRange: 360` — see VOLUMETRIC-4.md's Reconciliation): the un-tuned
+//   values swept the FULL hue wheel at near-maximum saturation, reading as a
+//   harsh full-spectrum neon rainbow rather than believable iridescence
+//   (thin-film interference shifts through a soft, muted BAND of the
+//   spectrum, not the whole wheel at full chroma). `hueLight` stays at its
+//   schema default (55) — measured average rendered lightness is unaffected
+//   by either `hueSat` or `hueRange` (HSL lightness is independent of hue and
+//   saturation by construction) and was already well-balanced (avgL ~0.48,
+//   neither crushed nor blown out) both before and after this retune, on the
+//   real mounted `/synth` sphere stage (`spherePolygons({ size: 1.5 })`, the
+//   real default isometric camera `rotX:58, rotY:32, zoom:220`). Narrowing
+//   `hueRange` to 150° (under half the wheel) turns the sweep into a
+//   shifting warm-to-cool band instead of a full spectral cycle, and halving
+//   `hueSat` desaturates it toward pastel; both keep the sweep genuinely
+//   continuous and still fully cycling over time via `cspeed1`.
 export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Iridescent shell", params: {
     space: "object", scale: 1, render: "paint",
@@ -2649,7 +2687,7 @@ export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
     bias: 1, gain: 0, glyphs: "█",
     colorStackOn: true, colorMode: "hue",
     cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
-    hueRange: 360, hueOffset: 0, hueSat: 90, hueLight: 55,
+    hueRange: 150, hueOffset: 0, hueSat: 45, hueLight: 55,
   },
 };
 

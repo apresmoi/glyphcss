@@ -1603,10 +1603,13 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // axis-aligned-mesh phenomenon.
   [GlyphIridescentSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   // Sphere stage: unlike the sponge above, the object-space normal varies
-  // CONTINUOUSLY over a sphere's surface, so this is the preset that shows
-  // genuine continuous iridescence rather than a cycling three-tone palette.
-  // Default (isometric-ish) camera angle — there's no "menger invisible at
-  // oblique angles" concern for a smooth sphere.
+  // per-facet across many more facets than the cube's 6, so this is the
+  // preset that shows a genuinely SMOOTH incidence sweep rather than a
+  // cycling three-tone palette — not literal continuity, since glyphcss is a
+  // flat-shaded rasterizer (each triangle's `objectNormal` is constant); the
+  // sphere's own tessellation is still visible as faceting up close (see
+  // VOLUMETRIC-4.md's Reconciliation). Default (isometric-ish) camera angle
+  // — there's no "menger invisible at oblique angles" concern for a sphere.
   [GlyphIridescentShellPreset as GlyphEffectPreset<never>, { shape: "sphere" }],
 ]);
 

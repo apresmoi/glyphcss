@@ -2120,8 +2120,12 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       "SDF bloom": { render: "d62f9075", params: "f5311402" },
       // VOLUMETRIC-4.md §1's shipped patch — the colour voice stack's own
       // presets. Pinned the same way as every preset above them.
-      "Iridescent sponge": { render: "6fbf6b95", params: "875c7662" },
-      "Iridescent shell": { render: "d4781f65", params: "e0df8d29" },
+      // Re-pinned deliberately: retuned `hueLight` 55 -> 75 (sponge) and
+      // `hueSat`/`hueRange` 90/360 -> 45/150 (shell) for legibility — see
+      // each preset's own doc in stock.ts and VOLUMETRIC-4.md's
+      // Reconciliation.
+      "Iridescent sponge": { render: "ba9ce875", params: "61fa66ec" },
+      "Iridescent shell": { render: "1ddb4165", params: "df674de0" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
