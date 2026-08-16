@@ -79,10 +79,29 @@ describe("synth url state", () => {
     console.log(`synth representative packed length: ${packed.length}`);
   });
 
-  it("supports up to MAX_VOICES distinct slots in the bitmask", () => {
-    const patch = { ...representativePatch(), voiceSlots: [1, 2, 3, 4, 5, 6] };
-    expect(patch.voiceSlots.length).toBe(MAX_VOICES);
-    expect(decodeSynthUrlState(encodeSynthUrlState(patch)).voiceSlots).toEqual([1, 2, 3, 4, 5, 6]);
+  it("supports up to MAX_VOICES distinct slots in the bitmask (VOLUMETRIC-3.md §4: 9, not the pre-bump 6)", () => {
+    const allSlots = Array.from({ length: MAX_VOICES }, (_, i) => i + 1);
+    const patch = { ...representativePatch(), voiceSlots: allSlots };
+    expect(MAX_VOICES).toBe(9);
+    expect(decodeSynthUrlState(encodeSynthUrlState(patch)).voiceSlots).toEqual(allSlots);
+  });
+
+  it("round-trips the new voice7-9 param keys (VOLUMETRIC-3.md §4's SYNTH_VOICES 6 -> 9 bump, appended at the schema tail)", () => {
+    const base = representativePatch();
+    const patch = {
+      ...base,
+      params: {
+        ...base.params,
+        field7: "gyroid", wave7: "sin", freq7: 2.5, speed7: 0.2, amp7: 0.5, color7: "#ffaa00",
+        field8: "menger", wave8: "step", freq8: 1.1, speed8: 0, amp8: 0.4, color8: "#00aaff", iter8: 2,
+        field9: "sierpinski", wave9: "step", freq9: 0.9, speed9: 0, amp9: 0.7, color9: "#aa00ff", iter9: 4,
+      },
+    };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
+      else expect(restored.params[key], key).toBe(value);
+    }
   });
 
   it("never throws on garbage/truncated input", () => {

@@ -538,15 +538,33 @@ function sdfVoiceLatticeCoords(
  * recursion levels deep, each level tripling (menger) or doubling
  * (sierpinski) the box density relative to `freq`'s own lattice scale; a
  * gyroid voice's implicit completes 2 periods per `freq` cycle (its sign
- * pattern repeats twice as fast as a single `sin`/`cos` term would); every
- * other field stays exactly `freq`, unchanged.
+ * pattern repeats twice as fast as a single `sin`/`cos` term would).
+ *
+ * Every other field routes through `synthWave`'s periodic reduction
+ * (VOLUMETRIC-3.md §4): a `square` wave's narrowest band is its LOW half
+ * when `duty < 0.5` (or its high half when `duty > 0.5`), which is
+ * `min(duty, 1-duty)` of a full `1/freq` cycle — resolving it needs two
+ * samples per that narrower band, i.e. `freq / min(duty, 1-duty)`, not the
+ * bare `freq` a duty-agnostic reading would assume (identity at duty 1/2,
+ * where the two halves are equal and this reduces to `2*freq*chord`'s old
+ * one-sample-per-band convention). `step` is non-periodic — there is no
+ * "band" to resolve, `synthWave` never even reads `duty` for it (see its own
+ * doc) — so it stays exactly `freq`, unaffected. `sin`/`triangle`/`saw` stay
+ * `freq` too: none of the three has a `duty`-shaped narrow feature the way a
+ * square wave's asymmetric split does.
  */
 export function effectiveVoiceFinestFreq(voice: FieldVoice): number {
   switch (voice.field) {
     case "menger": return voice.freq * 3 ** clampSdfIter(voice.iter);
     case "sierpinski": return voice.freq * 2 ** clampSdfIter(voice.iter);
     case "gyroid": return voice.freq * 2;
-    default: return voice.freq;
+    default:
+      if (voice.wave === "square") {
+        const duty = Math.min(Math.max(voice.duty, 0), 1);
+        const narrowBand = Math.min(duty, 1 - duty);
+        return narrowBand > 0 ? voice.freq / narrowBand : Infinity;
+      }
+      return voice.freq;
   }
 }
 
@@ -1308,4 +1326,201 @@ export function integrateField(
     if (Number.isFinite(value)) sum += value * dt;
   }
   return { sum, steps, chordLength };
+}
+
+// ---- program builder + validator (VOLUMETRIC-3.md §4, "program-as-data") -
+
+/** Authoring-friendly input to `buildGlyphFieldProgram` — every field the raw
+ *  `FieldVoice` IR needs, minus the ones with an obvious, documented default
+ *  (mirroring field-synth's own schema defaults, so a hand-authored voice
+ *  that omits a field behaves like a schema voice at its default). Only
+ *  `field`/`wave`/`freq` are required — every other knob is a no-op at its
+ *  default (0 speed, full amp, 0 phase, an even duty split, no rotation, no
+ *  origin offset, `iter` at `clampSdfIter`'s own fallback). */
+export interface FieldVoiceInput {
+  readonly field: string;
+  readonly wave: string;
+  readonly freq: number;
+  readonly speed?: number;
+  readonly amp?: number;
+  readonly phase?: number;
+  readonly duty?: number;
+  readonly angle?: number;
+  readonly originU?: number;
+  readonly originV?: number;
+  readonly originW?: number;
+  readonly color?: string;
+  readonly iter?: number;
+}
+
+/** Authoring-friendly input to `buildGlyphFieldProgram` for one layer — a
+ *  `voices` list plus the layer's own shaping knobs, each defaulting to the
+ *  no-op value field-synth's schema uses for an untouched layer (`multiply`
+ *  combine/blend, threshold off, no invert, full mix weight) — see
+ *  `buildGlyphFieldProgram`'s doc for why `combine` can't default to
+ *  `"inherit"` the way the flat schema's `layerCombineL` does. */
+export interface FieldLayerInput {
+  readonly voices: readonly FieldVoiceInput[];
+  readonly combine?: string;
+  readonly thresholdOn?: boolean;
+  readonly threshold?: number;
+  readonly invert?: boolean;
+  readonly blend?: string;
+  /** Mix weight for this layer entering the stack — `FieldLayer.amp`'s
+   *  authoring name (`amp` already means "voice amplitude" one level down;
+   *  spelling the layer's own weight differently avoids reusing that word
+   *  for two different things in the same authoring call). */
+  readonly mix?: number;
+}
+
+export interface FieldProgramInput {
+  /** Defaults to `"2d"` — the more common case (most authored programs are
+   *  not volumetric); a caller building a volumetric program must say so. */
+  readonly domain?: "2d" | "3d";
+  readonly layers: readonly FieldLayerInput[];
+}
+
+/**
+ * Build a `FieldProgram` from a pleasant authoring surface — layers of
+ * voices with every IR default filled in (VOLUMETRIC-3.md §4's "program
+ * builder"), including `sourceIndex`: voices are numbered in FLAT authoring
+ * order (the order `layers` and each layer's `voices` are written in, not
+ * grouped by layer), exactly mirroring field-synth's own flat-schema -> IR
+ * compile (`compileFieldVoices`, which numbers voice1..N the same way before
+ * `compileFieldSynthProgram` groups them by layer) — so a program built here
+ * reports argmax winners, and feeds a `voiceColors`-style flat per-voice
+ * palette, the same way a flat-params patch does.
+ *
+ * There is no `"inherit"` combine value here the way field-synth's schema
+ * `layerCombineL` has: `"inherit"` only means something relative to a
+ * patch-level `combine` the flat schema also carries, which a hand-built
+ * program has no equivalent of — so `combine` defaults to `"multiply"`
+ * (field-synth's own patch-level default) instead.
+ */
+export function buildGlyphFieldProgram(input: FieldProgramInput): FieldProgram {
+  let sourceIndex = 0;
+  const layers: FieldLayer[] = input.layers.map((layerInput) => {
+    const voices: FieldVoice[] = layerInput.voices.map((voiceInput) => ({
+      field: voiceInput.field,
+      wave: voiceInput.wave,
+      freq: voiceInput.freq,
+      speed: voiceInput.speed ?? 0,
+      amp: voiceInput.amp ?? 1,
+      phase: voiceInput.phase ?? 0,
+      duty: voiceInput.duty ?? 0.5,
+      angle: voiceInput.angle ?? 0,
+      origin: {
+        u: voiceInput.originU ?? 0,
+        v: voiceInput.originV ?? 0,
+        w: voiceInput.originW ?? 0,
+      },
+      color: voiceInput.color ?? "#ffffff",
+      iter: voiceInput.iter ?? 3,
+      sourceIndex: sourceIndex++,
+    }));
+    return {
+      voices,
+      combine: layerInput.combine ?? "multiply",
+      thresholdOn: layerInput.thresholdOn ?? false,
+      threshold: layerInput.threshold ?? 0,
+      invert: layerInput.invert ?? false,
+      blend: layerInput.blend ?? "multiply",
+      amp: layerInput.mix ?? 1,
+    };
+  });
+  return { domain: input.domain ?? "2d", layers };
+}
+
+// Layers are value-folded, not selected by identity (see `FieldLayer.blend`'s
+// doc) — every `SYNTH_COMBINES` entry except `"argmax"`.
+const FIELD_PROGRAM_LAYER_BLEND_VALUES: readonly string[] = SYNTH_COMBINES.filter((op) => op !== "argmax");
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Shape-validate an arbitrary value as a `FieldProgram` (VOLUMETRIC-3.md
+ * §4's "program-as-data" — an unbounded authoring surface with no schema
+ * standing between it and `evaluateFieldProgram`'s per-voice/per-layer
+ * dereferences, unlike field-synth's own flat-params path, which
+ * `assertParamValue`/`validateSchema` already gate in `packages/glyphcss`).
+ * Throws a descriptive `TypeError` on the first structural problem found —
+ * a wrong-shaped `layers`/`voices` array, an unrecognized enum value
+ * (`field`/`wave`/layer `combine`/layer `blend`), a non-finite numeric
+ * field, or a malformed `origin` — and does not repair or coerce. Public so
+ * a caller (or `packages/glyphcss`'s program-as-data mount-time hook) can
+ * validate a hand-built or externally-sourced program before evaluating it.
+ */
+export function validateGlyphFieldProgram(program: unknown): void {
+  if (!program || typeof program !== "object") {
+    throw new TypeError("glyphcss field program: program must be an object.");
+  }
+  const p = program as { domain?: unknown; layers?: unknown };
+  if (p.domain !== "2d" && p.domain !== "3d") {
+    throw new TypeError('glyphcss field program: domain must be "2d" or "3d".');
+  }
+  if (!Array.isArray(p.layers) || p.layers.length === 0) {
+    throw new TypeError("glyphcss field program: layers must be a non-empty array.");
+  }
+  p.layers.forEach((layer: unknown, li: number) => {
+    if (!layer || typeof layer !== "object") {
+      throw new TypeError(`glyphcss field program: layer ${li} must be an object.`);
+    }
+    const l = layer as Record<string, unknown>;
+    if (!Array.isArray(l.voices)) {
+      throw new TypeError(`glyphcss field program: layer ${li}.voices must be an array.`);
+    }
+    if (!(SYNTH_COMBINES as readonly string[]).includes(l.combine as string)) {
+      throw new TypeError(`glyphcss field program: layer ${li}.combine "${String(l.combine)}" is not a recognized combine op.`);
+    }
+    if (typeof l.thresholdOn !== "boolean") {
+      throw new TypeError(`glyphcss field program: layer ${li}.thresholdOn must be a boolean.`);
+    }
+    if (!isFiniteNumber(l.threshold)) {
+      throw new TypeError(`glyphcss field program: layer ${li}.threshold must be a finite number.`);
+    }
+    if (typeof l.invert !== "boolean") {
+      throw new TypeError(`glyphcss field program: layer ${li}.invert must be a boolean.`);
+    }
+    if (!FIELD_PROGRAM_LAYER_BLEND_VALUES.includes(l.blend as string)) {
+      throw new TypeError(
+        `glyphcss field program: layer ${li}.blend "${String(l.blend)}" must be a non-argmax value op `
+        + "(layers are value-folded, not selected by identity).",
+      );
+    }
+    if (!isFiniteNumber(l.amp)) {
+      throw new TypeError(`glyphcss field program: layer ${li}.amp must be a finite number.`);
+    }
+    (l.voices as unknown[]).forEach((voice: unknown, vi: number) => {
+      if (!voice || typeof voice !== "object") {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi} must be an object.`);
+      }
+      const v = voice as Record<string, unknown>;
+      if (!(SYNTH_FIELDS as readonly string[]).includes(v.field as string)) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.field "${String(v.field)}" is not a recognized field.`);
+      }
+      if (!(SYNTH_WAVES as readonly string[]).includes(v.wave as string)) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.wave "${String(v.wave)}" is not a recognized wave.`);
+      }
+      for (const key of ["freq", "speed", "amp", "phase", "duty", "angle"] as const) {
+        if (!isFiniteNumber(v[key])) {
+          throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.${key} must be a finite number.`);
+        }
+      }
+      const origin = v.origin as Record<string, unknown> | undefined;
+      if (!origin || typeof origin !== "object" || !isFiniteNumber(origin.u) || !isFiniteNumber(origin.v) || !isFiniteNumber(origin.w)) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.origin must be a { u, v, w } object of finite numbers.`);
+      }
+      if (typeof v.color !== "string" || v.color.length === 0) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.color must be a non-empty string.`);
+      }
+      if (v.iter !== undefined && !isFiniteNumber(v.iter)) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.iter must be a finite number when present.`);
+      }
+      if (v.sourceIndex !== undefined && (!isFiniteNumber(v.sourceIndex) || v.sourceIndex < 0 || !Number.isInteger(v.sourceIndex))) {
+        throw new TypeError(`glyphcss field program: layer ${li} voice ${vi}.sourceIndex must be a non-negative integer when present.`);
+      }
+    });
+  });
 }

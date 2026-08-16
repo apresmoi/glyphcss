@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGlyphFieldDistanceOracle,
+  buildGlyphFieldProgram,
   effectiveVoiceFinestFreq,
   evaluateFieldProgram,
   fieldStepCount,
@@ -10,11 +11,13 @@ import {
   mengerFractalSdf,
   sampleFieldVoice,
   sierpinskiFractalSdf,
+  validateGlyphFieldProgram,
   SPHERE_MARCH_MAX_STEPS,
   SPHERE_MARCH_OVERSHOOT_EPSILON,
   SPHERE_MARCH_SAFETY,
   SPHERE_MARCH_STALL_ADVANCE,
   SPHERE_MARCH_STALL_STEPS,
+  SYNTH_COMBINES,
   SYNTH_FIELDS,
   SYNTH_WAVES,
   synthWave,
@@ -250,18 +253,24 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
     expect(result.combined).toBeCloseTo(expected, 10);
   });
 
-  it("evaluates a hand-built multi-layer (3 layers x 3 voices) Menger-membership program at depth 3 — the seam proof (VOLUMETRIC.md acceptance 2b)", () => {
+  it("evaluates a hand-built multi-layer (3 layers x 3 voices) Menger-membership program at depth 3 — the seam proof (VOLUMETRIC.md acceptance 2b), and a `buildGlyphFieldProgram`-built equivalent produces the SAME program (VOLUMETRIC-3.md §4 acceptance 6: builder-built depth-3 program == hand-built IR acceptance output)", () => {
     // Unit-domain convention: base-3 digit k of an axis is selected by
     // `freq 3^(k-1)`, `wave: square`, `duty: 1/3`, `phase: -1/3` (the exact
     // "middle third" selector from VOLUMETRIC.md's Step 3). Per scale: three
     // axis voices, `add`-folded (waves output +-1, sum in {-3,-1,1,3}, ">0"
     // means >=2 axes mid); threshold at 0 then invert so solid=+1, hole=-1;
     // layers AND together via `min` (the +-1 AND).
-    function scaleLayer(k: number): FieldLayer {
+    function scaleLayer(k: number, sourceIndexBase: number): FieldLayer {
       const freq = 3 ** (k - 1);
-      const axisVoice = (field: string): FieldVoice => voice({ field, wave: "square", freq, speed: 0, duty: 1 / 3, phase: -1 / 3, amp: 1 });
+      const axisVoice = (field: string, sourceIndex: number): FieldVoice => voice({
+        field, wave: "square", freq, speed: 0, duty: 1 / 3, phase: -1 / 3, amp: 1, sourceIndex, iter: 3,
+      });
       return {
-        voices: [axisVoice("linearX"), axisVoice("linearY"), axisVoice("linearZ")],
+        voices: [
+          axisVoice("linearX", sourceIndexBase),
+          axisVoice("linearY", sourceIndexBase + 1),
+          axisVoice("linearZ", sourceIndexBase + 2),
+        ],
         combine: "add",
         thresholdOn: true,
         threshold: 0,
@@ -270,7 +279,44 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
         amp: 1,
       };
     }
-    const program: FieldProgram = { domain: "3d", layers: [scaleLayer(1), scaleLayer(2), scaleLayer(3)] };
+    // `sourceIndex` filled in above (0, 3, 6 per layer) to match
+    // `buildGlyphFieldProgram`'s own flat-authoring-order numbering exactly
+    // — the ORIGINAL hand-built program (VOLUMETRIC.md acceptance 2b) never
+    // set it (irrelevant there, since only `result.combined` was checked,
+    // never `result.winner`), but the equality assertion below needs the
+    // two programs to agree bit-for-bit.
+    const handBuiltProgram: FieldProgram = { domain: "3d", layers: [scaleLayer(1, 0), scaleLayer(2, 3), scaleLayer(3, 6)] };
+
+    // The SAME recipe through the pleasant authoring surface
+    // (VOLUMETRIC-3.md §4's program builder) — `buildGlyphFieldProgram`
+    // fills every IR default (speed 0, amp 1, angle 0, origin {0,0,0},
+    // color "#ffffff", iter 3, and — the one that matters here —
+    // `sourceIndex` in flat authoring order) the exact same way the
+    // `voice()` test helper above does, so the two programs should come out
+    // byte-for-byte identical.
+    function builtScaleLayer(k: number) {
+      const freq = 3 ** (k - 1);
+      const axisVoice = (field: string) => ({ field, wave: "square", freq, duty: 1 / 3, phase: -1 / 3 });
+      return {
+        voices: [axisVoice("linearX"), axisVoice("linearY"), axisVoice("linearZ")],
+        combine: "add",
+        thresholdOn: true,
+        threshold: 0,
+        invert: true,
+        blend: "min",
+      };
+    }
+    const builtProgram = buildGlyphFieldProgram({
+      domain: "3d",
+      layers: [builtScaleLayer(1), builtScaleLayer(2), builtScaleLayer(3)],
+    });
+    expect(builtProgram).toEqual(handBuiltProgram);
+
+    // The rest of this test runs the SAME behavioral assertions the
+    // original hand-built-only version did, now through the builder's own
+    // output — proving it's not just structurally equal but behaviorally
+    // correct too.
+    const program = builtProgram;
 
     function mengerSolid(x: number, y: number, z: number, depth: number): boolean {
       let cx = x, cy = y, cz = z;
@@ -374,6 +420,180 @@ describe("evaluateFieldProgram: IR is unbounded — the schema's SYNTH_VOICES=6 
     // (otherwise the assertion above would pass vacuously).
     expect(solidCount).toBeGreaterThan(0);
     expect(holeCount).toBeGreaterThan(0);
+  });
+});
+
+describe("buildGlyphFieldProgram (VOLUMETRIC-3.md §4, program builder)", () => {
+  it("fills every IR default field-synth's own schema uses for an untouched layer/voice", () => {
+    const program = buildGlyphFieldProgram({ layers: [{ voices: [{ field: "radial", wave: "sin", freq: 3 }] }] });
+    expect(program).toEqual({
+      domain: "2d",
+      layers: [{
+        voices: [{
+          field: "radial", wave: "sin", freq: 3, speed: 0, amp: 1, phase: 0, duty: 0.5, angle: 0,
+          origin: { u: 0, v: 0, w: 0 }, color: "#ffffff", iter: 3, sourceIndex: 0,
+        }],
+        combine: "multiply", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1,
+      }],
+    });
+  });
+
+  it("numbers sourceIndex in FLAT authoring order across layers (not per-layer, and not reset per layer)", () => {
+    const program = buildGlyphFieldProgram({
+      layers: [
+        { voices: [{ field: "radial", wave: "sin", freq: 1 }, { field: "angular", wave: "sin", freq: 2 }] },
+        { voices: [{ field: "spiral", wave: "sin", freq: 3 }] },
+      ],
+    });
+    expect(program.layers[0]!.voices.map((v) => v.sourceIndex)).toEqual([0, 1]);
+    expect(program.layers[1]!.voices.map((v) => v.sourceIndex)).toEqual([2]);
+  });
+
+  it("honors every explicit override, including the layer's own `mix` -> FieldLayer.amp rename", () => {
+    const program = buildGlyphFieldProgram({
+      domain: "3d",
+      layers: [{
+        voices: [{
+          field: "menger", wave: "step", freq: 0.5, speed: 0.1, amp: 0.7, phase: 0.2, duty: 0.3, angle: 45,
+          originU: 0.1, originV: 0.2, originW: 0.3, color: "#abcdef", iter: 2,
+        }],
+        combine: "min", thresholdOn: true, threshold: 0.5, invert: true, blend: "max", mix: 0.6,
+      }],
+    });
+    expect(program.domain).toBe("3d");
+    const layer = program.layers[0]!;
+    expect(layer.combine).toBe("min");
+    expect(layer.thresholdOn).toBe(true);
+    expect(layer.threshold).toBe(0.5);
+    expect(layer.invert).toBe(true);
+    expect(layer.blend).toBe("max");
+    expect(layer.amp).toBe(0.6);
+    const v = layer.voices[0]!;
+    expect(v).toMatchObject({
+      field: "menger", wave: "step", freq: 0.5, speed: 0.1, amp: 0.7, phase: 0.2, duty: 0.3, angle: 45,
+      origin: { u: 0.1, v: 0.2, w: 0.3 }, color: "#abcdef", iter: 2, sourceIndex: 0,
+    });
+  });
+
+  it("a built program evaluates correctly through evaluateFieldProgram (not just the IR shape, the runtime seam too)", () => {
+    const program = buildGlyphFieldProgram({
+      layers: [{ voices: [{ field: "linearX", wave: "square", freq: 1, duty: 0.25, phase: 0 }] }],
+    });
+    // duty 0.25: solid ("high") for t in [0, 0.25) of each cycle.
+    expect(evaluateFieldProgram(program, 0.1, 0, 0, 0).combined).toBe(1);
+    expect(evaluateFieldProgram(program, 0.5, 0, 0, 0).combined).toBe(-1);
+  });
+});
+
+describe("validateGlyphFieldProgram (VOLUMETRIC-3.md §4, program-as-data validator)", () => {
+  function validProgram(): FieldProgram {
+    return buildGlyphFieldProgram({
+      layers: [{ voices: [{ field: "radial", wave: "sin", freq: 3 }] }],
+    });
+  }
+
+  it("accepts a builder-built program", () => {
+    expect(() => validateGlyphFieldProgram(validProgram())).not.toThrow();
+  });
+
+  it("accepts a hand-built program with every optional field present", () => {
+    expect(() => validateGlyphFieldProgram({
+      domain: "3d",
+      layers: [{
+        voices: [{
+          field: "menger", wave: "step", freq: 1, speed: 0, amp: 1, phase: 0, duty: 0.5, angle: 0,
+          origin: { u: 0, v: 0, w: 0 }, color: "#fff", iter: 3, sourceIndex: 0,
+        }],
+        combine: "min", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1,
+      }],
+    })).not.toThrow();
+  });
+
+  it.each([undefined, null, 42, "nope", []])("rejects a non-object program (%j)", (bad) => {
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(TypeError);
+  });
+
+  it("rejects an unrecognized domain", () => {
+    const program = { ...validProgram(), domain: "4d" };
+    expect(() => validateGlyphFieldProgram(program)).toThrow(/domain/);
+  });
+
+  it("rejects a missing/empty layers array", () => {
+    expect(() => validateGlyphFieldProgram({ domain: "2d", layers: [] })).toThrow(/layers/);
+    expect(() => validateGlyphFieldProgram({ domain: "2d" })).toThrow(/layers/);
+  });
+
+  it("rejects a non-array layer.voices", () => {
+    const program = validProgram();
+    const bad = { ...program, layers: [{ ...program.layers[0]!, voices: "nope" }] };
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(/voices/);
+  });
+
+  it.each(SYNTH_COMBINES.filter((op) => op !== "argmax"))("accepts every non-argmax layer.combine value (%s)", (combine) => {
+    const program = validProgram();
+    const ok = { ...program, layers: [{ ...program.layers[0]!, combine }] };
+    expect(() => validateGlyphFieldProgram(ok)).not.toThrow();
+  });
+
+  it("rejects an unrecognized layer.combine", () => {
+    const program = validProgram();
+    const bad = { ...program, layers: [{ ...program.layers[0]!, combine: "bogus" }] };
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(/combine/);
+  });
+
+  it("rejects layer.blend \"argmax\" (layers are value-folded, not selected by identity)", () => {
+    const program = validProgram();
+    const bad = { ...program, layers: [{ ...program.layers[0]!, blend: "argmax" }] };
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(/blend/);
+  });
+
+  it("rejects a non-finite layer.threshold/amp", () => {
+    const program = validProgram();
+    expect(() => validateGlyphFieldProgram({
+      ...program, layers: [{ ...program.layers[0]!, threshold: Number.NaN }],
+    })).toThrow(/threshold/);
+    expect(() => validateGlyphFieldProgram({
+      ...program, layers: [{ ...program.layers[0]!, amp: Number.POSITIVE_INFINITY }],
+    })).toThrow(/amp/);
+  });
+
+  it("rejects an unrecognized voice.field/voice.wave", () => {
+    const program = validProgram();
+    const badField = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, field: "bogus" }] }] };
+    expect(() => validateGlyphFieldProgram(badField)).toThrow(/field/);
+    const badWave = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, wave: "bogus" }] }] };
+    expect(() => validateGlyphFieldProgram(badWave)).toThrow(/wave/);
+  });
+
+  it("rejects a non-finite voice numeric field", () => {
+    const program = validProgram();
+    for (const key of ["freq", "speed", "amp", "phase", "duty", "angle"] as const) {
+      const bad = {
+        ...program,
+        layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, [key]: Number.NaN }] }],
+      };
+      expect(() => validateGlyphFieldProgram(bad), key).toThrow();
+    }
+  });
+
+  it("rejects a malformed voice.origin", () => {
+    const program = validProgram();
+    const bad = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, origin: { u: 0, v: 0 } }] }] };
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(/origin/);
+  });
+
+  it("rejects a non-string/empty voice.color", () => {
+    const program = validProgram();
+    const bad = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, color: "" }] }] };
+    expect(() => validateGlyphFieldProgram(bad)).toThrow(/color/);
+  });
+
+  it("rejects a negative or non-integer voice.sourceIndex when present", () => {
+    const program = validProgram();
+    const negative = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, sourceIndex: -1 }] }] };
+    expect(() => validateGlyphFieldProgram(negative)).toThrow(/sourceIndex/);
+    const fractional = { ...program, layers: [{ ...program.layers[0]!, voices: [{ ...program.layers[0]!.voices[0]!, sourceIndex: 1.5 }] }] };
+    expect(() => validateGlyphFieldProgram(fractional)).toThrow(/sourceIndex/);
   });
 });
 

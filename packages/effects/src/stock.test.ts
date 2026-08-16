@@ -15,6 +15,9 @@ import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphEffectCatalog,
   INK_LEVELS_MAX,
+  FIELD_SYNTH_VOICE_KEY_FAMILIES,
+  SYNTH_VOICES,
+  assertFieldSynthVoiceSchemaComplete,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
@@ -26,12 +29,15 @@ import {
   glitch,
   gyroidXrayPreset,
   matrixRain,
+  mengerSpongeDepth3Preset,
+  mengerSpongePreset,
   noiseDissolve,
   objectVolumetricAlongLane,
   resolveFieldSynthLayerShapes,
   ripple,
   scan,
   scramble,
+  sierpinskiPyramidPreset,
   synthWave,
   wipe,
   type AnyContext,
@@ -45,7 +51,15 @@ import {
 // uniform-step-count test below (VOLUMETRIC-2.md §1 "Uniform step count per
 // evaluate", acceptance criterion 2) computes its expected brightness from
 // the SAME integrator, not a parallel hand-derivation that could drift.
-import { evaluateFieldProgram, fieldStepCount, integrateField } from "./fieldProgram";
+import {
+  buildGlyphFieldProgram,
+  effectiveVoiceFinestFreq,
+  evaluateFieldProgram,
+  fieldStepCount,
+  integrateField,
+  validateGlyphFieldProgram,
+  type FieldProgram,
+} from "./fieldProgram";
 
 // A plain union (not a generic parameter) so a narrower union — e.g. the
 // three-effect "cases" arrays below — assigns in directly without invoking
@@ -83,6 +97,10 @@ interface EvaluateOptions {
   normal?: Float32Array;
   cellToSceneGrid?: GridAffine;
   worldToSceneScale?: number;
+  /** Program-as-data (VOLUMETRIC-3.md §4) — forwarded onto the evaluate
+   *  context's `program` field, exactly like packages/glyphcss's compositor
+   *  does for a mounted layer's `program` option. */
+  program?: unknown;
 }
 
 function evaluate(
@@ -140,6 +158,7 @@ function evaluate(
     },
     scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
     output,
+    ...(options.program !== undefined ? { program: options.program } : {}),
   } as never);
   return output;
 }
@@ -2015,6 +2034,10 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // deliberate re-pin this fix exists for: it changed the moment
       // `marchFade` did, and is pinned here at its POST-retrofit value.
       "Menger sponge": { render: "c6e1efad", params: "c33b2487" },
+      // Added in VOLUMETRIC-3.md's Phase 4 — the depth-3 sibling recipe
+      // (needs the 9-voice bump). Pinned the same way as every preset above
+      // it.
+      "Menger sponge (depth 3)": { render: "311c9985", params: "1c2bb271" },
       // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
       // preset above it.
       "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
@@ -2695,23 +2718,59 @@ describe("field-synth carve mode — the march (VOLUMETRIC.md's Carve mode)", ()
     expect(output.channels[0]).toBe(0);
   });
 
-  it("Nyquist floor: an active voice's freq raises the per-cell march step count enough to find a thin feature a low fixed marchSteps would otherwise step over", () => {
+  it("Nyquist floor: a duty-narrow square voice's OWN effective finest frequency (VOLUMETRIC-3.md §4 fix) resolves its thin feature that a duty-agnostic reading would step over — no separate high-freq voice needed anymore", () => {
     const length = 12 * 6;
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
     objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
     objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
     // voice1 (freq 1, one period spans the whole chord) places a single
-    // duty=0.008-wide "on" band centered at x=0.5625 — 9 sample points at
-    // marchSteps=8 (t = 0, 1/8, ..., 1) all fall outside [0.5585, 0.5665], so
-    // an 8-step march deterministically misses it. voice2's freq (not its
-    // amplitude, kept tiny via `combine: "min"` so it can't perturb the
-    // solid/hole decision at the extremes) is the ONLY thing that changes
-    // between the two calls below, isolating the Nyquist-floor wiring.
-    const base = {
-      space: "object" as const, scale: 1, render: "carve" as const, combine: "min" as const, marchSteps: 8,
+    // duty=0.008-wide "on" band centered at x=0.5625 — 9 sample points at a
+    // FIXED marchSteps=8 (t = 0, 1/8, ..., 1) all fall outside
+    // [0.5585, 0.5665], so a duty-agnostic step count deterministically
+    // misses it (the pre-fix `effectiveVoiceFinestFreq` read this voice's
+    // finest frequency as its bare `freq` — 1 — ignoring `duty`, so the
+    // Nyquist floor never rose past the schema's own 8-step minimum here).
+    // Post-fix, this voice's OWN `freq / min(duty, 1-duty) = 1 / 0.008 =
+    // 125` correctly raises the per-cell floor high enough to find it —
+    // this used to need a SEPARATE, unrelated high-frequency voice (see the
+    // "separate voice raises the shared floor" wiring test just below,
+    // which reproduces that original mechanism with a wave kind the duty
+    // fix doesn't touch).
+    const params = {
+      space: "object" as const, scale: 1, render: "carve" as const, marchSteps: 8,
       field1: "linearX", wave1: "square", freq1: 1, duty1: 0.008, phase1: -0.5585, amp1: 1, speed1: 0,
-      field2: "linearX", wave2: "square", freq2: 200, duty2: 0.5, phase2: 0, speed2: 0,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    };
+    const output = evaluate(fieldSynth, params, { objectPosition, objectExit });
+    expect(output.coverage[0]).toBeGreaterThan(0);
+  });
+
+  it("Nyquist floor wiring: a SEPARATE active voice's own finest frequency still raises the shared per-cell step count for a thin feature elsewhere (unaffected by the duty fix — both voices use a non-square wave)", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
+    objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
+    // voice1 is a `sin` voice (its own `effectiveVoiceFinestFreq` stays
+    // exactly `freq1`, untouched by the square-only duty fix), `phase1`
+    // chosen so its peak (value 1) sits at x=0.5625 — as far as possible
+    // (0.0625) from both its neighboring marchSteps=8 grid points (0.5,
+    // 0.625). `bias`/`gain` are tuned (threshold combined > 0.99) so only a
+    // ~0.045-wide window around that peak reads solid — narrower than the
+    // grid spacing, so an 8-step fixed march deterministically steps over
+    // it while a 256-step one (many samples inside a 0.045-wide window)
+    // reliably lands inside. voice2's `freq` (not its amplitude, kept
+    // negligible under `combine: "add"` so it can't itself flip the
+    // solid/hole decision by more than +-0.001) is the ONLY thing that
+    // changes between the two calls below, isolating the same cross-voice
+    // Nyquist-floor wiring the old version of this test exercised via a (now
+    // self-resolving) duty-narrow voice.
+    const base = {
+      space: "object" as const, scale: 1, render: "carve" as const, marchSteps: 8, combine: "add" as const,
+      bias: -0.495, gain: 1,
+      field1: "linearX", wave1: "sin", freq1: 1, speed1: 0, amp1: 1, phase1: -0.3125,
+      field2: "linearX", wave2: "sin", freq2: 200, speed2: 0,
       amp3: 0, amp4: 0, amp5: 0, amp6: 0,
     };
     const lowFreqOnly = evaluate(fieldSynth, { ...base, amp2: 0 }, { objectPosition, objectExit });
@@ -4234,5 +4293,198 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     // the bin-parameter sweep and a 4x resolution change) — well below that
     // observed range so it isn't brittle to small evaluator changes.
     expect(thresholdedStat.stat / fogStat.stat).toBeGreaterThan(1.15);
+  });
+});
+
+describe("field-synth voice schema guard (VOLUMETRIC-3.md §4 acceptance 6 — mutation test)", () => {
+  function completeFakeSchema(voiceCount: number): Record<string, unknown> {
+    const schema: Record<string, unknown> = {};
+    for (let voice = 1; voice <= voiceCount; voice++) {
+      for (const prefix of FIELD_SYNTH_VOICE_KEY_FAMILIES) schema[`${prefix}${voice}`] = {};
+    }
+    return schema;
+  }
+
+  it("has exactly the 14 documented families", () => {
+    expect(FIELD_SYNTH_VOICE_KEY_FAMILIES).toEqual([
+      "field", "wave", "freq", "speed", "amp", "angle",
+      "originU", "originV", "originW", "duty", "phase", "iter", "layer", "color",
+    ]);
+  });
+
+  it("passes on a schema that genuinely has all 14 families for every voice", () => {
+    expect(() => assertFieldSynthVoiceSchemaComplete(completeFakeSchema(3), 3)).not.toThrow();
+  });
+
+  it.each(FIELD_SYNTH_VOICE_KEY_FAMILIES)(
+    "throws when the \"%s\" family is missing for one voice — the guard used to check only 7 of 14, so a future bump could ship a partial block for the other 7 silently",
+    (missingFamily) => {
+      const schema = completeFakeSchema(3);
+      delete schema[`${missingFamily}2`];
+      expect(() => assertFieldSynthVoiceSchemaComplete(schema, 3)).toThrow(/is missing/);
+    },
+  );
+
+  it("the real fieldSynthSchema covers all 14 families for all SYNTH_VOICES voices (the actual module-load guard's own assertion, re-run explicitly)", () => {
+    expect(() => assertFieldSynthVoiceSchemaComplete(
+      fieldSynth.parameterSchema as unknown as Record<string, unknown>,
+      SYNTH_VOICES,
+    )).not.toThrow();
+  });
+});
+
+describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floors unchanged (VOLUMETRIC-3.md §4 acceptance 1)", () => {
+  it.each([mengerSpongePreset, sierpinskiPyramidPreset])(
+    "$name still resolves to the schema default marchSteps floor (48) — the duty-aware Nyquist floor doesn't bind either before or after the fix",
+    (preset) => {
+      const params = { ...defaultGlyphEffectParams(fieldSynth), ...preset.params } as AnyParams;
+      const voices = buildFieldSynthVoices(params);
+      const compiledVoices = compileFieldVoices(voices, params.scale as number);
+      let finestFreq = 0;
+      for (const voice of compiledVoices) {
+        if (voice.amp > 0) {
+          const f = effectiveVoiceFinestFreq(voice);
+          if (f > finestFreq) finestFreq = f;
+        }
+      }
+      // The cube/pyramid stage's own body diagonal at this preset's own
+      // `scale` pin (the same chord-length derivation
+      // `mengerSpongeDepth3Preset`'s own doc comment uses).
+      const chord = Math.sqrt(3) * 3 * (params.scale as number);
+      const resolved = fieldStepCount(chord, { steps: params.marchSteps as number, maxSteps: 256, finestFreq });
+      expect(resolved).toBe(params.marchSteps);
+    },
+  );
+});
+
+describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gate (VOLUMETRIC-3.md §4)", () => {
+  it("the default-resolved (Nyquist-floored) step count hits the exact same cells as a forced 256-step ground-truth march — not formula trust alone", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    // Straight rays through the cube stage's own [0,3]^3 authoring box
+    // (matching `mengerSpongeDepth3Preset`'s `scale: 1/3` pin), one per
+    // cell, entering at z=0 and exiting at z=3.
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = ((col + 0.5) / cols) * 3;
+        const y = ((row + 0.5) / rows) * 3;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
+      }
+    }
+    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const defaultRun = evaluate(fieldSynth, presetParams, { objectPosition, objectExit });
+    const groundTruth = evaluate(fieldSynth, { ...presetParams, marchSteps: 256 }, { objectPosition, objectExit });
+    let hits = 0;
+    for (let i = 0; i < length; i++) {
+      expect(defaultRun.coverage[i]! > 0).toBe(groundTruth.coverage[i]! > 0);
+      if (groundTruth.coverage[i]! > 0) hits++;
+    }
+    // Sanity: the comparison isn't vacuous — both a hit and a hole occurred.
+    expect(hits).toBeGreaterThan(0);
+    expect(hits).toBeLessThan(length);
+  });
+});
+
+describe("field-synth program-as-data (VOLUMETRIC-3.md §4)", () => {
+  it("renders identically to the equivalent flat-params patch when the program mirrors a single-voice patch", () => {
+    const flatOverrides = {
+      field1: "radial", wave1: "sin", freq1: 3, speed1: 0.4, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+    };
+    const flatOutput = evaluate(fieldSynth, flatOverrides);
+
+    const program = buildGlyphFieldProgram({
+      domain: "2d",
+      layers: [{ voices: [{ field: "radial", wave: "sin", freq: 3, speed: 0.4 }] }],
+    });
+    const programOutput = evaluate(fieldSynth, {}, { program });
+
+    expect(programOutput.glyph).toEqual(flatOutput.glyph);
+    expect(Array.from(programOutput.color)).toEqual(Array.from(flatOutput.color));
+    expect(Array.from(programOutput.coverage)).toEqual(Array.from(flatOutput.coverage));
+  });
+
+  it("voiceColors reads color from the PROGRAM's own FieldVoice.color, correctly for MORE voices than the schema's 9-voice cap (unbounded authoring)", () => {
+    const voiceCount = 12;
+    const winnerIndex = 9; // beyond SYNTH_VOICES (9) — the 10th voice, 0-indexed
+    const voices = Array.from({ length: voiceCount }, (_, k) => ({
+      field: "linearX",
+      wave: "step" as const,
+      freq: 0,
+      speed: 0,
+      // step at freq 0: t = phase alone (raw*freq = 0), so a small positive
+      // phase reads solid (+1) and a small negative one reads hole (-1) —
+      // exactly one voice (`winnerIndex`) wins the argmax fold.
+      phase: k === winnerIndex ? 0.1 : -0.1,
+      color: k === winnerIndex ? "#123456" : "#000000",
+    }));
+    const program = buildGlyphFieldProgram({ domain: "2d", layers: [{ voices, combine: "argmax" }] });
+    // scale small enough that cell 0's own domain x stays well inside the
+    // +-0.1 phase margin above, so its sign is decided by phase alone.
+    const output = evaluate(fieldSynth, { voiceColors: true, scale: 0.5 }, { program });
+    expect(output.color[0]).toBe(parseGlyphEffectColor("#123456").packed);
+  });
+
+  it("finestFreq comes from the PROGRAM's own voices, not the ignored flat params — a program-only high-frequency voice raises the carve march's Nyquist floor", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
+    objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
+    // Same "thin sine peak" construction as the flat-params Nyquist-floor
+    // wiring test above, now driven entirely by a program voice — the flat
+    // params passed alongside carry NO active voices of their own (every
+    // amp1..9 stays at its schema default, and voice1's default amp is 1 —
+    // explicitly zeroed here so a bug that fell back to reading flat params
+    // instead of the program would be caught, not accidentally masked).
+    // Pinned both ways (VOLUMETRIC-3.md §4 acceptance 6): the SAME thin-peak
+    // voice, evaluated through a program with vs. without the high-frequency
+    // second voice — only the finestFreq contribution differs, so a hit only
+    // with it present pins the floor to the program's own voices exactly the
+    // way the flat-params wiring test above pins it to the flat params.
+    const withoutHighFreq = buildGlyphFieldProgram({
+      domain: "3d",
+      layers: [{ combine: "add", voices: [{ field: "linearX", wave: "sin", freq: 1, phase: -0.3125 }] }],
+    });
+    const withHighFreq = buildGlyphFieldProgram({
+      domain: "3d",
+      layers: [{
+        combine: "add",
+        voices: [
+          { field: "linearX", wave: "sin", freq: 1, phase: -0.3125 },
+          { field: "linearX", wave: "sin", freq: 200, amp: 0.001 },
+        ],
+      }],
+    });
+    const flatParams = { space: "object" as const, scale: 1, render: "carve" as const, marchSteps: 8, bias: -0.495, gain: 1, amp1: 0, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0 };
+    const low = evaluate(fieldSynth, flatParams, { objectPosition, objectExit, program: withoutHighFreq });
+    expect(low.coverage[0]).toBe(0);
+    const high = evaluate(fieldSynth, flatParams, { objectPosition, objectExit, program: withHighFreq });
+    expect(high.coverage[0]).toBeGreaterThan(0);
+  });
+
+  it("argmax winner lookup is bounds-checked regardless of source — an out-of-range sourceIndex degrades to the mixed fallback instead of throwing (the OOB TypeError class the fix eliminates)", () => {
+    const program: FieldProgram = {
+      domain: "2d",
+      layers: [{
+        voices: [{
+          field: "linearX", wave: "step", freq: 0, speed: 0, amp: 1, phase: 0.1, duty: 0.5, angle: 0,
+          origin: { u: 0, v: 0, w: 0 }, color: "#ffffff", sourceIndex: 999,
+        }],
+        combine: "argmax", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1,
+      }],
+    };
+    expect(() => evaluate(fieldSynth, { voiceColors: true }, { program })).not.toThrow();
+  });
+
+  it("fieldSynth.program.validateProgram rejects a malformed program via @glyphcss/effects's own validateGlyphFieldProgram", () => {
+    expect(() => fieldSynth.program.validateProgram?.({ domain: "bogus", layers: [] })).toThrow();
+    expect(() => fieldSynth.program.validateProgram?.(buildGlyphFieldProgram({
+      domain: "2d",
+      layers: [{ voices: [{ field: "radial", wave: "sin", freq: 1 }] }],
+    }))).not.toThrow();
   });
 });

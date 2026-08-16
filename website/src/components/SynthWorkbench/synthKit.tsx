@@ -35,7 +35,7 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 
 
-import { sanitizeCarveRenderForSpace, type Lighting } from "./synthUrlState";
+import { sanitizeCarveRenderForSpace, MAX_VOICES, type Lighting } from "./synthUrlState";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -46,6 +46,12 @@ import {
   InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import "../GalleryWorkbench/gallery-workbench.css";
+// Re-exported so existing consumers of `synthKit.tsx`'s own `MAX_VOICES`
+// (SynthWorkbench.tsx et al.) keep importing it from here — the value
+// itself now comes from `@glyphcss/effects`'s `SYNTH_VOICES` via
+// `synthUrlState.ts` (VOLUMETRIC-3.md §4), not an independent `= 9` literal
+// duplicated in this file too.
+export { MAX_VOICES };
 
 // The ONE blend both `scene.addEffectLayer()` calls below mount the layer
 // with. The static export must read the layer's REAL blend rather than the
@@ -59,7 +65,6 @@ export type ParamValue = number | string | boolean;
 export type Params = Record<string, ParamValue>;
 export type Polys = ReturnType<typeof resolveGeometry>;
 
-export const MAX_VOICES = 6;
 export const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 // `linearZ` only has meaning under the volumetric (`space: "object"`) branch
 // (see AGENTS.md's field-synth section — the 2D branch falls through to
@@ -951,7 +956,7 @@ export function buildCombinedPathD(voices: readonly CombinedVoice[], combineMode
 export function SynthScope({ paramsRef, tsRef, pausedRef }: {
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
 }) {
-  const voicePathRefs = useRef<(SVGPathElement | null)[]>([null, null, null, null, null, null]);
+  const voicePathRefs = useRef<(SVGPathElement | null)[]>(Array.from({ length: MAX_VOICES }, () => null));
   const mixPathRef = useRef<SVGPathElement | null>(null);
   const width = 200, height = 56;
   useEffect(() => {
@@ -988,7 +993,7 @@ export function SynthScope({ paramsRef, tsRef, pausedRef }: {
       <span className="dock-scope-label">Scope</span>
       <svg className="dock-scope-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="dock-scope-mid" />
-        {[0, 1, 2, 3, 4, 5].map((k) => (
+        {Array.from({ length: MAX_VOICES }, (_, k) => (
           <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="dock-scope-voice" vectorEffect="non-scaling-stroke" fill="none" />
         ))}
         <path ref={mixPathRef} className="dock-scope-mix" vectorEffect="non-scaling-stroke" fill="none" />

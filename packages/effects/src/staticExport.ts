@@ -117,6 +117,15 @@ export interface GlyphFieldSynthStaticExportOptions {
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
   title?: string;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — mirrors the mounted layer's own
+   * `program` option so a caller building export options straight from a
+   * live layer's config doesn't have to strip it manually. Always REJECTED
+   * (see `buildGlyphFieldSynthStaticExport`): a `GlyphFieldProgram` is an
+   * unbounded authoring surface with no schema/preset shape this baked
+   * coordinate-table/affine-fit exporter can serialize — not planned.
+   */
+  program?: unknown;
 }
 
 export interface GlyphFieldSynthStaticExportResult {
@@ -1120,6 +1129,19 @@ export function buildGlyphFieldSynthStaticExport(
   polygons: Polygon[],
   options: GlyphFieldSynthStaticExportOptions,
 ): GlyphFieldSynthStaticExportResult {
+  // Rejected at the OPTION level, before the flat-param merge/bake even
+  // starts (VOLUMETRIC-3.md §4) — the same centralized gate
+  // `assertStaticExportSupported` below is for `params`-level rejects,
+  // just one level up: `program` isn't a `params` key at all (it's a
+  // sibling layer option, like `blend`/`opacity`), so it can't be caught by
+  // that params-shaped gate.
+  if (options.program !== undefined) {
+    throw new Error(
+      "glyphcss: buildGlyphFieldSynthStaticExport does not support program-as-data (VOLUMETRIC-3.md §4) — "
+      + "a GlyphFieldProgram is an unbounded authoring surface with no schema/preset shape this baked "
+      + "coordinate-table/affine-fit exporter can serialize. Not planned; export the equivalent flat params patch instead.",
+    );
+  }
   if (options.effect !== undefined && options.effect !== "field-synth") {
     throw new Error(
       `glyphcss: buildGlyphFieldSynthStaticExport only supports the "field-synth" effect (got "${options.effect}"). `

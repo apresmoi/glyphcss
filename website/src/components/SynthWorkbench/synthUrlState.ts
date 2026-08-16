@@ -10,6 +10,7 @@
 import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphFieldSynthEffect as fieldSynth,
+  SYNTH_VOICES,
   defaultGlyphEffectParams,
   type GlyphFieldSynthValidationError,
   type GlyphFieldSynthValidationRuleId,
@@ -38,7 +39,12 @@ export const DEFAULT_LIGHTING: Lighting = { azimuth: 40, elevation: 38, keyInten
 // packed `?s=` URL param, so a new entry must go at the end — never
 // inserted. Keep in sync with synthKit.tsx's own duplicate `SHAPES` array.
 const SHAPES = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron", "pyramid"] as const;
-export const MAX_VOICES = 6;
+// The website's single source of truth for the voice-count cap — imported
+// from `@glyphcss/effects`'s own `SYNTH_VOICES` (VOLUMETRIC-3.md §4 bumped
+// it 6 -> 9), not an independently hardcoded duplicate. `synthKit.tsx`
+// re-exports this same binding as `MAX_VOICES` rather than declaring its own
+// second `= 9` literal.
+export const MAX_VOICES = SYNTH_VOICES;
 
 export type Params = Record<string, number | string | boolean>;
 
@@ -48,8 +54,11 @@ function synthDefaults(): Params {
 }
 export const SYNTH_PARAM_DEFAULTS: Params = { ...synthDefaults(), voiceColors: true };
 
-/** Which oscillator slots have a CARD (exist), independent of amp — packed as
- *  a 6-bit mask (1 base36 char covers 0..35, so 6 bits fit in 1 char). */
+/** Which oscillator slots have a CARD (exist), independent of amp — packed
+ *  as a `MAX_VOICES`-bit mask via the shared `{ kind: "int" }` packed-number
+ *  codec (self-terminating base36, so the 9-bit mask VOLUMETRIC-3.md §4's
+ *  voice bump needs — up to 511, 2 base36 chars — round-trips exactly like
+ *  the smaller 6-bit mask did before it). */
 function encodeVoiceSlots(slots: readonly number[]): number {
   let mask = 0;
   for (const slot of slots) mask |= 1 << (slot - 1);

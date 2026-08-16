@@ -471,6 +471,18 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ loopSeconds: 0 }))).toThrow();
   });
 
+  it("rejects program-as-data (VOLUMETRIC-3.md §4) with a clear error, before the flat-param merge/bake — an obviously-invalid params patch alongside it doesn't change the error", () => {
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ program: { domain: "2d", layers: [] } })))
+      .toThrow(/program-as-data/);
+    // Even with a params patch that would ALSO be rejected on its own
+    // merits (an unsupported render mode) — the program-level gate runs
+    // first, so the error names the actual reason.
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+      program: { domain: "2d", layers: [] },
+      params: { render: "carve" },
+    }))).toThrow(/program-as-data/);
+  });
+
   it("produces a non-empty base frame", () => {
     const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions());
     const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);

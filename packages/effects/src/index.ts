@@ -45,6 +45,21 @@ export type {
   FieldVoice as GlyphFieldVoice,
 } from "./fieldProgram";
 
+// Program builder + validator (VOLUMETRIC-3.md §4, "program-as-data") — the
+// unbounded authoring tier: `buildGlyphFieldProgram` fills IR defaults from a
+// pleasant `{ domain, layers: [{ voices: [...] }] }` surface,
+// `validateGlyphFieldProgram` shape-checks an arbitrary value before it ever
+// reaches `evaluateFieldProgram`'s unguarded dereferences. `packages/glyphcss`
+// plumbs a `program` layer option through to this validator via the
+// definition's own `validateProgram` hook (see `GlyphFieldSynthEffect`
+// below) rather than importing this package directly.
+export { buildGlyphFieldProgram, validateGlyphFieldProgram } from "./fieldProgram";
+export type {
+  FieldLayerInput as GlyphFieldLayerInput,
+  FieldProgramInput as GlyphFieldProgramInput,
+  FieldVoiceInput as GlyphFieldVoiceInput,
+} from "./fieldProgram";
+
 // Sphere tracing for carve (VOLUMETRIC-3.md §3) — `buildGlyphFieldDistanceOracle`
 // and `marchGlyphFieldSphere` already carry the `Glyph` prefix in
 // `fieldProgram.ts` itself (unlike `marchField`/`evaluateFieldProgram` above,
@@ -84,10 +99,17 @@ export {
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
   mengerSdfPreset as GlyphMengerSdfPreset,
+  mengerSpongeDepth3Preset as GlyphMengerSpongeDepth3Preset,
   mengerSpongePreset as GlyphMengerSpongePreset,
   sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
   sierpinskiSdfPreset as GlyphSierpinskiSdfPreset,
 } from "./stock";
+
+// The flat schema's voice/layer caps (VOLUMETRIC-3.md §4 bumped
+// `SYNTH_VOICES` 6 -> 9) — public so the website derives its own voice-count
+// UI limits from the real cap instead of an independently hardcoded
+// duplicate (see synthKit.tsx / synthUrlState.ts).
+export { SYNTH_LAYERS, SYNTH_VOICES } from "./stock";
 
 export type {
   GlyphEffectId,

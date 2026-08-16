@@ -18,6 +18,7 @@ import {
   marchField,
   marchGlyphFieldSphere,
   sampleFieldVoice,
+  validateGlyphFieldProgram,
   SYNTH_COMBINES,
   SYNTH_FIELDS,
   SYNTH_WAVES,
@@ -1238,8 +1239,11 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // already have external consumers (`staticExport.ts`, the website).
 
 // `SYNTH_VOICES` caps the flat SCHEMA only — see fieldProgram.ts's module doc
-// for why the IR/evaluator stay uncapped.
-export const SYNTH_VOICES = 6;
+// for why the IR/evaluator stay uncapped. 6 -> 9 (VOLUMETRIC-3.md §4): voices
+// 7-9's key families are appended at the schema TAIL (see `fieldSynthSchema`
+// below), never interleaved into the voice1..6 blocks — append-only ordering
+// is load-bearing for the /synth URL codec's positional decode.
+export const SYNTH_VOICES = 9;
 
 // Voice layers (VOLUMETRIC.md's Step 3) cap the flat SCHEMA at 3 layer slots
 // — the IR's `FieldProgram.layers` itself is length-free, same relationship
@@ -1481,18 +1485,88 @@ const fieldSynthSchema = {
   // degenerate on a flat wall). Documented no-op under 2D `subcellRes: "ink"`
   // (that path keeps `inkLevels`) and under any non-carve render.
   inkSpacing: { kind: "number", default: 0.25, min: 0.05, max: 4, step: 0.05, label: "Ink spacing" },
+  // Appended after every pre-existing key (VOLUMETRIC-3.md §4: SYNTH_VOICES
+  // 6 -> 9 — append-only ordering is load-bearing for the /synth URL codec's
+  // positional decode). ALL 14 per-voice key families for the three new
+  // voices, grouped by FAMILY (not by voice) — every family's voice7/8/9
+  // triple together, in the same family order the module-load guard below
+  // checks. amp7/8/9 default 0 (like voice3-6) so an untouched patch's fold
+  // is unaffected by the new voices existing.
+  field7: { kind: "string", default: "spiral", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 7 field" },
+  field8: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 8 field" },
+  field9: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 9 field" },
+  wave7: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 7 wave" },
+  wave8: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 8 wave" },
+  wave9: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 9 wave" },
+  freq7: { kind: "number", default: 6, min: 0, max: 96, step: 0.1, label: "Osc 7 freq" },
+  freq8: { kind: "number", default: 7, min: 0, max: 96, step: 0.1, label: "Osc 8 freq" },
+  freq9: { kind: "number", default: 8, min: 0, max: 96, step: 0.1, label: "Osc 9 freq" },
+  speed7: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 7 speed" },
+  speed8: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 8 speed" },
+  speed9: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 9 speed" },
+  amp7: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 7 amp" },
+  amp8: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 8 amp" },
+  amp9: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 9 amp" },
+  angle7: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 7 angle" },
+  angle8: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 8 angle" },
+  angle9: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 9 angle" },
+  originU7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin U" },
+  originU8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin U" },
+  originU9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin U" },
+  originV7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin V" },
+  originV8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin V" },
+  originV9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin V" },
+  originW7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin W" },
+  originW8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin W" },
+  originW9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin W" },
+  duty7: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 7 duty" },
+  duty8: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 8 duty" },
+  duty9: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 9 duty" },
+  phase7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 7 phase" },
+  phase8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 8 phase" },
+  phase9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 9 phase" },
+  iter7: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 7 iterations" },
+  iter8: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 8 iterations" },
+  iter9: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 9 iterations" },
+  layer7: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 7 layer" },
+  layer8: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 8 layer" },
+  layer9: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 9 layer" },
+  color7: { kind: "color", default: "#5ad1ff", label: "Voice 7 color" },
+  color8: { kind: "color", default: "#ffb454", label: "Voice 8 color" },
+  color9: { kind: "color", default: "#ff5da2", label: "Voice 9 color" },
 } as const satisfies GlyphEffectParamSchema;
+
+// Every per-voice key family fieldSynth's evaluate() (via `SynthVoice`/
+// `buildFieldSynthVoices`) and the field-program IR (`FieldVoice`) dereference
+// — 14 total. Exported so a mutation test can exercise the checker below
+// against a deliberately incomplete fake schema without needing to break the
+// real module-load guard to prove it actually checks all 14 (VOLUMETRIC-3.md
+// §4 acceptance 6: the guard used to check only 7 of 14, letting a future
+// voice-count bump ship a partial block silently).
+export const FIELD_SYNTH_VOICE_KEY_FAMILIES = [
+  "field", "wave", "freq", "speed", "amp", "angle",
+  "originU", "originV", "originW", "duty", "phase", "iter", "layer", "color",
+] as const;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
 // SYNTH_VOICES ever changes without the schema following, this fails loudly at
 // module load instead of silently reading `undefined` through a stale cast.
-for (let voice = 1; voice <= SYNTH_VOICES; voice++) {
-  for (const prefix of ["field", "wave", "freq", "speed", "amp", "color", "layer"] as const) {
-    if (!(`${prefix}${voice}` in fieldSynthSchema)) {
-      throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${SYNTH_VOICES} voices.`);
+// Exported (alongside `FIELD_SYNTH_VOICE_KEY_FAMILIES`) so the mutation test
+// can call the SAME checker the module-load guard below invokes, rather than
+// a parallel reimplementation that could drift from what's actually enforced.
+export function assertFieldSynthVoiceSchemaComplete(
+  schema: Readonly<Record<string, unknown>>,
+  voiceCount: number,
+): void {
+  for (let voice = 1; voice <= voiceCount; voice++) {
+    for (const prefix of FIELD_SYNTH_VOICE_KEY_FAMILIES) {
+      if (!(`${prefix}${voice}` in schema)) {
+        throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${voiceCount} voices.`);
+      }
     }
   }
 }
+assertFieldSynthVoiceSchemaComplete(fieldSynthSchema, SYNTH_VOICES);
 for (let layer = 1; layer <= SYNTH_LAYERS; layer++) {
   for (const prefix of ["layerCombine", "layerThresholdOn", "layerThreshold", "layerInvert", "layerBlend", "layerAmp"] as const) {
     if (!(`${prefix}${layer}` in fieldSynthSchema)) {
@@ -2155,6 +2229,50 @@ export const sierpinskiSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   },
 };
 
+// The depth-3 sibling of `mengerSpongePreset`'s linear-recipe construction
+// (VOLUMETRIC-3.md §4) — a third scale layer (freq 9 = 3^2, same duty 1/3 /
+// phase -1/3 middle-third selector, `min`-blended into the two-layer stack so
+// solid now means "solid at every one of the three scales"), needing exactly
+// the 9 voices this slice's `SYNTH_VOICES` bump makes available. Previously
+// unshippable at the flat-schema level even though the IR itself was already
+// depth-unbounded (fieldProgram.test.ts's hand-built 3-layer IR test proved
+// that back in VOLUMETRIC.md) — the frontend's 6-voice cap was the actual
+// ceiling.
+//
+// Safe to ship now for a second reason, not just voice count: the OLD
+// `effectiveVoiceFinestFreq` read a square voice's finest frequency as its
+// bare `freq` (ignoring `duty`), which under-reported this recipe's finest
+// band by 3x (duty 1/3 means the narrow high band is a THIRD of a `1/freq`
+// cycle, needing `freq/  (1/3) = 3*freq` to resolve — see that function's own
+// doc) — corrected in this same slice. With the fix, this preset's finest
+// band (duty 1/3 at freq 9) resolves to `9 / (1/3) = 27`; at this preset's
+// `scale: 1/3` mapping onto the cube stage's body diagonal (domain-unit chord
+// length `sqrt(3) * 3 * (1/3) ≈ 1.732`), the Nyquist floor is
+// `ceil(2 * 1.732 * 27) = 94` steps — comfortably inside the 256-step cap.
+// Gated on an EMPIRICAL ground-truth march comparison
+// (stock.test.ts), not formula trust alone — a thresholded multi-layer fold
+// can in principle produce thinner walls than any single voice's own
+// frequency bound guarantees.
+export const mengerSpongeDepth3Preset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger sponge (depth 3)", params: {
+    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
+    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
+    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
+    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+    field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
+    field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
+    field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
+    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
+    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
+    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
+    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
+    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2192,6 +2310,7 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
   mengerSpongePreset,
+  mengerSpongeDepth3Preset,
   sierpinskiPyramidPreset,
   gyroidXrayPreset,
   mengerSdfPreset,
@@ -2250,6 +2369,16 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       if (params.space !== "object") return [];
       return params.render === "carve" || params.render === "xray" ? ["objectPosition", "objectExit"] : ["objectPosition"];
     },
+    // Program-as-data (VOLUMETRIC-3.md §4): packages/glyphcss's compositor
+    // calls this at mount, once, when a layer's `program` option is present
+    // — glyphcss itself never interprets the payload (it's opaque data to
+    // that package), so this definition owns validating its own shape.
+    // Reuses `@glyphcss/effects`'s own `validateGlyphFieldProgram` (the
+    // same validator a caller building a program by hand should run
+    // directly) rather than a second, driftable check.
+    validateProgram(program) {
+      validateGlyphFieldProgram(program);
+    },
     // Structural enforcement, not just a test convention: any throw from the
     // four validators below that isn't tagged with a registered
     // `GLYPH_FIELD_SYNTH_VALIDATION_RULES` id surfaces as THIS distinct
@@ -2290,23 +2419,47 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
-      const voices = buildFieldSynthVoices(params as unknown as AnyParams);
-      const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
-      const time = params.time;
-      const rampMax = glyphs.length - 1;
+      // Program-as-data (VOLUMETRIC-3.md §4): when a layer mounts with a
+      // `program` option, packages/glyphcss plumbs it onto the evaluate
+      // context unchanged (opaque to glyphcss itself — this definition owns
+      // the shape, validated at mount via `validateProgram` below). Its
+      // presence REPLACES the flat voice/layer params as the field
+      // definition entirely — every per-voice/per-layer param (field1..9,
+      // layer1..9, layerCombine*, etc.) is ignored — while `params` still
+      // governs space/render/march/output mapping (scale, origin, render
+      // mode, march steps, ramp, lighting, ...), exactly as before.
+      const programOption = context.program as FieldProgram | undefined;
       // Compile once per evaluate() call, from params only (VOLUMETRIC.md's
       // "The field program IR" and Step 3) — the per-cell loop below only
       // ever calls the IR evaluator, never touches `params.field1`-style flat
-      // accessors again. `compiledVoices` is the FLAT, unfiltered, original-
-      // voice-order list (pre-scaled origins) — the voiceColors fallback loop
-      // below indexes it by original voice number regardless of which layer a
-      // voice folds into (VOLUMETRIC.md's Step 3: "voiceColors keeps its
-      // current definition... across ALL active voices regardless of layer").
-      // `fieldProgram` is the same voices grouped into `FieldLayer`s for the
-      // evaluator; both come from the same compile so they can never disagree.
-      const compiledVoices = compileFieldVoices(voices, scale);
-      const layerShapes = resolveFieldSynthLayerShapes(params as unknown as AnyParams);
-      const fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, volumetric);
+      // accessors again. `flatVoices` is the FLAT, unfiltered, original-
+      // voice-order list (pre-scaled origins for the flat-params path; a
+      // program's own voices, already in its own units, when one is
+      // present) — the voiceColors fallback loop below indexes it by
+      // original voice number regardless of which layer a voice folds into
+      // (VOLUMETRIC.md's Step 3: "voiceColors keeps its current
+      // definition... across ALL active voices regardless of layer"), and
+      // reads `.color` from EACH voice — `FieldVoice.color` for a program
+      // (never the ignored `colorN` params), the flat schema-compiled
+      // voices' own `.color` otherwise. `fieldProgram` is either the
+      // program option directly, or the same flat voices grouped into
+      // `FieldLayer`s for the evaluator — both come from the same source so
+      // they can never disagree.
+      let fieldProgram: FieldProgram;
+      let flatVoices: readonly FieldVoice[];
+      if (programOption) {
+        fieldProgram = programOption;
+        flatVoices = programOption.layers.flatMap((layer) => layer.voices);
+      } else {
+        const voices = buildFieldSynthVoices(params as unknown as AnyParams);
+        const compiledVoices = compileFieldVoices(voices, scale);
+        const layerShapes = resolveFieldSynthLayerShapes(params as unknown as AnyParams);
+        fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, volumetric);
+        flatVoices = compiledVoices;
+      }
+      const parsedVoiceColors = useVoiceColors ? flatVoices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
+      const time = params.time;
+      const rampMax = glyphs.length - 1;
       // Global pattern origin: same `originU/originV * scale` resolution the
       // 2D "scene"/"auto"-without-UV path already uses (see
       // `fieldSynthCoordinate`). The volumetric branch has no schema-level Z
@@ -2342,9 +2495,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       // voice's finest feature is `iter` recursion levels finer than `freq`
       // alone would suggest, and a gyroid voice's implicit is twice as fine
       // — see `effectiveVoiceFinestFreq` (fieldProgram.ts) for the exact
-      // per-field multipliers.
+      // per-field multipliers. Reads from `flatVoices` — the program's own
+      // voices when one is present, never the ignored flat params
+      // (VOLUMETRIC-3.md §4: "carve/xray finest-frequency comes from the
+      // PROGRAM's voices").
       let finestFreq = 0;
-      for (const voice of compiledVoices) {
+      for (const voice of flatVoices) {
         if (voice.amp > 0) {
           const voiceFinestFreq = effectiveVoiceFinestFreq(voice);
           if (voiceFinestFreq > finestFreq) finestFreq = voiceFinestFreq;
@@ -2410,7 +2566,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0;
         let car = 0, cag = 0, cabv = 0, cao = 0, caw = 0;
         if (parsedVoiceColors) {
-          if (stack.winner >= 0) {
+          // Bounds-checked regardless of source (VOLUMETRIC-3.md §4): a
+          // program's `sourceIndex` is trusted authoring data (a hand-built
+          // IR, not necessarily built through `buildGlyphFieldProgram`) and
+          // can exceed `parsedVoiceColors.length` — an out-of-range winner
+          // degrades to the mixed-fallback loop below (the same path an
+          // unresolved winner already takes) instead of an unchecked
+          // `parsedVoiceColors[stack.winner]` TypeError.
+          if (stack.winner >= 0 && stack.winner < parsedVoiceColors.length) {
             // argmax is categorical: the region belongs to ONE voice, so it
             // takes that voice's colour flat rather than a blend of all of them.
             const c = parsedVoiceColors[stack.winner]!;
@@ -2418,8 +2581,8 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             co = c.opacity; cw = 1;
             car = cr; cag = cg; cabv = cbv; cao = co; caw = 1;
           } else {
-            for (let k = 0; k < SYNTH_VOICES; k++) {
-              const voice = compiledVoices[k]!;
+            for (let k = 0; k < flatVoices.length; k++) {
+              const voice = flatVoices[k]!;
               if (!(voice.amp > 0)) continue;
               const o = sampleFieldVoice(
                 voice, x, y, z,
