@@ -27,8 +27,12 @@ import {
 // and reading back the produced value (the same "compute, then pin" process
 // `"omits the whole param when everything is default"`'s `"p3"` used) — not
 // hand-derived from the base62 packing scheme.
-const IRIDESCENT_SPONGE_PACKED = "p3s1t3g7cd1iv17a23ce21ok1uK9zelmm16paj.13213516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1Q21e_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K228_2Me_2S1a_2V11";
-const IRIDESCENT_SHELL_PACKED = "p3s2t3g7cd1iv17a23ce21ok1uK9zelmm16p1d.1321a71ah10S10T1kU1.█_2F1_2H1_2K22i_2Me_2S1a_2V11";
+// Re-pinned deliberately: sponge `hueLight` 55 -> 75, shell `hueSat`/
+// `hueRange` 90/360 -> 45/150 (VOLUMETRIC-4.md §1's Reconciliation — visual
+// tuning of the shipped iridescent presets; see each preset's own doc in
+// stock.ts for the measured before/after luminance).
+const IRIDESCENT_SPONGE_PACKED = "p3s1t3g7cd1iv17a23ce21ok1uK9zelmm16pap.13213516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1Q21e_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K228_2L223_2Me_2S1a_2V11";
+const IRIDESCENT_SHELL_PACKED = "p3s2t3g7cd1iv17a23ce21ok1uK9zelmm16p1j.1321a71ah10S10T1kU1.█_2F1_2H1_2J246_2K219_2Me_2S1a_2V11";
 
 function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; lighting: Lighting; voiceSlots: number[] } {
   const params: Params = {
@@ -188,6 +192,54 @@ describe("iridescent presets (VOLUMETRIC-4.md §1's shipped patch)", () => {
   it("pins the Iridescent shell preset's packed URL string", () => {
     const packed = encodeSynthUrlState(presetPatch(GlyphIridescentShellPreset, "sphere"));
     expect(packed).toBe(IRIDESCENT_SHELL_PACKED);
+  });
+});
+
+// P2 (review of VOLUMETRIC-4.md §1's shipped patch): the two round-trips
+// above exercise the colour voice stack only through the two REAL presets,
+// which leave most of the 43 new colour-stack keys (VOLUMETRIC-4.md §1's
+// schema tail — `colorStackOn`/`colorCombine`/`colorMode`/`hueOffset`/
+// `hueRange`/`hueSat`/`hueLight` plus 12 families x 3 colour voices,
+// `stock.ts`'s own tail comment: "this PR's own tail stays contiguous with
+// the 43 colour-stack keys above") at their schema DEFAULT, so a codec bug
+// specific to an untouched key (e.g. `cfield2`/`cfield3`, `cangle*`,
+// `coriginU/V/W*`, `cduty*`, `citer*`, `colorCombine`) would round-trip
+// silently. Same precedent as "round-trips the new voice7-9 param keys"
+// above sets for the prior schema-tail bump — a hand-built patch touching
+// EVERY one of the 43 keys with a non-default value.
+describe("colour voice stack — every new key round-trips (VOLUMETRIC-4.md §1)", () => {
+  it("round-trips a patch touching all 43 colour-stack keys with distinct non-default values", () => {
+    const base = representativePatch();
+    const patch = {
+      ...base,
+      params: {
+        ...base.params,
+        colorStackOn: true,
+        colorCombine: "add",
+        colorMode: "hue",
+        hueOffset: 0.15,
+        hueRange: 210,
+        hueSat: 65,
+        hueLight: 42,
+        cfield1: "incidence", cfield2: "normalX", cfield3: "spiral",
+        cwave1: "sin", cwave2: "triangle", cwave3: "saw",
+        cfreq1: 2.5, cfreq2: 6.5, cfreq3: 8.5,
+        cspeed1: -0.6, cspeed2: 1.1, cspeed3: -1.3,
+        camp1: 0.9, camp2: 0.4, camp3: 0.15,
+        cphase1: 0.2, cphase2: -0.35, cphase3: 0.45,
+        cangle1: 30, cangle2: -60, cangle3: 90,
+        coriginU1: 0.25, coriginU2: -0.4, coriginU3: 0.6,
+        coriginV1: -0.15, coriginV2: 0.3, coriginV3: -0.55,
+        coriginW1: 0.1, coriginW2: -0.2, coriginW3: 0.35,
+        cduty1: 0.3, cduty2: 0.6, cduty3: 0.9,
+        citer1: 1, citer2: 2, citer3: 4,
+      },
+    };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
+      else expect(restored.params[key], key).toBe(value);
+    }
   });
 });
 
