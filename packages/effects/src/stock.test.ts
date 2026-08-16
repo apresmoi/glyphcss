@@ -3699,6 +3699,143 @@ describe("field-synth braille-over-carve (VOLUMETRIC-3.md §2)", () => {
     const expectedPacked = 0x112233;
     expect(output.color[i]).toBe(expectedPacked);
   });
+
+  // Diagnosed VOLUMETRIC-3.md follow-up: a live Menger SDF + subcellRes
+  // "2x4" render was reported to show vertical striping and a ragged
+  // silhouette vs. the clean 1x1 render of the same patch. Instrumented
+  // live via Playwright (dumping every covered cell's dot mask across the
+  // full grid, both at the reported viewport and at a much higher one):
+  // the reported ANISOTROPY CANDIDATES all check out clean —
+  //  (a) offsets are NOT shared/averaged: entryDxCol/entryDxRow are
+  //      independent vectors (verified by inspection and by the isotropy
+  //      test below staying isotropic under a non-square dx/dy fixture);
+  //  (b) column offsets are exactly +-0.25 of a cell step (never +-0.5,
+  //      pinned in the lattice-position test below);
+  //  (c) no row/col gradient swap (rG/lG feed entryDxCol, dG/uG feed
+  //      entryDxRow, matching the working 2D `fieldSynthVolumetricSubcell
+  //      Gradient` precedent exactly);
+  //  (d) the dot-bit write order and read order both iterate dotCol-outer/
+  //      dotRow-inner, so BRAILLE_DOT_BITS indexing never mismatches the
+  //      sub-ray scan order.
+  // A full-grid dump of the live repro (both viewports) found the
+  // per-column "topmost hit row" sequence strictly monotonic (zero jumps
+  // of more than one row anywhere), and a region independently confirmed
+  // by the dump to be uniformly mask 0xff still rendered visible vertical
+  // banding on screen — i.e. the banding survives even when the DATA is
+  // provably uniform, which only a font/glyph-rendering effect (adjacent
+  // U+2800-range Braille Pattern characters in a monospace font) can
+  // explain, not a coordinate bug in this endpoint interpolation. These
+  // two tests pin the invariants that make that finding durable.
+  it("axis-aligned-face isotropy: a flat, fully-solid, non-square-pitch grid renders 0xff on every covered cell, including at its own silhouette edge (the anisotropy counter-case)", () => {
+    const cols = 10, rows = 10;
+    const dx = 3, dy = 1; // deliberately non-square cell pitch
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    const targetCoverage = new Float32Array(cols * rows).fill(1);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        objectPosition[i * 3] = col * dx; objectPosition[i * 3 + 1] = row * dy; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = col * dx; objectExit[i * 3 + 1] = row * dy; objectExit[i * 3 + 2] = 1;
+        normal[i * 3] = 0; normal[i * 3 + 1] = 0; normal[i * 3 + 2] = 1;
+        // A horizontal AND vertical silhouette edge inside the grid: only
+        // the top-left 7x7 block is "on the mesh" at all — rows/cols past
+        // it are simply not covered, exactly like a real mesh boundary.
+        if (row >= 7 || col >= 7) targetCoverage[i] = 0;
+      }
+    }
+    const buffers = { objectPosition, objectExit, normal, targetCoverage };
+    // One real active voice, solid across the whole covered domain (band
+    // far wider than the grid) — avoids the "no active voice" degenerate
+    // (point.active === 0) that a bias-only field hits.
+    const params = {
+      ...BAND_PARAMS, ...solidBandVoices(-1000, 1000),
+    };
+    const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, buffers);
+
+    let checked = 0;
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 7; col++) {
+        const i = row * cols + col;
+        expect(inkedAt(output, i)).toBe(true);
+        const mask = output.glyph[i]!.codePointAt(0)! - 0x2800;
+        expect(mask).toBe(0xff);
+        checked++;
+      }
+    }
+    expect(checked).toBe(49);
+    // Pin the exact masks along the horizontal edge (row 6, the last
+    // covered row) and the vertical edge (col 6, the last covered col) —
+    // the anisotropy counter-case: a real bug would show one edge clean
+    // and the other ragged/partial.
+    for (let col = 0; col < 7; col++) {
+      const mask = output.glyph[6 * cols + col]!.codePointAt(0)! - 0x2800;
+      expect(mask).toBe(0xff);
+    }
+    for (let row = 0; row < 7; row++) {
+      const mask = output.glyph[row * cols + 6]!.codePointAt(0)! - 0x2800;
+      expect(mask).toBe(0xff);
+    }
+  });
+
+  it("lattice-position: the 8 sub-ray endpoints land at the exact hand-computed 2x4 fractional offsets on BOTH axes independently", () => {
+    // Column axis (dotCol offsets +-0.25 of a cell step): a hole band
+    // placed exactly at the LEFT dot column's offset (-0.25dx) but
+    // clear of the cell center and the RIGHT dot column (+0.25dx).
+    {
+      const cols = 5, rows = 1;
+      const dx = 4;
+      const selfCol = 2;
+      const selfX = selfCol * dx;
+      const holeLo = selfX - 0.3 * dx, holeHi = selfX - 0.2 * dx; // brackets -0.25dx only
+      const objectPosition = new Float32Array(cols * rows * 3);
+      const objectExit = new Float32Array(cols * rows * 3);
+      const normal = new Float32Array(cols * rows * 3);
+      for (let col = 0; col < cols; col++) {
+        objectPosition[col * 3] = col * dx; objectPosition[col * 3 + 1] = 0; objectPosition[col * 3 + 2] = 0;
+        objectExit[col * 3] = col * dx; objectExit[col * 3 + 1] = 0; objectExit[col * 3 + 2] = 1;
+        normal[col * 3] = 0; normal[col * 3 + 1] = 0; normal[col * 3 + 2] = 1;
+      }
+      const params = { ...BAND_PARAMS, ...solidBandVoices(holeLo, holeHi), layerInvert1: true };
+      const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, { objectPosition, objectExit, normal });
+      const mask = output.glyph[selfCol]!.codePointAt(0)! - 0x2800;
+      const LEFT = 0x01 | 0x02 | 0x04 | 0x40, RIGHT = 0x08 | 0x10 | 0x20 | 0x80;
+      expect(mask & LEFT).toBe(0);
+      expect(mask & RIGHT).toBe(RIGHT);
+    }
+    // Row axis (dotRow offsets -0.375/-0.125/+0.125/+0.375 of a cell
+    // step): a hole band placed exactly at dotRow 1's offset (-0.125dy)
+    // only, isolating it from dotRow 0 (-0.375dy) and the lower half.
+    {
+      const cols = 1, rows = 5;
+      const dy = 4;
+      const selfRow = 2;
+      const selfY = selfRow * dy;
+      const holeLo = selfY - 0.19 * dy, holeHi = selfY - 0.06 * dy; // brackets -0.125dy only
+      const objectPosition = new Float32Array(cols * rows * 3);
+      const objectExit = new Float32Array(cols * rows * 3);
+      const normal = new Float32Array(cols * rows * 3);
+      for (let row = 0; row < rows; row++) {
+        objectPosition[row * 3] = 0; objectPosition[row * 3 + 1] = row * dy; objectPosition[row * 3 + 2] = 0;
+        objectExit[row * 3] = 0; objectExit[row * 3 + 1] = row * dy; objectExit[row * 3 + 2] = 1;
+        normal[row * 3] = 0; normal[row * 3 + 1] = 0; normal[row * 3 + 2] = 1;
+      }
+      const params = {
+        ...BAND_PARAMS,
+        field1: "linearY", wave1: "step", freq1: 1, phase1: -holeLo, speed1: 0, amp1: 1,
+        field2: "linearY", wave2: "step", freq2: -1, phase2: holeHi, speed2: 0, amp2: 1,
+        layerInvert1: true,
+      };
+      const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, { objectPosition, objectExit, normal });
+      const mask = output.glyph[selfRow]!.codePointAt(0)! - 0x2800;
+      const ROW0 = 0x01 | 0x08, ROW1 = 0x02 | 0x10, ROW2 = 0x04 | 0x20, ROW3 = 0x40 | 0x80;
+      expect(mask & ROW0).toBe(ROW0); // -0.375dy: outside the band, hits
+      expect(mask & ROW1).toBe(0); // -0.125dy: inside the band, misses
+      expect(mask & ROW2).toBe(ROW2); // +0.125dy: outside the band, hits
+      expect(mask & ROW3).toBe(ROW3); // +0.375dy: outside the band, hits
+    }
+  });
 });
 
 // The `pyramid` /synth stage's own geometry (synthKit.tsx's
