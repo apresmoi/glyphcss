@@ -18,6 +18,7 @@ import {
   FIELD_SYNTH_VOICE_KEY_FAMILIES,
   SYNTH_VOICES,
   assertFieldSynthVoiceSchemaComplete,
+  breathingGyroidPreset,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
@@ -29,6 +30,7 @@ import {
   glitch,
   gyroidXrayPreset,
   matrixRain,
+  mengerFlowPreset,
   mengerSpongePreset,
   noiseDissolve,
   objectVolumetricAlongLane,
@@ -36,6 +38,7 @@ import {
   ripple,
   scan,
   scramble,
+  sdfBloomPreset,
   sierpinskiPyramidPreset,
   synthWave,
   wipe,
@@ -51,6 +54,7 @@ import {
 // evaluate", acceptance criterion 2) computes its expected brightness from
 // the SAME integrator, not a parallel hand-derivation that could drift.
 import {
+  buildGlyphFieldDistanceOracle,
   buildGlyphFieldProgram,
   effectiveVoiceFinestFreq,
   evaluateFieldProgram,
@@ -2085,6 +2089,13 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // oracle-level centering tests in fieldProgram.test.ts).
       "Menger SDF": { render: "d62f9075", params: "50fd26fb" },
       "Sierpinski SDF": { render: "9d7a7abb", params: "da384260" },
+      // Volumetric time-animation presets (user report: "we don't have any
+      // animation for the volumetric ones") — each is an existing recipe
+      // above with `speedN` turned on; see their docs in stock.ts. Pinned
+      // the same way as every preset above them.
+      "Menger flow": { render: "311c9985", params: "423ff66d" },
+      "Breathing gyroid": { render: "f7783431", params: "e9728cf2" },
+      "SDF bloom": { render: "d62f9075", params: "f5311402" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
@@ -2681,6 +2692,151 @@ async function flushCarveRenders(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+// The real /synth `cube` stage's own authored size (`shapePolys("cube")` in
+// synthKit.tsx: `resolveGeometry(name, { size: 3 })`) — extent -1.5..1.5,
+// NOT `carveCubePolygons`'s extent -1..1. `mengerSpongePreset`'s own
+// `scale: 1/3` domain remap (see its doc in stock.ts) assumes this exact
+// footprint, so `mengerFlowPreset` (built from that same recipe) needs this
+// cube, not the smaller one other carve/xray tests share.
+function size3CubePolygons(): Polygon[] {
+  const s = 1.5;
+  const faces: Vec3[][] = [
+    [[-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s]],
+    [[-s, -s, -s], [-s, s, -s], [s, s, -s], [s, -s, -s]],
+    [[-s, s, -s], [-s, s, s], [s, s, s], [s, s, -s]],
+    [[-s, -s, s], [-s, -s, -s], [s, -s, -s], [s, -s, s]],
+    [[s, -s, s], [s, -s, -s], [s, s, -s], [s, s, s]],
+    [[-s, -s, -s], [-s, -s, s], [-s, s, s], [-s, s, -s]],
+  ];
+  return faces.map((vertices) => ({ vertices, color: "#8899cc" }));
+}
+
+// VOLUMETRIC-3.md's animation retrofit (user report: "we don't have any
+// animation for the volumetric ones") — `mengerFlowPreset`/
+// `breathingGyroidPreset`/`sdfBloomPreset` are existing recipes with
+// `speedN` turned on (see their docs in stock.ts). The smoke test per
+// preset: a REAL scene render (not the synthetic 2D `hashOf` harness above,
+// which fixes `time` at the schema default and therefore can't see any
+// speed-driven difference at all) is non-empty, and differs between two
+// `time` values — the animation actually reaches the rendered `<pre>`, not
+// just the raw params object.
+describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-scene smoke tests)", () => {
+  async function renderAt(
+    preset: { params: Record<string, number | string | boolean> },
+    polygons: Polygon[],
+    time: number,
+    camera: { rotX: number; rotY: number; zoom: number },
+  ): Promise<string> {
+    const cols = 64, rows = 40;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols, rows, useColors: false, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY }),
+    });
+    scene.add(polygons);
+    scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), ...(preset.params as Record<string, number | string | boolean>), time } as never,
+      blend: "replace",
+      opacity: 1,
+    });
+    await flushCarveRenders();
+    const text = scene.output.textContent ?? "";
+    scene.destroy();
+    host.remove();
+    return text;
+  }
+
+  it("Menger flow: non-empty and differs between t=0 and t=2 on the real cube stage", async () => {
+    const camera = { rotX: 15, rotY: 40, zoom: 380 };
+    const atZero = await renderAt(mengerFlowPreset, size3CubePolygons(), 0, camera);
+    const atTwo = await renderAt(mengerFlowPreset, size3CubePolygons(), 2, camera);
+    expect(atZero.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atTwo.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atTwo).not.toBe(atZero);
+  });
+
+  it("Breathing gyroid: non-empty and differs between t=0 and t=2 on the real cube stage", async () => {
+    const camera = { rotX: 22, rotY: 30, zoom: 560 };
+    const atZero = await renderAt(breathingGyroidPreset, carveCubePolygons(), 0, camera);
+    const atTwo = await renderAt(breathingGyroidPreset, carveCubePolygons(), 2, camera);
+    expect(atZero.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atTwo.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atTwo).not.toBe(atZero);
+  });
+
+  it("SDF bloom: non-empty and differs between t=0 and t=9 (mid-erosion) on the real cube stage", async () => {
+    const camera = { rotX: 15, rotY: 40, zoom: 380 };
+    const atZero = await renderAt(sdfBloomPreset, carveCubePolygons(), 0, camera);
+    const atNine = await renderAt(sdfBloomPreset, carveCubePolygons(), 9, camera);
+    expect(atZero.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atNine.split("\n").some((row) => row.trim().length > 0)).toBe(true);
+    expect(atNine).not.toBe(atZero);
+  });
+
+  // VOLUMETRIC-3.md §3's sphere-tracing oracle folds `c = phase - speed *
+  // time` once per `evaluate()` call (fieldProgram.ts's
+  // `buildGlyphFieldDistanceOracle`) — `sdfBloomPreset` is the first shipped
+  // preset with a nonzero `speed` on a sphere-tracing-qualifying voice, so
+  // nothing previously exercised that fold across two DIFFERENT `time`
+  // values. This verifies, directly against the real preset params (not a
+  // hand-built fixture), that: (1) the oracle still qualifies (non-null) at
+  // both times — animating speed/phase doesn't change any of the qualifying
+  // predicate's OTHER conditions (field/wave/amp/combine/threshold/regime),
+  // only `c`; (2) the oracle's own returned distance at a fixed point
+  // genuinely differs between the two times (the animation reaches the
+  // oracle, not just the flat params object); (3) a sphere-traced march
+  // through the volume tracks that same difference — the real evaluate()
+  // path (which is what a mounted layer actually runs) renders differently
+  // at the two times too, so the accelerated sphere-tracing path isn't
+  // silently ignoring the time-varying oracle it built.
+  it("SDF bloom: the sphere-tracing oracle stays correct and tracks the animation across two time samples", () => {
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...(sdfBloomPreset.params as Record<string, number | string | boolean>) } as AnyParams;
+    const voices = buildFieldSynthVoices(params);
+    const compiledVoices = compileFieldVoices(voices, params.scale as number);
+    const layerShapes = resolveFieldSynthLayerShapes(params);
+    const program = compileFieldSynthProgram(compiledVoices, layerShapes, true);
+
+    const oracleParams = { bias: params.bias as number, gain: params.gain as number };
+    const oracleAtZero = buildGlyphFieldDistanceOracle(program, oracleParams, 0);
+    const oracleAtNine = buildGlyphFieldDistanceOracle(program, oracleParams, 9);
+    expect(oracleAtZero).not.toBeNull();
+    expect(oracleAtNine).not.toBeNull();
+
+    // A fixed point near the fractal's own centered lattice cell (see
+    // `mengerSdfPreset`'s doc: `originU1`/`originV1`/`originW1` all `-1`
+    // centers the lattice on the object-space origin) — the oracle's
+    // distance to the boundary at this SAME point must differ once `c` has
+    // shifted the boundary between the two times.
+    const dAtZero = oracleAtZero!(0, 0, 0);
+    const dAtNine = oracleAtNine!(0, 0, 0);
+    expect(Number.isFinite(dAtZero)).toBe(true);
+    expect(Number.isFinite(dAtNine)).toBe(true);
+    expect(dAtNine).not.toBeCloseTo(dAtZero, 6);
+
+    // The real evaluate() path (carve, sphere-tracing-eligible) renders
+    // differently at the two times too — the oracle's own per-point
+    // difference above isn't just an isolated fact about the oracle, it's
+    // what the actual mounted-layer march result tracks.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = ((col + 0.5) / cols) * 2 - 1;
+        const y = ((row + 0.5) / rows) * 2 - 1;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = -1;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 1;
+      }
+    }
+    const renderAtZero = evaluate(fieldSynth, { ...(sdfBloomPreset.params as Record<string, number | string | boolean>), time: 0 }, { objectPosition, objectExit });
+    const renderAtNine = evaluate(fieldSynth, { ...(sdfBloomPreset.params as Record<string, number | string | boolean>), time: 9 }, { objectPosition, objectExit });
+    expect(Array.from(renderAtZero.coverage)).not.toEqual(Array.from(renderAtNine.coverage));
+  });
+});
 
 describe("field-synth carve mode — validation (VOLUMETRIC.md's Carve mode)", () => {
   it('requires space: "object" — the volumetric branch', () => {

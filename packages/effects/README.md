@@ -94,8 +94,10 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   `program` instead of `params` — glyphcss plumbs this opaque payload through
   unchanged — is field-synth's unbounded "program-as-data" tier, immutable after
   mount. Ships with a curated set of presets (Sunburst, Ring pulse, Plaid weave,
-  Menger sponge, Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF, and
-  more).
+  Menger sponge, Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF,
+  Menger flow, Breathing gyroid, SDF bloom, and more) — the last three are the
+  volumetric recipes with `speedN` turned on, showing the same `time` axis
+  every 2D preset's own animation already uses.
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are

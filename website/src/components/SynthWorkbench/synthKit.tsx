@@ -15,10 +15,13 @@ import {
 } from "glyphcss";
 import {
   GlyphFieldSynthEffect as fieldSynth,
+  GlyphBreathingGyroidPreset,
   GlyphCubeTilesPreset,
   GlyphGyroidXrayPreset,
+  GlyphMengerFlowPreset,
   GlyphMengerSdfPreset,
   GlyphMengerSpongePreset,
+  GlyphSdfBloomPreset,
   GlyphSierpinskiPyramidPreset,
   GlyphSierpinskiSdfPreset,
   buildGlyphFieldSynthStaticExport,
@@ -1496,6 +1499,18 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // own doc in stock.ts for why it can't fill the cube edge-to-edge).
   [GlyphMengerSdfPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   [GlyphSierpinskiSdfPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
+  // Time-animation presets (VOLUMETRIC-3.md, "we don't have any animation
+  // for the volumetric ones") — each is an existing recipe above with
+  // `speedN` turned on (stock.ts), so it inherits that recipe's own stage
+  // pairing and camera angle unchanged: `mengerFlowPreset`/`sdfBloomPreset`
+  // are Menger-sponge/Menger-SDF's own recipes, and `breathingGyroidPreset`
+  // is the gyroid xray recipe. `paused` is deliberately left unset (default
+  // `false`): it also stops field-synth's own `time` clock (`SynthScope` in
+  // this file), which would silently disable the very animation these
+  // presets exist to show.
+  [GlyphMengerFlowPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
+  [GlyphBreathingGyroidPreset as GlyphEffectPreset<never>, { shape: "cube" }],
+  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`

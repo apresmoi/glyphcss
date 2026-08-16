@@ -2297,6 +2297,93 @@ export const sierpinskiSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   },
 };
 
+// User report: "we don't have any animation for the volumetric ones" — every
+// volumetric preset above ships with every `speedN` at its inert `0`, so
+// `time` has no effect on any of them despite the field program having a
+// genuine, already-wired time axis (`raw*freq - time*speed + phase`, the
+// same mechanism every 2D preset's own animation already uses). These three
+// presets are exactly the existing recipes above with nonzero `speedN` —
+// no new params, no new render machinery, just turning on an axis that was
+// already there.
+//
+// `mengerSpongePreset`'s own recipe, unchanged except for speed: the X-axis
+// voice at each of the three scale layers (`field1`/`field4`/`field7`,
+// freq 1/3/9) gets the SAME `speed` (a phase-CYCLES-per-second rate, per the
+// schema's `unit: "cyc/s"` — NOT a raw-position rate, so one shared value
+// keeps every scale's own pattern completing cycles in lockstep rather than
+// drifting apart), while the Y/Z voices at each layer stay at `speed: 0` —
+// an isotropic drift on all 9 voices reads as directionless noise; a single
+// drifting axis reads as the carved walls sweeping through the cube along
+// one axis, which is the "flow" this preset is named for. Tuned on the real
+// `cube` stage (rotX 15/rotY 40, matching `mengerSpongePreset`'s own stage
+// hint): `speed: 0.15` sweeps a visibly different hole pattern every ~1-2s
+// of `time` without the recursive structure dissolving into pure noise —
+// eyeballed via ASCII dumps at t=0/1/2 on the real size-3 cube stage.
+export const mengerFlowPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger flow", params: {
+    ...(mengerSpongePreset.params as AnyParams),
+    speed1: 0.15, speed4: 0.15, speed7: 0.15,
+  } as never,
+};
+
+// `gyroidXrayPreset`'s own recipe, unchanged except for speed on its one
+// voice. A gyroid's absorption-mode xray already reads as an organic
+// labyrinth (VOLUMETRIC-2.md §1) — animating it costs nothing extra: the
+// SAME `sdfRaw - time*speed + phase` term the SDF branch already computes
+// (see `sampleFieldVoice`) slides the gyroid's implicit surface through the
+// volume every frame, so the absorbed labyrinth pattern morphs continuously
+// instead of a hard directional sweep (unlike `mengerFlowPreset`'s linear
+// axis voices, `gyroid`'s own three-term sum has no single "flow axis" —
+// the whole implicit surface deforms in place, which is what reads as
+// "breathing" rather than "flowing"). `speed: 0.15` matches `mengerFlowPreset`'s
+// own tuned rate — eyeballed via ASCII dumps at t=0/2/4 on the real cube
+// stage: the labyrinth stays legible and clearly distinct at every sampled
+// time, never washing out toward uniform fog the way the pre-retune preset
+// did even at a single fixed time (see `gyroidXrayPreset`'s own doc).
+export const breathingGyroidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Breathing gyroid", params: {
+    ...(gyroidXrayPreset.params as AnyParams),
+    speed1: 0.15,
+  } as never,
+};
+
+// `mengerSdfPreset`'s own recipe, unchanged except for speed on its one SDF
+// voice — deliberately keeps `wave: "step"` (not a periodic wave) so the
+// preset stays inside `buildGlyphFieldDistanceOracle`'s qualifying predicate
+// (VOLUMETRIC-3.md §3: every active voice must be `wave: "step"`) and keeps
+// sphere-tracing this preset already exercises unanimated. The oracle folds
+// `c = phase - speed*time` once per `evaluate()` call (fieldProgram.ts's
+// `buildGlyphFieldDistanceOracle`, `perVoice.c`), so animating `speed` is
+// already fully plumbed through the sphere-tracing path with no oracle
+// change needed — verified directly in stock.test.ts's two-time-samples
+// oracle test, not assumed.
+//
+// UNLIKE `mengerFlowPreset`/`breathingGyroidPreset` (whose `square`/`sin`
+// waves are genuinely periodic in their argument), `wave: "step"` is
+// explicitly non-periodic (`synthWave`'s own doc: "Non-periodic: +1 when
+// t >= 0, else -1"): raising `c` over time only ever SHRINKS the solid
+// region (never wraps back), so this preset is a one-way erosion/bloom, not
+// a looping breathe cycle — an inherent property of keeping `step` for
+// sphere-tracing eligibility, not a bug. Measured directly on the real
+// `mengerSdfPreset` recipe (iter 3, freq 0.5): the fractal is visually
+// unchanged until the accumulated `speed * time` shift passes ~0.008, then
+// visibly dissolves into an open lace/foam texture through ~0.016, and is
+// fully eroded (zero coverage) by ~0.018 — a narrow window set by the
+// recursion's own raw SDF value range at this `freq`, not a tuning choice.
+// `speed: 0.0012` spans that whole window over ~15s of `time` (0.0012 * 15
+// = 0.018), landing the interesting dissolving-lace midpoint around t=9-11
+// — eyeballed via ASCII dumps on the real cube stage. A consumer wanting a
+// repeating loop resets/wraps `time` itself; the preset's own params have
+// no periodic-and-sphere-traceable way to do that (an oscillating wave
+// would restore periodicity but drop out of the qualifying predicate
+// entirely, per the note above).
+export const sdfBloomPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "SDF bloom", params: {
+    ...(mengerSdfPreset.params as AnyParams),
+    speed1: 0.0012,
+  } as never,
+};
+
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2338,6 +2425,9 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   gyroidXrayPreset,
   mengerSdfPreset,
   sierpinskiSdfPreset,
+  mengerFlowPreset,
+  breathingGyroidPreset,
+  sdfBloomPreset,
 ];
 
 

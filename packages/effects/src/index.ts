@@ -96,10 +96,13 @@ export {
 // not by re-deriving them via a name-string lookup into `GlyphFieldSynthEffect
 // .presets` — the same array these are already the exact elements of.
 export {
+  breathingGyroidPreset as GlyphBreathingGyroidPreset,
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
+  mengerFlowPreset as GlyphMengerFlowPreset,
   mengerSdfPreset as GlyphMengerSdfPreset,
   mengerSpongePreset as GlyphMengerSpongePreset,
+  sdfBloomPreset as GlyphSdfBloomPreset,
   sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
   sierpinskiSdfPreset as GlyphSierpinskiSdfPreset,
 } from "./stock";
