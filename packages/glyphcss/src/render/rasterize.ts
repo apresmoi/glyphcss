@@ -1175,6 +1175,7 @@ function rasterizeSolid(
       world: Float32Array | null;
       objectPos: Float32Array | null;
       normal: Float32Array | null;
+      objectNormal: Float32Array | null;
       surfaceUv: Float32Array | null;
       winnerPolygon: Int32Array | null;
       winnerMesh: Int32Array | null;
@@ -1196,6 +1197,7 @@ function rasterizeSolid(
       world: null,
       objectPos: null,
       normal: null,
+      objectNormal: null,
       surfaceUv: null,
       winnerPolygon: null,
       winnerMesh: null,
@@ -1248,6 +1250,20 @@ function rasterizeSolid(
     if (!scratch.normal || scratch.normal.length !== n * 3) scratch.normal = new Float32Array(n * 3);
     normalBuf = scratch.normal;
     normalBuf.fill(NaN);
+  }
+  // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): the object-frame
+  // sibling of `objectPosBuf`, computed from the same `ov0/ov1/ov2` object
+  // vertices at the same scan-fill call site. Never driven by `retainNormal`
+  // — the world `normal` buffer stays untouched (the generated-surface basis
+  // still needs it) — so this is allocated ONLY when an effect's requirement
+  // asked for it, exactly like `objectPosBuf`.
+  let objectNormalBuf: Float32Array | null = null;
+  if (scene.retainObjectNormal) {
+    if (!scratch.objectNormal || scratch.objectNormal.length !== n * 3) {
+      scratch.objectNormal = new Float32Array(n * 3);
+    }
+    objectNormalBuf = scratch.objectNormal;
+    objectNormalBuf.fill(NaN);
   }
   let surfaceUvBuf: Float32Array | null = null;
   if (needSurfaceUv) {
@@ -1483,6 +1499,27 @@ function rasterizeSolid(
         fnyN = fny / fnLen;
         fnzN = fnz / fnLen;
       }
+      // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): same cross
+      // product as the world normal above, but against the PRE-transform
+      // `ov0/ov1/ov2` object vertices `objectPosBuf` already interpolates —
+      // never against `v0/v1/v2`. This is deliberately the object-frame
+      // GEOMETRIC normal with no inverse-transpose: under non-uniform scale
+      // that would diverge from a true shading normal, but it is the exact
+      // self-consistent pair for `objectPosition`/`objectExit`, which are
+      // themselves plain (non-inverse-transformed) barycentric interpolations
+      // of the same object vertices.
+      let onxN = 0, onyN = 0, onzN = 0;
+      if (objectNormalBuf !== null) {
+        const oux = ov1[0] - ov0[0], ouy = ov1[1] - ov0[1], ouz = ov1[2] - ov0[2];
+        const ovx = ov2[0] - ov0[0], ovy = ov2[1] - ov0[1], ovz = ov2[2] - ov0[2];
+        const onx = ouy * ovz - ouz * ovy;
+        const ony = ouz * ovx - oux * ovz;
+        const onz = oux * ovy - ouy * ovx;
+        const onLen = Math.hypot(onx, ony, onz) || 1;
+        onxN = onx / onLen;
+        onyN = ony / onLen;
+        onzN = onz / onLen;
+      }
       let iA: number, iB: number, iC: number;
       let litColor: string | null = null;
       if (shadeCacheHit && shadeCache !== null) {
@@ -1609,6 +1646,7 @@ function rasterizeSolid(
           v0, v1, v2, worldPosBuf,
           ov0, ov1, ov2, objectPosBuf,
           fnxN, fnyN, fnzN, normalBuf,
+          onxN, onyN, onzN, objectNormalBuf,
           surfaceUvCtx, surfaceUvBuf,
           depthEpsilon,
           texCtx,
@@ -1704,6 +1742,7 @@ function rasterizeSolid(
               cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
               cow ? cow[0]! : ov0, cow ? cow[f]! : ov1, cow ? cow[f + 1]! : ov2, objectPosBuf,
               fnxN, fnyN, fnzN, normalBuf,
+              onxN, onyN, onzN, objectNormalBuf,
               clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
               // Near-plane-clipped sub-triangles do not yet rebuild the bitmap
@@ -1766,6 +1805,11 @@ function rasterizeSolid(
             normalBuf[idx * 3 + 1] = NaN;
             normalBuf[idx * 3 + 2] = NaN;
           }
+          if (objectNormalBuf) {
+            objectNormalBuf[idx * 3] = NaN;
+            objectNormalBuf[idx * 3 + 1] = NaN;
+            objectNormalBuf[idx * 3 + 2] = NaN;
+          }
           if (surfaceUvBuf) {
             surfaceUvBuf[idx * 2] = NaN;
             surfaceUvBuf[idx * 2 + 1] = NaN;
@@ -1817,6 +1861,7 @@ function rasterizeSolid(
   let finalObjectPos: Float32Array | null = objectPosBuf;
   let finalExitPos: Float32Array | null = exitPosBuf;
   let finalNormal: Float32Array | null = normalBuf;
+  let finalObjectNormal: Float32Array | null = objectNormalBuf;
   let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
   let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
   let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
@@ -1869,6 +1914,7 @@ function rasterizeSolid(
       weightRamp,
       exitPosBuf,
       finalWinnerMesh,
+      objectNormalBuf,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1876,6 +1922,7 @@ function rasterizeSolid(
     finalShade = ds.shade;
     finalWorldPos = ds.worldPos;
     finalNormal = ds.normal;
+    finalObjectNormal = ds.objectNormal;
     finalSurfaceUv = ds.surfaceUv;
     finalWinnerPolygon = ds.winnerPolygon;
     finalAlbedoRgb = ds.albedoRgb;
@@ -1911,6 +1958,7 @@ function rasterizeSolid(
       finalWeight,
       finalExitPos,
       finalWinnerMesh,
+      finalObjectNormal,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -2072,6 +2120,10 @@ function downsampleSolid(
   // VOLUMETRIC-3.md §1's winner-mesh plumbing checklist. `null` → no
   // winnerMesh buffer (byte-identical to before this option existed).
   winnerMeshIn: Int32Array | null = null,
+  // `objectNormal` (opt-in, VOLUMETRIC-4.md "Phase 0"): downsampled from the
+  // SAME representative subcell as `objectPosIn`/`exitPosIn`/`normalIn` —
+  // they must all agree subcell-for-subcell.
+  objectNormalIn: Float32Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -2079,6 +2131,7 @@ function downsampleSolid(
   shade: Float32Array | null;
   worldPos: Float32Array | null;
   normal: Float32Array | null;
+  objectNormal: Float32Array | null;
   surfaceUv: Float32Array | null;
   winnerPolygon: Int32Array | null;
   albedoRgb: Uint32Array | null;
@@ -2099,6 +2152,7 @@ function downsampleSolid(
   const os: Float32Array | null = shadeBuf ? new Float32Array(outCols * outRows).fill(NaN) : null;
   const ow: Float32Array | null = worldPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const on: Float32Array | null = normalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const oon: Float32Array | null = objectNormalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const ouv: Float32Array | null = surfaceUvIn ? new Float32Array(outCols * outRows * 2).fill(NaN) : null;
   const owinner: Int32Array | null = winnerPolygonIn ? new Int32Array(outCols * outRows).fill(-1) : null;
   const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
@@ -2153,6 +2207,11 @@ function downsampleSolid(
         on[oi * 3 + 1] = normalIn![representative * 3 + 1]!;
         on[oi * 3 + 2] = normalIn![representative * 3 + 2]!;
       }
+      if (oon && representative >= 0) {
+        oon[oi * 3] = objectNormalIn![representative * 3]!;
+        oon[oi * 3 + 1] = objectNormalIn![representative * 3 + 1]!;
+        oon[oi * 3 + 2] = objectNormalIn![representative * 3 + 2]!;
+      }
       if (ouv && representative >= 0) {
         ouv[oi * 2] = surfaceUvIn![representative * 2]!;
         ouv[oi * 2 + 1] = surfaceUvIn![representative * 2 + 1]!;
@@ -2173,7 +2232,7 @@ function downsampleSolid(
       if (owinnerMesh && representative >= 0) owinnerMesh[oi] = winnerMeshIn![representative]!;
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit, winnerMesh: owinnerMesh };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, objectNormal: oon, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit, winnerMesh: owinnerMesh };
 }
 
 /**
@@ -2688,6 +2747,12 @@ function scanFillTriangle(
   objectPosBuf: Float32Array | null,
   normalX: number, normalY: number, normalZ: number,
   normalBuf: Float32Array | null,
+  // Object-space face normal (VOLUMETRIC-4.md "Phase 0") — face-constant per
+  // triangle, same as `normalX/Y/Z` above but computed from `ov0/ov1/ov2`.
+  // Written verbatim to every cell this triangle wins, exactly like the
+  // world normal; `null` when no effect requested it.
+  objectNormalX: number, objectNormalY: number, objectNormalZ: number,
+  objectNormalBuf: Float32Array | null,
   surfaceUv: ScanFillSurfaceUvCtx | null,
   surfaceUvBuf: Float32Array | null,
   // Relative depth-test deadband (0 = exact). A new triangle replaces the
@@ -2804,6 +2869,12 @@ function scanFillTriangle(
           normalBuf[o] = normalX;
           normalBuf[o + 1] = normalY;
           normalBuf[o + 2] = normalZ;
+        }
+        if (objectNormalBuf !== null) {
+          const o = idx * 3;
+          objectNormalBuf[o] = objectNormalX;
+          objectNormalBuf[o + 1] = objectNormalY;
+          objectNormalBuf[o + 2] = objectNormalZ;
         }
         if (surfaceUvBuf !== null) {
           const o = idx * 2;
@@ -3302,6 +3373,7 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.objectPosition ?? null,
       g.objectExit ?? null,
       g.winnerMesh ?? null,
+      g.objectNormal ?? null,
     );
   };
   rasterize({

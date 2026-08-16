@@ -242,6 +242,17 @@ export interface RasterizeContextOptions {
    */
   retainObjectExit?: boolean;
   /**
+   * Retain depth-winning geometric face normals in each mesh's own
+   * pre-transform 3D frame for an effect input (`objectNormal` — see
+   * VOLUMETRIC-4.md "Phase 0"). Computed at the same scan-fill call site as
+   * `objectPosition`, from the cross product of the same `ov0/ov1/ov2`
+   * object vertices — the self-consistent object-frame pair to
+   * `objectPosition`/`objectExit`, since the existing `normal` buffer is
+   * WORLD space and cannot be combined with the object-space ray for a
+   * rotated mesh.
+   */
+  retainObjectNormal?: boolean;
+  /**
    * Retain the positional source-polygon index that won each solid cell.
    * `-1` marks an empty cell. This is an opaque lookup key for durable control
    * capture; it is not a semantic label and is never allocated by default.
@@ -363,6 +374,8 @@ export interface RasterizeContext {
   retainObjectPosition?: boolean;
   /** Retain the farthest object-space exit position for an effect input — see {@link RasterizeContextOptions.retainObjectExit}. */
   retainObjectExit?: boolean;
+  /** Retain depth-winning object-space face normals — see {@link RasterizeContextOptions.retainObjectNormal}. */
+  retainObjectNormal?: boolean;
   /** Retain the positional source-polygon winner for durable control capture. */
   retainWinnerPolygon?: boolean;
   /** Retain the winning mesh id per cell — see {@link RasterizeContextOptions.retainWinnerMesh}. */
@@ -434,6 +447,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainNormal: opts.retainNormal ?? false,
     retainObjectPosition: opts.retainObjectPosition ?? false,
     retainObjectExit: opts.retainObjectExit ?? false,
+    retainObjectNormal: opts.retainObjectNormal ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
     retainWinnerMesh: opts.retainWinnerMesh ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,

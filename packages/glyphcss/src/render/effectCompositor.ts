@@ -43,6 +43,7 @@ const SUPPORTED_REQUIREMENTS = new Set<GlyphEffectRequirement>([
   "worldPosition",
   "objectPosition",
   "objectExit",
+  "objectNormal",
   "uv0",
 ]);
 
@@ -557,6 +558,7 @@ function cellGridShapeMatches(a: CellGrid, b: CellGrid): boolean {
     && !!a.objectPosition === !!b.objectPosition
     && !!a.objectExit === !!b.objectExit
     && !!a.normal === !!b.normal
+    && !!a.objectNormal === !!b.objectNormal
     && !!a.winnerPolygon === !!b.winnerPolygon
     && !!a.winnerMesh === !!b.winnerMesh
     && !!a.albedoRgb === !!b.albedoRgb
@@ -621,6 +623,7 @@ export function retainGlyphEffectOutput(
     ...(baseGrid.objectPosition ? { objectPosition: baseGrid.objectPosition } : {}),
     ...(baseGrid.objectExit ? { objectExit: baseGrid.objectExit } : {}),
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
+    ...(baseGrid.objectNormal ? { objectNormal: baseGrid.objectNormal } : {}),
     ...(baseGrid.winnerMesh ? { winnerMesh: baseGrid.winnerMesh } : {}),
   };
   const reusable = previous && previous.inputColor.length === n && cellGridShapeMatches(previous.workingGrid, baseGrid)
@@ -749,6 +752,9 @@ export function composeRetainedGlyphEffectOutput(
     workingGrid.objectExit.set(baseGrid.objectExit);
   }
   if (workingGrid.normal && baseGrid.normal) workingGrid.normal.set(baseGrid.normal);
+  if (workingGrid.objectNormal && baseGrid.objectNormal) {
+    workingGrid.objectNormal.set(baseGrid.objectNormal);
+  }
   if (workingGrid.winnerMesh && baseGrid.winnerMesh) workingGrid.winnerMesh.set(baseGrid.winnerMesh);
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
@@ -813,6 +819,9 @@ export function composeRetainedGlyphEffectOutput(
     }
     if (layer.program.requirements?.includes("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
+    }
+    if (layer.program.requirements?.includes("objectNormal") && !base.objectNormal) {
+      throw new Error("glyphcss: retained object-space face normals are unavailable for an effect that requires objectNormal.");
     }
     for (let i = 0; i < n; i++) {
       targetCoverage[i] = targetCoverageForCell(layer.target, metadata.isBase, baseCoverage[i]!, winnerMesh, i);

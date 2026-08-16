@@ -488,7 +488,7 @@ export function createGlyphScene(
     return effectLayers.length > 0;
   }
 
-  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition" | "objectExit"): boolean {
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition" | "objectExit" | "objectNormal"): boolean {
     return effectLayers.some((layer) => (
       !layer.disposed && (
         layer.program.requirements?.includes(requirement) === true
@@ -809,6 +809,7 @@ export function createGlyphScene(
     const retainNormal = effectsActive && effectRequests("normal");
     const retainObjectPosition = effectsActive && effectRequests("objectPosition");
     const retainObjectExit = effectsActive && effectRequests("objectExit");
+    const retainObjectNormal = effectsActive && effectRequests("objectNormal");
     // Per-object effect targeting (VOLUMETRIC-3.md §1): the winner-mesh
     // buffer only needs to be downsampled/exposed when a mounted layer's
     // target actually normalized to a mesh-id set — ORed with
@@ -884,6 +885,7 @@ export function createGlyphScene(
       retainNormal,
       retainObjectPosition,
       retainObjectExit,
+      retainObjectNormal,
       retainWinnerMesh,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
@@ -950,6 +952,7 @@ export function createGlyphScene(
       retainNormal,
       retainObjectPosition,
       retainObjectExit,
+      retainObjectNormal,
       retainWinnerMesh,
       worldToSceneScale,
       semanticLineage,
@@ -1153,6 +1156,7 @@ export function createGlyphScene(
     retainNormal: boolean,
     retainObjectPosition: boolean,
     retainObjectExit: boolean,
+    retainObjectNormal: boolean,
     retainWinnerMesh: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
@@ -1332,6 +1336,7 @@ export function createGlyphScene(
           retainWorldPosition,
           retainNormal,
           retainObjectPosition,
+          retainObjectNormal,
           // A detail layer's `tp` is always a single mesh's own polygons, but
           // the winner-mesh buffer's uninitialized/occlusion-blanked cells
           // ALSO default to `-1` — the same value every polygon here would
@@ -1497,6 +1502,7 @@ export function createGlyphScene(
       || (requested.has("normal") && !output.base.normal)
       || (requested.has("objectPosition") && !output.base.objectPosition)
       || (requested.has("objectExit") && !output.base.objectExit)
+      || (requested.has("objectNormal") && !output.base.objectNormal)
       // A newly-mounted mesh-targeted layer (VOLUMETRIC-3.md §1) needs a
       // full geometry render when retained frames predate it and so lack
       // winner-mesh data — otherwise it silently no-ops (targetCoverage

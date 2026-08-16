@@ -121,6 +121,25 @@ export interface GlyphEffectFrameView extends GlyphEffectImageView {
    */
   readonly objectExit?: GlyphReadonlyNumberArray;
   /**
+   * Interleaved object-space GEOMETRIC FACE normals: `[x0, y0, z0, ...]`,
+   * the same pre-transform frame as `objectPosition`/`objectExit`. NaN for
+   * empty cells. Requested via the `"objectNormal"` requirement.
+   *
+   * Deliberately distinct from `normal` (WORLD space, built from baked world
+   * vertices): mixing a world normal with the object-space ray
+   * (`normalize(objectExit − objectPosition)`) is meaningless for any
+   * rotated mesh — `n · viewDir` would answer a question about two
+   * different frames. This buffer is the cross product of the same
+   * `ov0/ov1/ov2` object vertices `objectPosition` already interpolates,
+   * so it is the self-consistent pair for object-space math (fresnel/
+   * incidence terms, iridescence, etc.). Computed with NO inverse-transpose
+   * — under non-uniform scale this is the object-frame GEOMETRIC normal,
+   * not the shading-correct normal a full inverse-transpose would produce,
+   * which is the deliberate self-consistent pairing with the object-space
+   * ray (also built with no inverse transform).
+   */
+  readonly objectNormal?: GlyphReadonlyNumberArray;
+  /**
    * Winning MESH id per cell (see `CellGrid.winnerMesh`), `-1` for an empty
    * or occlusion-blanked cell. Read-only — NOT a `GlyphEffectRequirement`;
    * a program cannot request it and its presence is never gated by one.
@@ -238,6 +257,7 @@ export type GlyphEffectRequirement =
   | "worldPosition"
   | "objectPosition"
   | "objectExit"
+  | "objectNormal"
   | "surfaceKey"
   | "uv0"
   | "uv0Footprint";
