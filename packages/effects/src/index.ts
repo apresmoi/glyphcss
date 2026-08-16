@@ -99,6 +99,8 @@ export {
   breathingGyroidPreset as GlyphBreathingGyroidPreset,
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
+  iridescentShellPreset as GlyphIridescentShellPreset,
+  iridescentSpongePreset as GlyphIridescentSpongePreset,
   mengerFlowPreset as GlyphMengerFlowPreset,
   mengerSdfPreset as GlyphMengerSdfPreset,
   mengerSpongePreset as GlyphMengerSpongePreset,

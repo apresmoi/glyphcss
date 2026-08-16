@@ -79,10 +79,11 @@ function singleLayerProgram(voices: readonly FieldVoice[], combine = "add", doma
 }
 
 describe("SYNTH_FIELDS", () => {
-  it("appends linearZ, then the SDF family (gyroid, menger, sierpinski) at the end — append-only ordering (the /synth URL codec encodes enum values by index)", () => {
+  it("appends linearZ, then the SDF family (gyroid, menger, sierpinski), then the normal-derived family (normalX/Y/Z, incidence) at the end — append-only ordering (the /synth URL codec encodes enum values by index)", () => {
     expect(SYNTH_FIELDS).toEqual([
       "radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ",
       "gyroid", "menger", "sierpinski",
+      "normalX", "normalY", "normalZ", "incidence",
     ]);
   });
 });
@@ -1017,6 +1018,17 @@ describe("effectiveVoiceFinestFreq (VOLUMETRIC-2.md §2)", () => {
     expect(effectiveVoiceFinestFreq(voice({ field: "menger", freq: 1 }))).toBeCloseTo(27, 10);
     expect(effectiveVoiceFinestFreq(voice({ field: "sierpinski", freq: 1 }))).toBeCloseTo(8, 10);
   });
+
+  // VOLUMETRIC-4.md §1: the four normal-derived field kinds carry no spatial
+  // frequency at all (one value per CELL, not a function of the domain
+  // point) — 0 regardless of `freq`/`iter`, so they never inflate carve/
+  // xray's Nyquist step count.
+  it("normal-derived field sources: always 0, regardless of freq/iter", () => {
+    for (const field of ["normalX", "normalY", "normalZ", "incidence"]) {
+      expect(effectiveVoiceFinestFreq(voice({ field, freq: 20 }))).toBe(0);
+      expect(effectiveVoiceFinestFreq(voice({ field, freq: 96, iter: 4 }))).toBe(0);
+    }
+  });
 });
 
 describe("evaluateFieldProgram: layer shaping (VOLUMETRIC.md's Step 3)", () => {
@@ -1392,6 +1404,20 @@ describe("buildGlyphFieldDistanceOracle — qualifying predicate (VOLUMETRIC-3.m
 
   it("rejects gyroid — no genuine distance reading, even though it shares the SDF voice family's coordinate derivation", () => {
     expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice({ field: "gyroid" })]), REGIME_PARAMS, 0)).toBeNull();
+  });
+
+  // VOLUMETRIC-4.md §1: normal-derived fields are one value per CELL, not a
+  // genuine distance reading — rejected deliberately, same as gyroid above,
+  // not merely because they happen not to equal "menger"/"sierpinski". This
+  // marcher is carve-only and these fields are colour-stack-only, so it
+  // should never legitimately see one in practice — this pins the reject
+  // itself regardless of `wave`/`amp`/`combine` otherwise qualifying.
+  it("rejects the four normal-derived field kinds — deliberately, not by accident of the field-name check", () => {
+    for (const field of ["normalX", "normalY", "normalZ", "incidence"]) {
+      expect(buildGlyphFieldDistanceOracle(
+        distanceLayerProgram([sdfVoice({ field })]), REGIME_PARAMS, 0,
+      )).toBeNull();
+    }
   });
 
   it("rejects a non-step wave (warps the raw SDF through a non-distance-preserving nonlinearity)", () => {

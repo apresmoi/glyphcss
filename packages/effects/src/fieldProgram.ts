@@ -14,14 +14,43 @@
  * module is pure spatial math, reusable outside a mounted glyphcss effect
  * (e.g. a future field-authoritative primitive). Context-shaped glue
  * (`fieldSynthCoordinate`, the schema, presets) stays in `stock.ts`.
+ *
+ * This purity is why `normalX`/`normalY`/`normalZ`/`incidence`
+ * (VOLUMETRIC-4.md §1's "Normal-derived field sources") are NOT switched on
+ * anywhere in this file: a face normal is one value per CELL, supplied by
+ * glyphcss's rasterizer, not something this module's `(x, y, z)` domain
+ * point could ever derive. `stock.ts` resolves them per cell and substitutes
+ * the result through `sampleFieldVoice`'s/`evaluateFieldProgram`'s optional
+ * `rawOverride` parameter below — a generic per-voice raw-value seam this
+ * module exposes without knowing (or caring) why a caller might use it.
+ * Reaching this module's own field dispatch with one of those four names
+ * uncovered by an override — e.g. a hand-built geometry `FieldProgram` that
+ * bypasses `stock.ts`'s flat-params `validateParams` reject — silently falls
+ * through to the same "unrecognized field" default (radial) any other
+ * unknown name gets; a documented, narrow gap (VOLUMETRIC-4.md §1: "geometry-
+ * stack normal fields are a recorded extension point").
  */
 
 // ---- basis-kind enums (append-only; the /synth URL codec encodes these by
 // index, so a new value is always appended, never inserted) ----------------
 
-export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ", "gyroid", "menger", "sierpinski"] as const;
+export const SYNTH_FIELDS = [
+  "radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise", "linearZ", "gyroid", "menger", "sierpinski",
+  // VOLUMETRIC-4.md §1: normal-derived field sources — legal ONLY in a colour
+  // voice stack (`stock.ts`'s `validateFieldSynthGeometryNormalFields`
+  // rejects them on any active GEOMETRY voice). Appended strictly after
+  // `sierpinski` — the /synth URL codec addresses `SYNTH_FIELDS` by index.
+  "normalX", "normalY", "normalZ", "incidence",
+] as const;
 export const SYNTH_WAVES = ["sin", "triangle", "saw", "square", "step"] as const;
 export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
+
+// The normal-derived subset of `SYNTH_FIELDS` (VOLUMETRIC-4.md §1) — the
+// single source of truth both `effectiveVoiceFinestFreq` below (they carry no
+// spatial frequency) and `stock.ts` (the geometry-stack reject, and the
+// per-cell substitution wrapper's own "is this one of the four" test) key
+// off, so the four names are never independently re-listed and can't drift.
+export const NORMAL_DERIVED_FIELDS: ReadonlySet<string> = new Set(["normalX", "normalY", "normalZ", "incidence"]);
 
 // ---- waveform + noise primitives -------------------------------------
 
@@ -448,13 +477,41 @@ function rotateVoiceSample(x: number, y: number, cx: number, cy: number, angleDe
   return [cx + dx * ca - dy * sa, cy + dx * sa + dy * ca];
 }
 
+/**
+ * A generic per-voice raw-value substitution seam (VOLUMETRIC-4.md §1's "thin
+ * substitution wrapper"). Given a voice, return the RAW value (the same
+ * quantity `sampleFieldVoice`'s own field-kind switch would otherwise
+ * compute, pre-`synthWave` shaping) to use instead of sampling it spatially,
+ * or `undefined` to let this module sample the voice itself, unchanged. This
+ * module never calls it to decide anything about what a voice's field NAME
+ * means — that stays entirely the caller's business (`stock.ts` uses it to
+ * splice glyphcss's per-cell object-space normal/incidence buffers into the
+ * colour voice stack's evaluation without teaching this module anything about
+ * normals) — which is what keeps this file "pure spatial math" per its own
+ * header.
+ */
+export type FieldVoiceRawOverride = (voice: FieldVoice) => number | undefined;
+
 export function sampleFieldVoice(
   voice: FieldVoice,
   x: number, y: number, z: number,
   cx: number, cy: number, cz: number,
   time: number,
   volumetric: boolean,
+  rawOverride?: FieldVoiceRawOverride,
 ): number {
+  if (rawOverride) {
+    const overridden = rawOverride(voice);
+    if (overridden !== undefined) {
+      // Same tail every linear/radial-family field falls through to at the
+      // bottom of this function — an override supplies only the RAW value,
+      // never a bespoke shaping path, so it stays subject to the same
+      // freq/speed/phase/duty knobs (and the same `synthWave` wave shapes)
+      // every other field kind is.
+      return synthWave(voice.wave, overridden * voice.freq - time * voice.speed + voice.phase, voice.duty);
+    }
+  }
+
   const [sx, sy] = rotateVoiceSample(x, y, cx, cy, voice.angle);
 
   if (voice.field === "noise") {
@@ -607,6 +664,16 @@ export function effectiveVoiceFinestFreq(voice: FieldVoice): number {
     case "menger": return voice.freq * 3 ** clampSdfIter(voice.iter);
     case "sierpinski": return voice.freq * 2 ** clampSdfIter(voice.iter);
     case "gyroid": return voice.freq * 2;
+    // Normal-derived field sources (VOLUMETRIC-4.md §1): one value per CELL,
+    // not a function of the domain point — there is no spatial frequency to
+    // resolve. Reporting anything nonzero here would inflate carve/xray's
+    // Nyquist step count (up to the 256-step cap) for a voice that never
+    // varies spatially at all.
+    case "normalX":
+    case "normalY":
+    case "normalZ":
+    case "incidence":
+      return 0;
     default:
       if (voice.wave === "square") {
         const duty = Math.min(Math.max(voice.duty, 0), 1);
@@ -624,6 +691,7 @@ function foldVoices(
   originX: number, originY: number, originZ: number,
   time: number,
   volumetric: boolean,
+  rawOverride?: FieldVoiceRawOverride,
 ): { combined: number; winner: number; active: number } {
   let combined = 0;
   let active = 0;
@@ -637,7 +705,7 @@ function foldVoices(
     const cx = originX + voice.origin.u;
     const cy = originY + voice.origin.v;
     const cz = originZ + voice.origin.w;
-    const o = sampleFieldVoice(voice, x, y, z, cx, cy, cz, time, volumetric);
+    const o = sampleFieldVoice(voice, x, y, z, cx, cy, cz, time, volumetric, rawOverride);
     if (argmax) {
       const contribution = voice.amp * o;
       // `winner` is reported in FLAT source order (see `FieldVoice.sourceIndex`'s
@@ -708,12 +776,17 @@ export function combineSynth(mode: string, a: number, b: number): number {
  * every pre-layers patch under the structural-compatibility rule) reduces
  * exactly to `foldVoices`'s own result — this is what keeps every existing
  * field-synth preset byte-identical.
+ *
+ * `rawOverride` (VOLUMETRIC-4.md §1) is threaded straight to `sampleFieldVoice`
+ * unchanged — see `FieldVoiceRawOverride`'s own doc. Omitting it (every
+ * existing call site) is byte-identical to before this parameter existed.
  */
 export function evaluateFieldProgram(
   program: FieldProgram,
   x: number, y: number, z: number,
   time: number,
   originX = 0, originY = 0, originZ = 0,
+  rawOverride?: FieldVoiceRawOverride,
 ): FieldEvalResult {
   const volumetric = program.domain === "3d";
   let stackValue = 0;
@@ -725,7 +798,7 @@ export function evaluateFieldProgram(
   const layers = program.layers;
   for (let li = 0; li < layers.length; li++) {
     const layer = layers[li]!;
-    const result = foldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric);
+    const result = foldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric, rawOverride);
     if (result.active === 0) continue; // skip empty layers, like an amp-0 voice
     populatedLayers++;
     singleLayerWinner = populatedLayers === 1 ? result.winner : -1;
@@ -1030,6 +1103,12 @@ export function buildGlyphFieldDistanceOracle(
   const activeVoices = layer.voices.filter((voice) => voice.amp > 0);
   if (activeVoices.length === 0) return null;
   for (const voice of activeVoices) {
+    // This ALSO rejects the four normal-derived kinds (VOLUMETRIC-4.md §1) —
+    // deliberately, not as an accident of them merely not being "menger"/
+    // "sierpinski": a per-cell-constant field has no genuine distance reading
+    // for a sphere tracer to step by (the same reasoning that excludes
+    // "gyroid" above), and they are colour-stack-only in the first place —
+    // this carve-only oracle never legitimately sees one.
     if (voice.field !== "menger" && voice.field !== "sierpinski") return null;
     if (voice.wave !== "step") return null;
     if (voice.amp !== 1) return null;

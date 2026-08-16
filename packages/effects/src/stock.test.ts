@@ -5,6 +5,7 @@ import {
   createGlyphOrthographicCamera,
   createGlyphScene,
   defineGlyphEffect,
+  spherePolygons,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
@@ -33,6 +34,8 @@ import {
   glitch,
   gyroidXrayPreset,
   inkGlyphForField,
+  iridescentShellPreset,
+  iridescentSpongePreset,
   matrixRain,
   mengerFlowPreset,
   mengerSpongePreset,
@@ -102,6 +105,10 @@ interface EvaluateOptions {
   objectPosition?: Float32Array;
   objectExit?: Float32Array;
   normal?: Float32Array;
+  /** Object-space face normal buffer (VOLUMETRIC-4.md §1's Phase 0) — the
+   *  colour voice stack's `normalX/Y/Z`/`incidence` source. Deliberately
+   *  distinct from `normal` (world-space) above. */
+  objectNormal?: Float32Array;
   cellToSceneGrid?: GridAffine;
   worldToSceneScale?: number;
   /** Program-as-data (VOLUMETRIC-3.md §4) — forwarded onto the evaluate
@@ -155,6 +162,7 @@ function evaluate(
       ...(options.objectPosition ? { objectPosition: options.objectPosition } : {}),
       ...(options.objectExit ? { objectExit: options.objectExit } : {}),
       ...(options.normal ? { normal: options.normal } : {}),
+      ...(options.objectNormal ? { objectNormal: options.objectNormal } : {}),
     },
     input: { cols, rows, length, glyph, coverage, color },
     target: { coverage },
@@ -1636,6 +1644,7 @@ function objectSpaceFixture(cols: number, rows: number) {
   const objectPosition = new Float32Array(length * 3);
   const objectExit = new Float32Array(length * 3);
   const normal = new Float32Array(length * 3);
+  const objectNormal = new Float32Array(length * 3);
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const i = row * cols + col;
@@ -1644,9 +1653,14 @@ function objectSpaceFixture(cols: number, rows: number) {
       objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = -3;
       objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
       normal[i * 3] = 0; normal[i * 3 + 1] = 0; normal[i * 3 + 2] = 1;
+      // Object space trivially equals world space in this synthetic fixture
+      // (no mesh rotation modeled), so `objectNormal` matches `normal` here
+      // — the frame-mismatch counter-case below builds its OWN fixture where
+      // the two deliberately diverge.
+      objectNormal[i * 3] = 0; objectNormal[i * 3 + 1] = 0; objectNormal[i * 3 + 2] = 1;
     }
   }
-  return { objectPosition, objectExit, normal };
+  return { objectPosition, objectExit, normal, objectNormal };
 }
 
 describe("effect presets", () => {
@@ -2104,6 +2118,10 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       "Menger flow": { render: "311c9985", params: "423ff66d" },
       "Breathing gyroid": { render: "f7783431", params: "e9728cf2" },
       "SDF bloom": { render: "d62f9075", params: "f5311402" },
+      // VOLUMETRIC-4.md §1's shipped patch — the colour voice stack's own
+      // presets. Pinned the same way as every preset above them.
+      "Iridescent sponge": { render: "6fbf6b95", params: "875c7662" },
+      "Iridescent shell": { render: "d4781f65", params: "e0df8d29" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
@@ -2366,6 +2384,7 @@ describe("field-synth validation rule ids (VOLUMETRIC-2.md §4 P2)", () => {
     },
     "carve-requires-object-space": { render: "carve", space: "surface" },
     "xray-subcell-unsupported": { render: "xray", space: "object", subcellRes: "2x4" },
+    "normal-field-requires-color-stack": { field1: "incidence", amp1: 1 },
   };
 
   it("tags every registered rule id's real trigger with exactly that id", () => {
@@ -2882,6 +2901,25 @@ describe("field-synth carve mode — validation (VOLUMETRIC.md's Carve mode)", (
       .toEqual(["objectPosition", "objectExit"]);
     expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, space: "object", render: "paint" }))
       .toEqual(["objectPosition"]);
+  });
+
+  // VOLUMETRIC-4.md §1: `colorStackOn` additionally requests `objectNormal`
+  // (normalX/Y/Z's source) and `objectExit` (paired with objectPosition for
+  // incidence's viewDir) — REGARDLESS of `space`/`render`, since this hook
+  // only ever sees `params`, never whether a `colorProgram`/colour voice
+  // actually uses a normal field.
+  it('dynamicRequirements requests objectNormal (and objectExit) whenever colorStackOn is true, independent of space/render', () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    expect(fieldSynth.program.dynamicRequirements?.({ ...defaults, colorStackOn: true }))
+      .toEqual(["objectNormal", "objectExit"]);
+    // Still present alongside the space/render-driven objectPosition request
+    // — objectExit is requested only once even though both conditions ask
+    // for it (a Set dedupes, not appended twice).
+    const combined = fieldSynth.program.dynamicRequirements?.({
+      ...defaults, space: "object", render: "carve", colorStackOn: true,
+    });
+    expect(combined).toEqual(["objectPosition", "objectExit", "objectNormal"]);
+    expect(new Set(combined).size).toBe(combined?.length);
   });
 });
 
@@ -5555,5 +5593,296 @@ describe("field-synth colour voice stack (VOLUMETRIC-4.md §1)", () => {
     expect(voices[1]!.field).toBe("spiral");
     expect(voices[1]!.amp).toBe(0.5);
     expect(voices[1]!.layer).toBe(1);
+  });
+});
+
+// VOLUMETRIC-4.md §1's "Normal-derived field sources" — the part that
+// subsumes iridescence: `normalX/Y/Z` (object-space face normal components)
+// and `incidence` (`1 - |objectNormal . viewDir|`), colour-stack-only.
+describe("normal-derived field sources (VOLUMETRIC-4.md §1)", () => {
+  // sin at freq 0.25 / phase 0 / speed 0 exactly reproduces {-1, 0, 1} for a
+  // raw scalar of {-1, 0, 1} respectively: sin(-pi/2) = -1, sin(0) = 0,
+  // sin(pi/2) = 1 — EXACT at these three specific samples (no floating-point
+  // approximation), even though sin is a nonlinear wave shape in general.
+  // Fed through the "gradient" colour mode's `clamp01(bias + gain*v*0.5)`
+  // mapping (bias 0.5, gain 1) and a black->white gradient, this lets a
+  // packed grayscale channel EXACTLY decode the raw value the colour stack
+  // resolved, rather than needing a fuzzy tolerance.
+  const EXACT_QUARTER_WAVE = { cwave1: "sin" as const, cfreq1: 0.25, cspeed1: 0, cphase1: 0, camp1: 1, camp2: 0, camp3: 0 };
+  const GRADIENT_COLOR_PARAMS = { colorMode: "gradient" as const, color: "#000000", colorB: "#ffffff", gradient: 1, bias: 0.5, gain: 1 };
+
+  function grayR(color: Uint32Array, i = 0): number {
+    return (color[i]! >> 16) & 0xff;
+  }
+
+  function expectedGray(raw: number): number {
+    const mapped = Math.min(1, Math.max(0, 0.5 + 0.5 * raw));
+    return Math.round(mapped * 255);
+  }
+
+  // Forces full paint-mode coverage (`value = clamp01(bias + gain*v*0.5) =
+  // clamp01(1) = 1` regardless of the geometry field's own value) so every
+  // test below can inspect cell 0 without needing to reason about where the
+  // geometry field happens to be positive — the colour stack, not geometry,
+  // is what's under test.
+  const geometryBase = {
+    space: "object" as const, scale: 1, render: "paint" as const,
+    field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+    bias: 1, gain: 0,
+    colorStackOn: true, ...GRADIENT_COLOR_PARAMS,
+  };
+
+  const CUBE_FACES: ReadonlyArray<readonly [string, readonly [number, number, number]]> = [
+    ["+X", [1, 0, 0]], ["-X", [-1, 0, 0]],
+    ["+Y", [0, 1, 0]], ["-Y", [0, -1, 0]],
+    ["+Z", [0, 0, 1]], ["-Z", [0, 0, -1]],
+  ];
+
+  function uniformObjectNormalFixture(cols: number, rows: number, n: readonly [number, number, number]) {
+    const length = cols * rows;
+    const objectNormal = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectNormal[i * 3] = n[0]; objectNormal[i * 3 + 1] = n[1]; objectNormal[i * 3 + 2] = n[2];
+    }
+    // objectPosition all-zero (finite, not NaN — a real Float32Array default)
+    // is enough for the paint-mode volumetric coordinate read; objectExit is
+    // unused by normalX/Y/Z (only incidence reads it).
+    return { objectNormal, objectPosition: new Float32Array(length * 3), objectExit: new Float32Array(length * 3) };
+  }
+
+  describe("normalX/Y/Z — analytic per-face object-space normal (cube, all six faces)", () => {
+    it.each(CUBE_FACES)("%s face", (_name, n) => {
+      const fixture = uniformObjectNormalFixture(12, 6, n);
+      const axes: ReadonlyArray<readonly [string, number]> = [["normalX", n[0]], ["normalY", n[1]], ["normalZ", n[2]]];
+      for (const [field, expected] of axes) {
+        const out = evaluate(fieldSynth, { ...geometryBase, cfield1: field, ...EXACT_QUARTER_WAVE }, fixture);
+        expect(out.coverage[0]).toBeGreaterThan(0);
+        expect(grayR(out.color)).toBe(expectedGray(expected));
+      }
+    });
+  });
+
+  describe("incidence — 0 face-on, ->1 grazing, genuinely varies (sphere)", () => {
+    // A fixed entry/exit chord (so viewDir = normalize(exit - entry) is the
+    // SAME constant unit vector [0, 0, -1] for every sample, matching a
+    // single ortho camera ray direction) with `objectNormal` swept from
+    // face-on (theta=0, pointing straight at the camera) to grazing
+    // (theta=pi/2, perpendicular to the camera ray) — the same relationship
+    // a sphere's continuously-varying surface normal has to one fixed ortho
+    // view direction. `incidence = 1 - |cos(theta)|` by construction (n . v
+    // = -cos(theta) when v = [0,0,-1]).
+    function fixtureAtTheta(theta: number) {
+      const length = 12 * 6;
+      const objectNormal = new Float32Array(length * 3);
+      const objectPosition = new Float32Array(length * 3);
+      const objectExit = new Float32Array(length * 3);
+      const nx = Math.sin(theta), nz = Math.cos(theta);
+      for (let i = 0; i < length; i++) {
+        objectNormal[i * 3] = nx; objectNormal[i * 3 + 1] = 0; objectNormal[i * 3 + 2] = nz;
+        objectPosition[i * 3] = 0; objectPosition[i * 3 + 1] = 0; objectPosition[i * 3 + 2] = 1;
+        objectExit[i * 3] = 0; objectExit[i * 3 + 1] = 0; objectExit[i * 3 + 2] = -1;
+      }
+      return { objectNormal, objectPosition, objectExit };
+    }
+
+    it("is exactly 0 face-on (theta = 0)", () => {
+      const out = evaluate(fieldSynth, { ...geometryBase, cfield1: "incidence", ...EXACT_QUARTER_WAVE }, fixtureAtTheta(0));
+      expect(out.coverage[0]).toBeGreaterThan(0);
+      expect(grayR(out.color)).toBe(expectedGray(0)); // sin(pi/2 * 0) = 0
+    });
+
+    it("is exactly 1 at grazing (theta = pi/2)", () => {
+      const out = evaluate(fieldSynth, { ...geometryBase, cfield1: "incidence", ...EXACT_QUARTER_WAVE }, fixtureAtTheta(Math.PI / 2));
+      expect(out.coverage[0]).toBeGreaterThan(0);
+      expect(grayR(out.color)).toBe(expectedGray(1)); // sin(pi/2 * 1) = 1
+    });
+
+    it("varies monotonically (strictly increasing) between face-on and grazing — a genuine sphere sweep, not a flat value", () => {
+      const thetas = [0, Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI / 2];
+      const grays = thetas.map((theta) => {
+        const out = evaluate(fieldSynth, { ...geometryBase, cfield1: "incidence", ...EXACT_QUARTER_WAVE }, fixtureAtTheta(theta));
+        return grayR(out.color);
+      });
+      for (let i = 1; i < grays.length; i++) expect(grays[i]!).toBeGreaterThan(grays[i - 1]!);
+      // eslint-disable-next-line no-console
+      console.log(`incidence sphere sweep (theta -> gray): ${thetas.map((t, i) => `${t.toFixed(3)}->${grays[i]}`).join(", ")}`);
+    });
+  });
+
+  it("frame-mismatch counter-case: normalX/Y/Z read the OBJECT-space normal, not world `normal` — a world-normal implementation must FAIL this", () => {
+    const length = 12 * 6;
+    const objectNormal = new Float32Array(length * 3);
+    const normal = new Float32Array(length * 3); // world-space, deliberately DIFFERENT
+    for (let i = 0; i < length; i++) {
+      objectNormal[i * 3] = 1; objectNormal[i * 3 + 1] = 0; objectNormal[i * 3 + 2] = 0; // object: +X
+      normal[i * 3] = 0; normal[i * 3 + 1] = 1; normal[i * 3 + 2] = 0; // world: +Y (as if the mesh were rotated 90 deg)
+    }
+    const fixture = {
+      objectNormal, normal,
+      objectPosition: new Float32Array(length * 3),
+      objectExit: new Float32Array(length * 3),
+    };
+    const outX = evaluate(fieldSynth, { ...geometryBase, cfield1: "normalX", ...EXACT_QUARTER_WAVE }, fixture);
+    const outY = evaluate(fieldSynth, { ...geometryBase, cfield1: "normalY", ...EXACT_QUARTER_WAVE }, fixture);
+    // Reads objectNormal's [1, 0, 0] — normalX = 1 (white), normalY = 0 (mid-gray).
+    // A buggy implementation reading world `normal` ([0, 1, 0]) instead would
+    // report normalX = 0 (mid-gray) and normalY = 1 (white) — swapped.
+    expect(grayR(outX.color)).toBe(expectedGray(1));
+    expect(grayR(outY.color)).toBe(expectedGray(0));
+  });
+
+  it("degrades to 0 (never throws) when objectNormal/objectPosition/objectExit aren't retained — the same buffer-absence condition wireframe/voxel rendering produces", () => {
+    // `space: "scene"` here is deliberately NOT "object": this test isolates
+    // "does the colour stack degrade cleanly when its own object-space
+    // buffers are simply absent" from "does field-synth's 2D generated-
+    // surface fallback resolve a coordinate with no worldPosition/normal
+    // buffer either" (a separate, already-covered concern) — `colorStackOn`'s
+    // normal-field resolution only ever looks at buffer PRESENCE
+    // (`context.base.objectNormal`), never at `params.space`, so this
+    // exercises the exact same degrade path wireframe/voxel would hit.
+    const params = {
+      ...geometryBase, space: "scene" as const, field1: "radial", freq1: 0.01,
+      cfield1: "incidence", ...EXACT_QUARTER_WAVE,
+    };
+    let out: ReturnType<typeof evaluate> | undefined;
+    expect(() => { out = evaluate(fieldSynth, params, {}); }).not.toThrow();
+    expect(out!.coverage[0]).toBeGreaterThan(0);
+    // A well-defined "evaluates to 0" result: raw = 0 -> sin(0) = 0 ->
+    // mid-gray, not NaN/black/undefined.
+    expect(grayR(out!.color)).toBe(expectedGray(0));
+  });
+
+  it("geometry-stack rejection: validateParams rejects a normal-derived field on any active GEOMETRY voice", () => {
+    const defaults = defaultGlyphEffectParams(fieldSynth);
+    for (const field of ["normalX", "normalY", "normalZ", "incidence"]) {
+      expect(() => fieldSynth.program.validateParams?.({ ...defaults, field1: field, amp1: 1 } as never))
+        .toThrow(/normal-derived/i);
+      // Inactive (amp 0) is fine — the same "inert while off" precedent every
+      // other field-level validator in this file follows.
+      expect(() => fieldSynth.program.validateParams?.({ ...defaults, field1: field, amp1: 0 } as never))
+        .not.toThrow();
+    }
+  });
+
+  // Real-scene render helper (mirrors the pattern
+  // "field-synth volumetric time-animation presets" above uses for its own
+  // per-preset smoke tests) — a genuine camera + rasterizer + mounted effect
+  // layer render, not the synthetic 2D `evaluate()` harness.
+  async function renderAt(
+    preset: { params: Record<string, number | string | boolean> },
+    polygons: Polygon[],
+    time: number,
+    camera: { rotX: number; rotY: number; zoom: number },
+  ): Promise<string> {
+    const cols = 64, rows = 40;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, {
+      cols, rows, useColors: true, doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY }),
+    });
+    scene.add(polygons);
+    scene.addEffectLayer({
+      effect: fieldSynth,
+      params: { ...defaultGlyphEffectParams(fieldSynth), ...preset.params, time } as never,
+      blend: "replace",
+      opacity: 1,
+    });
+    await flushCarveRenders();
+    const text = scene.output.innerHTML ?? "";
+    scene.destroy();
+    host.remove();
+    return text;
+  }
+
+  describe("shipped patch: both iridescent presets render and animate", () => {
+    it("Iridescent sponge: non-empty and its colours change between t=0 and t=8 (slow cspeed) on the real cube stage", async () => {
+      const camera = { rotX: 15, rotY: 40, zoom: 380 };
+      const atZero = await renderAt(iridescentSpongePreset, size3CubePolygons(), 0, camera);
+      const atEight = await renderAt(iridescentSpongePreset, size3CubePolygons(), 8, camera);
+      expect(atZero.length).toBeGreaterThan(0);
+      expect(atEight.length).toBeGreaterThan(0);
+      expect(atEight).not.toBe(atZero);
+    });
+
+    it("Iridescent shell: non-empty and its colours change between t=0 and t=8 (slow cspeed) on a real sphere stage", async () => {
+      const camera = { rotX: 58, rotY: 32, zoom: 220 };
+      const sphere = spherePolygons({ center: [0, 0, 0], size: 1.5, subdivisions: 2 });
+      const atZero = await renderAt(iridescentShellPreset, sphere, 0, camera);
+      const atEight = await renderAt(iridescentShellPreset, sphere, 8, camera);
+      expect(atZero.length).toBeGreaterThan(0);
+      expect(atEight.length).toBeGreaterThan(0);
+      expect(atEight).not.toBe(atZero);
+    });
+  });
+
+  // VOLUMETRIC-4.md §1's own reviewer measurement: "under orthographic
+  // projection every view ray is parallel, so on an axis-aligned mesh like
+  // the sponge `1 - |n . v|` takes exactly THREE values — 0.719 / 0.551 /
+  // 0.152 — i.e. three flat face tones, not a continuous sweep". This
+  // measures the REAL shipped preset against the REAL /synth stage camera
+  // (`STAGE_HINTS`'s own `rotX: 15, rotY: 40` for this preset) and a REAL
+  // rasterized cube — not a hand-derived approximation — via
+  // `rasterizeToCells`, the same pipeline a mounted scene uses.
+  // `marchFade`/`lit` are zeroed for this ONE measurement to isolate the
+  // colour stack's own hue output from the two OTHER, independent brightness
+  // axes the real preset also applies (per-hit-depth fade, Lambert shade) —
+  // both are expected to vary continuously within a face and would
+  // otherwise mask the three discrete hue tones this test exists to count.
+  it("Iridescent sponge: exactly three distinct incidence-driven tones emerge across the real cube stage's visible faces", () => {
+    const cols = 64, rows = 40;
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ rotX: 15, rotY: 40, zoom: 380 }),
+      grid: { cols, rows, cellAspect: 2 },
+      polygons: size3CubePolygons(),
+      mode: "solid",
+      useColors: false,
+      doubleSided: true,
+      retainObjectPosition: true,
+      retainObjectExit: true,
+      retainObjectNormal: true,
+    }));
+    const n = cols * rows;
+    const coverage = new Float32Array(n);
+    for (let i = 0; i < n; i++) coverage[i] = grid.depth[i] === -Infinity ? 0 : 1;
+    const glyph = new Array<string>(n).fill(" ");
+    const color = new Uint32Array(n).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(n).fill(" "),
+      color: new Uint32Array(n).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(n),
+      channels: new Uint8Array(n),
+    };
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      ...(iridescentSpongePreset.params as Record<string, number | string | boolean>),
+      time: 0, marchFade: 0, lit: 0,
+    };
+    fieldSynth.program.evaluate({
+      params,
+      state: fieldSynth.program.createState ? fieldSynth.program.createState() : undefined,
+      base: {
+        cols, rows, length: n, glyph, coverage, color,
+        objectPosition: grid.objectPosition, objectExit: grid.objectExit, objectNormal: grid.objectNormal,
+      },
+      input: { cols, rows, length: n, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+
+    const seenColors = new Set<number>();
+    let coveredCount = 0;
+    for (let i = 0; i < n; i++) {
+      if (coverage[i]! <= 0 || output.color[i] === GlyphEffectNoColor) continue;
+      coveredCount++;
+      seenColors.add(output.color[i]!);
+    }
+    expect(coveredCount).toBeGreaterThan(50); // the sponge genuinely covers a meaningful chunk of the grid
+    // eslint-disable-next-line no-console
+    console.log(`Iridescent sponge measured tones: ${seenColors.size} (covered cells: ${coveredCount})`);
+    expect(seenColors.size).toBe(3);
   });
 });

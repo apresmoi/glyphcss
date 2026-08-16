@@ -607,6 +607,24 @@ describe("buildGlyphFieldSynthStaticExport", () => {
       }))).toThrow(/originW1/);
     });
 
+    // VOLUMETRIC-4.md §1: the four normal-derived field kinds on an active
+    // voice — worded like the `linearZ` reject above (an unknown/illegal
+    // field kind must never silently render as radial in the inlined
+    // runtime's own `sampleVoice`). In practice this is inherited from the
+    // SAME `fieldSynth.program.validateParams` gate `buildGlyphFieldSynthStaticExport`
+    // already runs before `assertStaticExportSupported` (see
+    // `validateFieldSynthGeometryNormalFields` in stock.ts) — normal-derived
+    // fields are illegal on ANY active geometry voice, at runtime and at
+    // export alike, not just here.
+    it.each(["normalX", "normalY", "normalZ", "incidence"])(
+      'rejects field1: "%s" on an active voice (normal-derived, geometry-stack-illegal)',
+      (field) => {
+        expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+          params: { ...baseOptions().params, field1: field, amp1: 1 },
+        }))).toThrow(/normal-derived|colour voice stack|color voice stack/i);
+      },
+    );
+
     it("does NOT reject subcellRes: \"2x4\"/\"ink\" (P1-A fixer pass: ported, no longer rejected)", () => {
       const r2x4 = buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
         params: { ...baseOptions().params, subcellRes: "2x4" },
@@ -696,6 +714,17 @@ describe("buildGlyphFieldSynthStaticExport", () => {
 
     it("is true for colorStackOn: false with colour-voice params configured — inert while off", () => {
       expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, colorStackOn: false, cfield1: "angular", camp1: 1 })).toBe(true);
+    });
+
+    it.each(["normalX", "normalY", "normalZ", "incidence"])(
+      'is false when an active voice has field: "%s" (VOLUMETRIC-4.md §1, normal-derived)',
+      (field) => {
+        expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, field1: field, amp1: 1 })).toBe(false);
+      },
+    );
+
+    it("is true when the voice carrying a normal-derived field is inactive (amp 0)", () => {
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, amp3: 0, field3: "incidence" })).toBe(true);
     });
   });
 

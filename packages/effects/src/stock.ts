@@ -7,6 +7,7 @@ import {
   type GlyphEffectEvaluateContext,
   type GlyphEffectParamSchema,
   type GlyphEffectParamValues,
+  type GlyphEffectRequirement,
 } from "glyphcss";
 import {
   buildGlyphFieldDistanceOracle,
@@ -19,6 +20,7 @@ import {
   marchGlyphFieldSphere,
   sampleFieldVoice,
   validateGlyphFieldProgram,
+  NORMAL_DERIVED_FIELDS,
   SYNTH_COMBINES,
   SYNTH_FIELDS,
   SYNTH_WAVES,
@@ -26,6 +28,7 @@ import {
   type FieldLayer,
   type FieldProgram,
   type FieldVoice,
+  type FieldVoiceRawOverride,
 } from "./fieldProgram";
 
 // Re-exported so `staticExport.ts` and the wider `@glyphcss/effects` public
@@ -695,6 +698,7 @@ export const GLYPH_FIELD_SYNTH_VALIDATION_RULES = [
   "multi-layer-argmax",
   "carve-requires-object-space",
   "xray-subcell-unsupported",
+  "normal-field-requires-color-stack",
 ] as const;
 export type GlyphFieldSynthValidationRuleId = typeof GLYPH_FIELD_SYNTH_VALIDATION_RULES[number];
 
@@ -2042,6 +2046,37 @@ function validateFieldSynthRender(params: AnyParams): void {
   }
 }
 
+// Normal-derived field sources (VOLUMETRIC-4.md §1's "Normal-derived field
+// sources") are legal ONLY in the colour voice stack (`cfield1..3`) —
+// reviewer-forced: a normal is one value per CELL, not a function of the
+// domain point, so in the GEOMETRY stack it would be constant along the whole
+// march ray. It could only flip an entire chord solid/empty, never produce
+// structure, and it would silently corrupt the subcell probes and the
+// `effectiveVoiceFinestFreq` Nyquist floor (both of which key off the
+// geometry stack's own compiled voices). Checked against every `field1..N`
+// slot regardless of `colorStackOn` — the geometry stack never legally reads
+// one of these four kinds, on or off. Scoped to the flat schema path only:
+// a hand-built geometry `program` bypasses this (VOLUMETRIC-4.md §1's
+// documented "recorded extension point"), same as every other
+// `validateFieldSynthLayers`/`validateFieldSynthRender` check here.
+function validateFieldSynthGeometryNormalFields(params: AnyParams): void {
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    if (!((params[`amp${k}`] as number) > 0)) continue;
+    const field = params[`field${k}`] as string;
+    if (NORMAL_DERIVED_FIELDS.has(field)) {
+      throw taggedValidationError(
+        new TypeError(
+          `glyphcss field-synth: voice ${k}'s field${k}: "${field}" is a normal-derived field kind (VOLUMETRIC-4.md `
+          + `§1) — legal only in the colour voice stack (cfield1..${SYNTH_COLOR_VOICES}, with colorStackOn: true), `
+          + `never on an active geometry voice (amp${k} > 0). Move it to a colour voice, or pick a spatial field${k} `
+          + "for the geometry voice.",
+        ),
+        "normal-field-requires-color-stack",
+      );
+    }
+  }
+}
+
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
 // per full cell step, right and down) by finite-differencing
 // `fieldSynthCoordinate` at the neighboring cell indices. Exact for
@@ -2569,6 +2604,55 @@ export const sdfBloomPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   } as never,
 };
 
+// The colour voice stack's own shipped patch (VOLUMETRIC-4.md §1's "Shipped
+// patch") — one `incidence` colour voice in `colorMode: "hue"` is genuine
+// fresnel/rim-style iridescence, but its honest look differs by stage
+// geometry, which is why this ships as TWO presets rather than one:
+//
+// - "Iridescent sponge" (this preset): `mengerSpongePreset`'s exact recipe,
+//   unchanged, on the same axis-aligned cube stage. Under ORTHOGRAPHIC
+//   projection every view ray is parallel, so on an axis-aligned mesh
+//   `1 - |objectNormal . viewDir|` takes exactly THREE values — one per
+//   visible cube face (a reviewer-computed measurement at the real `/synth`
+//   ortho camera: 0.719 / 0.551 / 0.152, pinned in stock.test.ts). `cspeed1`
+//   slowly walks the shared `sin` phase, so those three flat face tones
+//   CYCLE through the hue wheel over time — this is precisely the cssGraphics
+//   Menger look (its palette was face-indexed and advanced with the rotation
+//   cycle). The claim here is "we reproduce it", NOT "we make it
+//   continuous" — see "Iridescent shell" below for that.
+export const iridescentSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Iridescent sponge", params: {
+    ...(mengerSpongePreset.params as AnyParams),
+    colorStackOn: true, colorMode: "hue",
+    cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
+    hueRange: 360, hueOffset: 0, hueSat: 80, hueLight: 55,
+  } as never,
+};
+
+// - "Iridescent shell": the SAME colour stack (mirrored `cfield1`/`cwave1`/
+//   `cspeed1`, only `hueSat` differs), on a SPHERE stage instead — the
+//   object-space normal varies CONTINUOUSLY over a sphere's surface, so
+//   `incidence` sweeps smoothly from 0 (face-on, the silhouette's own
+//   center) to 1 (grazing, the silhouette's rim) instead of collapsing to a
+//   handful of flat per-face tones. This is the patch that shows what the
+//   feature adds beyond cssGraphics: true continuous iridescence, not a
+//   cycling three-tone palette. Geometry is deliberately flat (`bias: 1,
+//   gain: 0` forces full coverage regardless of `field1`'s own value, and a
+//   single-glyph ramp keeps every covered cell the same dense glyph) so the
+//   colour stack owns the entire visible result — nothing about the shape
+//   itself competes with the iridescence for attention.
+export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Iridescent shell", params: {
+    space: "object", scale: 1, render: "paint",
+    field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+    bias: 1, gain: 0, glyphs: "█",
+    colorStackOn: true, colorMode: "hue",
+    cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
+    hueRange: 360, hueOffset: 0, hueSat: 90, hueLight: 55,
+  },
+};
+
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2613,6 +2697,8 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   mengerFlowPreset,
   breathingGyroidPreset,
   sdfBloomPreset,
+  iridescentSpongePreset,
+  iridescentShellPreset,
 ];
 
 
@@ -2722,9 +2808,28 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
     // is retained only for patches actually using the volumetric branch, and
     // objectExit only for patches actually carving or x-raying (most mounted
     // patches are 2D and pay for neither).
+    //
+    // VOLUMETRIC-4.md §1: `colorStackOn` additionally requests `objectNormal`
+    // (the colour stack's `normalX/Y/Z` source) and `objectExit` (paired with
+    // `objectPosition` for `incidence`'s `viewDir`), REGARDLESS of `space`/
+    // `render` — this hook only ever sees `params`, never a `colorProgram`
+    // (a colour voice using a normal-derived field could be hiding inside an
+    // opaque program), so it can't know in advance whether the colour stack
+    // will actually use one. Over-requesting here is cheap (an unused
+    // retained buffer costs a render pass, not correctness); the normal
+    // fields themselves still degrade to 0 outside `space: "object"`/solid
+    // mode (see `resolveNormalDerivedRaw` in `evaluate()`).
     dynamicRequirements(params) {
-      if (params.space !== "object") return [];
-      return params.render === "carve" || params.render === "xray" ? ["objectPosition", "objectExit"] : ["objectPosition"];
+      const reqs = new Set<GlyphEffectRequirement>();
+      if (params.space === "object") {
+        reqs.add("objectPosition");
+        if (params.render === "carve" || params.render === "xray") reqs.add("objectExit");
+      }
+      if (params.colorStackOn) {
+        reqs.add("objectNormal");
+        reqs.add("objectExit");
+      }
+      return Array.from(reqs);
     },
     // Program-as-data (VOLUMETRIC-3.md §4): packages/glyphcss's compositor
     // calls this at mount, once, when a layer's `program` option is present
@@ -2746,7 +2851,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
       validateGlyphFieldProgram(program);
     },
     // Structural enforcement, not just a test convention: any throw from the
-    // four validators below that isn't tagged with a registered
+    // five validators below that isn't tagged with a registered
     // `GLYPH_FIELD_SYNTH_VALIDATION_RULES` id surfaces as THIS distinct
     // "unregistered rule id" error instead of propagating untagged — so a new
     // throw site added to one of those validators without also registering
@@ -2757,6 +2862,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         validatePositiveScale(params);
         validateFieldSynthLayers(params as unknown as AnyParams);
         validateFieldSynthRender(params as unknown as AnyParams);
+        validateFieldSynthGeometryNormalFields(params as unknown as AnyParams);
       } catch (error) {
         const code = error instanceof Error ? (error as Partial<GlyphFieldSynthValidationError>).code : undefined;
         if (!code || !(GLYPH_FIELD_SYNTH_VALIDATION_RULES as readonly string[]).includes(code)) {
@@ -2939,6 +3045,62 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         xrayUniformSteps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
       }
 
+      // Normal-derived field sources (VOLUMETRIC-4.md §1's "Normal-derived
+      // field sources") are resolved HERE, per CELL — never inside
+      // fieldProgram.ts, which stays pure spatial math (see that module's own
+      // header). `field` is one of the four `NORMAL_DERIVED_FIELDS` kinds;
+      // `i` is the cell index. `normalX/Y/Z` read the object-space face
+      // normal buffer directly (VOLUMETRIC-4.md's documented v1
+      // approximation: under carve this is the ENTRY surface's normal, not
+      // the march hit's — interior walls seen through a hole tint like the
+      // front face). `incidence` is `1 - |objectNormal . viewDir|`, `viewDir
+      // = normalize(objectExit - objectPosition)` — the CELL's entry/exit
+      // chord direction, not the (possibly march-refined) sample point,
+      // because there is no camera position or view ray in the effect
+      // context and it cannot be recovered from a single frame's buffers;
+      // this is evaluated identically in every render mode INCLUDING paint.
+      // Degrades to 0 (never throws) whenever the buffers this needs aren't
+      // retained/finite at cell `i` — outside `space: "object"`/solid mode,
+      // at an occlusion-blanked/empty cell, or a degenerate (zero-length)
+      // chord.
+      function resolveNormalDerivedRaw(field: string, i: number): number {
+        const onBuf = context.base.objectNormal;
+        if (!onBuf) return 0;
+        const onx = onBuf[i * 3]!, ony = onBuf[i * 3 + 1]!, onz = onBuf[i * 3 + 2]!;
+        if (!Number.isFinite(onx) || !Number.isFinite(ony) || !Number.isFinite(onz)) return 0;
+        if (field === "normalX") return onx;
+        if (field === "normalY") return ony;
+        if (field === "normalZ") return onz;
+        // "incidence"
+        const opBuf = context.base.objectPosition;
+        const exBuf = context.base.objectExit;
+        if (!opBuf || !exBuf) return 0;
+        const px = opBuf[i * 3]!, py = opBuf[i * 3 + 1]!, pz = opBuf[i * 3 + 2]!;
+        const ex = exBuf[i * 3]!, ey = exBuf[i * 3 + 1]!, ez = exBuf[i * 3 + 2]!;
+        if (
+          !Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)
+          || !Number.isFinite(ex) || !Number.isFinite(ey) || !Number.isFinite(ez)
+        ) return 0;
+        const vx = ex - px, vy = ey - py, vz = ez - pz;
+        const len = Math.hypot(vx, vy, vz);
+        if (!(len > 0) || !Number.isFinite(len)) return 0;
+        const dot = (onx * vx + ony * vy + onz * vz) / len;
+        return 1 - Math.abs(dot);
+      }
+
+      // The thin per-voice substitution wrapper (VOLUMETRIC-4.md §1:
+      // "Resolved PER CELL in stock.ts, substituted into the colour
+      // program's evaluation"): intercepts ONLY the four normal-derived
+      // kinds via `evaluateFieldProgram`'s `rawOverride` seam, letting every
+      // other field kind fall through to fieldProgram.ts's own spatial
+      // sampling untouched (`undefined` return). Built fresh per cell — the
+      // colour program is the only caller that ever needs it, since these
+      // kinds are rejected on every geometry voice (see
+      // `validateFieldSynthGeometryNormalFields`).
+      function colorVoiceRawOverride(i: number): FieldVoiceRawOverride {
+        return (voice) => (NORMAL_DERIVED_FIELDS.has(voice.field) ? resolveNormalDerivedRaw(voice.field, i) : undefined);
+      }
+
       // One evaluator for the whole program (see `evaluateFieldProgram`) so
       // the scalar here, the 2x4 subcell probes, the ink gradient probes, and
       // carve's march can never disagree about what the patch sounds like.
@@ -2952,7 +3114,11 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
       // (see `FieldSynthPointSample`'s doc) — evaluates the program and the
       // voiceColors contribution at one point, without deciding whether that
       // point actually emits (the caller applies the ink/non-ink skip rule).
-      function computeFieldSynthPoint(x: number, y: number, z: number, cx: number, cy: number, cz: number): FieldSynthPointSample {
+      // `i` (the cell index) is used ONLY by the colour stack's normal-field
+      // substitution above — the geometry program (`fieldProgram`) never
+      // reads it, matching its own `(x, y, z, cx, cy, cz)` pure-spatial call
+      // below.
+      function computeFieldSynthPoint(i: number, x: number, y: number, z: number, cx: number, cy: number, cz: number): FieldSynthPointSample {
         const stack = evaluateFieldProgram(fieldProgram, x, y, z, time, cx, cy, cz);
         // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
         // and drives the normal blend; `caw` (amp alone) is always > 0 for an
@@ -2997,9 +3163,11 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         // Colour voice stack (VOLUMETRIC-4.md §1): evaluated at this SAME
         // (x, y, z, cx, cy, cz) the geometry stack just resolved — the RAW
         // fold, mapped per `colorMode` in `resolveFieldSynthColor`. `NaN`
-        // when the stack is off (`colorProgram` is `null`).
+        // when the stack is off (`colorProgram` is `null`). The `rawOverride`
+        // is the normal-field substitution wrapper above — a no-op for every
+        // colour voice that isn't one of the four normal-derived kinds.
         const colorValue = colorProgram
-          ? evaluateFieldProgram(colorProgram, x, y, z, time, cx, cy, cz).combined
+          ? evaluateFieldProgram(colorProgram, x, y, z, time, cx, cy, cz, colorVoiceRawOverride(i)).combined
           : Number.NaN;
         return { active: stack.active, value, cr, cg, cbv, cw, co, car, cag, cabv, cao, caw, colorValue };
       }
@@ -3201,7 +3369,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           // TRUE entry (`hitX/Y/Z` still default to `entryX/Y/Z`, `distance`
           // to 0) — carve's fallback emits only when that entry is solid;
           // silhouette closure comes from rule (a) below, not this fallback.
-          const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
+          const point = computeFieldSynthPoint(i, hitX, hitY, hitZ, cx, cy, cz);
           if (point.active === 0 || point.value <= 0) { hitState[i] = CARVE_INK_HOLE; continue; }
           hitState[i] = CARVE_INK_HIT;
           hitDistance[i] = distance;
@@ -3504,14 +3672,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           if (chordLength > 0 && Number.isFinite(chordLength)) {
             const result = marchField([ex, ey, ez], [xx, xy, xz], densitySample, { steps, maxSteps: steps, finestFreq: 0, time });
             if (!result.hit) return null;
-            const point = computeFieldSynthPoint(result.sampleX, result.sampleY, result.sampleZ, cx, cy, cz);
+            const point = computeFieldSynthPoint(i, result.sampleX, result.sampleY, result.sampleZ, cx, cy, cz);
             if (point.active === 0 || point.value <= 0) return null;
             const resolved = resolveFieldSynthColor(i, point, Math.exp(-params.marchFade * result.sampleDistance));
             return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
           }
           // Degenerate sub-ray chord: sample directly at its (shared) entry
           // point, same t=0 fallback the 1x1/ink paths use.
-          const point = computeFieldSynthPoint(ex, ey, ez, cx, cy, cz);
+          const point = computeFieldSynthPoint(i, ex, ey, ez, cx, cy, cz);
           if (point.active === 0 || point.value <= 0) return null;
           const resolved = resolveFieldSynthColor(i, point, 1);
           return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
@@ -3638,7 +3806,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           // objectExit is retained for a covered cell, but degrades the same
           // way — surface sampling at the entry point).
 
-          const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
+          const point = computeFieldSynthPoint(i, hitX, hitY, hitZ, cx, cy, cz);
           // This is the plain `subcellRes: "1x1"` carve path — "ink" and
           // "2x4" both branch out above (carveInkActive / runCarveBrailleCell)
           // before this loop body runs, so the skip rule here is the plain,
@@ -3731,7 +3899,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           if (!coord) continue;
           x = coord[0]; y = coord[1]; cx = coord[2]; cy = coord[3]; z = 0; cz = 0;
         }
-        const point = computeFieldSynthPoint(x, y, z, cx, cy, cz);
+        const point = computeFieldSynthPoint(i, x, y, z, cx, cy, cz);
         if (point.active === 0) continue;
         const value = point.value;
         const inkMode = params.subcellRes === "ink";
