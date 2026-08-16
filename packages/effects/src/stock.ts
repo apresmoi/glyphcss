@@ -2137,21 +2137,39 @@ export const sierpinskiPyramidPreset: GlyphEffectPreset<typeof fieldSynthSchema>
 // "structure averages into fog" — unless shaped near-binary first).
 // Thresholding the layer (not raising `gain`/`bias`) is the more literal
 // fix: it turns the gyroid's continuous implicit into an exact two-level
-// read of "which labyrinth half" at every point, at the SCHEMA's default
-// bias/gain (0.5/1) — so absorbing through a hole-dominated chord and a
-// solid-dominated chord land at genuinely different brightness levels
-// (~0.53 vs ~0.90 at the tuned `xrayGain` below) instead of both washing
-// out toward the same mid-gray fog average.
-// `xrayGain: 1.5` (below the schema default of 4) is deliberate: at 4,
-// even a hole-dominated chord's much weaker 0.25 density already
-// integrates to near-total absorption over a couple of domain units,
-// flattening the whole image to solid white and hiding exactly the
-// structure this preset exists to show. 1.5 keeps both halves' brightness
-// visibly distinct across the cube stage's typical chord lengths.
+// read of "which labyrinth half" at every point, so absorbing through a
+// hole-dominated chord and a solid-dominated chord land at genuinely
+// different brightness levels instead of both washing out toward the same
+// mid-gray fog average.
+//
+// Retuned (user report: "looks awful, too much transparency and high scale
+// doesn't let you see anything") from the original `scale: 1, freq1: 2,
+// xrayGain: 1.5`. Real-scene band-contrast measurement (the cube stage,
+// rotX 22/rotY 30, the same harness stock.test.ts's P2 describe block
+// uses) diagnosed BOTH complaints as the same root cause: `scale * freq`
+// packed ~4 gyroid periods across the cube's body diagonal, so at every
+// chord the labyrinth's own solid/hole alternation averaged out within a
+// single cell — same failure mode as the un-thresholded "fog" case, just
+// one level removed — and the low `xrayGain` then made even the
+// hole-dominated average read as a faint, near-empty (transparent) cell.
+// `scale: 1 → 0.4` and `freq1: 2 → 1.5` together drop the period count to
+// under 1 across the cube (bigger, individually resolvable labyrinth
+// cells); `xrayGain: 1.5 → 3` restores absorption contrast now that a
+// chord more often stays on one side of the labyrinth for its whole
+// length. Measured on the real cube-stage chords (stock.test.ts's P2
+// describe block): the chord-controlled within-chord-length-bin brightness
+// std rose from ~0.069 (old) to ~0.102 (new) — a real, not just
+// proportional, legibility gain — while the ratio against the
+// `layerThresholdOn1: false` negative control on the SAME chords stayed
+// comfortably above 1 (~1.27), so the threshold shaping is still doing the
+// separating, not merely a higher-contrast fog. Eyeballed via ASCII dumps
+// of the real render: the old params painted one nearly-solid, edge-lit
+// blob; the retuned params paint a legible meander of open/solid cells
+// that actually reads as a labyrinth.
 export const gyroidXrayPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Gyroid xray", params: {
-    space: "object", scale: 1, render: "xray", xrayGain: 1.5,
-    field1: "gyroid", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, phase1: 0,
+    space: "object", scale: 0.4, render: "xray", xrayGain: 3,
+    field1: "gyroid", wave1: "sin", freq1: 1.5, speed1: 0, amp1: 1, phase1: 0,
     amp2: 0, amp3: 0,
     layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: false,
     glyphs: " .:-=+*#%@", color: "#8fd8ff", colorB: "#c9a6ff", gradient: 0.6, lit: 1,

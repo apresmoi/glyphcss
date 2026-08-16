@@ -2076,7 +2076,10 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
       // preset above it.
       "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
-      "Gyroid xray": { render: "770251e5", params: "19475e84" },
+      // Re-pinned deliberately: retuned `scale`/`freq1`/`xrayGain` for
+      // legibility (see `gyroidXrayPreset`'s doc in stock.ts and the P2
+      // real-scene band-contrast test below).
+      "Gyroid xray": { render: "f7783431", params: "828d26a8" },
       // Added in VOLUMETRIC-3.md's Phase 3 — the sphere-tracing oracle's own
       // fixtures (real SDF voices, not the linear recipe the two presets
       // above use). Pinned the same way as every preset above it.
@@ -4435,7 +4438,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
   function evaluateBrightness(
     chords: { cols: number; rows: number; length: number; objectPosition: Float32Array; objectExit: Float32Array },
     overrides: Record<string, number | string | boolean> = {},
-  ): { chordLength: number; brightness: number }[] {
+  ): { chordLength: number; brightness: number }[] & { emittedFraction: number } {
     const { cols, rows, length, objectPosition, objectExit } = chords;
     const params = {
       ...defaultGlyphEffectParams(fieldSynth),
@@ -4474,15 +4477,27 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     } as never);
 
     const samples: { chordLength: number; brightness: number }[] = [];
+    // Legibility ("too much transparency") tracking: `baseCovered` is every
+    // cell the base mesh's own silhouette covers (finite objectPosition);
+    // `emitted` is the subset xray actually painted (brightness >= 1/255 —
+    // see stock.ts's `if (brightness < 1/255) continue`). The gap between
+    // them is cells that fall through to the page background inside the
+    // cube's own outline — the visual "see-through" complaint.
+    let baseCovered = 0, emitted = 0;
     for (let i = 0; i < length; i++) {
+      if (!Number.isFinite(objectPosition[i * 3]!)) continue;
+      baseCovered++;
       if (output.coverage[i]! <= 0) continue;
+      emitted++;
       const ex = objectPosition[i * 3]!, ey = objectPosition[i * 3 + 1]!, ez = objectPosition[i * 3 + 2]!;
       const xx = objectExit[i * 3]!, xy = objectExit[i * 3 + 1]!, xz = objectExit[i * 3 + 2]!;
       const chordLength = Math.hypot(xx - ex, xy - ey, xz - ez);
       if (!Number.isFinite(chordLength) || chordLength <= 0) continue;
       samples.push({ chordLength, brightness: (output.color[i]! & 0xff) / 255 });
     }
-    return samples;
+    const tagged = samples as { chordLength: number; brightness: number }[] & { emittedFraction: number };
+    tagged.emittedFraction = baseCovered > 0 ? emitted / baseCovered : 0;
+    return tagged;
   }
 
   // Fog predicts B is (nearly) a function of chord length alone — grouping
@@ -4535,7 +4550,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     const fogStat = withinBinSpread(fog);
     // eslint-disable-next-line no-console
     console.log("Gyroid xray P2 chord-controlled within-bin brightness std:", {
-      thresholded: { ...thresholdedStat, n: thresholded.length },
+      thresholded: { ...thresholdedStat, n: thresholded.length, emittedFraction: thresholded.emittedFraction },
       fog: { ...fogStat, n: fog.length },
       ratio: thresholdedStat.stat / fogStat.stat,
     });
@@ -4548,15 +4563,48 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     // structure survives chord-length control) and the negative control
     // must fail it (proving the statistic actually discriminates structure
     // from the geometric confound, not just that the shipped preset clears
-    // an arbitrary number). Measured ~0.069 (thresholded) vs ~0.049 (fog);
-    // 0.058 sits with margin on both sides.
-    const bound = 0.058;
+    // an arbitrary number).
+    //
+    // Re-pinned for the legibility retune (user report: "looks awful, too
+    // much transparency and high scale doesn't let you see anything" — see
+    // `gyroidXrayPreset`'s doc in stock.ts). Measured on the retuned preset
+    // (`scale: 0.4, freq1: 1.5, xrayGain: 3`, down from `scale: 1, freq1: 2,
+    // xrayGain: 1.5`) against the SAME real cube-stage chords: ~0.102
+    // (thresholded) vs ~0.080 (fog); 0.09 sits with margin on both sides —
+    // and both are well above the OLD preset's own ~0.069, which is exactly
+    // the legibility gain this retune was for (see the absolute-floor
+    // assertion below).
+    const bound = 0.09;
     expect(thresholdedStat.stat).toBeGreaterThan(bound);
     expect(fogStat.stat).toBeLessThan(bound);
-    // Consistent-ratio corroboration (measured ~1.35-1.45x, stable across
-    // the bin-parameter sweep and a 4x resolution change) — well below that
-    // observed range so it isn't brittle to small evaluator changes.
+    // Consistent-ratio corroboration (measured ~1.27x on the retuned
+    // preset — lower than the old preset's ~1.35-1.45x, since raising
+    // `xrayGain` also raises the fog control's own contrast, but still well
+    // clear of parity).
     expect(thresholdedStat.stat / fogStat.stat).toBeGreaterThan(1.15);
+
+    // New legibility assertions (VOLUMETRIC-2.md §1's retune): the ratio
+    // check above only proves the threshold shaping still separates
+    // structure from a fog baseline — it says nothing about whether that
+    // separation is big enough to actually READ as a labyrinth, and it says
+    // nothing about the "too much transparency" half of the complaint at
+    // all. Both are asserted directly, in absolute terms, on real chords:
+    //
+    // 1) Structure-vs-background separation clears a MUCH higher absolute
+    //    bar than the old preset ever reached (~0.069, measured above) —
+    //    not just "higher than fog", but higher than what the old, user-
+    //    reported-as-illegible preset itself produced.
+    expect(thresholdedStat.stat).toBeGreaterThan(0.085);
+    // 2) Most of the cube's own silhouette actually emits something. The
+    //    old preset's low `xrayGain` let cells whose chord leaned
+    //    hole-dominated integrate to near-zero brightness and fall under
+    //    the `brightness < 1/255` no-emit cutoff (stock.ts), reading as
+    //    empty page background inside the cube's outline — the
+    //    "transparency" half of the complaint. Measured ~0.954 emitted on
+    //    the retuned preset (was already ~0.992 on the old one — this
+    //    guards against a future retune reintroducing the regression, not
+    //    a claim the old preset failed this specific check).
+    expect(thresholded.emittedFraction).toBeGreaterThan(0.9);
   });
 });
 
