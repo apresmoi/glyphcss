@@ -2019,6 +2019,11 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // preset above it.
       "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
       "Gyroid xray": { render: "770251e5", params: "19475e84" },
+      // Added in VOLUMETRIC-3.md's Phase 3 — the sphere-tracing oracle's own
+      // fixtures (real SDF voices, not the linear recipe the two presets
+      // above use). Pinned the same way as every preset above it.
+      "Menger SDF": { render: "256a7e47", params: "07881474" },
+      "Sierpinski SDF": { render: "9d7a7abb", params: "da384260" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());

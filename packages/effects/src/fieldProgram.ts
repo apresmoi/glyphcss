@@ -399,6 +399,24 @@ export interface FieldEvalResult {
 // one formula: `diagonal` and `noise` are NOT the same function at z=0 as in
 // 2D (see VOLUMETRIC.md's "Primitives in 3D" table) — changing that would
 // silently alter every existing 2D diagonal/noise patch.
+// Rotate the SAMPLE about this voice's own centre rather than rotating the
+// field: radial/spiral then stay anchored where they were, and a linear
+// field becomes a plane wave at `angle`. Z is untouched — angle is always a
+// rotation about Z, in both the 2D and volumetric branches. Factored out of
+// `sampleFieldVoice`'s own top-of-function block (below) so
+// `sdfVoiceLatticeCoords` — the sphere-tracing oracle's raw-SDF coordinate
+// derivation (VOLUMETRIC-3.md §3) — shares the EXACT same rotation
+// arithmetic instead of a second, driftable copy of it.
+function rotateVoiceSample(x: number, y: number, cx: number, cy: number, angleDeg: number): readonly [number, number] {
+  if (angleDeg === 0) return [x, y];
+  const a = (-angleDeg * Math.PI) / 180;
+  const dx = x - cx;
+  const dy = y - cy;
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  return [cx + dx * ca - dy * sa, cy + dx * sa + dy * ca];
+}
+
 export function sampleFieldVoice(
   voice: FieldVoice,
   x: number, y: number, z: number,
@@ -406,21 +424,7 @@ export function sampleFieldVoice(
   time: number,
   volumetric: boolean,
 ): number {
-  let sx = x;
-  let sy = y;
-  if (voice.angle !== 0) {
-    // Rotate the SAMPLE about this voice's own centre rather than rotating
-    // the field: radial/spiral then stay anchored where they were, and a
-    // linear field becomes a plane wave at `angle`. Z is untouched — angle
-    // is always a rotation about Z, in both the 2D and volumetric branches.
-    const a = (-voice.angle * Math.PI) / 180;
-    const dx = x - cx;
-    const dy = y - cy;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
-    sx = cx + dx * ca - dy * sa;
-    sy = cy + dx * sa + dy * ca;
-  }
+  const [sx, sy] = rotateVoiceSample(x, y, cx, cy, voice.angle);
 
   if (voice.field === "noise") {
     const n = volumetric
@@ -503,6 +507,27 @@ export function sampleFieldVoice(
     }
   }
   return synthWave(voice.wave, raw * voice.freq - time * voice.speed + voice.phase, voice.duty);
+}
+
+// The SDF voice family's own coordinate derivation (rotate -> translate by
+// origin -> scale by freq), exposed standalone so `buildGlyphFieldDistanceOracle`
+// (VOLUMETRIC-3.md §3) can hand the SAME lattice-space point to
+// `mengerFractalSdf`/`sierpinskiFractalSdf` that `sampleFieldVoice`'s own SDF
+// branch above evaluates — sharing `rotateVoiceSample` is what keeps the two
+// derivations from drifting apart; this only adds the translate+scale on top,
+// the same two lines `sampleFieldVoice`'s SDF branch already does inline.
+// gyroid is deliberately not special-cased here (it has no genuine distance
+// reading — see `buildGlyphFieldDistanceOracle`'s gyroid exclusion), so this
+// helper's contract is scoped to the menger/sierpinski callers that actually
+// use it.
+function sdfVoiceLatticeCoords(
+  voice: FieldVoice,
+  x: number, y: number, z: number,
+  cx: number, cy: number, cz: number,
+): readonly [number, number, number] {
+  const [sx, sy] = rotateVoiceSample(x, y, cx, cy, voice.angle);
+  const qx = sx - cx, qy = sy - cy, qz = z - cz;
+  return [qx * voice.freq, qy * voice.freq, qz * voice.freq];
 }
 
 /**
@@ -837,6 +862,241 @@ export function marchField(
     prevFinite = finite;
     prevT = t;
     prevValue = value;
+  }
+  return { hit: false };
+}
+
+// ---- signed-distance oracle + sphere tracer (VOLUMETRIC-3.md §3) --------
+
+/**
+ * A genuine signed distance to a compiled program's solid boundary, in
+ * DOMAIN units (negative inside, matching every SDF primitive's convention —
+ * see `sdfBox`'s doc). `(originX, originY, originZ)` is the same call-level
+ * pattern origin `evaluateFieldProgram` takes, defaulting to (0, 0, 0).
+ * Returned by `buildGlyphFieldDistanceOracle` for a program it has confirmed
+ * IS distance-true; never constructed by hand.
+ */
+export type FieldDistanceSampler = (
+  x: number, y: number, z: number,
+  originX?: number, originY?: number, originZ?: number,
+) => number;
+
+/**
+ * The two scalar params `buildGlyphFieldDistanceOracle`'s bias/gain regime
+ * check needs. Kept narrow (not field-synth's full schema-derived params
+ * type) so this module stays dependency-free of any particular effect's
+ * param shape, per this file's header doc — a caller's wider params object
+ * satisfies this structurally.
+ */
+export interface FieldDistanceOracleParams {
+  readonly bias: number;
+  readonly gain: number;
+}
+
+/**
+ * Build a signed-distance oracle for a compiled `FieldProgram`, or return
+ * `null` when the program is not — provably, by construction — a genuine
+ * distance field (VOLUMETRIC-3.md §3's qualifying predicate, every condition
+ * normative):
+ *
+ * - Exactly one POPULATED layer (a layer with at least one `amp > 0` voice);
+ *   every other layer must be empty. Multiple populated layers fold through
+ *   `combineSynth`, which is a VALUE op with no distance-preserving meaning.
+ * - Every ACTIVE voice in that layer is `field: "menger"` or `"sierpinski"`
+ *   — `"gyroid"`'s implicit has no genuine distance reading (it is a
+ *   continuous sinusoidal field, not a distance to a boundary), so it is
+ *   EXCLUDED even though it shares the SDF voice family's coordinate
+ *   derivation.
+ * - Every active voice has `wave: "step"` (any other wave warps the raw SDF
+ *   through a NON-distance-preserving nonlinearity — `sin`/`triangle`/etc.
+ *   destroy the metric) and `amp === 1` exactly (amp is a MIX WEIGHT — see
+ *   `foldVoices`'s doc — and any weight other than 1 scales the folded VALUE,
+ *   not the distance, breaking the `sdf - c` reading below).
+ * - The layer's `combine` is `"min"` — the qualifying fold: the shipped
+ *   field is `-sdf` (positive inside), so voice outputs are ±1 with +1 =
+ *   solid; `min` over ±1 values is +1 (solid) iff EVERY voice says solid —
+ *   an INTERSECTION of solids. Distance to an intersection is the MAX of
+ *   the members' distances (not `min` — an executed counter-case: min-of-
+ *   distances terminates inside the union, hitting where the solid test
+ *   says empty; see `program` below for why this oracle folds with `max`
+ *   instead of mirroring `combine` literally).
+ * - The layer's `thresholdOn` is `false` (a threshold is itself a second,
+ *   separate non-distance-preserving step function).
+ * - `invert` may be `true` or `false` — negating a genuine signed distance
+ *   is still a genuine signed distance to the SAME boundary (just the
+ *   complement's), so it's allowed and applied to the final `max` fold, not
+ *   per-voice.
+ * - `params.bias`/`params.gain` are in the step-selective regime:
+ *   `bias + gain/2 > 0 && bias - gain/2 <= 0` — the ±1 step field's two
+ *   levels must straddle the density mapping's own solid/empty split
+ *   (`clamp01(bias + gain*v*0.5) > 0`). Outside this regime the density
+ *   mapping is all-solid or all-empty regardless of the ±1 value, so the
+ *   surface the tracer would target isn't the iso level the solid test
+ *   actually reads (measured regime table, VOLUMETRIC-3.md §3).
+ *
+ * Per voice, `D_i(p) = (sdf_i(freq_i * R_i(p - o_i)) - c_i) / freq_i`, where
+ * `R_i` is the voice's own `angle` rotation, `o_i` its origin, and
+ * `c_i = phase_i - speed_i * time` (folded in once, at BUILD time — the
+ * returned oracle takes no `time` argument). Dividing by `freq_i` is load-
+ * bearing: the raw SDF is evaluated on freq-SCALED coordinates, so its value
+ * is in LATTICE units; stepping by it un-divided overshoots by `freq`
+ * (measured 2.9x at freq 3) and tunnels exactly the thin walls the Nyquist
+ * floor exists to protect. The program oracle is `D(p) = max_i D_i(p)`
+ * (negated as a whole when `invert` is set) — the intersection reading
+ * above, applied to genuine per-voice distances rather than to the ±1
+ * VALUES `combine: "min"` folds at evaluation time (those are two different
+ * operations that happen to share a name in the qualifying case: value-`min`
+ * over ±1 outputs, distance-`max` over the SAME voices' distances).
+ */
+export function buildGlyphFieldDistanceOracle(
+  program: FieldProgram,
+  params: FieldDistanceOracleParams,
+  time: number,
+): FieldDistanceSampler | null {
+  if (!(params.bias + params.gain / 2 > 0 && params.bias - params.gain / 2 <= 0)) return null;
+
+  const populatedLayers = program.layers.filter((layer) => layer.voices.some((voice) => voice.amp > 0));
+  if (populatedLayers.length !== 1) return null;
+  const layer = populatedLayers[0]!;
+  if (layer.combine !== "min" || layer.thresholdOn) return null;
+
+  const activeVoices = layer.voices.filter((voice) => voice.amp > 0);
+  if (activeVoices.length === 0) return null;
+  for (const voice of activeVoices) {
+    if (voice.field !== "menger" && voice.field !== "sierpinski") return null;
+    if (voice.wave !== "step") return null;
+    if (voice.amp !== 1) return null;
+    if (!(voice.freq > 0) || !Number.isFinite(voice.freq)) return null;
+  }
+
+  const invert = layer.invert;
+  const perVoice = activeVoices.map((voice) => ({
+    voice,
+    iter: clampSdfIter(voice.iter),
+    c: voice.phase - voice.speed * time,
+  }));
+
+  return (x, y, z, originX = 0, originY = 0, originZ = 0) => {
+    let maxD = -Infinity;
+    for (const { voice, iter, c } of perVoice) {
+      const cx = originX + voice.origin.u;
+      const cy = originY + voice.origin.v;
+      const cz = originZ + voice.origin.w;
+      const [fx, fy, fz] = sdfVoiceLatticeCoords(voice, x, y, z, cx, cy, cz);
+      const raw = voice.field === "menger" ? mengerFractalSdf(fx, fy, fz, iter) : sierpinskiFractalSdf(fx, fy, fz, iter);
+      const d = (raw - c) / voice.freq;
+      if (d > maxD) maxD = d;
+    }
+    return invert ? -maxD : maxD;
+  };
+}
+
+/** Sphere-march safety factor — steps by `SPHERE_MARCH_SAFETY * D` rather
+ *  than the full reported distance, the standard conservative-step
+ *  convention that absorbs a not-quite-Lipschitz-1 SDF near a sharp feature
+ *  without overshooting past it. */
+export const SPHERE_MARCH_SAFETY = 0.9;
+/** Hard cap on sphere-march steps; exhausting it without a confirmed hit is
+ *  a miss (VOLUMETRIC-3.md §3). */
+export const SPHERE_MARCH_MAX_STEPS = 64;
+/** Domain-unit overshoot PAST a detected sign change, further INTO the
+ *  solid, before the confirming real-sampler resample (VOLUMETRIC-3.md
+ *  §3) — small relative to the thinnest qualifying feature at the schema's
+ *  max iter/freq, large enough to clear float noise at the crossing
+ *  itself. */
+export const SPHERE_MARCH_OVERSHOOT_EPSILON = 1e-4;
+
+export interface FieldSphereMarchOptions {
+  /** The REAL (non-distance) field sampler — same contract as `marchField`'s
+   *  own `sampler` — used to CONFIRM a sign-change step before it emits. */
+  readonly sampler: FieldSampler;
+  readonly time?: number;
+  readonly originX?: number;
+  readonly originY?: number;
+  readonly originZ?: number;
+}
+
+/**
+ * Sphere-trace the segment `entry -> exit` against a signed-distance
+ * `oracle` (VOLUMETRIC-3.md §3) — `marchField`'s sibling for programs
+ * `buildGlyphFieldDistanceOracle` has confirmed ARE genuine distance fields.
+ * Steps by `oracle(p) * SPHERE_MARCH_SAFETY` instead of a fixed grid,
+ * converging on thin or deep features a fixed step count would either
+ * overshoot or need many more steps to resolve.
+ *
+ * Contract:
+ * - `oracle(entry) <= 0` (already inside) hits immediately at `t = 0`,
+ *   mirroring `marchField`'s own entry-already-solid short circuit —
+ *   `distance`/`sampleDistance` 0, emission position = entry.
+ * - Otherwise steps forward by `SPHERE_MARCH_SAFETY * D` each iteration, up
+ *   to `SPHERE_MARCH_MAX_STEPS` times. A step whose new position reads
+ *   `<= 0` is a sign change. The reported hit is never that raw crossing
+ *   itself: it overshoots `SPHERE_MARCH_OVERSHOOT_EPSILON` further INTO the
+ *   solid along the ray and re-samples with the REAL field `sampler` there,
+ *   confirming `> 0` before emitting — the same plateau discipline
+ *   `marchField`'s own doc describes (a hard-thresholded field can sit
+ *   exactly on its own boundary, so the emitted point must be a raw sample
+ *   the real sampler actually measured solid, never an oracle-only
+ *   position).
+ * - An unconfirmed sign change (the real sampler disagrees with the oracle
+ *   at the overshoot sample) reports a miss — there is no confirmed
+ *   evidence of solid material along this ray, the same rule `marchField`
+ *   applies to a non-finite sample.
+ * - Exhausting `SPHERE_MARCH_MAX_STEPS` steps, or stepping past `exit`,
+ *   without a confirmed hit is a miss.
+ * - A degenerate segment (`entry === exit`, zero-length or non-finite
+ *   chord) always misses, same as `marchField`.
+ *
+ * A confirmed hit's `t`/`distance`/`x`/`y`/`z` equal its own `sampleT`/
+ * `sampleDistance`/`sampleX`/`sampleY`/`sampleZ` — unlike `marchField`'s
+ * secant refinement, there is no separate interpolated position here: the
+ * emitted point IS the confirmed raw sample (slice-1's plateau discipline).
+ */
+export function marchGlyphFieldSphere(
+  entry: readonly [number, number, number],
+  exit: readonly [number, number, number],
+  oracle: FieldDistanceSampler,
+  opts: FieldSphereMarchOptions,
+): FieldMarchResult {
+  const [ex, ey, ez] = entry;
+  const [xx, xy, xz] = exit;
+  const dx = xx - ex, dy = xy - ey, dz = xz - ez;
+  const chordLength = Math.hypot(dx, dy, dz);
+  if (!(chordLength > 0) || !Number.isFinite(chordLength)) return { hit: false };
+
+  const originX = opts.originX ?? 0, originY = opts.originY ?? 0, originZ = opts.originZ ?? 0;
+  const time = opts.time ?? 0;
+  const ux = dx / chordLength, uy = dy / chordLength, uz = dz / chordLength;
+  const sampleD = (px: number, py: number, pz: number): number => oracle(px, py, pz, originX, originY, originZ);
+
+  let d = sampleD(ex, ey, ez);
+  if (!Number.isFinite(d)) return { hit: false };
+  if (d <= 0) {
+    return { hit: true, t: 0, distance: 0, x: ex, y: ey, z: ez, sampleT: 0, sampleX: ex, sampleY: ey, sampleZ: ez, sampleDistance: 0 };
+  }
+
+  let dist = 0;
+  for (let i = 0; i < SPHERE_MARCH_MAX_STEPS; i++) {
+    dist += SPHERE_MARCH_SAFETY * d;
+    if (dist >= chordLength) return { hit: false };
+    const px = ex + ux * dist, py = ey + uy * dist, pz = ez + uz * dist;
+    d = sampleD(px, py, pz);
+    if (!Number.isFinite(d)) return { hit: false };
+    if (d <= 0) {
+      const confirmDist = Math.min(dist + SPHERE_MARCH_OVERSHOOT_EPSILON, chordLength);
+      const cx = ex + ux * confirmDist, cy = ey + uy * confirmDist, cz = ez + uz * confirmDist;
+      const real = opts.sampler(cx, cy, cz, time);
+      if (!(Number.isFinite(real) && real > 0)) return { hit: false };
+      return {
+        hit: true,
+        t: confirmDist / chordLength,
+        distance: confirmDist,
+        x: cx, y: cy, z: cz,
+        sampleT: confirmDist / chordLength,
+        sampleX: cx, sampleY: cy, sampleZ: cz,
+        sampleDistance: confirmDist,
+      };
+    }
   }
   return { hit: false };
 }

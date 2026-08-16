@@ -17,8 +17,10 @@ import {
   GlyphFieldSynthEffect as fieldSynth,
   GlyphCubeTilesPreset,
   GlyphGyroidXrayPreset,
+  GlyphMengerSdfPreset,
   GlyphMengerSpongePreset,
   GlyphSierpinskiPyramidPreset,
+  GlyphSierpinskiSdfPreset,
   buildGlyphFieldSynthStaticExport,
   calibrateGlyphRamp,
   combineSynth,
@@ -1388,6 +1390,13 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // Stage folder's auto-orbit (VOLUMETRIC-2.md §4) cycles the azimuth anyway.
   [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
   [GlyphGyroidXrayPreset as GlyphEffectPreset<never>, { shape: "cube" }],
+  // Sphere-tracing fixtures (VOLUMETRIC-3.md §3) — same stage pairing as
+  // their linear-recipe siblings above (menger -> cube, sierpinski ->
+  // pyramid), same face-on-ish angle rationale for the menger fixture's
+  // centered, only-partially-aligned cube mapping (see `mengerSdfPreset`'s
+  // own doc in stock.ts for why it can't fill the cube edge-to-edge).
+  [GlyphMengerSdfPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
+  [GlyphSierpinskiSdfPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`

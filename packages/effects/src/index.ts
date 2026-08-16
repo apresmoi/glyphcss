@@ -45,6 +45,23 @@ export type {
   FieldVoice as GlyphFieldVoice,
 } from "./fieldProgram";
 
+// Sphere tracing for carve (VOLUMETRIC-3.md §3) — `buildGlyphFieldDistanceOracle`
+// and `marchGlyphFieldSphere` already carry the `Glyph` prefix in
+// `fieldProgram.ts` itself (unlike `marchField`/`evaluateFieldProgram` above,
+// which get it only at this re-export boundary), so no rename here.
+export {
+  buildGlyphFieldDistanceOracle,
+  marchGlyphFieldSphere,
+  SPHERE_MARCH_MAX_STEPS as GLYPH_SPHERE_MARCH_MAX_STEPS,
+  SPHERE_MARCH_OVERSHOOT_EPSILON as GLYPH_SPHERE_MARCH_OVERSHOOT_EPSILON,
+  SPHERE_MARCH_SAFETY as GLYPH_SPHERE_MARCH_SAFETY,
+} from "./fieldProgram";
+export type {
+  FieldDistanceOracleParams as GlyphFieldDistanceOracleParams,
+  FieldDistanceSampler as GlyphFieldDistanceSampler,
+  FieldSphereMarchOptions as GlyphFieldSphereMarchOptions,
+} from "./fieldProgram";
+
 export {
   fieldSynth as GlyphFieldSynthEffect,
   flowText as GlyphFlowTextEffect,
@@ -64,8 +81,10 @@ export {
 export {
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
+  mengerSdfPreset as GlyphMengerSdfPreset,
   mengerSpongePreset as GlyphMengerSpongePreset,
   sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
+  sierpinskiSdfPreset as GlyphSierpinskiSdfPreset,
 } from "./stock";
 
 export type {

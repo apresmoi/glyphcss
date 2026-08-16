@@ -9,12 +9,14 @@ import {
   type GlyphEffectParamValues,
 } from "glyphcss";
 import {
+  buildGlyphFieldDistanceOracle,
   combineSynth,
   effectiveVoiceFinestFreq,
   evaluateFieldProgram,
   fieldStepCount,
   integrateField,
   marchField,
+  marchGlyphFieldSphere,
   sampleFieldVoice,
   SYNTH_COMBINES,
   SYNTH_FIELDS,
@@ -2082,6 +2084,77 @@ export const gyroidXrayPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   },
 };
 
+// The sphere-tracing oracle's own fixtures (VOLUMETRIC-3.md §3): a genuine
+// `field: "menger"`/`"sierpinski"` SDF voice, not the linear-voice recipe
+// `mengerSpongePreset`/`sierpinskiPyramidPreset` use — those recipes can
+// never qualify (`buildGlyphFieldDistanceOracle` only reads the SDF voice
+// family), so no shipped preset exercised the sphere-tracing path before
+// these two. Every condition of the qualifying predicate is met: one
+// populated layer, `wave: "step"`, `amp1: 1`, `combine: "min"` (needed even
+// with a single voice — the predicate checks it literally, VOLUMETRIC-3.md
+// §3), `layerThresholdOn1` at its schema default `false`, and `bias`/`gain`
+// left at their schema defaults (0.5/1), which already sit inside the
+// step-selective regime (`0.5+0.5=1>0`, `0.5-0.5=0<=0`) — no preset-level
+// override needed for that half of the predicate.
+//
+// `iter1: 3` is the task's requested depth (also the schema default) —
+// deep enough to need many fixed-step samples per cell (matching the bench
+// scenario below) while staying inside the 256-step cap comfortably at
+// these frequencies.
+
+// `field: "menger"` has no periodic reduction (VOLUMETRIC-2.md §2: a single
+// fixed instance of the fractal, unlike the linear recipe's periodic square
+// waves), so — unlike `mengerSpongePreset` — a plain multiplicative `scale`
+// isn't enough to align it with the /synth cube stage's CENTERED authoring
+// box (extent 3, -1.5..1.5): the fractal's own lattice domain is [0,1]^3,
+// not periodic, so it must be explicitly translated to overlap the visible
+// cube. The origin needed to left-align the cube's `-1.5` edge with lattice
+// `0` is exactly `-1.5` in raw objectPosition units (independent of `scale`
+// or `freq` — the two cancel), but the schema's combined origin range
+// (`originU` 0..1 plus a voice's own `originU1` -1..1) only reaches `-1`.
+// `originU1`/`originV1`/`originW1` at their schema minimum (-1, with the
+// patch-level `originU`/`originV` pinned to 0, overriding the 0.5 default)
+// is the closest achievable alignment — `freq1: 0.4` then lands the cube's
+// `+1.5` edge exactly on the lattice's own right boundary (`fx = 1` at
+// `objX = 1.5`, verified numerically), leaving a small empty margin at the
+// opposite edge rather than clipping the fractal's own detail. `scale: 1`
+// (objectPosition read directly, no rescale) keeps that derivation in one
+// step instead of two compounding ones.
+export const mengerSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger SDF", params: {
+    space: "object", scale: 1, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "menger", wave1: "step", freq1: 0.4, speed1: 0, amp1: 1, iter1: 3,
+    originU1: -1, originV1: -1, originW1: -1,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+
+// `field: "sierpinski"`'s sibling fixture, aimed at the `pyramid` stage
+// exactly like the linear-recipe `sierpinskiPyramidPreset` — and, unlike the
+// Menger fixture above, needs NO origin correction: the pyramid stage's own
+// corner tetra is authored UNCENTERED, spanning objectPosition [0,3]^3 with
+// its own corner already at the domain origin (see
+// `sierpinskiPyramidPreset`'s doc), so `scale: 1/3` alone maps it exactly
+// onto the SDF family's own [0,1]^3 lattice domain — the same alignment
+// that recipe's comment describes, just without that recipe's periodicity
+// making it forgiving of a bad origin. `originU`/`originV` are still pinned
+// to 0 (overriding the 0.5 schema default) because the SDF voice family
+// reads origin as a real translation, unlike the linear voices the schema
+// default was chosen around.
+export const sierpinskiSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Sierpinski SDF", params: {
+    space: "object", scale: 1 / 3, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "sierpinski", wave1: "step", freq1: 1, speed1: 0, amp1: 1, iter1: 3,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#ffb454", colorB: "#ff5da2", gradient: 0.4, lit: 1,
+    marchFade: 2,
+  },
+};
+
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2121,6 +2194,8 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   mengerSpongePreset,
   sierpinskiPyramidPreset,
   gyroidXrayPreset,
+  mengerSdfPreset,
+  sierpinskiSdfPreset,
 ];
 
 
@@ -2248,6 +2323,15 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       // instead of throwing.
       const carveActive = params.render === "carve" && volumetric && !!context.base.objectExit;
       const xrayActive = params.render === "xray" && volumetric && !!context.base.objectExit;
+      // Sphere tracing for carve (VOLUMETRIC-3.md §3): built once per
+      // evaluate() call from the SAME compiled `fieldProgram` carve's own
+      // march already reads — never for xray (excluded above at the
+      // `carveActive` gate; xray's transmittance integral has no first-hit
+      // concept to accelerate). `null` for any non-qualifying program (the
+      // overwhelming majority — every recipe-based preset, every non-SDF
+      // patch), in which case the fixed-step `marchField` path below runs
+      // byte-identically to before this option existed.
+      const distanceOracle = carveActive ? buildGlyphFieldDistanceOracle(fieldProgram, params, time) : null;
       // The Nyquist floor's f_finest (VOLUMETRIC.md's Carve section): the
       // highest ACTIVE (amp > 0) voice frequency across every layer, computed
       // once per evaluate() call — `marchField`/`integrateField` raise the
@@ -2799,10 +2883,20 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             // back to surface sampling at the TRUE entry, which shares paint's
             // own emission path unchanged.
             if (chordLength > 0 && Number.isFinite(chordLength)) {
-              const result = marchField(
-                [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
-                { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
-              );
+              // Sphere tracing (VOLUMETRIC-3.md §3): a qualifying program
+              // (`distanceOracle` non-null) marches by distance-stepping
+              // against the oracle instead of the fixed grid below — same
+              // `FieldMarchResult` shape either way, so every line after
+              // this call is unchanged regardless of which marcher ran.
+              const result = distanceOracle
+                ? marchGlyphFieldSphere(
+                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], distanceOracle,
+                    { sampler: densitySample, time, originX: cx, originY: cy, originZ: cz },
+                  )
+                : marchField(
+                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
+                    { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
+                  );
               // No solid sample anywhere along a genuine (non-degenerate) chord:
               // a real hole. The cell emits nothing — ordinary compositor
               // semantics (VOLUMETRIC.md's Carve section) — not a fallback to
