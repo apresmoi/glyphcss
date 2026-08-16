@@ -2182,23 +2182,40 @@ export const gyroidXrayPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
 // isn't enough to align it with the /synth cube stage's CENTERED authoring
 // box (extent 3, -1.5..1.5): the fractal's own lattice domain is [0,1]^3,
 // not periodic, so it must be explicitly translated to overlap the visible
-// cube. The origin needed to left-align the cube's `-1.5` edge with lattice
-// `0` is exactly `-1.5` in raw objectPosition units (independent of `scale`
-// or `freq` — the two cancel), but the schema's combined origin range
-// (`originU` 0..1 plus a voice's own `originU1` -1..1) only reaches `-1`.
-// `originU1`/`originV1`/`originW1` at their schema minimum (-1, with the
-// patch-level `originU`/`originV` pinned to 0, overriding the 0.5 default)
-// is the closest achievable alignment — `freq1: 0.4` then lands the cube's
-// `+1.5` edge exactly on the lattice's own right boundary (`fx = 1` at
-// `objX = 1.5`, verified numerically), leaving a small empty margin at the
-// opposite edge rather than clipping the fractal's own detail. `scale: 1`
-// (objectPosition read directly, no rescale) keeps that derivation in one
+// cube. `sampleFieldVoice`'s SDF branch computes
+// `q = objectPosition·scale - (originU·scale + originU1·scale)` per axis
+// (the patch-level and per-voice origins both translate in raw
+// objectPosition units, unlike every other field's normalized-UV
+// `originU`/`originV`), then `f = q·freq` is what actually samples the
+// [0,1]^3 lattice — so `f = 0` lands at `objectPosition = originU+originU1`
+// and `f = 1` lands at `objectPosition = (originU+originU1) + 1/freq`,
+// INDEPENDENT of each other's choice of `freq` (a bug fixed in this same
+// slice: an earlier revision picked `freq1: 0.4` to land the cube's `+1.5`
+// edge exactly on the lattice's own right boundary, `f = 1` at
+// `objX = 1.5` — correct numerically, but it anchored only ONE edge, so the
+// lattice cell sat pushed against the cube's `+X`/`+Y`/`+Z` faces with all
+// of the resulting slack on the `-X`/`-Y`/`-Z` side: the fractal read
+// visibly off-center, not the "small empty margin" the old comment
+// intended). The schema's combined origin range (`originU` 0..1 plus a
+// voice's own `originU1` -1..1) bottoms out at `-1` (`originU: 0`,
+// `originU1: -1`, both already at their preset/schema minimum below) — that
+// is the LARGEST-magnitude origin this preset can reach, so it is also the
+// best achievable `f = 0` anchor for a SYMMETRIC fit. Solving
+// `(originU+originU1) + 0.5/freq = 0` (lattice center at the cube's own
+// object-space center) with that fixed `-1` anchor gives `freq1: 0.5`: `f`
+// then spans `objX = -1 .. +1`, i.e. the full [0,1]^3 lattice cell centered
+// exactly on the cube's own center, with an equal 0.5-unit margin on every
+// one of the cube's 6 faces (verified numerically, and by the oracle-level
+// centering test in stock.test.ts) — the largest centered lattice cell this
+// origin range can reach, at the cost of that margin instead of the old
+// version's one-sided flush edge. `scale: 1` (objectPosition read directly,
+// no rescale) keeps that derivation in one
 // step instead of two compounding ones.
 export const mengerSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Menger SDF", params: {
     space: "object", scale: 1, render: "carve",
     combine: "min", originU: 0, originV: 0,
-    field1: "menger", wave1: "step", freq1: 0.4, speed1: 0, amp1: 1, iter1: 3,
+    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
     originU1: -1, originV1: -1, originW1: -1,
     amp2: 0, amp3: 0,
     glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,

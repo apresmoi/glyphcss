@@ -1604,6 +1604,40 @@ describe("fieldSynth: subcellRes braille", () => {
   });
 });
 
+// A generic 3D fixture for `space: "object"` presets (carve/xray's own
+// entry/exit/normal buffers) — wide enough (raw objectPosition -3..3) to
+// comfortably cover both the /synth cube stage's centered [-1.5,1.5]^3
+// authoring box and the pyramid stage's uncentered [0,3]^3 one, at any
+// preset's own `scale`. Without this, an object-space preset's smoke check
+// below falls through to the 2D "carve degrades to paint fallback" branch
+// (no `objectPosition` in the harness => `volumetric` is false), which
+// hardcodes `z = 0` for every sample — a single fixed Z slice that can
+// coincide with an SDF voice's own recursively-removed symmetry plane
+// (diagnosed for `mengerSdfPreset`'s centering fix: the corrected preset's
+// origin/freq happen to put that degenerate z=0 fallback slice exactly on
+// the Menger construction's z=0.5 lattice plane, which is a hole at every
+// recursion depth by construction, so the FALLBACK path — never exercised
+// by the real 3D carve march — wrote nothing). Real geometry sidesteps
+// that coincidence entirely by varying z along a genuine chord, matching
+// how carve is actually used.
+function objectSpaceFixture(cols: number, rows: number) {
+  const length = cols * rows;
+  const objectPosition = new Float32Array(length * 3);
+  const objectExit = new Float32Array(length * 3);
+  const normal = new Float32Array(length * 3);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const i = row * cols + col;
+      const x = (col / (cols - 1) - 0.5) * 6;
+      const y = (row / (rows - 1) - 0.5) * 6;
+      objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = -3;
+      objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
+      normal[i * 3] = 0; normal[i * 3 + 1] = 0; normal[i * 3 + 2] = 1;
+    }
+  }
+  return { objectPosition, objectExit, normal };
+}
+
 describe("effect presets", () => {
   it("validates every catalog effect's shipped presets against its own schema and evaluates cleanly", () => {
     for (const effect of GlyphEffectCatalog) {
@@ -1613,9 +1647,10 @@ describe("effect presets", () => {
           expect(key in effect.parameterSchema).toBe(true);
         }
         const overrides = preset.params as Record<string, number | string | boolean>;
+        const needsObjectSpace = overrides.space === "object";
         let output: ReturnType<typeof evaluate> | undefined;
         expect(() => {
-          output = evaluate(effect, overrides);
+          output = evaluate(effect, overrides, needsObjectSpace ? objectSpaceFixture(12, 6) : {});
         }).not.toThrow();
         const wroteChannel = Array.from(output!.channels).some((channel) => channel !== 0);
         const wroteCoverage = Array.from(output!.coverage).some((coverage) => coverage > 0);
@@ -2045,7 +2080,10 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // Added in VOLUMETRIC-3.md's Phase 3 — the sphere-tracing oracle's own
       // fixtures (real SDF voices, not the linear recipe the two presets
       // above use). Pinned the same way as every preset above it.
-      "Menger SDF": { render: "256a7e47", params: "07881474" },
+      // Re-pinned deliberately: `freq1` 0.4 -> 0.5 fixes the preset's
+      // centering (see `mengerSdfPreset`'s doc in stock.ts and the
+      // oracle-level centering tests in fieldProgram.test.ts).
+      "Menger SDF": { render: "d62f9075", params: "50fd26fb" },
       "Sierpinski SDF": { render: "9d7a7abb", params: "da384260" },
     };
     const presets = fieldSynth.presets ?? [];

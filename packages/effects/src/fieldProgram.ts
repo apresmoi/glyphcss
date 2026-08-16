@@ -451,6 +451,24 @@ export function sampleFieldVoice(
     // translating the sample itself the voice could never be aligned to its
     // host mesh (or to another SDF voice); `phase` below is an ISO-LEVEL
     // offset, not a substitute for this.
+    //
+    // FOOTGUN (found while diagnosing an off-center Menger SDF preset):
+    // `cx`/`cy` are `originX + voice.origin.u`/`originY + voice.origin.v`
+    // (`foldVoices` below), where `originX`/`originY` is the PATCH-LEVEL
+    // `originU`/`originV` param (a normalized-UV translation for every
+    // OTHER field family, repurposed here as a second raw-unit offset
+    // stacked onto the voice's own `originU1`/`originV1`/`originW1`). `cz`
+    // has no such patch-level counterpart — the schema has no `originW` — so
+    // `cz` is ALWAYS exactly `voice.origin.w` (the per-voice `originW1`
+    // alone). A patch that leaves `originU`/`originV` at their nonzero
+    // schema default (0.5) while relying on `originU1`/`originV1`/`originW1`
+    // for SDF alignment gets a DIFFERENT total X/Y offset than Z — X/Y
+    // recentre, Z stays anchored to the per-voice value alone. Every shipped
+    // SDF preset avoids this by pinning `originU: 0, originV: 0` explicitly
+    // (see `mengerSdfPreset`/`sierpinskiSdfPreset` in stock.ts) so all three
+    // axes read only their own per-voice origin, symmetrically — a future
+    // SDF preset or patch that skips that pin will NOT get symmetric
+    // translation across axes.
     const qx = sx - cx;
     const qy = sy - cy;
     const qz = z - cz;

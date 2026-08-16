@@ -1866,16 +1866,20 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
       // measurement below): the stall/step-cap-pressure fallback finishes a
       // stuck ray exactly as fixed-step would from that point on, so the
       // sphere hit set is now a hit-set superset BY CONSTRUCTION, not a
-      // measured approximation. Every one of fixed-step's hits (218 for
-      // Menger SDF, 153 for Sierpinski SDF on this exact pinned
-      // real-rendered scene at iter 3) is also a sphere hit — the pre-
-      // amendment measurement was 182/218 (~83%) and 127/153 (~83%): naive
-      // (non-relaxed) distance-stepping alone stalls approaching a nearby
-      // OFF-ray feature (`D` shrinks toward a small positive residual near a
-      // DIFFERENT surface than the one the ray actually crosses) and used to
-      // exhaust the step cap without ever trying the fixed grid; falling
-      // back to `marchField` over the remaining segment the instant a stall
-      // or cap pressure is detected closes that gap completely.
+      // measured approximation. Every one of fixed-step's hits (140 for
+      // Menger SDF post-centering-fix — was 218 pre-fix, re-pinned
+      // deliberately below alongside the fix, not a regression: the
+      // corrected preset's lattice cell has an equal margin on every face
+      // instead of one edge flush and the opposite side clipped, so fewer
+      // cells are covered overall — 153 for Sierpinski SDF, unaffected by
+      // that fix) is also a sphere hit — the pre-amendment measurement was
+      // 182/218 (~83%) and 127/153 (~83%): naive (non-relaxed)
+      // distance-stepping alone stalls approaching a nearby OFF-ray feature
+      // (`D` shrinks toward a small positive residual near a DIFFERENT
+      // surface than the one the ray actually crosses) and used to exhaust
+      // the step cap without ever trying the fixed grid; falling back to
+      // `marchField` over the remaining segment the instant a stall or cap
+      // pressure is detected closes that gap completely.
       expect(stats.bothHits).toBe(stats.fixedHits);
       expect(stats.sphereHits).toBeGreaterThanOrEqual(stats.fixedHits);
 
@@ -1886,9 +1890,19 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
       // rendered `<pre>` actually shows.
       expect(stats.glyphMismatches).toBe(0);
 
-      // Sanity: both buckets are genuinely exercised on this real scene —
-      // the fallback isn't a theoretical path that never actually fires.
-      expect(stats.pureSphereBothHits).toBeGreaterThan(0);
+      // Sanity: the fallback isn't a theoretical path that never actually
+      // fires. Whether the PURE (non-fallback) bucket also fires on this
+      // exact scene is preset-dependent, not a general guarantee: the
+      // centered Menger SDF fix (freq1 0.4 -> 0.5) compresses the same
+      // iter-3 recursion into a physically smaller lattice cell (object
+      // units per lattice unit drops from 1/0.4=2.5 to 1/0.5=2.0), so its
+      // finest walls are thinner in absolute terms — exactly the condition
+      // that trips the stall detector (`SPHERE_MARCH_STALL_ADVANCE` is a
+      // fixed domain-unit threshold) — and on this pinned real-rendered
+      // scene EVERY ray now stalls at least once (measured: 0/140 pure).
+      // Sierpinski SDF is untouched by that fix and still exercises both
+      // buckets (measured: 3/153 pure), so it keeps the stronger assertion.
+      expect(stats.pureSphereBothHits).toBeGreaterThanOrEqual(name === "Menger SDF" ? 0 : 1);
       expect(stats.fallbackBothHits).toBeGreaterThan(0);
       expect(stats.pureSphereBothHits + stats.fallbackBothHits).toBe(stats.bothHits);
 
@@ -1904,9 +1918,80 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
       // separate grids, not a new equivalence-bar violation: (b) above is
       // the invariant that actually holds across both buckets.
       expect(stats.pureSphereFartherThanFixed).toBe(0);
-      expect(stats.pureSphereOneStepViolations / stats.pureSphereBothHits).toBeLessThan(0.05);
+      // Guard the ratio against a 0/0 NaN when a preset (Menger SDF, see
+      // above) has zero pure hits on this scene — vacuously within bounds,
+      // not a violation, since there are no pure hits to violate it.
+      if (stats.pureSphereBothHits > 0) {
+        expect(stats.pureSphereOneStepViolations / stats.pureSphereBothHits).toBeLessThan(0.05);
+      }
     });
   }
+});
+
+// Diagnosed follow-up (reported live: "the Menger SDF preset's fractal is
+// not centered on the cube"). Root cause: the SDF branch's lattice-cell
+// anchor (`f = 0` at `objectPosition = originU+originU1` per axis,
+// `sampleFieldVoice`'s doc in fieldProgram.ts) is independent of `freq`, and
+// the schema's combined origin range bottoms out at -1 — an earlier
+// revision picked `freq1: 0.4` to land the CUBE's `+1.5` edge exactly on
+// the lattice's `f = 1` boundary, which only anchors ONE edge and leaves
+// all the slack on the opposite side (visibly off-center). The fix (see
+// `mengerSdfPreset`'s doc in stock.ts) is `freq1: 0.5`, chosen so the
+// lattice's OWN center (`f = 0.5` on every axis) lands exactly at the
+// cube's object-space center (0, 0, 0) instead. The Menger sponge
+// construction is symmetric under reflection about its own lattice center
+// (removing the recursive middle-third cross at every depth is invariant
+// under `f -> 1-f` on each axis), so a correctly centered preset must
+// satisfy `D(p) === D(-p)` along each axis through the origin — this is
+// the oracle-level assertion a coordinate-offset bug like the diagnosed one
+// cannot pass by accident.
+describe("mengerSdfPreset centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", () => {
+  function oracleOf(preset: { params: Record<string, unknown> }) {
+    const merged = { ...defaultGlyphEffectParams(fieldSynth), ...(preset.params as Record<string, number | string | boolean>) } as unknown as AnyParams;
+    const voices = buildFieldSynthVoices(merged);
+    const scale = merged.scale as number;
+    const compiledVoices = compileFieldVoices(voices, scale);
+    const layerShapes = resolveFieldSynthLayerShapes(merged);
+    const program = compileFieldSynthProgram(compiledVoices, layerShapes, true);
+    const oracle = buildGlyphFieldDistanceOracle(program, { bias: merged.bias as number, gain: merged.gain as number }, 0);
+    if (!oracle) throw new Error("expected mengerSdfPreset to qualify for the sphere-tracing oracle");
+    return oracle;
+  }
+
+  it("the lattice cell's own center point (object-space origin) is the fractal's recursively-removed center — always outside the solid", () => {
+    const oracle = oracleOf(mengerSdfPreset);
+    // The Menger construction removes the middle-third cross at every
+    // recursion depth, including the cell dead center — the oracle's raw
+    // SDF convention is the geometric one (negative = inside the solid,
+    // matching `marchGlyphFieldSphere`'s own "D(entry) <= 0 -> hit"
+    // contract), so D > 0 (outside the solid) at the cube's own
+    // object-space center is the direct consequence of the lattice cell's
+    // center (f=0.5,0.5,0.5) landing exactly there.
+    expect(oracle(0, 0, 0)).toBeGreaterThan(0);
+  });
+
+  it("D(p) === D(-p) along each axis through the object-space center — the anisotropy counter-case: an off-center lattice (e.g. the pre-fix freq1: 0.4) breaks this", () => {
+    const oracle = oracleOf(mengerSdfPreset);
+    const probes = [0.1, 0.3, 0.5, 0.7, 0.9, 1.0, 1.2, 1.4];
+    for (const p of probes) {
+      expect(oracle(p, 0, 0)).toBeCloseTo(oracle(-p, 0, 0), 10);
+      expect(oracle(0, p, 0)).toBeCloseTo(oracle(0, -p, 0), 10);
+      expect(oracle(0, 0, p)).toBeCloseTo(oracle(0, 0, -p), 10);
+    }
+  });
+
+  it("sierpinskiSdfPreset's uncentered [0,3]^3 pyramid stage needs no origin correction — its own lattice-corner-at-domain-origin mapping is confirmed, not assumed: f=0 at objectPosition 0 and f=1 at objectPosition 3 on every axis", () => {
+    const oracle = oracleOf(sierpinskiSdfPreset);
+    // The pyramid stage's own corner tetra spans objectPosition [0,3]^3 with
+    // its corner already at the domain origin (sierpinskiSdfPreset's own
+    // doc in stock.ts) — scale 1/3 alone maps it exactly onto [0,1]^3, so
+    // the oracle's raw SDF sample at the lattice's OWN center (f=0.5 on
+    // every axis, i.e. objectPosition 1.5) should read the same
+    // recursively-removed-center hole `mengerSdfPreset`'s corrected preset
+    // does, confirming the existing (uncentered-on-purpose) alignment is
+    // intact, not silently different from what the doc claims.
+    expect(oracle(1.5, 1.5, 1.5)).toBeGreaterThan(0);
+  });
 });
 
 describe("buildGlyphFieldDistanceOracle — non-qualifying byte-identity (VOLUMETRIC-3.md §3, acceptance 1)", () => {
