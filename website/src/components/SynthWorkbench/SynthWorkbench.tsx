@@ -85,7 +85,7 @@ import {
   shapePolys,
   shapeTransform,
   isFlat,
-  isTimeInvariantPatch,
+  computeSynthTickPlan,
   wrapDrivenTime,
   frameObject,
   LayerGroup,
@@ -211,21 +211,20 @@ export default function SynthWorkbench() {
       raf = requestAnimationFrame(tick);
       const dt = Math.min((now - last) / 1000, 0.1); last = now;
       // Mesh spin (`paused`) and camera auto-orbit (`orbitAuto`) are
-      // independent: pausing one must not pause the other.
-      //
-      // `layer.setParams` already no-ops a call whose values are all
-      // unchanged (createGlyphScene.ts's `paramsEqual` check), but `t` was
-      // being advanced and pushed EVERY frame regardless of whether the
-      // current patch's active voices actually read `speed` — a patch like
-      // the shipped "Menger SDF" preset (`speed1: 0`) is provably
-      // time-invariant (`isTimeInvariantPatch`), so `t` changing was
-      // forcing a full effect recompute every frame for a result that
-      // never visibly changes. Skipping the advance AND the setParams call
-      // when nothing time-varying is active fixes that without touching
-      // `paramsEqual` or any output. This does NOT skip camera auto-orbit
-      // below — orbiting changes the CAMERA, which re-rasterizes the
-      // geometry and forces the effect to re-evaluate regardless of `time`.
-      if (!pausedRef.current && tsRef.current !== 0 && !isTimeInvariantPatch(paramsRef.current)) {
+      // independent: pausing one must not pause the other. `computeSynthTickPlan`
+      // is the single pure decision point for both — see its own doc for why
+      // this is one function and not two inline `if`s (a perf change gating
+      // `time` advancement behind `isTimeInvariantPatch` must never fold the
+      // orbit branch under the same guard).
+      const plan = computeSynthTickPlan({
+        paused: pausedRef.current,
+        timeScale: tsRef.current,
+        params: paramsRef.current,
+        flat,
+        orbitAuto: orbitAutoRef.current,
+        orbitDragging,
+      });
+      if (plan.advanceTime) {
         t += dt * tsRef.current;
         // `t` itself keeps growing monotonically (simplest accumulator, no
         // precision concerns from re-deriving it). A preset whose
@@ -237,7 +236,7 @@ export default function SynthWorkbench() {
         // state forever.
         layerRef.current?.setParams({ time: wrapDrivenTime(t, loopSecondsRef.current) });
       }
-      if (!flat && orbitAutoRef.current && !orbitDragging) {
+      if (plan.orbit) {
         camera.rotY = camera.rotY + ORBIT_YAW_DEG_PER_SEC * dt * orbitSpeedRef.current;
         // Ping-pong pitch off the current rotX — not a stored/absolute phase —
         // so a user drag, a preset's stage hint, or resuming after the pointer

@@ -40,6 +40,7 @@ import {
   STAGE_HINTS,
   WAVES,
   buildWavePathD,
+  computeSynthTickPlan,
   frameObject,
   isSdfField,
   isSdfIterField,
@@ -339,6 +340,54 @@ describe("isTimeInvariantPatch", () => {
   it("is false as soon as one of several active voices has nonzero speed", () => {
     const params = { ...synthDefaults(), amp1: 1, speed1: 0, amp2: 1, speed2: 0, amp3: 1, speed3: 2 } as never;
     expect(isTimeInvariantPatch(params)).toBe(false);
+  });
+});
+
+// Regression coverage for the perf-packet report "orbit doesn't move the
+// camera for time-invariant patches": `computeSynthTickPlan` is the single
+// pure decision point the tick loop reads both `advanceTime` and `orbit`
+// from, specifically so the two can never be accidentally coupled again (see
+// the function's own doc in synthKit.tsx). Live-page verification (Playwright
+// against the real /synth dev server, sampling the MAIN STAGE `<pre>` by a
+// reference captured off the actual scene rather than a `.glyph-output`
+// class selector — that class is shared by ~30 elements on the page,
+// including preset-gallery tile and voice-card mini previews, and a naive
+// `.first()`/`.glyph-output` query silently lands on one of those instead of
+// the stage) confirmed the shipped tick loop already orbits correctly for a
+// time-invariant patch; this suite pins the invariant at the level the rest
+// of this file already tests tick-loop logic at.
+describe("computeSynthTickPlan", () => {
+  const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
+  const mengerSdfParams = { ...synthDefaults(), ...(mengerSdf.params as Record<string, unknown>) } as never;
+
+  it("orbits a time-invariant patch (the reported repro): advanceTime false, orbit true", () => {
+    const plan = computeSynthTickPlan({
+      paused: false, timeScale: 1, params: mengerSdfParams,
+      flat: false, orbitAuto: true, orbitDragging: false,
+    });
+    expect(plan).toEqual({ advanceTime: false, orbit: true });
+  });
+
+  it("advances time for a time-variant patch regardless of orbit", () => {
+    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
+    const bloomParams = { ...synthDefaults(), ...(bloom.params as Record<string, unknown>) } as never;
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: bloomParams, flat: false, orbitAuto: false, orbitDragging: false }).advanceTime).toBe(true);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: bloomParams, flat: false, orbitAuto: true, orbitDragging: false }).advanceTime).toBe(true);
+  });
+
+  it("orbit is independent of paused/timeScale (mesh spin stopping must not stop the camera)", () => {
+    expect(computeSynthTickPlan({ paused: true, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 0, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
+  });
+
+  it("orbit is off when orbitAuto is off, the stage is flat, or a drag is in progress", () => {
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: false, orbitDragging: false }).orbit).toBe(false);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: true, orbitAuto: true, orbitDragging: false }).orbit).toBe(false);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: true }).orbit).toBe(false);
+  });
+
+  it("neither advances nor orbits when idle (time-invariant, orbit off) — the perf win this packet shipped", () => {
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: false, orbitDragging: false })).toEqual({ advanceTime: false, orbit: false });
   });
 });
 

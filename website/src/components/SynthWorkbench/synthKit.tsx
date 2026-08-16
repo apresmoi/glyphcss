@@ -610,6 +610,38 @@ export function wrapDrivenTime(t: number, loopSeconds: number | null | undefined
   return ((t % loopSeconds) + loopSeconds) % loopSeconds;
 }
 
+/**
+ * SynthWorkbench's per-frame tick has two independent jobs: advance/push the
+ * field-synth `time` param (mesh spin — gated by `paused`/`timeScale` and,
+ * since `isTimeInvariantPatch` above, by whether the current patch actually
+ * reads time), and step the camera auto-orbit (gated by `orbitAuto`, a flat
+ * stage having no orbit, and an in-progress drag). These two must stay
+ * decidable independently: orbiting rotates the CAMERA, which forces
+ * `scene.rerender()` to re-rasterize and re-evaluate the effect regardless of
+ * `time`, so a time-invariant patch (e.g. the shipped "Menger SDF" preset,
+ * `speed1: 0`) still needs to visibly orbit even though its own `time`
+ * advance is skipped for perf. Folding both branches under one shared guard
+ * — e.g. nesting the orbit step inside the `!isTimeInvariantPatch` check —
+ * would silently freeze auto-orbit for every time-invariant preset. Kept as
+ * one pure function (not two inline `if`s in the tick loop) specifically so
+ * that coupling is a change to THIS function's shape, not something a future
+ * tick-loop edit can reintroduce unnoticed; `SynthWorkbench.tsx`'s tick calls
+ * this once per frame and reads both fields off the single returned plan.
+ */
+export function computeSynthTickPlan(input: {
+  paused: boolean;
+  timeScale: number;
+  params: Params;
+  flat: boolean;
+  orbitAuto: boolean;
+  orbitDragging: boolean;
+}): { advanceTime: boolean; orbit: boolean } {
+  return {
+    advanceTime: !input.paused && input.timeScale !== 0 && !isTimeInvariantPatch(input.params),
+    orbit: !input.flat && input.orbitAuto && !input.orbitDragging,
+  };
+}
+
 // Duplicates `createGlyphScene.ts`'s `applyTransform` rotation math exactly
 // (Rz first on the point, then Ry, then Rx — matrix product Rx*Ry*Rz) so the
 // bbox math below previews the SAME rotated shape the renderer will actually
