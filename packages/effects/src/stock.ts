@@ -3091,11 +3091,13 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           // way — surface sampling at the entry point).
 
           const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
-          // Carve is validated to `subcellRes: "1x1"` only (never ink/2x4), so
-          // the skip rule is the plain, non-ink one; `marchField`'s own solid
-          // test already used this same clamp01(bias+gain*v*0.5) mapping, so
-          // this should already hold at the hit point — checked again anyway,
-          // since the degenerate-segment fallback never went through that test.
+          // This is the plain `subcellRes: "1x1"` carve path — "ink" and
+          // "2x4" both branch out above (carveInkActive / runCarveBrailleCell)
+          // before this loop body runs, so the skip rule here is the plain,
+          // non-ink one; `marchField`'s own solid test already used this same
+          // clamp01(bias+gain*v*0.5) mapping, so this should already hold at
+          // the hit point — checked again anyway, since the degenerate-segment
+          // fallback never went through that test.
           if (point.active === 0 || point.value <= 0) continue;
           setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(point.value * rampMax)))]!);
           // `distance` (absolute domain units), NOT the chord-normalized `t` —

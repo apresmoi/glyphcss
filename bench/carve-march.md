@@ -50,10 +50,13 @@ the full step count.
   implementation's own Nyquist floor (`ceil(2 * chordLength * finestFreq)`)
   raises the per-cell count further whenever a mounted patch's active voices
   need it — 48 is a floor, not a ceiling.
-- **96 nearly doubles cost for marginal gain** on content this coarse (depth-3
-  Menger, 1/81 features, is explicitly out of carve's v1 envelope per
-  VOLUMETRIC.md — that content needs the Nyquist floor to raise resolution
-  well past 96 anyway, up to the 256 cap).
+- **96 nearly doubles cost for marginal gain** on content this coarse — the
+  Nyquist floor already raises resolution past 96 automatically for finer
+  content, up to the 256 cap. (This bench predates the depth-3 duty-aware
+  Nyquist fix, VOLUMETRIC-3.md §4: depth-3 Menger's finest band needs 94
+  steps, not the ~281 this doc originally assumed — depth-3 now ships as a
+  preset, gated on an empirical hit-set check rather than a hand-derived step
+  count.)
 - **`interactiveDownscale`** (existing scene option) already covers the
   interactive-drag case: carve, like every effect, renders at `1/n`
   resolution while a control is actively dragging and restores full detail

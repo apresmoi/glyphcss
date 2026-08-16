@@ -318,10 +318,13 @@ per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and the
 the [volumetric branch and carve/xray](/guides/effects#volumetric-fields-space-object)
 explicitly (`space: "object"`, `render: "carve"`/`"xray"`, or an active voice
 using `linearZ`/a nonzero `originWN`): a per-cell-per-frame march is a
-different export design this affine-fit/coordinate-table bake can't fake. The
-`originWN` reject is waived for an active SDF voice, since that family reads
-`originW` even in the 2D branch. Check
+different export design this affine-fit/coordinate-table bake can't fake. It
+also rejects a `program` option
+([program-as-data](/guides/effects#program-builder-and-program-as-data)) up
+front, before the flat-param merge/bake — an unbounded field has no schema
+this bake can serialize. The `originWN` reject is waived for an active SDF
+voice, since that family reads `originW` even in the 2D branch. Check
 `isGlyphFieldSynthStaticExportSupported(params)` before calling; a
-volumetric or carve/xray patch exports through the
+volumetric or carve/xray patch (with no `program`) exports through the
 [interactive export](#interactive-export) instead, which ships and evaluates
 the live effect runtime rather than a baked approximation.

@@ -216,6 +216,11 @@ layer still composites *over* an earlier targeted layer's output, including
 painting into any holes a targeted `render: "carve"` cut — that's the normal
 layer-order semantics working as designed, not a bug specific to targeting.
 
+Mesh identity also matters inside a single targeted carve layer: [ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
+never bridge a contour or Braille dot across a boundary between two different
+target meshes, even when they're coplanar and share a normal — the same
+per-cell winning-mesh data `target` itself reads.
+
 ### Coordinate space (`space`)
 
 `space` picks the coordinate system the pattern is evaluated in:
@@ -333,7 +338,7 @@ scan.parameterSchema.width;                      // { kind, default, min, max, s
 
 ## Field synth
 
-`fieldSynth` is a small composable synth: up to six oscillators, each a
+`fieldSynth` is a small composable synth: up to nine oscillators, each a
 spatial **field** sampled through a **waveform**, combined into one scalar and
 mapped to a glyph ramp and color. It is the glyph-grid analogue of a fragment
 shader — interfering a handful of oscillators is where the emergent moiré,
@@ -341,8 +346,8 @@ plaid, sonar, and lattice patterns come from.
 
 ### Voices
 
-Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
-`field6`/…/`amp6`) is independent:
+Each of the nine voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
+`field9`/…/`amp9`) is independent:
 
 - `fieldN` — the spatial field. `radial` measures distance from the origin,
   `angular` the angle around it, `spiral` combines both;
@@ -457,9 +462,13 @@ rain's own volumetric mode carries: a value tuned for `"auto"`/`"surface"`
 does not carry over 1:1.
 
 `subcellRes: "2x4"` and `"ink"` still work volumetrically, finite-differencing
-neighboring cells' resolved 3D coordinate. Under `render: "carve"`/`"xray"`
-(below) both are rejected — a march has no stable neighbor coordinate to
-difference.
+neighboring cells' resolved 3D coordinate, for `render: "paint"`. Under
+`render: "carve"` both are legal too, but through a different mechanism —
+[ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve),
+below — since a march has no stable neighbor *coordinate* to difference, only
+a per-cell hit/hole result. `render: "xray"` still rejects both: an
+accumulated transmittance integral has no per-cell hit point for either
+volumetric subcell mode to read.
 
 ### SDF fields (`gyroid`, `menger`, `sierpinski`)
 
@@ -507,7 +516,7 @@ is legal on any field, though — a `linearX` + `step` voice is a half-space.
 
 ### Voice layers
 
-Voices can opt into one of three **layers** (`layer1..6`, default `1`), each
+Voices can opt into one of three **layers** (`layer1..9`, default `1`), each
 with its own intra-layer combine, threshold, invert, and blend into the next
 layer:
 
@@ -539,8 +548,10 @@ populated layer's *effective* combine (its own override, or else the patch's
 the field through the mesh's own volume and turns it into interior structure —
 holes, walls, hollow chambers — instead of a surface texture. `render: "xray"`
 (below) shares the same march but reports a transmittance brightness instead
-of a first hit. Both require the volumetric branch (`space: "object"`) and
-`subcellRes: "1x1"`.
+of a first hit. Both require the volumetric branch (`space: "object"`); xray
+is `subcellRes: "1x1"` only, while carve also supports `"2x4"` and `"ink"` —
+see [Ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
+below.
 
 Per cell, carve marches from the mesh's entry point to its exit point along
 the view ray, sampling the same combined field paint uses. `marchSteps`
@@ -562,7 +573,56 @@ geometry, no baked frames, plus a **Sierpinski pyramid** preset (the same
 recipe with base-2 constants), tuned for the dedicated `pyramid` stage the
 [`/synth`](/synth) page offers alongside its cube/sphere/tetrahedron shapes —
 an uncentered corner-tetra whose window matches the Sierpinski recipe's own
-`[0, 1]³` assumption.
+`[0, 1]³` assumption. A **Menger sponge (depth 3)** preset ships alongside it —
+the recipe's own `square`-wave axis voices (not the `menger` SDF field) drive
+its Nyquist floor, and that floor is duty-aware: `freq / min(duty, 1 − duty)`
+(two samples per narrowest band) rather than a flat `2 × freq`. Depth 3's
+finest band needs only 94 steps under the fixed formula, well inside the
+256-step cap — an earlier, un-fixed estimate put it past ~281 and out of
+carve's budget entirely.
+
+### Ink-over-carve and braille-over-carve
+
+`subcellRes: "ink"` and `"2x4"` both work under `render: "carve"` — a
+different mechanism from their `render: "paint"` form, since carve has no
+stable per-cell field coordinate to finite-difference, only a per-cell march
+result.
+
+- **`"ink"`** contours the march's hit/hole boundary instead of shading every
+  hit cell — an outline of the sponge/fractal interior rather than a filled
+  one. A new param, `inkSpacing` (domain units, default `0.25`), sets contour
+  spacing in absolute terms (not a fraction of the observed depth range, which
+  would make contours crawl frame-to-frame under orbit). Every silhouette
+  edge — a hit cell next to a hole, or next to a cell on a *different* target
+  mesh — is always inked as a rim; interior cells ink where a multiple of
+  `inkSpacing` falls between two neighboring march depths. `inkLevels` is a
+  no-op here (2D `subcellRes: "ink"` keeps using it).
+- **`"2x4"`** marches 8 sub-rays per cell, one per Braille dot position,
+  registering a dot wherever its own sub-ray hits — finer silhouette detail
+  than `"1x1"`'s one glyph per cell. One color per cell (the center sub-ray's
+  hit color, or the first hitting sub-ray's).
+
+Both respect [mesh targeting](#targeting-specific-meshes): a contour or dot
+mask never bridges across a boundary between two different target meshes,
+even when they're coplanar and share a normal.
+
+### Sphere tracing
+
+For programs that are provably distance fields — a single layer, every active
+voice `menger` or `sierpinski` with `wave: "step"` and `amp: 1`, `combine`
+`"min"`, no layer threshold — carve automatically switches from fixed-step
+marching to sphere tracing: stepping by the field's own reported distance
+instead of a fixed grid, converging faster on thin or deep recursive detail.
+It falls back to an ordinary fixed-step scan of the remaining segment when a
+ray stalls near an off-axis feature or runs into its own step budget, so it
+never finds *fewer* hits than fixed-step marching would — only the same or
+more, at the same shaded ramp step. Measured roughly 1.8-1.9× faster than
+fixed-step marching on a deep (`iter: 3`) recursive scene. Two new presets,
+**Menger SDF** and **Sierpinski SDF** (one SDF voice each, carve, `iter: 3`),
+are the SDF-only patches this qualifies — the earlier Menger sponge/Sierpinski
+pyramid presets are built from linear recipe voices and never qualify, so they
+stay on the fixed-step path unchanged. No params control this — it applies
+automatically whenever a mounted carve patch qualifies.
 
 ### Xray mode
 
@@ -621,16 +681,62 @@ requestAnimationFrame(frame);
 `Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
 `Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
 `Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`, `Menger sponge`, `Sierpinski pyramid`, `Gyroid xray`) as
-`{ name, params }` pairs — quick starting points for `params`. `Cube tiles`
-and `Ink cells` exercise `argmax` and the ink contour mode; `Menger sponge`
-and `Sierpinski pyramid` exercise the volumetric branch, voice layers, and
-carve together (the latter on the `pyramid` stage); `Gyroid xray` exercises
-the SDF family and `render: "xray"`. The three volumetric presets are also
-individually exported by object identity (`GlyphMengerSpongePreset`,
-`GlyphSierpinskiPyramidPreset`, `GlyphGyroidXrayPreset`, alongside
-`GlyphCubeTilesPreset`), for a consumer that needs to key off a specific
-preset rather than its display name.
+`Ink cells`, `Menger sponge`, `Menger sponge (depth 3)`, `Sierpinski pyramid`,
+`Gyroid xray`, `Menger SDF`, `Sierpinski SDF`) as `{ name, params }` pairs —
+quick starting points for `params`. `Cube tiles` and `Ink cells` exercise
+`argmax` and the ink contour mode; `Menger sponge` and `Sierpinski pyramid`
+exercise the volumetric branch, voice layers, and carve together (the latter
+on the `pyramid` stage); `Menger sponge (depth 3)` is the same recipe one
+level deeper, safe only since the duty-aware Nyquist fix below; `Gyroid xray`
+exercises the SDF family and `render: "xray"`; `Menger SDF` and
+`Sierpinski SDF` are the single-voice SDF patches [sphere tracing](#sphere-tracing)
+qualifies. All six volumetric presets are also individually exported by
+object identity (`GlyphMengerSpongePreset`, `GlyphMengerSpongeDepth3Preset`,
+`GlyphSierpinskiPyramidPreset`, `GlyphGyroidXrayPreset`, `GlyphMengerSdfPreset`,
+`GlyphSierpinskiSdfPreset`, alongside `GlyphCubeTilesPreset`), for a consumer
+that needs to key off a specific preset rather than its display name.
+
+### Program builder and program-as-data
+
+Two more ways to author a field, beyond the flat `field1..9`/`layer1..9`
+params:
+
+- **`buildGlyphFieldProgram({ domain, layers: [{ voices: [...] }] })`**
+  (`@glyphcss/effects`) fills in every internal default from a pleasant
+  `voices: [...]` shape — a nicer authoring surface for the same program the
+  flat schema compiles down to, with no 9-voice cap.
+- **Program-as-data**: pass a fully-formed program straight to a layer via
+  the `program` option, instead of `params`:
+
+  ```ts
+  import { buildGlyphFieldProgram } from "@glyphcss/effects";
+
+  const program = buildGlyphFieldProgram({
+    domain: "3d",
+    layers: [{
+      voices: [{ field: "menger", wave: "step", freq: 3, iter: 3 }],
+      combine: "min",
+    }],
+  });
+
+  scene.addEffectLayer({
+    effect: GlyphEffects.fieldSynth,
+    program, // an unbounded field, not limited to 9 voices
+    params: { space: "object", render: "carve", glyphs: " .:-=+*#%@" }, // still governs space/render/march/output
+  });
+  ```
+
+  When `program` is set, field-synth ignores its own per-voice/per-layer
+  params entirely — `params` still controls `space`/`render`/`marchSteps`/
+  output mapping (ramp, color, `lit`, and so on). `validateGlyphFieldProgram`
+  (also exported) shape-checks an arbitrary value before you hand it to
+  `evaluateFieldProgram` yourself, if you're building the program by other
+  means. `program` is **immutable after mount** — pass a different one and
+  the layer's `setOptions` throws; remove and re-add the layer instead.
+  React/Vue and `<glyph-effect-layer>` all accept a `program` prop/property,
+  applied only at creation. It's an API-first feature: `program` is not
+  URL-persistable, and the [`/synth`](/synth) page and the static exporter
+  (below) don't support it.
 
 ### `GlyphRamps`
 
@@ -762,10 +868,14 @@ per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and —
 since slice 2 — the SDF fields (`gyroid`/`menger`/`sierpinski`, with `iterN`)
 and the `step` waveform, all at real-renderer exact parity, all 2D. It
 rejects, with a specific error naming the reason: `space: "object"` (the
-volumetric branch), `render: "carve"`/`"xray"`, and an active voice
-(`ampN > 0`) using `linearZ` or a nonzero `originWN` — all 3D-only semantics a
-per-cell coordinate bake can't fake, since carve/xray in particular need a
-march per cell per frame. The `originWN` reject is waived for an active SDF
+volumetric branch), `render: "carve"`/`"xray"`, a `program` option
+([program-as-data](#program-builder-and-program-as-data) — an unbounded
+authoring surface with no schema this baked coordinate-table/affine-fit
+exporter can serialize), and an active voice (`ampN > 0`) using `linearZ` or
+a nonzero `originWN` — all semantics a per-cell coordinate bake can't fake,
+since carve/xray in particular need a march per cell per frame and a program
+has no flat-param shape to merge and bake. The `originWN` reject is waived
+for an active SDF
 voice: `gyroid`/`menger`/`sierpinski` genuinely read `originW` even in the 2D
 branch (it's part of their translation contract), so that combination exports
 normally. Call `isGlyphFieldSynthStaticExportSupported(params)` to check

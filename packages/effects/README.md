@@ -46,7 +46,7 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
 - **glitch** — bursts of deterministic banded glyph corruption and color.
 - **noiseDissolve** — a stable procedural dissolve that can be scrubbed with one progress value.
 - **ripple** — concentric glyph and color waves in canonical scene coordinates.
-- **fieldSynth** — a composable oscillator synth: up to six voices, each pairing a
+- **fieldSynth** — a composable oscillator synth: up to nine voices, each pairing a
   field (`radial`/`linearX`/`linearY`/`diagonal`/`angular`/`spiral`/`noise`, `linearZ`
   under the volumetric branch, plus the SDF family `gyroid`/`menger`/`sierpinski`)
   with a waveform (`sin`/`triangle`/`saw`/`square`/`step`), combined
@@ -65,17 +65,36 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   single value gradient. `subcellRes` picks the output encoding: `"1x1"` (one ramp
   glyph per cell), `"2x4"` (Braille subcell dots), or `"ink"` (contour lines of the
   field, with `inkLevels` setting how many). Voices can also opt into one of three
-  `layer1..6` groups, each with its own threshold/invert/blend into the next layer —
+  `layer1..9` groups, each with its own threshold/invert/blend into the next layer —
   this is what makes a per-scale rule like Menger-sponge membership expressible,
   which a flat voice fold cannot reach. Under `space: "object"` (a volumetric field
   in the mesh's own 3D frame, like matrix rain's `"object"` mode), `render: "carve"`
   raymarches the field into hollow interior structure, and `render: "xray"`
   integrates density along the whole chord into a transmittance brightness instead.
-  The SDF fields (`menger`/`sierpinski` at recursion depth `iterN`,
-  1..4) are exact signed distances to the depth-`iterN` box/tetra union, not a
-  distance-estimator approximation. Ships with a curated set of presets (Sunburst,
-  Ring pulse, Plaid weave, Menger sponge, Sierpinski pyramid, Gyroid xray, and
-  more).
+  `render: "carve"` also accepts `subcellRes: "2x4"`/`"ink"` (ink-over-carve
+  contours the march's hit/hole boundary; braille-over-carve marches 8 sub-rays
+  per cell) — only `render: "xray"` still requires `"1x1"`. For a program that is
+  provably a distance field (a single `min`-combined layer of `menger`/`sierpinski`
+  `step` voices at `amp: 1`), carve automatically sphere-traces instead of marching
+  a fixed grid — `buildGlyphFieldDistanceOracle`/`marchGlyphFieldSphere` are public
+  for a caller building the same check — falling back to a fixed-step scan whenever
+  a ray stalls, so it never finds fewer hits than the fixed-step path, only more or
+  the same, roughly 1.8-1.9× faster on deep recursive content. The SDF fields
+  (`menger`/`sierpinski` at recursion depth `iterN`, 1..4) are exact signed
+  distances to the depth-`iterN` box/tetra union, not a distance-estimator
+  approximation; their own Nyquist floor is separate from the square-wave duty-aware
+  one below. Every voice's step-count floor for `square` waves is duty-aware —
+  `freq / min(duty, 1 − duty)` — so a narrow-duty recipe (like the Menger sponge
+  recipe's `duty: 1/3` axis voices) resolves correctly without an inflated manual
+  step estimate; this is what makes the shipped **Menger sponge (depth 3)** preset
+  safe. `buildGlyphFieldProgram({ domain, layers: [...] })` builds a field program
+  from a pleasant `voices: [...]` authoring surface with no 9-voice cap, and
+  `validateGlyphFieldProgram(program)` shape-checks one; passing a built (or
+  hand-built) program to a mounted layer via `program` instead of `params` — glyphcss
+  plumbs this opaque payload through unchanged — is field-synth's unbounded
+  "program-as-data" tier, immutable after mount. Ships with a curated set of presets
+  (Sunburst, Ring pulse, Plaid weave, Menger sponge, Menger sponge (depth 3),
+  Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF, and more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are
