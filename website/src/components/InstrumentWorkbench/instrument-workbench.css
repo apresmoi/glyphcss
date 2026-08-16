@@ -127,7 +127,45 @@
   display: flex; align-items: center; gap: 5px; font-size: 11px;
   color: rgba(255, 232, 184, 0.70); cursor: pointer;
 }
-.layer-group-check input[type="checkbox"] { cursor: pointer; accent-color: #38bdf8; }
+/* "[x]" / "[ ]" via pseudo — same technique as the Dock's own boolean
+   controller checkbox (`.dn-floating-controls .lil-gui .controller.boolean
+   input[type="checkbox"]` in gallery-workbench.css), so the layer-group
+   header reads as one control idiom with a voice card and the Dock instead
+   of a native browser checkbox breaking the pattern (found live: a plain
+   blue browser checkmark next to the already-styled select/slider rows). */
+.layer-group-check input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 32px;
+  height: 16px;
+  background: rgba(255, 232, 184, 0.05);
+  border: 1px solid rgba(255, 232, 184, 0.25);
+  border-radius: 0;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.layer-group-check input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 232, 184, 0.45);
+  pointer-events: none;
+  line-height: 1;
+}
+.layer-group-check input[type="checkbox"]:checked {
+  background: rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.55);
+}
+.layer-group-check input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: #38bdf8;
+}
 .layer-group-threshold-track { flex: 1 1 80px; min-width: 60px; }
 .layer-group-voices { display: flex; flex-direction: column; gap: 9px; }
 .layer-group-add {
