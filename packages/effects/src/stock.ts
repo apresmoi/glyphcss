@@ -2890,8 +2890,8 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               // this call is unchanged regardless of which marcher ran.
               const result = distanceOracle
                 ? marchGlyphFieldSphere(
-                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], distanceOracle,
-                    { sampler: densitySample, time, originX: cx, originY: cy, originZ: cz },
+                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], distanceOracle, densitySample,
+                    { time, originX: cx, originY: cy, originZ: cz, steps: params.marchSteps, maxSteps: 256, finestFreq },
                   )
                 : marchField(
                     [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,

@@ -1005,15 +1005,59 @@ export const SPHERE_MARCH_MAX_STEPS = 64;
  *  max iter/freq, large enough to clear float noise at the crossing
  *  itself. */
 export const SPHERE_MARCH_OVERSHOOT_EPSILON = 1e-4;
+/**
+ * Stall detector (VOLUMETRIC-3.md §3, amended after Phase 3 measurement): a
+ * step whose advance (`SPHERE_MARCH_SAFETY * D`) falls below this many
+ * domain units is treated as evidence of the classic sphere-tracing "stuck
+ * near an OFF-ray feature" pathology — `D` keeps reporting the distance to
+ * some nearby surface that is NOT the one the ray actually crosses, so the
+ * step shrinks geometrically toward zero without ever going negative.
+ * Fixed ten times above `SPHERE_MARCH_OVERSHOOT_EPSILON` so the legitimate
+ * final approach to a genuine crossing — which the overshoot+confirm step
+ * already resolves in a single step once `D` first goes negative — is never
+ * itself mistaken for a stall; still far below the thinnest feature the
+ * schema's max iter/freq can produce (menger iter 4 at freq 1 carves
+ * ~1/81-domain-unit boxes, over 10x this threshold), so a step legitimately
+ * converging on real fine detail doesn't false-trigger either.
+ */
+export const SPHERE_MARCH_STALL_ADVANCE = 1e-3;
+/**
+ * Consecutive stall-sized steps required before `marchGlyphFieldSphere`
+ * gives up on distance-stepping and falls back to the fixed-step march
+ * (VOLUMETRIC-3.md §3). Measured directly against the shipped "Menger
+ * SDF"/"Sierpinski SDF" presets (real rendered rays, iter 3): ordinary,
+ * healthy convergence onto a genuine crossing routinely spends 2-5 steps
+ * below `SPHERE_MARCH_STALL_ADVANCE` on its FINAL approach (`D` naturally
+ * shrinks geometrically as a ray nears any surface, stall or not) before
+ * crossing — a threshold of 3 (the first value tried) false-triggered on
+ * these ordinary approaches often enough that ZERO of 218 Menger SDF hits
+ * resolved via pure distance-stepping; 8 is the point past which the split
+ * between pure and fallback-resolved hits stops changing at all (12 and 20
+ * produce identical or worse pure-hit counts on the same fixture), meaning
+ * everything past 8 steps really is the asymptotic "shrinks forever, never
+ * crosses" pathology, not a slow-but-healthy approach — still small
+ * relative to the 64-step budget.
+ */
+export const SPHERE_MARCH_STALL_STEPS = 8;
 
 export interface FieldSphereMarchOptions {
-  /** The REAL (non-distance) field sampler — same contract as `marchField`'s
-   *  own `sampler` — used to CONFIRM a sign-change step before it emits. */
-  readonly sampler: FieldSampler;
   readonly time?: number;
   readonly originX?: number;
   readonly originY?: number;
   readonly originZ?: number;
+  /**
+   * The SAME step-density inputs the carve caller already computes for its
+   * own fixed-step call (`params.marchSteps`, the 256 cap, and the
+   * program's finest active frequency) — threaded through unchanged so the
+   * stall/cap-pressure fixed-step FALLBACK below samples the remaining
+   * segment at the identical per-cell density the fixed path would have
+   * used for it, via the shared `fieldStepCount` helper `marchField` itself
+   * calls. VOLUMETRIC-3.md §3's amendment: "same per-cell step density the
+   * fixed path would use, via the shared step helper."
+   */
+  readonly steps?: number;
+  readonly maxSteps?: number;
+  readonly finestFreq?: number;
 }
 
 /**
@@ -1022,41 +1066,77 @@ export interface FieldSphereMarchOptions {
  * `buildGlyphFieldDistanceOracle` has confirmed ARE genuine distance fields.
  * Steps by `oracle(p) * SPHERE_MARCH_SAFETY` instead of a fixed grid,
  * converging on thin or deep features a fixed step count would either
- * overshoot or need many more steps to resolve.
+ * overshoot or need many more steps to resolve. `sampler` is the REAL
+ * (non-distance) field — same contract as `marchField`'s own `sampler` —
+ * used both to CONFIRM a sign-change step before it emits, and (amended,
+ * see below) to drive the fixed-step fallback.
  *
  * Contract:
  * - `oracle(entry) <= 0` (already inside) hits immediately at `t = 0`,
  *   mirroring `marchField`'s own entry-already-solid short circuit —
  *   `distance`/`sampleDistance` 0, emission position = entry.
- * - Otherwise steps forward by `SPHERE_MARCH_SAFETY * D` each iteration, up
- *   to `SPHERE_MARCH_MAX_STEPS` times. A step whose new position reads
- *   `<= 0` is a sign change. The reported hit is never that raw crossing
- *   itself: it overshoots `SPHERE_MARCH_OVERSHOOT_EPSILON` further INTO the
- *   solid along the ray and re-samples with the REAL field `sampler` there,
- *   confirming `> 0` before emitting — the same plateau discipline
- *   `marchField`'s own doc describes (a hard-thresholded field can sit
- *   exactly on its own boundary, so the emitted point must be a raw sample
- *   the real sampler actually measured solid, never an oracle-only
- *   position).
+ * - Otherwise steps forward by `SPHERE_MARCH_SAFETY * D` each iteration. A
+ *   step whose new position reads `<= 0` is a sign change. The reported hit
+ *   is never that raw crossing itself: it overshoots
+ *   `SPHERE_MARCH_OVERSHOOT_EPSILON` further INTO the solid along the ray
+ *   and re-samples with the REAL field `sampler` there, confirming `> 0`
+ *   before emitting — the same plateau discipline `marchField`'s own doc
+ *   describes (a hard-thresholded field can sit exactly on its own
+ *   boundary, so the emitted point must be a raw sample the real sampler
+ *   actually measured solid, never an oracle-only position).
  * - An unconfirmed sign change (the real sampler disagrees with the oracle
  *   at the overshoot sample) reports a miss — there is no confirmed
  *   evidence of solid material along this ray, the same rule `marchField`
  *   applies to a non-finite sample.
- * - Exhausting `SPHERE_MARCH_MAX_STEPS` steps, or stepping past `exit`,
- *   without a confirmed hit is a miss.
+ * - **Stall / step-cap-pressure fallback (VOLUMETRIC-3.md §3, amended after
+ *   Phase 3 measurement):** naive distance-stepping alone stalls
+ *   approaching an OFF-ray feature on dense recursive fractals — measured
+ *   17% of fixed-step's hits lost to bare cap exhaustion at iter 3. Before
+ *   taking a step, if the last `SPHERE_MARCH_STALL_STEPS` advances were all
+ *   below `SPHERE_MARCH_STALL_ADVANCE`, OR this is the last step the
+ *   `SPHERE_MARCH_MAX_STEPS` budget allows, the marcher stops
+ *   distance-stepping and falls back to a fixed-step scan of [current
+ *   position, `exit`] — but on the SAME ABSOLUTE GRID a plain fixed-step
+ *   call over the FULL original chord would sample (`fieldStepCount`
+ *   applied to the FULL chord length, at the SAME `opts.steps`/`maxSteps`/
+ *   `finestFreq` the carve caller's own fixed-step call uses), just
+ *   skipping the analytically-proven-empty prefix before the current
+ *   position. This is deliberately NOT the same as re-deriving a fresh step
+ *   count for the shorter remaining segment alone: `fieldStepCount` scales
+ *   its Nyquist term by chord length, so a shorter segment quantizes onto a
+ *   DIFFERENTLY-PHASED grid that can legitimately skip a thin feature the
+ *   full-chord grid's own specific sample offsets would have caught — same
+ *   per-cell step DENSITY has to mean the same grid phase, not just the
+ *   same step count, for the fallback to be a genuine superset of the plain
+ *   fixed-step result rather than usually one. A stalled ray therefore
+ *   finishes exactly as a plain fixed-step call would have from that point
+ *   on — hit-set superset is restored by construction, never a miss purely
+ *   from exhausting the sphere budget or from grid re-phasing. The
+ *   fallback's own `t`/`distance`/`sampleDistance` are already expressed
+ *   relative to the ORIGINAL `entry` (same grid, same origin); pure-miss
+ *   only when this fallback scan also finds nothing.
+ * - Stepping past `exit` without a sign change or a stall (i.e. `D` stayed
+ *   large enough to legitimately confirm no solid material exists anywhere
+ *   along the ray) is a genuine miss — not stall/cap-pressure, so no
+ *   fallback: the tracer already did its job and found nothing.
  * - A degenerate segment (`entry === exit`, zero-length or non-finite
  *   chord) always misses, same as `marchField`.
  *
  * A confirmed hit's `t`/`distance`/`x`/`y`/`z` equal its own `sampleT`/
- * `sampleDistance`/`sampleX`/`sampleY`/`sampleZ` — unlike `marchField`'s
- * secant refinement, there is no separate interpolated position here: the
- * emitted point IS the confirmed raw sample (slice-1's plateau discipline).
+ * `sampleDistance`/`sampleX`/`sampleY`/`sampleZ` when the hit came from
+ * distance-stepping — unlike `marchField`'s secant refinement, there is no
+ * separate interpolated position there: the emitted point IS the confirmed
+ * raw sample (slice-1's plateau discipline). A hit that came from the
+ * fixed-step fallback instead carries THAT march's own secant-refined
+ * `t`/`distance`/`x`/`y`/`z` vs. raw `sampleT`/`sampleDistance`/
+ * `sampleX`/`Y`/`Z` split, exactly as `marchField` itself produces it.
  */
 export function marchGlyphFieldSphere(
   entry: readonly [number, number, number],
   exit: readonly [number, number, number],
   oracle: FieldDistanceSampler,
-  opts: FieldSphereMarchOptions,
+  sampler: FieldSampler,
+  opts: FieldSphereMarchOptions = {},
 ): FieldMarchResult {
   const [ex, ey, ez] = entry;
   const [xx, xy, xz] = exit;
@@ -1069,6 +1149,74 @@ export function marchGlyphFieldSphere(
   const ux = dx / chordLength, uy = dy / chordLength, uz = dz / chordLength;
   const sampleD = (px: number, py: number, pz: number): number => oracle(px, py, pz, originX, originY, originZ);
 
+  // Falls back to a fixed-step scan of [current position, exit] — but
+  // critically, on the SAME ABSOLUTE GRID a plain `marchField(entry, exit,
+  // ...)` call over the FULL original chord would sample (same
+  // `fieldStepCount(chordLength, opts)` step count applied to the FULL
+  // chord length, not a fresh one re-derived for the shorter remaining
+  // segment), just skipping the analytically-proven-empty prefix before
+  // `distSoFar` (sphere-stepping's own conservative-radius guarantee: a
+  // step of size <= D can never cross into solid material, so nothing
+  // solid exists before wherever it currently stands). This is NOT the
+  // same as calling `marchField` over the remaining sub-segment with the
+  // SAME `steps`/`maxSteps`/`finestFreq` OPTIONS: `fieldStepCount` scales
+  // its Nyquist term by chord length, so a shorter remaining segment
+  // quantizes onto a DIFFERENTLY-PHASED grid — measured directly to
+  // legitimately skip a thin feature the full-chord grid's own specific
+  // sample offsets happened to land inside (2 lost cells on the Sierpinski
+  // SDF preset before this alignment fix). Reproducing the FULL grid's own
+  // phase, not just its step COUNT, is what "same per-cell step density"
+  // (VOLUMETRIC-3.md §3) has to mean for the fallback to be a genuine
+  // superset of the plain fixed-step result, not just usually one.
+  //
+  // This duplicates `marchField`'s own secant/raw-sample/non-finite-sample
+  // discipline rather than calling it, specifically because `marchField`
+  // has no "start at a known-empty prefix on this exact grid" entry point
+  // — deliberately scoped local to this closure rather than widening
+  // `marchField`'s own public contract for every other caller.
+  function fallbackToFixed(distSoFar: number): FieldMarchResult {
+    const steps = fieldStepCount(chordLength, { steps: opts.steps, maxSteps: opts.maxSteps, finestFreq: opts.finestFreq });
+
+    let prevT = distSoFar / chordLength;
+    let prevX = ex + ux * distSoFar, prevY = ey + uy * distSoFar, prevZ = ez + uz * distSoFar;
+    let prevValue = sampler(prevX, prevY, prevZ, time);
+    let prevFinite = Number.isFinite(prevValue);
+    if (prevFinite && prevValue > 0) {
+      return { hit: true, t: prevT, distance: distSoFar, x: prevX, y: prevY, z: prevZ, sampleT: prevT, sampleX: prevX, sampleY: prevY, sampleZ: prevZ, sampleDistance: distSoFar };
+    }
+
+    const startI = Math.max(1, Math.ceil(prevT * steps));
+    for (let i = startI; i <= steps; i++) {
+      const t = i / steps;
+      const x = ex + dx * t, y = ey + dy * t, z = ez + dz * t;
+      const value = sampler(x, y, z, time);
+      const finite = Number.isFinite(value);
+      if (finite && value > 0) {
+        let hitT: number;
+        if (prevFinite) {
+          const denom = value - prevValue;
+          const localT = denom !== 0 ? -prevValue / denom : 0;
+          hitT = prevT + localT * (t - prevT);
+        } else {
+          hitT = t;
+        }
+        return {
+          hit: true,
+          t: hitT,
+          distance: hitT * chordLength,
+          x: ex + dx * hitT, y: ey + dy * hitT, z: ez + dz * hitT,
+          sampleT: t,
+          sampleX: x, sampleY: y, sampleZ: z,
+          sampleDistance: t * chordLength,
+        };
+      }
+      prevFinite = finite;
+      prevT = t;
+      prevValue = value;
+    }
+    return { hit: false };
+  }
+
   let d = sampleD(ex, ey, ez);
   if (!Number.isFinite(d)) return { hit: false };
   if (d <= 0) {
@@ -1076,8 +1224,15 @@ export function marchGlyphFieldSphere(
   }
 
   let dist = 0;
+  let stallStreak = 0;
   for (let i = 0; i < SPHERE_MARCH_MAX_STEPS; i++) {
-    dist += SPHERE_MARCH_SAFETY * d;
+    const advance = SPHERE_MARCH_SAFETY * d;
+    stallStreak = advance < SPHERE_MARCH_STALL_ADVANCE ? stallStreak + 1 : 0;
+    const stalled = stallStreak >= SPHERE_MARCH_STALL_STEPS;
+    const stepCapPressure = i === SPHERE_MARCH_MAX_STEPS - 1;
+    if (stalled || stepCapPressure) return fallbackToFixed(dist);
+
+    dist += advance;
     if (dist >= chordLength) return { hit: false };
     const px = ex + ux * dist, py = ey + uy * dist, pz = ez + uz * dist;
     d = sampleD(px, py, pz);
@@ -1085,7 +1240,7 @@ export function marchGlyphFieldSphere(
     if (d <= 0) {
       const confirmDist = Math.min(dist + SPHERE_MARCH_OVERSHOOT_EPSILON, chordLength);
       const cx = ex + ux * confirmDist, cy = ey + uy * confirmDist, cz = ez + uz * confirmDist;
-      const real = opts.sampler(cx, cy, cz, time);
+      const real = sampler(cx, cy, cz, time);
       if (!(Number.isFinite(real) && real > 0)) return { hit: false };
       return {
         hit: true,
@@ -1098,6 +1253,8 @@ export function marchGlyphFieldSphere(
       };
     }
   }
+  // Unreachable: `stepCapPressure` fires (and returns) on the last
+  // iteration above, so the loop never falls through.
   return { hit: false };
 }
 
