@@ -161,7 +161,17 @@ export default function SynthWorkbench() {
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const flat = isFlat(shape);
     const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : cameraAnglesRef.current.rotX, rotY: flat ? 0 : cameraAnglesRef.current.rotY, zoom: STAGE_CAMERA_ZOOM });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
+    // interactiveDownscale > 1 renders at 1/n resolution WHILE a control is
+    // actively dragging (same on-screen size, coarser cell) and restores
+    // full detail on release — createGlyphOrbitControls already drives
+    // scene.setInteracting() itself on drag start/end (the shared
+    // emitInteraction registry, controls/common.ts), so enabling it here is
+    // the only change needed. This was previously pinned at 1 (off), which
+    // meant orbiting a heavy volumetric patch (e.g. the Menger SDF preset,
+    // ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
+    // resolution on every drag frame — 2 (÷4 cells) matches the loaders
+    // gallery's own default (glyph-runtime.ts's `parseInteractiveDownscale`).
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
