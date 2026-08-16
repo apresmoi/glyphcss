@@ -15,6 +15,7 @@ import {
   buildWavePathD,
   isSdfField,
   isSdfIterField,
+  resolveInkControlVisibility,
   resolveSpaceChange,
   shapePolys,
   shapeTransform,
@@ -120,6 +121,38 @@ describe("resolveSpaceChange", () => {
     const params = { ...synthDefaults(), space: "object", render: "carve" };
     const next = { ...params, space: "surface" };
     expect(() => fieldSynth.program.validateParams?.(next as never)).toThrow();
+  });
+});
+
+// The /synth Output folder's "Ink levels" (2D field-synth ink)/"Ink spacing"
+// (carve-ink, VOLUMETRIC-3.md §2) rows swap in place on `render`, exactly
+// like the Volume folder's "March fade"/"Xray gain" pair already does —
+// see `resolveInkControlVisibility`'s doc in synthKit.tsx.
+describe("resolveInkControlVisibility", () => {
+  it("subcellRes !== \"ink\" hides both rows regardless of render", () => {
+    for (const render of RENDER_MODES) {
+      expect(resolveInkControlVisibility("1x1", render)).toEqual({ showInkLevels: false, showInkSpacing: false });
+      expect(resolveInkControlVisibility("2x4", render)).toEqual({ showInkLevels: false, showInkSpacing: false });
+    }
+  });
+
+  it("subcellRes: \"ink\" + render: \"carve\" shows Ink spacing only — Ink levels is a documented no-op there", () => {
+    expect(resolveInkControlVisibility("ink", "carve")).toEqual({ showInkLevels: false, showInkSpacing: true });
+  });
+
+  it("subcellRes: \"ink\" + render: \"paint\" (2D field-synth ink) shows Ink levels only", () => {
+    expect(resolveInkControlVisibility("ink", "paint")).toEqual({ showInkLevels: true, showInkSpacing: false });
+  });
+
+  // render: "xray" always rejects subcellRes: "ink" at validation (carve
+  // only), so this combination never reaches the live Dock — but the pure
+  // function still resolves it the same way "paint" does (inkSpacing is a
+  // carve-only concept), not a third state.
+  it("subcellRes: \"ink\" + render: \"xray\" (unreachable in practice — validateParams rejects it) still resolves inkLevels, not inkSpacing", () => {
+    expect(resolveInkControlVisibility("ink", "xray")).toEqual({ showInkLevels: true, showInkSpacing: false });
+    expect(() => fieldSynth.program.validateParams?.(
+      { ...synthDefaults(), space: "object", render: "xray", subcellRes: "ink" } as never,
+    )).toThrow();
   });
 });
 

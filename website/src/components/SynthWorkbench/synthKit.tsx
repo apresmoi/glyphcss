@@ -474,6 +474,25 @@ export function resolveSpaceChange(nextSpace: string): { shape?: string; render?
   return nextSpace === "object" ? { shape: "cube" } : { render: sanitizeCarveRenderForSpace(nextSpace, "carve") };
 }
 
+// The Output folder's two ink-mode-only rows are mutually exclusive, not
+// simultaneously relevant: `inkLevels` is 2D field-synth ink's own knob (how
+// many cuts through the field's OWN OBSERVED VALUE RANGE to contour) and is
+// a documented no-op under carve-ink, which instead reads `inkSpacing` — an
+// ABSOLUTE domain-unit contour interval (VOLUMETRIC-3.md §2; carve
+// deliberately never normalizes against an observed range — see
+// `packages/effects/src/stock.ts`'s "Contour spacing is ABSOLUTE" doc). Only
+// `subcellRes: "ink"` makes either relevant at all, and `render: "xray"`
+// always rejects `subcellRes: "ink"` at validation, so the two rows swap in
+// place on `render` exactly like the Volume folder's "March fade"/"Xray
+// gain" pair already does for two knobs that only ever apply to one render
+// mode each. Pure so the swap rule is testable without mounting the Dock
+// (lil-gui needs a real DOM element) — same precedent as `resolveSpaceChange`.
+export function resolveInkControlVisibility(subcellRes: string, render: string): { showInkLevels: boolean; showInkSpacing: boolean } {
+  const isInk = subcellRes === "ink";
+  const isCarve = render === "carve";
+  return { showInkLevels: isInk && !isCarve, showInkSpacing: isInk && isCarve };
+}
+
 export const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
 export const AMBIENT = { intensity: 0.6 };
 
@@ -1680,6 +1699,17 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // append it after the colours. Creating it here — before Ramp — pins it
   // directly under the Subcell toggle, where the mode's own knob belongs.
   const inkLevelsCtrl = useSlider(out, "Ink levels", { min: 1, max: 12, step: 1 }, Number(params.inkLevels ?? 4), (v) => onParam("inkLevels", v));
+  // Carve-ink's own knob (VOLUMETRIC-3.md §2's `inkSpacing`, absolute
+  // domain-unit contour interval — NOT the 2D ink mode's `inkLevels`, which
+  // is a documented no-op under carve-ink and reads the field's own
+  // observed value range instead of a domain-unit distance). Bounds mirror
+  // `packages/effects/src/stock.ts`'s `inkSpacing` schema entry exactly.
+  // Created here, right after Ink levels, so the two occupy the SAME row in
+  // the folder and swap in place rather than one appearing above/below a
+  // gap — the same mutually-exclusive show/hide-in-place idiom the Volume
+  // folder's "March fade"/"Xray gain" pair above already uses for two knobs
+  // that only ever apply to one render mode each.
+  const inkSpacingCtrl = useSlider(out, "Ink spacing", { min: 0.05, max: 4, step: 0.05 }, Number(params.inkSpacing ?? 0.25), (v) => onParam("inkSpacing", v));
   const rampCtrl = useOption(out, "Ramp", RAMP_OPTS, selectedRamp, selectRamp);
   const rampDensitySlot = useDockSlot(out, { position: "bottom", className: "dock-ramp-density-slot" });
   // `isValid` rejects an empty ramp before it ever reaches `onParam`/the
@@ -1693,6 +1723,7 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // Ramp/Chars/the density row do nothing at 2x4 (see `subcellIs2x4` above) —
   // dim them AND say why, rather than leaving live-looking controls that
   // silently no-op.
+  const { showInkLevels, showInkSpacing } = resolveInkControlVisibility(s("subcellRes"), renderMode);
   useEffect(() => {
     // 2x4 DIMS the ramp rows (Contrast/Brightness change meaning there, so the
     // relationship is worth keeping on screen). Ink simply has no ramp concept
@@ -1700,8 +1731,9 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
     if (rampCtrl) { subcellIsInk ? rampCtrl.raw.hide() : rampCtrl.raw.show(); rampCtrl.setEnabled(!ramplessSubcell, { dim: true }); }
     if (charsCtrl) { subcellIsInk ? charsCtrl.raw.hide() : charsCtrl.raw.show(); charsCtrl.setEnabled(!ramplessSubcell, { dim: true }); }
     if (rampDensitySlot) rampDensitySlot.style.display = subcellIsInk ? "none" : "";
-    if (inkLevelsCtrl) { subcellIsInk ? inkLevelsCtrl.raw.show() : inkLevelsCtrl.raw.hide(); }
-  }, [rampCtrl, charsCtrl, rampDensitySlot, inkLevelsCtrl, ramplessSubcell, subcellIsInk]);
+    if (inkLevelsCtrl) { showInkLevels ? inkLevelsCtrl.raw.show() : inkLevelsCtrl.raw.hide(); }
+    if (inkSpacingCtrl) { showInkSpacing ? inkSpacingCtrl.raw.show() : inkSpacingCtrl.raw.hide(); }
+  }, [rampCtrl, charsCtrl, rampDensitySlot, inkLevelsCtrl, inkSpacingCtrl, ramplessSubcell, subcellIsInk, showInkLevels, showInkSpacing]);
   // How many cuts through the amplitude axis to contour — only meaningful in
   // ink, so it appears with the mode rather than sitting inert.
   const voiceColorsOn = params.voiceColors === true;
