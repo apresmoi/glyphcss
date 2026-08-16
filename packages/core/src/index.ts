@@ -177,5 +177,4 @@ export type {
   Hotspot,
   HotspotCell,
 } from "./types";
-export { project } from "./math/projection";
 export { trianglesToFeatureEdges } from "./scene/featureEdges";
