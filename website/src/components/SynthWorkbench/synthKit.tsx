@@ -686,35 +686,101 @@ const CORNER_TETRA_APEX_EULER: V3 = alignCornerTetraApexEuler();
 // (`createGlyphScene`'s `applyTransform` captures `objectVertices` BEFORE
 // this transform is applied, so the field recipe never sees it): rotate by
 // `CORNER_TETRA_APEX_EULER` so the apex sits above a ground-parallel base,
-// then center on the ROTATED shape's bounding-box center (not its centroid —
-// this tetra's mass is lopsided toward the apex, so a centroid center still
-// reads visually off-balance under orbit) so orbit/spin read symmetric.
-export function shapeTransform(name: string): GlyphMeshTransform {
-  if (name === "pyramid") {
-    const s = PYRAMID_STAGE_SIZE;
-    const rotation = CORNER_TETRA_APEX_EULER;
-    const corners: V3[] = [[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]].map((v) => rotateOnly(v as V3, rotation));
-    const xs = corners.map((v) => v[0]), ys = corners.map((v) => v[1]), zs = corners.map((v) => v[2]);
-    const bboxCenter: V3 = [
-      (Math.min(...xs) + Math.max(...xs)) / 2,
-      (Math.min(...ys) + Math.max(...ys)) / 2,
-      (Math.min(...zs) + Math.max(...zs)) / 2,
-    ];
-    return { rotation, position: [-bboxCenter[0], -bboxCenter[1], -bboxCenter[2]] };
+// then translate so the ROTATED shape's screen-PROJECTED silhouette (not its
+// 3D bounding box) centers under the real stage camera.
+//
+// A prior version centered the 3D world-space AABB of the 4 rotated corners
+// instead (43026ff / 529a09e). That only approximates screen centering: a
+// tetrahedron's 4 vertices are not centrally symmetric about their own
+// axis-aligned bbox center, so centering that 3D box does not generally
+// center the true 2D screen silhouette under an oblique camera (rotX 58,
+// rotY 32). The residual is a FIXED WORLD-SPACE offset, so its on-screen
+// size scales linearly with whatever zoom ends up being used — it stayed
+// under the old arbiter test's ~1-cell tolerance at the test's small fixed
+// `STAGE_CAMERA_ZOOM` (46), but `SynthWorkbench`'s `frameObject` picks a
+// zoom that fills ~72% of the REAL, much larger viewport grid (measured
+// ~4x `STAGE_CAMERA_ZOOM` against the live page via Playwright) — the same
+// proportional bias lands many cells off-center there, which is exactly the
+// live-page symptom the old test's own scene setup couldn't reproduce.
+//
+// Camera projection is LINEAR in world position for the orthographic camera
+// (no perspective divide — see `createGlyphOrthographicCamera`'s `project`),
+// so the exact translation that cancels the rotated shape's own projected
+// offset can be solved once and holds for EVERY zoom/cols/rows/cellAspect
+// simultaneously, not just one specific grid. The camera's world->screen
+// rotation is orthogonal (a proper rotation matrix), so its inverse is its
+// transpose; probing the REAL camera (not a hand-rolled reproduction of its
+// internals) at the three world basis vectors recovers that matrix's
+// columns directly — see `solveScreenCenteringOffset`.
+function solveScreenCenteringOffset(rotatedCorners: V3[]): V3 {
+  const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: 1 });
+  // Unit cell metrics, zero screen center: `project` then returns the raw
+  // rotated vector [rx, ry, rz] with nothing else (grid size, cell size,
+  // center) mixed in — exactly the camera's rotation matrix applied to `v`.
+  const metrics = { cellWidth: 1, cellHeight: 1, centerCol: 0, centerRow: 0 };
+  const projRaw = (v: V3): V3 => {
+    const [c, r, d] = camera.project(v, 2, 2, 1, metrics);
+    return [c, r, d ?? 0];
+  };
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of rotatedCorners) {
+    const [x, y] = projRaw(v);
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
   }
+  // Want R * T == -[bboxCenterX, bboxCenterY, 0] (the depth axis is free —
+  // it has no on-screen effect either way, 0 is as good a choice as any). R
+  // is orthogonal, so T = R^T * s, and (R^T * s)_i is `s` dotted with R's
+  // i-th COLUMN — which `projRaw` of the i-th world basis vector gives
+  // directly.
+  const s: V3 = [-(minX + maxX) / 2, -(minY + maxY) / 2, 0];
+  const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const c1 = projRaw([1, 0, 0]), c2 = projRaw([0, 1, 0]), c3 = projRaw([0, 0, 1]);
+  return [dot(c1, s), dot(c2, s), dot(c3, s)];
+}
+
+const PYRAMID_STAGE_ROTATED_CORNERS: V3[] = (() => {
+  const s = PYRAMID_STAGE_SIZE;
+  return ([[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]] as V3[]).map((v) => rotateOnly(v, CORNER_TETRA_APEX_EULER));
+})();
+const PYRAMID_STAGE_POSITION: V3 = solveScreenCenteringOffset(PYRAMID_STAGE_ROTATED_CORNERS);
+
+export function shapeTransform(name: string): GlyphMeshTransform {
+  if (name === "pyramid") return { rotation: CORNER_TETRA_APEX_EULER, position: PYRAMID_STAGE_POSITION };
   return {};
+}
+
+// Applies a `GlyphMeshTransform` to one point exactly like `createGlyphScene`'s
+// (unexported) `applyTransform`: scale, then rotate Rz->Ry->Rx (`rotateOnly`
+// above), then translate. `frameObject` needs this so its projected bbox
+// matches what actually renders for a mesh with a non-identity transform
+// (e.g. the pyramid stage) — projecting the mesh's own untransformed local
+// vertices there measures the WRONG silhouette (wrong size, and for a
+// shape whose transform includes rotation, a differently-shaped one too).
+function applyMeshTransformPoint(v: V3, transform: GlyphMeshTransform): V3 {
+  const [sx, sy, sz] = transform.scale === undefined ? [1, 1, 1]
+    : typeof transform.scale === "number" ? [transform.scale, transform.scale, transform.scale]
+    : transform.scale;
+  const rotated = transform.rotation ? rotateOnly([v[0] * sx, v[1] * sy, v[2] * sz], transform.rotation as V3) : [v[0] * sx, v[1] * sy, v[2] * sz];
+  const [px, py, pz] = (transform.position as V3 | undefined) ?? [0, 0, 0];
+  return [rotated[0] + px, rotated[1] + py, rotated[2] + pz];
 }
 
 // Frame the object by setting the camera zoom so its projected bbox fills ~`fill`
 // of the grid. MUST project with the same MEASURED cell metrics the renderer uses
 // (`metrics`), else the default cell (BASE_TILE/cellAspect) is ~4× off and the zoom
 // massively overshoots. Call after a render so the <pre> reflects the real cell.
+// `transform`: the SAME `GlyphMeshTransform` passed to `scene.add()` for these
+// `polys` — required so the projected bbox measures the actually-rendered
+// (world-space) mesh, not its untransformed local geometry (see
+// `applyMeshTransformPoint`'s doc; every non-pyramid stage has an identity
+// transform today, so this is a no-op for them).
 // `cover`: fit the SMALLER axis exactly at `fill` and overscan the larger one
 // (like CSS `background-size: cover`) instead of the default `contain` behaviour
 // (fit the LARGER axis, margin on the smaller one). Used for the fullscreen plane
 // so its texture reaches every edge of a non-square viewport instead of framing
 // with letterbox bars.
-export function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number, m?: unknown) => number[] }, polys: Polys, fill = 0.72, cover = false): void {
+export function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number, m?: unknown) => number[] }, polys: Polys, fill = 0.72, cover = false, transform: GlyphMeshTransform = {}): void {
   const o = scene.getOptions();
   const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
   let metrics: { cellWidth: number; cellHeight: number } | undefined;
@@ -724,8 +790,9 @@ export function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; pro
   }
   camera.zoom = 1;
   let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
-  for (const p of polys) for (const v of p.vertices) {
-    const pr = camera.project(v as [number, number, number], o.cols, o.rows, o.cellAspect, metrics);
+  for (const p of polys) for (const rawV of p.vertices) {
+    const v = applyMeshTransformPoint(rawV as V3, transform);
+    const pr = camera.project(v, o.cols, o.rows, o.cellAspect, metrics);
     if (!isFinite(pr[0]!) || !isFinite(pr[1]!)) continue;
     if (pr[0]! < minc) minc = pr[0]!; if (pr[0]! > maxc) maxc = pr[0]!;
     if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
@@ -845,8 +912,9 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
     const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
-    scene.add(polys, volumetric ? shapeTransform(previewShape) : {}); scene.fit(); scene.rerender();
-    frameObject(scene, camera, polys, volumetric ? 0.8 : 0.98, false);
+    const meshTransform = volumetric ? shapeTransform(previewShape) : {};
+    scene.add(polys, meshTransform); scene.fit(); scene.rerender();
+    frameObject(scene, camera, polys, volumetric ? 0.8 : 0.98, false, meshTransform);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();

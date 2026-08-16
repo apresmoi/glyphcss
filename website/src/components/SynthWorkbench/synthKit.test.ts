@@ -1,6 +1,33 @@
+// @vitest-environment happy-dom
+//
+// This file's default `node` environment (see vitest.config.ts) has no
+// `document` — fine for every pure-function test here, but the pyramid-stage
+// arbiter suite below builds a REAL `createGlyphScene` (to run the actual
+// `frameObject` + renderer, not a hand-rolled reproduction of them), which
+// needs one to create its `<pre>`/host elements. happy-dom, not jsdom, to
+// match the rest of the repo's DOM-environment tests (e.g.
+// useSynthPreview.test.tsx).
 import { describe, expect, it, vi } from "vitest";
+
+// Importing synthKit.tsx transitively imports Dock/slots.tsx, whose
+// useRenderingFolder module calls `ensureCalibratedPalette()` at IMPORT TIME
+// (a real-browser-only canvas measurement). happy-dom has no canvas 2D
+// context, so that module-load side effect throws before this file's own
+// tests can run. Stub just `calibrateGlyphRamp` — the rest of
+// `@glyphcss/effects` stays real — same pattern LayerGroup.test.tsx and
+// useSynthPreview.test.tsx already use for the same reason. `vi.mock` calls
+// are hoisted above every import in this file, so this takes effect before
+// synthKit.tsx (and its Dock/slots.tsx import chain) loads.
+vi.mock("@glyphcss/effects", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@glyphcss/effects")>();
+  return {
+    ...actual,
+    calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }),
+  };
+});
+
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
-import { compileScene, createGlyphOrthographicCamera } from "glyphcss";
+import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
 import {
   FIELDS,
   FIELDS_3D,
@@ -13,6 +40,7 @@ import {
   STAGE_HINTS,
   WAVES,
   buildWavePathD,
+  frameObject,
   isSdfField,
   isSdfIterField,
   resolveInkControlVisibility,
@@ -341,7 +369,7 @@ function rotateWorld([vx, vy, vz]: readonly [number, number, number], [rxDeg, ry
 }
 
 describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + center via mesh transform)", () => {
-  it("rotates the apex above a ground-parallel base (world +Z) and centers the ROTATED shape's bbox near the origin, while object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
+  it("rotates the apex above a ground-parallel base (world +Z), while object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
     const s = PYRAMID_STAGE_SIZE;
     const raw = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
       .flatMap((face) => face.vertices);
@@ -389,13 +417,13 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
     // Apex (O) sits ABOVE the base plane along world Z.
     expect(worldO[2]).toBeGreaterThan(worldA[2]);
 
-    // bbox center of the 4 (rotated, translated) vertices is within
-    // floating-point epsilon of the origin.
-    for (let axis = 0; axis < 3; axis++) {
-      const vals = [worldO[axis]!, worldA[axis]!, worldB[axis]!, worldC[axis]!];
-      const center = (Math.min(...vals) + Math.max(...vals)) / 2;
-      expect(center).toBeCloseTo(0, 8);
-    }
+    // Deliberately NOT asserted here: that the 4 vertices' world-space AABB
+    // centers on the origin. A tetrahedron's 4 vertices are not centrally
+    // symmetric about their own axis-aligned bbox center, so `position` no
+    // longer targets that — it targets the SCREEN-projected silhouette
+    // center under the real stage camera instead (see `shapeTransform`'s
+    // doc in synthKit.tsx for the full derivation, and the "through the real
+    // renderer" suite below for the arbiter that actually matters).
   });
 
   it("is the identity (no position/rotation) for every other stage shape", () => {
@@ -406,28 +434,38 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
   });
 });
 
-// The arbiter for "does this actually look upright" cannot be the hand-rolled
-// `rotateWorld` matrix reproduction above — that only proves the transform is
+// The arbiter for "does this actually look upright and centered" cannot be a
+// hand-rolled matrix reproduction — that only proves a transform is
 // internally self-consistent with its OWN re-derivation of `applyTransform`'s
-// math, not that it renders correctly. A prior version of this fix (43026ff)
-// shipped exactly that kind of test, targeted world +Y as "up", and passed —
-// while the live page rendered an irregular, uncentered blob, because the
-// camera every mesh is actually projected through
-// (`createGlyphOrthographicCamera`, packages/glyphcss/src/api/
-// createGlyphCamera.ts) does NOT treat +Y as its vertical axis; see
-// `alignCornerTetraApexEuler`'s doc in synthKit.tsx for the full derivation.
+// math, not that it renders correctly. Two prior fixes both shipped exactly
+// that kind of self-consistency test and passed while the LIVE PAGE still
+// looked wrong:
+//   - 43026ff targeted world +Y as "up" — passed a hand-rolled check, but
+//     `createGlyphOrthographicCamera` doesn't treat +Y as vertical (see
+//     `alignCornerTetraApexEuler`'s doc in synthKit.tsx).
+//   - 529a09e centered the 4 rotated corners' 3D world-space bounding box —
+//     passed a fixed-small-grid `compileScene` check (cols 96, zoom
+//     `STAGE_CAMERA_ZOOM` 46), but a tetrahedron's 4 vertices aren't
+//     centrally symmetric about that box's center, so the residual screen
+//     offset is a FIXED WORLD-SPACE bias that scales linearly with zoom —
+//     it stayed under that test's ~1-cell tolerance at zoom 46, then grew to
+//     several cells off-center at the ~4x larger zoom `SynthWorkbench.tsx`'s
+//     own `frameObject` actually computes to fill the real viewport
+//     (confirmed live via Playwright against the running page).
 //
-// This suite instead runs the stage mesh through the REAL renderer: the real
-// `createGlyphOrthographicCamera` (same package export the page itself uses)
-// at the page's actual default stage camera (`STAGE_CAMERA_ROT_X/Y/ZOOM`,
-// shared with SynthWorkbench.tsx so neither can drift from the other), and
-// the real `compileScene` rasterizer for the rendered-silhouette assertion.
-// `applyTransform` itself is a private, unexported function of
-// `createGlyphScene.ts`, so `rotateWorld` above (already verified byte-for-
-// byte matching its composition order) is reused to build WORLD vertices —
-// but every assertion below runs those vertices through actual glyphcss
-// renderer code, not further hand math.
-describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, not self-consistency)", () => {
+// This suite instead builds the scene the way `SynthWorkbench.tsx` ACTUALLY
+// does for the pyramid stage: the real `createGlyphScene` + real
+// `frameObject` (imported from synthKit.tsx, not reimplemented here) + real
+// `shapePolys("pyramid")` + real `shapeTransform("pyramid")`, at the page's
+// real `STAGE_CAMERA_ROT_X/Y/ZOOM`. `cols`/`rows` are set directly (bypassing
+// `autoSize`, which needs real browser layout unavailable under vitest) at
+// several very different grid sizes, including one close to the /synth
+// page's actual measured stage grid at a common desktop viewport (135x52) —
+// proving the fix holds well past the old test's specific tolerance-tuned
+// size, not just AT it. A future change to `frameObject`, `shapePolys`,
+// `shapeTransform`, or the stage camera constants flows straight into this
+// test instead of silently drifting from what the page actually ships.
+describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, page-config replica)", () => {
   const s = PYRAMID_STAGE_SIZE;
   const transform = shapeTransform("pyramid");
   const rotation = transform.rotation as [number, number, number];
@@ -462,14 +500,37 @@ describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, not se
     expect(apexToBaseSpan).toBeGreaterThan(0.2);
   });
 
-  it("renders a silhouette (through the real compileScene rasterizer) whose bbox center lands within ~1 cell of the grid center", () => {
+  // Renders the pyramid stage through the SAME sequence SynthWorkbench.tsx
+  // runs: `createGlyphScene` -> `scene.add(polys, transform)` -> `rerender()`
+  // -> `frameObject(scene, camera, polys, fill, cover, transform)` ->
+  // `rerender()`. `frameObject` needs the real `transform` passed through
+  // (not just baked into `scene.add`) so its own internal zoom-fit
+  // projection matches what actually renders — see `frameObject`'s doc.
+  function renderPyramidStage(gridCols: number, gridRows: number): string {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
     const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
-    const worldPolys = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
-      .map((p) => ({ vertices: p.vertices.map(applyPoint) }));
-    const result = compileScene({ polygons: worldPolys as never, camera, cols, rows, cellAspect, mode: "solid", useColors: false });
+    const scene = createGlyphScene(host, { camera, cols: gridCols, rows: gridRows, cellAspect: 2, mode: "solid", useColors: false });
+    const polys = shapePolys("pyramid");
+    const stageTransform = shapeTransform("pyramid");
+    scene.add(polys, stageTransform);
+    scene.rerender();
+    frameObject(scene, camera, polys, 0.72, false, stageTransform);
+    scene.rerender();
+    const pre = scene.host.querySelector("pre.glyph-output") as HTMLPreElement;
+    const text = pre.textContent ?? "";
+    scene.destroy();
+    return text;
+  }
 
-    const lines = result.inner.split("\n");
-    expect(lines.length).toBe(rows);
+  it.each([
+    { label: "the old arbiter's small fixed grid", gridCols: 96, gridRows: 48 },
+    { label: "the live /synth page's measured stage grid (desktop viewport)", gridCols: 135, gridRows: 52 },
+    { label: "a much larger grid — proves the fix isn't tuned to one size", gridCols: 260, gridRows: 96 },
+  ])("renders a silhouette (through frameObject's own zoom fit + the real renderer) whose bbox center lands within a fraction of a cell of the grid center — $label", ({ gridCols, gridRows }) => {
+    const text = renderPyramidStage(gridCols, gridRows);
+    const lines = text.split("\n");
+    expect(lines.length).toBe(gridRows);
     let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity, covered = 0;
     lines.forEach((line, r) => {
       for (let c = 0; c < line.length; c++) {
@@ -482,8 +543,11 @@ describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, not se
     expect(covered).toBeGreaterThan(0); // the shape actually rendered something
     const bboxColCenter = (minCol + maxCol) / 2;
     const bboxRowCenter = (minRow + maxRow) / 2;
-    expect(Math.abs(bboxColCenter - cols / 2)).toBeLessThan(1);
-    expect(Math.abs(bboxRowCenter - rows / 2)).toBeLessThan(1);
+    // The fix solves this EXACTLY (any residual is float-precision only), so
+    // this asserts well tighter than the old ~1-cell tolerance — and, unlike
+    // the old test, at grid sizes that actually stress it.
+    expect(Math.abs(bboxColCenter - gridCols / 2)).toBeLessThan(0.1);
+    expect(Math.abs(bboxRowCenter - gridRows / 2)).toBeLessThan(0.1);
   });
 });
 

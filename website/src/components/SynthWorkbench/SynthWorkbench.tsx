@@ -173,12 +173,16 @@ export default function SynthWorkbench() {
     orbitControls?.addEventListener("end", () => { orbitDragging = false; });
     let orbitPitchDir: 1 | -1 = 1;
     const polys = shapePolys(shape);
-    meshRef.current = scene.add(polys, shapeTransform(shape)) as { dispose: () => void };
+    const meshTransform = shapeTransform(shape);
+    meshRef.current = scene.add(polys, meshTransform) as { dispose: () => void };
     scene.fit();
     scene.rerender(); // render once so the <pre> reflects the real cell size
     // `cover` + slight overscan (fill > 1) so the plane reaches every edge of a
     // non-square viewport instead of "contain"-fitting with letterbox margins.
-    frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat);
+    // Pass `meshTransform` so the fitted bbox is the actually-rendered
+    // (world-space) silhouette, not the shape's untransformed local geometry —
+    // load-bearing for the pyramid stage, whose transform rotates+translates it.
+    frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat, meshTransform);
     scene.rerender();
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
@@ -215,7 +219,7 @@ export default function SynthWorkbench() {
       resizeObserver = new ResizeObserver(() => {
         scene.fit();
         scene.rerender();
-        frameObject(scene, camera, polys, 1.02, true);
+        frameObject(scene, camera, polys, 1.02, true, meshTransform);
         scene.rerender();
       });
       resizeObserver.observe(host);
