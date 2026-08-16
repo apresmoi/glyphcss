@@ -85,6 +85,7 @@ import {
   shapePolys,
   shapeTransform,
   isFlat,
+  isTimeInvariantPatch,
   frameObject,
   LayerGroup,
   VoiceCard,
@@ -203,7 +204,20 @@ export default function SynthWorkbench() {
       const dt = Math.min((now - last) / 1000, 0.1); last = now;
       // Mesh spin (`paused`) and camera auto-orbit (`orbitAuto`) are
       // independent: pausing one must not pause the other.
-      if (!pausedRef.current) {
+      //
+      // `layer.setParams` already no-ops a call whose values are all
+      // unchanged (createGlyphScene.ts's `paramsEqual` check), but `t` was
+      // being advanced and pushed EVERY frame regardless of whether the
+      // current patch's active voices actually read `speed` — a patch like
+      // the shipped "Menger SDF" preset (`speed1: 0`) is provably
+      // time-invariant (`isTimeInvariantPatch`), so `t` changing was
+      // forcing a full effect recompute every frame for a result that
+      // never visibly changes. Skipping the advance AND the setParams call
+      // when nothing time-varying is active fixes that without touching
+      // `paramsEqual` or any output. This does NOT skip camera auto-orbit
+      // below — orbiting changes the CAMERA, which re-rasterizes the
+      // geometry and forces the effect to re-evaluate regardless of `time`.
+      if (!pausedRef.current && tsRef.current !== 0 && !isTimeInvariantPatch(paramsRef.current)) {
         t += dt * tsRef.current;
         layerRef.current?.setParams({ time: t });
       }

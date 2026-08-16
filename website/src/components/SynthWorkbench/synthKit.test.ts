@@ -43,6 +43,7 @@ import {
   frameObject,
   isSdfField,
   isSdfIterField,
+  isTimeInvariantPatch,
   resolveInkControlVisibility,
   resolveSpaceChange,
   shapePolys,
@@ -297,6 +298,28 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
     // from "object") — falls back to the flat plane.
     expect(STAGE_HINTS.get(sunburst)).toBeUndefined();
     expect(stagePreviewShape(sunburst)).toBe("plane");
+  });
+});
+
+describe("isTimeInvariantPatch", () => {
+  it("is true when every active (amp > 0) voice has speed 0 — the shipped Menger SDF preset's own case", () => {
+    const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
+    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(mengerSdf.params as Record<string, unknown>) } as never)).toBe(true);
+  });
+
+  it("is false when an active voice has a nonzero speed — the shipped SDF bloom preset's own case", () => {
+    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
+    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(bloom.params as Record<string, unknown>) } as never)).toBe(false);
+  });
+
+  it("ignores a nonzero speed on a MUTED voice (amp 0)", () => {
+    const params = { ...synthDefaults(), amp1: 1, speed1: 0, amp2: 0, speed2: 7 } as never;
+    expect(isTimeInvariantPatch(params)).toBe(true);
+  });
+
+  it("is false as soon as one of several active voices has nonzero speed", () => {
+    const params = { ...synthDefaults(), amp1: 1, speed1: 0, amp2: 1, speed2: 0, amp3: 1, speed3: 2 } as never;
+    expect(isTimeInvariantPatch(params)).toBe(false);
   });
 });
 

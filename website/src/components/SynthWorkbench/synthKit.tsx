@@ -579,6 +579,23 @@ export function shapePolys(name: string): Polys {
 }
 export const isFlat = (name: string) => name === "plane";
 
+// A field-synth patch's output depends on `time` ONLY through each active
+// voice's own `speed` (see fieldProgram.ts's `synthWave`/SDF-oracle `c =
+// phase - speed*time` derivation — no other param reads raw time). So a
+// patch where every voice with `amp > 0` also has `speed === 0` renders the
+// SAME output at every `time` value: driving `time` forward for such a
+// patch buys nothing and only pays for a wasted effect recompute every
+// frame (perf packet: "why is the Menger SDF preset slow" — its own
+// `speed1: 0` makes it exactly this case). Layers have no time-varying knob
+// of their own, so checking every voice slot regardless of layer
+// assignment is sufficient.
+export function isTimeInvariantPatch(params: Params): boolean {
+  for (let k = 1; k <= MAX_VOICES; k++) {
+    if (Number(params[`amp${k}`] ?? 0) > 0 && Number(params[`speed${k}`] ?? 0) !== 0) return false;
+  }
+  return true;
+}
+
 // Duplicates `createGlyphScene.ts`'s `applyTransform` rotation math exactly
 // (Rz first on the point, then Ry, then Rx — matrix product Rx*Ry*Rz) so the
 // bbox math below previews the SAME rotated shape the renderer will actually
