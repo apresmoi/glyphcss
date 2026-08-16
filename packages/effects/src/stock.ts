@@ -2907,35 +2907,96 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // `finestFreq` (no active voice) divides to `Infinity`, so `Math.min`
         // degrades to plain `spacing` with no special case.
         const edgeSpacing = Math.min(spacing, CARVE_INK_EDGE_FREQ_SCALE / finestFreq);
-        function neighborOf(i: number, dir: 0 | 1 | 2 | 3): number {
-          // 0 right, 1 left, 2 down, 3 up. Off-grid reads back as OUT via
-          // `stateAt` below (a grid edge behaves like leaving the visible
-          // world — background, not a special case).
+        function neighborAt(i: number, dc: -1 | 0 | 1, dr: -1 | 0 | 1): number {
+          // Off-grid reads back as OUT via `stateAt` below (a grid edge
+          // behaves like leaving the visible world — background, not a
+          // special case).
           const col = i % cols, row = (i / cols) | 0;
-          if (dir === 0) return col + 1 < cols ? i + 1 : -1;
-          if (dir === 1) return col - 1 >= 0 ? i - 1 : -1;
-          if (dir === 2) return row + 1 < rows ? i + cols : -1;
-          return row - 1 >= 0 ? i - cols : -1;
+          const nc = col + dc, nr = row + dr;
+          return nc < 0 || nc >= cols || nr < 0 || nr >= rows ? -1 : nr * cols + nc;
         }
         function stateAt(idx: number): number {
           return idx < 0 ? CARVE_INK_OUT : hitState[idx]!;
         }
 
+        // Real-scene bug (a rendered Menger sponge silhouette, `subcellRes:
+        // "ink"`): the outer silhouette read as sparse, disconnected "-"
+        // dashes instead of a continuous outline that turns with the edge.
+        // Instrumenting the real scene (not a synthetic axis-aligned
+        // fixture, which never exercises either failure) isolated two
+        // distinct bugs in what was previously a 4-neighbor (N/E/S/W) rim
+        // test:
+        //
+        // 1. UNDER-firing: a real projected silhouette steps diagonally in
+        //    screen space as often as orthogonally (a rotated cube edge is
+        //    rarely grid-aligned). A cell whose ONLY differing neighbor is
+        //    a corner (NE/NW/SE/SW) never triggered rule (a) at all — not
+        //    "wrong glyph", genuinely skipped, unconditionally on the
+        //    real Menger-sponge render.
+        // 2. MIS-orientation: the coverage mask (`maskOf`, HIT vs
+        //    everything else) correctly treats HOLE and OUT as the same
+        //    "not solid" bucket for a HIT self-cell's own rim (that's the
+        //    fix the "all-dashes" pinned test covers). But a RIM cell that
+        //    is itself HOLE — the outer ring one step beyond the last real
+        //    HIT, common at a grazing silhouette angle where the march
+        //    itself just misses solid — has no orthogonal HIT neighbor at
+        //    all when its whole 4-neighborhood is HOLE/OUT. The mask
+        //    gradient then reads (0, 0) and `inkGlyphForField(0, 0)`
+        //    degenerates to `atan2(0, -0) = π` → bucket 0 → "-", regardless
+        //    of the true edge direction (confirmed empirically: ~40% of
+        //    the outer HOLE ring on the real render).
+        //
+        // Both are fixed together with a proper 3x3 Sobel operator instead
+        // of a plain 2-tap orthogonal difference: (a) detection widens to
+        // all 8 neighbors (a corner-only transition now counts), and (b)
+        // orientation gets 8-neighbor support so a diagonal-only edge still
+        // yields a nonzero gradient. Sobel reduces to the exact prior
+        // 2-tap result whenever the boundary IS purely orthogonal (the
+        // diagonal terms reinforce, never contradict, the orthogonal ones
+        // on a straight edge — verified against every pinned rim-orientation
+        // test below), so this is a strict widening, not a behavior change
+        // on the fixtures those tests already cover.
+        //
+        // Mask fix 2 is a two-tier fallback, not a mask redefinition: tier
+        // 1 stays the existing HIT-only mask (HOLE and OUT both "not
+        // solid") — this is what the pinned "vertical silhouette edge"
+        // test exercises (a HIT/HOLE boundary with no OUT cell anywhere)
+        // and must keep working unchanged. Only when tier 1's Sobel comes
+        // back exactly (0, 0) — no HIT cell anywhere in the 3x3
+        // neighborhood to orient against — does tier 2 fall back to a
+        // coverage mask (covered, i.e. HIT or HOLE, vs OUT): the only
+        // meaningful boundary left to orient a HOLE rim cell against, at
+        // that point, is the mesh's own screen footprint edge.
+        function sobel(maskAt: (idx: number) => number, rIdx: number, lIdx: number, dIdx: number, uIdx: number, neIdx: number, nwIdx: number, seIdx: number, swIdx: number): [number, number] {
+          const e = maskAt(rIdx), w = maskAt(lIdx), s = maskAt(dIdx), n = maskAt(uIdx);
+          const ne = maskAt(neIdx), nw = maskAt(nwIdx), se = maskAt(seIdx), sw = maskAt(swIdx);
+          return [(ne - nw) + 2 * (e - w) + (se - sw), (sw + 2 * s + se) - (nw + 2 * n + ne)];
+        }
+
         for (let i = 0; i < length; i++) {
           const self = hitState[i]!;
           if (self === CARVE_INK_OUT) continue;
-          const rIdx = neighborOf(i, 0), lIdx = neighborOf(i, 1), dIdx = neighborOf(i, 2), uIdx = neighborOf(i, 3);
+          const rIdx = neighborAt(i, 1, 0), lIdx = neighborAt(i, -1, 0), dIdx = neighborAt(i, 0, 1), uIdx = neighborAt(i, 0, -1);
+          const neIdx = neighborAt(i, 1, -1), nwIdx = neighborAt(i, -1, -1), seIdx = neighborAt(i, 1, 1), swIdx = neighborAt(i, -1, 1);
           const rState = stateAt(rIdx), lState = stateAt(lIdx), dState = stateAt(dIdx), uState = stateAt(uIdx);
+          const neState = stateAt(neIdx), nwState = stateAt(nwIdx), seState = stateAt(seIdx), swState = stateAt(swIdx);
           const selfMesh = meshAt(i);
           const rMesh = meshAt(rIdx), lMesh = meshAt(lIdx), dMesh = meshAt(dIdx), uMesh = meshAt(uIdx);
-          // Rule (a): ANY neighbor in a different category, OR (Phase 2 P1
-          // fix) a same-category HIT neighbor with a DIFFERENT winner mesh
-          // — always inked, regardless of what `self` itself is (a hole/OUT
-          // cell right next to a hit is rimmed too, so a rim cell with no
-          // hit of its own can borrow a color below).
+          const neMesh = meshAt(neIdx), nwMesh = meshAt(nwIdx), seMesh = meshAt(seIdx), swMesh = meshAt(swIdx);
+          // Rule (a): ANY of the 8 neighbors in a different category, OR
+          // (Phase 2 P1 fix) a same-category HIT neighbor with a DIFFERENT
+          // winner mesh — always inked, regardless of what `self` itself is
+          // (a hole/OUT cell right next to a hit is rimmed too, so a rim
+          // cell with no hit of its own can borrow a color below). 8-neighbor
+          // (not just N/E/S/W): a real projected silhouette steps diagonally
+          // as often as orthogonally, and a corner-only transition is still
+          // a genuine rim (see this function's doc above).
           const isRim = self !== rState || self !== lState || self !== dState || self !== uState
+            || self !== neState || self !== nwState || self !== seState || self !== swState
             || meshBoundary(self, selfMesh, rState, rMesh) || meshBoundary(self, selfMesh, lState, lMesh)
-            || meshBoundary(self, selfMesh, dState, dMesh) || meshBoundary(self, selfMesh, uState, uMesh);
+            || meshBoundary(self, selfMesh, dState, dMesh) || meshBoundary(self, selfMesh, uState, uMesh)
+            || meshBoundary(self, selfMesh, neState, neMesh) || meshBoundary(self, selfMesh, nwState, nwMesh)
+            || meshBoundary(self, selfMesh, seState, seMesh) || meshBoundary(self, selfMesh, swState, swMesh);
 
           let gx = 0, gy = 0;
           let inked = isRim;
@@ -2947,10 +3008,19 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             // counter-case). A HIT neighbor on a DIFFERENT winner mesh reads
             // as "not my surface" here too (mask 0), same reasoning: the
             // mesh seam is exactly as undefined a depth reference as a
-            // sentinel non-hit neighbor is.
-            const maskOf = (s: number, nMesh: number): number => (s === CARVE_INK_HIT && !meshBoundary(self, selfMesh, s, nMesh)) ? 1 : 0;
-            gx = maskOf(rState, rMesh) - maskOf(lState, lMesh);
-            gy = maskOf(dState, dMesh) - maskOf(uState, uMesh);
+            // sentinel non-hit neighbor is. Tier 1 (HIT-only mask) via a
+            // full 3x3 Sobel; tier 2 (coverage mask, see doc above) only
+            // when tier 1 is genuinely uninformative (no HIT anywhere
+            // nearby to orient against).
+            const hitMaskAt = (idx: number): number => {
+              const s = stateAt(idx);
+              return s === CARVE_INK_HIT && !meshBoundary(self, selfMesh, s, meshAt(idx)) ? 1 : 0;
+            };
+            [gx, gy] = sobel(hitMaskAt, rIdx, lIdx, dIdx, uIdx, neIdx, nwIdx, seIdx, swIdx);
+            if (gx === 0 && gy === 0) {
+              const coverMaskAt = (idx: number): number => (stateAt(idx) !== CARVE_INK_OUT ? 1 : 0);
+              [gx, gy] = sobel(coverMaskAt, rIdx, lIdx, dIdx, uIdx, neIdx, nwIdx, seIdx, swIdx);
+            }
           } else if (self === CARVE_INK_HIT) {
             // Rule (a) didn't fire, so every EXISTING neighbor already
             // shares `self`'s state (CARVE_INK_HIT) AND, per `meshBoundary`
@@ -2990,11 +3060,18 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             // A rim cell with no hit of its own borrows its nearest inked
             // (i.e. any) hit neighbor's color; with none, the layer's base
             // color (no field sample exists here to gradient/voice-blend).
+            // 8-neighbor, matching the rim detection/orientation widening
+            // above — a diagonal-only HIT neighbor is exactly as valid a
+            // color source as an orthogonal one.
             let borrowed = -1;
             if (rIdx >= 0 && rState === CARVE_INK_HIT) borrowed = rIdx;
             else if (lIdx >= 0 && lState === CARVE_INK_HIT) borrowed = lIdx;
             else if (dIdx >= 0 && dState === CARVE_INK_HIT) borrowed = dIdx;
             else if (uIdx >= 0 && uState === CARVE_INK_HIT) borrowed = uIdx;
+            else if (neIdx >= 0 && neState === CARVE_INK_HIT) borrowed = neIdx;
+            else if (nwIdx >= 0 && nwState === CARVE_INK_HIT) borrowed = nwIdx;
+            else if (seIdx >= 0 && seState === CARVE_INK_HIT) borrowed = seIdx;
+            else if (swIdx >= 0 && swState === CARVE_INK_HIT) borrowed = swIdx;
             if (borrowed >= 0) {
               packed = hitPacked[borrowed]!;
               opacity = hitOpacity[borrowed]!;

@@ -485,3 +485,26 @@ to match after the fact):
   against a forced 256-step ground truth, matching exactly across all 72
   probed cells — the claim the preset's doc comment makes is now the claim a
   test actually pins.
+- **The rim-orientation real-scene amendment (§2).** §2's rim rule (a) and
+  its coverage-mask orientation shipped 4-neighbor (N/E/S/W) only, and the
+  pinned "all-dashes counter-case" test only exercised a HIT/HOLE boundary
+  with no OUT cell anywhere — not a real projected silhouette. A live
+  Menger-sponge render (`subcellRes: "ink"`, default `/synth` camera)
+  surfaced two bugs neither the design text nor its test caught: (1) a
+  diagonal-only hit/no-hit transition never fired rule (a) at all (most of
+  the outer silhouette's "not inked" gaps), and (2) a HOLE-self rim cell
+  with no orthogonal HIT neighbor got a degenerate `(0, 0)` coverage-mask
+  gradient — `maskOf` correctly treats HOLE and OUT alike for a HIT cell's
+  own rim, but that same collapse leaves nothing to orient against when
+  `self` itself is HOLE and every 4-neighbor is HOLE/OUT too — defaulting to
+  "-" regardless of true edge direction (the very failure the design text
+  already named, on cells its own fix didn't reach). `runCarveInkResolve`
+  was amended to detect rule (a) and orient rule (a)'s gradient over the
+  full 8-neighbor (Sobel) neighborhood instead of 4, with a two-tier mask
+  (HIT-only, falling back to coverage-only when the HIT-only Sobel comes
+  back exactly `(0, 0)`) — a strict widening that reduces to the prior
+  2-tap result on every fixture that was already pinned (reverified, not
+  assumed). A new real-scene test (a full-solid carved cube at the /synth
+  page's own Menger-sponge camera hint, ground truth from the convex hull of
+  its projected corners under the SAME camera) pins both: zero gaps along
+  any traced silhouette edge, and zero "-" on a non-horizontal edge.

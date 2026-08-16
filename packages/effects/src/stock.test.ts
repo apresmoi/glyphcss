@@ -29,6 +29,7 @@ import {
   getGlyphEffect,
   glitch,
   gyroidXrayPreset,
+  inkGlyphForField,
   matrixRain,
   mengerFlowPreset,
   mengerSpongePreset,
@@ -3407,7 +3408,17 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
       for (let col = 1; col < cols - 1; col++) {
         const i = row * cols + col;
         const self = refHit[i]!;
-        const neighbors = [refHit[i + 1]!, refHit[i - 1]!, refHit[i + cols]!, refHit[i - cols]!];
+        // 8-neighbor, matching `runCarveInkResolve`'s rim rule (a) — a real
+        // projected silhouette steps diagonally in screen space as often as
+        // orthogonally, and a corner-only hit/no-hit transition is still a
+        // genuine rim (VOLUMETRIC-3.md §2's own real-scene regression: the
+        // engine used to miss these, reading as sparse gaps in the outer
+        // silhouette on the actual Menger sponge render). This reference
+        // model widened alongside the engine fix, not independently of it.
+        const neighbors = [
+          refHit[i + 1]!, refHit[i - 1]!, refHit[i + cols]!, refHit[i - cols]!,
+          refHit[i + cols + 1]!, refHit[i + cols - 1]!, refHit[i - cols + 1]!, refHit[i - cols - 1]!,
+        ];
         const isRim = neighbors.some((n) => n !== self);
         const inked = inkedAt(output, i);
         if (isRim) {
@@ -3691,8 +3702,190 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
     for (let i = 0; i < length; i++) if (inkedAt(output, i)) inkedTotal++;
     // Pinned against this exact fixture+preset combination — re-pin
     // deliberately (with reasoning) if a future change legitimately alters
-    // this angle's ink output.
-    expect(inkedTotal).toBe(52);
+    // this angle's ink output. Re-pinned 52 -> 56: the real-scene
+    // diagonal-rim regression fix (`runCarveInkResolve`'s rule (a) widened
+    // from 4- to 8-neighbor, see its doc) inks a handful of genuinely
+    // corner-only hit/no-hit transitions this fixture also happens to
+    // contain, which the old 4-neighbor rule silently skipped.
+    expect(inkedTotal).toBe(56);
+  });
+
+  // Real-scene regression (user report: "there are still some seams" — the
+  // Menger sponge preset, subcellRes "ink", default /synth camera). None of
+  // the fixtures above are a real projected silhouette: every one of them is
+  // either an axis-aligned synthetic boundary (the "vertical silhouette
+  // edge" test) or a synthetic ray grid with no real screen-space geometry
+  // at all. On the ACTUAL rendered scene the outer silhouette came back as
+  // sparse, disconnected "-" dashes instead of a continuous outline that
+  // turns with the edge — exactly the "all-dashes" failure the coverage-mask
+  // fix above claims to prevent, on cells that fix didn't reach.
+  //
+  // Instrumenting the real render (createGlyphScene + a real cube mesh +
+  // the real camera) isolated two bugs, both fixed in `runCarveInkResolve`
+  // above: (1) a diagonal-only hit/no-hit transition never fired rule (a) at
+  // all (4-neighbor blind spot — most of the "not inked" gaps), and (2) a
+  // rim cell that is itself a HOLE, with no orthogonal HIT neighbor, got a
+  // degenerate (0,0) coverage-mask gradient that defaults to "-" regardless
+  // of the true edge direction (most of the "inked but wrong" cells).
+  //
+  // This test targets the SAME failure class on a REAL rendered scene (not
+  // a synthetic fixture), using a full-solid (no interior recursion) carved
+  // cube at the /synth page's own Menger-sponge camera hint (rotX 15, rotY
+  // 40 — STAGE_HINTS in synthKit.tsx) — a plain cube's outer silhouette is
+  // exactly what the Menger sponge's OWN outer silhouette reduces to, since
+  // every recursion depth keeps the cube's edges and corners solid. Ground
+  // truth comes from the SAME camera projection the scene rendered with
+  // (the cube is convex, so its orthographic screen silhouette is exactly
+  // the convex hull of its 8 projected corners), not hand-derived pixel
+  // coordinates — sampled along every hull edge (vertical, horizontal-ish,
+  // and diagonal segments all occur on this one silhouette).
+  describe("real-scene silhouette (a rendered scene, not a synthetic fixture)", () => {
+    function convexHull(points: readonly (readonly [number, number])[]): [number, number][] {
+      const pts = [...points].map(([x, y]) => [x, y] as [number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const cross = (o: [number, number], a: [number, number], b: [number, number]): number =>
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+      const lower: [number, number][] = [];
+      for (const p of pts) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop();
+        lower.push(p);
+      }
+      const upper: [number, number][] = [];
+      for (let i = pts.length - 1; i >= 0; i--) {
+        const p = pts[i]!;
+        while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop();
+        upper.push(p);
+      }
+      lower.pop(); upper.pop();
+      return lower.concat(upper);
+    }
+
+    it("a fully-solid carved cube's ink silhouette is continuous and correctly oriented along every edge — the all-dashes state is the pinned failing counter-case", async () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const cols = 100, rows = 60, cellAspect = 2;
+      // The /synth page's own Menger-sponge camera hint (STAGE_HINTS in
+      // synthKit.tsx: `{ shape: "cube", rotX: 15, rotY: 40 }`), the exact
+      // camera under which the reported defect was captured.
+      const camera = createGlyphOrthographicCamera({ rotX: 15, rotY: 40, zoom: 220 });
+      const scene = createGlyphScene(host, { cols, rows, useColors: false, doubleSided: true, camera });
+      scene.add(size3CubePolygons());
+      scene.addEffectLayer({
+        effect: fieldSynth,
+        params: {
+          ...defaultGlyphEffectParams(fieldSynth),
+          // `bias: 1, gain: 0` is a constant, always-solid density field —
+          // isolates the outer silhouette (rule a alone), with no interior
+          // recursion to also produce interior contour cells.
+          space: "object", scale: 1, render: "carve", subcellRes: "ink",
+          field1: "linearX", wave1: "step", freq1: 1, phase1: 0, speed1: 0, amp1: 0,
+          bias: 1, gain: 0,
+        } as never,
+        blend: "replace",
+        opacity: 1,
+      });
+      await flushCarveRenders();
+      const gridRows = (scene.output.textContent ?? "").split("\n");
+      expect(gridRows.some((r) => r.trim().length > 0)).toBe(true); // real, non-empty render
+      const glyphAt = (col: number, row: number): string => {
+        if (row < 0 || row >= gridRows.length) return " ";
+        const r = gridRows[row]!;
+        return col >= 0 && col < r.length ? r[col]! : " ";
+      };
+
+      const s = 1.5;
+      const corners: Vec3[] = [
+        [-s, -s, -s], [s, -s, -s], [-s, s, -s], [s, s, -s],
+        [-s, -s, s], [s, -s, s], [-s, s, s], [s, s, s],
+      ];
+      const projected = corners.map((c) => {
+        const p = camera.project(c, cols, rows, cellAspect);
+        return [p[0], p[1]] as [number, number];
+      });
+      const hull = convexHull(projected);
+      expect(hull.length).toBeGreaterThanOrEqual(4); // a generic cube view shows >= 4 silhouette vertices
+
+      // Nearest-cell-first search order: the exact sample point, then its
+      // orthogonal neighbors, then diagonals — NOT raster (row, then col)
+      // scan order, which biases short edges near a corner toward whichever
+      // adjacent edge's cells happen to come first in the scan and produces
+      // false orientation mismatches that are a test-search artifact, not an
+      // engine one.
+      const SEARCH_OFFSETS: readonly [number, number][] = [
+        [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+      ];
+      const BUCKETS = ["-", "\\", "|", "/"] as const;
+
+      let sampledCells = 0, exactMatches = 0, adjacentMatches = 0, allDashesFailures = 0, gapFailures = 0;
+      for (let e = 0; e < hull.length; e++) {
+        const [ax, ay] = hull[e]!;
+        const [bx, by] = hull[(e + 1) % hull.length]!;
+        const dx = bx - ax, dy = by - ay;
+        const edgeLen = Math.hypot(dx, dy);
+        if (edgeLen < 3) continue; // skip negligible/degenerate hull edges (numerical noise)
+        // The expected stroke bucket comes from the SAME `inkGlyphForField`
+        // the engine uses, fed this edge's own screen-space tangent rotated
+        // 90° into a normal — bucket is invariant to which of the two
+        // normal directions is used (verified: `inkGlyphForField(v) ===
+        // inkGlyphForField(-v)` for every tested vector), so sign doesn't
+        // matter here, only the edge's own orientation does.
+        const expectedGlyph = inkGlyphForField(-dy, dx);
+        const expectedIdx = BUCKETS.indexOf(expectedGlyph);
+        const steps = Math.max(4, Math.round(edgeLen));
+        // A margin proportional to edge length: a short hull edge (e.g. one
+        // of this cube's near-vertical edges, only ~3-4 cells long) still
+        // needs at least one non-corner sample, which a fixed 2-cell margin
+        // would eat entirely.
+        const margin = steps >= 8 ? 2 : steps >= 4 ? 1 : 0;
+        for (let t = margin; t < steps - margin; t++) {
+          const frac = t / steps;
+          const px = ax + dx * frac, py = ay + dy * frac;
+          const col = Math.round(px), row = Math.round(py);
+          // A small neighborhood search (the true boundary can land within a
+          // cell of the analytic hull edge from AA/rounding) — this is what
+          // "no gaps along a traced edge" (continuity) tests.
+          let found: string | null = null;
+          for (const [cc, rr] of SEARCH_OFFSETS) {
+            const g = glyphAt(col + cc, row + rr);
+            if (g !== " ") { found = g; break; }
+          }
+          sampledCells++;
+          if (found === null) { gapFailures++; continue; }
+          if (found === expectedGlyph) exactMatches++;
+          const foundIdx = BUCKETS.indexOf(found as (typeof BUCKETS)[number]);
+          // A near-boundary-angle edge (e.g. this cube's ~22deg edges, which
+          // sit close to the 22.5deg "-"/"\" bucket split) legitimately
+          // staircases between its own bucket and the cyclically ADJACENT
+          // one from cell to cell — that's correct discretization, not a
+          // defect. Cyclic distance 1 (mod 4) captures exactly that; a
+          // cyclic distance of 2 (the orthogonally WRONG axis) never
+          // legitimately happens and is not tolerated.
+          if (foundIdx >= 0) {
+            const cyclicDist = Math.min((foundIdx - expectedIdx + 4) % 4, (expectedIdx - foundIdx + 4) % 4);
+            if (cyclicDist <= 1) adjacentMatches++;
+          }
+          if (found === "-" && expectedGlyph !== "-") allDashesFailures++;
+        }
+      }
+
+      expect(sampledCells).toBeGreaterThan(20);
+      // Continuity: no gaps along any traced hull edge (root cause 1 — the
+      // diagonal-only 4-neighbor blind spot).
+      expect(gapFailures).toBe(0);
+      // Orientation: every sampled boundary cell matches the analytically-
+      // expected stroke bucket or its immediate neighbor (a cell can
+      // legitimately land on an adjacent bucket at a shallow slope's
+      // staircase step, but never the orthogonally wrong axis).
+      expect(adjacentMatches).toBe(sampledCells);
+      expect(exactMatches).toBeGreaterThan(0);
+      // The pinned failing counter-case this whole regression is about: a
+      // non-horizontal edge (vertical or diagonal) must never come back as
+      // "-" (root cause 2 — the HOLE/OUT-conflated coverage mask defaulting
+      // to the degenerate (0, 0) gradient).
+      expect(allDashesFailures).toBe(0);
+
+      scene.destroy();
+      host.remove();
+    });
   });
 });
 
