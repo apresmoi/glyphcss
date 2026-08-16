@@ -1257,6 +1257,10 @@ export const SYNTH_VOICES = 9;
 // `SYNTH_VOICES` has to the voice IR.
 export const SYNTH_LAYERS = 3;
 
+// The colour voice stack (VOLUMETRIC-4.md §1) is single-layer, v1 — 3 colour
+// voices, independent of `SYNTH_VOICES`/`SYNTH_LAYERS`.
+export const SYNTH_COLOR_VOICES = 3;
+
 // `subcellRes: "ink"`'s contour count. Shared by the schema bound below AND
 // the evaluate-path clamp (see `inkLevels` usage in `computeFieldSynthPoint`'s
 // caller) so a hostile URL that sets `inkLevels` far past the schema's own
@@ -1283,6 +1287,34 @@ function lerpPacked(a: number, b: number, t: number): number {
   const g = Math.round(ag + (bg - ag) * t);
   const bl = Math.round(ab + (bb - ab) * t);
   return (r << 16) | (g << 8) | bl;
+}
+
+// The colour stack's "hue" palette mode (VOLUMETRIC-4.md §1): standard
+// HSL -> RGB, `s`/`l` in 0..1 (the schema carries `hueSat`/`hueLight` as
+// 0..100 percentages — callers divide by 100 before this). `hDeg` is taken
+// mod 360 first so a caller never has to pre-normalize an offset/range
+// product that overshoots a full turn.
+function hslToPackedRgb(hDeg: number, s: number, l: number): number {
+  const sat = clamp01(s);
+  const light = clamp01(l);
+  if (sat <= 0) {
+    const v = Math.round(light * 255);
+    return (v << 16) | (v << 8) | v;
+  }
+  const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
+  const p = 2 * light - q;
+  const h = positiveMod(hDeg, 360) / 360;
+  const hueToChannel = (t: number): number => {
+    const tt = positiveMod(t, 1);
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const r = Math.round(clamp01(hueToChannel(h + 1 / 3)) * 255);
+  const g = Math.round(clamp01(hueToChannel(h)) * 255);
+  const b = Math.round(clamp01(hueToChannel(h - 1 / 3)) * 255);
+  return (r << 16) | (g << 8) | b;
 }
 
 const fieldSynthSchema = {
@@ -1541,6 +1573,85 @@ const fieldSynthSchema = {
   color7: { kind: "color", default: "#5ad1ff", label: "Voice 7 color" },
   color8: { kind: "color", default: "#ffb454", label: "Voice 8 color" },
   color9: { kind: "color", default: "#ff5da2", label: "Voice 9 color" },
+  // Appended after every pre-existing key (VOLUMETRIC-4.md §1: the colour
+  // voice stack — append-only ordering is load-bearing for the /synth URL
+  // codec's positional decode; the frozen tail order is quoted verbatim in
+  // VOLUMETRIC-4.md and MUST NOT be reordered). A second, independent voice
+  // program that drives COLOUR only, decoupled from the geometry stack that
+  // drives occupancy/glyph selection — see `resolveFieldSynthColor` in
+  // `evaluate()` below. `colorStackOn: false` (the default) is
+  // byte-identical to today; every key below is retained-but-inert while
+  // it's off, so toggling it never loses authored work.
+  colorStackOn: { kind: "boolean", default: false, animation: "discrete", label: "Color stack" },
+  // Single-layer fold across the 3 colour voices (VOLUMETRIC-4.md §1: "Single
+  // layer in v1 — no colour-layer shaping"), the same mix-weight combine op
+  // the geometry stack's patch-level `combine` uses.
+  colorCombine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Color combine" },
+  // "gradient" (default) reuses `color` -> `colorB` through the SAME
+  // clamp01(v * gradient) mapping the non-stack path already uses (v being
+  // the colour stack's own bias/gain-mapped scalar) — a one-linear-voice
+  // colour stack reproduces today's plain gradient exactly. "hue" is cyclic:
+  // `hue = (v*0.5 + 0.5 + hueOffset) * hueRange` degrees at fixed
+  // `hueSat`/`hueLight` — the iridescence mode.
+  colorMode: { kind: "string", default: "gradient", values: ["gradient", "hue"], animation: "discrete", label: "Color mode" },
+  // Cycles: added to the 0..1-normalized stack scalar before the hue-range
+  // multiply, so a whole-wheel rotation is `hueOffset: 1` regardless of
+  // `hueRange`. "hue"-mode-only; ignored under "gradient".
+  hueOffset: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Hue offset" },
+  hueRange: { kind: "number", default: 360, min: 0, max: 360, step: 1, unit: "°", label: "Hue range" },
+  hueSat: { kind: "number", default: 70, min: 0, max: 100, step: 1, unit: "%", label: "Hue saturation" },
+  hueLight: { kind: "number", default: 55, min: 0, max: 100, step: 1, unit: "%", label: "Hue lightness" },
+  // 3 colour voices (`SYNTH_COLOR_VOICES`), 12 key families each, grouped BY
+  // FAMILY (every family's voice1/2/3 triple together) in EXACTLY the order
+  // VOLUMETRIC-4.md's frozen tail specifies — field, wave, freq, speed, amp,
+  // phase, angle, originU, originV, originW, duty, iter. This is NOT the
+  // same family order the geometry voices use (which puts angle right after
+  // amp and duty/iter earlier) — the spec's own listed order is the wire
+  // format here and must be followed verbatim, not harmonized with
+  // precedent. No `ccolorN`/`clayerN` family: colour voices have no
+  // per-voice palette (voiceColors is ignored while the stack is on) and no
+  // layer assignment (single layer, v1).
+  cfield1: { kind: "string", default: "radial", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 1 field" },
+  cfield2: { kind: "string", default: "angular", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 2 field" },
+  cfield3: { kind: "string", default: "linearX", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 3 field" },
+  cwave1: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 1 wave" },
+  cwave2: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 2 wave" },
+  cwave3: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 3 wave" },
+  cfreq1: { kind: "number", default: 3, min: 0, max: 96, step: 0.1, label: "Color osc 1 freq" },
+  cfreq2: { kind: "number", default: 5, min: 0, max: 96, step: 0.1, label: "Color osc 2 freq" },
+  cfreq3: { kind: "number", default: 4, min: 0, max: 96, step: 0.1, label: "Color osc 3 freq" },
+  cspeed1: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 1 speed" },
+  cspeed2: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 2 speed" },
+  cspeed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 3 speed" },
+  camp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Color osc 1 amp" },
+  camp2: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Color osc 2 amp" },
+  camp3: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Color osc 3 amp" },
+  cphase1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 1 phase" },
+  cphase2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 2 phase" },
+  cphase3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 3 phase" },
+  cangle1: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 1 angle" },
+  cangle2: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 2 angle" },
+  cangle3: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 3 angle" },
+  coriginU1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin U" },
+  coriginU2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin U" },
+  coriginU3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin U" },
+  coriginV1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin V" },
+  coriginV2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin V" },
+  coriginV3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin V" },
+  coriginW1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin W" },
+  coriginW2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin W" },
+  coriginW3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin W" },
+  cduty1: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 1 duty" },
+  cduty2: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 2 duty" },
+  cduty3: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 3 duty" },
+  citer1: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 1 iterations" },
+  citer2: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 2 iterations" },
+  citer3: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 3 iterations" },
+  // `adaptive`/`adaptiveTolerance` (VOLUMETRIC-4.md §2, a later phase) are
+  // deliberately NOT declared here yet — this PR's own tail stays
+  // contiguous with the 43 colour-stack keys above, and the adaptive-
+  // sampling phase appends its own 2 keys strictly after them, preserving
+  // the spec's documented 45-key append order across the two PRs.
 } as const satisfies GlyphEffectParamSchema;
 
 // Every per-voice key family fieldSynth's evaluate() (via `SynthVoice`/
@@ -1555,18 +1666,33 @@ export const FIELD_SYNTH_VOICE_KEY_FAMILIES = [
   "originU", "originV", "originW", "duty", "phase", "iter", "layer", "color",
 ] as const;
 
+// The colour voice stack's own sibling (VOLUMETRIC-4.md §1's "Colour-voice
+// completeness guard"): 12 families, no `color`/`layer` (colour voices carry
+// no per-voice palette — voiceColors is ignored while the stack is on — and
+// fold into a single v1 layer). Order matches the schema's own family
+// grouping above, which is itself the spec's frozen wire-format order.
+export const FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES = [
+  "cfield", "cwave", "cfreq", "cspeed", "camp", "cphase",
+  "cangle", "coriginU", "coriginV", "coriginW", "cduty", "citer",
+] as const;
+
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
 // SYNTH_VOICES ever changes without the schema following, this fails loudly at
 // module load instead of silently reading `undefined` through a stale cast.
 // Exported (alongside `FIELD_SYNTH_VOICE_KEY_FAMILIES`) so the mutation test
 // can call the SAME checker the module-load guard below invokes, rather than
 // a parallel reimplementation that could drift from what's actually enforced.
+// `families` defaults to the geometry stack's own list so every pre-existing
+// call site (including every test written against the two-argument form)
+// keeps working unchanged; the colour stack's module-load guard below passes
+// `FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES` explicitly.
 export function assertFieldSynthVoiceSchemaComplete(
   schema: Readonly<Record<string, unknown>>,
   voiceCount: number,
+  families: readonly string[] = FIELD_SYNTH_VOICE_KEY_FAMILIES,
 ): void {
   for (let voice = 1; voice <= voiceCount; voice++) {
-    for (const prefix of FIELD_SYNTH_VOICE_KEY_FAMILIES) {
+    for (const prefix of families) {
       if (!(`${prefix}${voice}` in schema)) {
         throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${voiceCount} voices.`);
       }
@@ -1574,6 +1700,7 @@ export function assertFieldSynthVoiceSchemaComplete(
   }
 }
 assertFieldSynthVoiceSchemaComplete(fieldSynthSchema, SYNTH_VOICES);
+assertFieldSynthVoiceSchemaComplete(fieldSynthSchema, SYNTH_COLOR_VOICES, FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES);
 for (let layer = 1; layer <= SYNTH_LAYERS; layer++) {
   for (const prefix of ["layerCombine", "layerThresholdOn", "layerThreshold", "layerInvert", "layerBlend", "layerAmp"] as const) {
     if (!(`${prefix}${layer}` in fieldSynthSchema)) {
@@ -1636,6 +1763,39 @@ export function buildFieldSynthVoices(params: AnyParams): readonly SynthVoice[] 
       phase: params[`phase${k}`] as number,
       layer: params[`layer${k}`] as number,
       iter: params[`iter${k}`] as number,
+    });
+  }
+  return voices;
+}
+
+// Colour voice stack sibling (VOLUMETRIC-4.md §1): reads `cfield1..3`/
+// `camp1..3`/etc into the SAME `SynthVoice` frontend shape `compileFieldVoices`
+// already compiles, so the colour stack reuses that exact IR-compile step
+// rather than a second, driftable one. `color` is a required `SynthVoice`
+// field but colour voices have no per-voice palette of their own (there is
+// no `ccolorN` — see the schema's own doc) — filled with an inert placeholder
+// that is never read: `voiceColors` is ignored while the colour stack is on
+// (see `resolveFieldSynthColor` in `evaluate()`), and `evaluateFieldProgram`
+// never reads `FieldVoice.color` for anything but that fallback. `layer` is
+// likewise always `1` (single layer, v1).
+export function buildFieldSynthColorVoices(params: AnyParams): readonly SynthVoice[] {
+  const voices: SynthVoice[] = [];
+  for (let k = 1; k <= SYNTH_COLOR_VOICES; k++) {
+    voices.push({
+      field: params[`cfield${k}`] as string,
+      wave: params[`cwave${k}`] as string,
+      freq: params[`cfreq${k}`] as number,
+      speed: params[`cspeed${k}`] as number,
+      amp: params[`camp${k}`] as number,
+      color: "#ffffff",
+      angle: params[`cangle${k}`] as number,
+      originU: params[`coriginU${k}`] as number,
+      originV: params[`coriginV${k}`] as number,
+      originW: params[`coriginW${k}`] as number,
+      duty: params[`cduty${k}`] as number,
+      phase: params[`cphase${k}`] as number,
+      layer: 1,
+      iter: params[`citer${k}`] as number,
     });
   }
   return voices;
@@ -2028,6 +2188,24 @@ interface FieldSynthPointSample {
   readonly cabv: number;
   readonly cao: number;
   readonly caw: number;
+  /**
+   * The colour voice stack's own RAW folded scalar (VOLUMETRIC-4.md §1,
+   * `~[-1, 1]`, same convention as `evaluateFieldProgram`'s `.combined` —
+   * NOT yet bias/gain-mapped), evaluated at this SAME point
+   * (x, y, z, cx, cy, cz) — carve/braille's raw confirmed-solid sample,
+   * paint's surface point — the geometry stack just resolved.
+   * `resolveFieldSynthColor` maps it per `colorMode`: "gradient" pushes it
+   * through the SAME `clamp01(bias + gain*v*0.5)` derivation that produces
+   * `value` above (literally "replaces point.value" in that formula, per
+   * VOLUMETRIC-4.md §1's precedence table) before feeding the existing
+   * `clamp01(v * gradient)` blend; "hue" reads it directly (`v*0.5+0.5` is
+   * its own 0..1 normalization, independent of bias/gain — a brightness/
+   * contrast knob has no bearing on a hue-wheel position). `NaN` whenever
+   * the colour stack doesn't apply here: `colorStackOn` is off, or the call
+   * site is xray's synthetic point (xray never populates this — the colour
+   * stack is a documented no-op there, exactly like `voiceColors`).
+   */
+  readonly colorValue: number;
 }
 
 // P1-B (VOLUMETRIC-2.md §3 fix review): these four presets are consumed
@@ -2558,6 +2736,15 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
     validateProgram(program) {
       validateGlyphFieldProgram(program);
     },
+    // Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1): the colour voice
+    // stack's own opaque program payload, mount-time validated exactly like
+    // `validateProgram` above — it's the SAME `FieldProgram` shape
+    // (`evaluateFieldProgram` doesn't distinguish geometry from colour
+    // programs), so it reuses the identical validator. Ignored unless
+    // `colorStackOn` (see `evaluate()` below).
+    validateColorProgram(program) {
+      validateGlyphFieldProgram(program);
+    },
     // Structural enforcement, not just a test convention: any throw from the
     // four validators below that isn't tagged with a registered
     // `GLYPH_FIELD_SYNTH_VALIDATION_RULES` id surfaces as THIS distinct
@@ -2637,6 +2824,35 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         flatVoices = compiledVoices;
       }
       const parsedVoiceColors = useVoiceColors ? flatVoices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
+      // Colour voice stack (VOLUMETRIC-4.md §1): a second, independent
+      // `FieldProgram` compiled the SAME way the geometry stack's own
+      // `program`/flat-voices split above works — a `colorProgram` layer
+      // option (opaque, mount-time-validated via `validateColorProgram`
+      // above) REPLACES the flat `cfield1..3`/`camp1..3`/etc params entirely
+      // when present, exactly mirroring `program`'s own precedence. `null`
+      // whenever the stack is off — every downstream site below treats a
+      // `null` `colorProgram` as "no colour stack" without a separate
+      // boolean to keep in sync. Single layer, v1 (no colour-layer shaping):
+      // `colorCombine` folds the 3 colour voices directly, mirroring the
+      // patch-level `combine` the geometry stack's own single-layer
+      // structural-compatibility case already reduces to (see
+      // `compileFieldSynthProgram`'s doc). Domain matches the geometry
+      // stack's own (`volumetric` ? "3d" : "2d") — both are evaluated at the
+      // SAME point, so they must agree on what that point even means.
+      const colorStackOn = params.colorStackOn;
+      const colorProgramOption = context.colorProgram as FieldProgram | undefined;
+      const colorProgram: FieldProgram | null = !colorStackOn ? null : colorProgramOption ?? {
+        domain: volumetric ? "3d" : "2d",
+        layers: [{
+          voices: compileFieldVoices(buildFieldSynthColorVoices(params as unknown as AnyParams), scale),
+          combine: params.colorCombine,
+          thresholdOn: false,
+          threshold: 0,
+          invert: false,
+          blend: "multiply",
+          amp: 1,
+        }],
+      };
       const time = params.time;
       const rampMax = glyphs.length - 1;
       // Global pattern origin: same `originU/originV * scale` resolution the
@@ -2778,7 +2994,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           }
         }
         const value = clamp01(params.bias + params.gain * stack.combined * 0.5);
-        return { active: stack.active, value, cr, cg, cbv, cw, co, car, cag, cabv, cao, caw };
+        // Colour voice stack (VOLUMETRIC-4.md §1): evaluated at this SAME
+        // (x, y, z, cx, cy, cz) the geometry stack just resolved — the RAW
+        // fold, mapped per `colorMode` in `resolveFieldSynthColor`. `NaN`
+        // when the stack is off (`colorProgram` is `null`).
+        const colorValue = colorProgram
+          ? evaluateFieldProgram(colorProgram, x, y, z, time, cx, cy, cz).combined
+          : Number.NaN;
+        return { active: stack.active, value, cr, cg, cbv, cw, co, car, cag, cabv, cao, caw, colorValue };
       }
 
       // Shared color-compose + lit-shade tail — factored out of
@@ -2796,7 +3019,29 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
       function resolveFieldSynthColor(i: number, point: FieldSynthPointSample, colorFactor: number): { packed: number; resolvedOpacity: number } {
         let packed: number;
         let resolvedOpacity: number;
-        if (parsedVoiceColors && point.cw > 0) {
+        // Colour voice stack takes precedence over `voiceColors` entirely
+        // (VOLUMETRIC-4.md §1's precedence table: "voiceColors is ignored"
+        // while the stack is on) — checked FIRST, ahead of the
+        // `parsedVoiceColors` branches below, which this simply never
+        // reaches while `Number.isFinite(point.colorValue)`. That finite
+        // check is what makes the stack a no-op under xray (its synthetic
+        // point never sets `colorValue`) without a separate render-mode
+        // flag threaded through this function.
+        if (colorStackOn && Number.isFinite(point.colorValue)) {
+          if (params.colorMode === "hue") {
+            const hueDeg = (point.colorValue * 0.5 + 0.5 + params.hueOffset) * params.hueRange;
+            packed = hslToPackedRgb(hueDeg, params.hueSat / 100, params.hueLight / 100);
+          } else {
+            // "gradient": the colour stack's raw scalar pushed through the
+            // SAME clamp01(bias + gain*v*0.5) derivation `value` above
+            // uses, then fed into the pre-existing clamp01(v * gradient)
+            // blend unchanged (VOLUMETRIC-4.md §1: "replaces point.value in
+            // the existing clamp01(v * gradient) mapping").
+            const mapped = clamp01(params.bias + params.gain * point.colorValue * 0.5);
+            packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(mapped * params.gradient)) : cA.packed;
+          }
+          resolvedOpacity = cA.opacity;
+        } else if (parsedVoiceColors && point.cw > 0) {
           packed = (Math.round(point.cr / point.cw) << 16) | (Math.round(point.cg / point.cw) << 8) | Math.round(point.cbv / point.cw);
           resolvedOpacity = point.co / point.cw;
         } else if (parsedVoiceColors && point.caw > 0) {
@@ -3444,15 +3689,18 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           if (brightness < 1 / 255) continue;
 
           setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(brightness * rampMax)))]!);
-          // `voiceColors` is inert under xray (documented no-op on the
-          // schema's `voiceColors` key): an all-zero-weight point makes
-          // `applyFieldSynthColor`'s voiceColors branches fall through to the
-          // plain color/colorB gradient unconditionally, regardless of
-          // `params.voiceColors`.
+          // `voiceColors` AND the colour voice stack are both inert under
+          // xray (documented no-ops on `voiceColors`/`colorStackOn` — an
+          // accumulated transmittance integral has no coherent single
+          // point/winner to report a colour for): an all-zero-weight point
+          // with `colorValue: NaN` makes `resolveFieldSynthColor` skip both
+          // and fall through to the plain color/colorB gradient
+          // unconditionally, regardless of either toggle.
           applyFieldSynthColor(i, {
             active: 1, value: brightness,
             cr: 0, cg: 0, cbv: 0, cw: 0, co: 0,
             car: 0, cag: 0, cabv: 0, cao: 0, caw: 0,
+            colorValue: Number.NaN,
           }, false, 1);
           // `applyFieldSynthColor`'s shared coverage line folds the resolved
           // color's alpha into coverage — correct for paint/ink, where alpha

@@ -15,10 +15,13 @@ import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphEffectCatalog,
   INK_LEVELS_MAX,
+  FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES,
   FIELD_SYNTH_VOICE_KEY_FAMILIES,
+  SYNTH_COLOR_VOICES,
   SYNTH_VOICES,
   assertFieldSynthVoiceSchemaComplete,
   breathingGyroidPreset,
+  buildFieldSynthColorVoices,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
@@ -105,6 +108,9 @@ interface EvaluateOptions {
    *  context's `program` field, exactly like packages/glyphcss's compositor
    *  does for a mounted layer's `program` option. */
   program?: unknown;
+  /** Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — forwarded onto
+   *  the evaluate context's `colorProgram` field. */
+  colorProgram?: unknown;
 }
 
 function evaluate(
@@ -163,6 +169,7 @@ function evaluate(
     scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
     output,
     ...(options.program !== undefined ? { program: options.program } : {}),
+    ...(options.colorProgram !== undefined ? { colorProgram: options.colorProgram } : {}),
   } as never);
   return output;
 }
@@ -4991,6 +4998,53 @@ describe("field-synth voice schema guard (VOLUMETRIC-3.md §4 acceptance 6 — m
   });
 });
 
+describe("field-synth colour voice schema guard (VOLUMETRIC-4.md §1 — mutation test, the slice 3 guard's own precedent)", () => {
+  function completeFakeColorSchema(voiceCount: number): Record<string, unknown> {
+    const schema: Record<string, unknown> = {};
+    for (let voice = 1; voice <= voiceCount; voice++) {
+      for (const prefix of FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES) schema[`${prefix}${voice}`] = {};
+    }
+    return schema;
+  }
+
+  it("has exactly the 12 documented families, in the spec's frozen tail order", () => {
+    expect(FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES).toEqual([
+      "cfield", "cwave", "cfreq", "cspeed", "camp", "cphase",
+      "cangle", "coriginU", "coriginV", "coriginW", "cduty", "citer",
+    ]);
+  });
+
+  it("passes on a schema that genuinely has all 12 families for every colour voice", () => {
+    expect(() => assertFieldSynthVoiceSchemaComplete(
+      completeFakeColorSchema(SYNTH_COLOR_VOICES), SYNTH_COLOR_VOICES, FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES,
+    )).not.toThrow();
+  });
+
+  it.each(FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES)(
+    "throws when the \"%s\" family is missing for one colour voice — a partial block shipping silently is exactly the class of bug slice 3's own guard exists to catch",
+    (missingFamily) => {
+      const schema = completeFakeColorSchema(SYNTH_COLOR_VOICES);
+      delete schema[`${missingFamily}2`];
+      expect(() => assertFieldSynthVoiceSchemaComplete(
+        schema, SYNTH_COLOR_VOICES, FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES,
+      )).toThrow(/is missing/);
+    },
+  );
+
+  it("the real fieldSynthSchema covers all 12 colour families for all SYNTH_COLOR_VOICES voices (the actual module-load guard's own assertion, re-run explicitly)", () => {
+    expect(() => assertFieldSynthVoiceSchemaComplete(
+      fieldSynth.parameterSchema as unknown as Record<string, unknown>,
+      SYNTH_COLOR_VOICES,
+      FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES,
+    )).not.toThrow();
+  });
+
+  it("the geometry guard's own two-argument call form still defaults to FIELD_SYNTH_VOICE_KEY_FAMILIES unchanged (the families parameter didn't regress the existing call sites)", () => {
+    const schema = fieldSynth.parameterSchema as unknown as Record<string, unknown>;
+    expect(() => assertFieldSynthVoiceSchemaComplete(schema, SYNTH_VOICES)).not.toThrow();
+  });
+});
+
 // The retired depth-2 Menger sponge recipe — superseded in stock.ts by the
 // depth-3 recipe under the shared "Menger sponge" name (user decision: one
 // Menger sponge preset, not two; see `mengerSpongePreset`'s doc there).
@@ -5245,5 +5299,261 @@ describe("field-synth program-as-data (VOLUMETRIC-3.md §4)", () => {
       domain: "2d",
       layers: [{ voices: [{ field: "radial", wave: "sin", freq: 1 }] }],
     }))).not.toThrow();
+  });
+});
+
+describe("field-synth colour voice stack (VOLUMETRIC-4.md §1)", () => {
+  const singleVoice = {
+    space: "scene",
+    field1: "radial", wave1: "sin", freq1: 3, speed1: 0.4, amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+    gain: 1, bias: 0.5, time: 1,
+    color: "#111111", colorB: "#eeeeee", gradient: 0.7,
+  } as const;
+
+  it("acceptance 1: colorStackOn false/absent is byte-identical to today, even with colour-voice params configured", () => {
+    const baseline = evaluate(fieldSynth, singleVoice);
+    const withInertParams = evaluate(fieldSynth, {
+      ...singleVoice, colorStackOn: false,
+      cfield1: "angular", camp1: 1, colorMode: "hue", hueRange: 180, hueOffset: 0.3,
+    });
+    expect(withInertParams.glyph).toEqual(baseline.glyph);
+    expect(Array.from(withInertParams.color)).toEqual(Array.from(baseline.color));
+    expect(Array.from(withInertParams.coverage)).toEqual(Array.from(baseline.coverage));
+
+    // "absent" — the default-params helper fills colorStackOn from the
+    // schema's own `false` default, so this is a genuinely separate
+    // (no-override) evaluate() call, not the same object reused.
+    const absent = evaluate(fieldSynth, singleVoice);
+    expect(Array.from(absent.color)).toEqual(Array.from(baseline.color));
+  });
+
+  it("acceptance 1: colorStackOn is a documented no-op under render: \"xray\" — output uses the plain color/colorB gradient regardless of the toggle", () => {
+    const length = 12 * 6;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    objectExit[0] = 1;
+    const shared = {
+      space: "object" as const, scale: 1, render: "xray" as const, bias: 0.4, gain: 1, xrayGain: 3,
+      field1: "linearX", wave1: "sin", freq1: 1, speed1: 0, amp1: 1,
+      color: "#7df9ff", colorB: "#ff4fa3", gradient: 0.5,
+    };
+    const withoutStack = evaluate(fieldSynth, { ...shared, colorStackOn: false }, { objectPosition, objectExit });
+    const withStack = evaluate(fieldSynth, {
+      ...shared, colorStackOn: true, colorMode: "hue" as const,
+      cfield1: "radial", cwave1: "sin", cfreq1: 5, camp1: 1, camp2: 0, camp3: 0,
+    }, { objectPosition, objectExit });
+    expect(withoutStack.coverage[0]).toBeGreaterThan(0);
+    expect(withStack.color[0]).toBe(withoutStack.color[0]);
+  });
+
+  it("acceptance 2: a one-linear-voice colour stack in \"gradient\" mode reproduces the SAME colours the equivalent non-stack gradient patch produces, including at gradient's schema default of 0", () => {
+    const cMirror = {
+      cfield1: "radial", cwave1: "sin", cfreq1: 3, cspeed1: 0.4, camp1: 1, camp2: 0, camp3: 0,
+    };
+    const withoutStack = evaluate(fieldSynth, singleVoice);
+    const withStack = evaluate(fieldSynth, { ...singleVoice, colorStackOn: true, ...cMirror });
+    expect(Array.from(withStack.color)).toEqual(Array.from(withoutStack.color));
+    expect(withStack.glyph).toEqual(withoutStack.glyph); // geometry is untouched by the colour stack
+
+    // At gradient's default (0) both paths collapse to the flat `color` —
+    // pinning that the stack genuinely reads `gradient` rather than
+    // ignoring it (a stack that ignored it would still happen to match at
+    // gradient > 0 by coincidence of this particular voice mirroring, but
+    // would diverge the moment gradient reverted to its real default).
+    const atDefaultGradient = evaluate(fieldSynth, { ...singleVoice, gradient: 0 });
+    const atDefaultGradientStack = evaluate(fieldSynth, { ...singleVoice, gradient: 0, colorStackOn: true, ...cMirror });
+    expect(Array.from(atDefaultGradientStack.color)).toEqual(Array.from(atDefaultGradient.color));
+    expect(new Set(Array.from(atDefaultGradientStack.color)).size).toBe(1);
+    expect(atDefaultGradientStack.color[0]).toBe(parseGlyphEffectColor(singleVoice.color).packed);
+  });
+
+  it("acceptance 2: colorProgram renders identically to the equivalent flat colour-voice params", () => {
+    const flatOutput = evaluate(fieldSynth, {
+      ...singleVoice, colorStackOn: true,
+      cfield1: "radial", cwave1: "sin", cfreq1: 3, cspeed1: 0.4, camp1: 1, camp2: 0, camp3: 0,
+    });
+    const colorProgram = buildGlyphFieldProgram({
+      domain: "2d",
+      layers: [{ voices: [{ field: "radial", wave: "sin", freq: 3, speed: 0.4 }] }],
+    });
+    const programOutput = evaluate(fieldSynth, { ...singleVoice, colorStackOn: true }, { colorProgram });
+    expect(programOutput.glyph).toEqual(flatOutput.glyph);
+    expect(Array.from(programOutput.color)).toEqual(Array.from(flatOutput.color));
+    expect(Array.from(programOutput.coverage)).toEqual(Array.from(flatOutput.coverage));
+  });
+
+  it("acceptance 2: decoupling — changing a GEOMETRY voice's freq/field/phase alters the glyph field but leaves every cell's colour byte-identical", () => {
+    const base = {
+      ...singleVoice, colorStackOn: true,
+      cfield1: "linearX", cwave1: "sin", cfreq1: 2, cspeed1: 0.2, camp1: 1, camp2: 0, camp3: 0,
+    };
+    const a = evaluate(fieldSynth, base);
+    const b = evaluate(fieldSynth, { ...base, freq1: 11, field1: "spiral", phase1: 0.37 });
+    expect(a.glyph).not.toEqual(b.glyph); // sanity: the geometry change is real, not silently absorbed
+    expect(Array.from(a.color)).toEqual(Array.from(b.color));
+  });
+
+  it("acceptance 2: decoupling — changing a COLOUR voice alters colour but leaves every cell's glyph byte-identical", () => {
+    const base = {
+      ...singleVoice, colorStackOn: true,
+      cfield1: "linearX", cwave1: "sin", cfreq1: 2, cspeed1: 0.2, camp1: 1, camp2: 0, camp3: 0,
+    };
+    const a = evaluate(fieldSynth, base);
+    const b = evaluate(fieldSynth, { ...base, cfreq1: 19, cfield1: "spiral", cphase1: 0.4 });
+    expect(Array.from(a.color)).not.toEqual(Array.from(b.color)); // sanity: the colour change is real
+    expect(a.glyph).toEqual(b.glyph);
+  });
+
+  it("acceptance 2: voiceColors is inert while the colour stack is on", () => {
+    const base = {
+      ...singleVoice, colorStackOn: true,
+      cfield1: "radial", cwave1: "sin", cfreq1: 3, cspeed1: 0.4, camp1: 1, camp2: 0, camp3: 0,
+      color1: "#00ff00",
+    };
+    const withoutVoiceColors = evaluate(fieldSynth, { ...base, voiceColors: false });
+    const withVoiceColors = evaluate(fieldSynth, { ...base, voiceColors: true });
+    expect(Array.from(withVoiceColors.color)).toEqual(Array.from(withoutVoiceColors.color));
+  });
+
+  describe("\"hue\" colorMode", () => {
+    const hueBase = {
+      space: "scene", colorStackOn: true, colorMode: "hue" as const,
+      field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+      gain: 1, bias: 0.5, gradient: 0,
+      cfield1: "linearX", cwave1: "sin", cfreq1: 0, cspeed1: 0, cphase1: 0.25, camp1: 1, camp2: 0, camp3: 0,
+    } as const;
+
+    it("hueLight: 0 renders black regardless of hueSat/hueOffset/hueRange", () => {
+      const output = evaluate(fieldSynth, { ...hueBase, hueLight: 0, hueSat: 80, hueRange: 300, hueOffset: 0.4 });
+      expect(output.color[0]).toBe(0x000000);
+    });
+
+    it("hueLight: 100 renders white regardless of hueSat/hueOffset/hueRange", () => {
+      const output = evaluate(fieldSynth, { ...hueBase, hueLight: 100, hueSat: 80, hueRange: 300, hueOffset: 0.4 });
+      expect(output.color[0]).toBe(0xffffff);
+    });
+
+    it("hueSat: 0 renders a neutral grey (r === g === b) at the given hueLight, regardless of hueOffset/hueRange", () => {
+      const output = evaluate(fieldSynth, { ...hueBase, hueSat: 0, hueLight: 50, hueRange: 300, hueOffset: 0.4 });
+      const r = (output.color[0]! >> 16) & 0xff, g = (output.color[0]! >> 8) & 0xff, b = output.color[0]! & 0xff;
+      expect(r).toBe(g);
+      expect(g).toBe(b);
+      expect(r).toBe(Math.round(0.5 * 255));
+    });
+
+    it("wraps the hue cyclically — a hueOffset/hueRange product past 360 degrees produces the SAME colour as its mod-360 equivalent", () => {
+      const output = evaluate(fieldSynth, { ...hueBase, hueSat: 90, hueLight: 55, hueRange: 360, hueOffset: 1 });
+      const wrapped = evaluate(fieldSynth, { ...hueBase, hueSat: 90, hueLight: 55, hueRange: 360, hueOffset: 0 });
+      // hueOffset 1 (a full cycle) at hueRange 360 adds exactly 360 degrees —
+      // congruent mod 360 to hueOffset 0.
+      expect(output.color[0]).toBe(wrapped.color[0]);
+    });
+
+    it("colour/colorB stay visible (not hidden) under \"gradient\" mode while the stack is on — repurposed as its endpoints, not suppressed", () => {
+      const output = evaluate(fieldSynth, {
+        ...hueBase, colorMode: "gradient" as const, gradient: 1, color: "#ff0000", colorB: "#00ff00",
+      });
+      // Just asserts the gradient endpoints are actually reachable outputs
+      // (not, say, forced to a hue-mode palette or a hidden/default colour)
+      // — the packed colour must be a convex blend along the red-green axis.
+      const g = (output.color[0]! >> 8) & 0xff;
+      const b = output.color[0]! & 0xff;
+      expect(b).toBe(0);
+      expect(g).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe("subcell modes (VOLUMETRIC-4.md §1's requirement 6 — geometry still controls glyph/dot/ink shape)", () => {
+    it("carve 1x1: the colour stack colours the confirmed-solid hit sample, decoupled from geometry's own gradient", () => {
+      const length = 12 * 6;
+      const objectPosition = new Float32Array(length * 3);
+      const objectExit = new Float32Array(length * 3);
+      objectPosition[0] = 0; objectPosition[1] = 0; objectPosition[2] = 0;
+      objectExit[0] = 1; objectExit[1] = 0; objectExit[2] = 0;
+      const shared = {
+        space: "object" as const, scale: 1, render: "carve" as const,
+        field1: "linearX", wave1: "step", freq1: 0, speed1: 0, phase1: 0.5, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+        bias: 0.5, gain: 1, color: "#111111", colorB: "#eeeeee", gradient: 1,
+      };
+      const withoutStack = evaluate(fieldSynth, shared, { objectPosition, objectExit });
+      expect(withoutStack.coverage[0]).toBeGreaterThan(0);
+      expect(withoutStack.color[0]).toBe(parseGlyphEffectColor("#eeeeee").packed);
+
+      const withStack = evaluate(fieldSynth, {
+        ...shared, colorStackOn: true,
+        cfield1: "linearX", cwave1: "step", cfreq1: 0, cspeed1: 0, cphase1: -0.5, camp1: 1, camp2: 0, camp3: 0,
+      }, { objectPosition, objectExit });
+      expect(withStack.coverage[0]).toBeGreaterThan(0);
+      expect(withStack.glyph[0]).toBe(withoutStack.glyph[0]); // geometry unaffected
+      expect(withStack.color[0]).toBe(parseGlyphEffectColor("#111111").packed);
+    });
+
+    it("carve+ink: rim cells keep their existing neighbour-borrow fallback, and an inked cell's own colour comes from the colour stack at its hit sample", () => {
+      const { objectPosition, objectExit, normal } = objectSpaceFixture(12, 6);
+      // bias/gain chosen so the density floor never drops to 0 regardless of
+      // the (spatially varying) geometry field — every covered cell is a
+      // confirmed HIT near its own entry, so the SAME cells (the grid
+      // boundary, via the off-grid-neighbor-reads-as-OUT rule) rim either way.
+      const shared = {
+        space: "object" as const, scale: 1, render: "carve" as const, subcellRes: "ink" as const,
+        field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+        bias: 0.9, gain: 1, color: "#111111", colorB: "#eeeeee", gradient: 1,
+      };
+      const withoutStack = evaluate(fieldSynth, shared, { objectPosition, objectExit, normal });
+      expect(inkedAt(withoutStack, 0)).toBe(true); // corner cell rims against the off-grid edge
+
+      const withStack = evaluate(fieldSynth, {
+        ...shared, colorStackOn: true,
+        cfield1: "linearX", cwave1: "step", cfreq1: 0, cspeed1: 0, cphase1: 0.5, camp1: 1, camp2: 0, camp3: 0,
+      }, { objectPosition, objectExit, normal });
+      // Identical inked-cell set — colour never influences the carve march
+      // or the rim/contour classification, only which colour an already-
+      // decided cell renders.
+      expect(Array.from(withStack.channels)).toEqual(Array.from(withoutStack.channels));
+      expect(withStack.color[0]).not.toBe(withoutStack.color[0]);
+    });
+
+    it("carve+2x4: the emitted cell's colour is the centre-hit-else-first-hit sample's colour stack result", () => {
+      const { objectPosition, objectExit, normal } = objectSpaceFixture(12, 6);
+      const shared = {
+        space: "object" as const, scale: 1, render: "carve" as const, subcellRes: "2x4" as const,
+        field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
+        bias: 0.9, gain: 1, color: "#111111", colorB: "#eeeeee", gradient: 1,
+      };
+      const withoutStack = evaluate(fieldSynth, shared, { objectPosition, objectExit, normal });
+      expect(withoutStack.coverage[0]).toBeGreaterThan(0);
+
+      const withStack = evaluate(fieldSynth, {
+        ...shared, colorStackOn: true,
+        cfield1: "linearX", cwave1: "step", cfreq1: 0, cspeed1: 0, cphase1: 0.5, camp1: 1, camp2: 0, camp3: 0,
+      }, { objectPosition, objectExit, normal });
+      // Same braille dot mask (geometry-only) at every cell, different colour.
+      expect(withStack.glyph).toEqual(withoutStack.glyph);
+      expect(withStack.color[0]).not.toBe(withoutStack.color[0]);
+    });
+  });
+
+  it("fieldSynth.program.validateColorProgram rejects a malformed program via @glyphcss/effects's own validateGlyphFieldProgram, mirroring validateProgram", () => {
+    expect(() => fieldSynth.program.validateColorProgram?.({ domain: "bogus", layers: [] })).toThrow();
+    expect(() => fieldSynth.program.validateColorProgram?.(buildGlyphFieldProgram({
+      domain: "2d",
+      layers: [{ voices: [{ field: "radial", wave: "sin", freq: 1 }] }],
+    }))).not.toThrow();
+  });
+
+  it("buildFieldSynthColorVoices reads the flat cfield1..3/camp1..3/etc params into the same SynthVoice shape the geometry stack uses", () => {
+    const params = defaultParamsForSchema(fieldSynth.parameterSchema) as unknown as AnyParams;
+    (params as Record<string, unknown>).cfield2 = "spiral";
+    (params as Record<string, unknown>).camp2 = 0.5;
+    const voices = buildFieldSynthColorVoices(params);
+    expect(voices).toHaveLength(SYNTH_COLOR_VOICES);
+    expect(voices[1]!.field).toBe("spiral");
+    expect(voices[1]!.amp).toBe(0.5);
+    expect(voices[1]!.layer).toBe(1);
   });
 });

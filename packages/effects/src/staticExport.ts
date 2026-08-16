@@ -126,6 +126,13 @@ export interface GlyphFieldSynthStaticExportOptions {
    * coordinate-table/affine-fit exporter can serialize — not planned.
    */
   program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — mirrors the
+   * mounted layer's own `colorProgram` option, same reasoning as `program`
+   * above. Always REJECTED (see `buildGlyphFieldSynthStaticExport`): the
+   * colour voice stack has no inlined-runtime port yet.
+   */
+  colorProgram?: unknown;
 }
 
 export interface GlyphFieldSynthStaticExportResult {
@@ -1065,6 +1072,18 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
       + "march is a different export design; not planned (see VOLUMETRIC.md's \"Static export\").",
     );
   }
+  // The colour voice stack (VOLUMETRIC-4.md §1) has no inlined-runtime port
+  // yet — it's a SECOND serialized program plus a palette mapping
+  // ("gradient"/"hue") this baked coordinate-table/affine-fit exporter
+  // doesn't carry. Worded like the `linearZ`/`space: "object"` rejects
+  // above: not a silent alias, an explicit "not planned yet".
+  if (params.colorStackOn) {
+    throw new Error(
+      "glyphcss: buildGlyphFieldSynthStaticExport does not support colorStackOn: true — the colour voice stack "
+      + "has no inlined-runtime port yet (a second serialized program plus its own palette mapping). Not planned "
+      + "yet; export the equivalent flat color/colorB/gradient patch instead.",
+    );
+  }
   const p = params as unknown as AnyParams;
   for (let k = 1; k <= SYNTH_VOICES; k++) {
     if (!((p[`amp${k}`] as number) > 0)) continue;
@@ -1140,6 +1159,16 @@ export function buildGlyphFieldSynthStaticExport(
       "glyphcss: buildGlyphFieldSynthStaticExport does not support program-as-data (VOLUMETRIC-3.md §4) — "
       + "a GlyphFieldProgram is an unbounded authoring surface with no schema/preset shape this baked "
       + "coordinate-table/affine-fit exporter can serialize. Not planned; export the equivalent flat params patch instead.",
+    );
+  }
+  // Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same option-
+  // boundary reject as `program` above, for the colour voice stack's own
+  // opaque program payload.
+  if (options.colorProgram !== undefined) {
+    throw new Error(
+      "glyphcss: buildGlyphFieldSynthStaticExport does not support colorProgram (VOLUMETRIC-4.md §1) — "
+      + "a GlyphFieldProgram is an unbounded authoring surface with no schema/preset shape this baked "
+      + "coordinate-table/affine-fit exporter can serialize. Not planned; export the equivalent flat colour-voice params instead.",
     );
   }
   if (options.effect !== undefined && options.effect !== "field-synth") {

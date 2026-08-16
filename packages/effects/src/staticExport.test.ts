@@ -490,6 +490,26 @@ describe("buildGlyphFieldSynthStaticExport", () => {
     }))).toThrow(/program-as-data/);
   });
 
+  it("rejects colorProgram (VOLUMETRIC-4.md §1), program-as-data's named sibling, at the option boundary", () => {
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ colorProgram: { domain: "2d", layers: [] } })))
+      .toThrow(/colorProgram/);
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+      colorProgram: { domain: "2d", layers: [] },
+      params: { render: "carve" },
+    }))).toThrow(/colorProgram/);
+  });
+
+  it("rejects colorStackOn: true (VOLUMETRIC-4.md §1) — the colour voice stack has no inlined-runtime port yet", () => {
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ params: { colorStackOn: true } })))
+      .toThrow(/colorStackOn/);
+  });
+
+  it("does NOT reject colorStackOn: false (the default) — a colour-stack-configured-but-off patch still exports", () => {
+    expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({
+      params: { colorStackOn: false, cfield1: "angular", camp1: 1 },
+    }))).not.toThrow();
+  });
+
   it("produces a non-empty base frame", () => {
     const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions());
     const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
@@ -668,6 +688,14 @@ describe("buildGlyphFieldSynthStaticExport", () => {
 
     it("is true when the voice carrying linearZ/originW is inactive (amp 0) — same as the exporter itself", () => {
       expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, amp3: 0, field3: "linearZ", originW3: 0.9 })).toBe(true);
+    });
+
+    it("is false for colorStackOn: true (VOLUMETRIC-4.md §1) — the params-level reject flows through the SAME assertStaticExportSupported the predicate wraps", () => {
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, colorStackOn: true })).toBe(false);
+    });
+
+    it("is true for colorStackOn: false with colour-voice params configured — inert while off", () => {
+      expect(isGlyphFieldSynthStaticExportSupported({ ...baseOptions().params, colorStackOn: false, cfield1: "angular", camp1: 1 })).toBe(true);
     });
   });
 
