@@ -684,7 +684,7 @@ export const GLYPH_FIELD_SYNTH_VALIDATION_RULES = [
   "non-positive-scale",
   "multi-layer-argmax",
   "carve-requires-object-space",
-  "carve-subcell-unsupported",
+  "xray-subcell-unsupported",
 ] as const;
 export type GlyphFieldSynthValidationRuleId = typeof GLYPH_FIELD_SYNTH_VALIDATION_RULES[number];
 
@@ -1471,6 +1471,14 @@ const fieldSynthSchema = {
   iter4: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 4 iterations" },
   iter5: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 5 iterations" },
   iter6: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 6 iterations" },
+  // Appended after every pre-existing key (VOLUMETRIC-3.md §2: append-only
+  // ordering is load-bearing for the /synth URL codec's positional decode).
+  // Ink-over-carve's contour spacing, in ABSOLUTE domain units — deliberately
+  // NOT a fraction of the observed depth range (that would make contours
+  // crawl frame-to-frame under orbit, differ across output grids, and
+  // degenerate on a flat wall). Documented no-op under 2D `subcellRes: "ink"`
+  // (that path keeps `inkLevels`) and under any non-carve render.
+  inkSpacing: { kind: "number", default: 0.25, min: 0.05, max: 4, step: 0.05, label: "Ink spacing" },
 } as const satisfies GlyphEffectParamSchema;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
@@ -1751,14 +1759,22 @@ function validateFieldSynthLayers(params: AnyParams): void {
 
 // Carve/xray march modes (VOLUMETRIC.md's "Carve mode (hollowness)",
 // VOLUMETRIC-2.md §1 "March view modes"): both require the volumetric
-// branch, and both reject the two subcell probes whose neighbor
-// finite-differencing has no defined meaning across cells whose march
-// results (a hit point for carve, an integral for xray) sit at different
-// depths or come from different-length chords. In wireframe/voxel modes
-// carve/xray degrade to paint at RUNTIME (no `objectPosition`/`objectExit`
-// retained, same optional-requirement degradation `space: "object"` already
-// uses) — that degradation can't be validated here, since `validateParams`
-// never sees the render mode, only params.
+// branch. In wireframe/voxel modes carve/xray degrade to paint at RUNTIME
+// (no `objectPosition`/`objectExit` retained, same optional-requirement
+// degradation `space: "object"` already uses) — that degradation can't be
+// validated here, since `validateParams` never sees the render mode, only
+// params.
+//
+// `subcellRes` rejection (VOLUMETRIC-3.md §2): carve+ink and carve+2x4 are
+// now legal — carve's own march loop computes both directly (see
+// `fieldSynth`'s `evaluate()`: the ink post-pass and the braille sub-ray
+// probe). xray still rejects both: an accumulated transmittance integral has
+// no per-cell hit point/depth for the ink/braille neighbor probes to read,
+// unlike carve's first-hit search. This used to share `carve-subcell-
+// unsupported` with carve's own (now-removed) rejection of the same pair —
+// splitting the rule id keeps a valid carve+ink/2x4 URL from being
+// "repaired" back to `1x1` by a repair-table row that no longer applies to
+// carve (VOLUMETRIC-3.md §2, reviewer-caught).
 function validateFieldSynthRender(params: AnyParams): void {
   if (params.render !== "carve" && params.render !== "xray") return;
   const mode = params.render as string;
@@ -1771,14 +1787,14 @@ function validateFieldSynthRender(params: AnyParams): void {
       "carve-requires-object-space",
     );
   }
-  if (params.subcellRes === "2x4" || params.subcellRes === "ink") {
+  if (mode === "xray" && (params.subcellRes === "2x4" || params.subcellRes === "ink")) {
     throw taggedValidationError(
       new TypeError(
-        `glyphcss field-synth: render: "${mode}" does not support subcellRes: "${params.subcellRes as string}" — its `
-        + "neighbor finite-difference probe has no defined meaning across cells whose march results sit at "
-        + `different depths or come from different-length chords. Use subcellRes: "1x1" with ${mode}.`,
+        `glyphcss field-synth: render: "xray" does not support subcellRes: "${params.subcellRes as string}" — an `
+        + "accumulated transmittance integral has no per-cell hit point for the ink/braille neighbor probes to "
+        + 'read. Use subcellRes: "1x1" with xray, or render: "carve" for a volumetric ink/braille outline.',
       ),
-      "carve-subcell-unsupported",
+      "xray-subcell-unsupported",
     );
   }
 }
@@ -2339,13 +2355,19 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         return { active: stack.active, value, cr, cg, cbv, cw, co, car, cag, cabv, cao, caw };
       }
 
-      // Shared color-compose + lit-shade + set-output tail, also part of the
-      // shared t=0 emission path (see `FieldSynthPointSample`'s doc). `colorFactor`
-      // is carve's `exp(-marchFade * distance)` falloff (1 for every non-carve
-      // call, and for a carve hit at distance 0 — an everywhere-solid field, or
-      // a degenerate-segment fallback — so those cases multiply by exactly 1,
-      // reproducing plain paint output bit-for-bit).
-      function applyFieldSynthColor(i: number, point: FieldSynthPointSample, coverageIsLevelScaled: boolean, colorFactor: number): void {
+      // Shared color-compose + lit-shade tail — factored out of
+      // `applyFieldSynthColor` (VOLUMETRIC-3.md §2) so the ink-over-carve
+      // resolve pass can compute and STORE a cell's fully-resolved packed
+      // color/opacity in its own hit-record buffer (for a rim cell to borrow
+      // from a neighbor later) without writing to `context.output` itself —
+      // `applyFieldSynthColor` below still does exactly what it always did,
+      // now via this shared helper, so every non-ink call site is
+      // byte-identical. `colorFactor` is carve's `exp(-marchFade * distance)`
+      // falloff (1 for every non-carve call, and for a carve hit at distance
+      // 0 — an everywhere-solid field, or a degenerate-segment fallback — so
+      // those cases multiply by exactly 1, reproducing plain paint output
+      // bit-for-bit).
+      function resolveFieldSynthColor(i: number, point: FieldSynthPointSample, colorFactor: number): { packed: number; resolvedOpacity: number } {
         let packed: number;
         let resolvedOpacity: number;
         if (parsedVoiceColors && point.cw > 0) {
@@ -2368,6 +2390,13 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
         }
         if (colorFactor !== 1) packed = scalePackedColor(packed, colorFactor);
+        return { packed, resolvedOpacity };
+      }
+
+      // Shared set-output tail, also part of the shared t=0 emission path
+      // (see `FieldSynthPointSample`'s doc).
+      function applyFieldSynthColor(i: number, point: FieldSynthPointSample, coverageIsLevelScaled: boolean, colorFactor: number): void {
+        const { packed, resolvedOpacity } = resolveFieldSynthColor(i, point, colorFactor);
         setColor(context, i, packed);
         // Shaded modes fade a cell by its level; an inked cell is a decision, not
         // a level — half a contour lies BELOW the iso-level and would render
@@ -2375,10 +2404,344 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         context.output.coverage[i] = coverageIsLevelScaled ? point.value * resolvedOpacity : resolvedOpacity;
       }
 
+      // ---- Ink-over-carve (VOLUMETRIC-3.md §2) --------------------------
+      //
+      // Outlines carve's march instead of shading every hit cell. Two passes
+      // over per-evaluate local buffers (plain per-evaluate() allocations,
+      // never compositor scratch — v1, per the spec): pass 1 runs carve's
+      // own march at every cell and records a classification (`hitState`)
+      // plus, for a genuine hit, its absolute-domain-unit `sampleDistance`
+      // and fully-resolved output color; pass 2 reads ONLY those buffers
+      // (never re-marches) to decide which cells ink and how.
+      //
+      // `hitState` collapses the spec's four neighbor categories (hit / hole
+      // / uncovered / non-target) to three: OUT covers both "no geometry
+      // here" (uncovered) and "geometry here, but from a mesh outside this
+      // layer's target set" (non-target) — a program has no per-cell mesh
+      // identity to tell those apart without the compositor's own
+      // (deliberately program-invisible, VOLUMETRIC-3.md §1) winner-mesh
+      // buffer, and both behave identically for a rim/contour decision: the
+      // compositor's own `targetCoverage` weighting already discards
+      // whatever a non-target OUT cell emits here, so folding it in with
+      // "uncovered" changes nothing observable. For the same reason,
+      // "different winner mesh" between two HIT cells is not tracked as its
+      // own category — the fixture that exercises it (a targeted mesh over
+      // an UNtargeted second mesh) already produces that boundary as a
+      // HIT/OUT flip, which rule (a) below inks regardless.
+      const CARVE_INK_OUT = 0;
+      const CARVE_INK_HOLE = 1;
+      const CARVE_INK_HIT = 2;
+
+      function runCarveInkResolve(): void {
+        const length = context.base.length;
+        const hitState = new Uint8Array(length);
+        const hitDistance = new Float32Array(length);
+        const hitPacked = new Uint32Array(length);
+        const hitOpacity = new Float32Array(length);
+
+        for (let i = 0; i < length; i++) {
+          if (context.target.coverage[i]! <= 0) { hitState[i] = CARVE_INK_OUT; continue; }
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) { hitState[i] = CARVE_INK_OUT; continue; }
+          const entryX = px * scale, entryY = py * scale, entryZ = pz * scale;
+          const cx = volumetricOriginX, cy = volumetricOriginY, cz = 0;
+
+          const exitBuf = context.base.objectExit!;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          const hasExit = Number.isFinite(exx) && Number.isFinite(exy) && Number.isFinite(exz);
+          let hitX = entryX, hitY = entryY, hitZ = entryZ, distance = 0;
+          if (hasExit) {
+            const exitX = exx * scale, exitY = exy * scale, exitZ = exz * scale;
+            const chordLength = Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
+            if (chordLength > 0 && Number.isFinite(chordLength)) {
+              const result = marchField(
+                [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
+                { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
+              );
+              if (!result.hit) { hitState[i] = CARVE_INK_HOLE; continue; }
+              distance = result.sampleDistance;
+              hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
+            }
+          }
+          // Degenerate/absent chord: fall back to surface sampling at the
+          // TRUE entry (`hitX/Y/Z` still default to `entryX/Y/Z`, `distance`
+          // to 0) — carve's fallback emits only when that entry is solid;
+          // silhouette closure comes from rule (a) below, not this fallback.
+          const point = computeFieldSynthPoint(hitX, hitY, hitZ, cx, cy, cz);
+          if (point.active === 0 || point.value <= 0) { hitState[i] = CARVE_INK_HOLE; continue; }
+          hitState[i] = CARVE_INK_HIT;
+          hitDistance[i] = distance;
+          const resolved = resolveFieldSynthColor(i, point, Math.exp(-params.marchFade * distance));
+          hitPacked[i] = resolved.packed;
+          hitOpacity[i] = resolved.resolvedOpacity;
+        }
+
+        const cols = context.base.cols;
+        const rows = context.base.rows;
+        const spacing = params.inkSpacing > 0 ? params.inkSpacing : 0.25;
+        function neighborOf(i: number, dir: 0 | 1 | 2 | 3): number {
+          // 0 right, 1 left, 2 down, 3 up. Off-grid reads back as OUT via
+          // `stateAt` below (a grid edge behaves like leaving the visible
+          // world — background, not a special case).
+          const col = i % cols, row = (i / cols) | 0;
+          if (dir === 0) return col + 1 < cols ? i + 1 : -1;
+          if (dir === 1) return col - 1 >= 0 ? i - 1 : -1;
+          if (dir === 2) return row + 1 < rows ? i + cols : -1;
+          return row - 1 >= 0 ? i - cols : -1;
+        }
+        function stateAt(idx: number): number {
+          return idx < 0 ? CARVE_INK_OUT : hitState[idx]!;
+        }
+
+        for (let i = 0; i < length; i++) {
+          const self = hitState[i]!;
+          if (self === CARVE_INK_OUT) continue;
+          const rIdx = neighborOf(i, 0), lIdx = neighborOf(i, 1), dIdx = neighborOf(i, 2), uIdx = neighborOf(i, 3);
+          const rState = stateAt(rIdx), lState = stateAt(lIdx), dState = stateAt(dIdx), uState = stateAt(uIdx);
+          // Rule (a): ANY neighbor in a different category — always inked,
+          // regardless of what `self` itself is (a hole/OUT cell right next
+          // to a hit is rimmed too, so a rim cell with no hit of its own can
+          // borrow a color below).
+          const isRim = self !== rState || self !== lState || self !== dState || self !== uState;
+
+          let gx = 0, gy = 0;
+          let inked = isRim;
+          if (isRim) {
+            // Rim orientation: the screen-space gradient of the hit/no-hit
+            // COVERAGE MASK — a depth gradient is undefined against a
+            // sentinel (non-hit) neighbor, and the naive depth-everywhere
+            // fallback renders every rim cell as "-" (the pinned all-dashes
+            // counter-case).
+            const maskOf = (s: number): number => s === CARVE_INK_HIT ? 1 : 0;
+            gx = maskOf(rState) - maskOf(lState);
+            gy = maskOf(dState) - maskOf(uState);
+          } else if (self === CARVE_INK_HIT) {
+            // Rule (a) didn't fire, so every EXISTING neighbor already
+            // shares `self`'s state (CARVE_INK_HIT) — rules (b)/(c): a
+            // multiple of `inkSpacing` between two hit depths (contour), or
+            // too great a depth jump (interior edge). A missing (off-grid)
+            // neighbor contributes 0 (defaults to `self`'s own depth), the
+            // same edge-mirroring convention the rest of this file's subcell
+            // gradient probes use.
+            const selfDist = hitDistance[i]!;
+            const rDist = rIdx >= 0 ? hitDistance[rIdx]! : selfDist;
+            const lDist = lIdx >= 0 ? hitDistance[lIdx]! : selfDist;
+            const dDist = dIdx >= 0 ? hitDistance[dIdx]! : selfDist;
+            const uDist = uIdx >= 0 ? hitDistance[uIdx]! : selfDist;
+            let crosses = false;
+            for (const other of [rDist, lDist, dDist, uDist]) {
+              const lo = Math.min(selfDist, other), hi = Math.max(selfDist, other);
+              if (Math.floor(lo / spacing) !== Math.floor(hi / spacing) || hi - lo > spacing) { crosses = true; break; }
+            }
+            if (crosses) {
+              inked = true;
+              // Contour/edge orientation: the depth gradient (both sides are
+              // real hits here, so this is well-defined, unlike the rim case).
+              gx = rDist - lDist;
+              gy = dDist - uDist;
+            }
+          }
+          if (!inked) continue;
+
+          setGlyph(context, i, inkGlyphForField(gx, gy));
+          let packed: number;
+          let opacity: number;
+          if (self === CARVE_INK_HIT) {
+            packed = hitPacked[i]!;
+            opacity = hitOpacity[i]!;
+          } else {
+            // A rim cell with no hit of its own borrows its nearest inked
+            // (i.e. any) hit neighbor's color; with none, the layer's base
+            // color (no field sample exists here to gradient/voice-blend).
+            let borrowed = -1;
+            if (rIdx >= 0 && rState === CARVE_INK_HIT) borrowed = rIdx;
+            else if (lIdx >= 0 && lState === CARVE_INK_HIT) borrowed = lIdx;
+            else if (dIdx >= 0 && dState === CARVE_INK_HIT) borrowed = dIdx;
+            else if (uIdx >= 0 && uState === CARVE_INK_HIT) borrowed = uIdx;
+            if (borrowed >= 0) {
+              packed = hitPacked[borrowed]!;
+              opacity = hitOpacity[borrowed]!;
+            } else {
+              packed = cA.packed;
+              opacity = cA.opacity;
+            }
+          }
+          setColor(context, i, packed);
+          // Inked cells get full coverage, not level-scaled — an inked cell
+          // is a decision, not a level (same precedent as 2D `subcellRes:
+          // "ink"`'s own coverage line above).
+          context.output.coverage[i] = opacity;
+        }
+      }
+
+      // ---- Braille-over-carve (VOLUMETRIC-3.md §2) -----------------------
+      //
+      // `subcellRes: "2x4"` under carve marches 8 sub-rays per covered cell,
+      // each with its own interpolated entry/exit chord, sharing ONE step
+      // count sized from the longest chord among them (xray's own
+      // rationale — VOLUMETRIC-2.md §1 "Uniform step count per evaluate" —
+      // applied per-cell here instead of per-evaluate: a per-subray count
+      // would let neighboring dots inside the SAME cell disagree about how
+      // finely a thin feature is resolved).
+      interface CarveCellGeometry {
+        readonly ex: number; readonly ey: number; readonly ez: number;
+        readonly xx: number; readonly xy: number; readonly xz: number;
+        readonly nx: number; readonly ny: number; readonly nz: number;
+      }
+
+      // A covered, in-target cell's own (already scale-applied) entry/exit
+      // chord and geometric face normal — `null` when this cell has no
+      // finite chord to march at all (mirrors the 1x1 path's own skip).
+      // "In target" doubles as this file's only available proxy for "same
+      // winner mesh" (see `runCarveInkResolve`'s doc) — the crease-edge
+      // counter-case (two faces of the SAME mesh) is caught by the
+      // normal-agreement gate below instead, which is the mechanism the
+      // spec actually pins a test to.
+      function carveCellGeometry(idx: number): CarveCellGeometry | null {
+        if (context.target.coverage[idx]! <= 0) return null;
+        const op = context.base.objectPosition!;
+        const px = op[idx * 3]!, py = op[idx * 3 + 1]!, pz = op[idx * 3 + 2]!;
+        if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return null;
+        const exitBuf = context.base.objectExit!;
+        const exx = exitBuf[idx * 3]!, exy = exitBuf[idx * 3 + 1]!, exz = exitBuf[idx * 3 + 2]!;
+        if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) return null;
+        let nx = 0, ny = 0, nz = 1;
+        const nrm = context.base.normal;
+        if (nrm) {
+          const rnx = nrm[idx * 3]!, rny = nrm[idx * 3 + 1]!, rnz = nrm[idx * 3 + 2]!;
+          if (Number.isFinite(rnx) && Number.isFinite(rny) && Number.isFinite(rnz)) { nx = rnx; ny = rny; nz = rnz; }
+        }
+        return { ex: px * scale, ey: py * scale, ez: pz * scale, xx: exx * scale, xy: exy * scale, xz: exz * scale, nx, ny, nz };
+      }
+
+      // Strict neighbor eligibility: finite entry AND exit (via
+      // `carveCellGeometry`'s own null check) AND the geometric normals
+      // agree (dot > 0.9) — a finite neighbor on a different cube FACE or a
+      // different MESH interpolates endpoints off the surface, breaking
+      // every visible edge column without this gate.
+      function eligibleCarveNeighbor(selfGeom: CarveCellGeometry, idx: number): CarveCellGeometry | null {
+        if (idx < 0) return null;
+        const g = carveCellGeometry(idx);
+        if (!g) return null;
+        const dot = g.nx * selfGeom.nx + g.ny * selfGeom.ny + g.nz * selfGeom.nz;
+        return dot > 0.9 ? g : null;
+      }
+
+      function runCarveBrailleCell(i: number): void {
+        const selfGeom = carveCellGeometry(i);
+        if (!selfGeom) return; // no finite chord — emits nothing, matching the 1x1 path's own skip
+        const cols = context.base.cols, rows = context.base.rows;
+        const col = i % cols, row = (i / cols) | 0;
+        const rIdx = col + 1 < cols ? i + 1 : -1;
+        const lIdx = col - 1 >= 0 ? i - 1 : -1;
+        const dIdx = row + 1 < rows ? i + cols : -1;
+        const uIdx = row - 1 >= 0 ? i - cols : -1;
+        const rG = eligibleCarveNeighbor(selfGeom, rIdx);
+        const lG = eligibleCarveNeighbor(selfGeom, lIdx);
+        const dG = eligibleCarveNeighbor(selfGeom, dIdx);
+        const uG = eligibleCarveNeighbor(selfGeom, uIdx);
+
+        // Otherwise: cell-center sub-rays (fallback) — when NEITHER side of
+        // an axis has an eligible neighbor, that axis's gradient stays 0 and
+        // every sub-ray collapses to this cell's own (entry, exit) chord.
+        let entryDxCol = 0, entryDyCol = 0, entryDzCol = 0, exitDxCol = 0, exitDyCol = 0, exitDzCol = 0;
+        if (rG) {
+          entryDxCol = rG.ex - selfGeom.ex; entryDyCol = rG.ey - selfGeom.ey; entryDzCol = rG.ez - selfGeom.ez;
+          exitDxCol = rG.xx - selfGeom.xx; exitDyCol = rG.xy - selfGeom.xy; exitDzCol = rG.xz - selfGeom.xz;
+        } else if (lG) {
+          entryDxCol = selfGeom.ex - lG.ex; entryDyCol = selfGeom.ey - lG.ey; entryDzCol = selfGeom.ez - lG.ez;
+          exitDxCol = selfGeom.xx - lG.xx; exitDyCol = selfGeom.xy - lG.xy; exitDzCol = selfGeom.xz - lG.xz;
+        }
+        let entryDxRow = 0, entryDyRow = 0, entryDzRow = 0, exitDxRow = 0, exitDyRow = 0, exitDzRow = 0;
+        if (dG) {
+          entryDxRow = dG.ex - selfGeom.ex; entryDyRow = dG.ey - selfGeom.ey; entryDzRow = dG.ez - selfGeom.ez;
+          exitDxRow = dG.xx - selfGeom.xx; exitDyRow = dG.xy - selfGeom.xy; exitDzRow = dG.xz - selfGeom.xz;
+        } else if (uG) {
+          entryDxRow = selfGeom.ex - uG.ex; entryDyRow = selfGeom.ey - uG.ey; entryDzRow = selfGeom.ez - uG.ez;
+          exitDxRow = selfGeom.xx - uG.xx; exitDyRow = selfGeom.xy - uG.xy; exitDzRow = selfGeom.xz - uG.xz;
+        }
+
+        const cx = volumetricOriginX, cy = volumetricOriginY, cz = 0;
+
+        function marchSubray(
+          ex: number, ey: number, ez: number, xx: number, xy: number, xz: number, steps: number,
+        ): { packed: number; value: number; resolvedOpacity: number } | null {
+          const chordLength = Math.hypot(xx - ex, xy - ey, xz - ez);
+          if (chordLength > 0 && Number.isFinite(chordLength)) {
+            const result = marchField([ex, ey, ez], [xx, xy, xz], densitySample, { steps, maxSteps: steps, finestFreq: 0, time });
+            if (!result.hit) return null;
+            const point = computeFieldSynthPoint(result.sampleX, result.sampleY, result.sampleZ, cx, cy, cz);
+            if (point.active === 0 || point.value <= 0) return null;
+            const resolved = resolveFieldSynthColor(i, point, Math.exp(-params.marchFade * result.sampleDistance));
+            return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
+          }
+          // Degenerate sub-ray chord: sample directly at its (shared) entry
+          // point, same t=0 fallback the 1x1/ink paths use.
+          const point = computeFieldSynthPoint(ex, ey, ez, cx, cy, cz);
+          if (point.active === 0 || point.value <= 0) return null;
+          const resolved = resolveFieldSynthColor(i, point, 1);
+          return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
+        }
+
+        let maxChord = Math.hypot(selfGeom.xx - selfGeom.ex, selfGeom.xy - selfGeom.ey, selfGeom.xz - selfGeom.ez);
+        const subrayEndpoints: Array<readonly [number, number, number, number, number, number]> = [];
+        for (let dotCol = 0; dotCol < 2; dotCol++) {
+          const fx = dotCol === 0 ? -0.25 : 0.25;
+          for (let dotRow = 0; dotRow < 4; dotRow++) {
+            const fy = (dotRow + 0.5) / 4 - 0.5;
+            const ex = selfGeom.ex + fx * entryDxCol + fy * entryDxRow;
+            const ey = selfGeom.ey + fx * entryDyCol + fy * entryDyRow;
+            const ez = selfGeom.ez + fx * entryDzCol + fy * entryDzRow;
+            const xx = selfGeom.xx + fx * exitDxCol + fy * exitDxRow;
+            const xy = selfGeom.xy + fx * exitDyCol + fy * exitDyRow;
+            const xz = selfGeom.xz + fx * exitDzCol + fy * exitDzRow;
+            subrayEndpoints.push([ex, ey, ez, xx, xy, xz]);
+            const chord = Math.hypot(xx - ex, xy - ey, xz - ez);
+            if (Number.isFinite(chord) && chord > maxChord) maxChord = chord;
+          }
+        }
+        const steps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
+
+        const centerHit = marchSubray(selfGeom.ex, selfGeom.ey, selfGeom.ez, selfGeom.xx, selfGeom.xy, selfGeom.xz, steps);
+        let mask = 0;
+        let firstHit: { packed: number; value: number; resolvedOpacity: number } | null = null;
+        let dotIndex = 0;
+        for (let dotCol = 0; dotCol < 2; dotCol++) {
+          for (let dotRow = 0; dotRow < 4; dotRow++) {
+            const [ex, ey, ez, xx, xy, xz] = subrayEndpoints[dotIndex]!;
+            dotIndex++;
+            const hit = marchSubray(ex, ey, ez, xx, xy, xz, steps);
+            if (hit) {
+              mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
+              if (!firstHit) firstHit = hit;
+            }
+          }
+        }
+
+        // One color per cell: the center sub-ray's hit color if it hit,
+        // else the first hitting sub-ray's (scan order), else no emission.
+        const chosen = centerHit ?? firstHit;
+        if (!chosen) return;
+        setGlyph(context, i, String.fromCharCode(0x2800 + mask));
+        setColor(context, i, chosen.packed);
+        context.output.coverage[i] = chosen.value * chosen.resolvedOpacity;
+      }
+
+      const carveInkActive = carveActive && params.subcellRes === "ink";
+      if (carveInkActive) {
+        runCarveInkResolve();
+        return;
+      }
+
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
 
         if (carveActive) {
+          if (params.subcellRes === "2x4") {
+            runCarveBrailleCell(i);
+            continue;
+          }
           const op = context.base.objectPosition!;
           const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
           if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;

@@ -344,22 +344,25 @@ describe("synth url state — carve/space hydration is sanitized", () => {
 
 // ── URL hydration validity gate (VOLUMETRIC-2.md §4) ────────────────────────
 describe("synth url state — hydration validity gate (VOLUMETRIC-2.md §4)", () => {
-  it("a crafted carve+2x4 URL hydrates to a working page: subcellRes resets to the schema default and render/subcellRes both validate", () => {
+  // VOLUMETRIC-3.md §2: carve+ink and carve+2x4 became legal — a crafted
+  // carve+2x4/ink URL must round-trip completely UNTOUCHED by the gate, not
+  // get "repaired" to the schema default subcellRes anymore.
+  it.each(["2x4", "ink"] as const)("a crafted carve+%s URL hydrates untouched — carve computes it directly, nothing to repair", (subcellRes) => {
     const patch = {
       ...representativePatch(),
-      params: { ...representativePatch().params, space: "object", render: "carve", subcellRes: "2x4" },
+      params: { ...representativePatch().params, space: "object", render: "carve", subcellRes },
     };
     const packed = encodeSynthUrlState(patch);
     const restored = decodeSynthUrlState(packed);
-    expect(restored.params.render).toBe("carve"); // space:"object" makes carve itself legal
-    expect(restored.params.subcellRes).toBe(SYNTH_PARAM_DEFAULTS.subcellRes);
+    expect(restored.params.render).toBe("carve");
+    expect(restored.params.subcellRes).toBe(subcellRes);
     expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
   });
 
-  it("a crafted xray+ink URL hydrates the same way", () => {
+  it.each(["2x4", "ink"] as const)("a crafted xray+%s URL hydrates to a working page: subcellRes resets to the schema default", (subcellRes) => {
     const patch = {
       ...representativePatch(),
-      params: { ...representativePatch().params, space: "object", render: "xray", subcellRes: "ink" },
+      params: { ...representativePatch().params, space: "object", render: "xray", subcellRes },
     };
     const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
     expect(restored.params.render).toBe("xray");
@@ -463,7 +466,7 @@ describe("synth url state — hydration validity gate (VOLUMETRIC-2.md §4)", ()
       id: "multi-layer-argmax",
       make: (p) => ({ ...p, combine: "argmax", amp1: 1, layer1: 1, layerCombine1: "inherit", amp2: 1, layer2: 2, layerCombine2: "inherit" }),
     },
-    { id: "carve-subcell-unsupported", make: (p) => ({ ...p, space: "object", render: "carve", subcellRes: "2x4" }) },
+    { id: "xray-subcell-unsupported", make: (p) => ({ ...p, space: "object", render: "xray", subcellRes: "2x4" }) },
     { id: "carve-requires-object-space", make: (p) => ({ ...p, space: "surface", render: "carve" }) },
   ];
 

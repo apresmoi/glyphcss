@@ -250,8 +250,12 @@ export const SYNTH_REPAIR_TABLE: Partial<Record<GlyphFieldSynthValidationRuleId,
     predicate: hasMultiLayerEffectiveArgmax,
     reset: ["combine"],
   },
-  "carve-subcell-unsupported": {
-    predicate: (p) => (p.render === "carve" || p.render === "xray") && (p.subcellRes === "2x4" || p.subcellRes === "ink"),
+  // Xray-only (VOLUMETRIC-3.md §2): carve+ink and carve+2x4 are now legal —
+  // carve's own march loop computes both directly — so this row must NOT
+  // also match `render: "carve"` anymore, or a valid carve+ink/2x4 URL gets
+  // "repaired" back to `1x1` for no reason.
+  "xray-subcell-unsupported": {
+    predicate: (p) => p.render === "xray" && (p.subcellRes === "2x4" || p.subcellRes === "ink"),
     reset: ["subcellRes"],
   },
 };

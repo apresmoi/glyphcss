@@ -2280,7 +2280,7 @@ describe("field-synth validation rule ids (VOLUMETRIC-2.md §4 P2)", () => {
       amp2: 1, layer2: 2, layerCombine2: "inherit",
     },
     "carve-requires-object-space": { render: "carve", space: "surface" },
-    "carve-subcell-unsupported": { render: "carve", space: "object", subcellRes: "2x4" },
+    "xray-subcell-unsupported": { render: "xray", space: "object", subcellRes: "2x4" },
   };
 
   it("tags every registered rule id's real trigger with exactly that id", () => {
@@ -2625,14 +2625,14 @@ describe("field-synth carve mode — validation (VOLUMETRIC.md's Carve mode)", (
       .not.toThrow();
   });
 
-  it('rejects subcellRes "2x4" and "ink" — their neighbor finite-difference probes have no defined meaning at different march depths', () => {
+  it('accepts subcellRes "2x4" and "ink" under carve (VOLUMETRIC-3.md §2: carve computes both directly — only xray still rejects them)', () => {
     const defaults = defaultGlyphEffectParams(fieldSynth);
     expect(() => fieldSynth.program.validateParams?.({
       ...defaults, render: "carve", space: "object", subcellRes: "2x4",
-    } as never)).toThrow(/subcellRes/);
+    } as never)).not.toThrow();
     expect(() => fieldSynth.program.validateParams?.({
       ...defaults, render: "carve", space: "object", subcellRes: "ink",
-    } as never)).toThrow(/subcellRes/);
+    } as never)).not.toThrow();
     expect(() => fieldSynth.program.validateParams?.({
       ...defaults, render: "carve", space: "object", subcellRes: "1x1",
     } as never)).not.toThrow();
@@ -2902,6 +2902,556 @@ describe("field-synth carve mode — real scene (VOLUMETRIC.md acceptance criter
 
     scene.destroy();
     host.remove();
+  });
+
+  // Item 0 (VOLUMETRIC-3.md §1 acceptance 2, carried as Phase 2 P2 debt):
+  // the targeting acceptance-2 test in createGlyphScene.targeting.test.ts
+  // exercises a marker program, not a real volumetric effect — this is the
+  // real thing: an actual carve fieldSynth layer targeted at ONE of two
+  // meshes in a real scene. Home is here, not glyphcss's own targeting
+  // test file, because `@glyphcss/effects` is the one package that already
+  // imports both `glyphcss` (for `createGlyphScene`) and the real
+  // `fieldSynth` program together — glyphcss itself never imports
+  // `@glyphcss/effects` (AGENTS.md: "that dependency only points one
+  // way") — and this test follows the exact real-scene pattern already
+  // established above (`renderFieldSynthCube`), just with a second,
+  // untargeted mesh added.
+  it("item 0: a real carve layer targeted at one of two meshes — floor cells byte-equal to the untargeted render, cube genuinely carved", async () => {
+    const groundCx = -8;
+    const cubeCx = 8;
+    function groundQuad(): Polygon[] {
+      return [{ vertices: [[groundCx - 1, -1, 0], [groundCx - 1, 1, 0], [groundCx + 1, 1, 0], [groundCx + 1, -1, 0]], color: "#335577" }];
+    }
+    const sceneOptions = {
+      cols: 60,
+      rows: 30,
+      useColors: false,
+      doubleSided: true,
+      camera: createGlyphOrthographicCamera({ zoom: 50, rotX: 25, rotY: 35 }),
+      directionalLight: { direction: [0, 0, 1] as [number, number, number], intensity: 0 },
+      ambientLight: { intensity: 1 },
+    } as const;
+    // The cube mesh: `carveCubePolygons()` (the plain [-1,1]^3 box the
+    // "acceptance 4" carve test above already uses), scaled up (its own
+    // local geometry, not `objectPosition` — AGENTS.md) so its on-screen
+    // silhouette resolves into more than a couple of cells at this
+    // camera/zoom, and given the same 25°/35° tilt "acceptance 4"/"acceptance
+    // 5" already use so an isometric-ish view (not a flat-on one) shows a
+    // genuine 3D silhouette.
+    //
+    // Deliberately NOT the Menger recipe (`mengerParams`): that recipe's
+    // hole is a narrow axis-aligned tunnel calibrated for a specific
+    // near-head-on camera/zoom, and reusing it here would couple this
+    // test's pass/fail to exact pixel/cell-metric guesses for a SECOND
+    // mesh sharing the frame. A single `linearX` + `square` voice instead
+    // carves several stripes along local X — density is CONSTANT along the
+    // view ray for a straight-on camera (independent of z), so a "hole"
+    // stripe is a genuine miss (a real background gap in the silhouette)
+    // regardless of camera angle/zoom, robust under the exact zoom/camera
+    // this file's proven two-mesh floor-footprint pattern already uses.
+    const cubeTransform = { position: [cubeCx, 0, 0] as [number, number, number], scale: 4 };
+    const carveParams = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      space: "object", scale: 1, render: "carve",
+      field1: "linearX", wave1: "square", freq1: 3, duty1: 0.5, phase1: 0, speed1: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+      bias: 0.5, gain: 1,
+    };
+
+    async function renderTwoMesh(carveTargeted: boolean): Promise<string> {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, sceneOptions);
+      scene.add(groundQuad());
+      const cube = scene.add(carveCubePolygons(), cubeTransform);
+      if (carveTargeted) {
+        scene.addEffectLayer({
+          effect: fieldSynth,
+          params: carveParams as never,
+          target: cube,
+          blend: "replace",
+          opacity: 1,
+        });
+      }
+      await flushCarveRenders();
+      const text = scene.output.textContent ?? "";
+      scene.destroy();
+      host.remove();
+      return text;
+    }
+
+    // Floor footprint, in isolation, at the same camera/grid — used to
+    // locate floor-region cells without guessing exact coordinates (same
+    // technique as createGlyphScene.targeting.test.ts's own acceptance-2 test).
+    const floorHost = document.createElement("div");
+    document.body.appendChild(floorHost);
+    const floorScene = createGlyphScene(floorHost, sceneOptions);
+    floorScene.add(groundQuad());
+    await flushCarveRenders();
+    const floorFootprint = floorScene.output.textContent ?? "";
+    floorScene.destroy();
+    floorHost.remove();
+
+    // Cube footprint, in isolation — to locate cube-region cells.
+    const cubeHost = document.createElement("div");
+    document.body.appendChild(cubeHost);
+    const cubeOnlyScene = createGlyphScene(cubeHost, sceneOptions);
+    cubeOnlyScene.add(carveCubePolygons(), cubeTransform);
+    await flushCarveRenders();
+    const cubeFootprint = cubeOnlyScene.output.textContent ?? "";
+    cubeOnlyScene.destroy();
+    cubeHost.remove();
+
+    const baselineOutput = await renderTwoMesh(false);
+    const targetedOutput = await renderTwoMesh(true);
+
+    expect(floorFootprint.length).toBe(baselineOutput.length);
+    let floorCellCount = 0;
+    for (let i = 0; i < floorFootprint.length; i++) {
+      if (floorFootprint[i] === " " || floorFootprint[i] === "\n") continue;
+      floorCellCount++;
+      expect(targetedOutput[i]).toBe(baselineOutput[i]);
+    }
+    expect(floorCellCount).toBeGreaterThan(0);
+
+    // The cube must genuinely carve: some cube-footprint cell that was
+    // solid in the untargeted baseline becomes empty (a real hole) once the
+    // targeted carve layer mounts.
+    let carvedHoleCells = 0;
+    for (let i = 0; i < cubeFootprint.length; i++) {
+      if (cubeFootprint[i] === " " || cubeFootprint[i] === "\n") continue;
+      const baselineEmpty = baselineOutput[i] === undefined || baselineOutput[i] === " ";
+      const targetedEmpty = targetedOutput[i] === undefined || targetedOutput[i] === " ";
+      if (!baselineEmpty && targetedEmpty) carvedHoleCells++;
+    }
+    expect(carvedHoleCells).toBeGreaterThan(0);
+  });
+});
+
+// Low-level manual-context harness shared by the ink/braille-over-carve
+// suites below — same pattern as `evaluateMengerGrid`/`evaluateSierpinskiGrid`
+// above (a hand-built `GlyphEffectEvaluateContext`, not `createGlyphScene`),
+// chosen because these fixtures need precise control over per-cell
+// `objectPosition`/`objectExit`/`normal`/`target.coverage` (including
+// `target.coverage` DIFFERING from `base.coverage`, for the two-mesh
+// no-cross-contour case — the shared `evaluate()` helper earlier in this
+// file always aliases them together).
+function evaluateFieldSynthGrid(
+  cols: number,
+  rows: number,
+  params: Record<string, number | string | boolean>,
+  build: (i: number, col: number, row: number) => void,
+  buffers: {
+    objectPosition: Float32Array;
+    objectExit: Float32Array;
+    normal?: Float32Array;
+    targetCoverage?: Float32Array;
+  },
+) {
+  const length = cols * rows;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) build(row * cols + col, col, row);
+  }
+  const baseCoverage = new Float32Array(length).fill(1);
+  const glyph = new Array<string>(length).fill(" ");
+  const color = new Uint32Array(length).fill(GlyphEffectNoColor);
+  const output = {
+    glyph: new Array<string>(length).fill(" "),
+    color: new Uint32Array(length).fill(GlyphEffectNoColor),
+    coverage: new Float32Array(length),
+    channels: new Uint8Array(length),
+  };
+  const fullParams = { ...defaultGlyphEffectParams(fieldSynth), ...params };
+  fieldSynth.program.validateParams?.(fullParams as never);
+  fieldSynth.program.evaluate({
+    params: fullParams,
+    state: undefined,
+    base: {
+      cols, rows, length, glyph, coverage: baseCoverage, color,
+      objectPosition: buffers.objectPosition,
+      objectExit: buffers.objectExit,
+      ...(buffers.normal ? { normal: buffers.normal } : {}),
+    },
+    input: { cols, rows, length, glyph, coverage: baseCoverage, color },
+    target: { coverage: buffers.targetCoverage ?? baseCoverage },
+    coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+    scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+    output,
+  } as never);
+  return output;
+}
+
+function inkedAt(output: { channels: Uint8Array }, i: number): boolean {
+  return (output.channels[i]! & GlyphEffectOutputChannel.Glyph) !== 0;
+}
+
+describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
+  const GRID_N = 20;
+  const INK_SPACING_NO_CONTOUR = 4; // schema max; exceeds any depth this file's fixtures produce, isolating rule (a)
+
+  // Same first-principles reference as the "Menger membership" describe
+  // block above (module scope there, re-derived here as a REFERENCE — not
+  // by importing the evaluator under test, same precedent).
+  function mengerSolidRef(x: number, y: number, z: number, depth: number): boolean {
+    let cx = x, cy = y, cz = z;
+    for (let d = 0; d < depth; d++) {
+      cx *= 3; cy *= 3; cz *= 3;
+      const mx = ((cx % 3) + 3) % 3, my = ((cy % 3) + 3) % 3, mz = ((cz % 3) + 3) % 3;
+      const midCount = (mx > 1 && mx < 2 ? 1 : 0) + (my > 1 && my < 2 ? 1 : 0) + (mz > 1 && mz < 2 ? 1 : 0);
+      if (midCount >= 2) return false;
+      cx = cx - Math.floor(cx / 3) * 3; cy = cy - Math.floor(cy / 3) * 3; cz = cz - Math.floor(cz / 3) * 3;
+    }
+    return true;
+  }
+
+  // Does the straight object-space line at (x, y) — the carve chord this
+  // fixture marches — cross ANY solid material between z=0.001 and z=0.999?
+  function referenceHitColumn(x: number, y: number, depth: number): boolean {
+    const SAMPLES = 400;
+    for (let s = 0; s < SAMPLES; s++) {
+      const z = 0.001 + (s / (SAMPLES - 1)) * 0.998;
+      if (mengerSolidRef(x, y, z, depth)) return true;
+    }
+    return false;
+  }
+
+  it("acceptance 3: every rim cell (reference hit/no-hit boundary) is inked; interior hit cells away from contour multiples are not — depth-2 Menger cube fixture", () => {
+    const cols = GRID_N, rows = GRID_N;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const refHit = new Array<boolean>(cols * rows);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = (col + 0.37) / cols, y = (row + 0.37) / rows;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0.001;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 0.999;
+        refHit[i] = referenceHitColumn(x, y, 2);
+      }
+    }
+    const output = evaluateFieldSynthGrid(
+      cols, rows,
+      { ...mengerParams(2), space: "object", scale: 1, render: "carve", subcellRes: "ink", inkSpacing: INK_SPACING_NO_CONTOUR },
+      () => {},
+      { objectPosition, objectExit },
+    );
+
+    let rimCount = 0, interiorHitCount = 0;
+    // Strictly interior cells only: at the grid's own edge, a HOLE cell's
+    // missing (off-grid) neighbor reads as OUT (background), which differs
+    // from the binary hit/no-hit reference model used here — see
+    // `runCarveInkResolve`'s doc for why OUT and HOLE are distinct
+    // categories in the engine. Excluding the outer ring sidesteps that
+    // (deliberately out of scope) edge case entirely.
+    for (let row = 1; row < rows - 1; row++) {
+      for (let col = 1; col < cols - 1; col++) {
+        const i = row * cols + col;
+        const self = refHit[i]!;
+        const neighbors = [refHit[i + 1]!, refHit[i - 1]!, refHit[i + cols]!, refHit[i - cols]!];
+        const isRim = neighbors.some((n) => n !== self);
+        const inked = inkedAt(output, i);
+        if (isRim) {
+          rimCount++;
+          expect(inked, `cell (${col},${row}) expected rim-inked`).toBe(true);
+        } else if (self) {
+          interiorHitCount++;
+          expect(inked, `cell (${col},${row}) expected interior hit, NOT inked`).toBe(false);
+        }
+      }
+    }
+    expect(rimCount).toBeGreaterThan(0);
+    expect(interiorHitCount).toBeGreaterThan(0);
+  });
+
+  // Shared by the tilted-plane and two-mesh-boundary tests below: a planar
+  // depth ramp, purely analytic (no field-program membership math needed) —
+  // a single half-space (`step`) voice threshold at object z=0, with the
+  // THRESHOLD CROSSING POINT itself varying per cell via the cell's own
+  // entry z-offset (`depth(col,row) = base + row*stepR + col*stepC`), not
+  // via any field parameter (which is necessarily uniform across the whole
+  // evaluate() call). Every cell's chord genuinely crosses z=0 (entry z is
+  // always negative, exit z always positive), so every covered/in-target
+  // cell is a real HIT — isolating rules (b)/(c) with no HOLE/rim noise.
+  function buildTiltedPlane(cols: number, rows: number, stepR: number, stepC: number, base: number, chordLength: number) {
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const depthAt = (col: number, row: number): number => base + row * stepR + col * stepC;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const depth = depthAt(col, row);
+        objectPosition[i * 3] = 0; objectPosition[i * 3 + 1] = 0; objectPosition[i * 3 + 2] = -depth;
+        objectExit[i * 3] = 0; objectExit[i * 3 + 1] = 0; objectExit[i * 3 + 2] = -depth + chordLength;
+      }
+    }
+    return { objectPosition, objectExit, depthAt };
+  }
+  const TILTED_PLANE_PARAMS = {
+    space: "object" as const, scale: 1, render: "carve" as const, subcellRes: "ink" as const, inkSpacing: 0.25,
+    field1: "linearZ", wave1: "step", freq1: 1, phase1: 0, speed1: 0, amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    bias: 0.5, gain: 1,
+  };
+
+  it("acceptance 3: a tilted-plane fixture yields parallel contour lines with the correct bucket glyph", () => {
+    // Depth per cell is quantized to the march's discrete step grid
+    // (`hitDistance` is the raw CONFIRMED-solid step sample, not the exact
+    // analytic crossing — see `runCarveInkResolve`'s doc), so a per-cell
+    // step (0.5) comfortably larger than `inkSpacing` (0.25) by more than
+    // one march step's worth of quantization noise (chordLength/marchSteps
+    // = 10/48 ~ 0.21) makes every adjacent pair's rule-(c) "interior edge"
+    // crossing unconditional — this is deliberately NOT tuned to land any
+    // cell exactly on a rule-(b) spacing MULTIPLE, which the quantization
+    // can nudge either side of.
+    const cols = 8, rows = 8;
+    const stepR = 0.5, stepC = 0.5, base = 0.2;
+    const { objectPosition, objectExit, depthAt } = buildTiltedPlane(cols, rows, stepR, stepC, base, 10);
+    const output = evaluateFieldSynthGrid(cols, rows, TILTED_PLANE_PARAMS, () => {}, { objectPosition, objectExit });
+    void depthAt;
+
+    let contourCount = 0;
+    for (let row = 1; row < rows - 1; row++) {
+      for (let col = 1; col < cols - 1; col++) {
+        const i = row * cols + col;
+        contourCount++;
+        expect(inkedAt(output, i), `cell (${col},${row}) expected contour-inked`).toBe(true);
+        // Depth is a perfectly planar function of (col, row) here, so the
+        // depth gradient — and thus the orientation bucket — is identical
+        // at every contour cell: the "parallel lines, correct bucket" claim
+        // reduces to one shared glyph across all of them.
+        expect(output.glyph[i]).toBe("/");
+      }
+    }
+    expect(contourCount).toBeGreaterThan(0);
+  });
+
+  it("acceptance 3: rim orientation follows the coverage-mask gradient — a vertical silhouette edge yields \"|\", not the all-dashes failure a depth-gradient fallback would produce", () => {
+    const cols = 12, rows = 6;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const boundaryCol = cols / 2; // cells >= boundaryCol are solid; < boundaryCol are hole
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = col - boundaryCol + 0.5; // solid for x >= 0
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = 0; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = 0; objectExit[i * 3 + 2] = 1;
+      }
+    }
+    const output = evaluateFieldSynthGrid(
+      cols, rows,
+      {
+        space: "object", scale: 1, render: "carve", subcellRes: "ink", inkSpacing: INK_SPACING_NO_CONTOUR,
+        field1: "linearX", wave1: "step", freq1: 1, phase1: 0, speed1: 0, amp1: 1,
+        amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        bias: 0.5, gain: 1,
+      },
+      () => {},
+      { objectPosition, objectExit },
+    );
+    // A row comfortably away from the top/bottom grid edges, at the hole
+    // side of the boundary — its up/down neighbors share its own (hole)
+    // state, isolating a PURELY vertical mask gradient.
+    const row = 3;
+    const holeCol = boundaryCol - 1;
+    const i = row * cols + holeCol;
+    expect(inkedAt(output, i)).toBe(true);
+    expect(output.glyph[i]).toBe("|");
+    expect(output.glyph[i]).not.toBe("-");
+  });
+
+  it("acceptance 3: no contour crosses a winner-mesh boundary — the target/non-target flip inks as a rim, not a depth-gradient contour", () => {
+    const cols = 16, rows = 8;
+    const stepR = 0.05, stepC = 0.05, base = 0.1;
+    const { objectPosition, objectExit, depthAt } = buildTiltedPlane(cols, rows, stepR, stepC, base, 3);
+    const targetBoundaryCol = cols / 2; // col >= targetBoundaryCol is a second, UNtargeted mesh
+    const targetCoverage = new Float32Array(cols * rows);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) targetCoverage[row * cols + col] = col < targetBoundaryCol ? 1 : 0;
+    }
+    const output = evaluateFieldSynthGrid(
+      cols, rows, TILTED_PLANE_PARAMS, () => {}, { objectPosition, objectExit, targetCoverage },
+    );
+
+    const row = 3;
+    const boundaryCol = targetBoundaryCol - 1; // last in-target column, adjacent to the untargeted mesh
+    const i = row * cols + boundaryCol;
+    expect(inkedAt(output, i)).toBe(true);
+    // The DEPTH gradient at this exact cell (the tilted plane's own local
+    // slope) would bucket to "/" — see the tilted-plane test above, same
+    // stepR/stepC. The rim (coverage-mask) gradient instead sees a
+    // HIT-left/OUT-right split with no vertical component, bucketing to
+    // "|" — a different glyph, proving the depth-based contour path was
+    // never taken at this boundary.
+    expect(output.glyph[i]).toBe("|");
+    expect(output.glyph[i]).not.toBe("/");
+    // And genuinely on the far (untargeted) side: nothing painted through —
+    // this layer never emits for a non-target cell regardless (the
+    // compositor's own `targetCoverage` weighting would discard it anyway,
+    // VOLUMETRIC-3.md §1), but the ink resolve pass also just never inks an
+    // OUT cell as `self` (see `runCarveInkResolve`).
+    expect(inkedAt(output, row * cols + targetBoundaryCol)).toBe(false);
+  });
+});
+
+describe("field-synth braille-over-carve (VOLUMETRIC-3.md §2)", () => {
+  const BAND_PARAMS = {
+    space: "object" as const, scale: 1, render: "carve" as const, subcellRes: "2x4" as const,
+    combine: "min" as const,
+    amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    bias: 0.5, gain: 1,
+  };
+  // Solid exactly within [lo, hi] on object-space x (a `min`-combined pair
+  // of `step` half-spaces — see AGENTS.md's SDF-voice-adjacent "min ==
+  // intersection of solids" reasoning, applied here with two ordinary
+  // linear half-spaces instead), hole everywhere else. `freq2: -1` bypasses
+  // the schema's UI-only `min: 0` hint (validateParams never checks
+  // frequency range — see the phase/duty docs) to express `step(hi - x)`
+  // through the same `t = raw*freq + phase` projection every voice uses.
+  function solidBandVoices(lo: number, hi: number): Record<string, number | string | boolean> {
+    return {
+      field1: "linearX", wave1: "step", freq1: 1, phase1: -lo, speed1: 0, amp1: 1,
+      field2: "linearX", wave2: "step", freq2: -1, phase2: hi, speed2: 0, amp2: 1,
+    };
+  }
+
+  it("acceptance 4: a hole aligned with a sub-ray position registers in the dot mask while absent at subcellRes \"1x1\" (the resolution win)", () => {
+    const cols = 5, rows = 1;
+    const dx = 4; // domain units per column — large enough that the 0.25-cell dot offset (1 domain unit) clears the hole band below
+    const selfCol = 2;
+    const selfX = selfCol * dx;
+    // Hole band: [-0.3dx, -0.2dx] relative to selfX — inside the LEFT dot
+    // column's offset (-0.25dx) but outside both the cell center (0) and
+    // the RIGHT dot column (+0.25dx).
+    const holeLo = selfX - 0.3 * dx, holeHi = selfX - 0.2 * dx;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    for (let col = 0; col < cols; col++) {
+      objectPosition[col * 3] = col * dx; objectPosition[col * 3 + 1] = 0; objectPosition[col * 3 + 2] = 0;
+      objectExit[col * 3] = col * dx; objectExit[col * 3 + 1] = 0; objectExit[col * 3 + 2] = 1;
+      normal[col * 3] = 0; normal[col * 3 + 1] = 0; normal[col * 3 + 2] = 1;
+    }
+    const buffers = { objectPosition, objectExit, normal };
+    // Density = solid EVERYWHERE except the thin band (invert the "solid
+    // only in-band" `min` pair from `solidBandVoices` at the layer level).
+    const params = {
+      ...BAND_PARAMS, ...solidBandVoices(holeLo, holeHi),
+      layerInvert1: true,
+    };
+    const braille = evaluateFieldSynthGrid(cols, rows, { ...params, subcellRes: "2x4" }, () => {}, buffers);
+    const flat = evaluateFieldSynthGrid(cols, rows, { ...params, subcellRes: "1x1" }, () => {}, buffers);
+
+    const i = selfCol;
+    // 1x1: the cell's own (unshifted) x = selfX is outside the hole band —
+    // fully solid, no hole visible at all.
+    expect(inkedAt(flat, i)).toBe(true);
+    // 2x4: the LEFT dot column (offset -0.25dx, inside the hole band)
+    // misses; the RIGHT dot column (offset +0.25dx) and the center both hit.
+    expect(inkedAt(braille, i)).toBe(true);
+    const mask = braille.glyph[i]!.codePointAt(0)! - 0x2800;
+    const LEFT_COLUMN_BITS = 0x01 | 0x02 | 0x04 | 0x40;
+    const RIGHT_COLUMN_BITS = 0x08 | 0x10 | 0x20 | 0x80;
+    expect(mask & LEFT_COLUMN_BITS).toBe(0);
+    expect(mask & RIGHT_COLUMN_BITS).toBe(RIGHT_COLUMN_BITS);
+  });
+
+  it("acceptance 4: aggregate dot-mask variance vs the 1x1 render on the depth-2 Menger fixture — genuine sub-cell shape the flat ramp glyph can't express", () => {
+    const cols = 24, rows = 16;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = (col + 0.37) / cols, y = (row + 0.37) / rows;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0.001;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 0.999;
+        normal[i * 3] = 0; normal[i * 3 + 1] = 0; normal[i * 3 + 2] = 1;
+      }
+    }
+    const buffers = { objectPosition, objectExit, normal };
+    const params = { ...mengerParams(2), space: "object", scale: 1, render: "carve" };
+    const braille = evaluateFieldSynthGrid(cols, rows, { ...params, subcellRes: "2x4" }, () => {}, buffers);
+
+    const partialMasks = new Set<number>();
+    let inkedCells = 0;
+    for (let i = 0; i < cols * rows; i++) {
+      if (!inkedAt(braille, i)) continue;
+      inkedCells++;
+      const mask = braille.glyph[i]!.codePointAt(0)! - 0x2800;
+      if (mask !== 0 && mask !== 0xff) partialMasks.add(mask);
+    }
+    // A flat 1x1 ramp glyph carries no shape information at all (variance
+    // in SHAPE is definitionally 0) — braille's partial dot masks are the
+    // resolution this fixture is meant to demonstrate.
+    expect(inkedCells).toBeGreaterThan(0);
+    expect(partialMasks.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("acceptance 4: strict neighbor eligibility — a crease (disagreeing normal, unrelated far-away position) is excluded, so the dot mask shows no off-surface artifacts", () => {
+    // Two "faces" side by side: left (cols 0-1) at object x ~ 0 with normal
+    // (0,0,1); right (cols 2-3) at object x ~ 50 with normal (1,0,0) — a
+    // large positional jump AND a disagreeing normal, exactly the
+    // crease-edge shape two adjacent cube faces produce. Density is solid
+    // ONLY within x in [-2, 2] (the left face's own local range) — if the
+    // eligibility gate correctly excludes the right neighbor, the boundary
+    // cell's sub-rays stay near its own x=0 and all 8 dots hit; if the gate
+    // were absent, interpolating toward the right neighbor's x~50 would
+    // push dots to x ~ +-12.5 — well outside the solid band — producing a
+    // hollowed-out mask instead (verified by hand: relaxing the `dot > 0.9`
+    // threshold to always pass collapses this cell's mask to 0).
+    const cols = 4, rows = 1;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    for (let col = 0; col < cols; col++) {
+      const leftFace = col < 2;
+      const x = leftFace ? 0 : 50 + (col - 2);
+      objectPosition[col * 3] = x; objectPosition[col * 3 + 1] = 0; objectPosition[col * 3 + 2] = 0;
+      objectExit[col * 3] = x; objectExit[col * 3 + 1] = 0; objectExit[col * 3 + 2] = 2;
+      normal[col * 3] = leftFace ? 0 : 1; normal[col * 3 + 1] = 0; normal[col * 3 + 2] = leftFace ? 1 : 0;
+    }
+    const params = { ...BAND_PARAMS, ...solidBandVoices(-2, 2) };
+    const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, { objectPosition, objectExit, normal });
+
+    const boundaryCell = 1; // left face, adjacent to the right face's disagreeing-normal neighbor
+    expect(inkedAt(output, boundaryCell)).toBe(true);
+    const mask = output.glyph[boundaryCell]!.codePointAt(0)! - 0x2800;
+    expect(mask).toBe(0xff);
+  });
+
+  it("acceptance 4: one color per cell — the center sub-ray's hit color wins over a differently-colored non-center hit", () => {
+    const cols = 5, rows = 1;
+    const dx = 4;
+    const selfCol = 2;
+    const selfX = selfCol * dx;
+    // Two thin solid bands: one straddling the cell CENTER (color1), one
+    // straddling only the LEFT dot column's offset (color2) — the center
+    // band is chosen last (higher sourceIndex loses no priority here since
+    // color is resolved by DOT POSITION, not argmax winner) so this
+    // isolates "center wins" from voice-color precedence entirely.
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    for (let col = 0; col < cols; col++) {
+      objectPosition[col * 3] = col * dx; objectPosition[col * 3 + 1] = 0; objectPosition[col * 3 + 2] = 0;
+      objectExit[col * 3] = col * dx; objectExit[col * 3 + 1] = 0; objectExit[col * 3 + 2] = 1;
+      normal[col * 3] = 0; normal[col * 3 + 1] = 0; normal[col * 3 + 2] = 1;
+    }
+    const params = {
+      ...BAND_PARAMS, ...solidBandVoices(selfX - 0.05 * dx, selfX + 0.05 * dx),
+      color: "#112233",
+    };
+    const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, { objectPosition, objectExit, normal });
+    const i = selfCol;
+    expect(inkedAt(output, i)).toBe(true);
+    // Exactly one packed color value represents this cell, by construction
+    // (`context.output.color` is one `Uint32Array` slot per cell) — assert
+    // it is the CENTER's own resolved color (the only sub-ray guaranteed to
+    // hit this narrow band), not some other value.
+    const expectedPacked = 0x112233;
+    expect(output.color[i]).toBe(expectedPacked);
   });
 });
 
