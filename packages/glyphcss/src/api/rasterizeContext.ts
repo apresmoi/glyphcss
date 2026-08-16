@@ -247,6 +247,16 @@ export interface RasterizeContextOptions {
    * capture; it is not a semantic label and is never allocated by default.
    */
   retainWinnerPolygon?: boolean;
+  /**
+   * Retain the winning MESH id per cell (solid mode only) — the substrate
+   * for per-object effect targeting (`targetCoverage`). ORed with
+   * {@link RasterizeContextOptions.retainObjectExit}'s own need for the same
+   * internal buffer: either flag causes `polygonMeshIds` to actually be
+   * consulted and the resulting per-cell winner to be downsampled and
+   * exposed on `CellGrid.winnerMesh`. Compositor-internal — never a
+   * `GlyphEffectRequirement`, never read by a program directly.
+   */
+  retainWinnerMesh?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -355,6 +365,8 @@ export interface RasterizeContext {
   retainObjectExit?: boolean;
   /** Retain the positional source-polygon winner for durable control capture. */
   retainWinnerPolygon?: boolean;
+  /** Retain the winning mesh id per cell — see {@link RasterizeContextOptions.retainWinnerMesh}. */
+  retainWinnerMesh?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -423,6 +435,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainObjectPosition: opts.retainObjectPosition ?? false,
     retainObjectExit: opts.retainObjectExit ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
+    retainWinnerMesh: opts.retainWinnerMesh ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
     retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),

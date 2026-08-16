@@ -285,7 +285,7 @@ describe("createGlyphScene effects", () => {
     scene.destroy();
   });
 
-  it("rejects unsupported requirements, mesh targets, and incompatible modes atomically", () => {
+  it("rejects unsupported requirements and incompatible modes atomically", () => {
     const scene = createGlyphScene(host, { mode: "solid" });
     const mesh = scene.add(makeCubePolygons());
     const unsupportedProgram = defineGlyphEffect<{ phase: number }>({
@@ -295,16 +295,32 @@ describe("createGlyphScene effects", () => {
     expect(() => scene.addEffectLayer({ effect: unsupportedProgram, params: { phase: 0 } }))
       .toThrow(/not supported/);
 
+    // Mesh-handle targets are now supported (VOLUMETRIC-3.md §1) — mounting
+    // one no longer throws.
     const uvProgram = defineGlyphEffect<{ phase: number }>({
       requirements: ["uv0"],
       evaluate() {},
     });
-    expect(() => scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 }, target: mesh }))
-      .toThrow(/meshhandle effect targets/i);
+    const meshTargeted = scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 }, target: mesh });
+    expect(meshTargeted.disposed).toBe(false);
     const layer = scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 } });
     expect(() => scene.setOptions({ mode: "wireframe" })).toThrow(/only available in solid mode/);
     expect(scene.getOptions().mode).toBe("solid");
-    expect(() => layer.setOptions({ target: mesh })).toThrow(/meshhandle effect targets/i);
+    // A layer mounted with the default "surfaces" target cannot be
+    // retargeted to a mesh set after mount — live retargeting is out of
+    // scope; remove and re-add the layer instead.
+    expect(() => layer.setOptions({ target: mesh })).toThrow(/immutable after mount/i);
+    scene.destroy();
+  });
+
+  it("rejects malformed mesh-handle targets", () => {
+    const scene = createGlyphScene(host, { mode: "solid" });
+    scene.add(makeCubePolygons());
+    const program = defineGlyphEffect<{ phase: number }>({ evaluate() {} });
+    expect(() => scene.addEffectLayer({ effect: program, params: { phase: 0 }, target: [] }))
+      .toThrow(/at least one GlyphMeshHandle/i);
+    expect(() => scene.addEffectLayer({ effect: program, params: { phase: 0 }, target: [{} as never] }))
+      .toThrow(/only GlyphMeshHandle values/i);
     scene.destroy();
   });
 

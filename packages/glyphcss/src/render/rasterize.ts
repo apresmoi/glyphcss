@@ -1267,12 +1267,15 @@ function rasterizeSolid(
   }
   // Winner-mesh buffer: which mesh id won each cell in THIS pass, at the
   // pass's supersample resolution. Independent of `retainWinnerPolygon`
-  // (semantic-mode-only) — this is allocated for `retainObjectExit` in
-  // normal visible-mode rendering, and exists purely to restrict the exit
-  // sweep's farthest-depth scan per cell to the mesh that actually won there
-  // (never exposed on `CellGrid`).
+  // (semantic-mode-only). Allocated under EITHER `retainObjectExit` (which
+  // needs it to restrict the exit sweep's farthest-depth scan per cell to
+  // the mesh that actually won there) OR `retainWinnerMesh` (per-object
+  // effect targeting's `targetCoverage` substrate — VOLUMETRIC-3.md §1),
+  // whichever is live. Downsampled and exposed on `CellGrid.winnerMesh` only
+  // when `retainWinnerMesh` requested it; `retainObjectExit` alone still
+  // never exposes it (unchanged from before this option existed).
   let winnerMeshBuf: Int32Array | null = null;
-  if (scene.retainObjectExit) {
+  if (scene.retainObjectExit || scene.retainWinnerMesh) {
     if (!scratch.winnerMesh || scratch.winnerMesh.length !== n) scratch.winnerMesh = new Int32Array(n);
     winnerMeshBuf = scratch.winnerMesh;
     winnerMeshBuf.fill(-1);
@@ -1814,6 +1817,10 @@ function rasterizeSolid(
   let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
   let finalTargetRgb: Uint32Array | null = targetRgbBuf;
   let finalWeight: Uint16Array | null = weightBuf;
+  // Only exposed on `CellGrid.winnerMesh` when `retainWinnerMesh` actually
+  // requested it — `retainObjectExit` alone still allocates `winnerMeshBuf`
+  // (for the exit sweep's gating) but never surfaces it downstream.
+  let finalWinnerMesh: Int32Array | null = scene.retainWinnerMesh ? winnerMeshBuf : null;
   if (supersample > 1 && wantsHalfblockSolid(scene)) {
     // Two-color (`▀`/`▄`/`█`) encoding straight from the raw supersampled
     // subcells — see `encodeHalfblockSolid` for the per-cell decision table
@@ -1854,6 +1861,7 @@ function rasterizeSolid(
       objectPosBuf,
       weightRamp,
       exitPosBuf,
+      finalWinnerMesh,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1868,6 +1876,7 @@ function rasterizeSolid(
     finalObjectPos = ds.objectPos;
     finalExitPos = ds.exitPos;
     finalWeight = ds.weight;
+    finalWinnerMesh = ds.winnerMesh;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
@@ -1894,6 +1903,7 @@ function rasterizeSolid(
       finalObjectPos,
       finalWeight,
       finalExitPos,
+      finalWinnerMesh,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -2050,6 +2060,11 @@ function downsampleSolid(
   // as `objectPosIn` — the exit sweep is gated by the entry pass's own
   // winner buffer, so entry and exit always describe one subcell's ray.
   exitPosIn: Float32Array | null = null,
+  // `retainWinnerMesh` (opt-in): downsampled from the SAME representative
+  // subcell as every other winner-keyed field above — see
+  // VOLUMETRIC-3.md §1's winner-mesh plumbing checklist. `null` → no
+  // winnerMesh buffer (byte-identical to before this option existed).
+  winnerMeshIn: Int32Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -2064,6 +2079,7 @@ function downsampleSolid(
   objectPos: Float32Array | null;
   weight: Uint16Array | null;
   exitPos: Float32Array | null;
+  winnerMesh: Int32Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -2083,6 +2099,7 @@ function downsampleSolid(
   const oobj: Float32Array | null = objectPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const oexit: Float32Array | null = exitPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const oweight: Uint16Array | null = weightRamp ? new Uint16Array(outCols * outRows) : null;
+  const owinnerMesh: Int32Array | null = winnerMeshIn ? new Int32Array(outCols * outRows).fill(-1) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
@@ -2146,9 +2163,10 @@ function downsampleSolid(
         oexit[oi * 3 + 1] = exitPosIn![representative * 3 + 1]!;
         oexit[oi * 3 + 2] = exitPosIn![representative * 3 + 2]!;
       }
+      if (owinnerMesh && representative >= 0) owinnerMesh[oi] = winnerMeshIn![representative]!;
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit, winnerMesh: owinnerMesh };
 }
 
 /**
@@ -3276,6 +3294,7 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.weight ?? null,
       g.objectPosition ?? null,
       g.objectExit ?? null,
+      g.winnerMesh ?? null,
     );
   };
   rasterize({

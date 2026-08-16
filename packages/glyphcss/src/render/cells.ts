@@ -77,6 +77,15 @@ export interface CellGrid {
    * it as a semantic class ID.
    */
   winnerPolygon?: Int32Array;
+  /**
+   * Winning MESH id (see `RasterizeContext.polygonMeshIds`) for the
+   * depth-winning solid surface. `-1` marks an empty or occlusion-blanked
+   * cell. Solid-mode-only (never populated by wireframe/voxel/ink), and
+   * compositor-internal: it is the substrate for per-object effect
+   * targeting (`targetCoverage`), never surfaced on `GlyphEffectFrameView`
+   * or any `GlyphEffectRequirement` — programs cannot read it directly.
+   */
+  winnerMesh?: Int32Array;
   /** Packed `0xRRGGBB` unlit albedo from the same depth-winning surface cell. */
   albedoRgb?: Uint32Array;
   /** Packed `0xRRGGBB` final lit RGB from the same depth-winning surface cell. */
@@ -159,6 +168,7 @@ export function buildCellGrid(
   weightSrc: Uint16Array | null = null,
   objectPositionSrc: Float32Array | null = null,
   objectExitSrc: Float32Array | null = null,
+  winnerMeshSrc: Int32Array | null = null,
 ): CellGrid {
   const n = cols * rows;
   const outChar = char.slice(0, n);
@@ -199,6 +209,9 @@ export function buildCellGrid(
   if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
     grid.winnerPolygon = new Int32Array(winnerPolygonSrc.subarray(0, n));
   }
+  if (winnerMeshSrc !== null && winnerMeshSrc.length >= n) {
+    grid.winnerMesh = new Int32Array(winnerMeshSrc.subarray(0, n));
+  }
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = new Uint32Array(albedoRgbSrc.subarray(0, n));
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = new Uint32Array(targetRgbSrc.subarray(0, n));
   if (weightSrc !== null && weightSrc.length >= n) grid.weight = new Uint16Array(weightSrc.subarray(0, n));
@@ -231,6 +244,7 @@ function assertCellGridShape(grid: CellGrid): void {
   if (grid.objectExit) assertCellBufferLength(grid.objectExit, n * 3, "cell-grid objectExit buffer");
   if (grid.normal) assertCellBufferLength(grid.normal, n * 3, "cell-grid normal buffer");
   if (grid.winnerPolygon) assertCellBufferLength(grid.winnerPolygon, n, "cell-grid winnerPolygon buffer");
+  if (grid.winnerMesh) assertCellBufferLength(grid.winnerMesh, n, "cell-grid winnerMesh buffer");
   if (grid.albedoRgb) assertCellBufferLength(grid.albedoRgb, n, "cell-grid albedoRgb buffer");
   if (grid.targetRgb) assertCellBufferLength(grid.targetRgb, n, "cell-grid targetRgb buffer");
   if (grid.surfaceUv) assertCellBufferLength(grid.surfaceUv, n * 2, "cell-grid surfaceUv buffer");
@@ -256,6 +270,7 @@ export function cloneCellGrid(grid: CellGrid): CellGrid {
   if (grid.objectExit) clone.objectExit = new Float32Array(grid.objectExit.subarray(0, n * 3));
   if (grid.normal) clone.normal = new Float32Array(grid.normal.subarray(0, n * 3));
   if (grid.winnerPolygon) clone.winnerPolygon = new Int32Array(grid.winnerPolygon.subarray(0, n));
+  if (grid.winnerMesh) clone.winnerMesh = new Int32Array(grid.winnerMesh.subarray(0, n));
   if (grid.albedoRgb) clone.albedoRgb = new Uint32Array(grid.albedoRgb.subarray(0, n));
   if (grid.targetRgb) clone.targetRgb = new Uint32Array(grid.targetRgb.subarray(0, n));
   if (grid.surfaceUv) clone.surfaceUv = new Float32Array(grid.surfaceUv.subarray(0, n * 2));
@@ -501,6 +516,7 @@ export function applyCellHook(
   objectPositionSrc: Float32Array | null = null,
   weightSrc: Uint16Array | null = null,
   objectExitSrc: Float32Array | null = null,
+  winnerMeshSrc: Int32Array | null = null,
 ): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
   if (!hook) return { char, color, weight: weightSrc };
   const n = cols * rows;
@@ -526,6 +542,9 @@ export function applyCellHook(
   }
   if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
     grid.winnerPolygon = winnerPolygonSrc;
+  }
+  if (winnerMeshSrc !== null && winnerMeshSrc.length >= n) {
+    grid.winnerMesh = winnerMeshSrc;
   }
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = albedoRgbSrc;
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;

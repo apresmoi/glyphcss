@@ -30,6 +30,41 @@ function coveredGrid(chars: string[], colors: (string | null)[]) {
   return buildCellGrid(chars, colors, depth, chars.length, 1);
 }
 
+/** Same as {@link coveredGrid} but with a `winnerMesh` buffer attached (the
+ *  per-object targeting substrate — VOLUMETRIC-3.md §1). */
+function coveredGridWithWinnerMesh(chars: string[], colors: (string | null)[], winnerMesh: number[]) {
+  const depth = new Float64Array(chars.length);
+  return buildCellGrid(
+    chars, colors, depth, chars.length, 1,
+    null, null, null, null, null, null, null, null, null, null,
+    new Int32Array(winnerMesh),
+  );
+}
+
+function metadataFor(cols: number, rows: number, isBase: boolean): GlyphEffectOutputMetadata {
+  return { ...metadata(cols, rows), isBase };
+}
+
+/** A fake `GlyphMeshHandle` for compositor-level unit tests — only `.id` is
+ *  duck-typed by `normalizeTarget`, so a plain object suffices. */
+function fakeMesh(id: number): { readonly id: number } {
+  return { id };
+}
+
+const emitEverywhereIgnoringTarget = defineGlyphEffect<{ phase: number }>({
+  evaluate({ output }) {
+    // Deliberately does NOT self-skip on `target.coverage[i] <= 0` — this is
+    // the "naive" program shape the erasure counter-case exercises: the
+    // compositor's `targetCoverage`-based gate must protect non-targeted
+    // cells even when the program itself ignores targeting.
+    for (let i = 0; i < output.coverage.length; i++) {
+      output.glyph[i] = "Z";
+      output.coverage[i] = 1;
+      output.channels[i] = GlyphEffectOutputChannel.Glyph;
+    }
+  },
+});
+
 function prepare(layers: readonly RuntimeGlyphEffectLayer[], cols: number, rows = 1) {
   return prepareRuntimeGlyphEffectLayers(layers, [cols, rows]);
 }
@@ -184,5 +219,146 @@ describe("retained effect compositor", () => {
     const recomposed = composeRetainedGlyphEffectOutput(retained, prepared);
     expect(recomposed.color).toEqual(["#112233", "#112233", "#112233"]);
     expect(retained.packedColorCache).toEqual(new Map([[0x112233, "#112233"]]));
+  });
+});
+
+describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
+  it("erasure counter-case: replace-blend at opacity 1 does NOT blank non-targeted cells even when the program itself ignores targeting", () => {
+    // Cells 0,1 are won by mesh 10; cells 2,3 by mesh 20. The layer targets
+    // only mesh 10. If an implementation zeroed the program's EMISSION
+    // instead of `targetCoverage`, `inputWeight = inputCoverage * (1 -
+    // opacity*targetCoverage)` — the naive program above unconditionally
+    // emits full coverage everywhere — would erase cells 2/3 under
+    // `blend: "replace"` at opacity 1. The correct mechanism (zeroing
+    // `targetCoverage` itself) leaves them exactly passthrough instead.
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1, target: fakeMesh(10) as never },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGridWithWinnerMesh(["A", "B", "C", "D"], [null, null, null, null], [10, 10, 20, 20]),
+      metadata(4, 1),
+    );
+
+    const composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 4));
+    expect(composed.char).toEqual(["Z", "Z", "C", "D"]);
+  });
+
+  it("filters targetCoverage by winner-mesh membership for a multi-mesh target set", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      {
+        effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1,
+        target: [fakeMesh(1), fakeMesh(3)] as never,
+      },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGridWithWinnerMesh(["A", "B", "C", "D"], [null, null, null, null], [1, 2, 3, 4]),
+      metadata(4, 1),
+    );
+
+    const composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 4));
+    expect(composed.char).toEqual(["Z", "B", "Z", "D"]);
+  });
+
+  it("degrades a mesh-targeted layer to fully inactive when no winner-mesh data exists (non-solid render, missing buffer) — never a throw", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1, target: fakeMesh(10) as never },
+      0,
+      () => {},
+      () => {},
+    );
+    // No winnerMesh buffer at all — the wireframe/voxel/ink degradation case.
+    const retained = retainGlyphEffectOutput(coveredGrid(["A", "B"], [null, null]), metadata(2, 1));
+
+    let composed: ReturnType<typeof composeRetainedGlyphEffectOutput> | undefined;
+    expect(() => {
+      composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 2));
+    }).not.toThrow();
+    expect(composed!.char).toEqual(["A", "B"]);
+  });
+
+  it("treats a removed/never-present mesh id as an empty target — inactive, no throw", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1, target: fakeMesh(99) as never },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGridWithWinnerMesh(["A", "B"], [null, null], [10, 20]),
+      metadata(2, 1),
+    );
+    const composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 2));
+    expect(composed.char).toEqual(["A", "B"]);
+  });
+
+  it("applies mesh targeting identically on a detail grid (isBase: false) — targeting is per-output-grid, not base-only", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1, target: fakeMesh(7) as never },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGridWithWinnerMesh(["A", "B"], [null, null], [7, 8]),
+      metadataFor(2, 1, false),
+    );
+    const composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 2));
+    expect(composed.char).toEqual(["Z", "B"]);
+  });
+
+  it("occlusion-blanked cells (winner -1) are never in any target set", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, blend: "replace", opacity: 1, target: fakeMesh(10) as never },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGridWithWinnerMesh([" ", "B"], [null, null], [-1, 10]),
+      metadata(2, 1),
+    );
+    const composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 2));
+    expect(composed.char).toEqual([" ", "Z"]);
+  });
+
+  it("setOptions on a mesh-targeted layer: an equivalent set is a no-op, a different set throws", () => {
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, target: [fakeMesh(1), fakeMesh(2)] as never },
+      0,
+      () => {},
+      () => {},
+    );
+    // Same ids, fresh array, different order — must be a no-op (no throw).
+    expect(() => layer.handle.setOptions({ target: [fakeMesh(2), fakeMesh(1)] as never })).not.toThrow();
+    // A genuinely different mesh set — live retargeting is out of scope.
+    expect(() => layer.handle.setOptions({ target: [fakeMesh(1), fakeMesh(3)] as never }))
+      .toThrow(/immutable after mount/i);
+    // A layer mounted with the default "surfaces" target cannot switch to a
+    // mesh set post-mount either.
+    const surfaceLayer = createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 } },
+      1,
+      () => {},
+      () => {},
+    );
+    expect(() => surfaceLayer.handle.setOptions({ target: fakeMesh(5) as never }))
+      .toThrow(/immutable after mount/i);
+    // Plain "surfaces" <-> "viewport" retargeting remains freely mutable.
+    expect(() => surfaceLayer.handle.setOptions({ target: "viewport" })).not.toThrow();
+  });
+
+  it("rejects a malformed mesh-target array at mount", () => {
+    expect(() => createRuntimeGlyphEffectLayer(
+      { effect: emitEverywhereIgnoringTarget, params: { phase: 0 }, target: [] as never },
+      0,
+      () => {},
+      () => {},
+    )).toThrow(/at least one GlyphMeshHandle/i);
   });
 });

@@ -64,6 +64,15 @@ export interface GlyphEffectOutputMetadata {
   readonly worldToSceneScale?: number;
 }
 
+/**
+ * A layer's runtime target: the two scene-wide strings, or the canonical
+ * immutable mesh-id SET a `GlyphMeshHandle` / `GlyphMeshHandle[]` target
+ * normalizes to at mount (VOLUMETRIC-3.md §1). Module-level mesh ids are
+ * monotonic and never alias across scenes, so a bare `Set<number>` is
+ * unambiguous without carrying a scene reference.
+ */
+export type RuntimeGlyphEffectTarget = "surfaces" | "viewport" | ReadonlySet<number>;
+
 export interface RuntimeGlyphEffectLayer {
   readonly declarationOrder: number;
   readonly program: AnyProgram;
@@ -72,7 +81,7 @@ export interface RuntimeGlyphEffectLayer {
   readonly committedParams: AnyParams;
   readonly state: unknown;
   readonly handle: GlyphEffectLayerHandle<AnyParams>;
-  target: "surfaces" | "viewport";
+  target: RuntimeGlyphEffectTarget;
   blend: GlyphEffectBlend;
   opacity: number;
   order: number;
@@ -186,10 +195,53 @@ function assertProgram(program: AnyProgram, initialParams: AnyParams): void {
   }
 }
 
-function normalizeTarget(target: GlyphEffectTarget | undefined): "surfaces" | "viewport" {
+interface MeshHandleLike { readonly id: number }
+
+function isMeshHandleLike(value: unknown): value is MeshHandleLike {
+  return !!value && typeof value === "object" && typeof (value as MeshHandleLike).id === "number";
+}
+
+/**
+ * Normalize a layer's `target` option. `"surfaces"` (default) / `"viewport"`
+ * pass through unchanged; a `GlyphMeshHandle` or `readonly GlyphMeshHandle[]`
+ * normalizes to a canonical, immutable `Set` of mesh ids — the mount-time
+ * snapshot `targetCoverage` filters winner-mesh cells against
+ * (VOLUMETRIC-3.md §1). The set is captured once; it is never re-derived
+ * from live handles, so a later mesh removal naturally makes that id match
+ * nothing rather than mutating the target.
+ */
+function normalizeTarget(target: GlyphEffectTarget | undefined): RuntimeGlyphEffectTarget {
   if (target === undefined || target === "surfaces") return "surfaces";
   if (target === "viewport") return "viewport";
-  throw new Error("glyphcss: GlyphMeshHandle effect targets are not supported by this runtime slice.");
+  if (isMeshHandleLike(target)) return new Set([target.id]);
+  if (Array.isArray(target)) {
+    if (target.length === 0) {
+      throw new TypeError("glyphcss: an effect target mesh array must contain at least one GlyphMeshHandle.");
+    }
+    const ids = new Set<number>();
+    for (const entry of target) {
+      if (!isMeshHandleLike(entry)) {
+        throw new TypeError("glyphcss: an effect target array must contain only GlyphMeshHandle values.");
+      }
+      ids.add(entry.id);
+    }
+    return ids;
+  }
+  throw new TypeError("glyphcss: unsupported effect target.");
+}
+
+/** Set-equivalence for two normalized targets — `"surfaces"`/`"viewport"` compare by
+ *  identity, two mesh-id sets compare by membership regardless of construction order. */
+function targetsEqual(a: RuntimeGlyphEffectTarget, b: RuntimeGlyphEffectTarget): boolean {
+  const aSet = a instanceof Set ? a : null;
+  const bSet = b instanceof Set ? b : null;
+  if (aSet && bSet) {
+    if (aSet.size !== bSet.size) return false;
+    for (const id of aSet) if (!bSet.has(id)) return false;
+    return true;
+  }
+  if (aSet || bSet) return false;
+  return a === b;
 }
 
 function normalizeBlend(blend: GlyphEffectBlend | undefined): GlyphEffectBlend {
@@ -362,13 +414,23 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
   }>): void {
     assertLive();
     const nextTarget = "target" in partial ? normalizeTarget(partial.target) : layer.target;
+    // Mesh-set targeting is immutable after mount (VOLUMETRIC-3.md §1): once
+    // either side of the comparison is a mesh-id set, an equivalent set is a
+    // no-op (falls through to the full no-op check below) and any other
+    // change — including switching to/from `"surfaces"`/`"viewport"` — is
+    // live retargeting, out of scope; remove and re-add the layer instead.
+    // Plain `"surfaces"` <-> `"viewport"` retargeting (neither side a set) is
+    // unaffected and stays freely mutable, as before this option existed.
+    if ((nextTarget instanceof Set || layer.target instanceof Set) && !targetsEqual(nextTarget, layer.target)) {
+      throw new Error("glyphcss: an effect layer's mesh target is immutable after mount; remove and re-add the layer to retarget it.");
+    }
     const nextBlend = "blend" in partial ? normalizeBlend(partial.blend) : layer.blend;
     const nextOpacity = "opacity" in partial ? normalizeOpacity(partial.opacity) : layer.opacity;
     const nextOrder = "order" in partial ? normalizeOrder(partial.order) : layer.order;
     const nextEnabled = "enabled" in partial ? partial.enabled : layer.enabled;
     if (typeof nextEnabled !== "boolean") throw new TypeError("glyphcss: effect enabled must be boolean.");
     if (
-      nextTarget === layer.target && nextBlend === layer.blend && nextOpacity === layer.opacity &&
+      targetsEqual(nextTarget, layer.target) && nextBlend === layer.blend && nextOpacity === layer.opacity &&
       nextOrder === layer.order && nextEnabled === layer.enabled
     ) return;
     layer.target = nextTarget;
@@ -545,6 +607,34 @@ function blendPackedColor(
   return GlyphEffectNoColor;
 }
 
+/**
+ * Per-cell `targetCoverage` for one layer (VOLUMETRIC-3.md §1). `"viewport"`
+ * covers every base cell (and, on a detail grid, follows base coverage —
+ * `isBase` alone decides the constant-1 case). `"surfaces"` is today's
+ * unrestricted behavior. A mesh-id set is 0 on any cell whose depth-winning
+ * mesh is NOT in the target — including a cell with no winner data at all
+ * (non-solid render mode: `winnerMesh` is `null`, so every cell reads as
+ * non-target; the layer degrades to inactive rather than throwing) and an
+ * occlusion-blanked cell (winner `-1`, never in any target set). This is
+ * deliberately NOT emission-zeroing: zeroing `targetCoverage` instead of the
+ * program's output lets every existing blend/opacity formula (and every
+ * stock program's own `target.coverage[i] <= 0` self-skip) stay correct
+ * unchanged — zeroing emission instead would ERASE the base on non-targeted
+ * cells under `blend: "replace"` at opacity 1 (see the module doc / spec).
+ */
+function targetCoverageForCell(
+  target: RuntimeGlyphEffectLayer["target"],
+  isBase: boolean,
+  baseCellCoverage: number,
+  winnerMesh: Int32Array | null,
+  index: number,
+): number {
+  if (target === "viewport") return isBase ? 1 : baseCellCoverage;
+  if (target === "surfaces") return baseCellCoverage;
+  const winner = winnerMesh ? winnerMesh[index]! : -1;
+  return winner >= 0 && target.has(winner) ? baseCellCoverage : 0;
+}
+
 const BAYER_4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5] as const;
 
 function positiveMod(value: number, modulus: number): number {
@@ -611,6 +701,10 @@ export function composeRetainedGlyphEffectOutput(
     color: inputColor,
   };
   const target: GlyphEffectTargetView = { coverage: targetCoverage };
+  // Compositor-internal — see `CellGrid.winnerMesh`'s doc comment: never
+  // surfaced on `GlyphEffectFrameView`/`base`, only consulted here to build
+  // `targetCoverage` for a mesh-targeted layer.
+  const winnerMesh = retained.baseGrid.winnerMesh ?? null;
 
   for (const prepared of preparedLayers) {
     const { layer, params } = prepared;
@@ -645,7 +739,7 @@ export function composeRetainedGlyphEffectOutput(
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
     }
     for (let i = 0; i < n; i++) {
-      targetCoverage[i] = layer.target === "viewport" && metadata.isBase ? 1 : baseCoverage[i]!;
+      targetCoverage[i] = targetCoverageForCell(layer.target, metadata.isBase, baseCoverage[i]!, winnerMesh, i);
     }
     emission.glyph.fill(" ");
     emission.coverage.fill(0);

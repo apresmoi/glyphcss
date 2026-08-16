@@ -6,6 +6,7 @@ import type {
   GlyphEffectLayerHandle,
   GlyphEffectParamValue,
   GlyphEffectProgram,
+  GlyphMeshHandle,
   GlyphSceneHandle,
 } from "glyphcss";
 import { GlyphEffectLayer } from "./GlyphEffectLayer";
@@ -222,6 +223,43 @@ describe("GlyphEffectLayer (React)", () => {
 
     act(() => root.unmount());
     expect(second.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("mesh-target re-render: a same-set fresh array is a no-op, a different set forwards to setOptions (which the runtime rejects)", () => {
+    const meshA = { id: 1 } as unknown as GlyphMeshHandle;
+    const meshB = { id: 2 } as unknown as GlyphMeshHandle;
+    const meshC = { id: 3 } as unknown as GlyphMeshHandle;
+    const handle = createHandle();
+    handle.setOptions.mockImplementation((next: Parameters<GlyphEffectLayerHandle<TestParams>["setOptions"]>[0]) => {
+      if (next.target !== undefined && next.target !== "surfaces" && next.target !== "viewport") {
+        const ids = (Array.isArray(next.target) ? next.target : [next.target]).map((m) => (m as GlyphMeshHandle).id).sort();
+        if (JSON.stringify(ids) !== JSON.stringify([1, 2])) {
+          throw new Error("glyphcss: an effect layer's mesh target is immutable after mount.");
+        }
+      }
+    });
+    const { scene } = createScene([handle]);
+    const sceneRef = { current: scene };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    const render = (target: readonly GlyphMeshHandle[]) => (
+      <GlyphSceneContext.Provider value={{ sceneRef }}>
+        <GlyphEffectLayer effect={effectA} params={{ time: 1 }} target={target} />
+      </GlyphSceneContext.Provider>
+    );
+
+    act(() => root.render(render([meshA, meshB])));
+    handle.setOptions.mockClear();
+
+    // A fresh array, same mesh ids in a different order — must be a no-op.
+    act(() => root.render(render([meshB, meshA])));
+    expect(handle.setOptions).not.toHaveBeenCalled();
+
+    // A genuinely different mesh set is forwarded and rejected by the runtime.
+    expect(() => act(() => root.render(render([meshA, meshC])))).toThrow(/immutable after mount/i);
+
+    act(() => root.unmount());
   });
 
   it("recreates a raw-program layer when its parameter schema changes", () => {

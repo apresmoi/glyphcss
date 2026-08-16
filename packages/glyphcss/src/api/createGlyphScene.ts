@@ -502,6 +502,14 @@ export function createGlyphScene(
     ));
   }
 
+  // Any non-disposed layer whose target normalized to a mesh-id set
+  // (VOLUMETRIC-3.md §1). Drives `retainWinnerMesh`: the winner-mesh buffer
+  // is only worth computing/downsampling/exposing when at least one mounted
+  // layer actually needs it to filter `targetCoverage`.
+  function hasMeshTargetedLayers(): boolean {
+    return effectLayers.some((layer) => !layer.disposed && layer.target instanceof Set);
+  }
+
   function assertEffectMode(mode: RenderMode, layers = effectLayers): void {
     if (mode === "solid") return;
     for (const layer of layers) {
@@ -791,6 +799,12 @@ export function createGlyphScene(
     const retainNormal = effectsActive && effectRequests("normal");
     const retainObjectPosition = effectsActive && effectRequests("objectPosition");
     const retainObjectExit = effectsActive && effectRequests("objectExit");
+    // Per-object effect targeting (VOLUMETRIC-3.md §1): the winner-mesh
+    // buffer only needs to be downsampled/exposed when a mounted layer's
+    // target actually normalized to a mesh-id set — ORed with
+    // `retainObjectExit`'s own (internal, never-exposed) need for the same
+    // buffer at `polygonMeshIds`-supply time, below.
+    const retainWinnerMesh = effectsActive && hasMeshTargetedLayers();
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -854,12 +868,13 @@ export function createGlyphScene(
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
-      polygonMeshIds: retainObjectExit ? basePolygonMeshIds : undefined,
+      polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? basePolygonMeshIds : undefined,
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
       retainObjectPosition,
       retainObjectExit,
+      retainWinnerMesh,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -925,6 +940,7 @@ export function createGlyphScene(
       retainNormal,
       retainObjectPosition,
       retainObjectExit,
+      retainWinnerMesh,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -1127,6 +1143,7 @@ export function createGlyphScene(
     retainNormal: boolean,
     retainObjectPosition: boolean,
     retainObjectExit: boolean,
+    retainWinnerMesh: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -1313,8 +1330,14 @@ export function createGlyphScene(
           // a back-facing-only polygon's exit sweep leak into cells with no
           // entry-pass winner at all. Supplying this mesh's own real (>=1) id
           // for every polygon keeps the winner-mesh sentinel unambiguous.
-          polygonMeshIds: retainObjectExit ? tp.map(() => entry.id) : undefined,
+          // Same OR-gate as the base layer above: `retainWinnerMesh` needs
+          // this mesh's own id supplied even when no `objectExit` effect is
+          // mounted, so a mesh-targeted layer's `targetCoverage` can match
+          // this detail grid's own real per-cell winner (VOLUMETRIC-3.md §1
+          // — "detail grids already carry a real mesh id").
+          polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? tp.map(() => entry.id) : undefined,
           retainObjectExit,
+          retainWinnerMesh,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = textureSamplers;
@@ -1464,6 +1487,13 @@ export function createGlyphScene(
       || (requested.has("normal") && !output.base.normal)
       || (requested.has("objectPosition") && !output.base.objectPosition)
       || (requested.has("objectExit") && !output.base.objectExit)
+      // A newly-mounted mesh-targeted layer (VOLUMETRIC-3.md §1) needs a
+      // full geometry render when retained frames predate it and so lack
+      // winner-mesh data — otherwise it silently no-ops (targetCoverage
+      // reads a missing winnerMesh as "no winner", so nothing composites)
+      // until the next geometry render. `winnerMesh` is compositor-internal
+      // (not on `output.base`), so this checks the retained `CellGrid` directly.
+      || (layer.target instanceof Set && !output.baseGrid.winnerMesh)
     ));
     if (needsInputRaster) scheduleRender();
     else if (retainedEffectOutputs.size > 0) scheduleEffectRender();

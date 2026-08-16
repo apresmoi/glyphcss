@@ -114,12 +114,26 @@ function normalizeLayerOptions(props: RuntimeProps): NormalizedLayerOptions {
   };
 }
 
+/**
+ * Canonical key for a `target` value: `"surfaces"`/`"viewport"` pass through,
+ * a `GlyphMeshHandle` / `GlyphMeshHandle[]` normalizes to its sorted mesh-id
+ * set. Diffing by this key (not `Object.is`) means a fresh `[a, b]` array
+ * built each render — same meshes, new array identity — is a no-op instead
+ * of a spurious `setOptions` call (VOLUMETRIC-3.md §1).
+ */
+function targetKey(target: GlyphEffectTarget | undefined): string {
+  const resolved = target ?? "surfaces";
+  if (resolved === "surfaces" || resolved === "viewport") return resolved;
+  const handles = Array.isArray(resolved) ? resolved : [resolved];
+  return handles.map((handle) => handle.id).sort((a, b) => a - b).join(",");
+}
+
 function changedLayerOptions(
   previous: NormalizedLayerOptions,
   next: NormalizedLayerOptions,
 ): Partial<NormalizedLayerOptions> {
   const changed: Partial<NormalizedLayerOptions> = {};
-  if (!Object.is(previous.target, next.target)) changed.target = next.target;
+  if (targetKey(previous.target) !== targetKey(next.target)) changed.target = next.target;
   if (previous.blend !== next.blend) changed.blend = next.blend;
   if (previous.opacity !== next.opacity) changed.opacity = next.opacity;
   if (previous.order !== next.order) changed.order = next.order;

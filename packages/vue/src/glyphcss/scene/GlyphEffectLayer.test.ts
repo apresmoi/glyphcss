@@ -13,6 +13,7 @@ import type {
   GlyphEffectLayerHandle,
   GlyphEffectParamValue,
   GlyphEffectProgram,
+  GlyphMeshHandle,
   GlyphSceneHandle,
 } from "glyphcss";
 import { GlyphEffectLayer } from "./GlyphEffectLayer";
@@ -232,6 +233,40 @@ describe("GlyphEffectLayer (Vue)", () => {
 
     mounted.app.unmount();
     expect(second.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("mesh-target re-render: a same-set fresh array is a no-op, a different set forwards to setOptions (which the runtime rejects)", async () => {
+    const meshA = { id: 1 } as unknown as GlyphMeshHandle;
+    const meshB = { id: 2 } as unknown as GlyphMeshHandle;
+    const meshC = { id: 3 } as unknown as GlyphMeshHandle;
+    const handle = createHandle();
+    handle.setOptions.mockImplementation((next: Parameters<GlyphEffectLayerHandle<TestParams>["setOptions"]>[0]) => {
+      if (next.target !== undefined && next.target !== "surfaces" && next.target !== "viewport") {
+        const ids = (Array.isArray(next.target) ? next.target : [next.target]).map((m) => (m as GlyphMeshHandle).id).sort();
+        if (JSON.stringify(ids) !== JSON.stringify([1, 2])) {
+          throw new Error("glyphcss: an effect layer's mesh target is immutable after mount.");
+        }
+      }
+    });
+    const { scene } = createScene([handle]);
+    const mounted = mountLayer(scene, {
+      effect: effectA,
+      params: { time: 1 },
+      target: [meshA, meshB],
+    });
+    await nextTick();
+    handle.setOptions.mockClear();
+
+    // A fresh array, same mesh ids in a different order — must be a no-op.
+    mounted.props.value = { effect: effectA, params: { time: 1 }, target: [meshB, meshA] };
+    await nextTick();
+    expect(handle.setOptions).not.toHaveBeenCalled();
+
+    // A genuinely different mesh set is forwarded and rejected by the runtime.
+    mounted.props.value = { effect: effectA, params: { time: 1 }, target: [meshA, meshC] };
+    await expect(nextTick()).rejects.toThrow(/immutable after mount/i);
+
+    mounted.app.unmount();
   });
 
   it("recreates a raw-program layer when its parameter schema changes", async () => {

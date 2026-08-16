@@ -149,6 +149,21 @@ describe("GlyphEffectLayerElement", () => {
     expect(addEffectLayer).toHaveBeenCalledTimes(2);
   });
 
+  it("forwards a GlyphMeshHandle/array target verbatim (JS property, not attribute — mesh handles cannot serialize to a string)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const meshA = { id: 1 } as unknown as import("../api/createGlyphScene").GlyphMeshHandle;
+    const meshB = { id: 2 } as unknown as import("../api/createGlyphScene").GlyphMeshHandle;
+    element.configure({ effect: effectA, target: [meshA, meshB] });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ target: [meshA, meshB] }));
+
+    // A subsequent flush with the handle already mounted forwards target
+    // through setOptions the same way.
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalledWith(expect.objectContaining({ target: [meshA, meshB] }));
+  });
+
   it("dispatches readiness once the atomic configuration mounts", async () => {
     const { element } = mountWithScene();
     const onReady = vi.fn();

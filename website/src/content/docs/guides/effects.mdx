@@ -161,6 +161,60 @@ How a layer combines with the base render:
   cells on top of it.
 - `target: "surfaces"` limits writes to visible rendered geometry.
 - `target: "viewport"` can also author the base output's background.
+- `target: mesh` or `target: [meshA, meshB]` limits writes to that mesh (or
+  meshes) only — see [Targeting specific meshes](#targeting-specific-meshes)
+  below.
+
+### Targeting specific meshes
+
+Pass the handle returned by `scene.add(...)` (or an array of handles) as
+`target` to apply a layer to specific geometry instead of the whole scene —
+a normal render plus one weird effect object, without touching anything
+else:
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+
+const ground = scene.add(groundPolygons);
+const cube = scene.add(cubePolygons);
+
+const carve = scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  target: cube, // only the cube's own cells — the ground is untouched
+  blend: "replace",
+  params: {
+    space: "object",
+    render: "carve",
+    field1: "menger", wave1: "step", freq1: 3, amp1: 1, iter1: 3,
+    fold: "min",
+    glyphs: " .:-=+*#%@",
+    color: "#ffcf5a",
+  },
+});
+
+function frame(now: number) {
+  carve.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+The target normalizes to an immutable set of mesh ids at mount — it cannot
+be changed afterward (`setOptions({ target: ... })` with a different mesh set
+throws; an equivalent set, e.g. the same handles in a different array, is a
+no-op). To retarget, remove the layer and add a new one. A mesh removed from
+the scene later simply stops matching — the layer degrades to inactive, it
+does not error. Targeting a mesh outside `solid` mode is also a documented
+no-op rather than a throw, since only solid mode tracks a per-cell winning
+mesh.
+
+**Ordering note:** a later scene-wide (`target: "surfaces"`/`"viewport"`)
+layer still composites *over* an earlier targeted layer's output, including
+painting into any holes a targeted `render: "carve"` cut — that's the normal
+layer-order semantics working as designed, not a bug specific to targeting.
 
 ### Coordinate space (`space`)
 
@@ -689,11 +743,12 @@ The runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
 glyph and coverage buffers. Hard surface requirements need `solid` mode;
 `optionalRequirements` let a program request retained fields while still
 providing a wireframe/voxel fallback. Layers compose in order with
-`over`/`replace` blends and `surfaces`/`viewport` targets.
+`over`/`replace` blends and `surfaces`/`viewport`/mesh-handle targets (see
+[Targeting specific meshes](#targeting-specific-meshes)).
 
-Not implemented yet — these reject explicitly: mesh-handle targeting,
-scene-image sampling/displacement, shader-like scratch graphs, and
-surface-key / UV-footprint fields.
+Not implemented yet — these reject explicitly: scene-image sampling/
+displacement, shader-like scratch graphs, and surface-key / UV-footprint
+fields.
 
 Effects can cross into exports in two cases: the
 [interactive export](/guides/compile#interactive-export) mounts a stock effect
