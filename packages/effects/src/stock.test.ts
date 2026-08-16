@@ -3411,6 +3411,95 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
     // alone, not some incidental depth-quantization noise from the march.
     expect(inkedAt(output, awayFromSeam)).toBe(false);
   });
+
+  // Oblique-angle vanishing-hole-outline regression (bug report, confirmed
+  // via instrumentation): rule (a) only inks a rim on a TRUE through-hole —
+  // angle-dependent, since an oblique ray that would exit clean head-on
+  // instead clips a shallow interior wall. At the reproducing camera angle
+  // (real-scene instrumentation: depth-3 preset, camera rotX 45/rotY 30) NO
+  // cell ever read `CARVE_INK_HOLE` at all, leaving rule (c) — gated on the
+  // raw `inkSpacing` alone, pre-fix — as the only possible catcher; but
+  // depth-3's finest recursion steps are only ~1/9 and ~1/27 domain units
+  // deep, almost always under the 0.25 default `inkSpacing`, so the hole
+  // silently stopped rendering.
+  //
+  // This fixture reproduces the same failure mode WITHOUT a real DOM camera
+  // (deterministic, environment-independent): one near-body-diagonal ray per
+  // cell through the depth-3 preset's own `[0,3]^3` cube stage (same
+  // technique as stock.test.ts's "body-diagonal rays" empirical ground-truth
+  // gate above), each offset a hair from its neighbors so adjacent cells
+  // sample different, similarly shallow interior structure — exactly the
+  // "always hits, never a true miss, shallow interior steps everywhere"
+  // regime the bug report described. Confirmed by temporarily reverting the
+  // `edgeSpacing` fix (rule (c) back to plain `spacing`) against this exact
+  // fixture: 0 inked cells, vs 98 (10 of them strictly interior — every one
+  // of their 4 neighbors also inked, so provably NOT a rule-(a) rim) with
+  // the fix in place — the counter-case this test pins.
+  it("oblique-angle regression: depth-3 Menger's shallow interior steps ink (rule c) even where no cell is ever a true hole (rule a never fires)", () => {
+    const cols = 48, rows = 24, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const ox = (col / cols) * 0.5;
+        const oy = (row / rows) * 0.5;
+        objectPosition[i * 3] = ox; objectPosition[i * 3 + 1] = oy; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = ox + 3; objectExit[i * 3 + 1] = oy + 3; objectExit[i * 3 + 2] = 3;
+      }
+    }
+    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const output = evaluateFieldSynthGrid(
+      cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
+    );
+
+    let inkedTotal = 0;
+    let interiorInked = 0; // all 4 neighbors also inked -> cannot be a rule-(a) rim
+    for (let row = 1; row < rows - 1; row++) {
+      for (let col = 1; col < cols - 1; col++) {
+        const i = row * cols + col;
+        if (!inkedAt(output, i)) continue;
+        inkedTotal++;
+        if (inkedAt(output, i + 1) && inkedAt(output, i - 1) && inkedAt(output, i + cols) && inkedAt(output, i - cols)) {
+          interiorInked++;
+        }
+      }
+    }
+    expect(inkedTotal).toBeGreaterThan(0);
+    expect(interiorInked).toBeGreaterThan(0);
+  });
+
+  // Previously-passing (near-axial, short-chord) angle stays unchanged: the
+  // `edgeSpacing` fix only ever SHRINKS rule (c)'s threshold below whatever
+  // it already was, and only in proportion to `finestFreq` — this pins the
+  // depth-3 preset's own axial fixture (same rays as the "axial rays"
+  // empirical ground-truth gate above, which already has real holes and
+  // real rim cells) so a future retune of `CARVE_INK_EDGE_FREQ_SCALE`
+  // can't silently change this angle's output without a deliberate re-pin.
+  it("previously-passing axial angle: depth-3 ink output is stable across the edgeSpacing fix", () => {
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        const x = ((col + 0.5) / cols) * 3;
+        const y = ((row + 0.5) / rows) * 3;
+        objectPosition[i * 3] = x; objectPosition[i * 3 + 1] = y; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
+      }
+    }
+    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const output = evaluateFieldSynthGrid(
+      cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
+    );
+    let inkedTotal = 0;
+    for (let i = 0; i < length; i++) if (inkedAt(output, i)) inkedTotal++;
+    // Pinned against this exact fixture+preset combination — re-pin
+    // deliberately (with reasoning) if a future change legitimately alters
+    // this angle's ink output.
+    expect(inkedTotal).toBe(52);
+  });
 });
 
 describe("field-synth braille-over-carve (VOLUMETRIC-3.md §2)", () => {

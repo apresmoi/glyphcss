@@ -2688,6 +2688,50 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const CARVE_INK_HOLE = 1;
       const CARVE_INK_HIT = 2;
 
+      // Rule (c)'s interior-edge threshold, in ADDITION to the raw
+      // `inkSpacing` — VOLUMETRIC-3.md's oblique-angle vanishing-hole bug
+      // (instrumented on the depth-3 Menger preset, real-scene, camera
+      // rotX 45/rotY 30): rim (a) only fires for a TRUE through-hole, which
+      // is angle-dependent — an oblique face-hole ray that used to exit
+      // clean instead clips an interior wall, turning a HOLE neighbor into a
+      // same-mesh HIT one cell over. That leaves rule (c) as the only
+      // remaining catcher, but depth-3's finest recursion level is a
+      // 1/finestFreq-deep step (measured ~1/9 and ~1/27 domain units at this
+      // preset's `finestFreq` of 9/27), almost always well under the
+      // absolute default `inkSpacing` (0.25) — so the hole silently
+      // stops rendering. Confirmed empirically: at the reproducing oblique
+      // angle NO cell ever reads `CARVE_INK_HOLE` at all (rays that would
+      // have been true misses head-on instead clip a shallow interior wall
+      // obliquely), while 250+ HIT-HIT neighbor pairs carry a nonzero,
+      // sub-`inkSpacing` depth delta.
+      //
+      // The fix scales rule (c)'s own threshold down to the program's own
+      // finest resolvable feature size instead of leaving it pinned to the
+      // user-facing `inkSpacing` knob alone — the same "self-resolving like
+      // the Nyquist floor" idea `finestFreq` already drives for march step
+      // count. `marchField`/`integrateField` size their step count so a
+      // step is `~= 1 / (2 * finestFreq)` domain units (Nyquist: >=2 samples
+      // per finest feature) — that step size is this rule's real noise
+      // floor, and the finest feature genuinely present in the field is
+      // `>= 1 / finestFreq` by the very definition of `finestFreq`. Those
+      // two bounds sit a factor of 2 apart regardless of scene/chord length
+      // (both derive from the same `finestFreq`), so a fixed fraction
+      // between them is a stable, scene-independent choice:
+      // `CARVE_INK_EDGE_FREQ_SCALE = 0.75` sits above the ~1x-step-size
+      // quantization noise floor (measured: sub-0.02 deltas at finestFreq
+      // 27, where 1 step ~= 0.0185) with margin and below the ~1x-feature-
+      // size real minimum (1/27 ~= 0.037) with margin, so a genuinely flat,
+      // camera-facing wall's near-zero deltas still don't cross it (the
+      // pinned "flat wall = rim only" invariant), while depth-3's shallow
+      // steps now do. This only ever SHRINKS the effective threshold below
+      // whatever `inkSpacing` the user set (`Math.min`) — a low-frequency
+      // patch (`finestFreq` small) is unaffected, and rule (b)'s own
+      // contour-multiple spacing (the user-facing "Ink spacing" knob) is
+      // untouched, so it stays exactly the absolute, non-crawling density
+      // control VOLUMETRIC-3.md's "Contour spacing is ABSOLUTE" design
+      // requires.
+      const CARVE_INK_EDGE_FREQ_SCALE = 0.75;
+
       function runCarveInkResolve(): void {
         const length = context.base.length;
         const winnerMeshBuf = context.base.winnerMesh;
@@ -2746,6 +2790,10 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         const cols = context.base.cols;
         const rows = context.base.rows;
         const spacing = params.inkSpacing > 0 ? params.inkSpacing : 0.25;
+        // Rule (c) only — see `CARVE_INK_EDGE_FREQ_SCALE`'s doc above. `0`
+        // `finestFreq` (no active voice) divides to `Infinity`, so `Math.min`
+        // degrades to plain `spacing` with no special case.
+        const edgeSpacing = Math.min(spacing, CARVE_INK_EDGE_FREQ_SCALE / finestFreq);
         function neighborOf(i: number, dir: 0 | 1 | 2 | 3): number {
           // 0 right, 1 left, 2 down, 3 up. Off-grid reads back as OUT via
           // `stateAt` below (a grid edge behaves like leaving the visible
@@ -2807,7 +2855,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             let crosses = false;
             for (const other of [rDist, lDist, dDist, uDist]) {
               const lo = Math.min(selfDist, other), hi = Math.max(selfDist, other);
-              if (Math.floor(lo / spacing) !== Math.floor(hi / spacing) || hi - lo > spacing) { crosses = true; break; }
+              if (Math.floor(lo / spacing) !== Math.floor(hi / spacing) || hi - lo > edgeSpacing) { crosses = true; break; }
             }
             if (crosses) {
               inked = true;
