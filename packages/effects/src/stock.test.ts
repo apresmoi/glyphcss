@@ -4358,13 +4358,18 @@ describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floo
 });
 
 describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gate (VOLUMETRIC-3.md §4)", () => {
-  it("the default-resolved (Nyquist-floored) step count hits the exact same cells as a forced 256-step ground-truth march — not formula trust alone", () => {
+  it("axial rays (short chord, low step floor): the default-resolved step count hits the exact same cells as a forced 256-step ground-truth march — not formula trust alone", () => {
     const cols = 12, rows = 6, length = cols * rows;
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
     // Straight rays through the cube stage's own [0,3]^3 authoring box
     // (matching `mengerSpongeDepth3Preset`'s `scale: 1/3` pin), one per
-    // cell, entering at z=0 and exiting at z=3.
+    // cell, entering at z=0 and exiting at z=3. Scaled chord length is
+    // 3 * (1/3) = 1 domain unit — the SHORT-chord regime, whose own
+    // Nyquist floor (ceil(2*1*27) = 54) is well below the 94-step floor the
+    // preset's own doc comment claims for the cube's body diagonal (see the
+    // dedicated diagonal probe below, which is the one that actually
+    // exercises that number).
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = row * cols + col;
@@ -4385,6 +4390,77 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
     // Sanity: the comparison isn't vacuous — both a hit and a hole occurred.
     expect(hits).toBeGreaterThan(0);
     expect(hits).toBeLessThan(length);
+  });
+
+  it("body-diagonal rays (the actual chord the preset's doc comment claims 94 steps for): the resolved step count is pinned at 94, and the diagonal hit set matches a forced 256-step ground truth exactly", () => {
+    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+
+    // The resolved step count is a function of chord length + finestFreq,
+    // not of anything per-cell — confirm the ACTUAL Nyquist floor the doc
+    // comment claims (94) using the same seam evaluate() itself compiles
+    // through (buildFieldSynthVoices -> compileFieldVoices ->
+    // effectiveVoiceFinestFreq -> fieldStepCount), at the cube's scaled
+    // body-diagonal chord length (sqrt(3) * 3 * scale = sqrt(3), since
+    // scale = 1/3) — this is the ONE chord in the scene that actually
+    // reaches the preset's finest (1/27) feature at its steepest angle.
+    const scale = presetParams.scale as number;
+    const voices = buildFieldSynthVoices(presetParams as unknown as AnyParams);
+    const compiledVoices = compileFieldVoices(voices, scale);
+    let finestFreq = 0;
+    for (const voice of compiledVoices) {
+      if (voice.amp > 0) {
+        const f = effectiveVoiceFinestFreq(voice);
+        if (f > finestFreq) finestFreq = f;
+      }
+    }
+    expect(finestFreq).toBe(27);
+    const diagonalChord = Math.sqrt(3) * 3 * scale;
+    const resolvedSteps = fieldStepCount(diagonalChord, {
+      steps: presetParams.marchSteps as number, maxSteps: 256, finestFreq,
+    });
+    expect(resolvedSteps).toBe(94);
+
+    // Now the actual empirical gate, ON that same diagonal chord: one ray
+    // per cell, entering at the cube's (0,0,0) corner and exiting at its
+    // opposite (3,3,3) corner, fanned out slightly per cell (a shared
+    // single ray would only ever probe one line through the sponge) while
+    // keeping every ray's LENGTH exactly the body diagonal so the resolved
+    // step count stays pinned at 94 for every cell.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    const objectExit = new Float32Array(length * 3);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        // Offset the entry corner slightly per cell (within the cube) so
+        // different cells' diagonals sample different sponge material,
+        // without changing the (exit - entry) vector — and therefore the
+        // chord length — at all.
+        const ox = (col / cols) * 0.5;
+        const oy = (row / rows) * 0.5;
+        objectPosition[i * 3] = ox; objectPosition[i * 3 + 1] = oy; objectPosition[i * 3 + 2] = 0;
+        objectExit[i * 3] = ox + 3; objectExit[i * 3 + 1] = oy + 3; objectExit[i * 3 + 2] = 3;
+      }
+    }
+    const defaultRun = evaluate(fieldSynth, presetParams, { objectPosition, objectExit });
+    const groundTruth = evaluate(fieldSynth, { ...presetParams, marchSteps: 256 }, { objectPosition, objectExit });
+    let hits = 0;
+    for (let i = 0; i < length; i++) {
+      expect(defaultRun.coverage[i]! > 0).toBe(groundTruth.coverage[i]! > 0);
+      if (groundTruth.coverage[i]! > 0) hits++;
+    }
+    // Sanity: every one of these 72 rays hits (measured; also true across
+    // several tried offset spreads and all 4 distinct cube body-diagonal
+    // directions) — a genuine geometric property of this recipe, not a
+    // vacuous artifact: a chord this long (one full period along EVERY
+    // axis at once, ~40% solid fill at depth 3) essentially always crosses
+    // solid material somewhere along its length. The non-vacuous part of
+    // this probe is the per-cell equality above (a real hit-set, not an
+    // empty one, agreeing exactly between the 94-step default and the
+    // 256-step ground truth); the axial probe just above already covers
+    // the "both hit and hole occur" case this recipe's SHORTER chords do
+    // produce.
+    expect(hits).toBe(length);
   });
 });
 
