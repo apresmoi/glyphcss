@@ -99,7 +99,6 @@ export {
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
   mengerSdfPreset as GlyphMengerSdfPreset,
-  mengerSpongeDepth3Preset as GlyphMengerSpongeDepth3Preset,
   mengerSpongePreset as GlyphMengerSpongePreset,
   sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
   sierpinskiSdfPreset as GlyphSierpinskiSdfPreset,

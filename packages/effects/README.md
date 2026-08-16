@@ -86,15 +86,16 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   one below. Every voice's step-count floor for `square` waves is duty-aware —
   `freq / min(duty, 1 − duty)` — so a narrow-duty recipe (like the Menger sponge
   recipe's `duty: 1/3` axis voices) resolves correctly without an inflated manual
-  step estimate; this is what makes the shipped **Menger sponge (depth 3)** preset
-  safe. `buildGlyphFieldProgram({ domain, layers: [...] })` builds a field program
-  from a pleasant `voices: [...]` authoring surface with no 9-voice cap, and
-  `validateGlyphFieldProgram(program)` shape-checks one; passing a built (or
-  hand-built) program to a mounted layer via `program` instead of `params` — glyphcss
-  plumbs this opaque payload through unchanged — is field-synth's unbounded
-  "program-as-data" tier, immutable after mount. Ships with a curated set of presets
-  (Sunburst, Ring pulse, Plaid weave, Menger sponge, Menger sponge (depth 3),
-  Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF, and more).
+  step estimate; this is what makes the shipped **Menger sponge** preset (three
+  scale layers deep, `freq` 1/3/9) safe. `buildGlyphFieldProgram({ domain, layers:
+  [...] })` builds a field program from a pleasant `voices: [...]` authoring
+  surface with no 9-voice cap, and `validateGlyphFieldProgram(program)`
+  shape-checks one; passing a built (or hand-built) program to a mounted layer via
+  `program` instead of `params` — glyphcss plumbs this opaque payload through
+  unchanged — is field-synth's unbounded "program-as-data" tier, immutable after
+  mount. Ships with a curated set of presets (Sunburst, Ring pulse, Plaid weave,
+  Menger sponge, Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF, and
+  more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are

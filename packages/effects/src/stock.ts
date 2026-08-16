@@ -2054,7 +2054,7 @@ export const cubeTilesPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
 
 // The driving example from VOLUMETRIC.md: a Menger sponge carved out of a
 // plain cube mesh, with no sponge geometry and no prepared playback. Recipe
-// verbatim from the acceptance tests (stock.test.ts's `mengerParams(2)` /
+// verbatim from the acceptance tests (stock.test.ts's `mengerParams(3)` /
 // VOLUMETRIC.md's "The acceptance pattern: Menger membership"): per scale
 // k, three axis voices (linearX/Y/Z), wave square, freq 3^(k-1), duty 1/3,
 // phase -1/3 select that scale's middle third; each layer folds its three
@@ -2065,6 +2065,34 @@ export const cubeTilesPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
 // assumes; the square wave is exactly periodic in that domain, so a plain
 // multiplicative scale (no offset) is enough to fill the cube with one
 // full sponge regardless of where the domain's origin sits.
+//
+// Three scale layers (freq 1, 3, 9 = 3^0..3^2), not two — depth 2 shipped
+// first (VOLUMETRIC.md/VOLUMETRIC-2.md) and a depth-3 sibling shipped
+// alongside it later as a separate "Menger sponge (depth 3)" preset
+// (VOLUMETRIC-3.md §4, needing the 9-voice `SYNTH_VOICES` bump the
+// frontend didn't have yet). User decision: one Menger sponge preset, not
+// two — depth 3 reads more recursive/labyrinthine at the same cube-stage
+// camera angle and is the more interesting of the two, so it replaces
+// depth 2 under the shared "Menger sponge" name rather than the reverse;
+// depth 2's own params live on as a params-only fixture in stock.test.ts
+// for the acceptance tests that specifically exercise the lower-frequency
+// recipe (e.g. the marchSteps-floor-doesn't-bind regression), not as a
+// shipped preset.
+//
+// Safe to ship at depth 3 for a second reason, not just voice count: the
+// OLD `effectiveVoiceFinestFreq` read a square voice's finest frequency as
+// its bare `freq` (ignoring `duty`), which under-reported this recipe's
+// finest band by 3x (duty 1/3 means the narrow high band is a THIRD of a
+// `1/freq` cycle, needing `freq / (1/3) = 3*freq` to resolve — see that
+// function's own doc) — corrected in VOLUMETRIC-3.md §4. With the fix, this
+// preset's finest band (duty 1/3 at freq 9) resolves to `9 / (1/3) = 27`;
+// at this preset's `scale: 1/3` mapping onto the cube stage's body diagonal
+// (domain-unit chord length `sqrt(3) * 3 * (1/3) ≈ 1.732`), the Nyquist
+// floor is `ceil(2 * 1.732 * 27) = 94` steps — comfortably inside the
+// 256-step cap. Gated on an EMPIRICAL ground-truth march comparison
+// (stock.test.ts), not formula trust alone — a thresholded multi-layer fold
+// can in principle produce thinner walls than any single voice's own
+// frequency bound guarantees.
 export const mengerSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Menger sponge", params: {
     space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
@@ -2076,13 +2104,18 @@ export const mengerSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
     field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
     field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
     layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
+    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
+    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
+    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
     glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
     // Raised from the schema default (1) — VOLUMETRIC-2.md §3's "menger
-    // invisible at the oblique camera" backlog item. The /synth stage hint
-    // table (SynthWorkbench) now points the camera at a face-on-ish angle
-    // for this preset, but a shallower angle alone still reads as a flat,
-    // evenly-lit texture — the carved holes need a depth cue independent of
-    // viewing angle. A stronger `exp(-marchFade * distance)` interior falloff
+    // invisible at the oblique camera" backlog item, carried over unchanged
+    // from the depth-2 preset this merges with. The /synth stage hint table
+    // (SynthWorkbench) points the camera at a face-on-ish angle for this
+    // preset, but a shallower angle alone still reads as a flat, evenly-lit
+    // texture — the carved holes need a depth cue independent of viewing
+    // angle. A stronger `exp(-marchFade * distance)` interior falloff
     // supplies that: near (shallow) carved walls stay bright, walls several
     // recursion levels deep fade toward black, so the sponge's actual 3D
     // recursive structure pops even head-on.
@@ -2264,50 +2297,6 @@ export const sierpinskiSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   },
 };
 
-// The depth-3 sibling of `mengerSpongePreset`'s linear-recipe construction
-// (VOLUMETRIC-3.md §4) — a third scale layer (freq 9 = 3^2, same duty 1/3 /
-// phase -1/3 middle-third selector, `min`-blended into the two-layer stack so
-// solid now means "solid at every one of the three scales"), needing exactly
-// the 9 voices this slice's `SYNTH_VOICES` bump makes available. Previously
-// unshippable at the flat-schema level even though the IR itself was already
-// depth-unbounded (fieldProgram.test.ts's hand-built 3-layer IR test proved
-// that back in VOLUMETRIC.md) — the frontend's 6-voice cap was the actual
-// ceiling.
-//
-// Safe to ship now for a second reason, not just voice count: the OLD
-// `effectiveVoiceFinestFreq` read a square voice's finest frequency as its
-// bare `freq` (ignoring `duty`), which under-reported this recipe's finest
-// band by 3x (duty 1/3 means the narrow high band is a THIRD of a `1/freq`
-// cycle, needing `freq/  (1/3) = 3*freq` to resolve — see that function's own
-// doc) — corrected in this same slice. With the fix, this preset's finest
-// band (duty 1/3 at freq 9) resolves to `9 / (1/3) = 27`; at this preset's
-// `scale: 1/3` mapping onto the cube stage's body diagonal (domain-unit chord
-// length `sqrt(3) * 3 * (1/3) ≈ 1.732`), the Nyquist floor is
-// `ceil(2 * 1.732 * 27) = 94` steps — comfortably inside the 256-step cap.
-// Gated on an EMPIRICAL ground-truth march comparison
-// (stock.test.ts), not formula trust alone — a thresholded multi-layer fold
-// can in principle produce thinner walls than any single voice's own
-// frequency bound guarantees.
-export const mengerSpongeDepth3Preset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Menger sponge (depth 3)", params: {
-    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
-    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
-    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
-    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
-    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
-    field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
-    field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
-    field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
-    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
-    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
-    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
-    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
-    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
-    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
-    marchFade: 2.5,
-  },
-};
-
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2345,7 +2334,6 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
   mengerSpongePreset,
-  mengerSpongeDepth3Preset,
   sierpinskiPyramidPreset,
   gyroidXrayPreset,
   mengerSdfPreset,

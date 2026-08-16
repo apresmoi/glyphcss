@@ -568,19 +568,22 @@ quickly a wall recedes into shadow as the march goes deeper — so a
 near-surface wall reads brighter than one buried further in.
 
 `fieldSynth` ships a **Menger sponge** preset (`space: "object"`,
-`render: "carve"`, two layers of three axis voices each) built from exactly
-this layer/duty/phase/volumetric machinery on a plain cube mesh — no sponge
-geometry, no baked frames, plus a **Sierpinski pyramid** preset (the same
-recipe with base-2 constants), tuned for the dedicated `pyramid` stage the
-[`/synth`](/synth) page offers alongside its cube/sphere/tetrahedron shapes —
-an uncentered corner-tetra whose window matches the Sierpinski recipe's own
-`[0, 1]³` assumption. A **Menger sponge (depth 3)** preset ships alongside it —
-the recipe's own `square`-wave axis voices (not the `menger` SDF field) drive
-its Nyquist floor, and that floor is duty-aware: `freq / min(duty, 1 − duty)`
-(two samples per narrowest band) rather than a flat `2 × freq`. Depth 3's
-finest band needs only 94 steps under the fixed formula, well inside the
-256-step cap — an earlier, un-fixed estimate put it past ~281 and out of
-carve's budget entirely.
+`render: "carve"`, three layers of three axis voices each — a scale-3, then
+scale-9, then scale-27 lattice, `min`-blended so solid means "solid at every
+scale") built from exactly this layer/duty/phase/volumetric machinery on a
+plain cube mesh — no sponge geometry, no baked frames, plus a **Sierpinski
+pyramid** preset (the same recipe, two layers, with base-2 constants), tuned
+for the dedicated `pyramid` stage the [`/synth`](/synth) page offers alongside
+its cube/sphere/tetrahedron shapes — an uncentered corner-tetra whose window
+matches the Sierpinski recipe's own `[0, 1]³` assumption. The recipe's own
+`square`-wave axis voices (not the `menger` SDF field) drive its Nyquist
+floor, and that floor is duty-aware: `freq / min(duty, 1 − duty)` (two samples
+per narrowest band) rather than a flat `2 × freq`. Menger sponge's finest band
+needs only 94 steps under the fixed formula, well inside the 256-step cap — an
+earlier, un-fixed estimate put it past ~281 and out of carve's budget
+entirely (an earlier, shallower two-layer recipe shipped under this same name
+before being superseded — its params live on as a params-only test fixture,
+not a shipped preset).
 
 ### Ink-over-carve and braille-over-carve
 
@@ -682,18 +685,18 @@ requestAnimationFrame(frame);
 `Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
 `Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
 `Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`, `Menger sponge`, `Menger sponge (depth 3)`, `Sierpinski pyramid`,
-`Gyroid xray`, `Menger SDF`, `Sierpinski SDF`) as `{ name, params }` pairs —
-quick starting points for `params`. `Cube tiles` and `Ink cells` exercise
-`argmax` and the ink contour mode; `Menger sponge` and `Sierpinski pyramid`
-exercise the volumetric branch, voice layers, and carve together (the latter
-on the `pyramid` stage); `Menger sponge (depth 3)` is the same recipe one
-level deeper, safe only since the duty-aware Nyquist fix below; `Gyroid xray`
-exercises the SDF family and `render: "xray"`; `Menger SDF` and
-`Sierpinski SDF` are the single-voice SDF patches [sphere tracing](#sphere-tracing)
-qualifies. All six volumetric presets are also individually exported by
-object identity (`GlyphMengerSpongePreset`, `GlyphMengerSpongeDepth3Preset`,
-`GlyphSierpinskiPyramidPreset`, `GlyphGyroidXrayPreset`, `GlyphMengerSdfPreset`,
+`Ink cells`, `Menger sponge`, `Sierpinski pyramid`, `Gyroid xray`,
+`Menger SDF`, `Sierpinski SDF`) as `{ name, params }` pairs — quick starting
+points for `params`. `Cube tiles` and `Ink cells` exercise `argmax` and the
+ink contour mode; `Menger sponge` and `Sierpinski pyramid` exercise the
+volumetric branch, voice layers, and carve together (the latter on the
+`pyramid` stage) — `Menger sponge` is three scale layers deep, safe only
+since the duty-aware Nyquist fix below; `Gyroid xray` exercises the SDF
+family and `render: "xray"`; `Menger SDF` and `Sierpinski SDF` are the
+single-voice SDF patches [sphere tracing](#sphere-tracing) qualifies. All
+five volumetric presets are also individually exported by object identity
+(`GlyphMengerSpongePreset`, `GlyphSierpinskiPyramidPreset`,
+`GlyphGyroidXrayPreset`, `GlyphMengerSdfPreset`,
 `GlyphSierpinskiSdfPreset`, alongside `GlyphCubeTilesPreset`), for a consumer
 that needs to key off a specific preset rather than its display name.
 

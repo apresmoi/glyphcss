@@ -29,7 +29,6 @@ import {
   glitch,
   gyroidXrayPreset,
   matrixRain,
-  mengerSpongeDepth3Preset,
   mengerSpongePreset,
   noiseDissolve,
   objectVolumetricAlongLane,
@@ -2058,21 +2057,19 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       Weave: { render: "fd19e86f", params: "dcc5eb00" },
       "Pulse grid": { render: "829c38e1", params: "92ab91cb" },
       Nebula: { render: "987c9199", params: "ee4f824d" },
-      // Added in VOLUMETRIC.md's Phase 6 (the /synth preset gallery), after
-      // this file's IR/volumetric/duty/phase changes existed — pinned the
-      // same way as every preset above it, just not part of the pre-refactor
-      // baseline this describe block otherwise guards.
-      //
-      // `render` is the pre-existing pinned value and stays exactly
-      // "c6e1efad" — the marchFade 1 → 2.5 retrofit is invisible to the
-      // synthetic evaluator, as documented above. `params` is the
-      // deliberate re-pin this fix exists for: it changed the moment
-      // `marchFade` did, and is pinned here at its POST-retrofit value.
-      "Menger sponge": { render: "c6e1efad", params: "c33b2487" },
-      // Added in VOLUMETRIC-3.md's Phase 4 — the depth-3 sibling recipe
-      // (needs the 9-voice bump). Pinned the same way as every preset above
-      // it.
-      "Menger sponge (depth 3)": { render: "311c9985", params: "1c2bb271" },
+      // Added in VOLUMETRIC.md's Phase 6 (the /synth preset gallery, the
+      // original depth-2 recipe), then user-decision merged with its
+      // depth-3 sibling under this same name (VOLUMETRIC-3.md's Phase 4
+      // preset, "Menger sponge (depth 3)" — see `mengerSpongePreset`'s doc
+      // in stock.ts): depth 3 reads more legibly at the shared cube-stage
+      // camera angle, so it replaces depth 2 rather than the reverse. The
+      // depth-2 recipe's own params live on as a non-exported fixture in
+      // this file (`mengerSpongeDepth2Params`, below) for the one
+      // acceptance test that specifically needs its lower finest frequency.
+      // These hash values are the former "Menger sponge (depth 3)" entry's,
+      // unchanged by the rename — `hashOf`/`paramsHashOf` only ever see
+      // `preset.params`, never the sibling `name` field.
+      "Menger sponge": { render: "311c9985", params: "1c2bb271" },
       // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
       // preset above it.
       "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
@@ -3489,7 +3486,7 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
         objectExit[i * 3] = ox + 3; objectExit[i * 3 + 1] = oy + 3; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
     const output = evaluateFieldSynthGrid(
       cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
     );
@@ -3530,7 +3527,7 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
         objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
     const output = evaluateFieldSynthGrid(
       cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
     );
@@ -4645,8 +4642,33 @@ describe("field-synth voice schema guard (VOLUMETRIC-3.md §4 acceptance 6 — m
   });
 });
 
+// The retired depth-2 Menger sponge recipe — superseded in stock.ts by the
+// depth-3 recipe under the shared "Menger sponge" name (user decision: one
+// Menger sponge preset, not two; see `mengerSpongePreset`'s doc there).
+// Kept here as a params-only, non-exported fixture because THIS specific
+// acceptance test needs the lower-frequency recipe: it asserts the
+// duty-aware Nyquist floor doesn't bind for a preset whose finest voice
+// frequency stays low (freq 3, duty 1/3 -> effective finest 9), which the
+// depth-3 recipe (freq 9, duty 1/3 -> effective finest 27) no longer
+// demonstrates — that preset needs the higher, non-default floor instead
+// (see the dedicated depth-3 empirical gate below, which exercises exactly
+// that).
+const mengerSpongeDepth2Params: AnyParams = {
+  space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+  field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
+  field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
+  field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
+  layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+  field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
+  field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
+  field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
+  layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+  glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+  marchFade: 2.5,
+};
+
 describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floors unchanged (VOLUMETRIC-3.md §4 acceptance 1)", () => {
-  it.each([mengerSpongePreset, sierpinskiPyramidPreset])(
+  it.each([{ name: "Menger sponge (retired depth-2 recipe)", params: mengerSpongeDepth2Params }, sierpinskiPyramidPreset])(
     "$name still resolves to the schema default marchSteps floor (48) — the duty-aware Nyquist floor doesn't bind either before or after the fix",
     (preset) => {
       const params = { ...defaultGlyphEffectParams(fieldSynth), ...preset.params } as AnyParams;
@@ -4661,7 +4683,7 @@ describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floo
       }
       // The cube/pyramid stage's own body diagonal at this preset's own
       // `scale` pin (the same chord-length derivation
-      // `mengerSpongeDepth3Preset`'s own doc comment uses).
+      // `mengerSpongePreset`'s own doc comment uses).
       const chord = Math.sqrt(3) * 3 * (params.scale as number);
       const resolved = fieldStepCount(chord, { steps: params.marchSteps as number, maxSteps: 256, finestFreq });
       expect(resolved).toBe(params.marchSteps);
@@ -4675,7 +4697,7 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
     // Straight rays through the cube stage's own [0,3]^3 authoring box
-    // (matching `mengerSpongeDepth3Preset`'s `scale: 1/3` pin), one per
+    // (matching `mengerSpongePreset`'s `scale: 1/3` pin), one per
     // cell, entering at z=0 and exiting at z=3. Scaled chord length is
     // 3 * (1/3) = 1 domain unit — the SHORT-chord regime, whose own
     // Nyquist floor (ceil(2*1*27) = 54) is well below the 94-step floor the
@@ -4691,7 +4713,7 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
         objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
     const defaultRun = evaluate(fieldSynth, presetParams, { objectPosition, objectExit });
     const groundTruth = evaluate(fieldSynth, { ...presetParams, marchSteps: 256 }, { objectPosition, objectExit });
     let hits = 0;
@@ -4705,7 +4727,7 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
   });
 
   it("body-diagonal rays (the actual chord the preset's doc comment claims 94 steps for): the resolved step count is pinned at 94, and the diagonal hit set matches a forced 256-step ground truth exactly", () => {
-    const presetParams = mengerSpongeDepth3Preset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
 
     // The resolved step count is a function of chord length + finestFreq,
     // not of anything per-cell — confirm the ACTUAL Nyquist floor the doc
