@@ -106,7 +106,16 @@ export const RENDER_MODES = ["paint", "carve", "xray"] as const;
 // `[0,1]^3` window.
 export const PYRAMID_STAGE_SIZE = 3;
 
-export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
+// The main stage's default (non-flat) orbit camera angle/zoom — single
+// source of truth for `SynthWorkbench.tsx`'s scene-rebuild effect AND the
+// arbiter test below, so neither can drift from what the page actually
+// renders with. `shapeTransform("pyramid")`'s upright reorientation
+// (`alignCornerTetraApexEuler` above) is tuned against exactly this camera.
+export const STAGE_CAMERA_ROT_X = 58;
+export const STAGE_CAMERA_ROT_Y = 32;
+export const STAGE_CAMERA_ZOOM = 46;
+
+export const opts =<T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 export const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
 export const LAYER_COMBINE_OPTS = opts(LAYER_COMBINE_VALUES), LAYER_BLEND_OPTS = opts(LAYER_VALUE_OPS), RENDER_OPTS = opts(RENDER_MODES);
 // "Calibrated" measures the VIEWER'S actual resolved font (not an authored
@@ -569,30 +578,62 @@ function rotateOnly([vx, vy, vz]: V3, [rxDeg, ryDeg, rzDeg]: V3): V3 {
 // The corner tetra's O -> centroid(A,B,C) axis is the (1,1,1) direction — the
 // classic Sierpinski look wants the OPPOSITE of that as "up": apex (O) above
 // a base (face ABC) parallel to the ground, i.e. the direction FROM the base
-// TOWARD the apex, centroid(ABC) -> O, mapped onto world +Y. +Y (not +Z) is
-// glyphcss's native VERTICAL/camera-up axis: `project()`
-// (packages/core/src/math/projection.ts) computes screen row as
-// `rows*cy - v[1]*r*persp`, so larger Y lands at a SMALLER row (higher on
-// screen), and every hand-authored "vertical" primitive agrees — e.g.
-// `conePolygons` documents itself as "a closed cone along the Y axis" with
-// the apex at `y + height/2`. (AGENTS.md's "+Z = up" convention is scoped to
-// `@glyphcss/fonts`'s own text-authoring space, which needs a `rotX: 90`
-// CAMERA compensation to read vertically for exactly this reason — it is not
-// the native primitive/camera convention.) That direction is
-// -(1,1,1)/sqrt(3), regardless of the tetra's size `s` (a pure direction).
-// Solved as the minimal (shortest-arc) axis-angle rotation from that source
-// vector to +Y via Rodrigues' formula, then decomposed into the XYZ Euler
-// triple `applyTransform` actually composes (R = Rx*Ry*Rz applied to the
-// point): ry = asin(R02), rx = atan2(-R12, R22), rz = atan2(-R01, R00) — the
-// standard closed-form extraction for this exact matrix layout, valid here
-// since asin's principal branch keeps cos(ry) >= 0 (no gimbal-lock special
-// case needed for this particular source/target pair). Numerically verified
-// (see synthKit.test.ts): apex ends up above the base plane, the base is
-// parallel to the ground, and rebuilding R from the returned angles
-// reproduces the same target vector.
+// TOWARD the apex, centroid(ABC) -> O, mapped onto world +Z.
+//
+// +Z (not +Y) is the correct target, and this is a claim about the REAL
+// runtime camera, not the unused `project()` in
+// packages/core/src/math/projection.ts (that function is exported from
+// `@glyphcss/core` but nothing in the render path — `createGlyphScene`,
+// `compileScene`, `rasterize` — ever calls it; a prior version of this file
+// cited its `row = rows*cy - v[1]*r*persp` formula as "glyphcss's native
+// vertical axis", which does not describe what actually renders). The camera
+// every mesh here is actually projected through is
+// `createGlyphOrthographicCamera` (packages/glyphcss/src/api/
+// createGlyphCamera.ts, vendored from voxcss): it axis-swaps world into a
+// CSS-like frame, then applies `rotateZ(rotY)` (yaw) followed by
+// `rotateX(rotX)` (pitch) — see `rotateVec3Voxcss` there. Under that
+// composition, world Z is untouched by the yaw step (the Z-rotation only
+// mixes world X/Y) and only gets foreshortened by pitch afterward, so its
+// projected column is IDENTICALLY zero and its row is a clean
+// `-sin(rotX)`/`cos(rotX)` split for every yaw angle — the one world axis
+// whose screen reading never drifts sideways as the camera orbits. World Y
+// has no such invariance (it mixes into both screen axes once rotY != 0),
+// so aligning to it left the corner tetra's three base corners scattered
+// above and below the apex under the page's actual default camera (rotX 58,
+// rotY 32) instead of forming a clean base band beneath it — confirmed by
+// projecting this shape's actual committed world vertices through the real
+// `createGlyphOrthographicCamera` (not a hand-reproduced formula): two of
+// the three base corners landed at a SMALLER row than the apex, i.e. above
+// it on screen. This also matches `cubePolygons`' own `[4,5,6,7], // +Z
+// (top)` face comment and AGENTS.md's "`+Z` = up, matching every native
+// primitive's `+Z (top)` convention" (the fonts-package doc this appears
+// in) — `+Y` was never the right target. `conePolygons`/`pyramidPolygons`
+// happen to use Y as their own local height parameter, but that is an
+// unrelated per-helper authoring choice that stays invisible for a
+// rotationally symmetric shape (a cone's visible silhouette still reads
+// "pointy end up" from most angles no matter which axis is nominally
+// "up"); it only breaks visibly for an asymmetric 4-vertex shape like this
+// one, where "upright" is a strict per-vertex ordering, not just a
+// silhouette impression.
+//
+// That base->apex direction is -(1,1,1)/sqrt(3), regardless of the tetra's
+// size `s` (a pure direction). Solved as the minimal (shortest-arc)
+// axis-angle rotation from that source vector to +Z via Rodrigues' formula,
+// then decomposed into the XYZ Euler triple `applyTransform` actually
+// composes (R = Rx*Ry*Rz applied to the point): ry = asin(R02), rx =
+// atan2(-R12, R22), rz = atan2(-R01, R00) — the standard closed-form
+// extraction for this exact matrix layout, valid here since asin's
+// principal branch keeps cos(ry) >= 0 (no gimbal-lock special case needed
+// for this particular source/target pair). Numerically verified (see
+// synthKit.test.ts): apex ends up above the base plane, the base is
+// parallel to the ground, rebuilding R from the returned angles reproduces
+// the same target vector, AND — the arbiter that actually matters —
+// projecting the resulting world vertices through the real
+// `createGlyphOrthographicCamera` at the page's default camera angle puts
+// the apex at a strictly smaller row than all three base corners.
 function alignCornerTetraApexEuler(): V3 {
   const source = vnorm([-1, -1, -1]);
-  const target: V3 = [0, 1, 0];
+  const target: V3 = [0, 0, 1];
   const axis = vcross(source, target);
   const axisLen = Math.hypot(axis[0], axis[1], axis[2]);
   const cosAngle = Math.min(1, Math.max(-1, vdot(source, target)));

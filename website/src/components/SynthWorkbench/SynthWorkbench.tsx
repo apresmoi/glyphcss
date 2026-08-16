@@ -49,11 +49,14 @@ import "../GalleryWorkbench/gallery-workbench.css";
 // actually renders with.
 const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 
-// Default (non-flat) orbit camera angle — matches the scene-rebuild effect's
-// own literals below. Kept as a named pair so `applyPreset`'s stage-hint
-// reset can restore exactly this, not a magic-number duplicate of it.
-const DEFAULT_CAMERA_ROT_X = 58;
-const DEFAULT_CAMERA_ROT_Y = 32;
+// Default (non-flat) orbit camera angle/zoom — `STAGE_CAMERA_ROT_X/Y/ZOOM`
+// from synthKit.tsx, the single source of truth `shapeTransform("pyramid")`'s
+// upright reorientation is tuned against and the arbiter test in
+// synthKit.test.ts projects through. Kept as local aliases so
+// `applyPreset`'s stage-hint reset can restore exactly this, not a
+// magic-number duplicate of it.
+const DEFAULT_CAMERA_ROT_X = STAGE_CAMERA_ROT_X;
+const DEFAULT_CAMERA_ROT_Y = STAGE_CAMERA_ROT_Y;
 
 // Camera auto-orbit pace (user request, "screensaver, not spin cycle") at
 // `orbitSpeed: 1`, the slider's default — a full yaw revolution takes a
@@ -72,6 +75,9 @@ const ORBIT_PITCH_MAX = 80;
 import {
   MAX_LAYERS,
   MAX_VOICES,
+  STAGE_CAMERA_ROT_X,
+  STAGE_CAMERA_ROT_Y,
+  STAGE_CAMERA_ZOOM,
   STAGE_HINTS,
   buildLighting,
   synthDefaults,
@@ -149,7 +155,7 @@ export default function SynthWorkbench() {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const flat = isFlat(shape);
-    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : cameraAnglesRef.current.rotX, rotY: flat ? 0 : cameraAnglesRef.current.rotY, zoom: 46 });
+    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : cameraAnglesRef.current.rotX, rotY: flat ? 0 : cameraAnglesRef.current.rotY, zoom: STAGE_CAMERA_ZOOM });
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,

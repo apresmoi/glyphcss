@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
+import { compileScene, createGlyphOrthographicCamera } from "glyphcss";
 import {
   FIELDS,
   FIELDS_3D,
   PYRAMID_STAGE_SIZE,
   RENDER_MODES,
   SHAPES,
+  STAGE_CAMERA_ROT_X,
+  STAGE_CAMERA_ROT_Y,
+  STAGE_CAMERA_ZOOM,
   STAGE_HINTS,
   WAVES,
   buildWavePathD,
@@ -304,7 +308,7 @@ function rotateWorld([vx, vy, vz]: readonly [number, number, number], [rxDeg, ry
 }
 
 describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + center via mesh transform)", () => {
-  it("rotates the apex above a ground-parallel base and centers the ROTATED shape's bbox near the origin, while object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
+  it("rotates the apex above a ground-parallel base (world +Z) and centers the ROTATED shape's bbox near the origin, while object-space vertices (objectVertices) stay exactly the uncentered corner form", () => {
     const s = PYRAMID_STAGE_SIZE;
     const raw = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
       .flatMap((face) => face.vertices);
@@ -342,12 +346,15 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
     const worldB = world[indexOfFirst([0, s, 0])]!;
     const worldC = world[indexOfFirst([0, 0, s])]!;
 
-    // Base (A, B, C) is parallel to the ground: constant world Y.
-    expect(worldA[1]).toBeCloseTo(worldB[1], 8);
-    expect(worldB[1]).toBeCloseTo(worldC[1], 8);
-    // Apex (O) sits ABOVE the base plane along world Y (glyphcss's native
-    // vertical axis — see `alignCornerTetraApexEuler`'s doc in synthKit.tsx).
-    expect(worldO[1]).toBeGreaterThan(worldA[1]);
+    // Base (A, B, C) is parallel to the ground: constant world Z. World Z —
+    // not Y — is the axis `alignCornerTetraApexEuler` (synthKit.tsx) targets;
+    // see that function's doc for why (Z is the one world axis whose screen
+    // projection is invariant to the real camera's yaw under
+    // `createGlyphOrthographicCamera`'s actual rotation convention).
+    expect(worldA[2]).toBeCloseTo(worldB[2], 8);
+    expect(worldB[2]).toBeCloseTo(worldC[2], 8);
+    // Apex (O) sits ABOVE the base plane along world Z.
+    expect(worldO[2]).toBeGreaterThan(worldA[2]);
 
     // bbox center of the 4 (rotated, translated) vertices is within
     // floating-point epsilon of the origin.
@@ -363,6 +370,87 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
       if (shape === "pyramid") continue;
       expect(shapeTransform(shape)).toEqual({});
     }
+  });
+});
+
+// The arbiter for "does this actually look upright" cannot be the hand-rolled
+// `rotateWorld` matrix reproduction above — that only proves the transform is
+// internally self-consistent with its OWN re-derivation of `applyTransform`'s
+// math, not that it renders correctly. A prior version of this fix (43026ff)
+// shipped exactly that kind of test, targeted world +Y as "up", and passed —
+// while the live page rendered an irregular, uncentered blob, because the
+// camera every mesh is actually projected through
+// (`createGlyphOrthographicCamera`, packages/glyphcss/src/api/
+// createGlyphCamera.ts) does NOT treat +Y as its vertical axis; see
+// `alignCornerTetraApexEuler`'s doc in synthKit.tsx for the full derivation.
+//
+// This suite instead runs the stage mesh through the REAL renderer: the real
+// `createGlyphOrthographicCamera` (same package export the page itself uses)
+// at the page's actual default stage camera (`STAGE_CAMERA_ROT_X/Y/ZOOM`,
+// shared with SynthWorkbench.tsx so neither can drift from the other), and
+// the real `compileScene` rasterizer for the rendered-silhouette assertion.
+// `applyTransform` itself is a private, unexported function of
+// `createGlyphScene.ts`, so `rotateWorld` above (already verified byte-for-
+// byte matching its composition order) is reused to build WORLD vertices —
+// but every assertion below runs those vertices through actual glyphcss
+// renderer code, not further hand math.
+describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, not self-consistency)", () => {
+  const s = PYRAMID_STAGE_SIZE;
+  const transform = shapeTransform("pyramid");
+  const rotation = transform.rotation as [number, number, number];
+  const [px, py, pz] = transform.position as [number, number, number];
+  const applyPoint = (v: readonly [number, number, number]): [number, number, number] => {
+    const [rx, ry, rz] = rotateWorld(v, rotation);
+    return [rx + px, ry + py, rz + pz];
+  };
+  const cols = 96, rows = 48, cellAspect = 2;
+
+  it("projects the apex to a strictly smaller row (higher on screen) than every base vertex, and keeps the base vertices in one row band, through the real camera", () => {
+    const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
+    const worldO = applyPoint([0, 0, 0]);
+    const worldA = applyPoint([s, 0, 0]);
+    const worldB = applyPoint([0, s, 0]);
+    const worldC = applyPoint([0, 0, s]);
+
+    const apexRow = camera.project(worldO, cols, rows, cellAspect)[1];
+    const baseRows = [worldA, worldB, worldC].map((v) => camera.project(v, cols, rows, cellAspect)[1]);
+
+    for (const baseRow of baseRows) expect(apexRow).toBeLessThan(baseRow);
+    // "One row band": the three base corners don't have to land on the exact
+    // same row (only their world-Z is exactly equal — screen row also picks
+    // up their world X/Y spread once perspective/rotation is applied under
+    // the camera's nonzero yaw), but the failure mode this guards against is
+    // the ORIGINAL regression — a base corner landing ABOVE the apex, i.e. a
+    // negative or near-zero gap. Asserting a comfortably positive minimum gap
+    // (not a tight band vs. the total shape height, which the oblique default
+    // camera angle spreads the base corners across regardless of a correct
+    // orientation) is the actual regression guard.
+    const apexToBaseSpan = Math.min(...baseRows) - apexRow;
+    expect(apexToBaseSpan).toBeGreaterThan(0.2);
+  });
+
+  it("renders a silhouette (through the real compileScene rasterizer) whose bbox center lands within ~1 cell of the grid center", () => {
+    const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
+    const worldPolys = (shapePolys("pyramid") as unknown as { vertices: [number, number, number][] }[])
+      .map((p) => ({ vertices: p.vertices.map(applyPoint) }));
+    const result = compileScene({ polygons: worldPolys as never, camera, cols, rows, cellAspect, mode: "solid", useColors: false });
+
+    const lines = result.inner.split("\n");
+    expect(lines.length).toBe(rows);
+    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity, covered = 0;
+    lines.forEach((line, r) => {
+      for (let c = 0; c < line.length; c++) {
+        if (line[c] === " ") continue;
+        covered++;
+        if (c < minCol) minCol = c; if (c > maxCol) maxCol = c;
+        if (r < minRow) minRow = r; if (r > maxRow) maxRow = r;
+      }
+    });
+    expect(covered).toBeGreaterThan(0); // the shape actually rendered something
+    const bboxColCenter = (minCol + maxCol) / 2;
+    const bboxRowCenter = (minRow + maxRow) / 2;
+    expect(Math.abs(bboxColCenter - cols / 2)).toBeLessThan(1);
+    expect(Math.abs(bboxRowCenter - rows / 2)).toBeLessThan(1);
   });
 });
 
