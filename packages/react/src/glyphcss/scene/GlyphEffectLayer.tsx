@@ -54,6 +54,13 @@ interface RuntimeProps {
    * that immutability rather than throwing from inside a render effect.
    */
   program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same
+   * mount-only-forward, immutable-after-mount contract as `program` above,
+   * for a definition that drives a second independent program (e.g.
+   * field-synth's colour voice stack).
+   */
+  colorProgram?: unknown;
 }
 
 interface NormalizedLayerOptions {
@@ -174,6 +181,7 @@ function GlyphEffectLayerInner(
       effect: props.effect,
       ...(props.params !== undefined ? { params: props.params } : {}),
       ...(props.program !== undefined ? { program: props.program } : {}),
+      ...(props.colorProgram !== undefined ? { colorProgram: props.colorProgram } : {}),
       ...options,
     } as never) as RuntimeHandle;
 

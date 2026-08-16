@@ -293,6 +293,37 @@ describe("GlyphEffectLayer (React)", () => {
     act(() => root.unmount());
   });
 
+  it("forwards a `colorProgram` option (VOLUMETRIC-4.md §1, program-as-data's named sibling) at mount, and does not re-forward it through setOptions on a later options-only re-render", () => {
+    const handle = createHandle();
+    const { scene, addEffectLayer } = createScene([handle]);
+    const sceneRef = { current: scene };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const payload = { domain: "2d", layers: [] };
+
+    act(() => {
+      root.render(
+        <GlyphSceneContext.Provider value={{ sceneRef }}>
+          <GlyphEffectLayer effect={effectA} params={{ time: 1 }} colorProgram={payload} />
+        </GlyphSceneContext.Provider>,
+      );
+    });
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ colorProgram: payload }));
+
+    act(() => {
+      root.render(
+        <GlyphSceneContext.Provider value={{ sceneRef }}>
+          <GlyphEffectLayer effect={effectA} params={{ time: 1 }} colorProgram={payload} opacity={0.5} />
+        </GlyphSceneContext.Provider>,
+      );
+    });
+    expect(addEffectLayer).toHaveBeenCalledOnce();
+    expect(handle.setOptions).toHaveBeenCalledOnce();
+    expect(handle.setOptions).toHaveBeenCalledWith(expect.not.objectContaining({ colorProgram: expect.anything() }));
+
+    act(() => root.unmount());
+  });
+
   it("recreates a raw-program layer when its parameter schema changes", () => {
     const first = createHandle();
     const second = createHandle();
