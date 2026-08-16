@@ -193,6 +193,38 @@ const SIERPINSKI_CHILD_OFFSETS: readonly FractalChildOffset[] = (() => {
   return out;
 })();
 
+// Reused per-recursion-depth scratch buffers for `fractalUnionSdf`'s per-node
+// bound/insertion-sort arrays. Profiled directly (perf packet: "why is the
+// Menger SDF preset slow"): a single sphere-traced carve cell calls
+// `fractalUnionSdf` a handful of times per march step (mean ~4 node visits
+// per oracle call, iter 3), and a preset's `evaluate()` can run tens of
+// thousands of oracle calls across a covered grid — every non-leaf visit was
+// allocating two fresh `Array`s (`bounds`/`order`, up to 20 entries each) that
+// live for a few dozen lines and are then discarded, pure GC pressure with no
+// correctness purpose. Recursion here is synchronous and single-threaded, and
+// `depthRemaining` strictly decreases on every non-leaf call, so ONE buffer
+// PER DEPTH LEVEL is safe to reuse across every call at that depth: a call
+// never re-enters its own depth while a deeper call is in flight, and a
+// shallower call's buffer is untouched by anything happening below it.
+// `FRACTAL_SCRATCH_CHILDREN` covers the larger of the two shipped offset sets
+// (menger: 20; sierpinski: 8) — both are fixed-length module-private consts
+// with no public way to substitute a longer one. The depth pool itself grows
+// lazily rather than being hard-capped at the schema's 1..4 `iter` range:
+// `mengerFractalSdf`/`sierpinskiFractalSdf` take a raw, unclamped `iter` (only
+// field-synth's own call sites clamp via `clampSdfIter`), so a hand-built
+// caller passing a deeper value still gets a correct (if slower) answer
+// instead of a bound overrun.
+const FRACTAL_SCRATCH_CHILDREN = 20;
+const fractalScratchBoundsPool: Float64Array[] = [];
+const fractalScratchOrderPool: Int32Array[] = [];
+function fractalScratchAt(depth: number): { bounds: Float64Array; order: Int32Array } {
+  while (fractalScratchBoundsPool.length <= depth) {
+    fractalScratchBoundsPool.push(new Float64Array(FRACTAL_SCRATCH_CHILDREN));
+    fractalScratchOrderPool.push(new Int32Array(FRACTAL_SCRATCH_CHILDREN));
+  }
+  return { bounds: fractalScratchBoundsPool[depth]!, order: fractalScratchOrderPool[depth]! };
+}
+
 // Recursively descend `depthRemaining` more levels below a node centered at
 // (cx, cy, cz) with half-extent `half`, splitting into `offsets.length`
 // equal children per level (menger: 3-way per axis via `MENGER_CHILD_
@@ -218,8 +250,7 @@ function fractalUnionSdf(
   const childHalf = half / divisor;
   const centerScale = childHalf * (divisor - 1);
   const n = offsets.length;
-  const bounds = new Array<number>(n);
-  const order = new Array<number>(n);
+  const { bounds, order } = fractalScratchAt(depthRemaining);
   for (let i = 0; i < n; i++) {
     const o = offsets[i]!;
     const ccx = cx + o.ox * centerScale, ccy = cy + o.oy * centerScale, ccz = cz + o.oz * centerScale;
