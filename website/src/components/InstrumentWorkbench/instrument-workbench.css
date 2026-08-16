@@ -22,6 +22,11 @@
   --overlay-right: 12px;
   --overlay-bottom: 12px;
   --overlay-left: 12px;
+  /* `.synth-presets`' own natural single-row height (104px square tile +
+     ~21px label row + 10px top/bottom padding + 1px border-top) — pinned
+     here as the one source of truth `.synth-presets` itself is sized from
+     below, instead of a bare number duplicated at each use site. */
+  --synth-footer-height: 146px;
 }
 /* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
 .synth-body {
@@ -29,6 +34,28 @@
   display: flex;
   min-height: 0;
   position: relative;
+}
+
+/* Desktop only (mobile's own `--mobile-panel-bottom` below already reserves
+   its OWN clearance, and the footer collapses into a hidden drawer there —
+   see the `@media (max-width: 760px)` block's own comment): `.dn-floating-
+   controls`'s wrapper already clips correctly against `.synth-body` (its
+   positioned containing block, already shrunk by the footer's normal flex
+   flow), but `.lil-gui.root`'s OWN `max-height` (gallery-workbench.css) is
+   computed from `100vh`, a viewport-absolute figure with no notion of
+   `.synth-presets` at all — it grows straight through the wrapper's
+   `overflow: visible` and into the footer strip. Folding the footer's height
+   into `--overlay-bottom` here fixes both `.dn-floating-controls`'s own calc
+   and `.lil-gui.root`'s generic one in the same stroke, since both already
+   read this variable; `.lil-gui.root`'s pre-existing `overflow-y: auto
+   !important` then does the "scroll inside instead of overlap" work with no
+   further change needed. Scoped to `.synth-shell.dn-root` (this page only) —
+   the gallery page's own `--overlay-bottom` (gallery-workbench.css) is
+   untouched. */
+@media (min-width: 761px) {
+  .synth-shell.dn-root {
+    --overlay-bottom: calc(var(--synth-footer-height) + 12px);
+  }
 }
 
 /* ── Left rail: voices ─────────────────────────────────────────────────── */
