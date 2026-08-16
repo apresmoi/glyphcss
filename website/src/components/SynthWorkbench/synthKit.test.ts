@@ -437,9 +437,9 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
 // The arbiter for "does this actually look upright and centered" cannot be a
 // hand-rolled matrix reproduction — that only proves a transform is
 // internally self-consistent with its OWN re-derivation of `applyTransform`'s
-// math, not that it renders correctly. Two prior fixes both shipped exactly
-// that kind of self-consistency test and passed while the LIVE PAGE still
-// looked wrong:
+// math, not that it renders correctly. THREE prior fixes each shipped
+// exactly that kind of self-consistency test and passed while the LIVE PAGE
+// still looked wrong:
 //   - 43026ff targeted world +Y as "up" — passed a hand-rolled check, but
 //     `createGlyphOrthographicCamera` doesn't treat +Y as vertical (see
 //     `alignCornerTetraApexEuler`'s doc in synthKit.tsx).
@@ -452,19 +452,61 @@ describe("shapeTransform(\"pyramid\") (upright reorientation, world rotate + cen
 //     several cells off-center at the ~4x larger zoom `SynthWorkbench.tsx`'s
 //     own `frameObject` actually computes to fill the real viewport
 //     (confirmed live via Playwright against the running page).
+//   - 783fa79 centered the rotated shape's screen-PROJECTED silhouette bbox
+//     instead — exact at the ONE fixed pose it was solved at (verified live
+//     via Playwright, and by the tight `<0.1`-cell version of the bbox test
+//     below). But the solved translation has nonzero world X/Y components
+//     (a tetrahedron's 4-vertex bbox center isn't ON its own 3-fold
+//     symmetry axis), and `createGlyphOrthographicCamera` orbits around
+//     `target` (world origin, never set by this stage) — so that lateral
+//     offset makes the shape's screen position swing through an
+//     ellipse as the camera's `rotY` (yaw — orbit auto-rotate, or a manual
+//     drag) sweeps: the "rotates eccentrically" bug. Confirmed with a
+//     pre-fix instrumentation sweep matching this suite's methodology: the
+//     783fa79 translation drifts the shape's projected centroid by ~30
+//     cells (of 135) across an 8-phase, 45°-apart `rotY` sweep — vs. <0.1
+//     cells for the fix below.
 //
-// This suite instead builds the scene the way `SynthWorkbench.tsx` ACTUALLY
-// does for the pyramid stage: the real `createGlyphScene` + real
-// `frameObject` (imported from synthKit.tsx, not reimplemented here) + real
-// `shapePolys("pyramid")` + real `shapeTransform("pyramid")`, at the page's
-// real `STAGE_CAMERA_ROT_X/Y/ZOOM`. `cols`/`rows` are set directly (bypassing
-// `autoSize`, which needs real browser layout unavailable under vitest) at
-// several very different grid sizes, including one close to the /synth
-// page's actual measured stage grid at a common desktop viewport (135x52) —
-// proving the fix holds well past the old test's specific tolerance-tuned
-// size, not just AT it. A future change to `frameObject`, `shapePolys`,
-// `shapeTransform`, or the stage camera constants flows straight into this
-// test instead of silently drifting from what the page actually ships.
+// The fix constrains `position` to a PURE world-Z translation — i.e.
+// translating the tetra ALONG its own 3-fold symmetry axis, which
+// `alignCornerTetraApexEuler`'s rotation already places exactly on world Z
+// through the origin (apex O is always at local (0,0,0), which `rotateOnly`
+// fixes; the three base corners land 120° apart around that same line — see
+// that function's doc). A translation along the axis leaves the axis
+// exactly where it was (still the line x=0,y=0, through the camera's
+// pivot), which `rotateVec3Voxcss` (createGlyphCamera.ts) makes provably
+// invariant: a pure-Z world vector's rotated CSS-X/col component is
+// IDENTICALLY zero for every `rotX`/`rotY` (`rotateZ(rotY)` never touches
+// the Z-swapped `cz`; `rotateX(rotX)` only ever mixes `cy`/`cz`, never
+// `cx`) — so centering along Z can never introduce lateral drift, at any
+// camera angle, not just the one it's solved at. `pz` is still solved
+// against the real camera (single remaining unknown: vertical placement),
+// matching 783fa79's "ask the real camera, don't hand-derive it" approach.
+//
+// One consequence: the shape's raw PIXEL SILHOUETTE bbox (min/max covered
+// cell) is no longer a valid "is this centered" oracle by itself. A
+// tetrahedron has 3-fold rotational symmetry but — unlike a cube,
+// icosahedron, or sphere — no CENTRAL INVERSION symmetry, so its rendered
+// outline's left/right extent genuinely shifts a few percent of the grid
+// width as true azimuth changes, even while the object rotates in perfect
+// place about a correctly centered axis (this is real, expected behavior —
+// a physical die-corner spun on its own axis under an oblique camera looks
+// the same way). The provably-invariant quantity is the shape's own
+// CENTROID (equivalently, any point on its symmetry axis): this suite
+// tracks that under a spin sweep, and separately confirms — via the same
+// sweep run against `cube`/`icosahedron`/`sphere` — that shapes WITH
+// central symmetry show exactly zero silhouette-bbox drift, which the
+// pyramid structurally cannot match.
+//
+// This suite builds the scene the way `SynthWorkbench.tsx` ACTUALLY does
+// for the pyramid stage: the real `createGlyphScene` + real `frameObject`
+// (imported from synthKit.tsx, not reimplemented here) + real
+// `shapePolys(...)` + real `shapeTransform(...)`, at the page's real
+// `STAGE_CAMERA_ROT_X/Y/ZOOM`. `cols`/`rows` are set directly (bypassing
+// `autoSize`, which needs real browser layout unavailable under vitest).
+// The spin sweep mutates `camera.rotY` directly after a SINGLE
+// `frameObject` call, exactly matching `SynthWorkbench.tsx`'s orbit tick
+// (`camera.zoom` is fixed once at scene build, never re-fit per frame).
 describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, page-config replica)", () => {
   const s = PYRAMID_STAGE_SIZE;
   const transform = shapeTransform("pyramid");
@@ -475,6 +517,11 @@ describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, page-c
     return [rx + px, ry + py, rz + pz];
   };
   const cols = 96, rows = 48, cellAspect = 2;
+
+  it("is a PURE world-Z translation — no lateral X/Y component (the axis-preserving fix)", () => {
+    expect(px).toBeCloseTo(0, 10);
+    expect(py).toBeCloseTo(0, 10);
+  });
 
   it("projects the apex to a strictly smaller row (higher on screen) than every base vertex, and keeps the base vertices in one row band, through the real camera", () => {
     const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
@@ -527,7 +574,7 @@ describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, page-c
     { label: "the old arbiter's small fixed grid", gridCols: 96, gridRows: 48 },
     { label: "the live /synth page's measured stage grid (desktop viewport)", gridCols: 135, gridRows: 52 },
     { label: "a much larger grid — proves the fix isn't tuned to one size", gridCols: 260, gridRows: 96 },
-  ])("renders a silhouette (through frameObject's own zoom fit + the real renderer) whose bbox center lands within a fraction of a cell of the grid center — $label", ({ gridCols, gridRows }) => {
+  ])("renders a silhouette at the default pose whose bbox ROW centers exactly (solved directly) and whose bbox COL sits within the shape's own measured asymmetry, not several cells off — $label", ({ gridCols, gridRows }) => {
     const text = renderPyramidStage(gridCols, gridRows);
     const lines = text.split("\n");
     expect(lines.length).toBe(gridRows);
@@ -543,11 +590,148 @@ describe("shapeTransform(\"pyramid\") through the real renderer (arbiter, page-c
     expect(covered).toBeGreaterThan(0); // the shape actually rendered something
     const bboxColCenter = (minCol + maxCol) / 2;
     const bboxRowCenter = (minRow + maxRow) / 2;
-    // The fix solves this EXACTLY (any residual is float-precision only), so
-    // this asserts well tighter than the old ~1-cell tolerance — and, unlike
-    // the old test, at grid sizes that actually stress it.
-    expect(Math.abs(bboxColCenter - gridCols / 2)).toBeLessThan(0.1);
+    // ROW: a pure-Z translation is solved to zero this out directly (see
+    // `solveVerticalCenteringZ` in synthKit.tsx) — exact regardless of grid
+    // size (any residual is float-precision only).
     expect(Math.abs(bboxRowCenter - gridRows / 2)).toBeLessThan(0.1);
+    // COL: NOT solved to zero — see this describe block's doc for why a
+    // tetrahedron's pixel-silhouette bbox center can't be exactly zeroed
+    // without reintroducing lateral drift under orbit. Measured residual is
+    // a steady ~4.4-4.8% of grid width across 96/135/260-col grids (a FIXED
+    // world-space quantity, so it scales with zoom/grid size in cell terms)
+    // — bounded here at 6% with headroom, which still catches a regression
+    // to 529a09e/783fa79-style off-axis placement (which measured several
+    // TIMES the grid width's worth of residual, not a fraction of it).
+    expect(Math.abs(bboxColCenter - gridCols / 2)).toBeLessThan(0.06 * gridCols);
+  });
+
+  // The spin-phase sweep: what THIS bug report was actually about. Builds
+  // the scene ONCE (one `frameObject` fit, fixing `camera.zoom` exactly like
+  // `SynthWorkbench.tsx`'s scene-build effect), then only mutates
+  // `camera.rotY` before each render — exactly what the page's orbit tick
+  // does (`camera.rotY = camera.rotY + ORBIT_YAW_DEG_PER_SEC * dt * ...`).
+  // Tracks the shape's PROJECTED CENTROID (mean of the 4 world vertices,
+  // via the real camera's own `project`) rather than the rendered pixel
+  // bbox — see this describe block's doc for why the pixel bbox is not a
+  // valid stability oracle for a non-centrally-symmetric solid, and the
+  // control-shape test below for the same sweep against shapes that ARE
+  // centrally symmetric (where pixel bbox and centroid coincide exactly).
+  function projectedCentroid(position: readonly [number, number, number], camera: ReturnType<typeof createGlyphOrthographicCamera>, cols: number, rows: number): { col: number; row: number } {
+    const [px2, py2, pz2] = position;
+    const world: [number, number, number][] = ([[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]] as [number, number, number][])
+      .map((v) => { const [rx, ry, rz] = rotateWorld(v, rotation); return [rx + px2, ry + py2, rz + pz2]; });
+    const projected = world.map((v) => camera.project(v, cols, rows, cellAspect));
+    return {
+      col: projected.reduce((a, p) => a + p[0]!, 0) / 4,
+      row: projected.reduce((a, p) => a + p[1]!, 0) / 4,
+    };
+  }
+
+  it("spin-phase sweep: the pyramid's projected centroid stays within ~1 cell of a fixed point across a full rotY sweep (the fixed point within ~1.5 cells of grid center)", () => {
+    const gridCols = 135, gridRows = 52;
+    const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
+    const cols_: { col: number; row: number }[] = [];
+    for (let i = 0; i < 8; i++) {
+      camera.rotY = STAGE_CAMERA_ROT_Y + i * 45;
+      cols_.push(projectedCentroid(transform.position as [number, number, number], camera, gridCols, gridRows));
+    }
+    const colValues = cols_.map((c) => c.col), rowValues = cols_.map((c) => c.row);
+    const colDrift = Math.max(...colValues) - Math.min(...colValues);
+    const rowDrift = Math.max(...rowValues) - Math.min(...rowValues);
+    expect(colDrift).toBeLessThan(1);
+    expect(rowDrift).toBeLessThan(1);
+    const meanCol = colValues.reduce((a, b) => a + b, 0) / colValues.length;
+    const meanRow = rowValues.reduce((a, b) => a + b, 0) / rowValues.length;
+    expect(Math.abs(meanCol - gridCols / 2)).toBeLessThan(1.5);
+    expect(Math.abs(meanRow - gridRows / 2)).toBeLessThan(1.5);
+  });
+
+  // Counter-case: pins the sweep test above as meaningful by reproducing
+  // 783fa79's actual (pre-fix) solve — bbox-based, allows lateral world X/Y
+  // — and confirming that translation FAILS the identical sweep. If a
+  // future change to this counter-case ever passed, the sweep test above
+  // would no longer be trustworthy.
+  it("counter-case: the pre-fix (783fa79) bbox-centered translation FAILS the same spin sweep — the sweep test above is not vacuous", () => {
+    const rotatedCorners: [number, number, number][] = ([[0, 0, 0], [s, 0, 0], [0, s, 0], [0, 0, s]] as [number, number, number][])
+      .map((v) => rotateWorld(v, rotation));
+    // Reproduces `solveScreenCenteringOffset` from 783fa79 exactly (removed
+    // from synthKit.tsx by the fix above) — the OLD position, which centers
+    // the rotated corners' PROJECTED BBOX at the single default camera pose.
+    const probeCamera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: 1 });
+    const metrics = { cellWidth: 1, cellHeight: 1, centerCol: 0, centerRow: 0 };
+    const projRaw = (v: [number, number, number]): [number, number, number] => {
+      const [c, r, d] = probeCamera.project(v, 2, 2, 1, metrics);
+      return [c, r, d ?? 0];
+    };
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const v of rotatedCorners) {
+      const [x, y] = projRaw(v);
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    const sVec: [number, number, number] = [-(minX + maxX) / 2, -(minY + maxY) / 2, 0];
+    const dot = (a: [number, number, number], b: [number, number, number]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const c1 = projRaw([1, 0, 0]), c2 = projRaw([0, 1, 0]), c3 = projRaw([0, 0, 1]);
+    const oldPosition: [number, number, number] = [dot(c1, sVec), dot(c2, sVec), dot(c3, sVec)];
+    // Sanity: this really is the OLD off-axis translation (nonzero X/Y).
+    expect(Math.abs(oldPosition[0])).toBeGreaterThan(0.01);
+
+    const gridCols = 135, gridRows = 52;
+    const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
+    const colValues: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      camera.rotY = STAGE_CAMERA_ROT_Y + i * 45;
+      colValues.push(projectedCentroid(oldPosition, camera, gridCols, gridRows).col);
+    }
+    const colDrift = Math.max(...colValues) - Math.min(...colValues);
+    expect(colDrift).toBeGreaterThan(1); // fails the <1-cell bound the fix passes
+  });
+
+  // Control shapes: NOT `pyramid` (identity transform, no translation at
+  // all — see the "is the identity ... for every other stage shape" test
+  // above), and each has central inversion symmetry, so their rendered
+  // PIXEL SILHOUETTE bbox (not just centroid) is exactly invariant under
+  // the identical spin sweep — unchanged before and after this fix, and the
+  // reason a full-precision pixel-bbox tolerance is achievable for these
+  // shapes but structurally isn't for the pyramid (this describe block's
+  // doc).
+  it.each(["cube", "icosahedron", "sphere"])("control: %s's rendered pixel-silhouette bbox is exactly unchanged across the same 8-phase rotY sweep", (shape) => {
+    const gridCols = 135, gridRows = 52;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ rotX: STAGE_CAMERA_ROT_X, rotY: STAGE_CAMERA_ROT_Y, zoom: STAGE_CAMERA_ZOOM });
+    const scene = createGlyphScene(host, { camera, cols: gridCols, rows: gridRows, cellAspect: 2, mode: "solid", useColors: false });
+    const polys = shapePolys(shape);
+    const stageTransform = shapeTransform(shape);
+    expect(stageTransform).toEqual({}); // identity — sanity that this control isn't itself translated
+    scene.add(polys, stageTransform);
+    scene.rerender();
+    frameObject(scene, camera, polys, 0.72, false, stageTransform);
+    scene.rerender();
+
+    function bboxCenter(): { col: number; row: number } {
+      const pre = scene.host.querySelector("pre.glyph-output") as HTMLPreElement;
+      const lines = (pre.textContent ?? "").split("\n");
+      let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+      lines.forEach((line, r) => {
+        for (let c = 0; c < line.length; c++) {
+          if (line[c] === " ") continue;
+          if (c < minCol) minCol = c; if (c > maxCol) maxCol = c;
+          if (r < minRow) minRow = r; if (r > maxRow) maxRow = r;
+        }
+      });
+      return { col: (minCol + maxCol) / 2, row: (minRow + maxRow) / 2 };
+    }
+
+    const first = bboxCenter();
+    for (let i = 1; i < 8; i++) {
+      camera.rotY = STAGE_CAMERA_ROT_Y + i * 45;
+      scene.rerender();
+      const b = bboxCenter();
+      expect(b.col).toBeCloseTo(first.col, 5);
+      expect(b.row).toBeCloseTo(first.row, 5);
+    }
+    scene.destroy();
   });
 });
 
