@@ -1491,8 +1491,10 @@ export function createGlyphScene(
       // full geometry render when retained frames predate it and so lack
       // winner-mesh data — otherwise it silently no-ops (targetCoverage
       // reads a missing winnerMesh as "no winner", so nothing composites)
-      // until the next geometry render. `winnerMesh` is compositor-internal
-      // (not on `output.base`), so this checks the retained `CellGrid` directly.
+      // until the next geometry render. Checks the retained `CellGrid`
+      // directly rather than `output.base.winnerMesh` — equivalent (both
+      // mirror the same buffer as of Phase 2), but this is the one already
+      // guaranteed to exist regardless of whether `base` was built yet.
       || (layer.target instanceof Set && !output.baseGrid.winnerMesh)
     ));
     if (needsInputRaster) scheduleRender();

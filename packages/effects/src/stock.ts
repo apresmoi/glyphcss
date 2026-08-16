@@ -2417,23 +2417,42 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       // `hitState` collapses the spec's four neighbor categories (hit / hole
       // / uncovered / non-target) to three: OUT covers both "no geometry
       // here" (uncovered) and "geometry here, but from a mesh outside this
-      // layer's target set" (non-target) — a program has no per-cell mesh
-      // identity to tell those apart without the compositor's own
-      // (deliberately program-invisible, VOLUMETRIC-3.md §1) winner-mesh
-      // buffer, and both behave identically for a rim/contour decision: the
-      // compositor's own `targetCoverage` weighting already discards
-      // whatever a non-target OUT cell emits here, so folding it in with
-      // "uncovered" changes nothing observable. For the same reason,
-      // "different winner mesh" between two HIT cells is not tracked as its
-      // own category — the fixture that exercises it (a targeted mesh over
-      // an UNtargeted second mesh) already produces that boundary as a
-      // HIT/OUT flip, which rule (a) below inks regardless.
+      // layer's target set" (non-target) — both behave identically for a
+      // rim/contour decision, since the compositor's own `targetCoverage`
+      // weighting already discards whatever a non-target OUT cell emits
+      // here, so folding it in with "uncovered" changes nothing observable.
+      //
+      // A DIFFERENT winner mesh between two HIT cells (VOLUMETRIC-3.md
+      // Phase 2 P1 fix) is its own case, tracked via `context.base.winnerMesh`
+      // (read-only, populated whenever `objectExit` retention is active —
+      // every carve layer qualifies, see `GlyphEffectFrameView.winnerMesh`'s
+      // doc comment): two coplanar, same-normal, globally-targeted meshes at
+      // different depths both resolve to `CARVE_INK_HIT` with no state
+      // difference between them, so relying on `hitState` alone (as v1 did)
+      // let a contour/interior-edge decision bridge straight across a real
+      // mesh seam instead of rimming it. `meshBoundary` below treats two
+      // HIT neighbors with different, both-known mesh ids as a boundary —
+      // same as a `hitState` flip — for both the rim/contour classification
+      // and the rim orientation mask; when mesh data is unavailable (`-1`
+      // sentinel) it never fires, so a scene rendered before mesh-boundary
+      // data existed (or a non-carve/no-effect fallback) keeps this file's
+      // pre-fix behavior exactly.
       const CARVE_INK_OUT = 0;
       const CARVE_INK_HOLE = 1;
       const CARVE_INK_HIT = 2;
 
       function runCarveInkResolve(): void {
         const length = context.base.length;
+        const winnerMeshBuf = context.base.winnerMesh;
+        function meshAt(idx: number): number {
+          return idx < 0 || !winnerMeshBuf ? -1 : winnerMeshBuf[idx]!;
+        }
+        // Two HIT cells only count as a mesh boundary when BOTH ids are
+        // known (`>= 0`) and differ — an unknown/missing id never manufactures
+        // a boundary that wasn't there before this fix.
+        function meshBoundary(selfState: number, selfMesh: number, nState: number, nMesh: number): boolean {
+          return selfState === CARVE_INK_HIT && nState === CARVE_INK_HIT && selfMesh >= 0 && nMesh >= 0 && selfMesh !== nMesh;
+        }
         const hitState = new Uint8Array(length);
         const hitDistance = new Float32Array(length);
         const hitPacked = new Uint32Array(length);
@@ -2499,11 +2518,16 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (self === CARVE_INK_OUT) continue;
           const rIdx = neighborOf(i, 0), lIdx = neighborOf(i, 1), dIdx = neighborOf(i, 2), uIdx = neighborOf(i, 3);
           const rState = stateAt(rIdx), lState = stateAt(lIdx), dState = stateAt(dIdx), uState = stateAt(uIdx);
-          // Rule (a): ANY neighbor in a different category — always inked,
-          // regardless of what `self` itself is (a hole/OUT cell right next
-          // to a hit is rimmed too, so a rim cell with no hit of its own can
-          // borrow a color below).
-          const isRim = self !== rState || self !== lState || self !== dState || self !== uState;
+          const selfMesh = meshAt(i);
+          const rMesh = meshAt(rIdx), lMesh = meshAt(lIdx), dMesh = meshAt(dIdx), uMesh = meshAt(uIdx);
+          // Rule (a): ANY neighbor in a different category, OR (Phase 2 P1
+          // fix) a same-category HIT neighbor with a DIFFERENT winner mesh
+          // — always inked, regardless of what `self` itself is (a hole/OUT
+          // cell right next to a hit is rimmed too, so a rim cell with no
+          // hit of its own can borrow a color below).
+          const isRim = self !== rState || self !== lState || self !== dState || self !== uState
+            || meshBoundary(self, selfMesh, rState, rMesh) || meshBoundary(self, selfMesh, lState, lMesh)
+            || meshBoundary(self, selfMesh, dState, dMesh) || meshBoundary(self, selfMesh, uState, uMesh);
 
           let gx = 0, gy = 0;
           let inked = isRim;
@@ -2512,18 +2536,22 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             // COVERAGE MASK — a depth gradient is undefined against a
             // sentinel (non-hit) neighbor, and the naive depth-everywhere
             // fallback renders every rim cell as "-" (the pinned all-dashes
-            // counter-case).
-            const maskOf = (s: number): number => s === CARVE_INK_HIT ? 1 : 0;
-            gx = maskOf(rState) - maskOf(lState);
-            gy = maskOf(dState) - maskOf(uState);
+            // counter-case). A HIT neighbor on a DIFFERENT winner mesh reads
+            // as "not my surface" here too (mask 0), same reasoning: the
+            // mesh seam is exactly as undefined a depth reference as a
+            // sentinel non-hit neighbor is.
+            const maskOf = (s: number, nMesh: number): number => (s === CARVE_INK_HIT && !meshBoundary(self, selfMesh, s, nMesh)) ? 1 : 0;
+            gx = maskOf(rState, rMesh) - maskOf(lState, lMesh);
+            gy = maskOf(dState, dMesh) - maskOf(uState, uMesh);
           } else if (self === CARVE_INK_HIT) {
             // Rule (a) didn't fire, so every EXISTING neighbor already
-            // shares `self`'s state (CARVE_INK_HIT) — rules (b)/(c): a
-            // multiple of `inkSpacing` between two hit depths (contour), or
-            // too great a depth jump (interior edge). A missing (off-grid)
-            // neighbor contributes 0 (defaults to `self`'s own depth), the
-            // same edge-mirroring convention the rest of this file's subcell
-            // gradient probes use.
+            // shares `self`'s state (CARVE_INK_HIT) AND, per `meshBoundary`
+            // above, its winner mesh too — rules (b)/(c): a multiple of
+            // `inkSpacing` between two hit depths (contour), or too great a
+            // depth jump (interior edge), are only ever compared WITHIN one
+            // mesh's own surface. A missing (off-grid) neighbor contributes
+            // 0 (defaults to `self`'s own depth), the same edge-mirroring
+            // convention the rest of this file's subcell gradient probes use.
             const selfDist = hitDistance[i]!;
             const rDist = rIdx >= 0 ? hitDistance[rIdx]! : selfDist;
             const lDist = lIdx >= 0 ? hitDistance[lIdx]! : selfDist;
@@ -2588,16 +2616,16 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         readonly ex: number; readonly ey: number; readonly ez: number;
         readonly xx: number; readonly xy: number; readonly xz: number;
         readonly nx: number; readonly ny: number; readonly nz: number;
+        readonly mesh: number;
       }
 
       // A covered, in-target cell's own (already scale-applied) entry/exit
-      // chord and geometric face normal — `null` when this cell has no
-      // finite chord to march at all (mirrors the 1x1 path's own skip).
-      // "In target" doubles as this file's only available proxy for "same
-      // winner mesh" (see `runCarveInkResolve`'s doc) — the crease-edge
-      // counter-case (two faces of the SAME mesh) is caught by the
-      // normal-agreement gate below instead, which is the mechanism the
-      // spec actually pins a test to.
+      // chord, geometric face normal, and winner mesh id — `null` when this
+      // cell has no finite chord to march at all (mirrors the 1x1 path's
+      // own skip). `mesh` is `-1` when no winner-mesh data is retained
+      // (never populates without `objectExit` retention — see
+      // `GlyphEffectFrameView.winnerMesh`'s doc comment — so this is a
+      // theoretical fallback, not an expected runtime path for carve).
       function carveCellGeometry(idx: number): CarveCellGeometry | null {
         if (context.target.coverage[idx]! <= 0) return null;
         const op = context.base.objectPosition!;
@@ -2612,18 +2640,28 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           const rnx = nrm[idx * 3]!, rny = nrm[idx * 3 + 1]!, rnz = nrm[idx * 3 + 2]!;
           if (Number.isFinite(rnx) && Number.isFinite(rny) && Number.isFinite(rnz)) { nx = rnx; ny = rny; nz = rnz; }
         }
-        return { ex: px * scale, ey: py * scale, ez: pz * scale, xx: exx * scale, xy: exy * scale, xz: exz * scale, nx, ny, nz };
+        const winnerMeshBuf = context.base.winnerMesh;
+        const mesh = winnerMeshBuf ? winnerMeshBuf[idx]! : -1;
+        return { ex: px * scale, ey: py * scale, ez: pz * scale, xx: exx * scale, xy: exy * scale, xz: exz * scale, nx, ny, nz, mesh };
       }
 
       // Strict neighbor eligibility: finite entry AND exit (via
-      // `carveCellGeometry`'s own null check) AND the geometric normals
-      // agree (dot > 0.9) — a finite neighbor on a different cube FACE or a
-      // different MESH interpolates endpoints off the surface, breaking
-      // every visible edge column without this gate.
+      // `carveCellGeometry`'s own null check), the SAME winner mesh
+      // (VOLUMETRIC-3.md Phase 2 P1 fix — an agreeing normal alone is not
+      // enough: two adjacent, coplanar, same-normal meshes previously
+      // passed this gate and interpolated a sub-ray's endpoint off the
+      // near mesh's own surface toward the far mesh's unrelated position;
+      // both ids known-and-different is required to REJECT, so unknown
+      // mesh data — `-1` — never blocks eligibility it didn't block before
+      // this fix), AND the geometric normals agree (dot > 0.9) — a finite
+      // neighbor on a different cube FACE of the SAME mesh interpolates
+      // endpoints off the surface too, breaking every visible crease-edge
+      // column without this second gate.
       function eligibleCarveNeighbor(selfGeom: CarveCellGeometry, idx: number): CarveCellGeometry | null {
         if (idx < 0) return null;
         const g = carveCellGeometry(idx);
         if (!g) return null;
+        if (selfGeom.mesh >= 0 && g.mesh >= 0 && selfGeom.mesh !== g.mesh) return null;
         const dot = g.nx * selfGeom.nx + g.ny * selfGeom.ny + g.nz * selfGeom.nz;
         return dot > 0.9 ? g : null;
       }

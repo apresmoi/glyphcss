@@ -80,10 +80,14 @@ export interface CellGrid {
   /**
    * Winning MESH id (see `RasterizeContext.polygonMeshIds`) for the
    * depth-winning solid surface. `-1` marks an empty or occlusion-blanked
-   * cell. Solid-mode-only (never populated by wireframe/voxel/ink), and
-   * compositor-internal: it is the substrate for per-object effect
-   * targeting (`targetCoverage`), never surfaced on `GlyphEffectFrameView`
-   * or any `GlyphEffectRequirement` — programs cannot read it directly.
+   * cell. Solid-mode-only (never populated by wireframe/voxel/ink). It is
+   * the substrate for per-object effect targeting (`targetCoverage`) AND,
+   * as of VOLUMETRIC-3.md Phase 2, is also read-only-surfaced on
+   * `GlyphEffectFrameView.winnerMesh` (never a `GlyphEffectRequirement` —
+   * a program cannot request it) so a volumetric subcell program can test
+   * exact mesh-boundary equality between neighboring cells instead of only
+   * position/normal, which two coplanar same-normal meshes can't
+   * distinguish.
    */
   winnerMesh?: Int32Array;
   /** Packed `0xRRGGBB` unlit albedo from the same depth-winning surface cell. */

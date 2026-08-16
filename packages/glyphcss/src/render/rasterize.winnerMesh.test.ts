@@ -89,7 +89,7 @@ describe("solid winner mesh capture (VOLUMETRIC-3.md §1)", () => {
     }
   });
 
-  it("allocates the winner-mesh scratch buffer under EITHER retainObjectExit or retainWinnerMesh, but only exposes CellGrid.winnerMesh under retainWinnerMesh", () => {
+  it("allocates the winner-mesh scratch buffer under EITHER retainObjectExit or retainWinnerMesh, and exposes CellGrid.winnerMesh under EITHER too (Phase 2 P1 fix: a carve/volumetric-subcell layer always sets retainObjectExit, and needs mesh-boundary data even when no layer is mesh-targeted)", () => {
     const ctx = context([quad(0), quad(1)], [5, 7]);
     const baseline = rasterize({ ...ctx, retainWinnerMesh: false });
     const cameraScratch = ctx.camera as unknown as { __glyphScratch?: { winnerMesh?: Int32Array | null } };
@@ -100,12 +100,14 @@ describe("solid winner mesh capture (VOLUMETRIC-3.md §1)", () => {
     expect(rasterize({ ...ctx, retainWinnerMesh: false })).toBe(baseline);
 
     // retainObjectExit alone allocates the internal scratch buffer (it always
-    // did) but must NOT expose CellGrid.winnerMesh.
+    // did) and, as of Phase 2, also exposes CellGrid.winnerMesh — a mesh-
+    // boundary test doesn't require a mesh-targeted layer to be mounted.
     const objectExitOnly = rasterizeToCells({ ...ctx, retainObjectExit: true, retainWinnerMesh: false });
     expect(cameraScratch.__glyphScratch?.winnerMesh).toBeInstanceOf(Int32Array);
-    expect(objectExitOnly.winnerMesh).toBeUndefined();
+    expect(objectExitOnly.winnerMesh).toBeInstanceOf(Int32Array);
+    expect(objectExitOnly.winnerMesh![coveredCenter(objectExitOnly)]).toBe(7);
 
-    // retainWinnerMesh exposes it.
+    // retainWinnerMesh alone (no objectExit) also exposes it, unchanged.
     const withWinnerMesh = rasterizeToCells({ ...ctx, retainWinnerMesh: true });
     expect(withWinnerMesh.winnerMesh).toBeInstanceOf(Int32Array);
   });

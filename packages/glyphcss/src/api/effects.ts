@@ -120,6 +120,23 @@ export interface GlyphEffectFrameView extends GlyphEffectImageView {
    * `"objectExit"` requirement.
    */
   readonly objectExit?: GlyphReadonlyNumberArray;
+  /**
+   * Winning MESH id per cell (see `CellGrid.winnerMesh`), `-1` for an empty
+   * or occlusion-blanked cell. Read-only — NOT a `GlyphEffectRequirement`;
+   * a program cannot request it and its presence is never gated by one.
+   * Populated whenever `objectExit` retention is active (every carve layer
+   * qualifies, since carve's `objectExit` requirement is static) OR at
+   * least one mounted layer is mesh-targeted (VOLUMETRIC-3.md §1),
+   * whichever is live — same substrate the compositor already computes for
+   * `targetCoverage`. Exposed for exact mesh-boundary tests a volumetric
+   * subcell program needs and `objectPosition`/`normal` alone can't
+   * express: two adjacent, coplanar, same-normal meshes are otherwise
+   * indistinguishable to a program, so a contour/interpolation that only
+   * checks position and normal can bridge across a genuine mesh seam
+   * (VOLUMETRIC-3.md Phase 2 P1 fix). Absent outside solid mode and when
+   * neither condition above holds.
+   */
+  readonly winnerMesh?: GlyphReadonlyNumberArray;
   readonly surfaceKey?: GlyphReadonlyNumberArray;
   readonly uv0?: GlyphReadonlyNumberArray;
 }

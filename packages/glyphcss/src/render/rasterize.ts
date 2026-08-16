@@ -1271,9 +1271,14 @@ function rasterizeSolid(
   // needs it to restrict the exit sweep's farthest-depth scan per cell to
   // the mesh that actually won there) OR `retainWinnerMesh` (per-object
   // effect targeting's `targetCoverage` substrate — VOLUMETRIC-3.md §1),
-  // whichever is live. Downsampled and exposed on `CellGrid.winnerMesh` only
-  // when `retainWinnerMesh` requested it; `retainObjectExit` alone still
-  // never exposes it (unchanged from before this option existed).
+  // whichever is live. Downsampled and exposed on `CellGrid.winnerMesh`
+  // whenever EITHER gate is live — see the exposure assignment below
+  // (revised in VOLUMETRIC-3.md Phase 2: `retainObjectExit` alone used to
+  // allocate the buffer without ever surfacing it, which left every carve
+  // volumetric-subcell program — always `retainObjectExit`, rarely
+  // mesh-targeted — with no way to test exact mesh-boundary equality
+  // between neighboring cells; two coplanar same-normal meshes were
+  // otherwise indistinguishable to those programs, the Phase 2 P1 fix).
   let winnerMeshBuf: Int32Array | null = null;
   if (scene.retainObjectExit || scene.retainWinnerMesh) {
     if (!scratch.winnerMesh || scratch.winnerMesh.length !== n) scratch.winnerMesh = new Int32Array(n);
@@ -1817,10 +1822,12 @@ function rasterizeSolid(
   let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
   let finalTargetRgb: Uint32Array | null = targetRgbBuf;
   let finalWeight: Uint16Array | null = weightBuf;
-  // Only exposed on `CellGrid.winnerMesh` when `retainWinnerMesh` actually
-  // requested it — `retainObjectExit` alone still allocates `winnerMeshBuf`
-  // (for the exit sweep's gating) but never surfaces it downstream.
-  let finalWinnerMesh: Int32Array | null = scene.retainWinnerMesh ? winnerMeshBuf : null;
+  // Exposed on `CellGrid.winnerMesh` whenever the buffer above was actually
+  // allocated (`retainWinnerMesh` for per-object targeting OR
+  // `retainObjectExit` for every carve/volumetric-subcell effect — see the
+  // allocation comment above for why `retainObjectExit` alone must expose
+  // it too, as of VOLUMETRIC-3.md Phase 2).
+  let finalWinnerMesh: Int32Array | null = (scene.retainWinnerMesh || scene.retainObjectExit) ? winnerMeshBuf : null;
   if (supersample > 1 && wantsHalfblockSolid(scene)) {
     // Two-color (`▀`/`▄`/`█`) encoding straight from the raw supersampled
     // subcells — see `encodeHalfblockSolid` for the per-cell decision table

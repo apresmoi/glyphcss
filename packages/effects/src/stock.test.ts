@@ -3046,6 +3046,7 @@ function evaluateFieldSynthGrid(
     objectExit: Float32Array;
     normal?: Float32Array;
     targetCoverage?: Float32Array;
+    winnerMesh?: Int32Array;
   },
 ) {
   const length = cols * rows;
@@ -3071,6 +3072,7 @@ function evaluateFieldSynthGrid(
       objectPosition: buffers.objectPosition,
       objectExit: buffers.objectExit,
       ...(buffers.normal ? { normal: buffers.normal } : {}),
+      ...(buffers.winnerMesh ? { winnerMesh: buffers.winnerMesh } : {}),
     },
     input: { cols, rows, length, glyph, coverage: baseCoverage, color },
     target: { coverage: buffers.targetCoverage ?? baseCoverage },
@@ -3292,6 +3294,59 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
     // OUT cell as `self` (see `runCarveInkResolve`).
     expect(inkedAt(output, row * cols + targetBoundaryCol)).toBe(false);
   });
+
+  // Phase 2 P1 regression (VOLUMETRIC-3.md §2's "Contours NEVER cross
+  // winner-mesh ... boundaries" rule, reviewer-repro'd both directions):
+  // the test above exercises a target/non-target flip, which the pre-fix
+  // engine already handled correctly because `hitState` itself changes
+  // (HIT -> OUT) at that boundary. This is the case the P1 report actually
+  // pins — TWO fully in-target meshes, both HIT, sharing the SAME normal
+  // and the SAME depth (genuinely coplanar), differing ONLY in winner mesh
+  // id. `hitState` alone cannot see that difference at all, so pre-fix the
+  // whole interior — including the seam — reads as one undifferentiated
+  // flat HIT surface with zero depth variance anywhere, and rule (b)/(c)
+  // never crosses an `inkSpacing` multiple or a depth jump either: nothing
+  // ever inks, silently merging the two meshes into one surface. The fix
+  // (`meshBoundary` in `runCarveInkResolve`) must ink the seam as a rim
+  // even with no accompanying depth or state difference at all.
+  it("P1 regression: two coplanar, same-normal, fully in-target meshes at the SAME depth still ink a rim at their winner-mesh seam — not silently merged into one surface", () => {
+    const cols = 16, rows = 8;
+    const chordLength = 3;
+    const depth = 0.5; // constant for BOTH meshes — genuinely coplanar, zero depth variance anywhere
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const winnerMesh = new Int32Array(cols * rows);
+    const meshBoundaryCol = cols / 2;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const i = row * cols + col;
+        objectPosition[i * 3] = 0; objectPosition[i * 3 + 1] = 0; objectPosition[i * 3 + 2] = -depth;
+        objectExit[i * 3] = 0; objectExit[i * 3 + 1] = 0; objectExit[i * 3 + 2] = -depth + chordLength;
+        winnerMesh[i] = col < meshBoundaryCol ? 0 : 1;
+      }
+    }
+    const output = evaluateFieldSynthGrid(
+      cols, rows, TILTED_PLANE_PARAMS, () => {}, { objectPosition, objectExit, winnerMesh },
+    );
+
+    const row = 3;
+    const leftOfSeam = row * cols + (meshBoundaryCol - 1);
+    const rightOfSeam = row * cols + meshBoundaryCol;
+    const awayFromSeam = row * cols + 2; // deep inside mesh 0 — no mesh or depth discontinuity nearby at all
+
+    expect(inkedAt(output, leftOfSeam)).toBe(true);
+    expect(inkedAt(output, rightOfSeam)).toBe(true);
+    // Pure horizontal mesh-identity split (mesh 0 left / mesh 1 right), no
+    // vertical component (up/down neighbors share the same mesh) — same
+    // rim-orientation convention the target/non-target test above pins.
+    expect(output.glyph[leftOfSeam]).toBe("|");
+    expect(output.glyph[rightOfSeam]).toBe("|");
+    // Away from the seam, both meshes are perfectly flat with no state or
+    // depth discontinuity at all — never inked. This is what proves the
+    // seam cells above ink BECAUSE of the winner-mesh identity change
+    // alone, not some incidental depth-quantization noise from the march.
+    expect(inkedAt(output, awayFromSeam)).toBe(false);
+  });
 });
 
 describe("field-synth braille-over-carve (VOLUMETRIC-3.md §2)", () => {
@@ -3416,6 +3471,44 @@ describe("field-synth braille-over-carve (VOLUMETRIC-3.md §2)", () => {
     const output = evaluateFieldSynthGrid(cols, rows, params, () => {}, { objectPosition, objectExit, normal });
 
     const boundaryCell = 1; // left face, adjacent to the right face's disagreeing-normal neighbor
+    expect(inkedAt(output, boundaryCell)).toBe(true);
+    const mask = output.glyph[boundaryCell]!.codePointAt(0)! - 0x2800;
+    expect(mask).toBe(0xff);
+  });
+
+  // Phase 2 P1 regression: the crease test above catches a DISAGREEING
+  // normal. This isolates the missing case the P1 report pins — a
+  // neighbor that passes the normal-agreement gate (SAME normal, dot = 1)
+  // but belongs to a genuinely DIFFERENT winner mesh at an unrelated
+  // position — e.g. two coplanar, abutting quads authored as separate
+  // meshes. Pre-fix, `eligibleCarveNeighbor` only checked finite
+  // entry/exit and normal agreement, so this neighbor was wrongly
+  // accepted and interpolated sub-ray endpoints toward its unrelated
+  // position, hollowing out the mask (the P1 report's "expected 0xff got
+  // 0x00"). The fix adds a same-mesh-id gate alongside the existing ones.
+  it("P1 regression: an agreeing-normal neighbor from a DIFFERENT winner mesh is excluded — the boundary cell's mask comes from its own cell-center fallback, not off-surface interpolation", () => {
+    const cols = 4, rows = 1;
+    const objectPosition = new Float32Array(cols * rows * 3);
+    const objectExit = new Float32Array(cols * rows * 3);
+    const normal = new Float32Array(cols * rows * 3);
+    const winnerMesh = new Int32Array(cols * rows);
+    for (let col = 0; col < cols; col++) {
+      const leftMesh = col < 2;
+      const x = leftMesh ? 0 : 50 + (col - 2);
+      objectPosition[col * 3] = x; objectPosition[col * 3 + 1] = 0; objectPosition[col * 3 + 2] = 0;
+      objectExit[col * 3] = x; objectExit[col * 3 + 1] = 0; objectExit[col * 3 + 2] = 2;
+      // SAME normal on both sides — isolates the missing mesh-equality
+      // gate from the existing normal-agreement gate, which alone would
+      // NOT catch this: dot(n, n) = 1 > 0.9.
+      normal[col * 3] = 0; normal[col * 3 + 1] = 0; normal[col * 3 + 2] = 1;
+      winnerMesh[col] = leftMesh ? 0 : 1;
+    }
+    const params = { ...BAND_PARAMS, ...solidBandVoices(-2, 2) };
+    const output = evaluateFieldSynthGrid(
+      cols, rows, params, () => {}, { objectPosition, objectExit, normal, winnerMesh },
+    );
+
+    const boundaryCell = 1; // left mesh, adjacent to the right mesh's same-normal, off-surface-position neighbor
     expect(inkedAt(output, boundaryCell)).toBe(true);
     const mask = output.glyph[boundaryCell]!.codePointAt(0)! - 0x2800;
     expect(mask).toBe(0xff);

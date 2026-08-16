@@ -551,6 +551,7 @@ export function retainGlyphEffectOutput(
     ...(baseGrid.objectPosition ? { objectPosition: baseGrid.objectPosition } : {}),
     ...(baseGrid.objectExit ? { objectExit: baseGrid.objectExit } : {}),
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
+    ...(baseGrid.winnerMesh ? { winnerMesh: baseGrid.winnerMesh } : {}),
   };
   return {
     metadata,
@@ -675,6 +676,7 @@ export function composeRetainedGlyphEffectOutput(
     workingGrid.objectExit.set(baseGrid.objectExit);
   }
   if (workingGrid.normal && baseGrid.normal) workingGrid.normal.set(baseGrid.normal);
+  if (workingGrid.winnerMesh && baseGrid.winnerMesh) workingGrid.winnerMesh.set(baseGrid.winnerMesh);
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
   if (workingGrid.surfaceUv && baseGrid.surfaceUv) workingGrid.surfaceUv.set(baseGrid.surfaceUv);
@@ -701,9 +703,10 @@ export function composeRetainedGlyphEffectOutput(
     color: inputColor,
   };
   const target: GlyphEffectTargetView = { coverage: targetCoverage };
-  // Compositor-internal — see `CellGrid.winnerMesh`'s doc comment: never
-  // surfaced on `GlyphEffectFrameView`/`base`, only consulted here to build
-  // `targetCoverage` for a mesh-targeted layer.
+  // Read directly off `baseGrid` (not `base.winnerMesh`) purely because this
+  // is computed once before `base` even needs to exist as a view — `base`
+  // now ALSO surfaces the same buffer read-only (see `CellGrid.winnerMesh`'s
+  // doc comment) for programs that need exact mesh-boundary equality.
   const winnerMesh = retained.baseGrid.winnerMesh ?? null;
 
   for (const prepared of preparedLayers) {
