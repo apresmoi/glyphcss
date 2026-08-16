@@ -89,6 +89,14 @@ export interface RuntimeGlyphEffectLayer {
    * Immutable after mount (see `setOptions` below).
    */
   readonly programOption: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — the
+   * definition-layer `colorProgram` option, opaque to glyphcss, forwarded
+   * onto the evaluate context unchanged. `undefined` when no `colorProgram`
+   * option was supplied at mount. Immutable after mount (see `setOptions`
+   * below), mirroring `programOption` exactly.
+   */
+  readonly colorProgramOption: unknown;
   target: RuntimeGlyphEffectTarget;
   blend: GlyphEffectBlend;
   opacity: number;
@@ -314,6 +322,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
   // carries this; a raw `GlyphEffectProgramLayerOptions` has no separate
   // definition-level `validateProgram` hook to call it through.
   let programOption: unknown;
+  // Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same rule as
+  // `programOption` above.
+  let colorProgramOption: unknown;
 
   if (isDefinition(effect)) {
     if (typeof effect.id !== "string" || !effect.id.trim()) throw new TypeError("glyphcss: an effect definition needs a non-empty id.");
@@ -331,6 +342,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       initial[key] = value;
     }
     programOption = (options as GlyphEffectDefinitionLayerOptions<any, State>).program;
+    colorProgramOption = (options as GlyphEffectDefinitionLayerOptions<any, State>).colorProgram;
   } else {
     program = effect as AnyProgram;
     const supplied = (options as GlyphEffectProgramLayerOptions<P, State>).params as unknown;
@@ -346,6 +358,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
   assertProgram(program, initial);
   program.validateParams?.(initial);
   if (programOption !== undefined) program.validateProgram?.(programOption);
+  if (colorProgramOption !== undefined) program.validateColorProgram?.(colorProgramOption);
 
   const paramsTarget: AnyParams = { ...initial };
   const candidateParams: AnyParams = { ...initial };
@@ -434,6 +447,11 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     if ("program" in partial && !Object.is((partial as Record<string, unknown>).program, layer.programOption)) {
       throw new Error("glyphcss: an effect layer's program-as-data payload is immutable after mount; remove and re-add the layer to change it.");
     }
+    // Program-as-data's NAMED sibling is immutable after mount too
+    // (VOLUMETRIC-4.md §1), same rule as `program` above.
+    if ("colorProgram" in partial && !Object.is((partial as Record<string, unknown>).colorProgram, layer.colorProgramOption)) {
+      throw new Error("glyphcss: an effect layer's colorProgram payload is immutable after mount; remove and re-add the layer to change it.");
+    }
     const nextTarget = "target" in partial ? normalizeTarget(partial.target) : layer.target;
     // Mesh-set targeting is immutable after mount (VOLUMETRIC-3.md §1): once
     // either side of the comparison is a mesh-id set, an equivalent set is a
@@ -493,6 +511,7 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     state,
     handle,
     programOption,
+    colorProgramOption,
     target: normalizeTarget(options.target),
     blend: normalizeBlend(options.blend),
     opacity: normalizeOpacity(options.opacity),
@@ -840,6 +859,7 @@ export function composeRetainedGlyphEffectOutput(
       scratch: EMPTY_SCRATCH,
       output: emission,
       ...(layer.programOption !== undefined ? { program: layer.programOption } : {}),
+      ...(layer.colorProgramOption !== undefined ? { colorProgram: layer.colorProgramOption } : {}),
     });
 
     for (let i = 0; i < n; i++) {

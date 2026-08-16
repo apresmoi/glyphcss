@@ -190,4 +190,19 @@ describe("GlyphEffectLayerElement", () => {
       expect(call[0]).not.toHaveProperty("program");
     }
   });
+
+  it("forwards a `colorProgram` option only at layer creation (VOLUMETRIC-4.md §1, program-as-data's named sibling — same JS-property, mount-only contract as `program`)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const payload = { domain: "2d", layers: [] };
+    element.configure({ effect: effectA, colorProgram: payload });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ colorProgram: payload }));
+
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalled();
+    for (const call of (handles[0]!.setOptions as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[0]).not.toHaveProperty("colorProgram");
+    }
+  });
 });

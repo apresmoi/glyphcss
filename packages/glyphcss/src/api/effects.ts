@@ -247,6 +247,20 @@ export interface GlyphEffectEvaluateContext<P extends object, S> {
    * was supplied at mount.
    */
   readonly program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (a second, independent payload —
+   * VOLUMETRIC-4.md §1's colour voice stack): `program`'s own opaque-payload
+   * contract has no room for a second one, so a definition that drives two
+   * independent programs (e.g. field-synth's geometry stack plus its colour
+   * stack) gets its own named slot instead of overloading `program`. The
+   * definition-layer `colorProgram` option, forwarded unchanged and
+   * validated once at mount via the definition's own
+   * `program.validateColorProgram` hook — mirrors `program`/`validateProgram`
+   * in every other respect, including immutability after mount
+   * (`setOptions` with a DIFFERENT `colorProgram` value throws). `undefined`
+   * when no `colorProgram` option was supplied at mount.
+   */
+  readonly colorProgram?: unknown;
 }
 
 export type GlyphEffectRequirement =
@@ -301,6 +315,16 @@ export interface GlyphEffectProgramBase<P extends object, S> {
    * glyphcss either way.
    */
   validateProgram?(program: unknown): void;
+  /**
+   * Program-as-data's NAMED sibling validator (VOLUMETRIC-4.md §1): when a
+   * layer mounts with a `colorProgram` option
+   * (`GlyphEffectDefinitionLayerOptions.colorProgram`), the compositor calls
+   * this once, at mount, with that opaque payload — mirrors `validateProgram`
+   * exactly, as its own hook, since `program`'s validator has no way to tell
+   * the two payloads apart. Absent (or a no-op) on a definition that doesn't
+   * support a second program at all.
+   */
+  validateColorProgram?(program: unknown): void;
   prepare?(context: GlyphEffectPrepareContext<P>, state: S): void;
   evaluate(context: GlyphEffectEvaluateContext<P, S>): void;
 }
@@ -416,6 +440,18 @@ export interface GlyphEffectDefinitionLayerOptions<
    * immutable-after-mount rule (VOLUMETRIC-3.md §1).
    */
   program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — a second,
+   * independent opaque program payload, plumbed onto
+   * `GlyphEffectEvaluateContext.colorProgram` unchanged and validated once
+   * at mount via `program.validateColorProgram`. Exists because `program`'s
+   * own single-opaque-payload contract has no room for a second one (e.g.
+   * field-synth's colour voice stack, a program independent of its geometry
+   * `program`). Same immutable-after-mount rule as `program`. Ignored by a
+   * definition that doesn't support a second program (or that doesn't gate
+   * anything on it, e.g. field-synth only reads it when `colorStackOn`).
+   */
+  colorProgram?: unknown;
 }
 
 export interface GlyphEffectProgramLayerOptions<

@@ -44,6 +44,13 @@ export interface GlyphEffectLayerElementConfig {
    * immutability rather than throwing from inside the flush microtask.
    */
   program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same JS-property-
+   * only, mount-only-forward, immutable-after-mount contract as `program`
+   * above, for a definition that drives a second independent program (e.g.
+   * field-synth's colour voice stack).
+   */
+  colorProgram?: unknown;
 }
 
 function parseFinite(value: string | null): number | undefined {
@@ -217,6 +224,7 @@ export class GlyphEffectLayerElement extends ELEMENT_BASE {
           effect: config.effect,
           params,
           ...(config.program !== undefined ? { program: config.program } : {}),
+          ...(config.colorProgram !== undefined ? { colorProgram: config.colorProgram } : {}),
           ...options,
         }) as RuntimeHandle;
         this._handle = handle;

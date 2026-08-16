@@ -512,3 +512,119 @@ describe("program-as-data (VOLUMETRIC-3.md §4)", () => {
       .toThrow(/immutable after mount/i);
   });
 });
+
+// Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same contract as
+// `program` above, its own named slot/hook/context field, exercised the
+// same way that describe block above does.
+describe("colorProgram (VOLUMETRIC-4.md §1, program-as-data's named sibling)", () => {
+  it("forwards a mounted layer's `colorProgram` option onto the evaluate context unchanged, independent of `program`", () => {
+    let seenProgram: unknown;
+    let seenColorProgram: unknown;
+    const reportsBoth = definitionOf(defineGlyphEffect<{ phase: number }>({
+      evaluate({ program, colorProgram, output }) {
+        seenProgram = program;
+        seenColorProgram = colorProgram;
+        output.coverage.fill(0);
+      },
+    }));
+    const programPayload = { domain: "2d", layers: [], tag: "geometry" };
+    const colorPayload = { domain: "2d", layers: [], tag: "color" };
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: reportsBoth, params: { phase: 0 }, program: programPayload, colorProgram: colorPayload },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
+    expect(seenProgram).toBe(programPayload);
+    expect(seenColorProgram).toBe(colorPayload);
+  });
+
+  it("leaves context.colorProgram undefined when no `colorProgram` option was supplied, even alongside a `program` option", () => {
+    let seenColorProgram: unknown = "sentinel";
+    let sawColorProgramKey = true;
+    const reportsColorProgram = definitionOf(defineGlyphEffect<{ phase: number }>({
+      evaluate(context) {
+        seenColorProgram = context.colorProgram;
+        sawColorProgramKey = "colorProgram" in context;
+        context.output.coverage.fill(0);
+      },
+    }));
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: reportsColorProgram, params: { phase: 0 }, program: { domain: "2d", layers: [] } },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
+    expect(seenColorProgram).toBeUndefined();
+    expect(sawColorProgramKey).toBe(false);
+  });
+
+  it("calls the definition's own validateColorProgram hook once at mount when a colorProgram option is present, and never when absent", () => {
+    const validateColorProgram = vi.fn();
+    const withValidator = definitionOf(defineGlyphEffect<{ phase: number }>({
+      validateColorProgram,
+      evaluate({ output }) { output.coverage.fill(0); },
+    }));
+    createRuntimeGlyphEffectLayer(
+      { effect: withValidator, params: { phase: 0 }, colorProgram: { domain: "2d", layers: [] } },
+      0,
+      () => {},
+      () => {},
+    );
+    expect(validateColorProgram).toHaveBeenCalledTimes(1);
+    expect(validateColorProgram).toHaveBeenCalledWith({ domain: "2d", layers: [] });
+
+    validateColorProgram.mockClear();
+    createRuntimeGlyphEffectLayer(
+      { effect: withValidator, params: { phase: 0 } },
+      1,
+      () => {},
+      () => {},
+    );
+    expect(validateColorProgram).not.toHaveBeenCalled();
+  });
+
+  it("a validateColorProgram hook that throws on a malformed payload rejects the layer at mount, not silently later", () => {
+    const strict = definitionOf(defineGlyphEffect<{ phase: number }>({
+      validateColorProgram(program) {
+        if (!program || typeof program !== "object" || !("layers" in program)) {
+          throw new TypeError("bad color program");
+        }
+      },
+      evaluate({ output }) { output.coverage.fill(0); },
+    }));
+    expect(() => createRuntimeGlyphEffectLayer(
+      { effect: strict, params: { phase: 0 }, colorProgram: "not a program" },
+      0,
+      () => {},
+      () => {},
+    )).toThrow(/bad color program/);
+  });
+
+  it("setOptions rejects a DIFFERENT colorProgram value; the SAME value (by reference) is a no-op", () => {
+    const noop = definitionOf(defineGlyphEffect<{ phase: number }>({ evaluate({ output }) { output.coverage.fill(0); } }));
+    const payload = { domain: "2d", layers: [] };
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: noop, params: { phase: 0 }, colorProgram: payload },
+      0,
+      () => {},
+      () => {},
+    );
+    expect(() => layer.handle.setOptions({ colorProgram: payload } as never)).not.toThrow();
+    expect(() => layer.handle.setOptions({ colorProgram: { domain: "2d", layers: [] } } as never))
+      .toThrow(/immutable after mount/i);
+    // A layer mounted with NO colorProgram option can't gain one post-mount either.
+    const bareLayer = createRuntimeGlyphEffectLayer(
+      { effect: noop, params: { phase: 0 } },
+      1,
+      () => {},
+      () => {},
+    );
+    expect(() => bareLayer.handle.setOptions({ colorProgram: payload } as never))
+      .toThrow(/immutable after mount/i);
+  });
+});
