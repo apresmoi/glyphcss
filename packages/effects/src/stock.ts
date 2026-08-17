@@ -2790,6 +2790,54 @@ export const cssGraphicsMengerPreset: GlyphEffectPreset<typeof fieldSynthSchema>
     colorStackOn: true, colorMode: "hue",
     cfield1: "incidence", cwave1: "saw", cfreq1: 1, cspeed1: 0.0155, camp1: 1, camp2: 0, camp3: 0,
     hueRange: 360, hueOffset: 0, hueSat: 45, hueLight: 60,
+    // User hand-tuned this preset live on the /synth page and asked those
+    // settings become the shipped defaults. Extracted programmatically (not
+    // eyeballed) via `decodeSynthUrlStateAsync` against their shared link —
+    // every other param in the URL (glyphs, color/colorB, gradient, hueSat/
+    // hueLight, voiceColors, gain/bias, cspeed1, every geometry/colour voice)
+    // came back EQUAL to what this preset already ships, once compared with
+    // the URL codec's own per-field quantization step (e.g. `cspeed1`'s
+    // shipped 0.0155 round-trips to 0 through the codec's 0.05 step — that is
+    // codec lossiness, not a retune, so `cspeed1` is intentionally left
+    // untouched above). Exactly three params differed by more than their
+    // codec step:
+    //  - `scale`   1/3 (0.333)  -> 0.7
+    //  - `marchFade` 2.5        -> 1.35
+    //  - `marchSteps` 48 (default, unset) -> 1
+    // `marchSteps: 1` looks alarming next to the schema default of 48, but it
+    // never actually binds: `fieldStepCount` takes `max(marchSteps,
+    // min(256, ceil(2 * chordLength * finestFreq)))`, and this recipe's own
+    // finest voice (freq 9, duty 1/3 square wave) resolves to an effective
+    // frequency of 27 regardless of `marchSteps` (see `effectiveVoiceFinestFreq`
+    // in fieldProgram.ts and this file's own Menger-sponge doc above). At the
+    // cube stage's scaled body diagonal (`sqrt(3) * 3 * 0.7 ≈ 3.64` domain
+    // units) that Nyquist floor alone resolves to `ceil(2 * 3.64 * 27) = 197`
+    // steps — the ACTUAL step count every carve ray in this preset marches
+    // at, regardless of the `marchSteps: 1` knob. Setting `marchSteps` this
+    // low simply stops the user-facing floor from ever raising the Nyquist
+    // floor further (its only job once the floor already dominates), and
+    // matches the render this preset was tuned against (measured: no visible
+    // difference from `marchSteps: 48`, 19,460 covered glyph cells either
+    // way). `scale: 0.7` (vs. the base sponge recipe's domain-normalizing
+    // 1/3) makes the carved lattice roughly twice as fine on screen — this
+    // moves finestFreq's OWN Nyquist floor up proportionally (chord length
+    // scales with `scale` too), which is why lowering `marchSteps` to 1 is
+    // safe here specifically: the floor was already comfortably above any
+    // value `marchSteps` could have contributed for this recipe. `marchFade:
+    // 1.35` (vs. the base recipe's 2.5) is a brighter interior falloff —
+    // lets more of the recursive depth read through instead of crushing deep
+    // walls to black, matching the shallower `scale` change's busier texture.
+    //
+    // Hue-triple spacing (the ~120°-apart invariant this preset's own doc
+    // above was written to hit) is UNCHANGED by this retune: `cfield1:
+    // "incidence"` derives the per-face hue purely from the camera/normal
+    // geometry (view direction vs. object-space face normal), which none of
+    // `scale`/`marchFade`/`marchSteps` touch — they only reshape which
+    // interior cells get carved away and how their depth is shaded, not the
+    // three cap faces' own orientation. Re-measured directly against the real
+    // pipeline after this retune (stock.test.ts's own hue tests, unchanged
+    // assertions): hues still land within ~1-5° of exactly 120° apart.
+    scale: 0.7, marchFade: 1.35, marchSteps: 1,
   } as never,
 };
 

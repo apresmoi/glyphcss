@@ -2140,7 +2140,19 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // doc in stock.ts for the full measurement (camera + wave choice that
       // gets the three visible faces' hues to within ~1-5° of exactly 120°
       // apart, cycling smoothly via a piecewise-linear `saw` wave).
-      "Menger (cssGraphics)": { render: "58d3f915", params: "a4813b2a" },
+      // Re-pinned deliberately (both hashes): user hand-tuned this preset
+      // live on the page and asked those settings become the shipped
+      // defaults — `scale` 1/3 -> 0.7, `marchFade` 2.5 -> 1.35, `marchSteps`
+      // 48 (default) -> 1 (see the preset's own doc in stock.ts for why the
+      // Nyquist floor makes that last one safe). `render` moves too even
+      // though this preset's `render: "carve"` path is normally invisible to
+      // `pinnedEvaluate`'s synthetic 2D harness (no retained objectPosition/
+      // objectExit, so `carveActive` is false) — `scale` also multiplies the
+      // coordinate fed to the harness's non-carve fallback field evaluation,
+      // so it's one of the few params that DOES move this hash on its own.
+      // Hue spacing is unaffected — see the dedicated hue tests below, whose
+      // own pinned values are unchanged by this retune.
+      "Menger (cssGraphics)": { render: "2ca442e9", params: "69d720c8" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());

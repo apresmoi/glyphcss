@@ -2042,7 +2042,12 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // out its three visible faces' hue spacing (measured ~120° apart at
   // `rotX:32.5, rotY:19` vs. the default camera's >100°-uneven spread — see
   // `cssGraphicsMengerPreset`'s own doc in stock.ts for the full measurement).
-  [GlyphCssGraphicsMengerPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 32.5, rotY: 19 }],
+  // `density: 3.5` — user hand-tuned this on the live page and asked their
+  // settings become the defaults (see the preset's own doc in stock.ts for
+  // the geometry-param side of that same retune); density is a STAGE
+  // property (render font-size), not an effect param, so it lives here
+  // rather than in `cssGraphicsMengerPreset.params`.
+  [GlyphCssGraphicsMengerPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 32.5, rotY: 19, density: 3.5 }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`
