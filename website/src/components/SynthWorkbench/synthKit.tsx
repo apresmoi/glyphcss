@@ -2008,13 +2008,19 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // presets exist to show.
   [GlyphMengerFlowPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   [GlyphBreathingGyroidPreset as GlyphEffectPreset<never>, { shape: "cube" }],
-  // `loopSeconds: 15` — `sdfBloomPreset`'s own doc (stock.ts): `speed1:
-  // 0.0012` spans the fractal's whole visible-to-fully-eroded window over
-  // ~15s of `time` (0.0012 * 15 = 0.018, measured directly against the real
-  // preset). Without a loop hint the preset plays that dissolve once and
-  // then sits at its empty end state forever; wrapping `time` back to 0
-  // every 15s replays the full arc instead.
-  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40, loopSeconds: 15 }],
+  // `loopSeconds: 11` (retuned down from 15 — user report: the old 15s
+  // window spent roughly its last third sitting at or near fully-dissolved
+  // (near-)empty, reading as broken rather than looping). Measured directly
+  // against the real preset (same probe camera/lighting as
+  // `sdfBloomPreset`'s own doc in stock.ts, carve cube): covered-cell count
+  // vs. `time` is t=0 606, t=9 436, t=11 240, t=12 138, t=13 56, t=14 10,
+  // t=15 0 — cell count keeps falling smoothly through 11 (still a clearly
+  // populated, actively-eroding lace) but collapses to near-nothing right
+  // after it. Wrapping at 11 instead of 15 keeps the whole visible
+  // dissolve arc while cutting the flat, empty tail entirely — the loop
+  // now spends its whole ~11s/1.4 ≈ 7.9s wall-clock period showing motion,
+  // never sitting on an empty stage waiting to wrap.
+  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40, loopSeconds: 11 }],
   // The colour voice stack's shipped patch (VOLUMETRIC-4.md §1) — same
   // cube/face-on-ish pairing as `mengerSpongePreset` above (this preset IS
   // that recipe, plus the colour stack), since the "three face tones"

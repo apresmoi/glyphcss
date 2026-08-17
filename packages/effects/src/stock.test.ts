@@ -2117,7 +2117,15 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // the same way as every preset above them.
       "Menger flow": { render: "311c9985", params: "423ff66d" },
       "Breathing gyroid": { render: "f7783431", params: "e9728cf2" },
-      "SDF bloom": { render: "d62f9075", params: "f5311402" },
+      // Re-pinned deliberately (params only — `render` is unaffected: the
+      // synthetic 2D `pinnedEvaluate` harness never exercises the volumetric
+      // carve path `marchFade` colours, same documented gap as the Menger
+      // sponge's own `marchFade` retune above): brightness retune, user
+      // report "why is the SDF bloom so dark and darker every time?" —
+      // `marchFade` 2.5 -> 1.2 (inherited from `mengerSdfPreset`, now
+      // overridden). See `sdfBloomPreset`'s own doc in stock.ts for the
+      // measured before/after.
+      "SDF bloom": { render: "d62f9075", params: "8ed78cf2" },
       // VOLUMETRIC-4.md §1's shipped patch — the colour voice stack's own
       // presets. Pinned the same way as every preset above them.
       // Re-pinned deliberately: retuned `hueLight` 55 -> 75 (sponge) and

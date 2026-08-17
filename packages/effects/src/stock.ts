@@ -2597,10 +2597,28 @@ export const breathingGyroidPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
 // no periodic-and-sphere-traceable way to do that (an oscillating wave
 // would restore periodicity but drop out of the qualifying predicate
 // entirely, per the note above).
+// `marchFade: 1.2` (retuned down from the inherited `mengerSdfPreset` value
+// of 2.5 — user report: "why is the SDF bloom so dark and darker every
+// time?") is set HERE, not on `mengerSdfPreset` itself, so the static
+// "Menger SDF" preset's own tuning is untouched — this is an override on top
+// of the spread, exactly like `speed1` already is. Measured on the real
+// `/synth` stage's default lighting (matching `synthUrlState.ts`'s
+// `DEFAULT_LIGHTING` through `synthKit.tsx`'s `buildLighting`), same probe
+// camera as the sphere-tracing/time-animation tests below (`rotX 15, rotY
+// 40, zoom 380`, carve cube): at `marchFade: 2.5` a mid-erosion frame (t=6)
+// averages ~95/255 over its own covered cells; every marchFade in
+// 0.6..2.5 was swept and 1.2 was picked as the shipped value — comfortably
+// brighter (~121/255 at t=6, +27%) while still keeping SOME depth-darkening
+// falloff (not flattened to 0, which would erase the depth cue entirely).
+// The erosion TIMELINE itself (cell count vs. time) is unaffected by
+// `marchFade` — it's a pure colour-falloff parameter, never occupancy — so
+// this is independent of the `loopSeconds` retune in `synthKit.tsx`'s
+// `STAGE_HINTS` (that fixes the OTHER half of the complaint: the preset
+// spends the last third of its 15s loop nearly/fully dissolved).
 export const sdfBloomPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "SDF bloom", params: {
     ...(mengerSdfPreset.params as AnyParams),
-    speed1: 0.0012,
+    speed1: 0.0012, marchFade: 1.2,
   } as never,
 };
 

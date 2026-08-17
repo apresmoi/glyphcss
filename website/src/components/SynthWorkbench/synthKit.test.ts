@@ -323,7 +323,9 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
   it("declares loopSeconds on the SDF bloom preset's hint, and leaves every other preset unset (today's plain monotonic time)", () => {
     const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
     expect(bloom).toBeDefined();
-    expect(STAGE_HINTS.get(bloom)?.loopSeconds).toBe(15);
+    // Re-pinned 15 -> 11 (user report: the old 15s window spent its last
+    // third sitting at or near fully-dissolved) — see the hint's own doc.
+    expect(STAGE_HINTS.get(bloom)?.loopSeconds).toBe(11);
 
     const menger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge")!;
     const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
