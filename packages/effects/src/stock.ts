@@ -2709,6 +2709,90 @@ export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
   },
 };
 
+// "Menger (cssGraphics)" — user request: reproduce cssGraphics' own Menger
+// sponge colour behaviour ("the cube that looks as close to the one in
+// cssGraphics as possible ... on the color changes") as closely as this
+// engine's primitives allow. cssGraphics' real recipe (read from its source,
+// `src/adapters/menger/src/prepare/cssmenger/sourcePlayback.mjs`,
+// `makeSmoothColormap`/`makeColorPath` ~L369-449): a 128-entry smooth CYCLIC
+// colormap (an XScreenSaver-style closed path through random HSV waypoints —
+// muted/artistic, not a raw rainbow), with the THREE axis-groups (the visible
+// faces) reading `palette[(tick + k*42) % 128]` for k=0,1,2 — i.e. exactly
+// 1/3 and 2/3 of the wheel apart, advancing together as `tick` increments.
+// Reproducing the literal random palette isn't the point (a fresh RNG path
+// per seed is cssGraphics' own aesthetic accident, not a target); the
+// OBSERVABLE properties are: three evenly ~120°-apart hues, cycling smoothly
+// together over time, in a muted (not neon) palette.
+//
+// This engine's colour stack has no per-face-group categorical assignment
+// that ALSO carries a continuous, time-varying value (`argmax` gives the
+// former but discards the wave's own value for a fixed per-region level —
+// `foldVoices` in fieldProgram.ts explicitly computes evenly-spaced flat
+// levels from `winnerOrder`, not the sampled wave — so it is perfectly even
+// but frozen in time; verified directly, see stock.test.ts's
+// `hueLight`/`hueSat` neighbourhood tests and the scratch probe this preset
+// was tuned with). A three-voice `normalX`/`normalY`/`normalZ` sum was also
+// tried: on an axis-aligned cube exactly one component is ±1 and the other
+// two are exactly 0, so their SUM is index-invariant (always the same total
+// regardless of which face), collapsing all three faces to one identical
+// hue — architecturally a dead end, not a tuning miss.
+//
+// The single-voice `incidence` approach both existing iridescent presets use
+// (`iridescentSpongePreset` above) beats both of those, but its DEFAULT
+// camera (`STAGE_HINTS`' `rotX:15, rotY:40`, shared with `mengerSpongePreset`)
+// gives an unevenly-spaced triple (measured 0.152/0.551/0.719 — see
+// `iridescentSpongePreset`'s own doc) — nowhere near 120° apart in hue once
+// mapped through `colorMode: "hue"`. Two further measured fixes, together
+// closing that gap to within ~1-5°:
+//
+// 1. **`cwave1: "saw"` instead of `"sin"`.** `sin` is what the existing
+//    iridescent presets use, but it is NONLINEAR: a camera tuned so the
+//    THREE face incidences map to evenly-spaced hues at time=0 does NOT stay
+//    evenly spaced as `cspeed1` advances the shared `-time*speed` term
+//    through `sin`'s curve — measured directly (this preset's own scratch
+//    probe): gaps swing between ~10° and ~246° at intermediate `time`
+//    samples even though the camera was optimized for time=0. `saw(θ) =
+//    2*frac(θ)-1` is PIECEWISE LINEAR, so `hue = (incidence*cfreq1 +
+//    hueOffset) * hueRange` (mod `hueRange` at the wrap) — the same additive
+//    time shift applied to all three faces is now a RIGID rotation of the
+//    hue triple, preserving whatever gap the camera achieves at EVERY time
+//    except the instant an individual face's own argument wraps (a brief,
+//    once-per-cycle-per-face jump, not a sustained drift). Measured across a
+//    full period (`time` 0 through ~64.4, this preset's own `cspeed1`
+//    period): gaps hold at 119-121° throughout, vs. sin's 10-246° swing.
+// 2. **Camera retuned to `rotX: 32.5, rotY: 19`** (from `mengerSpongePreset`'s
+//    shared `rotX: 15, rotY: 40` hint) — because `saw` makes hue an EXACT
+//    affine function of incidence (`freq1: 1` — no wave nonlinearity to
+//    exploit), evening the hue gaps is exactly evening the INCIDENCE gaps,
+//    a property of the camera alone. Grid-searched directly against the real
+//    `evaluate()` pipeline (not hand-derived — a closed-form inverse of the
+//    voxcss camera rotation was attempted and did not reproduce the
+//    `rotX:15,rotY:40` baseline's own documented tones, so the search reads
+//    real renders instead of trusting that derivation): measured hue triple
+//    at `rotX:32.5, rotY:19` (t=0) is `[56.3°, 177.0°, 297.0°]` — gaps
+//    `[120.7°, 120.0°, 119.3°]`, within 1.5° of exactly even, vs. the
+//    default camera's `[14.9°, 194.1°, 151.0°]` gaps (a >100° spread).
+//
+// `cspeed1: 0.0155` targets a ~46s full wheel traversal at the page's
+// default `timeScale: 1.4` (`1/(46*1.4) ≈ 0.0155`), matching cssGraphics'
+// own approximate republish rate; verified by sampling rendered hues across
+// a `time` sweep (t=0 and t≈64.4 — one full period at this speed — land on
+// nearly the same triple, confirming the period). `hueSat: 45, hueLight: 60`
+// (muted, not a saturated rainbow — same retuning philosophy as
+// `iridescentShellPreset` above, whose own `hueSat: 45` this mirrors);
+// measured average rendered luminance across `hueSat`/`hueLight` candidates
+// (70/55, 50/58, 45/60, 40/62) stayed comfortably bright throughout
+// (159-166/255), so the choice is purely about chroma character, not
+// legibility.
+export const cssGraphicsMengerPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger (cssGraphics)", params: {
+    ...(mengerSpongePreset.params as AnyParams),
+    colorStackOn: true, colorMode: "hue",
+    cfield1: "incidence", cwave1: "saw", cfreq1: 1, cspeed1: 0.0155, camp1: 1, camp2: 0, camp3: 0,
+    hueRange: 360, hueOffset: 0, hueSat: 45, hueLight: 60,
+  } as never,
+};
+
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
   // one flat tone, which is what turns a lattice into the rhombille/cube
@@ -2755,6 +2839,7 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   sdfBloomPreset,
   iridescentSpongePreset,
   iridescentShellPreset,
+  cssGraphicsMengerPreset,
 ];
 
 

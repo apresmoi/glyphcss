@@ -26,6 +26,7 @@ import {
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
+  cssGraphicsMengerPreset,
   defaultGlyphEffectParams,
   fieldSynth,
   flowText,
@@ -2134,6 +2135,12 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       // Reconciliation.
       "Iridescent sponge": { render: "ba9ce875", params: "61fa66ec" },
       "Iridescent shell": { render: "1ddb4165", params: "df674de0" },
+      // User request: reproduce cssGraphics' own Menger colour behaviour as
+      // closely as measurably possible — see `cssGraphicsMengerPreset`'s own
+      // doc in stock.ts for the full measurement (camera + wave choice that
+      // gets the three visible faces' hues to within ~1-5° of exactly 120°
+      // apart, cycling smoothly via a piecewise-linear `saw` wave).
+      "Menger (cssGraphics)": { render: "58d3f915", params: "a4813b2a" },
     };
     const presets = fieldSynth.presets ?? [];
     expect(presets.map((p) => p.name).sort()).toEqual(Object.keys(expected).sort());
@@ -5896,5 +5903,127 @@ describe("normal-derived field sources (VOLUMETRIC-4.md §1)", () => {
     // eslint-disable-next-line no-console
     console.log(`Iridescent sponge measured tones: ${seenColors.size} (covered cells: ${coveredCount})`);
     expect(seenColors.size).toBe(3);
+  });
+
+  // "Menger (cssGraphics)" — user request to reproduce cssGraphics' own
+  // Menger colour behaviour (three evenly ~120°-apart hues, cycling
+  // smoothly) as closely as this engine's primitives allow. See
+  // `cssGraphicsMengerPreset`'s own doc in stock.ts for the full measured
+  // reasoning (camera + `saw` wave choice). Reuses the exact same
+  // `rasterizeToCells`/direct-`evaluate()` harness as the Iridescent sponge
+  // test above (packed-color readback, not an HTML/regex scrape).
+  function packedRgbToHue(packed: number): number {
+    const r = (packed >> 16) & 0xff, g = (packed >> 8) & 0xff, b = packed & 0xff;
+    const rf = r / 255, gf = g / 255, bf = b / 255;
+    const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf), d = max - min;
+    if (d < 1e-6) return 0;
+    let h: number;
+    if (max === rf) h = ((gf - bf) / d) % 6;
+    else if (max === gf) h = (bf - rf) / d + 2;
+    else h = (rf - gf) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    return h;
+  }
+
+  function cssGraphicsMengerTones(time: number): number[] {
+    const cols = 64, rows = 40;
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ rotX: 32.5, rotY: 19, zoom: 380 }),
+      grid: { cols, rows, cellAspect: 2 },
+      polygons: size3CubePolygons(),
+      mode: "solid",
+      useColors: false,
+      doubleSided: true,
+      retainObjectPosition: true,
+      retainObjectExit: true,
+      retainObjectNormal: true,
+    }));
+    const n = cols * rows;
+    const coverage = new Float32Array(n);
+    for (let i = 0; i < n; i++) coverage[i] = grid.depth[i] === -Infinity ? 0 : 1;
+    const glyph = new Array<string>(n).fill(" ");
+    const color = new Uint32Array(n).fill(GlyphEffectNoColor);
+    const output = {
+      glyph: new Array<string>(n).fill(" "),
+      color: new Uint32Array(n).fill(GlyphEffectNoColor),
+      coverage: new Float32Array(n),
+      channels: new Uint8Array(n),
+    };
+    const params = {
+      ...defaultGlyphEffectParams(fieldSynth),
+      ...(cssGraphicsMengerPreset.params as Record<string, number | string | boolean>),
+      time, marchFade: 0, lit: 0,
+    };
+    fieldSynth.program.evaluate({
+      params,
+      state: fieldSynth.program.createState ? fieldSynth.program.createState() : undefined,
+      base: {
+        cols, rows, length: n, glyph, coverage, color,
+        objectPosition: grid.objectPosition, objectExit: grid.objectExit, objectNormal: grid.objectNormal,
+      },
+      input: { cols, rows, length: n, glyph, coverage, color },
+      target: { coverage },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
+      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
+      output,
+    } as never);
+    const seenColors = new Set<number>();
+    let coveredCount = 0;
+    for (let i = 0; i < n; i++) {
+      if (coverage[i]! <= 0 || output.color[i] === GlyphEffectNoColor) continue;
+      coveredCount++;
+      seenColors.add(output.color[i]!);
+    }
+    expect(coveredCount).toBeGreaterThan(50);
+    return Array.from(seenColors).map(packedRgbToHue).sort((a, b) => a - b);
+  }
+
+  function hueGaps(hues: number[]): number[] {
+    const g: number[] = [];
+    for (let i = 0; i < hues.length; i++) {
+      const next = hues[(i + 1) % hues.length]!;
+      let gap = next - hues[i]!;
+      if (gap <= 0) gap += 360;
+      g.push(gap);
+    }
+    return g;
+  }
+
+  it("Menger (cssGraphics): exactly three distinct hues, measured within ~5 degrees of exactly 120 degrees apart", () => {
+    const hues = cssGraphicsMengerTones(0);
+    expect(hues.length).toBe(3);
+    const gaps = hueGaps(hues);
+    // eslint-disable-next-line no-console
+    console.log(`Menger (cssGraphics) hues: ${JSON.stringify(hues)} gaps: ${JSON.stringify(gaps)}`);
+    for (const gap of gaps) expect(gap).toBeGreaterThan(115);
+    for (const gap of gaps) expect(gap).toBeLessThan(125);
+    // Pinned to the measured triple (this harness's own direct
+    // rasterizeToCells/evaluate() readback — a slightly different, more
+    // precise measurement than the HTML/8-bit-RGB-regex scratch probe
+    // `cssGraphicsMengerPreset`'s own doc in stock.ts quotes numbers from,
+    // hence the small few-tenths-of-a-degree difference) — guards against a
+    // silent regression in the camera/wave/preset tuning.
+    expect(hues[0]!).toBeCloseTo(56.1, 0);
+    expect(hues[1]!).toBeCloseTo(176.7, 0);
+    expect(hues[2]!).toBeCloseTo(296.7, 0);
+  });
+
+  it("Menger (cssGraphics): hues advance over time and wrap back around after one full cspeed1 period, while the ~120 degree spacing holds throughout", () => {
+    const atZero = cssGraphicsMengerTones(0);
+    const atMid = cssGraphicsMengerTones(20);
+    const atFullPeriod = cssGraphicsMengerTones(1 / (cssGraphicsMengerPreset.params as Record<string, number>).cspeed1!);
+    // Genuinely advances — the mid-cycle triple is NOT the same as t=0's.
+    expect(atMid).not.toEqual(atZero);
+    // ...and wraps back to (very nearly) the same triple after one full period.
+    for (let i = 0; i < 3; i++) expect(atFullPeriod[i]!).toBeCloseTo(atZero[i]!, 0);
+    // The ~120 degree spacing holds at every sampled time, not just t=0 (the
+    // whole point of the `saw` wave choice over `sin` — see the preset's doc).
+    for (const hues of [atZero, atMid, atFullPeriod]) {
+      for (const gap of hueGaps(hues)) {
+        expect(gap).toBeGreaterThan(110);
+        expect(gap).toBeLessThan(130);
+      }
+    }
   });
 });

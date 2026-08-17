@@ -97,6 +97,7 @@ export {
 // .presets` — the same array these are already the exact elements of.
 export {
   breathingGyroidPreset as GlyphBreathingGyroidPreset,
+  cssGraphicsMengerPreset as GlyphCssGraphicsMengerPreset,
   cubeTilesPreset as GlyphCubeTilesPreset,
   gyroidXrayPreset as GlyphGyroidXrayPreset,
   iridescentShellPreset as GlyphIridescentShellPreset,

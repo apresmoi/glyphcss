@@ -16,6 +16,7 @@ import {
 import {
   GlyphFieldSynthEffect as fieldSynth,
   GlyphBreathingGyroidPreset,
+  GlyphCssGraphicsMengerPreset,
   GlyphCubeTilesPreset,
   GlyphGyroidXrayPreset,
   GlyphIridescentShellPreset,
@@ -2036,6 +2037,12 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // VOLUMETRIC-4.md's Reconciliation). Default (isometric-ish) camera angle
   // — there's no "menger invisible at oblique angles" concern for a sphere.
   [GlyphIridescentShellPreset as GlyphEffectPreset<never>, { shape: "sphere" }],
+  // "Menger (cssGraphics)" — its own camera, retuned from
+  // `mengerSpongePreset`'s shared `rotX:15, rotY:40` specifically to even
+  // out its three visible faces' hue spacing (measured ~120° apart at
+  // `rotX:32.5, rotY:19` vs. the default camera's >100°-uneven spread — see
+  // `cssGraphicsMengerPreset`'s own doc in stock.ts for the full measurement).
+  [GlyphCssGraphicsMengerPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 32.5, rotY: 19 }],
 ]);
 
 /** The stage mesh a preset should preview/apply on: its own hint's `shape`
