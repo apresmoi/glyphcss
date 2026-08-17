@@ -29,8 +29,15 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
 import {
+  FIELD_DESCRIPTIONS,
+  FIELD_ICONS,
+  FIELD_TOGGLE_COLOR,
+  FIELD_TOGGLE_COLOR_3D,
   FIELDS,
   FIELDS_3D,
+  FIELDS_NORMAL,
+  MAX_COLOR_VOICES,
+  NORMAL_DERIVED_SYNTH_FIELDS,
   PYRAMID_STAGE_SIZE,
   RENDER_MODES,
   SHAPES,
@@ -38,20 +45,26 @@ import {
   STAGE_CAMERA_ROT_Y,
   STAGE_CAMERA_ZOOM,
   STAGE_HINTS,
+  VOICE_FIELD_MAP_BASE_ANGLE,
   WAVES,
   buildWavePathD,
   computeSynthTickPlan,
+  fieldHasPlacement,
   frameObject,
   isSdfField,
   isSdfIterField,
   isTimeInvariantPatch,
+  nextFreeVoiceSlot,
+  resolveColorStackVisibility,
   resolveInkControlVisibility,
   resolveSpaceChange,
   shapePolys,
   shapeTransform,
+  soloColorParams,
   soloParams,
   stagePreviewShape,
   synthDefaults,
+  voiceFieldMapKind,
   wrapDrivenTime,
 } from "./synthKit";
 
@@ -891,5 +904,196 @@ describe("isSdfField / isSdfIterField (VOLUMETRIC-2.md §2)", () => {
     expect(isSdfIterField("menger")).toBe(true);
     expect(isSdfIterField("sierpinski")).toBe(true);
     expect(isSdfIterField("gyroid")).toBe(false);
+  });
+});
+
+// VOLUMETRIC-4.md §1's precedence table (verbatim, see `resolveColorStackVisibility`'s
+// own doc): the enable toggle's on/off state plus `colorMode` together decide
+// three independent visibility questions in the right dock's Output folder.
+describe("resolveColorStackVisibility (VOLUMETRIC-4.md §1 precedence table)", () => {
+  it("stack off: voiceColors live, gradient endpoints live, hue controls hidden — today's behavior, regardless of colorMode", () => {
+    for (const colorMode of ["gradient", "hue"]) {
+      expect(resolveColorStackVisibility(false, colorMode)).toEqual({
+        showVoiceColorsToggle: true, showGradientColors: true, showHueControls: false,
+      });
+    }
+  });
+
+  it("stack on + gradient mode: voiceColors hides, gradient endpoints STAY visible (repurposed), hue controls hidden", () => {
+    expect(resolveColorStackVisibility(true, "gradient")).toEqual({
+      showVoiceColorsToggle: false, showGradientColors: true, showHueControls: false,
+    });
+  });
+
+  it("stack on + hue mode: voiceColors hides, gradient endpoints hide, hue controls show", () => {
+    expect(resolveColorStackVisibility(true, "hue")).toEqual({
+      showVoiceColorsToggle: false, showGradientColors: false, showHueControls: true,
+    });
+  });
+});
+
+// VOLUMETRIC-4.md §1's normal-derived field sources — legal ONLY on a colour
+// voice (packages/effects/src/stock.ts's `validateFieldSynthGeometryNormalFields`
+// rejects them on an active geometry voice). `FIELDS_NORMAL` is the website's
+// own hand-mirror of `SYNTH_FIELDS`' tail (fieldProgram.ts); this pins its
+// order against the spec's own append order.
+describe("FIELDS_NORMAL / FIELD_TOGGLE_COLOR(_3D) (VOLUMETRIC-4.md §1, new-control wiring)", () => {
+  it("FIELDS_NORMAL is exactly the four normal-derived kinds, in append order", () => {
+    expect(FIELDS_NORMAL).toEqual(["normalX", "normalY", "normalZ", "incidence"]);
+  });
+
+  it("neither geometry field list offers a normal-derived kind — validateParams would reject it", () => {
+    for (const field of FIELDS_NORMAL) {
+      expect(FIELDS).not.toContain(field);
+      expect(FIELDS_3D).not.toContain(field);
+    }
+  });
+
+  it("the colour field toggles are the matching geometry toggle plus the four normal-derived kinds, appended", () => {
+    expect(FIELD_TOGGLE_COLOR.map((o) => o.value)).toEqual([...FIELDS, ...FIELDS_NORMAL]);
+    expect(FIELD_TOGGLE_COLOR_3D.map((o) => o.value)).toEqual([...FIELDS_3D, ...FIELDS_NORMAL]);
+  });
+
+  it("MAX_COLOR_VOICES is the colour voice stack's own cap (3, VOLUMETRIC-4.md §1 — far less structure than the fractal geometry voices)", () => {
+    expect(MAX_COLOR_VOICES).toBe(3);
+  });
+});
+
+// Mutation-style coverage assertion (VOLUMETRIC-4.md's Phase 4 doc: "the
+// website hand-mirrors the field list in SIX places... all six need the four
+// new kinds") — every field either toggle can offer must have an icon, a
+// description, and (via `voiceFieldMapKind`) defined placement-map handling;
+// a field missing any one of these would have shipped exactly slice-3's
+// hardcoded-6 `SynthScope` latent bug one mirror over. Iterates the REAL
+// toggle contents, not a hand-typed list, so adding a field kind without
+// updating every mirror fails this test immediately.
+describe("field-list coverage across all six mirrors (VOLUMETRIC-4.md Phase 4)", () => {
+  const allColorFields = FIELD_TOGGLE_COLOR_3D.map((o) => o.value);
+
+  it("every field the colour toggle can offer has a real (non-empty) icon", () => {
+    for (const field of allColorFields) {
+      expect(FIELD_ICONS[field], `FIELD_ICONS missing "${field}"`).toBeTruthy();
+    }
+  });
+
+  it("every field the colour toggle can offer has a real (non-empty) description", () => {
+    for (const field of allColorFields) {
+      expect(typeof FIELD_DESCRIPTIONS[field], `FIELD_DESCRIPTIONS missing "${field}"`).toBe("string");
+      expect(FIELD_DESCRIPTIONS[field]!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("every field the colour toggle can offer resolves to a defined VoiceFieldMap mark kind", () => {
+    const kinds: ReadonlySet<string> = new Set(["linear", "ring", "no-direction", "generic"]);
+    for (const field of allColorFields) {
+      expect(kinds.has(voiceFieldMapKind(field)), `voiceFieldMapKind("${field}") returned an unexpected value`).toBe(true);
+    }
+  });
+
+  it("the four normal-derived kinds specifically resolve to \"no-direction\" — no spatial direction to draw", () => {
+    for (const field of FIELDS_NORMAL) expect(voiceFieldMapKind(field)).toBe("no-direction");
+  });
+
+  it("every geometry-only field (linear/radial/etc.) still resolves to its pre-existing, non-\"no-direction\" kind", () => {
+    for (const field of FIELDS_3D) {
+      if (field === "linearZ") continue; // linearZ is the one geometry field that's ALSO "no-direction" (pre-existing)
+      expect(voiceFieldMapKind(field)).not.toBe("no-direction");
+    }
+    expect(voiceFieldMapKind("linearZ")).toBe("no-direction");
+  });
+
+  it("placement (angle + origin U/V/W) is a no-op ONLY for the four normal-derived kinds — every other field keeps it", () => {
+    for (const field of FIELDS_NORMAL) expect(fieldHasPlacement(field)).toBe(false);
+    for (const field of FIELDS_3D) expect(fieldHasPlacement(field)).toBe(true);
+  });
+});
+
+// `soloColorParams` mirrors `soloParams`' geometry solo (VOLUMETRIC-4.md §1
+// Phase 4): isolates ONE colour voice onto `c*1` with the colour stack
+// forced on, against a flat/constant geometry backdrop so only colour
+// varies across the preview square.
+describe("soloColorParams", () => {
+  const params = {
+    ...synthDefaults(),
+    colorStackOn: true, colorCombine: "add", colorMode: "hue",
+    hueOffset: 0.1, hueRange: 200, hueSat: 40, hueLight: 60,
+    cfield2: "incidence", cwave2: "triangle", cfreq2: 5, cspeed2: 0.3, camp2: 1, cphase2: 0.2,
+    cangle2: 10, coriginU2: 0.1, coriginV2: -0.1, coriginW2: 0.2, cduty2: 0.4, citer2: 2,
+  };
+
+  it("solos the requested slot onto c*1, at full mix, everything else muted", () => {
+    const solo = soloColorParams(params, 2);
+    expect(solo.colorStackOn).toBe(true);
+    expect(solo.cfield1).toBe("incidence");
+    expect(solo.cwave1).toBe("triangle");
+    expect(solo.cfreq1).toBe(5);
+    expect(solo.cspeed1).toBe(0.3);
+    expect(solo.camp1).toBe(1);
+    expect(solo.cphase1).toBe(0.2);
+    expect(solo.cangle1).toBe(10);
+    expect(solo.coriginU1).toBe(0.1);
+    expect(solo.coriginV1).toBe(-0.1);
+    expect(solo.coriginW1).toBe(0.2);
+    expect(solo.cduty1).toBe(0.4);
+    expect(solo.citer1).toBe(2);
+    for (let k = 2; k <= MAX_COLOR_VOICES; k++) expect(Number(solo[`camp${k}`])).toBe(0);
+  });
+
+  it("carries the patch-level palette mapping (colorCombine/colorMode/hue params) unchanged", () => {
+    const solo = soloColorParams(params, 2);
+    expect(solo.colorCombine).toBe("add");
+    expect(solo.colorMode).toBe("hue");
+    expect(solo.hueOffset).toBe(0.1);
+    expect(solo.hueRange).toBe(200);
+    expect(solo.hueSat).toBe(40);
+    expect(solo.hueLight).toBe(60);
+  });
+
+  it("gives the preview a flat, constant geometry backdrop (freq 0) so only colour varies", () => {
+    const solo = soloColorParams(params, 2);
+    expect(solo.field1).toBe("radial");
+    expect(solo.freq1).toBe(0);
+    expect(solo.amp1).toBe(1);
+    for (let k = 2; k <= 9; k++) expect(Number(solo[`amp${k}`])).toBe(0);
+  });
+});
+
+// The colour voice stack's own "+ Add"/"×" affordances (VOLUMETRIC-4.md §1
+// Phase 4: "capped at 3") share `nextFreeVoiceSlot` with (in principle) any
+// other slot-capped add button — tested generically here since it's a pure
+// function, then pinned against the real `MAX_COLOR_VOICES`.
+describe("nextFreeVoiceSlot (colour voice add cap)", () => {
+  it("returns the first free slot in order", () => {
+    expect(nextFreeVoiceSlot([], MAX_COLOR_VOICES)).toBe(1);
+    expect(nextFreeVoiceSlot([1], MAX_COLOR_VOICES)).toBe(2);
+    expect(nextFreeVoiceSlot([2], MAX_COLOR_VOICES)).toBe(1);
+    expect(nextFreeVoiceSlot([1, 3], MAX_COLOR_VOICES)).toBe(2);
+  });
+
+  it("returns 0 (no-op) once every slot up to the cap is occupied", () => {
+    expect(nextFreeVoiceSlot([1, 2, 3], MAX_COLOR_VOICES)).toBe(0);
+    expect(MAX_COLOR_VOICES).toBe(3); // the cap this test pins against
+  });
+});
+
+// `VOICE_FIELD_MAP_BASE_ANGLE`'s keys ARE the "linear" family both
+// `voiceFieldMapKind` and the field-map's own directional arrow key off —
+// pinned so the two can't independently drift.
+describe("VOICE_FIELD_MAP_BASE_ANGLE", () => {
+  it("is exactly the three linear/diagonal fields, each with its own base angle", () => {
+    expect(VOICE_FIELD_MAP_BASE_ANGLE).toEqual({ linearX: 0, linearY: 90, diagonal: 45 });
+  });
+
+  it("every one of its keys resolves to the \"linear\" VoiceFieldMap kind", () => {
+    for (const field of Object.keys(VOICE_FIELD_MAP_BASE_ANGLE)) expect(voiceFieldMapKind(field)).toBe("linear");
+  });
+});
+
+// `NORMAL_DERIVED_SYNTH_FIELDS` (this file's own Set, mirroring the same-named
+// Set synthUrlState.ts and packages/effects/src/fieldProgram.ts each carry) —
+// pinned to the SAME four kinds so none of the three independently drifts.
+describe("NORMAL_DERIVED_SYNTH_FIELDS", () => {
+  it("is exactly FIELDS_NORMAL, as a Set", () => {
+    expect([...NORMAL_DERIVED_SYNTH_FIELDS].sort()).toEqual([...FIELDS_NORMAL].sort());
   });
 });

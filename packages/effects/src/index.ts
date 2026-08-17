@@ -112,8 +112,13 @@ export {
 // The flat schema's voice/layer caps (VOLUMETRIC-3.md §4 bumped
 // `SYNTH_VOICES` 6 -> 9) — public so the website derives its own voice-count
 // UI limits from the real cap instead of an independently hardcoded
-// duplicate (see synthKit.tsx / synthUrlState.ts).
-export { SYNTH_LAYERS, SYNTH_VOICES } from "./stock";
+// duplicate (see synthKit.tsx / synthUrlState.ts). `SYNTH_COLOR_VOICES`
+// (VOLUMETRIC-4.md §1) is the colour voice stack's own sibling cap — unlike
+// `SYNTH_VOICES`/`SYNTH_LAYERS`, no flat schema param's own `max` equals this
+// value (there's no `clayer` count param to read it off of), so it has to be
+// imported as its own constant rather than derived from `parameterSchema`
+// the way `synthKit.tsx`'s `MAX_LAYERS`/`MAX_VOICES` are.
+export { SYNTH_COLOR_VOICES, SYNTH_LAYERS, SYNTH_VOICES } from "./stock";
 
 export type {
   GlyphEffectId,

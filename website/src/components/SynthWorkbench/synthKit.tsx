@@ -32,6 +32,7 @@ import {
   defaultGlyphEffectParams,
   GlyphRamps,
   measureGlyphInkCoverage,
+  SYNTH_COLOR_VOICES,
   synthWave,
 } from "@glyphcss/effects";
 import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
@@ -57,6 +58,12 @@ import "../GalleryWorkbench/gallery-workbench.css";
 // `synthUrlState.ts` (VOLUMETRIC-3.md §4), not an independent `= 9` literal
 // duplicated in this file too.
 export { MAX_VOICES };
+// The colour voice stack's own sibling cap (VOLUMETRIC-4.md §1) — imported
+// directly from `@glyphcss/effects` rather than derived from a schema
+// param's own `max` the way `MAX_LAYERS`/`MAX_VOICES` are: there's no
+// `clayerN` count param whose `max` equals 3 to read it off of (colour
+// voices don't have layer assignment — single layer in v1).
+export const MAX_COLOR_VOICES = SYNTH_COLOR_VOICES;
 
 // The ONE blend both `scene.addEffectLayer()` calls below mount the layer
 // with. The static export must read the layer's REAL blend rather than the
@@ -373,6 +380,50 @@ export const FIELD_ICONS: Record<string, ReactNode> = {
 // leaving the page (see `AGENTS.md`'s field-synth section for the source
 // semantics: `fieldN` is the spatial domain, `waveN` is the oscillator shape
 // sampled across it).
+// Normal-derived field sources (VOLUMETRIC-4.md §1) — icons + descriptions
+// live in the SAME `FIELD_ICONS`/`FIELD_DESCRIPTIONS` records every other
+// field kind uses (mirror #2/#3 of the six the field list is hand-copied
+// into — see `FIELDS_COLOR`/`FIELDS_COLOR_3D` below for #1). Not referenced
+// by `FIELD_TOGGLE`/`FIELD_TOGGLE_3D` (geometry voices reject these four —
+// `validateFieldSynthGeometryNormalFields` in packages/effects/src/stock.ts),
+// only by the colour-voice toggles.
+Object.assign(FIELD_ICONS, {
+  // A face viewed edge-on (the line runs perpendicular to X, so it appears
+  // as a vertical stroke from the side) with an arrow along +X — "this
+  // component of the face's own outward normal".
+  normalX: (
+    <ToggleIcon strokeWidth={1.3}>
+      <line x1="8" y1="3" x2="8" y2="13" />
+      <line x1="8" y1="8" x2="13" y2="8" />
+      <path d="M10.3 5.7 L13 8 L10.3 10.3" />
+    </ToggleIcon>
+  ),
+  normalY: (
+    <ToggleIcon strokeWidth={1.3}>
+      <line x1="3" y1="8" x2="13" y2="8" />
+      <line x1="8" y1="8" x2="8" y2="3" />
+      <path d="M5.7 5.7 L8 3 L10.3 5.7" />
+    </ToggleIcon>
+  ),
+  // Z points at the viewer for a face viewed face-on — the standard
+  // "vector out of the page" dot-in-circle notation.
+  normalZ: (
+    <ToggleIcon strokeWidth={1.3}>
+      <circle cx="8" cy="8" r="5.2" />
+      <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+    </ToggleIcon>
+  ),
+  // A ray meeting a surface at a shallow angle, with the angle itself
+  // marked — "how grazing is this view of the surface".
+  incidence: (
+    <ToggleIcon strokeWidth={1.3}>
+      <line x1="1.5" y1="12.5" x2="14.5" y2="12.5" />
+      <path d="M3 3 L12 11" />
+      <path d="M9.3 9.9 L12 11 L11.4 8.1" />
+      <path d="M4.3 10.7 A4 4 0 0 1 6.6 8.9" strokeDasharray="1.5 1.3" />
+    </ToggleIcon>
+  ),
+});
 export const FIELD_DESCRIPTIONS: Record<string, string> = {
   radial: "distance from a center point — concentric rings",
   linearX: "sweeps left to right across the field",
@@ -385,6 +436,10 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = {
   gyroid: "triply-periodic labyrinth implicit — a smooth surface, not a wave layer",
   menger: "signed distance to a depth-limited box fractal (Menger sponge)",
   sierpinski: "signed distance to a depth-limited corner-tetra fractal (Sierpinski)",
+  normalX: "object-space face normal's X component — one value per cell, not spatial. Colour voice only",
+  normalY: "object-space face normal's Y component — one value per cell, not spatial. Colour voice only",
+  normalZ: "object-space face normal's Z component — one value per cell, not spatial. Colour voice only",
+  incidence: "1 − |normal · view direction| — 0 face-on, 1 at grazing angles (fresnel/rim lighting). Colour voice only",
 };
 export const WAVE_DESCRIPTIONS: Record<string, string> = {
   sin: "smooth, rounded oscillation",
@@ -396,6 +451,25 @@ export const WAVE_DESCRIPTIONS: Record<string, string> = {
 export const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
 export const FIELD_TOGGLE_3D = FIELDS_3D.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
 export const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], label: v, desc: WAVE_DESCRIPTIONS[v] }));
+
+// Normal-derived field sources (VOLUMETRIC-4.md §1) — legal ONLY on a
+// colour voice (`packages/effects/src/stock.ts`'s
+// `validateFieldSynthGeometryNormalFields` rejects them on an active
+// geometry voice, on or off the colour stack). Order matches `SYNTH_FIELDS`'
+// own append order (strictly after `sierpinski`). Mirror #1 of the six the
+// field list is hand-copied into (see the `Object.assign(FIELD_ICONS, …)`
+// block above for #2/#3).
+export const FIELDS_NORMAL = ["normalX", "normalY", "normalZ", "incidence"] as const;
+export const NORMAL_DERIVED_SYNTH_FIELDS: ReadonlySet<string> = new Set(FIELDS_NORMAL);
+// A colour voice's field toggle is the SAME set a geometry voice sees for the
+// current `space` (2D vs. volumetric — normal fields don't gate on this,
+// they only need `colorStackOn`, see `evaluate()`'s "REGARDLESS of space"
+// doc in stock.ts) plus the four normal-derived kinds, always offered
+// regardless of `space`. Mirror #4 (`FIELD_TOGGLE`/`FIELD_TOGGLE_3D`'s own
+// colour-voice sibling).
+const FIELD_TOGGLE_NORMAL = FIELDS_NORMAL.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
+export const FIELD_TOGGLE_COLOR = [...FIELD_TOGGLE, ...FIELD_TOGGLE_NORMAL];
+export const FIELD_TOGGLE_COLOR_3D = [...FIELD_TOGGLE_3D, ...FIELD_TOGGLE_NORMAL];
 
 // Single filled cell (one glyph per cell, ramp-based) vs. a braille-style
 // 2x4 dot grid (the synthesized dot mask `subcellRes: "2x4"` renders instead)
@@ -1020,7 +1094,20 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     // every later toggle) and may redundantly repeat this exact call; that's
     // a harmless one-time extra `onTick` at rest, never a second running loop.
     if (animateRef.current) start(); else renderStatic();
-    return () => { stop(); loopRef.current = null; layer.dispose(); scene.destroy(); };
+    // `layerRef.current = null` here (not just `loopRef.current`) matters:
+    // this cleanup and the deps-effect below run in DECLARATION order on the
+    // SAME commit whenever `host` changes (React runs each effect's
+    // cleanup-then-body before moving to the next). A caller whose own
+    // `host` can go from a real element back to null while the component
+    // STAYS MOUNTED — `ColorVoiceCard`'s "no preview" state for a
+    // normal-derived field (VOLUMETRIC-4.md §1), toggled by conditionally
+    // rendering the `ref={setHost}` span — hits exactly that: this cleanup
+    // disposes `layer`, then the deps-effect's `layerRef.current?.setParams`
+    // ran against the STALE (now-disposed) reference and threw "glyphcss:
+    // effect layer is disposed" (found live via the Playwright smoke pass).
+    // Every existing caller (`VoiceCard`, `PresetTile`) never re-triggers
+    // this effect without also fully unmounting, so it never observed this.
+    return () => { stop(); loopRef.current = null; layerRef.current = null; layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, volumetric, previewShape]);
   useEffect(() => {
@@ -1181,6 +1268,13 @@ const FREQ_TAPER = 3;
 export const FREQ_MAX = Number(
   (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).freq1?.max ?? 24,
 );
+/** A colour voice's own `cfreqN` runs 0..96 (packages/effects/src/stock.ts) —
+ *  4x the geometry `freqN` ceiling, so it needs its own schema-read max
+ *  rather than sharing `FREQ_MAX`; `freqFromSlider`/`freqToSlider` below
+ *  already take `max` as a parameter, so the SAME taper functions serve both. */
+export const CFREQ_MAX = Number(
+  (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).cfreq1?.max ?? 96,
+);
 /** Same rule for the pattern scale: bounds come from the schema, never a copy. */
 const scaleSpecOf = (fieldSynth.parameterSchema as unknown as Record<string, { min?: number; max?: number }>).scale;
 export const SCALE_MIN = Number(scaleSpecOf?.min ?? 0.1);
@@ -1312,22 +1406,66 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
 // AGENTS.md), which leaves the Z axis itself unchanged — `sampleFieldVoice`'s
 // volumetric branch reads `raw = z` directly, untouched by the angle-rotated
 // sample coordinates linearX/Y read.
-const angleApplies = (field: string): boolean => field !== "radial" && field !== "linearZ";
+//
+// The four normal-derived kinds (VOLUMETRIC-4.md §1, colour voice only) are
+// invariant for a stronger reason than either of the above: `sampleFieldVoice`
+// resolves them through `FieldVoiceRawOverride`, which returns BEFORE
+// `rotateVoiceSample`/the origin-translated domain point are ever computed
+// (packages/effects/src/fieldProgram.ts) — not just angle, but Origin U/V/W
+// too, are complete no-ops, unlike every other field kind where at least
+// origin (if not angle) does something. Mirror #5 of the six the field list
+// is hand-copied into.
+const angleApplies = (field: string): boolean =>
+  field !== "radial" && field !== "linearZ" && !NORMAL_DERIVED_SYNTH_FIELDS.has(field);
+// Placement (angle AND origin U/V/W) is a no-op end to end for a
+// normal-derived field — see `angleApplies`'s doc above. Colour voice cards
+// use this to hide the whole "▸ placement" disclosure for those four kinds,
+// rather than opening onto rows that provably do nothing.
+export const fieldHasPlacement = (field: string): boolean => !NORMAL_DERIVED_SYNTH_FIELDS.has(field);
 
-export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }) {
+// Which mark shape `VoiceFieldMap` draws for a field, factored out as a pure
+// function so the per-field branching is testable directly (mirror #6 of the
+// six the field list is hand-copied into: this switch, like the other five,
+// must stay exhaustive over every field the colour toggle can offer, not
+// just the geometry ones it was written against — the "hardcoded-N latent
+// bug" class VOLUMETRIC-4.md calls out). `baseAngle`'s keys ARE the "linear"
+// case's field set (kept as one object below so the map and this function
+// can't independently drift on which fields count as "linear").
+export const VOICE_FIELD_MAP_BASE_ANGLE: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
+export type VoiceFieldMapKind = "linear" | "ring" | "no-direction" | "generic";
+export function voiceFieldMapKind(field: string): VoiceFieldMapKind {
+  if (field in VOICE_FIELD_MAP_BASE_ANGLE) return "linear";
+  if (field === "radial" || field === "noise") return "ring";
+  if (field === "linearZ" || NORMAL_DERIVED_SYNTH_FIELDS.has(field)) return "no-direction";
+  return "generic";
+}
+
+export function VoiceFieldMap({ params, slot, keyPrefix = "", fallbackColor = "#7df9ff" }: {
+  params: Params; slot: number;
+  /** `"c"` for a colour voice (`cfield${slot}`/`corigin…${slot}`/…) — see
+   *  `ColorVoiceCard` below. Defaults to `""` (geometry voice keys), every
+   *  existing caller's behavior unchanged. */
+  keyPrefix?: string;
+  /** Colour voices have no per-voice `color${slot}` param of their own (the
+   *  combined colour comes from `colorMode`, not an individual swatch) — this
+   *  is the mark colour to fall back to when `${keyPrefix}color${slot}`
+   *  doesn't exist in `params`. Unused by the default geometry-voice call
+   *  (`color${slot}` always exists there). */
+  fallbackColor?: string;
+}) {
   const size = 100;
-  const baseAngle: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
   const marks: ReactNode[] = [];
   {
-    const field = String(params[`field${slot}`]);
-    const color = String(params[`color${slot}`] ?? "#7df9ff");
-    const ox = (0.5 + Number(params[`originU${slot}`] ?? 0)) * size;
-    const oy = (0.5 + Number(params[`originV${slot}`] ?? 0)) * size;
-    const deg = Number(params[`angle${slot}`] ?? 0) + (baseAngle[field] ?? 0);
+    const field = String(params[`${keyPrefix}field${slot}`]);
+    const color = String(params[`${keyPrefix}color${slot}`] ?? fallbackColor);
+    const ox = (0.5 + Number(params[`${keyPrefix}originU${slot}`] ?? 0)) * size;
+    const oy = (0.5 + Number(params[`${keyPrefix}originV${slot}`] ?? 0)) * size;
+    const deg = Number(params[`${keyPrefix}angle${slot}`] ?? 0) + (VOICE_FIELD_MAP_BASE_ANGLE[field] ?? 0);
     const rad = (deg * Math.PI) / 180;
     const dx = Math.cos(rad), dy = Math.sin(rad);
     const key = `v${slot}`;
-    if (field in baseAngle) {
+    const kind = voiceFieldMapKind(field);
+    if (kind === "linear") {
       const L = 30;
       marks.push(
         <g key={key} stroke={color} fill={color}>
@@ -1337,20 +1475,25 @@ export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }
           <circle cx={ox + dx * L} cy={oy + dy * L} r={2.6} stroke="none" />
         </g>,
       );
-    } else if (field === "radial" || field === "noise") {
+    } else if (kind === "ring") {
       marks.push(
         <g key={key} stroke={color} fill="none">
           <circle cx={ox} cy={oy} r={16} strokeWidth={1.2} strokeDasharray={field === "noise" ? "3 3" : undefined} vectorEffect="non-scaling-stroke" />
           <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
         </g>,
       );
-    } else if (field === "linearZ") {
-      // A genuinely out-of-plane axis has no 2D direction to draw — mark the
-      // centre and label it rather than drawing a direction this map can't show.
+    } else if (kind === "no-direction") {
+      // A genuinely out-of-plane axis (`linearZ`) or a per-cell, non-spatial
+      // value (the four normal-derived kinds — `fieldHasPlacement` above is
+      // `false` for these, so a live colour voice card never actually opens
+      // this map on one; kept here so this switch stays exhaustive rather
+      // than silently mishandling a field it doesn't recognize, the same
+      // "hardcoded-N latent bug" class VOLUMETRIC-4.md calls out) has no 2D
+      // direction to draw — mark the centre and label it instead.
       marks.push(
         <g key={key}>
           <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
-          <text x={ox + 6} y={oy + 3} fontSize="9" fill={color}>Z</text>
+          <text x={ox + 6} y={oy + 3} fontSize="9" fill={color}>{field === "linearZ" ? "Z" : "n"}</text>
         </g>,
       );
     } else {
@@ -1496,6 +1639,282 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         )}
 
       </div>
+    </div>
+  );
+}
+
+// ── Colour voice stack (VOLUMETRIC-4.md §1) ───────────────────────────────
+// A second, independent voice program that drives COLOUR only, decoupled
+// from the geometry stack above (which drives occupancy + glyph choice) but
+// sampled at the SAME point the geometry stack found (§1's "The split").
+// `ColorVoiceCard` below deliberately does NOT reuse `VoiceCard` itself —
+// that component is threaded with geometry-only concepts a colour voice
+// doesn't have (layer assignment, a per-voice `color${slot}` swatch used for
+// `voiceColors` blending, `soloParams`' own geometry-solo preview) — but it
+// DOES reuse its markup/CSS (`.voice-card`, `.voice-slider`, `IconToggle`,
+// `VoiceFieldMap`) so a colour voice card reads as the same idiom, not a
+// second bespoke design.
+
+// Isolates one COLOUR voice into `c*1` (camp1) so a card can preview its
+// solo spatial contribution — mirroring `soloParams`' geometry solo above,
+// but painting it through the colour stack (`colorStackOn: true`) onto a
+// flat, otherwise-featureless geometry backdrop (`field1: "radial", freq1:
+// 0` — a constant raw value, so every cell reads the SAME glyph and the only
+// thing that varies across the preview square is colour) instead of soloing
+// a geometry voice's own occupancy/glyph contribution.
+export function soloColorParams(params: Params, slot: number): Params {
+  const base = synthDefaults();
+  for (let k = 1; k <= MAX_VOICES; k++) base[`amp${k}`] = 0;
+  base.field1 = "radial"; base.freq1 = 0; base.amp1 = 1;
+  base.space = params.space; base.scale = params.scale; base.glyphs = params.glyphs;
+  base.voiceColors = false;
+  base.colorStackOn = true;
+  base.colorCombine = params.colorCombine;
+  base.colorMode = params.colorMode;
+  base.hueOffset = params.hueOffset; base.hueRange = params.hueRange;
+  base.hueSat = params.hueSat; base.hueLight = params.hueLight;
+  base.color = params.color; base.colorB = params.colorB; base.gradient = params.gradient;
+  for (let k = 1; k <= MAX_COLOR_VOICES; k++) base[`camp${k}`] = 0;
+  base.cfield1 = params[`cfield${slot}`]; base.cwave1 = params[`cwave${slot}`];
+  base.cangle1 = params[`cangle${slot}`]; base.coriginU1 = params[`coriginU${slot}`]; base.coriginV1 = params[`coriginV${slot}`];
+  base.coriginW1 = params[`coriginW${slot}`];
+  base.cduty1 = params[`cduty${slot}`]; base.cphase1 = params[`cphase${slot}`];
+  base.cfreq1 = params[`cfreq${slot}`]; base.cspeed1 = params[`cspeed${slot}`]; base.camp1 = 1;
+  base.citer1 = params[`citer${slot}`];
+  base.gain = 1; base.bias = 0.5;
+  return base;
+}
+
+// A fixed accent for colour-voice-only UI (trendline stroke, placement map
+// fallback mark) — colour voices have no per-voice swatch of their own (see
+// `ColorVoiceCard`'s doc above), unlike a geometry voice's `color${slot}`,
+// so there's no per-voice value to read here. Distinct from the geometry
+// rail's cyan (`#38bdf8`) so a colour voice card is visually legible as
+// belonging to the OTHER stack even before reading its label.
+const COLOR_VOICE_ACCENT = "#f472b6";
+
+export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageShape = "cube", hoverToAnimate = false }: {
+  slot: number; index: number; params: Params;
+  onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
+  stageShape?: string;
+  hoverToAnimate?: boolean;
+}) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState(false);
+  const f = (k: string) => String(params[`c${k}${slot}`]);
+  const num = (k: string) => Number(params[`c${k}${slot}`]);
+  const field = f("field");
+  const isNormalDerived = NORMAL_DERIVED_SYNTH_FIELDS.has(field);
+  const volumetric = params.space === "object";
+  const trendRef = useRef({ wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp"), duty: num("duty"), phase: num("phase") });
+  trendRef.current = { wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp"), duty: num("duty"), phase: num("phase") };
+  const pathRef = useRef<SVGPathElement | null>(null);
+  const onTick = useCallback((t: number) => {
+    const path = pathRef.current;
+    if (!path) return;
+    const v = trendRef.current;
+    path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
+  }, []);
+  // A normal-derived voice has no live spatial preview: the preview stage is
+  // a FLAT plane (`useSynthPreview` below always previews colour voices on
+  // "plane" or the real volumetric stage, per the branch below), and a flat
+  // plane's object-space normal is constant — mounting a live scene would
+  // show one uniform wash and read as a working (if boring) preview when it
+  // structurally can't be one. `host` only attaches to a DOM node when NOT
+  // normal-derived (see the JSX below); `useSynthPreview` itself no-ops on a
+  // null host, so the hook is still called unconditionally (rules of hooks)
+  // but never mounts a scene for these four kinds.
+  useSynthPreview(
+    host,
+    () => soloColorParams(params, slot),
+    [
+      params[`cfield${slot}`], params[`cwave${slot}`], params[`cfreq${slot}`], params[`cspeed${slot}`],
+      params[`cangle${slot}`], params[`coriginU${slot}`], params[`coriginV${slot}`], params[`coriginW${slot}`],
+      params[`cduty${slot}`], params[`cphase${slot}`], params[`citer${slot}`],
+      params.colorCombine, params.colorMode, params.hueOffset, params.hueRange, params.hueSat, params.hueLight,
+      params.color, params.colorB, params.gradient, params.space, params.scale, params.glyphs, host, stageShape,
+    ],
+    onTick,
+    volumetric ? stageShape : "plane",
+    hoverToAnimate ? hovered : true,
+  );
+  const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
+  const canPlace = fieldHasPlacement(field);
+  const [placementOverride, setPlacementOverride] = useState(false);
+  // A field switch that loses placement (into a normal-derived kind) must
+  // close the panel rather than leave it open on now-hidden rows.
+  useEffect(() => { if (!canPlace) setPlacementOverride(false); }, [canPlace]);
+  const placementOpen = canPlace && placementOverride;
+  return (
+    <div
+      className="voice-card"
+      onPointerEnter={() => { if (hoverToAnimate) setHovered(true); }}
+      onPointerLeave={() => { if (hoverToAnimate) setHovered(false); }}
+    >
+      <div className="voice-left">
+        <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
+          <path ref={pathRef} className="voice-trend-line" style={{ stroke: COLOR_VOICE_ACCENT }} vectorEffect="non-scaling-stroke" fill="none" />
+        </svg>
+        {isNormalDerived ? (
+          <span
+            className="voice-preview voice-preview-none"
+            title="No 2D preview — this field is a per-cell surface normal read (VOLUMETRIC-4.md §1), which a flat preview plane can't show (its normal never varies). Apply it and look at the real stage."
+          >
+            no preview
+          </span>
+        ) : (
+          <span className="voice-preview" ref={setHost} />
+        )}
+      </div>
+      <div className="voice-controls">
+        <div className="voice-head">
+          <span className="voice-title">Color voice {index + 1}</span>
+          <button className="voice-remove" onClick={onRemove} title="Remove colour voice">×</button>
+        </div>
+        <IconToggle groupTitle="Wave — the oscillator shape sampled across this colour voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`cwave${slot}`, v)} />
+        <IconToggle
+          groupTitle="Field — how this colour voice's value varies (hover a button for its shape). The four normal-derived kinds at the end (VOLUMETRIC-4.md §1) read the surface's own geometric normal — one value per cell, not a spatial pattern."
+          options={volumetric ? FIELD_TOGGLE_COLOR_3D : FIELD_TOGGLE_COLOR}
+          value={field}
+          onChange={(v) => onParam(`cfield${slot}`, v)}
+        />
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), CFREQ_MAX)} style={fill(freqToSlider(num("freq"), CFREQ_MAX), 0, 1)} onChange={(e) => onParam(`cfreq${slot}`, freqFromSlider(+e.target.value, CFREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`cspeed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
+        <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running colour-stack result toward combine(result, this voice) by this amount. 0 skips the voice entirely."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`camp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`cduty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
+        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`cphase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        {isSdfIterField(field) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`citer${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
+        {canPlace && (
+          <button
+            type="button"
+            className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
+            onClick={() => setPlacementOverride((o) => !o)}
+            title="Placement — where this colour voice's field is centred and which way it runs."
+          >
+            {placementOpen ? "▾" : "▸"} placement
+          </button>
+        )}
+        {placementOpen && (
+          <div className="voice-placement">
+            <VoiceFieldMap params={params} slot={slot} keyPrefix="c" fallbackColor={COLOR_VOICE_ACCENT} />
+            <div className="voice-placement-rows">
+              {angleApplies(field) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`cangle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
+              <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`coriginU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
+              <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`coriginV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
+              {(volumetric || isSdfField(field)) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`coriginW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// First slot 1..max not present in `existing` — 0 if all `max` slots are
+// occupied (the caller then no-ops, matching the "Add" button's own
+// `disabled` state at the cap). Shared by `ColorStackSection`'s "+ Add
+// colour voice" (max = `MAX_COLOR_VOICES`) — exported so the cap is
+// testable as a pure function, the same precedent as
+// `resolveInkControlVisibility`/`resolveSpaceChange` below.
+export function nextFreeVoiceSlot(existing: readonly number[], max: number): number {
+  for (let k = 1; k <= max; k++) if (!existing.includes(k)) return k;
+  return 0;
+}
+
+// ── Precedence table (VOLUMETRIC-4.md §1, verbatim) — pure so it's testable
+// without mounting the Dock or the sidebar, same precedent as
+// `resolveInkControlVisibility`/`resolveSpaceChange` above:
+//
+// | `colorStackOn` | Behaviour |
+// |---|---|
+// | off | today exactly — `voiceColors` toggle live, `color`/`colorB`/`gradient` its endpoints. |
+// | on  | `voiceColors` toggle HIDES (ignored by the engine). `color`/`colorB`/`gradient` stay
+// |     | visible under `colorMode: "gradient"` (they're repurposed as its endpoints) and hide
+// |     | under `"hue"`, where the hue params (offset/range/sat/light) show instead. |
+export function resolveColorStackVisibility(colorStackOn: boolean, colorMode: string): {
+  showVoiceColorsToggle: boolean;
+  showGradientColors: boolean;
+  showHueControls: boolean;
+} {
+  return {
+    showVoiceColorsToggle: !colorStackOn,
+    showGradientColors: !colorStackOn || colorMode === "gradient",
+    showHueControls: colorStackOn && colorMode === "hue",
+  };
+}
+
+// The voice sidebar's own colour section — below the geometry layer groups
+// (VOLUMETRIC-4.md §1 Phase 4: "voices are composed in the sidebar, and
+// colour voices are voices", not a dock-only afterthought). Collapses to
+// just its enable toggle when `colorStackOn` is off — the toggle's own
+// bracket-checkbox reads `[x]`/`[ ]`, the SAME idiom `LayerGroup`'s
+// threshold/invert checkboxes use (`.layer-group-check` in
+// instrument-workbench.css) — and every param underneath stays untouched in
+// `params` while collapsed (same "retained but inert" contract
+// `voiceColors`' own toggle already established), so re-enabling restores
+// exactly what was there.
+export function ColorStackSection({ params, onParam, stageShape }: {
+  params: Params; onParam: (key: string, value: ParamValue) => void; stageShape: string;
+}) {
+  const colorStackOn = params.colorStackOn === true;
+  // Existence == `campN > 0` (VOLUMETRIC-4.md §1: "far less structure" than
+  // the fractal geometry voices), unlike the geometry rail's independent
+  // `voiceSlots` state (SynthWorkbench.tsx), which lets a MUTED voice keep
+  // its card. A colour voice has no equivalent "silence but keep editing"
+  // use case worth a second piece of state, and there's no URL-persisted
+  // slot mask for it either — the whole patch, colour params included,
+  // already round-trips through the generic packed `?s=` schema codec (see
+  // synthUrlState.ts), so deriving existence straight from `camp` keeps a
+  // shared/preset link's colour voices exactly as populated as the patch
+  // that produced it.
+  const colorVoiceSlots = Array.from({ length: MAX_COLOR_VOICES }, (_, i) => i + 1)
+    .filter((slot) => Number(params[`camp${slot}`] ?? 0) > 0);
+  const addColorVoice = useCallback(() => {
+    const slot = nextFreeVoiceSlot(colorVoiceSlots, MAX_COLOR_VOICES);
+    if (!slot) return;
+    onParam(`camp${slot}`, 1);
+  }, [colorVoiceSlots, onParam]);
+  const removeColorVoice = useCallback((slot: number) => onParam(`camp${slot}`, 0), [onParam]);
+  return (
+    <div className="color-stack">
+      <label
+        className="color-stack-check"
+        title="Colour voice stack — a second, independent voice program that drives colour only, decoupled from the geometry voices above (VOLUMETRIC-4.md §1). Params are retained while off, so toggling never loses work."
+      >
+        <input type="checkbox" checked={colorStackOn} onChange={(e) => onParam("colorStackOn", e.target.checked)} />
+        <span>Colour</span>
+      </label>
+      {colorStackOn && (
+        <div className="color-stack-body">
+          <label className="layer-group-row" title="Combine — how the colour voices fold together.">
+            <span>combine</span>
+            <span className="gx-select">
+              <select value={String(params.colorCombine ?? "multiply")} onChange={(e) => onParam("colorCombine", e.target.value)}>
+                {COMBINES.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </span>
+          </label>
+          <label className="layer-group-row" title="Mode — gradient reuses Color / Color B / Gradient (right dock, Output folder) as its endpoints; hue cycles through the hue wheel instead (Hue offset/range/saturation/lightness, same folder) — the iridescence mode.">
+            <span>mode</span>
+            <span className="gx-select">
+              <select value={String(params.colorMode ?? "gradient")} onChange={(e) => onParam("colorMode", e.target.value)}>
+                <option value="gradient">gradient</option>
+                <option value="hue">hue</option>
+              </select>
+            </span>
+          </label>
+          <div className="color-stack-voices">
+            {colorVoiceSlots.map((slot) => (
+              <ColorVoiceCard key={slot} slot={slot} index={colorVoiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeColorVoice(slot)} stageShape={stageShape} hoverToAnimate />
+            ))}
+          </div>
+          {colorVoiceSlots.length === 0 && <p className="synth-empty">No colour voices — add one to start.</p>}
+          <button type="button" className="layer-group-add" onClick={addColorVoice} disabled={colorVoiceSlots.length >= MAX_COLOR_VOICES} title="Add a colour voice">
+            + Add colour voice
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1927,24 +2346,54 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // How many cuts through the amplitude axis to contour — only meaningful in
   // ink, so it appears with the mode rather than sitting inert.
   const voiceColorsOn = params.voiceColors === true;
+  const colorStackOn = params.colorStackOn === true;
+  const colorMode = s("colorMode") || "gradient";
+  // Precedence table (VOLUMETRIC-4.md §1) — see `resolveColorStackVisibility`'s
+  // own doc above, shared by this dock and (indirectly, via the same param
+  // shape) the sidebar's `ColorStackSection`.
+  const { showVoiceColorsToggle, showGradientColors, showHueControls } = resolveColorStackVisibility(colorStackOn, colorMode);
   // `voiceColors` is inert under `render: "xray"` (xray reads only the
-  // absorbed density, not per-voice color — VOLUMETRIC-2.md §1) — hidden
-  // there rather than left as a live-looking control that silently no-ops,
-  // the same duty-only-for-square precedent used elsewhere on this page.
+  // absorbed density, not per-voice color — VOLUMETRIC-2.md §1) AND while the
+  // colour stack is on (its own precedence rule: "voiceColors is ignored" —
+  // `showVoiceColorsToggle` above) — hidden in either case rather than left
+  // as a live-looking control that silently no-ops, the same duty-only-for-
+  // square precedent used elsewhere on this page.
   const voiceColorsCtrl = useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
-  useEffect(() => { voiceColorsCtrl?.setVisible(s("render") !== "xray"); }, [voiceColorsCtrl, params.render]);
+  useEffect(() => { voiceColorsCtrl?.setVisible(s("render") !== "xray" && showVoiceColorsToggle); }, [voiceColorsCtrl, params.render, showVoiceColorsToggle]);
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
   const colorBCtrl = useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
   const gradientCtrl = useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
-  // Color/Color B/Gradient only drive output when per-voice colors is OFF — each
-  // voice's own color wins over them once it's on (see `fieldSynth`'s evaluate()).
-  // Grey them out via the same `DockController.setEnabled` every Dock primitive
-  // already exposes, rather than adding a bespoke disabled prop.
+  // Hue-mode palette params (VOLUMETRIC-4.md §1: `hue = (v*0.5 + 0.5 +
+  // hueOffset) * hueRange` degrees at fixed `hueSat`/`hueLight`) — created
+  // ALWAYS, right after Gradient, and merely shown/hidden, the same
+  // "created here so lil-gui's append order is stable, toggled via
+  // `.raw.show()/.hide()`" idiom `inkLevelsCtrl`/`inkSpacingCtrl` above use,
+  // so the two mappings swap IN PLACE under the same "Mode" choice instead of
+  // one permanently trailing the other.
+  const hueOffsetCtrl = useSlider(out, "Hue offset", { min: -1, max: 1, step: 0.01 }, n("hueOffset"), (v) => onParam("hueOffset", v));
+  const hueRangeCtrl = useSlider(out, "Hue range", { min: 0, max: 360, step: 1 }, n("hueRange"), (v) => onParam("hueRange", v));
+  const hueSatCtrl = useSlider(out, "Hue saturation", { min: 0, max: 100, step: 1 }, n("hueSat"), (v) => onParam("hueSat", v));
+  const hueLightCtrl = useSlider(out, "Hue lightness", { min: 0, max: 100, step: 1 }, n("hueLight"), (v) => onParam("hueLight", v));
+  // Color/Color B/Gradient drive output when the colour stack is off (today,
+  // unchanged) OR on with `colorMode: "gradient"` (repurposed as that mode's
+  // endpoints — VOLUMETRIC-4.md §1's precedence table); Hue offset/range/
+  // saturation/lightness are the "hue" mode's own mapping and swap in as
+  // Color/Color B/Gradient swap out. Within the gradient case, per-voice
+  // colors (when the stack is OFF) still wins over Color/Color B/Gradient —
+  // each voice's own color wins over them once it's on (`fieldSynth`'s
+  // evaluate()) — so the enable/disable dimming stays keyed off
+  // `voiceColorsOn` exactly as before; the colour stack being ON forces
+  // `voiceColors` inert (hidden above), so there's nothing to dim against —
+  // Color/Color B/Gradient are always fully enabled in that state.
   useEffect(() => {
-    colorCtrl?.setEnabled(!voiceColorsOn);
-    colorBCtrl?.setEnabled(!voiceColorsOn);
-    gradientCtrl?.setEnabled(!voiceColorsOn);
-  }, [colorCtrl, colorBCtrl, gradientCtrl, voiceColorsOn]);
+    colorCtrl?.setVisible(showGradientColors); colorCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
+    colorBCtrl?.setVisible(showGradientColors); colorBCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
+    gradientCtrl?.setVisible(showGradientColors); gradientCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
+    hueOffsetCtrl?.setVisible(showHueControls);
+    hueRangeCtrl?.setVisible(showHueControls);
+    hueSatCtrl?.setVisible(showHueControls);
+    hueLightCtrl?.setVisible(showHueControls);
+  }, [colorCtrl, colorBCtrl, gradientCtrl, hueOffsetCtrl, hueRangeCtrl, hueSatCtrl, hueLightCtrl, voiceColorsOn, colorStackOn, showGradientColors, showHueControls]);
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));

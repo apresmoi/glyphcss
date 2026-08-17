@@ -90,6 +90,7 @@ import {
   frameObject,
   LayerGroup,
   VoiceCard,
+  ColorStackSection,
   PresetTile,
   SynthDock,
   type ParamValue,
@@ -568,6 +569,11 @@ export default function SynthWorkbench() {
                 </LayerGroup>
               ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
+            {/* Colour voice stack (VOLUMETRIC-4.md §1) — below the geometry
+                layer groups, since it's a second, independent voice program
+                (colour only, no occupancy/glyph say) rather than another
+                layer of them. */}
+            <ColorStackSection params={params} onParam={onParam} stageShape={shape} />
         </InstrumentRail>
         <InstrumentMain elementRef={setStageHost}>
           <InstrumentViewport elementRef={hostRef} />

@@ -179,6 +179,47 @@
 .layer-group-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.18); }
 .layer-group-add:disabled { opacity: 0.35; cursor: not-allowed; }
 
+/* Colour voice stack section (VOLUMETRIC-4.md §1) — sits below the layer
+   groups in the voice sidebar. Deliberately a warm pink/magenta accent
+   (`#f472b6`), distinct from the layer groups' cyan, so the section reads
+   as visually separate from the geometry stack above it even before its
+   label is read — it's a second, independent voice program (colour only),
+   not another layer. Collapses to just its own toggle when `colorStackOn`
+   is off (`.color-stack-body` simply isn't rendered — see
+   `ColorStackSection` in synthKit.tsx). */
+.color-stack {
+  border: 1px solid rgba(244, 114, 182, 0.28);
+  background: #090509;
+}
+.color-stack-check {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 6px 9px; cursor: pointer;
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(244, 114, 182, 0.95);
+}
+/* Same "[x]"/"[ ]" pseudo-checkbox technique as `.layer-group-check` — one
+   control idiom across the whole sidebar — recolored to this section's own
+   accent instead of sharing the cyan class directly. */
+.color-stack-check input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none;
+  width: 32px; height: 16px;
+  background: rgba(244, 114, 182, 0.05); border: 1px solid rgba(244, 114, 182, 0.3);
+  border-radius: 0; cursor: pointer; position: relative; flex-shrink: 0;
+}
+.color-stack-check input[type="checkbox"]::before {
+  content: "[ ]"; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px; color: rgba(244, 114, 182, 0.5); pointer-events: none; line-height: 1;
+}
+.color-stack-check input[type="checkbox"]:checked { background: rgba(244, 114, 182, 0.14); border-color: rgba(244, 114, 182, 0.65); }
+.color-stack-check input[type="checkbox"]:checked::before { content: "[x]"; color: #f472b6; }
+.color-stack-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 9px; border-top: 1px solid rgba(244, 114, 182, 0.2);
+}
+.color-stack-voices { display: flex; flex-direction: column; gap: 9px; }
+
 /* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
   display: grid;
@@ -214,6 +255,16 @@
   overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
+/* Normal-derived colour voice (VOLUMETRIC-4.md §1) — explicit "no preview"
+   state instead of mounting a scene that would only ever show a flat wash
+   (a flat preview plane's object-space normal never varies). Same box as
+   `.voice-preview` so the card's layout doesn't jump when a field toggle
+   switches into/out of this state. */
+.voice-preview-none {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-size: 9px; letter-spacing: 0.04em; line-height: 1.3; padding: 4px;
+  color: rgba(255, 232, 184, 0.35);
+}
 .voice-controls { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .voice-head { display: flex; align-items: center; justify-content: space-between; }
 .voice-head-right { display: flex; align-items: center; gap: 6px; }
