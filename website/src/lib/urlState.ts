@@ -77,8 +77,19 @@ function decodePackedString(
 }
 
 // ── Colors: bare hex packed as 5 base36 chars (0..0xffffff), no "#"/"%23". ──
+// Accepts the CSS 3-digit shorthand (`#9df` === `#99ddff`) as well as the
+// full 6-digit form: a stock preset (field-synth's "Moiré rings") authors
+// its color in shorthand, and `encodeFieldValue` treats `undefined` as "drop
+// this field silently" — before this normalization, a shorthand color was
+// never packed at all, so that preset's custom color silently reverted to
+// the schema default on every single shared link, 'z' or 'p', found by the
+// same real-entry-point preset round-trip test that caught the 'z' P0
+// (synthUrlState.e2e.test.ts).
 function encodePackedColor(value: string): string | undefined {
-  const hex = value.replace(/^#/, "").toLowerCase();
+  const stripped = value.replace(/^#/, "").toLowerCase();
+  const hex = /^[0-9a-f]{3}$/.test(stripped)
+    ? stripped.split("").map((c) => c + c).join("")
+    : stripped;
   if (!/^[0-9a-f]{6}$/.test(hex)) return undefined;
   return Number.parseInt(hex, 16).toString(BASE36).padStart(5, "0");
 }
