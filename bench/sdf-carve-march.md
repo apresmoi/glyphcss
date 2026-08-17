@@ -117,20 +117,18 @@ into two freshly-allocated arrays.
 
 ## Rejected
 
-- **`Math.hypot` → `Math.sqrt(x*x+y*y+z*z)` in `sdfBox`.** `Math.hypot` is
-  measurably slower than a naive sum-of-squares sqrt (its algorithm trades
-  speed for overflow/underflow safety at extreme magnitudes, unneeded here
-  since every coordinate is bounded to a few domain units). This was the
-  single largest remaining hot-path candidate — `sdfBox` runs ~20 times per
-  non-leaf node visit, and node visits number in the hundreds of thousands
-  per frame at this preset. Not shipped: `fieldProgram.test.ts` pins
-  `mengerFractalSdf`/`sierpinskiFractalSdf` against a brute-force reference
-  at `toBeCloseTo(ref, 9)` — 9 decimal places. `Math.hypot` and a naive sqrt
-  are mathematically equivalent but not guaranteed bit-identical (different
-  summation/rounding paths), and a change that risks failing a
-  distance-fidelity test this tight — even if it happens to pass today on
-  this build's V8 — is exactly the kind of "changes rendered output" risk
-  the guardrails rule out. Left alone.
+- ~~**`Math.hypot` → `Math.sqrt(x*x+y*y+z*z)` in `sdfBox`.** Left alone —
+  `Math.hypot` and a naive sqrt aren't guaranteed bit-identical, and this was
+  rejected here without running the actual A/B.~~ **Superseded — shipped**,
+  see `bench/color-quantize.md`'s micro-win table: an independent reviewer's
+  A/B measured 3.47x on `mengerFractalSdf` iter 3 and 3.08x on sierpinski
+  (max relative error 4.3e-16, seven orders inside the 9-decimal fidelity
+  tolerance this doc worried about above), and the real gating step this doc
+  skipped — actually running `fieldProgram.test.ts`'s `toBeCloseTo(ref, 9)`
+  assertions against the changed build — passed clean (all 431
+  `@glyphcss/effects` tests green). The theoretical risk this bullet raised
+  was real in principle but didn't materialize in practice; per this
+  project's "measure it or it didn't happen" rule, that's what settles it.
 - **Retuning `SPHERE_MARCH_STALL_STEPS`/`SPHERE_MARCH_MAX_STEPS`.** Both are
   shipped, empirically-derived constants (see their own doc comments in
   `fieldProgram.ts` — `SPHERE_MARCH_STALL_STEPS: 8` was swept from a range

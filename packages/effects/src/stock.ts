@@ -7,6 +7,7 @@ import {
   type GlyphEffectEvaluateContext,
   type GlyphEffectParamSchema,
   type GlyphEffectParamValues,
+  type GlyphEffectParsedColor,
   type GlyphEffectRequirement,
 } from "glyphcss";
 import {
@@ -127,6 +128,26 @@ const TRIPLANAR_K = 4;
 type EffectDirection = "down" | "up" | "right" | "left";
 const GENERATED_SURFACE_PITCH = 4;
 const generatedSurfaceFieldCache = new WeakMap<object, GeneratedSurfaceField>();
+
+// `parseGlyphEffectColor` regex-parses a CSS color STRING (hex/rgb/rgba) —
+// every stock effect below already calls it once per `evaluate()` (once per
+// animation frame), never per cell, but a mounted effect's color params are
+// almost always the same string frame to frame (a user drags the camera far
+// more than they drag a color picker), so re-parsing on every frame is pure
+// waste. Memoized by the exact input string: none of this file's call sites
+// mutate the returned `{ packed, opacity }` (every one only reads it), so
+// returning the same cached object across frames is safe. Unbounded — color
+// param strings are a small, UI-driven set (never per-cell-generated), so
+// this can never grow proportional to grid size or frame count.
+const parsedColorCache = new Map<string, GlyphEffectParsedColor>();
+function parseGlyphEffectColorCached(value: string): GlyphEffectParsedColor {
+  let cached = parsedColorCache.get(value);
+  if (!cached) {
+    cached = parseGlyphEffectColor(value);
+    parsedColorCache.set(value, cached);
+  }
+  return cached;
+}
 
 function positiveMod(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
@@ -901,8 +922,8 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
       const uvBounds = findUvBounds(context);
       const trail = Math.max(1, Math.round(params.trail));
       const period = Math.max(trail + 1, trail * 3);
-      const parsedHead = parseGlyphEffectColor(params.headColor);
-      const parsedColor = parseGlyphEffectColor(params.color);
+      const parsedHead = parseGlyphEffectColorCached(params.headColor);
+      const parsedColor = parseGlyphEffectColorCached(params.color);
       const monochrome = params.colorMode === "monochrome";
       // Volumetric branch is all-or-nothing per render: `objectPosition` is
       // either retained for every solid-mode cell or entirely absent (any
@@ -1056,7 +1077,7 @@ export const scan: GlyphStockEffectDefinition<typeof scanSchema> = {
     evaluate(context) {
       const { params } = context;
       const uvBounds = findUvBounds(context);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const spacing = Math.max(params.width, params.spacing);
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
@@ -1163,7 +1184,7 @@ export const glitch: GlyphStockEffectDefinition<typeof glitchSchema> = {
     evaluate(context) {
       const { params } = context;
       const glyphs = glyphPattern(params.glyphs);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const frame = Math.floor(params.time * params.rate);
       const bandSize = Math.max(1, Math.round(params.bandSize));
       for (let i = 0; i < context.base.length; i++) {
@@ -1238,7 +1259,7 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
     evaluate(context) {
       const { params } = context;
       const glyphs = glyphPattern(params.glyphs);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const [cols, rows] = context.coordinates.sceneGridSize;
       const cx = cols * 0.5;
       const cy = rows * 0.5;
@@ -1312,20 +1333,35 @@ function lerpPacked(a: number, b: number, t: number): number {
   return (r << 16) | (g << 8) | bl;
 }
 
-// The colour stack's "hue" palette mode (VOLUMETRIC-4.md §1): standard
-// HSL -> RGB, `s`/`l` in 0..1 (the schema carries `hueSat`/`hueLight` as
-// 0..100 percentages — callers divide by 100 before this). `hDeg` is taken
-// mod 360 first so a caller never has to pre-normalize an offset/range
-// product that overshoots a full turn.
-function hslToPackedRgb(hDeg: number, s: number, l: number): number {
+// Split from a single `hslToPackedRgb(hDeg, s, l)` (same math, same result,
+// bit-for-bit): `s`/`l` (`hueSat`/`hueLight`) are per-FRAME constants in
+// fieldSynth's colour-stack hue mode, while `hDeg` is the only genuinely
+// per-CELL input (it depends on that cell's colour-stack scalar). The old
+// single-call form re-derived `sat`/`light`/`q`/`p` — and re-ran the
+// `sat <= 0` achromatic branch — on every cell even though only `hDeg`
+// changed. `computeHuePalette` now runs that invariant part once per
+// `evaluate()`; `hueToPackedRgb` is the cheap per-cell remainder.
+interface HuePalette {
+  readonly achromaticPacked: number | null;
+  readonly p: number;
+  readonly q: number;
+}
+
+function computeHuePalette(s: number, l: number): HuePalette {
   const sat = clamp01(s);
   const light = clamp01(l);
   if (sat <= 0) {
     const v = Math.round(light * 255);
-    return (v << 16) | (v << 8) | v;
+    return { achromaticPacked: (v << 16) | (v << 8) | v, p: light, q: light };
   }
   const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
   const p = 2 * light - q;
+  return { achromaticPacked: null, p, q };
+}
+
+function hueToPackedRgb(hDeg: number, palette: HuePalette): number {
+  if (palette.achromaticPacked !== null) return palette.achromaticPacked;
+  const { p, q } = palette;
   const h = positiveMod(hDeg, 360) / 360;
   const hueToChannel = (t: number): number => {
     const tt = positiveMod(t, 1);
@@ -3102,8 +3138,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
       const generatedSurface = !volumetric && params.space !== "scene" && !(params.space === "auto" && uvBounds)
         ? generatedSurfaceField(context)
         : undefined;
-      const cA = parseGlyphEffectColor(params.color);
-      const cB = parseGlyphEffectColor(params.colorB);
+      const cA = parseGlyphEffectColorCached(params.color);
+      const cB = parseGlyphEffectColorCached(params.colorB);
+      // Colour stack's "hue" palette mode reads this once per evaluate() —
+      // `hueSat`/`hueLight` never vary per cell, only the hue angle does
+      // (see `computeHuePalette`'s doc).
+      const huePalette = params.colorStackOn && params.colorMode === "hue"
+        ? computeHuePalette(params.hueSat / 100, params.hueLight / 100)
+        : null;
       const useVoiceColors = params.voiceColors;
       // Program-as-data (VOLUMETRIC-3.md §4): when a layer mounts with a
       // `program` option, packages/glyphcss plumbs it onto the evaluate
@@ -3143,7 +3185,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, volumetric);
         flatVoices = compiledVoices;
       }
-      const parsedVoiceColors = useVoiceColors ? flatVoices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
+      const parsedVoiceColors = useVoiceColors ? flatVoices.map((voice) => parseGlyphEffectColorCached(voice.color)) : undefined;
       // Colour voice stack (VOLUMETRIC-4.md §1): a second, independent
       // `FieldProgram` compiled the SAME way the geometry stack's own
       // `program`/flat-voices split above works — a `colorProgram` layer
@@ -3412,7 +3454,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
         if (colorStackOn && Number.isFinite(point.colorValue)) {
           if (params.colorMode === "hue") {
             const hueDeg = (point.colorValue * 0.5 + 0.5 + params.hueOffset) * params.hueRange;
-            packed = hslToPackedRgb(hueDeg, params.hueSat / 100, params.hueLight / 100);
+            packed = hueToPackedRgb(hueDeg, huePalette!);
           } else {
             // "gradient": the colour stack's raw scalar pushed through the
             // SAME clamp01(bias + gain*v*0.5) derivation `value` above
