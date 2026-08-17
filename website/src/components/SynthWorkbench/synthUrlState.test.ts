@@ -243,6 +243,21 @@ describe("colour voice stack — every new key round-trips (VOLUMETRIC-4.md §1)
   });
 });
 
+// `colorQuantize` — the schema tail's next open slot after the colour voice
+// stack above (`adaptive`/`adaptiveTolerance` were deliberately withheld, so
+// this key claims the very next index; see stock.ts's own tail comment).
+// Same precedent as "round-trips the new voice7-9 param keys" and the colour
+// voice stack test above: a non-default value must round-trip through the
+// real write/read path, not just decode to schema default silently.
+describe("colorQuantize round-trips (schema tail's next open slot)", () => {
+  it("round-trips a non-default colorQuantize value", () => {
+    const base = representativePatch();
+    const patch = { ...base, params: { ...base.params, colorQuantize: 16 } };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    expect(restored.params.colorQuantize).toBe(16);
+  });
+});
+
 // ── Acceptance 7 (VOLUMETRIC.md): the URL codec's schema-index cap ─────────
 // `encodeEffectParamsPacked` keyed params by a single base62 char, capping at
 // index 61. `fieldSynthSchema` is well past 120 keys, so every param below —

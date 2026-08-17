@@ -2412,6 +2412,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
     hueSatCtrl?.setVisible(showHueControls);
     hueLightCtrl?.setVisible(showHueControls);
   }, [colorCtrl, colorBCtrl, gradientCtrl, hueOffsetCtrl, hueRangeCtrl, hueSatCtrl, hueLightCtrl, voiceColorsOn, colorStackOn, showGradientColors, showHueControls]);
+  // Quantizes the final resolved per-cell colour to this many levels per RGB
+  // channel — 0 (default) is off. Applies downstream of gradient/hue/
+  // voiceColors/lit/carve-fade (`resolveFieldSynthColor` in stock.ts), so
+  // unlike the Color/Color B/Hue rows above, it is NEVER hidden — it acts on
+  // whatever colour path is active, not one specific mode.
+  useSlider(out, "Color quantize", { min: 0, max: 64, step: 1 }, n("colorQuantize"), (v) => onParam("colorQuantize", v));
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));
