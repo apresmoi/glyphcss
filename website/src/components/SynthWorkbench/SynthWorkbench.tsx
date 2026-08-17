@@ -30,7 +30,8 @@ import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useTog
 import { SynthCodePanel } from "./SynthCodePanel";
 import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
-import { readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
+import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
+import { readUrlParam } from "../../lib/urlState";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -106,6 +107,12 @@ import {
 // ── Workbench ────────────────────────────────────────────────────────────────
 export default function SynthWorkbench() {
   const initial = useMemo(() => readInitialSynthState(), []);
+  // Captured once, in the SAME memo pass as `initial` above — i.e. before
+  // any effect (including the URL-persistence effect below) has a chance to
+  // overwrite `?s=` — so the async catch-up effect a few lines down always
+  // decodes the link the page actually loaded with, not whatever state has
+  // since been written back.
+  const initialRawParam = useMemo(() => readUrlParam(SYNTH_PARAM), []);
   const hostRef = useRef<HTMLDivElement | null>(null);
   // State, not a ref: StatsOverlay mounts imperatively into this element,
   // and a ref mutation would not re-run its effect (same pattern as
@@ -292,6 +299,30 @@ export default function SynthWorkbench() {
   // voice (amp 0) keeps its card; only Remove (×) deletes it.
   const [voiceSlots, setVoiceSlots] = useState<number[]>(initial.voiceSlots);
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
+
+  // Async catch-up for a compressed ('z') `?s=` link: `readInitialSynthState`
+  // above is synchronous and can only ever read the 'p' (raw packed) format
+  // — a link past the compaction threshold (~400 packed chars, routine once
+  // a preset touches many voices/colour-stack keys) decodes to schema
+  // defaults on that path with no signal at all. This resolves it the moment
+  // native decompression finishes (typically well under a frame) and applies
+  // the real patch over whatever defaults were rendered first. No-op (the
+  // promise resolves to `null`) for the overwhelmingly common 'p'-tagged or
+  // absent-param case — see `decodeSynthUrlStateAsync`'s doc.
+  useEffect(() => {
+    let cancelled = false;
+    void decodeSynthUrlStateAsync(initialRawParam).then((state) => {
+      if (cancelled || !state) return;
+      setShape(state.shape);
+      setParams(state.params as Params);
+      setTimeScale(state.timeScale);
+      setDensity(state.density);
+      setLighting(state.lighting);
+      setVoiceSlots(state.voiceSlots);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRawParam]);
 
   // Persist everything to the single packed `?s=` param so a reload/share
   // restores the patch (see synthUrlState.ts).

@@ -168,7 +168,7 @@ const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
 // the slab feature's removal) — same outer field list, but `paramsPacked`
 // must be decoded against `LEGACY_V2_FIELD_SYNTH_SCHEMA`'s old key order.
 const synthCodecLegacyV2 = createUrlCodec<SynthUrlState>("2", synthFields);
-const SYNTH_PARAM = "s";
+export const SYNTH_PARAM = "s";
 
 // Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
 // guard, now the ONLY space control — VOLUMETRIC-2.md §4 removed the 2D/3D
@@ -351,7 +351,15 @@ export function applySynthValidityGate(params: Params): Params {
   // effect-param object to schema defaults rather than ship a
   // half-repaired, still-invalid patch. Non-effect URL state (shape,
   // density, lighting, camera) lives outside `params` entirely and is
-  // untouched by this function.
+  // untouched by this function. Loud on purpose: a silent full-object reset
+  // is indistinguishable from "no params were in the URL at all" to whoever
+  // is debugging a link that loaded as defaults — see the module doc above
+  // and the P0 this was written to make diagnosable (a genuinely valid patch
+  // silently landing here reads identically to an absent `?s=` otherwise).
+  console.warn(
+    "synthUrlState: URL params failed field-synth validation after every known repair — resetting the whole patch to schema defaults.",
+    params,
+  );
   return { ...SYNTH_PARAM_DEFAULTS };
 }
 
@@ -408,9 +416,16 @@ function paramsSchemaFor(raw: string | null | undefined): EffectParamSchemaLike 
     : (fieldSynth.parameterSchema as unknown as EffectParamSchemaLike);
 }
 
-/** Pure decode: packed `?s=` value -> patch (defaults for absent/garbage). */
-export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
-  const decoded = { ...SYNTH_URL_DEFAULTS, ...decodeOuterState(raw) };
+/** Shared post-processing for BOTH the synchronous ('p') and async ('z')
+ *  decode paths below: merge the decoded outer fields over defaults, decode
+ *  the nested `paramsPacked` effect patch against the right schema for
+ *  `raw`'s version, discard retired keys, coerce carve/xray to the right
+ *  space, and run the URL hydration validity gate. `raw` is only consulted
+ *  for its version tag (`decodeOuterState`/`paramsSchemaFor` above), never
+ *  re-decoded here — callers already resolved `outer` themselves (sync via
+ *  `codec.decode`, async via `codec.decodeAsync`). */
+function buildSynthInitialState(raw: string | null | undefined, outer: Partial<SynthUrlState>): SynthInitialState {
+  const decoded = { ...SYNTH_URL_DEFAULTS, ...outer };
   const overrides = decodeEffectParamsPacked(paramsSchemaFor(raw), decoded.paramsPacked);
   // The retired slab keys only ever appear when `overrides` was decoded
   // against `LEGACY_V2_FIELD_SYNTH_SCHEMA` (a "1"/"2"-tagged link) — discard
@@ -439,8 +454,58 @@ export function decodeSynthUrlState(raw: string | null | undefined): SynthInitia
   };
 }
 
+/** Pure decode: packed `?s=` value -> patch (defaults for absent/garbage).
+ *  Synchronous, so it can only ever read the 'p' (raw packed) format — a
+ *  'z' (deflated) link decodes to defaults here (see urlState.ts's `decode`
+ *  doc, which now warns when this happens) and needs `decodeSynthUrlStateAsync`
+ *  to actually resolve. */
+export function decodeSynthUrlState(raw: string | null | undefined): SynthInitialState {
+  return buildSynthInitialState(raw, decodeOuterState(raw));
+}
+
+/** Picks the codec that understands `raw`'s outer version tag — mirrors
+ *  `decodeOuterState`'s sync dispatch, but for `codec.decodeAsync` (the only
+ *  path that can read a 'z'-tagged/compressed link at all). */
+function outerCodecFor(raw: string | null | undefined) {
+  if (raw && raw[1] === "1") return synthCodecLegacyV1;
+  if (raw && raw[1] === "2") return synthCodecLegacyV2;
+  return synthCodec;
+}
+
+/** Async catch-up for a 'z'-tagged (deflated) `?s=` link that
+ *  `decodeSynthUrlState`/`readInitialSynthState` cannot read synchronously
+ *  (decompression is inherently async — see urlState.ts's format doc). This
+ *  is the fix for the P0 where a shared link past the compaction threshold
+ *  (~400 packed chars — routine once a preset touches many voices/colour-
+ *  stack keys, e.g. "Menger (cssGraphics)") silently loaded as schema
+ *  defaults with no signal at all: the synchronous read alone can NEVER
+ *  resolve a 'z' link, no matter how the rest of the pipeline is fixed.
+ *
+ *  Returns `null` for an absent or already-'p'-tagged param (nothing to
+ *  catch up on — the synchronous read already fully resolved it) so call
+ *  sites can tell "nothing to do" apart from "resolved, and it's a genuine
+ *  no-op patch". Warns to the console (via `codec.decodeAsync`) when a
+ *  present 'z' param fails to decode — garbage, truncated, an unsupported
+ *  version, or a browser with no DecompressionStream support — instead of
+ *  resolving to defaults with no trace. */
+export async function decodeSynthUrlStateAsync(raw: string | null | undefined): Promise<SynthInitialState | null> {
+  if (!raw || raw[0] !== "z") return null;
+  const outer = await outerCodecFor(raw).decodeAsync(raw);
+  return buildSynthInitialState(raw, outer);
+}
+
 export function readInitialSynthState(): SynthInitialState {
   return decodeSynthUrlState(readUrlParam(SYNTH_PARAM));
+}
+
+/** Async catch-up for the CURRENT `?s=` URL param — the page-facing wrapper
+ *  around `decodeSynthUrlStateAsync` (which takes `raw` directly so it stays
+ *  pure/testable). Call once on mount; a non-null result means the initial
+ *  synchronous `readInitialSynthState()` read defaults because the URL held
+ *  a compressed link, and the caller should apply this result over that
+ *  initial state. */
+export async function readInitialSynthStateAsync(): Promise<SynthInitialState | null> {
+  return decodeSynthUrlStateAsync(readUrlParam(SYNTH_PARAM));
 }
 
 export function writeSynthUrlState(state: SynthPatch): void {

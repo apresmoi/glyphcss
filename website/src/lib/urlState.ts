@@ -345,6 +345,20 @@ export function createUrlCodec<S extends object>(
 
   function decode(raw: string | null | undefined): Partial<S> {
     if (!raw || raw.length < 2) return {};
+    if (raw[0] === "z") {
+      // A real ('z'-tagged) compressed link landed on the SYNCHRONOUS decode
+      // path, which by contract only understands 'p' (see `UrlCodec.decode`'s
+      // doc) — decompression is inherently async. This is not garbage input;
+      // it's a real payload the caller must catch up on via `decodeAsync`, or
+      // every param silently reverts to schema defaults with no signal at
+      // all (the exact silent-loss failure mode this warning exists to
+      // surface — see AGENTS.md-adjacent VOLUMETRIC notes on the /synth URL
+      // codec P0).
+      console.warn(
+        `urlState: received a compressed ('z') URL parameter but decode() only reads the synchronous 'p' format — call decodeAsync() to read it. Falling back to defaults until that resolves.`,
+      );
+      return {};
+    }
     if (raw[0] !== "p") return {};
     if (raw[1] !== version) return {}; // unknown/future version: never throw, just default
     try {
@@ -358,12 +372,19 @@ export function createUrlCodec<S extends object>(
     if (!raw || raw.length < 2) return {};
     if (raw[0] === "p") return decode(raw);
     if (raw[0] !== "z") return {};
-    if (raw[1] !== version) return {};
-    if (!supportsCompressionStreams()) return {};
+    if (raw[1] !== version) {
+      console.warn(`urlState: compressed URL parameter is tagged version "${raw[1]}", but this codec only decodes version "${version}" — falling back to defaults.`);
+      return {};
+    }
+    if (!supportsCompressionStreams()) {
+      console.warn("urlState: compressed URL parameter present, but this browser has no CompressionStream/DecompressionStream support — falling back to defaults.");
+      return {};
+    }
     try {
       const inflated = await inflateRaw(raw.slice(2));
-      return decode(inflated);
-    } catch {
+      return decodePacked(inflated);
+    } catch (error) {
+      console.warn("urlState: failed to decompress a 'z'-tagged URL parameter — falling back to defaults.", error);
       return {};
     }
   }
