@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGlyphFieldDistanceOracle,
   buildGlyphFieldProgram,
+  combineSynth,
   effectiveVoiceFinestFreq,
   evaluateFieldProgram,
   fieldStepCount,
@@ -1104,6 +1105,280 @@ describe("evaluateFieldProgram: layer shaping (VOLUMETRIC.md's Step 3)", () => {
     const result = evaluateFieldProgram(skippedEmpty, 0, 0, 0, 0);
     expect(result.combined).toBeCloseTo(0, 10);
     expect(result.active).toBe(2); // only the two populated layers' voices count
+  });
+});
+
+describe("foldVoices min/max short-circuit (perf.md finding: every voice sample is within ~[-1, 1], so a min fold that reaches -1 or a max fold that reaches +1 can never move again)", () => {
+  // `foldVoices` isn't exported (only `evaluateFieldProgram` is), so this is
+  // a faithful, UNMODIFIED reimplementation of its pre-shortcut algorithm —
+  // "the shortcut forced off" — built only from the exported
+  // `sampleFieldVoice`/`combineSynth` primitives. Every test below is a
+  // genuine A/B against the real (shortcut-enabled) `evaluateFieldProgram`,
+  // not a self-referential check of the same code path.
+  function naiveFoldVoices(
+    voices: readonly FieldVoice[],
+    combine: string,
+    x: number, y: number, z: number,
+    originX: number, originY: number, originZ: number,
+    time: number,
+    volumetric: boolean,
+  ): { combined: number; winner: number; active: number } {
+    let combined = 0;
+    let active = 0;
+    let best = -Infinity;
+    let winner = -1;
+    let winnerOrder = -1;
+    const argmax = combine === "argmax";
+    for (let k = 0; k < voices.length; k++) {
+      const v = voices[k]!;
+      if (!(v.amp > 0)) continue;
+      const cx = originX + v.origin.u;
+      const cy = originY + v.origin.v;
+      const cz = originZ + v.origin.w;
+      const o = sampleFieldVoice(v, x, y, z, cx, cy, cz, time, volumetric);
+      if (argmax) {
+        const contribution = v.amp * o;
+        if (contribution > best) { best = contribution; winner = v.sourceIndex ?? k; winnerOrder = active; }
+      } else if (active === 0) {
+        combined = v.amp * o;
+      } else {
+        combined += v.amp * (combineSynth(combine, combined, o) - combined);
+      }
+      active++;
+    }
+    if (argmax) combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
+    return { combined, winner, active };
+  }
+
+  function naiveEvaluateFieldProgram(
+    program: FieldProgram,
+    x: number, y: number, z: number,
+    time: number,
+    originX = 0, originY = 0, originZ = 0,
+  ): { combined: number; winner: number; active: number } {
+    const volumetric = program.domain === "3d";
+    let stackValue = 0;
+    let stackActive = 0;
+    let populatedLayers = 0;
+    let singleLayerWinner = -1;
+    let appliedLayers = 0;
+    for (const layer of program.layers) {
+      const result = naiveFoldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric);
+      if (result.active === 0) continue;
+      populatedLayers++;
+      singleLayerWinner = populatedLayers === 1 ? result.winner : -1;
+      stackActive += result.active;
+      let v = result.combined;
+      if (layer.thresholdOn) v = v > layer.threshold ? 1 : -1;
+      if (layer.invert) v = -v;
+      if (appliedLayers === 0) {
+        stackValue = layer.amp * v;
+      } else {
+        stackValue += layer.amp * (combineSynth(layer.blend, stackValue, v) - stackValue);
+      }
+      appliedLayers++;
+    }
+    return { combined: stackValue, winner: populatedLayers === 1 ? singleLayerWinner : -1, active: stackActive };
+  }
+
+  // Irrational-ish steps so the grid rarely lands exactly on a duty/threshold
+  // boundary by accident (the tests that WANT to land on a bound construct
+  // their own deterministic voices instead of relying on the grid for it).
+  function assertByteIdenticalOverGrid(program: FieldProgram, time = 0, originX = 0, originY = 0, originZ = 0): void {
+    const zs = program.domain === "3d" ? [-1.13, -0.31, 0, 0.47, 1.29] : [0];
+    for (let ix = -3; ix <= 3; ix++) {
+      for (let iy = -3; iy <= 3; iy++) {
+        for (const z of zs) {
+          const x = ix * 0.37, y = iy * 0.41;
+          const real = evaluateFieldProgram(program, x, y, z, time, originX, originY, originZ);
+          const naive = naiveEvaluateFieldProgram(program, x, y, z, time, originX, originY, originZ);
+          expect(real.combined).toBe(naive.combined);
+          expect(real.winner).toBe(naive.winner);
+          expect(real.active).toBe(naive.active);
+        }
+      }
+    }
+  }
+
+  it("min-fold patch: byte-identical to the shortcut-off reference across a grid, including points where the bound is and isn't reached", () => {
+    const program = singleLayerProgram([
+      voice({ field: "linearX", wave: "step", freq: 1, phase: 0, amp: 1 }), // x>=0 ? +1 : -1
+      voice({ field: "radial", wave: "triangle", freq: 0.6, phase: 0.15, amp: 1 }),
+      voice({ field: "linearY", wave: "sin", freq: 0.4, phase: 0.2, amp: 1 }),
+      voice({ field: "noise", wave: "sin", freq: 0.3, speed: 0.1, amp: 1 }),
+    ], "min");
+    assertByteIdenticalOverGrid(program);
+  });
+
+  it("max-fold patch: byte-identical to the shortcut-off reference across a grid, including points where the bound is and isn't reached", () => {
+    const program = singleLayerProgram([
+      voice({ field: "linearY", wave: "step", freq: 1, phase: 0, amp: 1 }), // y>=0 ? +1 : -1
+      voice({ field: "spiral", wave: "saw", freq: 0.5, phase: 0.25, amp: 1 }),
+      voice({ field: "linearX", wave: "sin", freq: 0.7, phase: 0.05, amp: 1 }),
+      voice({ field: "noise", wave: "sin", freq: 0.2, speed: 0.05, amp: 1 }),
+    ], "max");
+    assertByteIdenticalOverGrid(program);
+  });
+
+  it("argmax patch: never short-circuits (categorical, not value-folding) — a later voice with the true winning contribution is still found, and an explicit tie keeps the FIRST tied voice (strict `>` comparison), unchanged by the shortcut", () => {
+    // sourceIndex 0/1/2/3 in flat order; voice 2 (not the first) has the
+    // single true maximum contribution — if the shortcut wrongly fired under
+    // argmax and stopped early, this would report the wrong winner.
+    const program = singleLayerProgram([
+      voice({ field: "linearX", wave: "step", freq: 0, phase: -1000, amp: 1, sourceIndex: 0 }), // constant -1
+      voice({ field: "linearX", wave: "step", freq: 0, phase: -1000, amp: 0.5, sourceIndex: 1 }), // constant -0.5
+      voice({ field: "linearX", wave: "step", freq: 0, phase: 1000, amp: 1, sourceIndex: 2 }), // constant +1, the true max
+      voice({ field: "linearX", wave: "step", freq: 0, phase: -1000, amp: 0.8, sourceIndex: 3 }), // constant -0.8
+    ], "argmax");
+    const result = evaluateFieldProgram(program, 0, 0, 0, 0);
+    expect(result.winner).toBe(2);
+    assertByteIdenticalOverGrid(program);
+
+    // Explicit tie: voices 0 and 2 both contribute exactly +1 (amp 1 * o 1).
+    // `foldVoices`'s `if (contribution > best)` is strict, so the FIRST voice
+    // to reach the max keeps the win — voice 0, not voice 2 — and this must
+    // hold identically whether or not the (argmax-excluded) shortcut logic
+    // is present at all.
+    const tieProgram = singleLayerProgram([
+      voice({ field: "linearX", wave: "step", freq: 0, phase: 1000, amp: 1, sourceIndex: 0 }), // constant +1
+      voice({ field: "linearX", wave: "step", freq: 0, phase: -1000, amp: 1, sourceIndex: 1 }), // constant -1
+      voice({ field: "linearX", wave: "step", freq: 0, phase: 1000, amp: 1, sourceIndex: 2 }), // constant +1, TIES voice 0
+    ], "argmax");
+    const tieResult = evaluateFieldProgram(tieProgram, 0, 0, 0, 0);
+    expect(tieResult.winner).toBe(0);
+    assertByteIdenticalOverGrid(tieProgram);
+  });
+
+  it("amp<1 patch: once a prior (amp=1) voice locks the min-fold at exactly -1, every later voice's amp — even < 1 — contributes zero delta and can be safely skipped", () => {
+    const program = singleLayerProgram([
+      voice({ field: "linearX", wave: "step", freq: 1, phase: 0, amp: 1 }), // x>=0 ? +1 : -1 (may or may not hit -1 yet)
+      voice({ field: "radial", wave: "triangle", freq: 0.6, phase: 0.15, amp: 0.4 }), // amp < 1
+      voice({ field: "linearY", wave: "step", freq: 0, phase: -1, amp: 1 }), // constant -1: ALWAYS locks the fold at -1 from here on
+      voice({ field: "spiral", wave: "sin", freq: 0.3, phase: 0.1, amp: 0.3 }), // amp < 1, after the lock — must be provably inert
+      voice({ field: "noise", wave: "saw", freq: 0.5, speed: 0.2, amp: 0.7 }), // amp < 1, after the lock — must be provably inert
+    ], "min");
+    assertByteIdenticalOverGrid(program);
+    // Direct proof the locked voices' amp truly doesn't matter: raising them
+    // to amp 1 (still not the FIRST voice, still after the lock) must still
+    // land on exactly the same combined value the real evaluator produced.
+    const rescaled: FieldProgram = {
+      domain: program.domain,
+      layers: [{ ...program.layers[0]!, voices: program.layers[0]!.voices.map((v, i) => (i >= 3 ? { ...v, amp: 1 } : v)) }],
+    };
+    for (let ix = -2; ix <= 2; ix++) {
+      for (let iy = -2; iy <= 2; iy++) {
+        const x = ix * 0.53, y = iy * 0.61;
+        expect(evaluateFieldProgram(rescaled, x, y, 0, 0).combined).toBe(evaluateFieldProgram(program, x, y, 0, 0).combined);
+      }
+    }
+  });
+
+  it("multi-layer thresholded patch: per-layer min/max short-circuit composes correctly with thresholdOn/invert, an empty layer, and the cross-layer blend fold", () => {
+    const minLayer: FieldLayer = {
+      voices: [
+        voice({ field: "linearX", wave: "step", freq: 1, phase: 0, amp: 1 }),
+        voice({ field: "radial", wave: "triangle", freq: 0.5, phase: 0.1, amp: 1 }),
+        voice({ field: "linearY", wave: "sin", freq: 0.3, phase: 0.2, amp: 0.6 }),
+      ],
+      combine: "min", thresholdOn: true, threshold: 0, invert: true, blend: "min", amp: 1,
+    };
+    const maxLayer: FieldLayer = {
+      voices: [
+        voice({ field: "linearY", wave: "step", freq: 1, phase: 0, amp: 1 }),
+        voice({ field: "spiral", wave: "saw", freq: 0.4, phase: 0.05, amp: 0.5 }),
+      ],
+      combine: "max", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 0.8,
+    };
+    const emptyLayer: FieldLayer = { voices: [voice({ amp: 0 })], combine: "min", thresholdOn: false, threshold: 0, invert: false, blend: "add", amp: 1 };
+    const program: FieldProgram = { domain: "2d", layers: [minLayer, emptyLayer, maxLayer] };
+    assertByteIdenticalOverGrid(program);
+    // The empty layer must not enter the fold or the active count.
+    const result = evaluateFieldProgram(program, 0.2, -0.4, 0, 0);
+    expect(result.active).toBe(5); // 3 (minLayer) + 0 (emptyLayer, skipped) + 2 (maxLayer)
+  });
+
+  it("SDF/step patch: the SDF family routes through the same synthWave bound (menger/sierpinski + step wave, 3D domain)", () => {
+    const program: FieldProgram = {
+      domain: "3d",
+      layers: [{
+        voices: [
+          voice({ field: "menger", wave: "step", freq: 3, iter: 2, phase: 0, amp: 1 }),
+          voice({ field: "sierpinski", wave: "step", freq: 2, iter: 2, phase: 0.05, amp: 0.5 }),
+          voice({ field: "gyroid", wave: "sin", freq: 1, phase: 0, amp: 0.7 }),
+        ],
+        combine: "min", thresholdOn: false, threshold: 0, invert: false, blend: "multiply", amp: 1,
+      }],
+    };
+    assertByteIdenticalOverGrid(program);
+  });
+
+  it("noise patch: 2D (synthNoise3) and 3D (synthNoise4) noise voices stay byte-identical under min and max folds", () => {
+    const noise2d = singleLayerProgram([
+      voice({ field: "noise", wave: "sin", freq: 0.4, speed: 0.3, amp: 1 }),
+      voice({ field: "linearX", wave: "step", freq: 1, phase: 0, amp: 0.6 }),
+      voice({ field: "noise", wave: "sin", freq: 0.9, speed: 0.1, amp: 0.4 }),
+    ], "min", "2d");
+    assertByteIdenticalOverGrid(noise2d, 1.7);
+
+    const noise3d = singleLayerProgram([
+      voice({ field: "noise", wave: "sin", freq: 0.4, speed: 0.3, amp: 1 }),
+      voice({ field: "linearZ", wave: "step", freq: 1, phase: 0, amp: 0.6 }),
+      voice({ field: "noise", wave: "sin", freq: 0.9, speed: 0.1, amp: 0.4 }),
+    ], "max", "3d");
+    assertByteIdenticalOverGrid(noise3d, 2.3);
+  });
+
+  it("cross-layer short-circuit (evaluateFieldProgram): mirrors the shipped Menger/Sierpinski membership recipe's own shape — per-layer `add`-combine (unbounded) but `thresholdOn: true` (always exactly +-1) folded across layers via `blend: min` — including a layerAmp < 1 layer AFTER the lock, proving the cross-layer lock is amp-independent exactly like foldVoices' own", () => {
+    // Same per-scale digit-rule shape as the real Menger recipe (3 axis
+    // voices, `add` combine, duty 1/3, threshold+invert), but freq 1 at
+    // every scale (not 1/3/9) so the SAME small grid exercises every scale's
+    // membership, and `layerAmp2: 0.4` (< 1) to prove the lock survives a
+    // sub-unity layer weight at the cross-layer level too.
+    function scaleLayer(phaseShift: number, layerAmp: number): FieldLayer {
+      const axisVoice = (field: string) => voice({ field, wave: "square", freq: 1, duty: 1 / 3, phase: -1 / 3 + phaseShift });
+      return {
+        voices: [axisVoice("linearX"), axisVoice("linearY"), axisVoice("linearZ")],
+        combine: "add", thresholdOn: true, threshold: 0, invert: true, blend: "min", amp: layerAmp,
+      };
+    }
+    const program: FieldProgram = {
+      domain: "3d",
+      layers: [scaleLayer(0, 1), scaleLayer(0.11, 0.4), scaleLayer(0.23, 1), scaleLayer(0.37, 0.7)],
+    };
+    assertByteIdenticalOverGrid(program);
+
+    // Direct amp-invariance proof (the actual content of the cross-layer
+    // lock, not just "harmless if it never fires"): raise EVERY layer's amp
+    // to 1 and confirm the overall `combined` is unchanged wherever layer 1
+    // already locked the stack at -1 — the whole point of the fixed-point
+    // property is that a locked layer's own amp (2, 3, or 4's) never mattered.
+    const rescaled: FieldProgram = {
+      domain: program.domain,
+      layers: program.layers.map((l) => ({ ...l, amp: 1 })),
+    };
+    let sawLockedPoint = false;
+    for (let ix = -3; ix <= 3; ix++) {
+      for (let iy = -3; iy <= 3; iy++) {
+        const x = ix * 0.37, y = iy * 0.41, z = 0.2;
+        const base = evaluateFieldProgram(program, x, y, z, 0);
+        if (base.combined === -1) {
+          sawLockedPoint = true;
+          expect(evaluateFieldProgram(rescaled, x, y, z, 0).combined).toBe(-1);
+        }
+      }
+    }
+    expect(sawLockedPoint).toBe(true); // otherwise the assertion above never actually ran
+  });
+
+  it("active count is exact regardless of how many voices the shortcut skips (undercounting it would silently corrupt the empty-layer-skip rule)", () => {
+    const program = singleLayerProgram([
+      voice({ field: "linearX", wave: "step", freq: 0, phase: -1, amp: 1 }), // locks the min-fold immediately
+      voice({ amp: 0.5 }), // skipped by the shortcut, but still active
+      voice({ amp: 0.3 }), // skipped by the shortcut, but still active
+      voice({ amp: 0 }), // genuinely inactive (amp = 0)
+      voice({ amp: 0.9 }), // skipped by the shortcut, but still active
+    ], "min");
+    expect(evaluateFieldProgram(program, 0, 0, 0, 0).active).toBe(4);
   });
 });
 

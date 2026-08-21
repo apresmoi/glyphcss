@@ -708,9 +708,30 @@ function foldVoices(
   let winner = -1;
   let winnerOrder = -1;
   const argmax = combine === "argmax";
+  // `min`/`max` short-circuit (measured perf.md finding): every voice sample
+  // is proven within ~[-1, 1] regardless of field/wave/override kind (see
+  // `sampleFieldVoice`'s own doc, "One voice -> value in ~[-1, 1]") — the
+  // `noise` early return (`2*n-1`, n in [0,1)) and the SDF branch (routes
+  // through `synthWave` just like every linear/radial field) both hold the
+  // bound too. So for a `min` fold, once `combined <= -1` (the bound `o` can
+  // never go BELOW), `combineSynth("min", combined, o) === combined` exactly
+  // for every remaining voice — `Math.min` returns the smaller operand
+  // UNCHANGED, not a recomputed value — so the mix-weight delta
+  // `amp * (combine(combined, o) - combined)` is exactly `amp * 0 = 0` for
+  // ANY amp (even amp > 1 from a hand-built program `validateGlyphFieldProgram`
+  // doesn't range-check, even amp = 0 is unreachable here since inactive
+  // voices already `continue` above). Symmetric for `max` at `combined >= 1`.
+  // `<=`/`>=` (not `=== -1`/`=== 1`) is deliberate: it also covers the
+  // unclamped-amp edge case where the FIRST voice's own `amp * o` (no prior
+  // `combined` to min/max against) overshoots past the bound. Never engages
+  // under argmax — categorical, not value-folding (never value-bounded the
+  // same way, and `winner` identity has no such fixed point).
+  const shortCircuitable = combine === "min" || combine === "max";
+  let shortCircuited = false;
   for (let k = 0; k < voices.length; k++) {
     const voice = voices[k]!;
     if (!(voice.amp > 0)) continue;
+    if (shortCircuited) { active++; continue; }
     const cx = originX + voice.origin.u;
     const cy = originY + voice.origin.v;
     const cz = originZ + voice.origin.w;
@@ -730,6 +751,9 @@ function foldVoices(
       combined += voice.amp * (combineSynth(combine, combined, o) - combined);
     }
     active++;
+    if (shortCircuitable) {
+      shortCircuited = combine === "min" ? combined <= -1 : combined >= 1;
+    }
   }
   if (argmax) {
     // Evenly spaced flat levels across the range, one per ACTIVE voice, so
@@ -803,10 +827,51 @@ export function evaluateFieldProgram(
   let populatedLayers = 0;
   let singleLayerWinner = -1;
   let appliedLayers = 0;
+  // Cross-layer sibling of `foldVoices`'s own min/max short-circuit (see its
+  // doc) — the fold this module's own perf note measured savings on: the
+  // shipped multi-layer recipes (e.g. the Menger/Sierpinski membership
+  // recipes) fold their PER-VOICE layers with `combine: "add"` (unbounded,
+  // no fixed point) but always set `thresholdOn: true`, and it's THAT layer
+  // output — always exactly +-1, unconditionally, regardless of the
+  // underlying combine/amp/voice count — that the CROSS-layer `blend: "min"`
+  // fold across layers exploits. `-1`/`0`/`1` = locked-low / not locked /
+  // locked-high, recomputed from the real `stackValue` after every APPLIED
+  // layer (never assumed).
+  let stackLocked = 0;
 
   const layers = program.layers;
   for (let li = 0; li < layers.length; li++) {
     const layer = layers[li]!;
+
+    // Skip this layer's entire per-voice fold (the expensive part — every
+    // voice's `sampleFieldVoice`) when the stack is already locked at the
+    // exact bound THIS layer's blend can only move it toward, never past:
+    // `layer.thresholdOn` guarantees its shaped output would be exactly +-1
+    // NO MATTER what `foldVoices` would have returned (any combine, any amp,
+    // even an unclamped hand-built-program amp > 1) — see `thresholdOn`'s
+    // own unconditional `v > threshold ? 1 : -1` clamp below. A layer
+    // without `thresholdOn` has no such unconditional bound (a plain `add`
+    // fold, or an amp > 1 voice, can exceed +-1) and is therefore NEVER
+    // skipped here, even if its own `combine` happens to be `min`/`max` —
+    // deliberately conservative, needs no amp-range assumption to be exact.
+    if (
+      stackLocked !== 0 && layer.thresholdOn
+      && ((stackLocked === -1 && layer.blend === "min") || (stackLocked === 1 && layer.blend === "max"))
+    ) {
+      let active = 0;
+      for (const v of layer.voices) if (v.amp > 0) active++;
+      if (active > 0) {
+        populatedLayers++;
+        stackActive += active;
+        appliedLayers++;
+        // stackValue is provably unchanged — `singleLayerWinner`/`stackLocked`
+        // stay exactly as they are (this layer's own winner is moot: reaching
+        // this branch requires a PRIOR applied layer, so `populatedLayers` is
+        // already > 1 and the final `winner` below is forced to -1 regardless).
+      }
+      continue;
+    }
+
     const result = foldVoices(layer.voices, layer.combine, x, y, z, originX, originY, originZ, time, volumetric, rawOverride);
     if (result.active === 0) continue; // skip empty layers, like an amp-0 voice
     populatedLayers++;
@@ -823,6 +888,7 @@ export function evaluateFieldProgram(
       stackValue += layer.amp * (combineSynth(layer.blend, stackValue, v) - stackValue);
     }
     appliedLayers++;
+    stackLocked = stackValue <= -1 ? -1 : stackValue >= 1 ? 1 : 0;
   }
 
   return {
