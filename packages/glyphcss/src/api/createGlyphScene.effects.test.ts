@@ -95,6 +95,60 @@ describe("createGlyphScene effects", () => {
     scene.destroy();
   });
 
+  it("reuses pooled effect-compositor scratch buffers across a rolled-back full render without corrupting the retained baseline", async () => {
+    // `retainGlyphEffectOutput` reuses the previous retained output's pure
+    // working-scratch buffers (inputGlyph/inputColor/workingGrid/etc, see its
+    // own doc in effectCompositor.ts) whenever a full geometry render's grid
+    // shape matches. Those buffers are the SAME array instances the last
+    // COMMITTED retained output still references — a render that reuses them
+    // and then fails before commit mutates them in place. This proves that
+    // doesn't corrupt anything: `baseGrid`/`baseColor`/`baseCoverage` (the
+    // actual rollback ground truth) are never shared, so the next render
+    // still produces byte-identical output to a clean, non-pooled render.
+    const camera = createGlyphOrthographicCamera({ zoom: 50 });
+    const sceneOptions = { cols: 32, rows: 18, useColors: true, camera } as const;
+    const scene = createGlyphScene(host, sceneOptions);
+    scene.addEffectLayer({ effect: glyphProgram("X"), params: { phase: 0 }, blend: "replace" });
+    scene.add(makeCubePolygons(), { position: [-0.6, 0, 0] });
+    await flushRenders();
+    scene.add(makeCubePolygons(), { position: [0.6, 0, 0] }); // full render #2 — reuses render #1's pooled scratch
+    await flushRenders();
+    const beforeFailure = scene.output.innerHTML;
+
+    // Schedules full render #3, which reuses render #2's pooled scratch
+    // buffers; force it to fail synchronously right at commit, after the
+    // pooled buffers have already been written into during rasterization.
+    scene.add(makeCubePolygons(), { position: [0, 0.6, 0] });
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "commit-write") throw new Error("commit failed"); };
+    expect(() => scene.rerender()).toThrow("commit failed");
+    delete globalThis.__glyphRenderStage;
+    expect(scene.output.innerHTML).toBe(beforeFailure);
+
+    // A further successful full render reuses the SAME pooled buffers the
+    // failed attempt above just wrote into. The mesh added above stays
+    // registered (mesh registration isn't part of the render transaction),
+    // so this render covers it plus one more mesh.
+    scene.add(makeCubePolygons(), { position: [0, -0.6, 0] });
+    await flushRenders();
+    const finalOutput = scene.output.innerHTML;
+    scene.destroy();
+
+    // Cross-check against a scene reaching the identical final geometry
+    // directly, in one shot — it never exercises pooled-reuse-through-a-
+    // failed-render, so this is the "clean" ground truth.
+    const cleanHost = document.createElement("div");
+    document.body.appendChild(cleanHost);
+    const cleanScene = createGlyphScene(cleanHost, sceneOptions);
+    cleanScene.addEffectLayer({ effect: glyphProgram("X"), params: { phase: 0 }, blend: "replace" });
+    cleanScene.add(makeCubePolygons(), { position: [-0.6, 0, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0.6, 0, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0, 0.6, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0, -0.6, 0] });
+    await flushRenders();
+    expect(finalOutput).toBe(cleanScene.output.innerHTML);
+    cleanScene.destroy();
+  });
+
   it("uses definition defaults and exposes stable Anime-compatible params", async () => {
     const schema = {
       amount: { kind: "number", default: 0.25, min: 0, max: 1 },
