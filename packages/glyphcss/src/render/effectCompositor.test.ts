@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   defineGlyphEffect,
+  parseGlyphEffectColor,
   type GlyphEffectDefinition,
 } from "../api/effects";
 import { buildCellGrid } from "./cells";
@@ -219,6 +221,25 @@ describe("retained effect compositor", () => {
     const recomposed = composeRetainedGlyphEffectOutput(retained, prepared);
     expect(recomposed.color).toEqual(["#112233", "#112233", "#112233"]);
     expect(retained.packedColorCache).toEqual(new Map([[0x112233, "#112233"]]));
+  });
+
+  it("memoizes base color packing to the same packed values the unmemoized parse produces, including null and repeated distinct colors", () => {
+    // A repeated color ("#010203" and "#abcdef" each appear twice, interleaved
+    // with `null`) is the exact shape a real base grid has: a handful of
+    // distinct lit colors reused across many cells.
+    const colors = ["#010203", null, "#abcdef", "#010203", "#abcdef", null, "#000000"];
+    const chars = colors.map((_, i) => String.fromCharCode(65 + i));
+    const retained = retainGlyphEffectOutput(coveredGrid(chars, colors), metadata(colors.length, 1));
+
+    const expectedPacked = colors.map((color) => (
+      color === null ? GlyphEffectNoColor : parseGlyphEffectColor(color).packed
+    ));
+    expect(Array.from(retained.baseColor)).toEqual(expectedPacked);
+
+    // The composed (pass-through, no layers) output still round-trips through
+    // the original color strings, exactly as the un-memoized path did.
+    const composed = composeRetainedGlyphEffectOutput(retained, []);
+    expect(composed.color).toEqual(colors);
   });
 });
 

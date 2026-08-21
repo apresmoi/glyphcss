@@ -542,8 +542,31 @@ export function prepareRuntimeGlyphEffectLayers(
   return sorted.map((layer) => ({ layer, params: layer.committedParams }));
 }
 
-function packCellColor(color: string | null): number {
-  return color === null ? GlyphEffectNoColor : parseGlyphEffectColor(color).packed;
+/**
+ * `retainGlyphEffectOutput` packs EVERY cell's base color string on EVERY
+ * full geometry render (e.g. every orbit frame), but a rasterized grid only
+ * ever contains a handful of DISTINCT color strings (one per lit
+ * triangle/material, not one per cell) — so a plain call-scoped memo turns
+ * thousands of `parseGlyphEffectColor` regex parses into a couple dozen.
+ * Deliberately NOT a persistent field on `RetainedGlyphEffectOutput` (unlike
+ * `packedColorCache`, its packed->string sibling below): that cache holds
+ * EFFECT-EMITTED colors, which can vary continuously frame to frame under
+ * animation, so it's cleared every `composeRetainedGlyphEffectOutput` call to
+ * stay bounded. This forward direction only ever sees `baseGrid.color` —
+ * geometry's own lit colors, already deduplicated to a small, stable set for
+ * a given scene — so a cache scoped to one `retainGlyphEffectOutput` call
+ * already gets ~100% of the dedup benefit within that single pass, with no
+ * risk of unbounded growth across a long session (a persistent module- or
+ * scene-level map would have to survive many scenes / material changes with
+ * no eviction to match this).
+ */
+function packCellColorCached(cache: Map<string, number>, color: string): number {
+  let packed = cache.get(color);
+  if (packed === undefined) {
+    packed = parseGlyphEffectColor(color).packed;
+    cache.set(color, packed);
+  }
+  return packed;
 }
 
 function unpackCellColor(color: number): string | null {
@@ -619,8 +642,10 @@ export function retainGlyphEffectOutput(
   const n = baseGrid.cols * baseGrid.rows;
   const baseColor = new Uint32Array(n);
   const baseCoverage = new Float32Array(n);
+  const colorPackCache = new Map<string, number>();
   for (let i = 0; i < n; i++) {
-    baseColor[i] = packCellColor(baseGrid.color[i] ?? null);
+    const color = baseGrid.color[i];
+    baseColor[i] = color == null ? GlyphEffectNoColor : packCellColorCached(colorPackCache, color);
     baseCoverage[i] = Number.isFinite(baseGrid.depth[i]!) ? 1 : 0;
   }
   let uv0 = baseGrid.surfaceUv;
