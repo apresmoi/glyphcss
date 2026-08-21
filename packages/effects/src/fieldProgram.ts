@@ -783,6 +783,14 @@ export function combineSynth(mode: string, a: number, b: number): number {
 
 /**
  * Evaluate a whole field program (every layer, every voice) at one point.
+ * This is the REFERENCE (interpreted) evaluator: it re-dispatches on every
+ * voice's `field`/`wave` and every layer's `combine`/`blend` string on every
+ * call. `evaluateFieldProgram` below is the public entry point and prefers a
+ * per-program COMPILED closure (see "compiled evaluation form" further down)
+ * whenever `rawOverride` is absent; this function remains exported (not via
+ * the package's public `index.ts` barrel — same "internal, direct-import"
+ * precedent as `sampleFieldVoice` above) so the compiled/interpreted parity
+ * test and perf bench can call the untouched reference path directly.
  *
  * `(x, y, z)` is the domain coordinate every voice samples (raw, unshifted —
  * linear fields ignore origin entirely, matching field-synth's documented
@@ -814,7 +822,7 @@ export function combineSynth(mode: string, a: number, b: number): number {
  * unchanged — see `FieldVoiceRawOverride`'s own doc. Omitting it (every
  * existing call site) is byte-identical to before this parameter existed.
  */
-export function evaluateFieldProgram(
+export function evaluateFieldProgramInterpreted(
   program: FieldProgram,
   x: number, y: number, z: number,
   time: number,
@@ -896,6 +904,687 @@ export function evaluateFieldProgram(
     winner: populatedLayers === 1 ? singleLayerWinner : -1,
     active: stackActive,
   };
+}
+
+// ---- compiled evaluation form (perf) ------------------------------------
+//
+// A `FieldProgram` is FIXED between params changes: stock.ts's own per-cell
+// paint loop, staticExport.ts's per-cell bake loop, and field-synth's
+// subcell/ink probes all call `evaluateFieldProgram` thousands of times
+// against the SAME program object within one `evaluate()` call (that object
+// is rebuilt once per params transaction — or once per `evaluate()` call on
+// the flat-params path, see stock.ts's own "compile once per evaluate()
+// call" comment — never once per cell). `evaluateFieldProgramInterpreted`
+// above nonetheless re-dispatches on every voice's `field`/`wave` string and
+// every layer's `combine`/`blend` string, and re-reads every voice/layer
+// property off its object, on EVERY sample — pure redundant interpretation
+// of data that cannot change until a different program object arrives.
+//
+// `compileFieldProgram` resolves all of that dispatch ONCE per distinct
+// program object into a tree of specialized closures, leaving only the
+// genuinely per-sample arithmetic (plus the runtime-only min/max
+// short-circuit and cross-layer lock state, both unavoidably
+// data-dependent) in the hot loop. Every expression below is a verbatim
+// transcription of the matching expression in `sampleFieldVoice`/
+// `foldVoices`/`evaluateFieldProgramInterpreted` — same operand order, same
+// operator associativity — precisely so the two paths are required to agree
+// bit-for-bit (`===`), not just approximately; `fieldProgram.compiled-
+// parity.test.ts` checks this over a randomized sweep across every
+// field/wave/combine/blend kind, `thresholdOn`/`invert` on and off, both
+// domains, and nonzero angle/origin/speed/phase/duty.
+//
+// `rawOverride` (VOLUMETRIC-4.md §1) is a genuinely PER-SAMPLE callback — it
+// can substitute a different raw value for any voice on any call, so
+// nothing about a voice's contribution is fixed at compile time when one is
+// supplied. `evaluateFieldProgram` below detects it and calls the
+// interpreted evaluator directly rather than trying to compile a variant
+// that still calls out per sample — correctness over speed on that path,
+// which is stock.ts's colour voice stack (the only current caller), not the
+// geometry stack's hot loop this optimization targets.
+//
+// Cached by program OBJECT IDENTITY in a `WeakMap`: every real caller
+// creates a fresh `FieldProgram` object per params transaction (or per
+// `evaluate()` call) and never mutates one in place afterward (field-synth's
+// own compile always returns a new object; program-as-data is documented
+// immutable after mount — see AGENTS.md's "Program-as-data" section), so
+// identity is a safe and exact invalidation key — no structural-signature
+// fallback needed. A `WeakMap` also makes the cache self-bounding: an entry
+// can only ever be reachable while its program object still is, so it can
+// never outlive the scene/preview that created it (relevant with e.g. the
+// `/synth` page's ~30 concurrent preview scenes) — nothing here is a
+// module-global cache that grows without bound.
+
+/** `(x, y, z, cx, cy, cz, time) => value in ~[-1, 1]` — a single voice's
+ *  field/wave dispatch fully resolved at compile time; `cx`/`cy`/`cz` stay
+ *  parameters because they depend on the call-level origin, which varies
+ *  per `evaluateFieldProgram` call (see that function's own doc). */
+type CompiledVoiceSampler = (
+  x: number, y: number, z: number,
+  cx: number, cy: number, cz: number,
+  time: number,
+) => number;
+
+/** Mirrors `synthWave` exactly (same branches, same operand order) but
+ *  resolved to one fixed closure per (wave kind, duty) pair at compile
+ *  time instead of re-switching on `kind` every sample. Kept as a direct
+ *  transcription rather than a call to the public `synthWave` so this
+ *  compiles the wave dispatch away too, not just the field dispatch — the
+ *  A/B parity test is what keeps the two from silently drifting apart. */
+function compileWave(kind: string, duty: number): (t: number) => number {
+  if (kind === "step") return (t) => (t >= 0 ? 1 : -1);
+  switch (kind) {
+    case "triangle": return (t) => { const p = t - Math.floor(t); return 4 * Math.abs(p - 0.5) - 1; };
+    case "saw": return (t) => { const p = t - Math.floor(t); return 2 * p - 1; };
+    case "square": return (t) => { const p = t - Math.floor(t); return p < duty ? 1 : -1; };
+    default: return (t) => Math.sin(t * Math.PI * 2); // sin
+  }
+}
+
+/** Mirrors `rotateVoiceSample` exactly, but `ca`/`sa` are computed ONCE at
+ *  compile time (the rotation angle is fixed per voice) instead of every
+ *  sample — a pure function of a compile-time constant, so precomputing
+ *  changes nothing about the result, only when it's computed. `angle === 0`
+ *  keeps the exact same zero-cost identity path the interpreted version
+ *  takes (no trig at all, not even a multiply). */
+// Perf: `compileRotate` used to return a fresh `[sx, sy]` array literal on
+// EVERY sample — same tuple-allocation cost `rotateVoiceSample` already
+// pays, so it cost nothing extra over the interpreted path, but it also
+// wasn't buying anything: a compiled closure can do better. Every voice
+// sampler below calls its voice's `rotate` and immediately reads these two
+// scratch slots before doing anything else (no other compiled closure runs
+// in between — evaluation is synchronous, single-threaded, and each read
+// follows its own write on the very next line), so writing into shared
+// module-level scratch instead of allocating a tuple is safe and removes a
+// GC allocation from the hottest line in the whole evaluator — the same
+// "reused scratch, synchronous single-threaded discipline" `fractalScratchAt`
+// above already relies on.
+let compiledRotateSx = 0;
+let compiledRotateSy = 0;
+
+function compileRotate(angleDeg: number): (x: number, y: number, cx: number, cy: number) => void {
+  if (angleDeg === 0) {
+    return (x, y) => { compiledRotateSx = x; compiledRotateSy = y; };
+  }
+  const a = (-angleDeg * Math.PI) / 180;
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  return (x, y, cx, cy) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    compiledRotateSx = cx + dx * ca - dy * sa;
+    compiledRotateSy = cy + dx * sa + dy * ca;
+  };
+}
+
+/** Compiles one voice's `sampleFieldVoice` branch (minus the `rawOverride`
+ *  seam, which the caller has already ruled out — see `evaluateFieldProgram`
+ *  below) to a fixed closure. Every branch here is a verbatim transcription
+ *  of `sampleFieldVoice`'s own — same operations, same order — so the
+ *  result is bit-identical for the same inputs, never just numerically
+ *  close. */
+function compileVoiceSampler(voice: FieldVoice, volumetric: boolean): CompiledVoiceSampler {
+  const { field, wave, freq, speed, phase, duty } = voice;
+  const waveFn = compileWave(wave, duty);
+  const rotate = compileRotate(voice.angle);
+
+  if (field === "noise") {
+    if (volumetric) {
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const sx = compiledRotateSx, sy = compiledRotateSy;
+        const n = synthNoise4(sx * freq, sy * freq, z * freq, time * speed);
+        return 2 * n - 1;
+      };
+    }
+    return (x, y, z, cx, cy, cz, time) => {
+      rotate(x, y, cx, cy);
+      const sx = compiledRotateSx, sy = compiledRotateSy;
+      const n = synthNoise3(sx * freq, sy * freq, time * speed);
+      return 2 * n - 1;
+    };
+  }
+
+  if (field === "gyroid" || field === "menger" || field === "sierpinski") {
+    if (field === "gyroid") {
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const sx = compiledRotateSx, sy = compiledRotateSy;
+        const qx = sx - cx, qy = sy - cy, qz = z - cz;
+        const fx = qx * freq, fy = qy * freq, fz = qz * freq;
+        const tp = Math.PI * 2;
+        const sdfRaw = Math.sin(tp * fx) * Math.cos(tp * fy) + Math.sin(tp * fy) * Math.cos(tp * fz) + Math.sin(tp * fz) * Math.cos(tp * fx);
+        return waveFn(sdfRaw - time * speed + phase);
+      };
+    }
+    const iter = clampSdfIter(voice.iter);
+    const sdfFn = field === "menger" ? mengerFractalSdf : sierpinskiFractalSdf;
+    return (x, y, z, cx, cy, cz, time) => {
+      rotate(x, y, cx, cy);
+      const sx = compiledRotateSx, sy = compiledRotateSy;
+      const qx = sx - cx, qy = sy - cy, qz = z - cz;
+      const fx = qx * freq, fy = qy * freq, fz = qz * freq;
+      const sdfRaw = -sdfFn(fx, fy, fz, iter);
+      return waveFn(sdfRaw - time * speed + phase);
+    };
+  }
+
+  if (volumetric) {
+    switch (field) {
+      case "linearX":
+        return (x, y, z, cx, cy, cz, time) => { rotate(x, y, cx, cy); return waveFn(compiledRotateSx * freq - time * speed + phase); };
+      case "linearY":
+        return (x, y, z, cx, cy, cz, time) => { rotate(x, y, cx, cy); return waveFn(compiledRotateSy * freq - time * speed + phase); };
+      case "linearZ":
+        return (x, y, z, cx, cy, cz, time) => waveFn(z * freq - time * speed + phase);
+      case "diagonal":
+        return (x, y, z, cx, cy, cz, time) => {
+          rotate(x, y, cx, cy);
+          const raw = (compiledRotateSx + compiledRotateSy + z) * INV_SQRT3;
+          return waveFn(raw * freq - time * speed + phase);
+        };
+      case "angular":
+        return (x, y, z, cx, cy, cz, time) => {
+          rotate(x, y, cx, cy);
+          const raw = Math.atan2(compiledRotateSy - cy, compiledRotateSx - cx) / (Math.PI * 2);
+          return waveFn(raw * freq - time * speed + phase);
+        };
+      case "spiral":
+        return (x, y, z, cx, cy, cz, time) => {
+          rotate(x, y, cx, cy);
+          const sx = compiledRotateSx, sy = compiledRotateSy;
+          const raw = Math.hypot(sx - cx, sy - cy) + Math.atan2(sy - cy, sx - cx) / (Math.PI * 2);
+          return waveFn(raw * freq - time * speed + phase);
+        };
+      default:
+        return (x, y, z, cx, cy, cz, time) => {
+          rotate(x, y, cx, cy);
+          const raw = Math.hypot(compiledRotateSx - cx, compiledRotateSy - cy, z - cz); // radial: spherical distance
+          return waveFn(raw * freq - time * speed + phase);
+        };
+    }
+  }
+
+  switch (field) {
+    case "linearX":
+      return (x, y, z, cx, cy, cz, time) => { rotate(x, y, cx, cy); return waveFn(compiledRotateSx * freq - time * speed + phase); };
+    case "linearY":
+      return (x, y, z, cx, cy, cz, time) => { rotate(x, y, cx, cy); return waveFn(compiledRotateSy * freq - time * speed + phase); };
+    case "diagonal":
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const raw = (compiledRotateSx + compiledRotateSy) * 0.70710678;
+        return waveFn(raw * freq - time * speed + phase);
+      };
+    case "angular":
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const raw = Math.atan2(compiledRotateSy - cy, compiledRotateSx - cx) / (Math.PI * 2);
+        return waveFn(raw * freq - time * speed + phase);
+      };
+    case "spiral":
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const sx = compiledRotateSx, sy = compiledRotateSy;
+        const raw = Math.hypot(sx - cx, sy - cy) + Math.atan2(sy - cy, sx - cx) / (Math.PI * 2);
+        return waveFn(raw * freq - time * speed + phase);
+      };
+    default:
+      // Unmatched 2D field name (includes "linearZ" — no 2D meaning — and
+      // the four normal-derived kinds, which only ever reach this compiled
+      // path when NOT covered by a `rawOverride`, matching `sampleFieldVoice`'s
+      // own documented fallback) — same "radial" default the interpreted
+      // switch falls through to.
+      return (x, y, z, cx, cy, cz, time) => {
+        rotate(x, y, cx, cy);
+        const raw = Math.hypot(compiledRotateSx - cx, compiledRotateSy - cy); // radial
+        return waveFn(raw * freq - time * speed + phase);
+      };
+  }
+}
+
+/** Mirrors `combineSynth` exactly (including its `"argmax"` -> `Math.max`
+ *  and default -> multiply fallbacks, for a hand-built program that sets an
+ *  unusual `combine`/`blend` string) as one fixed closure per mode, chosen
+ *  once at compile time instead of re-switching on `mode` every sample. */
+function compilePairOp(mode: string): (a: number, b: number) => number {
+  switch (mode) {
+    case "argmax": return (a, b) => Math.max(a, b);
+    case "add": return (a, b) => a + b;
+    case "max": return (a, b) => Math.max(a, b);
+    case "min": return (a, b) => Math.min(a, b);
+    case "difference": return (a, b) => Math.abs(a - b);
+    default: return (a, b) => a * b; // multiply
+  }
+}
+
+interface CompiledVoiceEntry {
+  readonly sample: CompiledVoiceSampler;
+  readonly amp: number;
+  readonly originU: number;
+  readonly originV: number;
+  readonly originW: number;
+  /** `voice.sourceIndex ?? k`, where `k` is this voice's position in the
+   *  ORIGINAL (unfiltered) `layer.voices` array — resolved once at compile
+   *  time, exactly mirroring `foldVoices`'s own `voice.sourceIndex ?? k`
+   *  fallback (`k` there is the same unfiltered index, not a position
+   *  within the active-only subset this entry lives in). */
+  readonly sourceIndex: number;
+}
+
+// Same "synchronous, single-threaded, read-immediately-after-write" scratch
+// discipline as `compiledRotateSx`/`Sy` above — a `CompiledFold` used to
+// return a fresh `{ combined, winner }` object on every call (once per
+// LAYER per evaluate, not per voice, but still real allocation pressure on
+// the cheapest presets, where a layer's total voice-sampling cost is only a
+// few ns and an allocation is no longer negligible next to it).
+let compiledFoldCombined = 0;
+let compiledFoldWinner = -1;
+
+type CompiledFold = (
+  x: number, y: number, z: number,
+  originX: number, originY: number, originZ: number,
+  time: number,
+) => void;
+
+// Perf: measured directly (a standalone dispatch probe, not this preset
+// bench) — iterating `voices[k].sample(...)` in a loop is a SINGLE call
+// site that gets invoked with several DIFFERENT closures over a layer's
+// voices (one per voice, each its own `compileVoiceSampler` output). V8
+// can't build a good inline cache for a call site that cycles between
+// more than a couple of distinct callees ("polymorphic dispatch"), so that
+// loop measured SLOWER than even the plain interpreted string-switch
+// dispatch it was meant to replace — the opposite of this optimization's
+// goal. The fix is the standard one for this exact class of problem:
+// UNROLL small, fixed voice counts into that many syntactically distinct
+// call expressions (`v0.sample(...)`, `v1.sample(...)`, ...) — each is then
+// its own call site, bound to the SAME single closure for that fold's
+// entire lifetime (monomorphic), which V8 inlines and optimizes well.
+// `UNROLL_MAX` covers every shipped preset's per-layer voice count (the
+// field-synth schema's `layer1..9` groups voices into layers, and every
+// shipped patch keeps 1-3 voices per layer); a layer with more active
+// voices than this falls back to the loop below — correct, and still
+// benefits from the per-voice field/wave dispatch this file already
+// compiles away, just without the call-site monomorphism win on top.
+const UNROLL_MAX = 4;
+
+/** Compiles one layer's `foldVoices` (minus the always-active-count-0 case,
+ *  which the caller skips before ever building a fold — see `CompiledLayer`
+ *  below). `voices` is the layer's amp>0 subset only; `active` in the
+ *  original result is therefore always exactly `voices.length`, a compile-
+ *  time constant, whether or not a min/max short-circuit engages (it only
+ *  ever skips SAMPLING remaining voices, never their contribution to the
+ *  active count — see `foldVoices`'s own comment) — so the compiled fold
+ *  never needs to track it at runtime at all. */
+function compileFold(voices: readonly CompiledVoiceEntry[], combine: string): CompiledFold {
+  const n = voices.length;
+
+  if (combine === "argmax") {
+    if (n >= 1 && n <= UNROLL_MAX) return compileArgmaxFoldUnrolled(voices);
+    return (x, y, z, originX, originY, originZ, time) => {
+      let best = -Infinity;
+      let winner = -1;
+      let winnerOrder = -1;
+      for (let k = 0; k < n; k++) {
+        const ve = voices[k]!;
+        const cx = originX + ve.originU, cy = originY + ve.originV, cz = originZ + ve.originW;
+        const o = ve.sample(x, y, z, cx, cy, cz, time);
+        const contribution = ve.amp * o;
+        if (contribution > best) { best = contribution; winner = ve.sourceIndex; winnerOrder = k; }
+      }
+      compiledFoldCombined = n > 1 ? (2 * winnerOrder + 1) / n - 1 : 0;
+      compiledFoldWinner = winner;
+    };
+  }
+
+  const shortCircuitable = combine === "min" || combine === "max";
+  const isMin = combine === "min";
+  const pairOp = compilePairOp(combine);
+  if (n >= 1 && n <= UNROLL_MAX) return compilePairwiseFoldUnrolled(voices, pairOp, shortCircuitable, isMin);
+  return (x, y, z, originX, originY, originZ, time) => {
+    let combined = 0;
+    for (let k = 0; k < n; k++) {
+      const ve = voices[k]!;
+      const cx = originX + ve.originU, cy = originY + ve.originV, cz = originZ + ve.originW;
+      const o = ve.sample(x, y, z, cx, cy, cz, time);
+      if (k === 0) {
+        combined = ve.amp * o;
+      } else {
+        combined += ve.amp * (pairOp(combined, o) - combined);
+      }
+      if (shortCircuitable && (isMin ? combined <= -1 : combined >= 1)) break;
+    }
+    compiledFoldCombined = combined;
+    compiledFoldWinner = -1;
+  };
+}
+
+/**
+ * Unrolled (`n` in `1..UNROLL_MAX`) mirror of the pairwise-fold loop above —
+ * same operations, same order, but `v0.sample(...)`, `v1.sample(...)`, ...
+ * are distinct source-level call expressions instead of one loop indexing
+ * into `voices[k]`, so each stays monomorphic for this fold's lifetime (see
+ * `UNROLL_MAX`'s doc). The short-circuit check is still present per step
+ * (an ordinary data-dependent branch, not a dispatch site — cheap and
+ * correctly predicted), so `min`/`max` short-circuiting behaves identically
+ * to the loop path, just without the call-site cost that motivated this.
+ */
+function compilePairwiseFoldUnrolled(
+  voices: readonly CompiledVoiceEntry[],
+  pairOp: (a: number, b: number) => number,
+  shortCircuitable: boolean,
+  isMin: boolean,
+): CompiledFold {
+  const locked = (combined: number): boolean => shortCircuitable && (isMin ? combined <= -1 : combined >= 1);
+  const v0 = voices[0]!;
+  if (voices.length === 1) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      compiledFoldCombined = v0.amp * o0;
+      compiledFoldWinner = -1;
+    };
+  }
+  const v1 = voices[1]!;
+  if (voices.length === 2) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      let combined = v0.amp * o0;
+      if (!locked(combined)) {
+        const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+        const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+        combined += v1.amp * (pairOp(combined, o1) - combined);
+      }
+      compiledFoldCombined = combined;
+      compiledFoldWinner = -1;
+    };
+  }
+  const v2 = voices[2]!;
+  if (voices.length === 3) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      let combined = v0.amp * o0;
+      if (!locked(combined)) {
+        const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+        const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+        combined += v1.amp * (pairOp(combined, o1) - combined);
+        if (!locked(combined)) {
+          const cx2 = originX + v2.originU, cy2 = originY + v2.originV, cz2 = originZ + v2.originW;
+          const o2 = v2.sample(x, y, z, cx2, cy2, cz2, time);
+          combined += v2.amp * (pairOp(combined, o2) - combined);
+        }
+      }
+      compiledFoldCombined = combined;
+      compiledFoldWinner = -1;
+    };
+  }
+  const v3 = voices[3]!;
+  // voices.length === 4 (UNROLL_MAX) — `compileFold` never calls this
+  // helper outside `1..UNROLL_MAX`.
+  return (x, y, z, originX, originY, originZ, time) => {
+    const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+    const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+    let combined = v0.amp * o0;
+    if (!locked(combined)) {
+      const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+      const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+      combined += v1.amp * (pairOp(combined, o1) - combined);
+      if (!locked(combined)) {
+        const cx2 = originX + v2.originU, cy2 = originY + v2.originV, cz2 = originZ + v2.originW;
+        const o2 = v2.sample(x, y, z, cx2, cy2, cz2, time);
+        combined += v2.amp * (pairOp(combined, o2) - combined);
+        if (!locked(combined)) {
+          const cx3 = originX + v3.originU, cy3 = originY + v3.originV, cz3 = originZ + v3.originW;
+          const o3 = v3.sample(x, y, z, cx3, cy3, cz3, time);
+          combined += v3.amp * (pairOp(combined, o3) - combined);
+        }
+      }
+    }
+    compiledFoldCombined = combined;
+    compiledFoldWinner = -1;
+  };
+}
+
+/**
+ * Unrolled (`n` in `1..UNROLL_MAX`) mirror of the argmax-fold loop above —
+ * see `compilePairwiseFoldUnrolled`'s doc for why. Argmax never short-
+ * circuits (see `foldVoices`'s own doc), so every voice is always sampled;
+ * the only per-step state is `best`/`winner`/`winnerOrder`.
+ */
+// `best` MUST seed at `-Infinity` (matching `foldVoices`'s own seed) rather
+// than at the first voice's own contribution: a voice sample can be `NaN`
+// (a degenerate `angular`/`spiral` at its own origin, an unresolved
+// `rawOverride`-adjacent field, etc.), and `NaN > anything` — including
+// `NaN > -Infinity` — is always `false`. Seeding `best` at `c0` directly
+// would make voice 0 "win" any all-NaN or NaN-first tie by construction
+// instead of correctly reporting no winner (`-1`), same as the loop path.
+function compileArgmaxFoldUnrolled(voices: readonly CompiledVoiceEntry[]): CompiledFold {
+  const n = voices.length;
+  const v0 = voices[0]!;
+  if (n === 1) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      const c0 = v0.amp * o0;
+      let winner = -1;
+      if (c0 > -Infinity) winner = v0.sourceIndex;
+      // n === 1 -> `combined = (2*0+1)/1 - 1 = 0` whenever there IS a
+      // winner; `foldVoices`'s own `active > 1 ? ... : 0` never even reaches
+      // the winnerOrder-dependent branch at n=1, so `combined` is always 0
+      // here regardless — matches exactly either way.
+      compiledFoldCombined = 0;
+      compiledFoldWinner = winner;
+    };
+  }
+  const v1 = voices[1]!;
+  if (n === 2) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+      const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+      const c0 = v0.amp * o0, c1 = v1.amp * o1;
+      let best = -Infinity, winner = -1, winnerOrder = -1;
+      if (c0 > best) { best = c0; winner = v0.sourceIndex; winnerOrder = 0; }
+      if (c1 > best) { best = c1; winner = v1.sourceIndex; winnerOrder = 1; }
+      compiledFoldCombined = n > 1 ? (2 * winnerOrder + 1) / n - 1 : 0;
+      compiledFoldWinner = winner;
+    };
+  }
+  const v2 = voices[2]!;
+  if (n === 3) {
+    return (x, y, z, originX, originY, originZ, time) => {
+      const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+      const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+      const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+      const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+      const cx2 = originX + v2.originU, cy2 = originY + v2.originV, cz2 = originZ + v2.originW;
+      const o2 = v2.sample(x, y, z, cx2, cy2, cz2, time);
+      const c0 = v0.amp * o0, c1 = v1.amp * o1, c2 = v2.amp * o2;
+      let best = -Infinity, winner = -1, winnerOrder = -1;
+      if (c0 > best) { best = c0; winner = v0.sourceIndex; winnerOrder = 0; }
+      if (c1 > best) { best = c1; winner = v1.sourceIndex; winnerOrder = 1; }
+      if (c2 > best) { best = c2; winner = v2.sourceIndex; winnerOrder = 2; }
+      compiledFoldCombined = n > 1 ? (2 * winnerOrder + 1) / n - 1 : 0;
+      compiledFoldWinner = winner;
+    };
+  }
+  const v3 = voices[3]!;
+  // n === 4 (UNROLL_MAX) — `compileFold` never calls this helper outside
+  // `1..UNROLL_MAX`.
+  return (x, y, z, originX, originY, originZ, time) => {
+    const cx0 = originX + v0.originU, cy0 = originY + v0.originV, cz0 = originZ + v0.originW;
+    const o0 = v0.sample(x, y, z, cx0, cy0, cz0, time);
+    const cx1 = originX + v1.originU, cy1 = originY + v1.originV, cz1 = originZ + v1.originW;
+    const o1 = v1.sample(x, y, z, cx1, cy1, cz1, time);
+    const cx2 = originX + v2.originU, cy2 = originY + v2.originV, cz2 = originZ + v2.originW;
+    const o2 = v2.sample(x, y, z, cx2, cy2, cz2, time);
+    const cx3 = originX + v3.originU, cy3 = originY + v3.originV, cz3 = originZ + v3.originW;
+    const o3 = v3.sample(x, y, z, cx3, cy3, cz3, time);
+    const c0 = v0.amp * o0, c1 = v1.amp * o1, c2 = v2.amp * o2, c3 = v3.amp * o3;
+    let best = -Infinity, winner = -1, winnerOrder = -1;
+    if (c0 > best) { best = c0; winner = v0.sourceIndex; winnerOrder = 0; }
+    if (c1 > best) { best = c1; winner = v1.sourceIndex; winnerOrder = 1; }
+    if (c2 > best) { best = c2; winner = v2.sourceIndex; winnerOrder = 2; }
+    if (c3 > best) { best = c3; winner = v3.sourceIndex; winnerOrder = 3; }
+    compiledFoldCombined = n > 1 ? (2 * winnerOrder + 1) / n - 1 : 0;
+    compiledFoldWinner = winner;
+  };
+}
+
+interface CompiledLayer {
+  /** Count of amp>0 voices — always equals `foldVoices`'s own `result.active`
+   *  for this layer (see `compileFold`'s doc), so the compiled program never
+   *  needs to call the fold just to learn a layer is empty. */
+  readonly activeCount: number;
+  /** `null` when `activeCount === 0` — an empty layer's fold is never built,
+   *  matching the interpreted path's "skip like an amp-0 voice". */
+  readonly fold: CompiledFold | null;
+  readonly thresholdOn: boolean;
+  readonly threshold: number;
+  readonly invert: boolean;
+  readonly blendOp: (a: number, b: number) => number;
+  readonly amp: number;
+  /** `thresholdOn && blend === "min"` / `"max"` — precomputed so the
+   *  cross-layer skip check (`evaluateFieldProgram`'s own runtime-only
+   *  short-circuit) never re-compares `blend` strings per layer per call. */
+  readonly skipsWhenLockedLow: boolean;
+  readonly skipsWhenLockedHigh: boolean;
+}
+
+interface CompiledProgram {
+  readonly layers: readonly CompiledLayer[];
+}
+
+function compileFieldProgram(program: FieldProgram): CompiledProgram {
+  const volumetric = program.domain === "3d";
+  const layers: CompiledLayer[] = program.layers.map((layer) => {
+    const activeEntries: CompiledVoiceEntry[] = [];
+    layer.voices.forEach((voice, k) => {
+      if (!(voice.amp > 0)) return;
+      activeEntries.push({
+        sample: compileVoiceSampler(voice, volumetric),
+        amp: voice.amp,
+        originU: voice.origin.u,
+        originV: voice.origin.v,
+        originW: voice.origin.w,
+        sourceIndex: voice.sourceIndex ?? k,
+      });
+    });
+    return {
+      activeCount: activeEntries.length,
+      fold: activeEntries.length > 0 ? compileFold(activeEntries, layer.combine) : null,
+      thresholdOn: layer.thresholdOn,
+      threshold: layer.threshold,
+      invert: layer.invert,
+      blendOp: compilePairOp(layer.blend),
+      amp: layer.amp,
+      skipsWhenLockedLow: layer.thresholdOn && layer.blend === "min",
+      skipsWhenLockedHigh: layer.thresholdOn && layer.blend === "max",
+    };
+  });
+  return { layers };
+}
+
+// Bounded by construction (see the "compiled evaluation form" doc above): an
+// entry lives exactly as long as its `FieldProgram` object does.
+const compiledProgramCache = new WeakMap<FieldProgram, CompiledProgram>();
+
+function getCompiledProgram(program: FieldProgram): CompiledProgram {
+  let compiled = compiledProgramCache.get(program);
+  if (!compiled) {
+    compiled = compileFieldProgram(program);
+    compiledProgramCache.set(program, compiled);
+  }
+  return compiled;
+}
+
+/**
+ * Evaluate a compiled program — the cross-layer fold, transcribed verbatim
+ * from `evaluateFieldProgramInterpreted` above (same skip/lock logic, same
+ * operand order), but every per-layer/per-voice dispatch already resolved
+ * to a fixed closure by `compileFieldProgram`.
+ */
+function evaluateCompiledProgram(
+  compiled: CompiledProgram,
+  x: number, y: number, z: number,
+  time: number,
+  originX: number, originY: number, originZ: number,
+): FieldEvalResult {
+  let stackValue = 0;
+  let stackActive = 0;
+  let populatedLayers = 0;
+  let singleLayerWinner = -1;
+  let appliedLayers = 0;
+  let stackLocked = 0;
+
+  const layers = compiled.layers;
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li]!;
+
+    if (
+      stackLocked !== 0
+      && ((stackLocked === -1 && layer.skipsWhenLockedLow) || (stackLocked === 1 && layer.skipsWhenLockedHigh))
+    ) {
+      if (layer.activeCount > 0) {
+        populatedLayers++;
+        stackActive += layer.activeCount;
+        appliedLayers++;
+      }
+      continue;
+    }
+
+    if (layer.activeCount === 0) continue;
+    layer.fold!(x, y, z, originX, originY, originZ, time);
+    const resultCombined = compiledFoldCombined, resultWinner = compiledFoldWinner;
+    populatedLayers++;
+    singleLayerWinner = populatedLayers === 1 ? resultWinner : -1;
+    stackActive += layer.activeCount;
+
+    let v = resultCombined;
+    if (layer.thresholdOn) v = v > layer.threshold ? 1 : -1;
+    if (layer.invert) v = -v;
+
+    if (appliedLayers === 0) {
+      stackValue = layer.amp * v;
+    } else {
+      stackValue += layer.amp * (layer.blendOp(stackValue, v) - stackValue);
+    }
+    appliedLayers++;
+    stackLocked = stackValue <= -1 ? -1 : stackValue >= 1 ? 1 : 0;
+  }
+
+  return {
+    combined: stackValue,
+    winner: populatedLayers === 1 ? singleLayerWinner : -1,
+    active: stackActive,
+  };
+}
+
+/**
+ * Public entry point (VOLUMETRIC.md's "The field program IR", exported as
+ * `evaluateGlyphFieldProgram`) — see `evaluateFieldProgramInterpreted` above
+ * for the full parameter/behavior doc, which this preserves exactly. Prefers
+ * a per-program compiled closure (cached by object identity — see "compiled
+ * evaluation form" above) whenever `rawOverride` is absent; falls back to
+ * the interpreted evaluator, unchanged, whenever one is supplied (a
+ * genuinely per-sample callback that cannot be compiled away — see that
+ * section's doc). Byte-identical output to the pre-compile implementation
+ * either way; `fieldProgram.compiled-parity.test.ts` is the test that holds
+ * this to `===`, not just approximate equality.
+ */
+export function evaluateFieldProgram(
+  program: FieldProgram,
+  x: number, y: number, z: number,
+  time: number,
+  originX = 0, originY = 0, originZ = 0,
+  rawOverride?: FieldVoiceRawOverride,
+): FieldEvalResult {
+  if (rawOverride) {
+    return evaluateFieldProgramInterpreted(program, x, y, z, time, originX, originY, originZ, rawOverride);
+  }
+  return evaluateCompiledProgram(getCompiledProgram(program), x, y, z, time, originX, originY, originZ);
 }
 
 // ---- sampler-agnostic marcher -------------------------------------------
