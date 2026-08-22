@@ -1620,15 +1620,20 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
   hoverToAnimate?: boolean;
   /** Display density (crowding fix) — `undefined` (the default, every
    *  EXISTING caller) keeps the full original card: every param row, the
-   *  live mini scene preview, no mode toggle. Passing `"basic"`/`"advanced"`
-   *  opts a card into the managed layout: `"basic"` hides `mix`/`phase`/the
-   *  layer selector/placement (the conditional `duty`/`iter` rows still show
-   *  when they apply — those aren't display-mode params), `"advanced"` shows
-   *  everything `"basic"` does plus those. Either value also drops the mini
-   *  scene preview (see `voice-preview` below) and shows the per-card
-   *  `[bsc|adv]` toggle. Viewer preference only — never read from or written
-   *  to the `?s=` URL; `/synth`'s own sidebar is the only caller that passes
-   *  this today. */
+   *  live mini scene preview (soloed on `stageShape`), no mode toggle.
+   *  Passing `"basic"`/`"advanced"` opts a card into the managed layout:
+   *  `"basic"` hides `mix`/`phase`/the layer selector/placement (the
+   *  conditional `duty`/`iter` rows still show when they apply — those
+   *  aren't display-mode params) AND the mini scene preview, showing only
+   *  the waveform trendline at full height. `"advanced"` shows everything
+   *  `"basic"` does plus those, and re-mounts the mini scene preview below
+   *  the trendline — but always soloed on a flat `"plane"`, never
+   *  `stageShape`, even on a volumetric patch: the point is to see the
+   *  voice's own PATTERN in isolation, not the object it happens to be
+   *  painted on (the object preview was removed at the user's request —
+   *  see `1d1e2cd`). Either mode shows the per-card `[bsc|adv]` toggle.
+   *  Viewer preference only — never read from or written to the `?s=` URL;
+   *  `/synth`'s own sidebar is the only caller that passes this today. */
   mode?: VoiceDisplayMode;
   /** Required alongside `mode` for the per-card `[bsc|adv]` toggle to render
    *  (an unmanaged card has nothing to call this with). */
@@ -1663,13 +1668,16 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
   ]);
   const animate = hoverToAnimate ? hovered : true;
   // An unmanaged card (`mode` omitted — the loaders gallery) mounts its own
-  // live mini scene, which drives the trendline via `onTick` as a byproduct;
-  // a managed card (`/synth`) never renders the `host` span below (see
-  // `voice-preview`), so this call is permanently a no-op for it — the
-  // decoupled clock below drives its trendline instead, and the two never
-  // fire the same `onTick` at once.
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params[`iter${slot}`], params[`layer${slot}`], ...layerShapingDeps, params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", animate);
-  useTrendlineClock(onTick, [f("wave"), num("freq"), num("speed"), num("amp"), num("duty"), num("phase")], animate, managed);
+  // live mini scene, soloed on `stageShape` when the patch is volumetric,
+  // which drives the trendline via `onTick` as a byproduct. A managed card
+  // (`/synth`) only renders the `host` span below (see `voice-preview`) in
+  // `"advanced"` mode, and always solos on a flat `"plane"` regardless of
+  // `stageShape` — showing the voice's own pattern, never the object it's
+  // painted on. In `"basic"` mode `host` stays null so this call is a no-op
+  // and the decoupled clock below drives the trendline instead; the two
+  // never fire the same `onTick` at once for a given card.
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params[`iter${slot}`], params[`layer${slot}`], ...layerShapingDeps, params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, managed ? "plane" : (volumetric ? stageShape : "plane"), animate);
+  useTrendlineClock(onTick, [f("wave"), num("freq"), num("speed"), num("amp"), num("duty"), num("phase")], animate, managed && !showAdvanced);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The
@@ -1697,11 +1705,13 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        {/* Managed cards (`/synth`) drop the live mini scene preview entirely
-            (user: "the object rendering below the wave could disappear") —
-            not just hidden, never rendered, so `host` stays null and
-            `useSynthPreview` above stays a permanent no-op for this card. */}
-        {!managed && <span className="voice-preview" ref={setHost} />}
+        {/* Managed cards (`/synth`) drop the live mini scene preview in
+            `"basic"` mode (user: "the object rendering below the wave could
+            disappear") — not just hidden, never rendered, so `host` stays
+            null and `useSynthPreview` above stays a no-op. `"advanced"`
+            re-mounts it, always soloed on a flat plane (see the
+            `useSynthPreview` call above) — a pattern, not the object. */}
+        {showAdvanced && <span className="voice-preview" ref={setHost} />}
       </div>
       <div className="voice-controls">
         <div className="voice-head">
