@@ -2085,10 +2085,23 @@ export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<neve
 // this component now OWNS both the group's own shaping controls AND the
 // nested voice cards, replacing the dock's separate "Layers" lil-gui folder
 // entirely (that folder held only the shaping knobs; the cards lived in a
-// flat list elsewhere — two places for one concept). Header = blend-mode
-// dropdown (`layerBlendL`), a "mix" slider (`layerAmpL` — same label as a
-// voice's own "mix" on purpose: group opacity vs. element opacity),
-// threshold toggle + value, invert.
+// flat list elsewhere — two places for one concept).
+//
+// Header compression: `.layer-group-head` is a flex ROW (not, as originally
+// shipped, a single click-to-toggle `<button>` spanning the whole row) —
+// `.layer-group-toggle` is the actual button (caret + "Layer N", the
+// collapse/expand click target), and `combine`/`blend` sit beside it as
+// their own compact `<select>`s. Splitting the click target out of the
+// button this way is what lets a `<select>` live on the header row at all:
+// nested inside the toggle button it would fight that button's own click
+// handler (a native `<select>` inside a `<button>` either can't open or
+// double-fires the parent's onClick, browser-dependent) — as siblings, each
+// owns its own input events cleanly. The body below keeps only what doesn't
+// fit the header: "mix" (`layerAmpL` — same label as a voice's own "mix" on
+// purpose: group opacity vs. element opacity), threshold toggle + value, and
+// invert — mix/threshold-toggle/invert share one row, and the threshold
+// VALUE slider only renders its own row when the toggle is on, since most
+// layers leave it off (VOLUMETRIC.md's Step 3 default).
 //
 // `layerCombineL` (how the layer's OWN voices fold together before the layer
 // blends into the stack) went uneditable in the original rewrite —
@@ -2096,11 +2109,9 @@ export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<neve
 // Sierpinski presets both set a non-default `layerCombineL` (see
 // `GlyphMengerSpongePreset`/`GlyphSierpinskiPyramidPreset` in
 // packages/effects/src/stock.ts), so a live control is needed to actually
-// tune those patches rather than only read/write them via preset/URL. Placed
-// at the top of the body (not the header — the header is a single
-// click-to-toggle button, and a `<select>` inside it would fight that click
-// target) as its own row, above `blend`, since combine resolves BEFORE the
-// layer's blended output exists.
+// tune those patches rather than only read/write them via preset/URL. It
+// resolves BEFORE the layer's blended output exists, so it sits left of
+// `blend` on the header row.
 export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, children }: {
   layer: number; params: Params; onParam: (key: string, value: ParamValue) => void;
   onAddVoice: (layer: number) => void; canAddVoice: boolean; children: ReactNode;
@@ -2113,49 +2124,55 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="layer-group">
-      <button type="button" className="layer-group-head" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`Layer ${layer} — collapse/expand its own group`}>
-        <span className="layer-group-caret">{open ? "▾" : "▸"}</span>
-        <span className="layer-group-title">Layer {layer}</span>
-      </button>
+      <div className="layer-group-head">
+        <button type="button" className="layer-group-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`Layer ${layer} — collapse/expand its own group`}>
+          <span className="layer-group-caret">{open ? "▾" : "▸"}</span>
+          <span className="layer-group-title">Layer {layer}</span>
+        </button>
+        {/* Combine/blend live on the title row (not inside the toggle button
+            above — a <select> inside a click-to-toggle button would fight
+            that click target), compact but still a real <select> so their
+            value and every option stay readable/changeable, not just a
+            glyph. Each stays a `<label title="Combine…"/"Blend…">` (not a
+            bare `<span>`) so the house tooltip idiom holds AND
+            `LayerGroup.test.tsx`'s `label[title^="Combine"] select` query
+            keeps matching. */}
+        <label className="gx-select layer-group-head-select" title="Combine — how this layer's OWN voices fold together, before the layer's blended output joins the stack. &quot;inherit&quot; follows the patch-level Combine (Mix folder).">
+          <select value={s("layerCombine")} onChange={(e) => onParam(`layerCombine${layer}`, e.target.value)}>
+            {LAYER_COMBINE_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label className="gx-select layer-group-head-select" title="Blend — how this layer's shaped output folds into the running result across layers.">
+          <select value={s("layerBlend")} onChange={(e) => onParam(`layerBlend${layer}`, e.target.value)}>
+            {LAYER_VALUE_OPS.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+      </div>
       {open && (
         <div className="layer-group-body">
           <div className="layer-group-controls">
-            <label className="layer-group-row" title="Combine — how this layer's OWN voices fold together, before the layer's blended output joins the stack. &quot;inherit&quot; follows the patch-level Combine (Mix folder).">
-              <span>combine</span>
-              <span className="gx-select">
-                <select value={s("layerCombine")} onChange={(e) => onParam(`layerCombine${layer}`, e.target.value)}>
-                  {LAYER_COMBINE_VALUES.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </span>
-            </label>
-            <label className="layer-group-row" title="Blend — how this layer's shaped output folds into the running result across layers.">
-              <span>blend</span>
-              <span className="gx-select">
-                <select value={s("layerBlend")} onChange={(e) => onParam(`layerBlend${layer}`, e.target.value)}>
-                  {LAYER_VALUE_OPS.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </span>
-            </label>
-            <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
-              <span>mix</span>
-              <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
-              <b>{n("layerAmp").toFixed(2)}</b>
-            </label>
-            <div className="layer-group-toggles">
-              <label className="layer-group-check" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
-                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
-                <span>threshold</span>
+            <div className="layer-group-row2">
+              <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
+                <span>mix</span>
+                <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
+                <b>{n("layerAmp").toFixed(2)}</b>
               </label>
-              {thresholdOn && (
-                <span className="voice-slider-track layer-group-threshold-track">
-                  <input type="range" min={-3} max={3} step={0.05} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} />
-                </span>
-              )}
-              <label className="layer-group-check" title="Invert — flips which side of the layer's result counts as solid.">
+              <label className="layer-group-check layer-group-check--compact" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
+                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
+                <span>thr</span>
+              </label>
+              <label className="layer-group-check layer-group-check--compact" title="Invert — flips which side of the layer's result counts as solid.">
                 <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
-                <span>invert</span>
+                <span>inv</span>
               </label>
             </div>
+            {thresholdOn && (
+              <label className="voice-slider" title="Threshold value — the level the layer's combined value is cut against. A thresholded layer's folded value maps to ±1, so this range spans the ±1 signal's usable extent.">
+                <span>thr</span>
+                <span className="voice-slider-track"><input type="range" min={-3} max={3} step={0.05} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} /></span>
+                <b>{n("layerThreshold").toFixed(2)}</b>
+              </label>
+            )}
           </div>
           <div className="layer-group-voices">{children}</div>
           <button type="button" className="layer-group-add" onClick={() => onAddVoice(layer)} disabled={!canAddVoice} title={`Add a voice assigned to layer ${layer}`}>
