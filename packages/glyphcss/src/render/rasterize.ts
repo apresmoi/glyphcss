@@ -3,7 +3,7 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type Glyph
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
-import { applyCellHook, buildCellGrid, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
+import { applyCellHook, buildCellGrid, colorRunExtends, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
 import type { CellGrid } from "./cells";
 
 /**
@@ -3291,20 +3291,43 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
   return out;
 }
 
+/**
+ * `safe` (named for the `assertGlyph`/`assertColor` validation `true` buys,
+ * not for `colorTolerance`) picks one of two coalescers. `true` (a
+ * `transformCells` hook ran) routes through {@link encodeGlyphBuffers}, which
+ * re-validates every cell since a hook can hand back arbitrary glyphs/colors.
+ * `false` (the default, hookless, hot path — wireframe/ink/braille/solid all
+ * reach it) uses its own duplicated run-coalescer instead of
+ * `encodeGlyphBuffers`, because routing it through that validated encoder
+ * measurably regresses this path: ~90-100% more time per call at ~86k cells,
+ * a faithful standalone port of both loop bodies timed head-to-head
+ * (`assertGlyph`/`assertColor` on every cell — COLOR-TOLERANCE.md review
+ * Finding 5, not assumed). Both branches now support
+ * `colorTolerance` (default `0` = off, byte-identical) — the unsafe branch
+ * via the shared {@link colorRunExtends} test `encodeGlyphBuffers` and
+ * `encodeGlyphBuffersDual` also use, so its comparison rule can't drift out
+ * of sync with either encoder's, without paying their per-cell validation
+ * cost. No caller passes a non-zero tolerance yet — `colorTolerance` has no
+ * scene option (that's a later phase) — this only closes the gap where the
+ * common no-hook render path couldn't honor one at all.
+ */
 function solidBufToString(
   glyphBuf: string[],
   colorBuf: (string | null)[] | null,
   cols: number,
   rows: number,
   safe = false,
+  colorTolerance = 0,
 ): string {
   if (safe) {
-    return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null);
+    return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null, null, colorTolerance);
   }
   // Coalesce runs of same-color consecutive cells into one <span> per run.
   // For ~5k colored cells with average run length 5, this drops total <span>
   // count by ~5x — innerHTML parsing scales linearly with DOM-node count, so
   // fewer larger spans is materially faster than one span per glyph.
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
   const parts: string[] = [];
   let runColor: string | null = null;
   let runText = "";
@@ -3322,7 +3345,7 @@ function solidBufToString(
       const idx = y * cols + x;
       const g = glyphBuf[idx]!;
       const col = (colorBuf && g !== " ") ? (colorBuf[idx] ?? null) : null;
-      if (col !== runColor) {
+      if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
       }
