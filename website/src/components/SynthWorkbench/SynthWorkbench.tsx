@@ -94,8 +94,11 @@ import {
   ColorStackSection,
   PresetTile,
   SynthDock,
+  IconToggle,
+  VOICE_MODE_TOGGLE,
   type ParamValue,
   type Params,
+  type VoiceDisplayMode,
 } from "./synthKit";
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
@@ -315,6 +318,24 @@ export default function SynthWorkbench() {
   // voice (amp 0) keeps its card; only Remove (×) deletes it.
   const [voiceSlots, setVoiceSlots] = useState<number[]>(initial.voiceSlots);
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
+
+  // Voice card display mode (crowding fix, VoiceCard's own `mode` prop) —
+  // viewer preference, deliberately NOT part of `writeSynthUrlState` above
+  // (a shared link's bytes must not change with how densely the RECEIVER
+  // likes to view their own sidebar). `voiceMode` is the global default every
+  // card without its own override reads; a per-card `[bsc|adv]` toggle
+  // (`voiceModeOverrides`) can diverge from it afterwards. Defaults to
+  // "basic" — the whole point of this control is to declutter a multi-voice
+  // patch by default, not to open every card and ask the viewer to close them.
+  const [voiceMode, setVoiceMode] = useState<VoiceDisplayMode>("basic");
+  const [voiceModeOverrides, setVoiceModeOverrides] = useState<Record<number, VoiceDisplayMode>>({});
+  // The ONE global control (sidebar header) — sets every card at once by
+  // clearing any per-card override, so a stale override can't leave one card
+  // silently un-affected by the next global click.
+  const setAllVoiceModes = useCallback((next: VoiceDisplayMode) => { setVoiceMode(next); setVoiceModeOverrides({}); }, []);
+  const setVoiceCardMode = useCallback((slot: number, next: VoiceDisplayMode) => {
+    setVoiceModeOverrides((prev) => ({ ...prev, [slot]: next }));
+  }, []);
 
   // Async catch-up for a compressed ('z') `?s=` link: `readInitialSynthState`
   // above is synchronous and can only ever read the 'p' (raw packed) format
@@ -592,7 +613,19 @@ export default function SynthWorkbench() {
         <InstrumentRail
           id="synth-voices-panel"
           title="Voices"
-          action={<button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>}
+          action={
+            <span className="synth-voices-head-actions">
+              <span className="voice-mode-toggle">
+                <IconToggle
+                  groupTitle="Set every voice card to Basic or Advanced at once. A card's own [bsc|adv] toggle can still override this afterwards."
+                  options={VOICE_MODE_TOGGLE}
+                  value={voiceMode}
+                  onChange={(v) => setAllVoiceModes(v as VoiceDisplayMode)}
+                />
+              </span>
+              <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
+            </span>
+          }
           open={mobilePanel === "voices"}
         >
             {/* Grouped by layer (VOLUMETRIC-2.md §4's LayerGroup rewrite) — a
@@ -612,7 +645,12 @@ export default function SynthWorkbench() {
               .map(({ layer, slots }) => (
                 <LayerGroup key={layer} layer={layer} params={params} onParam={onParam} onAddVoice={addVoiceToLayer} canAddVoice={voiceSlots.length < MAX_VOICES}>
                   {slots.map((slot) => (
-                    <VoiceCard key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} stageShape={shape} hoverToAnimate />
+                    <VoiceCard
+                      key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam}
+                      onRemove={() => removeVoice(slot)} stageShape={shape} hoverToAnimate
+                      mode={voiceModeOverrides[slot] ?? voiceMode}
+                      onModeChange={(next) => setVoiceCardMode(slot, next)}
+                    />
                   ))}
                 </LayerGroup>
               ))}

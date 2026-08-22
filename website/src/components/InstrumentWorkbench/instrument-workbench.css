@@ -90,6 +90,10 @@
 }
 .voice-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.2); }
 .voice-add:disabled { opacity: 0.35; cursor: not-allowed; }
+/* Wraps the sidebar header's global Basic/Advanced toggle + "+ Add", so both
+   sit as one group on the header's right side (`.synth-voices-head`'s own
+   `justify-content: space-between` against the "VOICES" title). */
+.synth-voices-head-actions { display: flex; align-items: center; gap: 6px; }
 .synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
@@ -307,6 +311,18 @@
 }
 .voice-remove:hover { background: rgba(255, 90, 90, 0.16); border-color: rgba(255, 120, 120, 0.5); }
 .voice-row { display: flex; gap: 6px; }
+
+/* Basic/Advanced display-mode toggle (crowding fix) — same `.gx-toggle`
+   segmented-control markup the layer-assignment `[1][2][3]` toggle uses
+   (`gx-toggle-text` for its short text labels instead of a shape icon), just
+   sized down: this sits inline in a tight title row (`VoiceCard`'s own
+   header, next to the colour swatch and ×) or the sidebar header (next to
+   "+ Add"), not in its own full-width row like `.voice-layer-row`'s copy.
+   `flex: 0 0 auto` keeps `.gx-toggle`'s own `flex:1` buttons from stretching
+   to fill the row the way the layer selector's row-spanning copy does. */
+.voice-mode-toggle .gx-toggle { flex: 0 0 auto; }
+.voice-mode-toggle .gx-toggle-btn { flex: 0 0 auto; padding: 2px 6px; font-size: 9px; letter-spacing: 0.02em; }
+.voice-mode-toggle .gx-toggle-text { font-weight: 600; }
 
 /* Segmented icon multi-toggle (field / wave) */
 .gx-toggle { display: flex; }

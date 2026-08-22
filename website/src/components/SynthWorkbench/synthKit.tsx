@@ -1125,6 +1125,59 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
   }, [animate]);
 }
 
+// Drives a per-voice waveform trendline SVG on its own rAF clock, with no
+// mounted glyphcss scene at all — a managed `VoiceCard` (the /synth sidebar,
+// crowding fix) drops its live mini-preview square entirely, but the
+// trendline is a pure function of `t` + the voice's own wave params
+// (`buildWavePathD`), so it never needed a scene to animate. Same
+// tick/start/stop/renderStatic shape as `useSynthPreview` above (so the
+// static-until-hovered convention every card preview in this file follows
+// stays identical), just without the `host`/scene half of that hook.
+// `enabled` gates the whole hook off (a no-op) for a caller passing an
+// unmanaged card (`mode` omitted) that still gets its ticks from a real
+// mounted `useSynthPreview` scene instead — the two are mutually exclusive
+// per card, never both driving the same `onTick`.
+function useTrendlineClock(onTick: (t: number) => void, deps: unknown[], animate: boolean, enabled: boolean): void {
+  const onTickRef = useRef(onTick);
+  onTickRef.current = onTick;
+  const animateRef = useRef(animate);
+  animateRef.current = animate;
+  const loopRef = useRef<{ start: () => void; stop: () => void; renderStatic: () => void } | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let last = performance.now(), t = PREVIEW_STATIC_TIME, raf = 0;
+    const tick = (now: number): void => { raf = requestAnimationFrame(tick); const dt = Math.min((now - last) / 1000, 0.1); last = now; t += dt * 0.8; onTickRef.current(t); };
+    const start = (): void => {
+      if (raf) return;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const stop = (): void => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const renderStatic = (): void => {
+      stop();
+      t = PREVIEW_STATIC_TIME;
+      onTickRef.current(t);
+    };
+    loopRef.current = { start, stop, renderStatic };
+    if (animateRef.current) start(); else renderStatic();
+    return () => { stop(); loopRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    if (!animateRef.current) loopRef.current?.renderStatic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps]);
+  useEffect(() => {
+    if (!enabled) return;
+    if (animate) loopRef.current?.start(); else loopRef.current?.renderStatic();
+  }, [animate, enabled]);
+}
+
 // ── Waveform trendlines (per-voice + combined) ────────────────────────────────
 // Read the voice params as a literal 1D read of the same shape+phase math the
 // field synth evaluates spatially: `raw*freq - time*speed` fed through
@@ -1295,6 +1348,28 @@ export const LAYER_TOGGLE = Array.from({ length: MAX_LAYERS }, (_, i) => {
   const n = i + 1;
   return { value: String(n), icon: <span className="gx-toggle-text">{n}</span>, label: `Layer ${n}`, desc: `assigns this voice to layer ${n} — voices on the same layer fold together before layers combine` };
 });
+
+/** A `VoiceCard`'s own display density — viewer preference, never persisted
+ *  to the `?s=` URL (patch content and display density are independent; a
+ *  shared link's bytes must not change with this). `undefined`/omitted on
+ *  the card itself means "unmanaged": every existing caller (the loaders
+ *  gallery) that never passes `mode` keeps the full original layout, object
+ *  preview included, byte-for-byte — this is an opt-in per card, not a
+ *  default that changes existing callers. */
+export type VoiceDisplayMode = "basic" | "advanced";
+/** Basic/Advanced segmented toggle — reuses `IconToggle`'s markup with a text
+ *  label instead of a shape icon, same technique as `LAYER_TOGGLE` above (a
+ *  display mode has no natural glyph either). Two consumers: a `VoiceCard`'s
+ *  own per-card toggle, and one global toggle in the voice sidebar header
+ *  that sets every card at once. */
+export const VOICE_MODE_TOGGLE = (["basic", "advanced"] as const).map((v) => ({
+  value: v as string,
+  icon: <span className="gx-toggle-text">{v === "basic" ? "bsc" : "adv"}</span>,
+  label: v === "basic" ? "Basic" : "Advanced",
+  desc: v === "basic"
+    ? "wave, field, freq, speed, and any conditional params (duty, iter) — the compact view"
+    : "basic plus mix, phase, layer assignment, and placement (angle/origin)",
+}));
 export const freqFromSlider = (pos: number, max: number): number => {
   const v = max * Math.pow(Math.min(1, Math.max(0, pos)), FREQ_TAPER);
   // Finer quantization down low, where the taper hands you the resolution: a
@@ -1521,7 +1596,7 @@ export function VoiceFieldMap({ params, slot, keyPrefix = "", fallbackColor = "#
   );
 }
 
-export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, stageShape = "cube", hoverToAnimate = false }: {
+export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, stageShape = "cube", hoverToAnimate = false, mode, onModeChange }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
   /** Fires this card's slot while the pointer is on it (and null when it
@@ -1543,7 +1618,24 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
    *  (the loaders gallery mounts a card per loader and has never gated this
    *  on hover) — `/synth`'s own sidebar opts in explicitly. */
   hoverToAnimate?: boolean;
+  /** Display density (crowding fix) — `undefined` (the default, every
+   *  EXISTING caller) keeps the full original card: every param row, the
+   *  live mini scene preview, no mode toggle. Passing `"basic"`/`"advanced"`
+   *  opts a card into the managed layout: `"basic"` hides `mix`/`phase`/the
+   *  layer selector/placement (the conditional `duty`/`iter` rows still show
+   *  when they apply — those aren't display-mode params), `"advanced"` shows
+   *  everything `"basic"` does plus those. Either value also drops the mini
+   *  scene preview (see `voice-preview` below) and shows the per-card
+   *  `[bsc|adv]` toggle. Viewer preference only — never read from or written
+   *  to the `?s=` URL; `/synth`'s own sidebar is the only caller that passes
+   *  this today. */
+  mode?: VoiceDisplayMode;
+  /** Required alongside `mode` for the per-card `[bsc|adv]` toggle to render
+   *  (an unmanaged card has nothing to call this with). */
+  onModeChange?: (mode: VoiceDisplayMode) => void;
 }) {
+  const managed = mode !== undefined;
+  const showAdvanced = !managed || mode === "advanced";
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
   const f = (k: string) => String(params[`${k}${slot}`]);
@@ -1569,7 +1661,15 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
     params[`layerCombine${l}`], params[`layerThresholdOn${l}`], params[`layerThreshold${l}`],
     params[`layerInvert${l}`], params[`layerBlend${l}`], params[`layerAmp${l}`],
   ]);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params[`iter${slot}`], params[`layer${slot}`], ...layerShapingDeps, params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", hoverToAnimate ? hovered : true);
+  const animate = hoverToAnimate ? hovered : true;
+  // An unmanaged card (`mode` omitted — the loaders gallery) mounts its own
+  // live mini scene, which drives the trendline via `onTick` as a byproduct;
+  // a managed card (`/synth`) never renders the `host` span below (see
+  // `voice-preview`), so this call is permanently a no-op for it — the
+  // decoupled clock below drives its trendline instead, and the two never
+  // fire the same `onTick` at once.
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params[`originW${slot}`], params[`duty${slot}`], params[`phase${slot}`], params[`iter${slot}`], params[`layer${slot}`], ...layerShapingDeps, params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host, stageShape], onTick, volumetric ? stageShape : "plane", animate);
+  useTrendlineClock(onTick, [f("wave"), num("freq"), num("speed"), num("amp"), num("duty"), num("phase")], animate, managed);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Placement (angle/u/v) is the exception rather than the rule, so it folds
   // away — but a patch that USES it should show it without being asked. The
@@ -1597,13 +1697,27 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        <span className="voice-preview" ref={setHost} />
+        {/* Managed cards (`/synth`) drop the live mini scene preview entirely
+            (user: "the object rendering below the wave could disappear") —
+            not just hidden, never rendered, so `host` stays null and
+            `useSynthPreview` above stays a permanent no-op for this card. */}
+        {!managed && <span className="voice-preview" ref={setHost} />}
       </div>
       <div className="voice-controls">
         <div className="voice-head">
           <span className="voice-title">Voice {index + 1}</span>
           <span className="voice-head-right">
             <input type="color" className="voice-color" value={f("color")} onChange={(e) => onParam(`color${slot}`, e.target.value)} title="Voice color" />
+            {managed && (
+              <span className="voice-mode-toggle">
+                <IconToggle
+                  groupTitle="Basic/Advanced — Basic shows wave, field, freq, speed, and any conditional params (duty, iter). Advanced adds mix, phase, layer assignment, and placement."
+                  options={VOICE_MODE_TOGGLE}
+                  value={mode as string}
+                  onChange={(v) => onModeChange?.(v as VoiceDisplayMode)}
+                />
+              </span>
+            )}
             <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
           </span>
         </div>
@@ -1611,23 +1725,27 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={volumetric ? FIELD_TOGGLE_3D : FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), FREQ_MAX)} style={fill(freqToSlider(num("freq"), FREQ_MAX), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, FREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>}
         {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction. 0.5 (default) is an even on/off split; a smaller value selects a narrower high band (e.g. 1/3 for a middle-third selector)."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`duty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
-        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice. For a menger/sierpinski voice, phase is an ISO-LEVEL offset instead — it erodes/dilates the solid, not a translation."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice. For a menger/sierpinski voice, phase is an ISO-LEVEL offset instead — it erodes/dilates the solid, not a translation."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>}
         {isSdfIterField(f("field")) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal. Capped at 4: carve/xray's march resolution caps at 256 steps, and iteration 5 would need ~486 and render guaranteed false holes."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`iter${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
-        <div className="voice-layer-row" title="Layer — which of up to 3 groups this voice folds into before layers combine. All voices default to layer 1, which folds exactly like today's flat mix.">
-          <span className="voice-layer-label">layer</span>
-          <IconToggle groupTitle="Layer assignment" options={LAYER_TOGGLE} value={String(num("layer"))} onChange={(v) => onParam(`layer${slot}`, Number(v))} />
-        </div>
-        <button
-          type="button"
-          className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
-          onClick={() => setPlacementOverride(!placementOpen)}
-          title="Placement — where this voice's field is centred and which way it runs. Hidden until used, since most patches leave it alone."
-        >
-          {placementOpen ? "▾" : "▸"} placement
-        </button>
-        {placementOpen && (
+        {showAdvanced && (
+          <div className="voice-layer-row" title="Layer — which of up to 3 groups this voice folds into before layers combine. All voices default to layer 1, which folds exactly like today's flat mix.">
+            <span className="voice-layer-label">layer</span>
+            <IconToggle groupTitle="Layer assignment" options={LAYER_TOGGLE} value={String(num("layer"))} onChange={(v) => onParam(`layer${slot}`, Number(v))} />
+          </div>
+        )}
+        {showAdvanced && (
+          <button
+            type="button"
+            className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
+            onClick={() => setPlacementOverride(!placementOpen)}
+            title="Placement — where this voice's field is centred and which way it runs. Hidden until used, since most patches leave it alone."
+          >
+            {placementOpen ? "▾" : "▸"} placement
+          </button>
+        )}
+        {showAdvanced && placementOpen && (
           <div className="voice-placement">
             <VoiceFieldMap params={params} slot={slot} />
             <div className="voice-placement-rows">
