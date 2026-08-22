@@ -128,6 +128,14 @@ export default function SynthWorkbench() {
   const [timeScale, setTimeScale] = useState(initial.timeScale);
   const [paused, setPaused] = useState(false);
   const [density, setDensity] = useState(initial.density);
+  // Run-extension colour-merge tolerance (COLOR-TOLERANCE.md Phase 4) — a
+  // SCENE option (`scene.setOptions({ colorTolerance })` below), not a
+  // field-synth param, so it's page state alongside `density` rather than
+  // living in `params`. Replaces the removed `colorQuantize` effect param as
+  // the page's one performance lever (see synthKit.tsx's Output-folder
+  // slider doc) and is URL-persisted the same way `density` is — a shared
+  // link should reproduce the performance/visual profile the sharer had.
+  const [colorTolerance, setColorTolerance] = useState(initial.colorTolerance);
   const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
   // Camera auto-orbit (user request, separate from `paused`/mesh-spin): a
@@ -168,6 +176,7 @@ export default function SynthWorkbench() {
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const densityRef = useRef(density); densityRef.current = density;
+  const colorToleranceRef = useRef(colorTolerance); colorToleranceRef.current = colorTolerance;
 
   // Build (or rebuild) the whole scene for the current shape. A fresh scene is the
   // reliable way to give the effect layer the new geometry's retained coverage —
@@ -188,7 +197,7 @@ export default function SynthWorkbench() {
     // ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
     // resolution on every drag frame — 2 (÷4 cells) matches the loaders
     // gallery's own default (glyph-runtime.ts's `parseInteractiveDownscale`).
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, ...buildLighting(lightingRef.current) });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, colorTolerance: colorToleranceRef.current, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
@@ -284,6 +293,13 @@ export default function SynthWorkbench() {
     scene.rerender();
   }, [lighting]);
 
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({ colorTolerance });
+    scene.rerender();
+  }, [colorTolerance]);
+
   // Density → render font-size only. The renderer projects with the MEASURED cell,
   // so on-screen size is ≈ worldSpan × zoom (font-independent): changing the font
   // keeps the object the same size, just finer glyphs. No zoom compensation.
@@ -317,6 +333,7 @@ export default function SynthWorkbench() {
       setParams(state.params as Params);
       setTimeScale(state.timeScale);
       setDensity(state.density);
+      setColorTolerance(state.colorTolerance);
       setLighting(state.lighting);
       setVoiceSlots(state.voiceSlots);
     });
@@ -327,8 +344,8 @@ export default function SynthWorkbench() {
   // Persist everything to the single packed `?s=` param so a reload/share
   // restores the patch (see synthUrlState.ts).
   useEffect(() => {
-    writeSynthUrlState({ shape, params, timeScale, density, lighting, voiceSlots });
-  }, [params, shape, timeScale, density, voiceSlots, lighting]);
+    writeSynthUrlState({ shape, params, timeScale, density, colorTolerance, lighting, voiceSlots });
+  }, [params, shape, timeScale, density, colorTolerance, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
   // Stage presentation (density, camera angle, shape, paused) is STAGE
@@ -642,7 +659,7 @@ export default function SynthWorkbench() {
           )}
         </InstrumentMain>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
         </Dock>
       </InstrumentBody>
       <InstrumentTray id="synth-presets-panel" label="Pattern presets" open={mobilePanel === "presets"}>

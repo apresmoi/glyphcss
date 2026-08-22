@@ -9,6 +9,7 @@ import { createUrlCodec, encodeEffectParamsPacked } from "../../lib/urlState";
 import {
   COERCION_HANDLED_RULES,
   LEGACY_V2_FIELD_SYNTH_SCHEMA,
+  LEGACY_V3_FIELD_SYNTH_SCHEMA,
   MAX_VOICES,
   SYNTH_PARAM_DEFAULTS,
   SYNTH_REPAIR_TABLE,
@@ -31,10 +32,10 @@ import {
 // `hueRange` 90/360 -> 45/150 (VOLUMETRIC-4.md §1's Reconciliation — visual
 // tuning of the shipped iridescent presets; see each preset's own doc in
 // stock.ts for the measured before/after luminance).
-const IRIDESCENT_SPONGE_PACKED = "p3s1t3g7cd1iv17a23ce21ok1uK9zelmm16pap.13213516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1Q21e_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K228_2L223_2Me_2S1a_2V11";
-const IRIDESCENT_SHELL_PACKED = "p3s2t3g7cd1iv17a23ce21ok1uK9zelmm16p1j.1321a71ah10S10T1kU1.█_2F1_2H1_2J246_2K219_2Me_2S1a_2V11";
+const IRIDESCENT_SPONGE_PACKED = "p4s1t3g7cd1iv17a23ce21ok1uK9zelmm16pap.13213516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1Q21e_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K228_2L223_2Me_2S1a_2V11";
+const IRIDESCENT_SHELL_PACKED = "p4s2t3g7cd1iv17a23ce21ok1uK9zelmm16p1j.1321a71ah10S10T1kU1.█_2F1_2H1_2J246_2K219_2Me_2S1a_2V11";
 
-function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; lighting: Lighting; voiceSlots: number[] } {
+function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
   const params: Params = {
     ...SYNTH_PARAM_DEFAULTS,
     field1: "spiral", wave1: "square", freq1: 7.5, speed1: -1.2, amp1: 0.8, color1: "#ff0000",
@@ -55,6 +56,7 @@ function representativePatch(): { shape: string; params: Params; timeScale: numb
     params,
     timeScale: 2.1,
     density: 1.8,
+    colorTolerance: 0,
     lighting: { azimuth: 120, elevation: 60, keyIntensity: 1.5, keyColor: "#ffddaa", ambient: 0.3 },
     voiceSlots: [1, 2, 3],
   };
@@ -70,7 +72,7 @@ describe("synth url state", () => {
       lighting: { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 },
       voiceSlots: [1, 2],
     });
-    expect(packed).toBe("p3");
+    expect(packed).toBe("p4");
   });
 
   it("round-trips a representative multi-voice patch", () => {
@@ -243,18 +245,26 @@ describe("colour voice stack — every new key round-trips (VOLUMETRIC-4.md §1)
   });
 });
 
-// `colorQuantize` — the schema tail's next open slot after the colour voice
-// stack above (`adaptive`/`adaptiveTolerance` were deliberately withheld, so
-// this key claims the very next index; see stock.ts's own tail comment).
-// Same precedent as "round-trips the new voice7-9 param keys" and the colour
-// voice stack test above: a non-default value must round-trip through the
-// real write/read path, not just decode to schema default silently.
-describe("colorQuantize round-trips (schema tail's next open slot)", () => {
-  it("round-trips a non-default colorQuantize value", () => {
-    const base = representativePatch();
-    const patch = { ...base, params: { ...base.params, colorQuantize: 16 } };
+// `colorTolerance` (COLOR-TOLERANCE.md Phase 4) — an OUTER `SynthUrlState`
+// field (a SCENE option, not a field-synth param; see `SynthUrlState
+// .colorTolerance`'s doc), unlike the removed `colorQuantize` it replaces —
+// keyed by TOKEN, not position, so it round-trips through the plain outer
+// codec like `density`/`lightAzimuth` do. The removed param's own round-trip
+// coverage is superseded by the v3-legacy-decode block below, which proves a
+// PRE-REMOVAL link carrying `colorQuantize` still hydrates to a working page.
+describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces colorQuantize)", () => {
+  it("round-trips a non-default colorTolerance value", () => {
+    const patch = { ...representativePatch(), colorTolerance: 48 };
     const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
-    expect(restored.params.colorQuantize).toBe(16);
+    expect(restored.colorTolerance).toBeCloseTo(48, 5);
+  });
+
+  it("stays at the default (0) — and the packed string is unaffected — when colorTolerance is untouched", () => {
+    const withDefault = encodeSynthUrlState({ ...representativePatch(), colorTolerance: 0 });
+    // The two pinned iridescent-preset strings above (both built with an
+    // untouched, default colorTolerance) prove the same thing against real
+    // shipped presets: only the outer version tag changed by this phase.
+    expect(decodeSynthUrlState(withDefault).colorTolerance).toBe(0);
   });
 });
 
@@ -266,7 +276,7 @@ describe("colorQuantize round-trips (schema tail's next open slot)", () => {
 // marchSteps, marchFade) — lands past that cap and needs the multi-char index
 // escape (`encodeTokenIndex`/`decodeTokenIndex` in `../../lib/urlState`) to
 // round-trip at all.
-function everyNewParamPatch(): { shape: string; params: Params; timeScale: number; density: number; lighting: Lighting; voiceSlots: number[] } {
+function everyNewParamPatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
   const base = representativePatch();
   return {
     ...base,
@@ -425,12 +435,13 @@ describe("synth url state — v2 legacy decode (post-slab-removal)", () => {
     }
   });
 
-  it("v3 (current) links round-trip and are tagged \"p3\"", () => {
+  it("v4 (current) links round-trip and are tagged \"p4\"", () => {
     const patch = representativePatch();
     const packed = encodeSynthUrlState(patch);
-    expect(packed[1]).toBe("3");
+    expect(packed[1]).toBe("4");
     const restored = decodeSynthUrlState(packed);
     expect("slabAxis" in restored.params).toBe(false);
+    expect("colorQuantize" in restored.params).toBe(false);
     for (const [key, value] of Object.entries(patch.params)) {
       if (key === "time") continue;
       if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
@@ -444,6 +455,77 @@ describe("synth url state — v2 legacy decode (post-slab-removal)", () => {
     expect(restored.shape).toBe("sphere");
     expect(restored.params.field1).toBe("spiral");
     expect("slabAxis" in restored.params).toBe(false);
+  });
+});
+
+// ── colorQuantize removal: SYNTH_SCHEMA_VERSION 3 -> 4 (COLOR-TOLERANCE.md
+//    Phase 4) ────────────────────────────────────────────────────────────
+// `colorQuantize` sat at the schema TAIL, so its removal doesn't shift any
+// other key's index — but a genuine "p3..."-tagged link (the version this
+// repo shipped for a while, with `colorQuantize` as a live control) that DID
+// encode a non-default value still needs to decode against the OLD schema
+// (`LEGACY_V3_FIELD_SYNTH_SCHEMA`), or the unresolvable trailing token stops
+// the whole decode loop and drops it silently. These tests build a genuine
+// "p3..."-tagged link the same way the live v3 encoder once did (against the
+// OLD schema, since the current encoder only ever produces "p4") — this is
+// the required proof that a pre-removal shared link still hydrates to a
+// working page instead of garbage or a throw.
+const LEGACY_V3_DEFAULTS: Params = { ...SYNTH_PARAM_DEFAULTS, colorQuantize: 0 };
+const legacyV3OuterCodec = createUrlCodec<SynthUrlState>("3", synthCodec.fields);
+function encodeLegacyV3(state: ReturnType<typeof representativePatch>, legacyParams: Params): string {
+  const paramsPacked = encodeEffectParamsPacked(LEGACY_V3_FIELD_SYNTH_SCHEMA, LEGACY_V3_DEFAULTS, legacyParams);
+  return legacyV3OuterCodec.encode({
+    shape: state.shape,
+    timeScale: state.timeScale,
+    density: state.density,
+    voiceSlotMask: maskFromSlots(state.voiceSlots),
+    lightAzimuth: state.lighting.azimuth,
+    lightElevation: state.lighting.elevation,
+    lightKeyIntensity: state.lighting.keyIntensity,
+    lightKeyColor: state.lighting.keyColor,
+    lightAmbient: state.lighting.ambient,
+    colorTolerance: state.colorTolerance,
+    paramsPacked,
+  });
+}
+
+describe("synth url state — v3 legacy decode (post-colorQuantize-removal, COLOR-TOLERANCE.md Phase 4)", () => {
+  it("a pre-removal v3 URL with colorQuantize set still hydrates to a working page: colorQuantize is parsed then discarded, everything else lands correctly", () => {
+    const patch = representativePatch();
+    const legacyParams: Params = { ...patch.params, colorQuantize: 24 };
+    const packed = encodeLegacyV3(patch, legacyParams);
+    expect(packed[1]).toBe("3"); // sanity: genuinely v3-tagged, the real pre-removal wire format
+    const restored = decodeSynthUrlState(packed);
+    expect("colorQuantize" in restored.params).toBe(false);
+    // colorTolerance didn't exist when this link was shared — a v3 link
+    // never encodes it, so it correctly lands at its own default, not at
+    // the discarded colorQuantize value.
+    expect(restored.colorTolerance).toBe(SYNTH_URL_DEFAULTS.colorTolerance);
+    for (const [key, value] of Object.entries(legacyParams)) {
+      if (key === "time" || key === "colorQuantize") continue;
+      if (typeof value === "number") expect(restored.params[key], key).toBeCloseTo(value, 3);
+      else expect(restored.params[key], key).toBe(value);
+    }
+    // The page must actually render, not just decode without throwing.
+    expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
+  });
+
+  it("a v3 URL without any colorQuantize override decodes identically to the equivalent v4 link", () => {
+    const patch = representativePatch();
+    const packedLegacy = encodeLegacyV3(patch, patch.params);
+    const packedCurrent = encodeSynthUrlState(patch);
+    const restoredLegacy = decodeSynthUrlState(packedLegacy);
+    const restoredCurrent = decodeSynthUrlState(packedCurrent);
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (key === "time") continue;
+      if (typeof value === "number") {
+        expect(restoredLegacy.params[key], key).toBeCloseTo(value, 3);
+        expect(restoredLegacy.params[key], key).toBeCloseTo(restoredCurrent.params[key] as number, 3);
+      } else {
+        expect(restoredLegacy.params[key], key).toBe(value);
+        expect(restoredLegacy.params[key], key).toBe(restoredCurrent.params[key]);
+      }
+    }
   });
 });
 

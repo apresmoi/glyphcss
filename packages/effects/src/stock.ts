@@ -699,25 +699,6 @@ function scalePackedColor(packed: number, intensity: number): number {
   return (red << 16) | (green << 8) | blue;
 }
 
-// `colorQuantize`: buckets an 0..255 channel into `levels` evenly-spaced
-// steps, resolved to each bucket's CENTER (not its floor) so `levels: 1`
-// still reads as a single mid-tone rather than black. `encodeGlyphBuffers`
-// (packages/glyphcss/src/render/cells.ts) starts a new run only when
-// `nextColor !== runColor`, so collapsing neighboring cells' resolved colors
-// onto shared bucket centers is what turns near-identical-but-not-equal
-// colors (a continuously varying gradient/hue/fade term) into actual runs.
-function quantizeChannel(channel: number, levels: number): number {
-  const bucket = Math.min(levels - 1, Math.floor((channel * levels) / 256));
-  return Math.min(255, Math.round(((bucket + 0.5) * 256) / levels));
-}
-
-function quantizePackedColor(packed: number, levels: number): number {
-  const red = quantizeChannel((packed >>> 16) & 0xff, levels);
-  const green = quantizeChannel((packed >>> 8) & 0xff, levels);
-  const blue = quantizeChannel(packed & 0xff, levels);
-  return (red << 16) | (green << 8) | blue;
-}
-
 // Stable rule identifiers for every `fieldSynth.program.validateParams` throw
 // site (VOLUMETRIC-2.md §4 P2 fix). The website's URL hydration repair table
 // used to mirror these throw sites by hand — a manually maintained list whose
@@ -1706,17 +1687,11 @@ const fieldSynthSchema = {
   citer1: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 1 iterations" },
   citer2: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 2 iterations" },
   citer3: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 3 iterations" },
-  // `adaptive`/`adaptiveTolerance` (VOLUMETRIC-4.md §2, a later phase) were
-  // deliberately withheld from that PR so a smaller, independent perf fix
-  // could claim the very next tail slot without waiting on adaptive sampling
-  // — see bench/color-quantize.md. Quantizes the FINAL resolved per-cell
-  // packed colour (gradient/hue/voiceColors, lit shading, and carve's
-  // exp(-marchFade*distance) fade all folded in already — see
-  // `resolveFieldSynthColor`) to this many levels per RGB channel, so
-  // neighboring cells with near-identical continuous colour collapse onto a
-  // shared bucket and merge into one `<span>` run in `encodeGlyphBuffers`.
-  // 0 (default) is off — byte-identical to before this option existed.
-  colorQuantize: { kind: "number", default: 0, min: 0, max: 64, step: 1, label: "Color quantize" },
+  // `colorQuantize` (per-cell RGB bucketing) was removed here: `colorTolerance`
+  // (COLOR-TOLERANCE.md), a SCENE option rather than a field-synth param,
+  // strictly dominates it on span count and error and isn't chaotic to drive.
+  // `adaptive`/`adaptiveTolerance` (VOLUMETRIC-4.md §2) remain withheld — the
+  // schema tail's next open slot is unclaimed, not `citer3` above.
 } as const satisfies GlyphEffectParamSchema;
 
 // Every per-voice key family fieldSynth's evaluate() (via `SynthVoice`/
@@ -3485,14 +3460,6 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
           if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
         }
         if (colorFactor !== 1) packed = scalePackedColor(packed, colorFactor);
-        // `colorQuantize` (VOLUMETRIC-4.md's frozen tail's next open slot):
-        // this is the ONE generic insertion point downstream of every colour
-        // source above (gradient, hue, per-voice, carve's fade) — see
-        // bench/color-quantize.md for why quantizing only carve's fade
-        // factor was measured and rejected in favor of this final-packed-RGB
-        // point. 0 (default) is off, byte-identical to before this option
-        // existed.
-        if (params.colorQuantize > 0) packed = quantizePackedColor(packed, params.colorQuantize);
         return { packed, resolvedOpacity };
       }
 

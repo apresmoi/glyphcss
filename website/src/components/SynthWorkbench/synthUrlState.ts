@@ -80,6 +80,19 @@ export interface SynthUrlState {
   lightKeyIntensity: number;
   lightKeyColor: string;
   lightAmbient: number;
+  /** Run-extension colour-merge tolerance (COLOR-TOLERANCE.md Phase 4) — a
+   *  SCENE option (`scene.setOptions({ colorTolerance })`), not a field-synth
+   *  effect param, so it's an outer field here rather than living inside
+   *  `paramsPacked`. Replaces the removed `colorQuantize` effect param as the
+   *  page's one performance lever (see synthKit.tsx's Output-folder slider) —
+   *  persisted the same way `density` is: it's a shareable rendering/
+   *  performance setting a recipient's link should reproduce, not ephemeral
+   *  UI state. Outer fields are keyed by TOKEN, not position (`byToken.get`
+   *  in ../../lib/urlState.ts), so adding this new "c" token is safe for
+   *  every existing link regardless of `SYNTH_SCHEMA_VERSION` — only the
+   *  nested `paramsPacked` payload decodes positionally (see the version-
+   *  bump doc below, which is about `colorQuantize`'s removal, not this). */
+  colorTolerance: number;
   /** The whole field-synth patch, packed against `fieldSynth.parameterSchema`
    *  via the shared generic effect-params codec (see file header). */
   paramsPacked: string;
@@ -100,6 +113,7 @@ export const SYNTH_URL_DEFAULTS: SynthUrlState = {
   lightKeyIntensity: DEFAULT_LIGHTING.keyIntensity,
   lightKeyColor: DEFAULT_LIGHTING.keyColor,
   lightAmbient: DEFAULT_LIGHTING.ambient,
+  colorTolerance: 0,
   paramsPacked: "",
 };
 
@@ -113,6 +127,7 @@ const synthFields: readonly UrlField<SynthUrlState>[] = [
   { key: "lightKeyIntensity", token: "k", type: { kind: "float", step: 0.05 }, default: SYNTH_URL_DEFAULTS.lightKeyIntensity },
   { key: "lightKeyColor", token: "K", type: { kind: "color" }, default: SYNTH_URL_DEFAULTS.lightKeyColor },
   { key: "lightAmbient", token: "m", type: { kind: "float", step: 0.05 }, default: SYNTH_URL_DEFAULTS.lightAmbient },
+  { key: "colorTolerance", token: "c", type: { kind: "float", step: 1 }, default: SYNTH_URL_DEFAULTS.colorTolerance },
   { key: "paramsPacked", token: "p", type: { kind: "string" }, default: SYNTH_URL_DEFAULTS.paramsPacked },
 ];
 
@@ -149,11 +164,33 @@ function buildLegacyV2FieldSynthSchema(): EffectParamSchemaLike {
 }
 export const LEGACY_V2_FIELD_SYNTH_SCHEMA: EffectParamSchemaLike = buildLegacyV2FieldSynthSchema();
 
-// Bumped 2 -> 3 for the slab removal above (an inner-schema key-order change,
-// not the 1 -> 2 escape-format fix below): the OUTER `?s=` version tag is
-// what routes a link's `paramsPacked` to the right key order at decode time
-// (see `decodeSynthUrlState`).
-const SYNTH_SCHEMA_VERSION = "3";
+// `colorQuantize` removal (COLOR-TOLERANCE.md Phase 4): unlike the slab keys
+// above, it sat at the very TAIL of the schema (the last key before `} as
+// const satisfies GlyphEffectParamSchema` in packages/effects/src/stock.ts),
+// so removing it does NOT shift any other key's index — but a V3 link that
+// DID encode a non-default `colorQuantize` still needs it to decode
+// somewhere: `keys[token.value]` is undefined against the post-removal
+// schema (index now past the end), and `decodeEffectParamsPacked` BREAKS the
+// whole decode loop on an unresolvable token, silently dropping every
+// override that came after it in the packed string too. `LEGACY_V3_FIELD_
+// SYNTH_SCHEMA` reconstructs V3's exact order by appending the retired spec
+// back at the tail (where it always was) — decode-only; the resulting value
+// is discarded (see `buildSynthInitialState`), never merged into `Params`,
+// since `colorTolerance` (a SCENE option, not a field-synth param — see
+// `SynthUrlState.colorTolerance`'s doc) replaces it instead of inheriting
+// its value.
+const LEGACY_COLOR_QUANTIZE_SPEC: EffectParamSchemaLike[string] = { kind: "number", default: 0, step: 1 };
+function buildLegacyV3FieldSynthSchema(): EffectParamSchemaLike {
+  const current = fieldSynth.parameterSchema as unknown as EffectParamSchemaLike;
+  return { ...current, colorQuantize: LEGACY_COLOR_QUANTIZE_SPEC };
+}
+export const LEGACY_V3_FIELD_SYNTH_SCHEMA: EffectParamSchemaLike = buildLegacyV3FieldSynthSchema();
+
+// Bumped 3 -> 4 for the colorQuantize removal above (an inner-schema
+// key-shrink, not the 1 -> 2 escape-format fix or the 2 -> 3 slab removal
+// below): the OUTER `?s=` version tag is what routes a link's `paramsPacked`
+// to the right key order at decode time (see `decodeSynthUrlState`).
+const SYNTH_SCHEMA_VERSION = "4";
 export const synthCodec = createUrlCodec<SynthUrlState>(SYNTH_SCHEMA_VERSION, synthFields);
 // Decodes a URL shared before the version bump (`raw[1] === "1"`). Same field
 // list — only `paramsPacked`'s internal token format changed, and that change
@@ -168,6 +205,12 @@ const synthCodecLegacyV1 = createUrlCodec<SynthUrlState>("1", synthFields);
 // the slab feature's removal) — same outer field list, but `paramsPacked`
 // must be decoded against `LEGACY_V2_FIELD_SYNTH_SCHEMA`'s old key order.
 const synthCodecLegacyV2 = createUrlCodec<SynthUrlState>("2", synthFields);
+// Decodes a "3"-tagged link (the version live from the slab removal through
+// the colorQuantize removal) — same outer field list (a V3 link never
+// encoded `colorTolerance`; it didn't exist yet, so it decodes to its
+// default, exactly as intended), but `paramsPacked` must be decoded against
+// `LEGACY_V3_FIELD_SYNTH_SCHEMA`'s old key order.
+const synthCodecLegacyV3 = createUrlCodec<SynthUrlState>("3", synthFields);
 export const SYNTH_PARAM = "s";
 
 // Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
@@ -368,6 +411,7 @@ export interface SynthInitialState {
   params: Params;
   timeScale: number;
   density: number;
+  colorTolerance: number;
   lighting: Lighting;
   voiceSlots: number[];
 }
@@ -377,6 +421,7 @@ export interface SynthPatch {
   params: Params;
   timeScale: number;
   density: number;
+  colorTolerance: number;
   lighting: Lighting;
   voiceSlots: readonly number[];
 }
@@ -395,25 +440,28 @@ export function encodeSynthUrlState(state: SynthPatch): string {
     lightKeyIntensity: state.lighting.keyIntensity,
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
+    colorTolerance: state.colorTolerance,
     paramsPacked,
   });
 }
 
-/** Dispatches to the legacy (pre-bump) codec for a "1"- or "2"-tagged link,
+/** Dispatches to the legacy (pre-bump) codec for a "1"/"2"/"3"-tagged link,
  *  else the live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
 function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState> {
   if (raw && raw[1] === "1") return synthCodecLegacyV1.decode(raw);
   if (raw && raw[1] === "2") return synthCodecLegacyV2.decode(raw);
+  if (raw && raw[1] === "3") return synthCodecLegacyV3.decode(raw);
   return synthCodec.decode(raw);
 }
 
-/** "1"- and "2"-tagged links both predate the slab removal, so their
- *  `paramsPacked` must decode against the OLD (pre-removal) key order — see
- *  `LEGACY_V2_FIELD_SYNTH_SCHEMA`'s doc. */
+/** "1"/"2"-tagged links predate the slab removal, and "3"-tagged links
+ *  predate the colorQuantize removal — each must decode `paramsPacked`
+ *  against its OWN old key order (`LEGACY_V2_FIELD_SYNTH_SCHEMA` /
+ *  `LEGACY_V3_FIELD_SYNTH_SCHEMA`'s docs). */
 function paramsSchemaFor(raw: string | null | undefined): EffectParamSchemaLike {
-  return raw && (raw[1] === "1" || raw[1] === "2")
-    ? LEGACY_V2_FIELD_SYNTH_SCHEMA
-    : (fieldSynth.parameterSchema as unknown as EffectParamSchemaLike);
+  if (raw && (raw[1] === "1" || raw[1] === "2")) return LEGACY_V2_FIELD_SYNTH_SCHEMA;
+  if (raw && raw[1] === "3") return LEGACY_V3_FIELD_SYNTH_SCHEMA;
+  return fieldSynth.parameterSchema as unknown as EffectParamSchemaLike;
 }
 
 /** Shared post-processing for BOTH the synchronous ('p') and async ('z')
@@ -428,13 +476,15 @@ function buildSynthInitialState(raw: string | null | undefined, outer: Partial<S
   const decoded = { ...SYNTH_URL_DEFAULTS, ...outer };
   const overrides = decodeEffectParamsPacked(paramsSchemaFor(raw), decoded.paramsPacked);
   // The retired slab keys only ever appear when `overrides` was decoded
-  // against `LEGACY_V2_FIELD_SYNTH_SCHEMA` (a "1"/"2"-tagged link) — discard
-  // them unconditionally rather than branch on which schema was used: the
-  // feature no longer exists, and `SYNTH_PARAM_DEFAULTS` no longer has these
-  // keys either.
+  // against `LEGACY_V2_FIELD_SYNTH_SCHEMA` (a "1"/"2"-tagged link), and
+  // `colorQuantize` only when decoded against `LEGACY_V3_FIELD_SYNTH_SCHEMA`
+  // (a "3"-tagged link) — discard all four unconditionally rather than
+  // branch on which schema was used: none of these features exist anymore,
+  // and `SYNTH_PARAM_DEFAULTS` no longer has any of these keys either.
   delete overrides.slabAxis;
   delete overrides.slabStart;
   delete overrides.slabEnd;
+  delete overrides.colorQuantize;
   let params = { ...SYNTH_PARAM_DEFAULTS, ...overrides } as Params;
   params.render = sanitizeCarveRenderForSpace(params.space, params.render as string);
   params = applySynthValidityGate(params);
@@ -443,6 +493,7 @@ function buildSynthInitialState(raw: string | null | undefined, outer: Partial<S
     params,
     timeScale: decoded.timeScale,
     density: decoded.density,
+    colorTolerance: decoded.colorTolerance,
     lighting: {
       azimuth: decoded.lightAzimuth,
       elevation: decoded.lightElevation,
@@ -469,6 +520,7 @@ export function decodeSynthUrlState(raw: string | null | undefined): SynthInitia
 function outerCodecFor(raw: string | null | undefined) {
   if (raw && raw[1] === "1") return synthCodecLegacyV1;
   if (raw && raw[1] === "2") return synthCodecLegacyV2;
+  if (raw && raw[1] === "3") return synthCodecLegacyV3;
   return synthCodec;
 }
 
@@ -520,6 +572,7 @@ export function writeSynthUrlState(state: SynthPatch): void {
     lightKeyIntensity: state.lighting.keyIntensity,
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
+    colorTolerance: state.colorTolerance,
     paramsPacked,
   };
   scheduleCompactedUrlWrite(synthCodec, SYNTH_PARAM, full);

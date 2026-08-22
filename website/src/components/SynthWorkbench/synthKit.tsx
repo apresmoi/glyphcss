@@ -2168,7 +2168,7 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, orbitAuto, onOrbitAuto, orbitSpeed, onOrbitSpeed, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
+export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, orbitAuto, onOrbitAuto, orbitSpeed, onOrbitSpeed, density, onDensity, colorTolerance, onColorTolerance, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   /** Camera auto-orbit (user request) — independent of `paused`/`timeScale`,
@@ -2176,6 +2176,10 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   orbitAuto: boolean; onOrbitAuto: (b: boolean) => void;
   orbitSpeed: number; onOrbitSpeed: (n: number) => void;
   density: number; onDensity: (n: number) => void;
+  /** Run-extension colour-merge tolerance (COLOR-TOLERANCE.md Phase 4) — a
+   *  SCENE option, not a field-synth param, so it's a sibling of `density`
+   *  here rather than living in `params`/`onParam`. */
+  colorTolerance: number; onColorTolerance: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
@@ -2412,12 +2416,20 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
     hueSatCtrl?.setVisible(showHueControls);
     hueLightCtrl?.setVisible(showHueControls);
   }, [colorCtrl, colorBCtrl, gradientCtrl, hueOffsetCtrl, hueRangeCtrl, hueSatCtrl, hueLightCtrl, voiceColorsOn, colorStackOn, showGradientColors, showHueControls]);
-  // Quantizes the final resolved per-cell colour to this many levels per RGB
-  // channel — 0 (default) is off. Applies downstream of gradient/hue/
-  // voiceColors/lit/carve-fade (`resolveFieldSynthColor` in stock.ts), so
-  // unlike the Color/Color B/Hue rows above, it is NEVER hidden — it acts on
-  // whatever colour path is active, not one specific mode.
-  useSlider(out, "Color quantize", { min: 0, max: 64, step: 1 }, n("colorQuantize"), (v) => onParam("colorQuantize", v));
+  // `colorTolerance` (COLOR-TOLERANCE.md Phase 4) replaces the removed
+  // `colorQuantize`: it's a SCENE option (`scene.setOptions({ colorTolerance
+  // })`, wired through the `colorTolerance`/`onColorTolerance` props below),
+  // not a field-synth param — the shared cross-mode run-extension merge
+  // tolerance (`colorRunExtends`, packages/glyphcss/src/render/cells.ts)
+  // rather than anything `resolveFieldSynthColor` computes, so it lives
+  // outside `params`/`onParam` the same way `density` does. Never hidden,
+  // same rationale as the removed row: it acts on whatever colour path is
+  // active, not one specific mode. Redmean's range is 0..765 (black<->white
+  // is 764.83 — COLOR-TOLERANCE.md), not 0..255: the slider's ceiling sits
+  // well past the measured useful band (24-128 on real presets) so that band
+  // isn't squeezed into a sliver, but well short of the full range, where
+  // merging this aggressive is already degenerate on every preset measured.
+  useSlider(out, "Color tolerance", { min: 0, max: 256, step: 1 }, colorTolerance, onColorTolerance);
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));
