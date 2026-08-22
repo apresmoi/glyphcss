@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { rasterize } from "./rasterize";
 import { buildRasterizeContext } from "../api/rasterizeContext";
 import type { GlyphCamera } from "../api/createGlyphCamera";
-import type { WireframeEdge } from "@glyphcss/core";
+import type { Polygon, Vec3, WireframeEdge } from "@glyphcss/core";
+import type { GlyphSolidWeightRampStep } from "../api/types";
+import type { CellGrid } from "./cells";
+import { getGlyphColorParseCountForTests, resetGlyphColorParseCountForTests } from "./cells";
 
 /**
  * COLOR-TOLERANCE.md Phase 3 — public-surface wiring for `colorTolerance`.
@@ -211,5 +214,171 @@ describe("rasterize — colorTolerance (COLOR-TOLERANCE.md Phase 3 wiring)", () 
     expect(countSpans(on)).toBeLessThan(countSpans(off));
     expect(countSpans(off)).toBe(ROWS * 2);
     expect(countSpans(on)).toBe(ROWS);
+  });
+
+  // Final-gate review (COLOR-TOLERANCE.md): four wired call sites had zero
+  // mutation-detecting coverage — every test above either omits
+  // `transformCells`/`solidWeightRamp`, or never exercises `ink`/braille
+  // wireframe's own no-hook coalescer call. Each test below is mutation-
+  // verified: it was run against the arg dropped to `0`/omitted at its named
+  // call site, confirmed to fail, then restored.
+
+  it("a transformCells hook still honors colorTolerance (solidBufToString safe branch, rasterize.ts:3325)", () => {
+    // Same near-color wireframe fixture as the plain no-hook tests above,
+    // but with an identity transformCells hook — this forces rasterize()'s
+    // `safe: true` branch (rasterize.ts:465), which re-validates through
+    // `encodeGlyphBuffers` instead of the unsafe branch's own duplicated
+    // coalescer. Under the mutation this test catches — dropping
+    // `scene.colorTolerance` from the `solidBufToString(..., true, ...)`
+    // call at rasterize.ts:3325 — `on` would be byte-identical to `off`.
+    const identityHook = (grid: CellGrid): CellGrid => grid;
+    const render = (colorTolerance: number) => rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      wireframe: nearColorEdges(),
+      mode: "wireframe",
+      useColors: true,
+      colorTolerance,
+      transformCells: identityHook,
+    }));
+    const off = render(0);
+    const on = render(20);
+    expect(countSpans(off)).toBe(2);
+    expect(countSpans(on)).toBe(1);
+  });
+
+  it("solidWeightRamp active still honors colorTolerance (encodeGlyphBuffers finalWeight branch, rasterize.ts:1971)", () => {
+    // A single-step weight ramp so every covered cell resolves to the SAME
+    // weight, isolating colorTolerance as the only thing that can still
+    // split or merge runs once `finalWeight` is non-null and rasterize()
+    // routes through `encodeGlyphBuffers` directly instead of
+    // `solidBufToString`. Under the mutation this test catches — dropping
+    // `scene.colorTolerance` from that call at rasterize.ts:1971 — `on`
+    // would be byte-identical to `off`.
+    const weightRamp: GlyphSolidWeightRampStep[] = [{ glyph: "#", weight: 700 }];
+    const render = (colorTolerance: number) => rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      polygons: nearColorRects(),
+      mode: "solid",
+      doubleSided: true,
+      useColors: true,
+      directionalLight: { direction: [0, 0, 1], intensity: 0 },
+      ambientLight: { intensity: 1 },
+      solidWeightRamp: weightRamp,
+      colorTolerance,
+    }));
+    const off = render(0);
+    const on = render(20);
+    expect(off).toMatch(/font-weight:700/);
+    expect(on).toMatch(/font-weight:700/);
+    expect(countSpans(on)).toBeLessThan(countSpans(off));
+  });
+
+  it("ink mode honors colorTolerance in the no-hook branch (rasterize.ts:1106)", () => {
+    // Two disjoint silhouette edges (front/back triangle pairs, the same
+    // construction rasterize.ink.test.ts uses) end-to-end on one row with no
+    // blank cell between them — a blank cell would reset the run's anchor
+    // regardless of color, same caveat nearColorEdges() documents above.
+    function silhouetteEdge(a: Vec3, b: Vec3, color: string): Polygon[] {
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const perp: [number, number, number] = [-dy / 4, dx / 4, 1];
+      const apexFront: Vec3 = [a[0] + perp[0], a[1] + perp[1], a[2] + perp[2] + 1];
+      const apexBack: Vec3 = [a[0] - perp[0], a[1] - perp[1], a[2] - perp[2] - 1];
+      return [
+        { vertices: [a, b, apexFront], color },
+        { vertices: [a, b, apexBack], color },
+      ];
+    }
+    const polygons: Polygon[] = [
+      ...silhouetteEdge([0, 1, 0], [3, 1, 0], "#802020"),
+      ...silhouetteEdge([4, 1, 0], [8, 1, 0], "#822020"),
+    ];
+    const render = (colorTolerance: number) => rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      polygons,
+      mode: "ink",
+      useColors: true,
+      colorTolerance,
+    }));
+    // Each silhouette edge's own two short apex boundary segments land on row
+    // 0 (open-mesh boundary edges, expected — see `mode: "ink"`'s doc comment
+    // in AGENTS.md), separated by a blank cell that breaks any run regardless
+    // of tolerance; only row 1 carries the two edges' own main a-b strokes,
+    // contiguous with no gap, so that row is where merging is observable.
+    const row1 = (out: string) => out.split("\n")[1]!;
+    const off = row1(render(0));
+    const on = row1(render(20));
+    expect(countSpans(off)).toBe(2);
+    expect(countSpans(on)).toBe(1);
+  });
+
+  it("charMode: braille wireframe honors colorTolerance in the no-hook branch (rasterize.ts:3594)", () => {
+    const render = (colorTolerance: number) => rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      wireframe: nearColorEdges(),
+      mode: "wireframe",
+      charMode: "braille",
+      useColors: true,
+      colorTolerance,
+    }));
+    const off = render(0);
+    const on = render(20);
+    expect(countSpans(on)).toBeLessThan(countSpans(off));
+  });
+
+  // P3: cells.ts's own two encoders each have a case-variant-hex test
+  // pinning their `colorTolerance > 0` guard (mutating it to `>= 0` passes
+  // every other test but lets two string-distinct, redmean-0 colors merge
+  // at nominally-off tolerance, and allocates the tolerance cache on every
+  // default-path call). rasterize.ts's two DUPLICATE coalescers
+  // (`stampToGlyphs`, `solidBufToString`'s unsafe branch) had the same guard
+  // shape with no equivalent test. Mirrored here.
+  it("colorTolerance 0 (default/off) never engages the tolerance machinery in the plain wireframe no-hook path (stampToGlyphs guard)", () => {
+    // Same underlying RGB (0xAABBCC), different string casing -> redmean
+    // distance 0. If the `> 0` guard in `stampToGlyphs` ever admitted
+    // tolerance 0 into the numeric path, these would incorrectly merge.
+    const edges: WireframeEdge[] = [
+      { from: [0, 1, 0], to: [4, 1, 0], color: "#AABBCC" },
+      { from: [5, 1, 0], to: [9, 1, 0], color: "#aabbcc" },
+    ];
+    resetGlyphColorParseCountForTests();
+    const out = rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      wireframe: edges,
+      mode: "wireframe",
+      useColors: true,
+      colorTolerance: 0,
+    }));
+    expect(countSpans(out)).toBe(2);
+    expect(out).toContain("#AABBCC");
+    expect(out).toContain("#aabbcc");
+    // Zero color parses: the cache is never allocated or consulted on the
+    // off path, so withinColorTolerance/packColorCached never run.
+    expect(getGlyphColorParseCountForTests()).toBe(0);
+  });
+
+  it("colorTolerance 0 (default/off) never engages the tolerance machinery in the braille wireframe no-hook path (solidBufToString unsafe-branch guard, rasterize.ts:3594)", () => {
+    const edges: WireframeEdge[] = [
+      { from: [0, 1, 0], to: [4, 1, 0], color: "#AABBCC" },
+      { from: [5, 1, 0], to: [9, 1, 0], color: "#aabbcc" },
+    ];
+    resetGlyphColorParseCountForTests();
+    const out = rasterize(buildRasterizeContext({
+      camera: identityCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      wireframe: edges,
+      mode: "wireframe",
+      charMode: "braille",
+      useColors: true,
+      colorTolerance: 0,
+    }));
+    expect(countSpans(out)).toBe(2);
+    expect(out).toContain("#AABBCC");
+    expect(out).toContain("#aabbcc");
+    expect(getGlyphColorParseCountForTests()).toBe(0);
   });
 });

@@ -3309,9 +3309,9 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
  * via the shared {@link colorRunExtends} test `encodeGlyphBuffers` and
  * `encodeGlyphBuffersDual` also use, so its comparison rule can't drift out
  * of sync with either encoder's, without paying their per-cell validation
- * cost. No caller passes a non-zero tolerance yet — `colorTolerance` has no
- * scene option (that's a later phase) — this only closes the gap where the
- * common no-hook render path couldn't honor one at all.
+ * cost. `colorTolerance` is a public scene option (see
+ * `RasterizeContextOptions.colorTolerance`) and ten call sites in this file
+ * pass `scene.colorTolerance` through to one of these two branches.
  */
 function solidBufToString(
   glyphBuf: string[],
