@@ -146,7 +146,7 @@ const INV_SQRT3 = 1 / Math.sqrt(3);
 // this is what `fractalUnionSdf` below leans on).
 // `Math.sqrt(ax*ax + ay*ay + az*az)` instead of `Math.hypot(ax, ay, az)` —
 // measured 3.47x on `mengerFractalSdf` iter 3 (498.0ms -> 143.6ms per 300k
-// calls) and 3.08x on sierpinski (bench/color-quantize.md's micro-win table),
+// calls) and 3.08x on sierpinski (bench/color-tolerance.md's micro-win table),
 // max relative error 4.3e-16, seven orders inside this file's 9-decimal
 // distance-fidelity tests. `ax`/`ay`/`az` are already `Math.max(_, 0)`'d
 // above, so they're always finite and non-negative in this call's actual

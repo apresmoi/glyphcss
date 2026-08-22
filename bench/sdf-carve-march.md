@@ -120,7 +120,7 @@ into two freshly-allocated arrays.
 - ~~**`Math.hypot` → `Math.sqrt(x*x+y*y+z*z)` in `sdfBox`.** Left alone —
   `Math.hypot` and a naive sqrt aren't guaranteed bit-identical, and this was
   rejected here without running the actual A/B.~~ **Superseded — shipped**,
-  see `bench/color-quantize.md`'s micro-win table: an independent reviewer's
+  see `bench/color-tolerance.md`'s micro-win table: an independent reviewer's
   A/B measured 3.47x on `mengerFractalSdf` iter 3 and 3.08x on sierpinski
   (max relative error 4.3e-16, seven orders inside the 9-decimal fidelity
   tolerance this doc worried about above), and the real gating step this doc

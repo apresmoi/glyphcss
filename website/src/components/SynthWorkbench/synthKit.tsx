@@ -2427,8 +2427,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // active, not one specific mode. Redmean's range is 0..765 (black<->white
   // is 764.83 — COLOR-TOLERANCE.md), not 0..255: the slider's ceiling sits
   // well past the measured useful band (24-128 on real presets) so that band
-  // isn't squeezed into a sliver, but well short of the full range, where
-  // merging this aggressive is already degenerate on every preset measured.
+  // isn't squeezed into a sliver, but well short of the full range: past 256
+  // merging keeps reducing spans (bench/color-tolerance.md's extended-range
+  // sweep on the Menger preset: 256->400 still drops spans 60->37), it's that
+  // error keeps climbing right alongside it (57.4->66.5, saturating at 400 —
+  // this preset's widest colour pair), so the content stops having headroom
+  // left to absorb it invisibly, not that merging itself stops working.
   useSlider(out, "Color tolerance", { min: 0, max: 256, step: 1 }, colorTolerance, onColorTolerance);
 
   const light = useFolder(gui, "Lighting", { open: false });
