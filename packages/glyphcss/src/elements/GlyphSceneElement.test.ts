@@ -141,6 +141,37 @@ describe("GlyphSceneElement", () => {
     expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
   });
 
+  // color-tolerance's own +Infinity special case (COLOR-TOLERANCE.md Phase 3
+  // review Finding 3): the shared `parseNumber` used by every other numeric
+  // attribute drops non-finite input via `Number.isFinite`, which would
+  // silently ignore `color-tolerance="Infinity"` even though the JS/React/Vue
+  // surfaces (and the documented attribute table) honor +Infinity as a
+  // legitimate maximal-merge value, not an error.
+  it("honors color-tolerance=\"Infinity\" as +Infinity", () => {
+    host.setAttribute("color-tolerance", "Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
+  });
+
+  it("honors color-tolerance=\"+Infinity\" as +Infinity", () => {
+    host.setAttribute("color-tolerance", "+Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
+  });
+
+  it("degrades color-tolerance=\"-Infinity\" to 0, same as any other negative value", () => {
+    host.setAttribute("color-tolerance", "-Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+  });
+
+  it("attributeChangedCallback honors a live update to color-tolerance=\"Infinity\"", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+    host.setAttribute("color-tolerance", "Infinity");
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
+  });
+
   it("dispatches glyphcss:scene-ready on connect", () => {
     let fired = false;
     host.addEventListener("glyphcss:scene-ready", () => { fired = true; });
