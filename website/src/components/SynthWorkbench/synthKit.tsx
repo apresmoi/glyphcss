@@ -2424,16 +2424,19 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // rather than anything `resolveFieldSynthColor` computes, so it lives
   // outside `params`/`onParam` the same way `density` does. Never hidden,
   // same rationale as the removed row: it acts on whatever colour path is
-  // active, not one specific mode. Redmean's range is 0..765 (black<->white
-  // is 764.83 — COLOR-TOLERANCE.md), not 0..255: the slider's ceiling sits
-  // well past the measured useful band (24-128 on real presets) so that band
-  // isn't squeezed into a sliver, but well short of the full range: past 256
-  // merging keeps reducing spans (bench/color-tolerance.md's extended-range
-  // sweep on the Menger preset: 256->400 still drops spans 60->37), it's that
-  // error keeps climbing right alongside it (57.4->66.5, saturating at 400 —
-  // this preset's widest colour pair), so the content stops having headroom
-  // left to absorb it invisibly, not that merging itself stops working.
-  useSlider(out, "Color tolerance", { min: 0, max: 256, step: 1 }, colorTolerance, onColorTolerance);
+  // active, not one specific mode. Redmean's full range is 0..765
+  // (black<->white is 764.83 — COLOR-TOLERANCE.md), but the useful range
+  // saturates almost immediately: live-tested at density 3.5 on the Menger
+  // preset, tolerance 32 already reaches 25.2 of the 28.8 fps ceiling
+  // (bench/color-tolerance.md's live-FPS table) — going 32 -> 256 cuts spans
+  // ~10x further for only 3.6 more fps, and both 128 and 256 visibly degrade
+  // color fidelity on real presets. The slider is capped at 96 (default 32)
+  // so the whole useful range is reachable instead of three quarters of the
+  // travel sitting on settings nobody wants; the underlying scene option
+  // itself stays unbounded (including +Infinity) — this is a UI range only,
+  // set with `setOptions({ colorTolerance: … })` above 96 still works and
+  // still round-trips through the URL's "c" token.
+  useSlider(out, "Color tolerance", { min: 0, max: 96, step: 1 }, colorTolerance, onColorTolerance);
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));

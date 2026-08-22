@@ -56,7 +56,7 @@ function representativePatch(): { shape: string; params: Params; timeScale: numb
     params,
     timeScale: 2.1,
     density: 1.8,
-    colorTolerance: 0,
+    colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
     lighting: { azimuth: 120, elevation: 60, keyIntensity: 1.5, keyColor: "#ffddaa", ambient: 0.3 },
     voiceSlots: [1, 2, 3],
   };
@@ -259,12 +259,23 @@ describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces color
     expect(restored.colorTolerance).toBeCloseTo(48, 5);
   });
 
-  it("stays at the default (0) — and the packed string is unaffected — when colorTolerance is untouched", () => {
-    const withDefault = encodeSynthUrlState({ ...representativePatch(), colorTolerance: 0 });
+  it("stays at the default — and the packed string is unaffected — when colorTolerance is untouched", () => {
+    const withDefault = encodeSynthUrlState({ ...representativePatch(), colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance });
     // The two pinned iridescent-preset strings above (both built with an
     // untouched, default colorTolerance) prove the same thing against real
     // shipped presets: only the outer version tag changed by this phase.
-    expect(decodeSynthUrlState(withDefault).colorTolerance).toBe(0);
+    expect(decodeSynthUrlState(withDefault).colorTolerance).toBe(SYNTH_URL_DEFAULTS.colorTolerance);
+  });
+
+  // The `/synth` UI slider is capped at 96 (COLOR-TOLERANCE.md's saturation
+  // finding — see synthKit.tsx), but that is a UI-range decision only: the
+  // underlying scene option is never clamped, so a value set programmatically
+  // above the slider's ceiling (or shared via a hand-edited/older link) must
+  // still round-trip exactly through the "c" token.
+  it("round-trips a colorTolerance value above the UI slider's 96 ceiling", () => {
+    const patch = { ...representativePatch(), colorTolerance: 256 };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    expect(restored.colorTolerance).toBeCloseTo(256, 5);
   });
 });
 

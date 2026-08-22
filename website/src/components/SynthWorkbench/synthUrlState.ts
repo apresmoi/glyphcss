@@ -113,7 +113,7 @@ export const SYNTH_URL_DEFAULTS: SynthUrlState = {
   lightKeyIntensity: DEFAULT_LIGHTING.keyIntensity,
   lightKeyColor: DEFAULT_LIGHTING.keyColor,
   lightAmbient: DEFAULT_LIGHTING.ambient,
-  colorTolerance: 0,
+  colorTolerance: 32,
   paramsPacked: "",
 };
 
