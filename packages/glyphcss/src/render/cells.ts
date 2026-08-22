@@ -349,8 +349,8 @@ function assertColor(color: unknown, index: number): asserts color is string | n
 /**
  * Test-only instrumentation for `colorTolerance` (COLOR-TOLERANCE.md Phase 1):
  * counts actual `parseInt` calls made by {@link packColorCached} (cache
- * misses only), so the parse-count-bound test can assert the count is
- * governed by the pre-merge span count, not the cell count. A single integer
+ * misses only), so a test can observe that repeated comparisons against the
+ * same distinct color string only ever parse once. A single integer
  * increment per cache miss costs nothing in production; these two functions
  * exist purely so a test can observe it.
  */
@@ -362,6 +362,28 @@ export function resetGlyphColorParseCountForTests(): void {
 
 export function getGlyphColorParseCountForTests(): number {
   return colorParseCallCountForTests;
+}
+
+/**
+ * Test-only instrumentation for `colorTolerance` (COLOR-TOLERANCE.md Phase 1):
+ * counts every {@link withinColorTolerance} INVOCATION (not cache misses —
+ * that's {@link colorParseCallCountForTests}), so a test can pin the cost
+ * claim in COLOR-TOLERANCE.md's "Cost" section: the `===` fast path in
+ * `encodeGlyphBuffers` must keep the number of NUMERIC comparisons bounded by
+ * the pre-merge span count, not the cell count. Counting distinct-string
+ * parses alone can't catch a fast-path regression — with the memo in place,
+ * parses are bounded by the number of distinct colors regardless of how many
+ * times each one gets numerically compared, so a test needs the call count,
+ * not the parse count, to observe the fast path actually firing.
+ */
+let colorToleranceCallCountForTests = 0;
+
+export function resetGlyphColorToleranceCallCountForTests(): void {
+  colorToleranceCallCountForTests = 0;
+}
+
+export function getGlyphColorToleranceCallCountForTests(): number {
+  return colorToleranceCallCountForTests;
 }
 
 /**
@@ -396,6 +418,7 @@ function withinColorTolerance(
   anchor: string,
   candidate: string,
 ): boolean {
+  colorToleranceCallCountForTests++;
   const a = packColorCached(cache, anchor);
   const c = packColorCached(cache, candidate);
   const ar = (a >> 16) & 0xff;

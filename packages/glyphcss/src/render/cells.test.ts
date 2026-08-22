@@ -6,7 +6,9 @@ import {
   encodeGlyphBuffers,
   encodeGlyphBuffersDual,
   getGlyphColorParseCountForTests,
+  getGlyphColorToleranceCallCountForTests,
   resetGlyphColorParseCountForTests,
+  resetGlyphColorToleranceCallCountForTests,
   type CellGrid,
 } from "./cells";
 
@@ -154,9 +156,25 @@ describe("cells: encodeGlyphBuffersDual (B4 halfblock)", () => {
 // realistic multi-color grid (four color bands with in-band jitter and a
 // scattering of blank cells) backs the monotonicity/error/parse-count
 // contract tests, rather than a two-point smoke check on a couple of cells.
+//
+// One dedicated row is a smooth ~128-cell linear gradient rather than banded
+// jitter. The banded rows alone cannot catch a regression to comparing each
+// candidate against the PREVIOUS cell instead of the anchor: in-band jitter
+// is at most ~6/channel (max in-band redmean distance 11.36) and band
+// boundaries jump far past any tested tolerance anyway, so every band already
+// sits inside tolerance regardless of run policy — confirmed by mutation: an
+// anchor->previous rewrite of `withinColorTolerance`'s caller still passed
+// every test against the banded-only fixture. A monotonic ramp is the
+// opposite shape: each step is tiny (~2/channel, comfortably inside
+// tolerance against the PREVIOUS cell), but the drift compounds over many
+// cells, so a chain that only checks its immediate neighbor wanders far past
+// tolerance from where the run actually started while the anchor-based
+// encoder keeps re-anchoring and stays bounded.
 describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)", () => {
-  const COLS = 48;
-  const ROWS = 8;
+  const COLS = 128;
+  const ROWS = 10;
+  const GRADIENT_ROW = ROWS - 2;
+  const FLAT_ROW = ROWS - 1;
   // Four visually distinct bands (red/green/blue/yellow), 12 cols each, with
   // small deterministic in-band jitter so adjacent cells are close but not
   // identical — the shape real shaded/textured content has. A few blank
@@ -178,6 +196,31 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
     const color: (string | null)[] = [];
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
+        if (row === GRADIENT_ROW) {
+          // Monotonic ramp: R climbs ~0 -> 250 across the row (~1.97/cell),
+          // G/B fixed. Each single step is small; the cumulative drift over
+          // the whole row is large — exactly the shape that separates
+          // anchor-based from previous-based run extension.
+          const r = Math.round((col / (COLS - 1)) * 250);
+          const hex = `#${[r, 128, 90].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+          char.push("*");
+          color.push(hex);
+          continue;
+        }
+        if (row === FLAT_ROW) {
+          // Two long flat runs of a LITERALLY REPEATED color string (64 cols
+          // each). At tolerance 0 this is already only 2 spans (string
+          // equality merges it for free) — the gap between that pre-merge
+          // span count and the cell count is exactly what the `===` fast
+          // path is for: every one of these ~126 repeat cells should cost
+          // zero `withinColorTolerance` calls. Without banded jitter's near-
+          // total absence of exact repeats, deleting the fast path has
+          // nowhere to add extra calls; this row gives it somewhere.
+          const hex = col < COLS / 2 ? "#204060" : "#605020";
+          char.push("*");
+          color.push(hex);
+          continue;
+        }
         const isBlank = (row === 2 || row === 5) && col % 17 === 0;
         if (isBlank) {
           char.push(" ");
@@ -257,7 +300,12 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
     );
   });
 
-  it("span count is non-increasing as colorTolerance rises, over a fixed captured grid", () => {
+  // NOT a general guarantee — see COLOR-TOLERANCE.md's "Strongly monotone in
+  // practice — but NOT guaranteed" and the counterexample test right below
+  // this one. This only asserts the measured behavior on THIS fixed fixture
+  // at these specific tolerance points; greedy re-anchoring admits local
+  // non-monotonicity in general.
+  it("span count is non-increasing as colorTolerance rises, on this fixed captured grid (measured, not a general guarantee)", () => {
     const { char, color, cols, rows } = buildColorToleranceGrid();
     const tolerances = [0, 4, 8, 16, 24, 32, 48, 64, 96, 128];
     const spanCounts = tolerances.map((t) => spanCount(encodeGlyphBuffers(char, color, cols, rows, true, null, t)));
@@ -268,6 +316,32 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
     // Meaningful, not a two-point smoke check: the lever actually moves
     // across this multi-band, multi-tolerance sweep.
     expect(spanCounts[spanCounts.length - 1]!).toBeLessThan(spanCounts[0]!);
+  });
+
+  // Documents the known limitation rather than leaving it implicit: greedy
+  // re-anchoring can make a HIGHER tolerance produce MORE spans on a specific
+  // captured sequence (COLOR-TOLERANCE.md's own counterexample). A larger
+  // tolerance lets the first run swallow one more cell, which moves the next
+  // anchor to a strictly worse centre. Pinned so nobody "fixes" this later as
+  // a regression — it is the documented, accepted shape of greedy
+  // re-anchoring, not a bug.
+  it("documents a real non-monotonic counterexample: tolerance 60 produces MORE spans than tolerance 40", () => {
+    const char = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const color: (string | null)[] = [
+      "#409640",
+      "#407840",
+      "#406440",
+      "#408c40",
+      "#406440",
+      "#406440",
+      "#406440",
+      "#406440",
+    ];
+    const spans40 = spanCount(encodeGlyphBuffers(char, color, 8, 1, true, null, 40));
+    const spans60 = spanCount(encodeGlyphBuffers(char, color, 8, 1, true, null, 60));
+    expect(spans40).toBe(2);
+    expect(spans60).toBe(4);
+    expect(spans60).toBeGreaterThan(spans40);
   });
 
   it("no cell's output colour differs from its true colour by more than colorTolerance (redmean)", () => {
@@ -314,5 +388,61 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
     resetGlyphColorParseCountForTests();
     encodeGlyphBuffers(char, color, cols, rows, true, null, tolerance);
     expect(getGlyphColorParseCountForTests()).toBe(parseCount);
+  });
+
+  // The parse-count bound above can't fail while the memo exists: parses are
+  // bounded by the number of DISTINCT color strings, which is <= run count
+  // even at tolerance 0 with no cost machinery involved at all — deleting the
+  // `===` fast path entirely (forcing a numeric compare on every mismatched
+  // cell instead of only the first cell of a run) still leaves parses bounded
+  // the same way, so that test cannot observe the fast path regressing.
+  // What COLOR-TOLERANCE.md's "Cost" section actually sells is that the fast
+  // path keeps NUMERIC comparisons (`withinColorTolerance` calls) bounded by
+  // the pre-merge span count, not the cell count — so this test counts calls,
+  // not parses.
+  it("bounds withinColorTolerance calls per encode by the pre-merge span count, not the cell count", () => {
+    const { char, color, cols, rows } = buildColorToleranceGrid();
+    const tolerance = 20;
+    const preMergeSpanCount = spanCount(encodeGlyphBuffers(char, color, cols, rows, true, null, 0));
+
+    resetGlyphColorToleranceCallCountForTests();
+    encodeGlyphBuffers(char, color, cols, rows, true, null, tolerance);
+    const callCount = getGlyphColorToleranceCallCountForTests();
+
+    expect(callCount).toBeGreaterThan(0);
+    expect(callCount).toBeLessThanOrEqual(preMergeSpanCount);
+    expect(callCount).toBeLessThan(cols * rows);
+
+    // Repeating the same encode call must not accumulate calls across calls —
+    // the counter is call-scoped instrumentation, not persistent.
+    resetGlyphColorToleranceCallCountForTests();
+    encodeGlyphBuffers(char, color, cols, rows, true, null, tolerance);
+    expect(getGlyphColorToleranceCallCountForTests()).toBe(callCount);
+  });
+
+  // Finding 3 (COLOR-TOLERANCE.md review, Phase 1): the `colorTolerance > 0`
+  // guard gates BOTH the tolerance machinery's allocation (the per-call
+  // `Map` cache) and whether same-numeric-value-but-different-string colors
+  // (case-variant hex) can merge. Mutating the guard to `>= 0` passes every
+  // other test in this file but (a) allocates the cache on every default-path
+  // call and (b) lets two literally-distinct color strings with redmean
+  // distance 0 merge at the nominally-off tolerance.
+  it("colorTolerance 0 (default/off) never engages the tolerance machinery: case-variant hex colors stay distinct spans and cost zero parses", () => {
+    const chars = ["a", "b"];
+    // Same underlying RGB (0xAABBCC), different string casing -> redmean
+    // distance 0. If the `> 0` guard ever admitted tolerance 0 into the
+    // numeric path, these would incorrectly merge into one span.
+    const colors: (string | null)[] = ["#AABBCC", "#aabbcc"];
+
+    resetGlyphColorParseCountForTests();
+    const outDefault = encodeGlyphBuffers(chars, colors, 2, 1, true);
+    const outExplicitZero = encodeGlyphBuffers(chars, colors, 2, 1, true, null, 0);
+    const expected =
+      `<span style="color:#AABBCC">a</span>` + `<span style="color:#aabbcc">b</span>`;
+    expect(outDefault).toBe(expected);
+    expect(outExplicitZero).toBe(expected);
+    // Zero color parses: the cache is never allocated or consulted on the
+    // off path, so `withinColorTolerance`/`packColorCached` never run.
+    expect(getGlyphColorParseCountForTests()).toBe(0);
   });
 });
