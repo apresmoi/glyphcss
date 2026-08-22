@@ -131,8 +131,10 @@ export interface GlyphSceneOptions {
    * negative values degrade to `0`; `+Infinity` is honored as-is (merges
    * every same-glyph run in a row). NOT gated behind `temporalBlend` —
    * measured with a control arm, tolerance pays off MOST under active TAA
-   * reprojection (up to 4.5x span reduction). See
-   * {@link RasterizeContextOptions.colorTolerance}.
+   * reprojection (up to 4.5x span reduction). Documented no-op under
+   * `glyphOutput: "semantic"` — semantic colors are exact class identifiers,
+   * not shaded appearance, so merging them under a tolerance would corrupt
+   * the lineage. See {@link RasterizeContextOptions.colorTolerance}.
    */
   colorTolerance?: number;
   /** Whether to emit color spans. Default true. */
