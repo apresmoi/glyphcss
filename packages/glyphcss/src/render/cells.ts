@@ -347,6 +347,72 @@ function assertColor(color: unknown, index: number): asserts color is string | n
 }
 
 /**
+ * Test-only instrumentation for `colorTolerance` (COLOR-TOLERANCE.md Phase 1):
+ * counts actual `parseInt` calls made by {@link packColorCached} (cache
+ * misses only), so the parse-count-bound test can assert the count is
+ * governed by the pre-merge span count, not the cell count. A single integer
+ * increment per cache miss costs nothing in production; these two functions
+ * exist purely so a test can observe it.
+ */
+let colorParseCallCountForTests = 0;
+
+export function resetGlyphColorParseCountForTests(): void {
+  colorParseCallCountForTests = 0;
+}
+
+export function getGlyphColorParseCountForTests(): number {
+  return colorParseCallCountForTests;
+}
+
+/**
+ * Memoized `#rrggbb` string -> packed `0xRRGGBB` parse, scoped to a single
+ * `encodeGlyphBuffers` call. A rasterized row only ever contains a handful of
+ * distinct color strings, so this turns a worst case of one parse per
+ * mismatched cell into one parse per distinct string — same call-scoped,
+ * no-unbounded-growth shape as `packCellColorCached` in
+ * `effectCompositor.ts` (commit 6006461). `assertColor` already guarantees
+ * canonical `#rrggbb` by the time a color reaches here, so parsing is a
+ * direct `parseInt(slice, 16)` with no regex and no named-colour table.
+ */
+function packColorCached(cache: Map<string, number>, color: string): number {
+  let packed = cache.get(color);
+  if (packed === undefined) {
+    packed = parseInt(color.slice(1), 16);
+    cache.set(color, packed);
+    colorParseCallCountForTests++;
+  }
+  return packed;
+}
+
+/**
+ * Redmean distance (squared, compared against `tolerance^2` to avoid a
+ * per-cell `sqrt`) between two ALREADY-canonical `#rrggbb` colors, via the
+ * shared per-call {@link packColorCached} memo. Only called on a string
+ * mismatch — the `===` fast path in `encodeGlyphBuffers` never reaches here.
+ */
+function withinColorTolerance(
+  cache: Map<string, number>,
+  tolerance2: number,
+  anchor: string,
+  candidate: string,
+): boolean {
+  const a = packColorCached(cache, anchor);
+  const c = packColorCached(cache, candidate);
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const cr = (c >> 16) & 0xff;
+  const cg = (c >> 8) & 0xff;
+  const cb = c & 0xff;
+  const rm = (ar + cr) / 2;
+  const dr = ar - cr;
+  const dg = ag - cg;
+  const db = ab - cb;
+  const d2 = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
+  return d2 <= tolerance2;
+}
+
+/**
  * Encode final cell buffers for a `<pre>`. Colored output is HTML-escaped and
  * accepts only canonical hex colors; plain output is suitable for textContent.
  */
@@ -367,6 +433,22 @@ function assertWeight(weight: unknown, index: number): asserts weight is number 
  * only has an effect under `useColors: true` (plain `textContent` cannot
  * carry a style), and starts a new run alongside color so `font-weight`
  * lands in the same `<span style="...">` as the existing color styling.
+ *
+ * `colorTolerance` (COLOR-TOLERANCE.md Phase 1, default `0` = off, byte-
+ * identical) is row-wise greedy run-extension against an ANCHOR color: while
+ * `colorTolerance > 0`, a run keeps extending as long as each next cell's
+ * true color is within `colorTolerance` of the run's anchor (redmean
+ * distance, compared squared to avoid a per-cell `sqrt`) — not against the
+ * previous cell, so error never drifts across a run. A merged cell is
+ * EMITTED at the anchor's color, not its own true color; that substitution
+ * is exactly what a higher tolerance trades for fewer spans. The anchor
+ * itself resets on any non-extending cell, including a blank (space) cell,
+ * which already forces `nextColor = null` and so already breaks any run
+ * (verified, not assumed). The `===` string check is the fast path with no
+ * parse; only a string mismatch reaches {@link withinColorTolerance}, which
+ * parses through the call-scoped {@link packColorCached} memo — bounding
+ * parse calls by the number of DISTINCT color strings actually compared,
+ * itself bounded by the pre-merge span count, never the cell count.
  */
 export function encodeGlyphBuffers(
   char: readonly string[],
@@ -375,6 +457,7 @@ export function encodeGlyphBuffers(
   rows: number,
   useColors = true,
   weight: ArrayLike<number> | null = null,
+  colorTolerance = 0,
 ): string {
   if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
     throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
@@ -383,6 +466,9 @@ export function encodeGlyphBuffers(
   assertCellBufferLength(char, n, "cell char buffer");
   assertCellBufferLength(color, n, "cell color buffer");
   if (weight) assertCellBufferLength(weight, n, "cell weight buffer");
+
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
 
   const parts: string[] = [];
   let runColor: string | null = null;
@@ -413,7 +499,11 @@ export function encodeGlyphBuffers(
       if (useColors) assertColor(nextColor, index);
       const nextWeight = useColors && glyph !== " " && weight ? weight[index]! : 0;
       if (useColors && weight) assertWeight(nextWeight, index);
-      if (nextColor !== runColor || nextWeight !== runWeight) {
+      let extendsColorRun = nextColor === runColor;
+      if (!extendsColorRun && colorPackCache && nextColor !== null && runColor !== null) {
+        extendsColorRun = withinColorTolerance(colorPackCache, tolerance2, runColor, nextColor);
+      }
+      if (!extendsColorRun || nextWeight !== runWeight) {
         flushRun();
         runColor = nextColor;
         runWeight = nextWeight;
