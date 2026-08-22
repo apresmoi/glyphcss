@@ -1822,12 +1822,27 @@ export function soloColorParams(params: Params, slot: number): Params {
 // belonging to the OTHER stack even before reading its label.
 const COLOR_VOICE_ACCENT = "#f472b6";
 
-export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageShape = "cube", hoverToAnimate = false }: {
+export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageShape = "cube", hoverToAnimate = false, mode, onModeChange }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
   stageShape?: string;
   hoverToAnimate?: boolean;
+  /** Display density (crowding fix) — mirrors `VoiceCard`'s own `mode` prop
+   *  exactly (see its doc comment): `undefined` (the default) keeps the full
+   *  original card, every param row shown. `"basic"`/`"advanced"` opts a
+   *  card into the managed layout: `"basic"` hides `camp` (mix), `cphase`,
+   *  and placement (`cangle`/`coriginU/V/W`) — the conditional `cduty`
+   *  (square wave) / `citer` (SDF field) rows still show when they apply,
+   *  same as geometry. Unlike a geometry voice, a colour voice has no layer
+   *  selector at all (AGENTS.md: "layers have no color model of their
+   *  own") — there's nothing to gate for that concept here. Viewer
+   *  preference only — never read from or written to the `?s=` URL. */
+  mode?: VoiceDisplayMode;
+  /** Required alongside `mode` for the per-card `[bsc|adv]` toggle to render. */
+  onModeChange?: (mode: VoiceDisplayMode) => void;
 }) {
+  const managed = mode !== undefined;
+  const showAdvanced = !managed || mode === "advanced";
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
   const f = (k: string) => String(params[`c${k}${slot}`]);
@@ -1844,15 +1859,25 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30, v.duty, v.phase));
   }, []);
-  // A normal-derived voice has no live spatial preview: the preview stage is
-  // a FLAT plane (`useSynthPreview` below always previews colour voices on
-  // "plane" or the real volumetric stage, per the branch below), and a flat
-  // plane's object-space normal is constant — mounting a live scene would
-  // show one uniform wash and read as a working (if boring) preview when it
-  // structurally can't be one. `host` only attaches to a DOM node when NOT
-  // normal-derived (see the JSX below); `useSynthPreview` itself no-ops on a
-  // null host, so the hook is still called unconditionally (rules of hooks)
-  // but never mounts a scene for these four kinds.
+  const animate = hoverToAnimate ? hovered : true;
+  // Managed (`/synth`) cards drop the mini scene preview in "basic" mode,
+  // same rule `VoiceCard` applies (`c6591a2`) — the decoupled clock below
+  // drives the trendline instead, and the two never fire the same `onTick`
+  // at once. This is the SAME RULE as the geometry card, not the same
+  // pinned shape: geometry always solos on a flat "plane" in advanced mode
+  // because the point there is the voice's own occupancy PATTERN in
+  // isolation from the object it's painted on. A colour voice's solo
+  // (`soloColorParams`) already isolates colour a different way — it forces
+  // the GEOMETRY stack flat (`field1: "radial", freq1: 0`, constant
+  // occupancy) so glyph choice never varies and only colour does; the
+  // preview MESH shape is left free to track `stageShape` on a volumetric
+  // patch, because several colour fields (the four normal-derived kinds,
+  // and any `space: "object"` field) are genuine reads of the real 3D
+  // surface/normal and are meaningless on a flat plane — pinning to "plane"
+  // here would defeat the same fields the "no preview" state below already
+  // exists to handle. So: same basic/advanced RULE (mini preview only in
+  // advanced), different shape policy, because the two solos isolate
+  // different things.
   useSynthPreview(
     host,
     () => soloColorParams(params, slot),
@@ -1865,8 +1890,9 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
     ],
     onTick,
     volumetric ? stageShape : "plane",
-    hoverToAnimate ? hovered : true,
+    animate,
   );
+  useTrendlineClock(onTick, [f("wave"), num("freq"), num("speed"), num("amp"), num("duty"), num("phase")], animate, managed && !showAdvanced);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   const canPlace = fieldHasPlacement(field);
   const [placementOverride, setPlacementOverride] = useState(false);
@@ -1885,21 +1911,35 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: COLOR_VOICE_ACCENT }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        {isNormalDerived ? (
-          <span
-            className="voice-preview voice-preview-none"
-            title="No 2D preview — this field is a per-cell surface normal read (VOLUMETRIC-4.md §1), which a flat preview plane can't show (its normal never varies). Apply it and look at the real stage."
-          >
-            no preview
-          </span>
-        ) : (
-          <span className="voice-preview" ref={setHost} />
+        {showAdvanced && (
+          isNormalDerived ? (
+            <span
+              className="voice-preview voice-preview-none"
+              title="No 2D preview — this field is a per-cell surface normal read (VOLUMETRIC-4.md §1), which a flat preview plane can't show (its normal never varies). Apply it and look at the real stage."
+            >
+              no preview
+            </span>
+          ) : (
+            <span className="voice-preview" ref={setHost} />
+          )
         )}
       </div>
       <div className="voice-controls">
         <div className="voice-head">
           <span className="voice-title">Color voice {index + 1}</span>
-          <button className="voice-remove" onClick={onRemove} title="Remove colour voice">×</button>
+          <span className="voice-head-right">
+            {managed && (
+              <span className="voice-mode-toggle">
+                <IconToggle
+                  groupTitle="Basic/Advanced — Basic shows wave, field, freq, speed, and any conditional params (duty, iter). Advanced adds mix, phase, and placement."
+                  options={VOICE_MODE_TOGGLE}
+                  value={mode as string}
+                  onChange={(v) => onModeChange?.(v as VoiceDisplayMode)}
+                />
+              </span>
+            )}
+            <button className="voice-remove" onClick={onRemove} title="Remove colour voice">×</button>
+          </span>
         </div>
         <IconToggle groupTitle="Wave — the oscillator shape sampled across this colour voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`cwave${slot}`, v)} />
         <IconToggle
@@ -1910,11 +1950,11 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
         />
         <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), CFREQ_MAX)} style={fill(freqToSlider(num("freq"), CFREQ_MAX), 0, 1)} onChange={(e) => onParam(`cfreq${slot}`, freqFromSlider(+e.target.value, CFREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`cspeed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running colour-stack result toward combine(result, this voice) by this amount. 0 skips the voice entirely."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`camp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running colour-stack result toward combine(result, this voice) by this amount. 0 skips the voice entirely."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`camp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>}
         {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`cduty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
-        <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`cphase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>
+        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`cphase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>}
         {isSdfIterField(field) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`citer${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
-        {canPlace && (
+        {showAdvanced && canPlace && (
           <button
             type="button"
             className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
@@ -1924,7 +1964,7 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
             {placementOpen ? "▾" : "▸"} placement
           </button>
         )}
-        {placementOpen && (
+        {showAdvanced && placementOpen && (
           <div className="voice-placement">
             <VoiceFieldMap params={params} slot={slot} keyPrefix="c" fallbackColor={COLOR_VOICE_ACCENT} />
             <div className="voice-placement-rows">
@@ -2005,43 +2045,83 @@ export function ColorStackSection({ params, onParam, stageShape }: {
     onParam(`camp${slot}`, 1);
   }, [colorVoiceSlots, onParam]);
   const removeColorVoice = useCallback((slot: number) => onParam(`camp${slot}`, 0), [onParam]);
+  // Per-card display density (crowding fix, mirroring `VoiceCard`'s own
+  // `mode`/`onModeChange`) — deliberately its OWN state, not shared with the
+  // geometry sidebar's `voiceMode` (SynthWorkbench.tsx): the colour stack is
+  // documented throughout this file as "a second, independent voice program
+  // ... decoupled from the geometry voices" (VOLUMETRIC-4.md §1), and its
+  // slot numbers (1..MAX_COLOR_VOICES) overlap the geometry rail's own
+  // (1..MAX_VOICES) — a shared override map keyed only by slot number would
+  // silently cross-apply an override from one stack's card to the other's
+  // same-numbered card. A shared top-level DEFAULT would also mean toggling
+  // the geometry header's global control unexpectedly re-densifies the
+  // colour section below it, which the "independent voice program" framing
+  // argues against. Viewer preference only — never URL-persisted, same
+  // contract as the geometry rail's `voiceMode`.
+  const [colorVoiceMode, setColorVoiceMode] = useState<VoiceDisplayMode>("basic");
+  const [colorVoiceModeOverrides, setColorVoiceModeOverrides] = useState<Record<number, VoiceDisplayMode>>({});
+  const setAllColorVoiceModes = useCallback((next: VoiceDisplayMode) => { setColorVoiceMode(next); setColorVoiceModeOverrides({}); }, []);
+  const setColorVoiceCardMode = useCallback((slot: number, next: VoiceDisplayMode) => {
+    setColorVoiceModeOverrides((prev) => ({ ...prev, [slot]: next }));
+  }, []);
   return (
     <div className="color-stack">
-      <label
-        className="color-stack-check"
-        title="Colour voice stack — a second, independent voice program that drives colour only, decoupled from the geometry voices above (VOLUMETRIC-4.md §1). Params are retained while off, so toggling never loses work."
-      >
-        <input type="checkbox" checked={colorStackOn} onChange={(e) => onParam("colorStackOn", e.target.checked)} />
-        <span>Colour</span>
-      </label>
-      {colorStackOn && (
-        <div className="color-stack-body">
-          <label className="layer-group-row" title="Combine — how the colour voices fold together.">
-            <span>combine</span>
-            <span className="gx-select">
+      {/* Header ROW: the enable checkbox (its own `<label>`, click target for
+          the checkbox only) plus combine/mode selects as flex SIBLINGS — not
+          children of the label, which would hijack a select click into
+          toggling the checkbox (the same conflict `LayerGroup`'s header hit
+          in `7ca4496`, and the same fix: split the click target out). The
+          selects only render while `colorStackOn`, same as the body below. */}
+      <div className="color-stack-head">
+        <label
+          className="color-stack-check"
+          title="Colour voice stack — a second, independent voice program that drives colour only, decoupled from the geometry voices above (VOLUMETRIC-4.md §1). Params are retained while off, so toggling never loses work."
+        >
+          <input type="checkbox" checked={colorStackOn} onChange={(e) => onParam("colorStackOn", e.target.checked)} />
+          <span>Colour</span>
+        </label>
+        {colorStackOn && (
+          <>
+            <label className="gx-select color-stack-head-select" title="Combine — how the colour voices fold together.">
               <select value={String(params.colorCombine ?? "multiply")} onChange={(e) => onParam("colorCombine", e.target.value)}>
                 {COMBINES.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
-            </span>
-          </label>
-          <label className="layer-group-row" title="Mode — gradient reuses Color / Color B / Gradient (right dock, Output folder) as its endpoints; hue cycles through the hue wheel instead (Hue offset/range/saturation/lightness, same folder) — the iridescence mode.">
-            <span>mode</span>
-            <span className="gx-select">
+            </label>
+            <label className="gx-select color-stack-head-select" title="Mode — gradient reuses Color / Color B / Gradient (right dock, Output folder) as its endpoints; hue cycles through the hue wheel instead (Hue offset/range/saturation/lightness, same folder) — the iridescence mode.">
               <select value={String(params.colorMode ?? "gradient")} onChange={(e) => onParam("colorMode", e.target.value)}>
                 <option value="gradient">gradient</option>
                 <option value="hue">hue</option>
               </select>
-            </span>
-          </label>
+            </label>
+          </>
+        )}
+      </div>
+      {colorStackOn && (
+        <div className="color-stack-body">
           <div className="color-stack-voices">
             {colorVoiceSlots.map((slot) => (
-              <ColorVoiceCard key={slot} slot={slot} index={colorVoiceSlots.indexOf(slot)} params={params} onParam={onParam} onRemove={() => removeColorVoice(slot)} stageShape={stageShape} hoverToAnimate />
+              <ColorVoiceCard
+                key={slot} slot={slot} index={colorVoiceSlots.indexOf(slot)} params={params} onParam={onParam}
+                onRemove={() => removeColorVoice(slot)} stageShape={stageShape} hoverToAnimate
+                mode={colorVoiceModeOverrides[slot] ?? colorVoiceMode}
+                onModeChange={(next) => setColorVoiceCardMode(slot, next)}
+              />
             ))}
           </div>
           {colorVoiceSlots.length === 0 && <p className="synth-empty">No colour voices — add one to start.</p>}
-          <button type="button" className="layer-group-add" onClick={addColorVoice} disabled={colorVoiceSlots.length >= MAX_COLOR_VOICES} title="Add a colour voice">
-            + Add colour voice
-          </button>
+          <div className="color-stack-voices-actions">
+            <span className="voice-mode-toggle">
+              <IconToggle
+                groupTitle="Set every colour voice card to Basic or Advanced at once. A card's own [bsc|adv] toggle can still override this afterwards."
+                options={VOICE_MODE_TOGGLE}
+                value={colorVoiceMode}
+                onChange={(v) => setAllColorVoiceModes(v as VoiceDisplayMode)}
+              />
+            </span>
+            <button type="button" className="layer-group-add" onClick={addColorVoice} disabled={colorVoiceSlots.length >= MAX_COLOR_VOICES} title="Add a colour voice">
+              + Add colour voice
+            </button>
+          </div>
         </div>
       )}
     </div>

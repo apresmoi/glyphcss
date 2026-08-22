@@ -220,9 +220,17 @@
   border: 1px solid rgba(244, 114, 182, 0.28);
   background: #090509;
 }
+/* Header ROW: the enable-checkbox `<label>` (the actual click target — see
+   `ColorStackSection` in synthKit.tsx for why the combine/mode selects
+   moved OUT of that label) plus the combine/mode selects, as flex siblings —
+   same split `.layer-group-head`/`.layer-group-toggle` established above. */
+.color-stack-head {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 9px;
+}
 .color-stack-check {
-  display: flex; align-items: center; gap: 6px;
-  width: 100%; padding: 6px 9px; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  cursor: pointer;
   font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
   color: rgba(244, 114, 182, 0.95);
 }
@@ -243,11 +251,25 @@
 }
 .color-stack-check input[type="checkbox"]:checked { background: rgba(244, 114, 182, 0.14); border-color: rgba(244, 114, 182, 0.65); }
 .color-stack-check input[type="checkbox"]:checked::before { content: "[x]"; color: #f472b6; }
+/* Combine/mode: compact selects sharing the header's remaining width evenly
+   — same technique as `.layer-group-head-select`, recolored isn't needed
+   since `.gx-select` is already accent-neutral. */
+.color-stack-head-select { flex: 1 1 0; min-width: 0; }
+.color-stack-head-select select {
+  font-size: 10px; padding: 2px 15px 2px 5px; text-overflow: ellipsis;
+}
+.color-stack-head-select::after { font-size: 8px; right: 5px; }
 .color-stack-body {
   display: flex; flex-direction: column; gap: 8px;
   padding: 9px; border-top: 1px solid rgba(244, 114, 182, 0.2);
 }
 .color-stack-voices { display: flex; flex-direction: column; gap: 9px; }
+/* Wraps the section's own global Basic/Advanced toggle + "+ Add colour
+   voice", same pairing as `.synth-voices-head-actions` does for the
+   geometry sidebar header — this section's equivalent add affordance sits
+   in its body (not a header action prop), since `ColorStackSection` has no
+   separate host header to place it in. */
+.color-stack-voices-actions { display: flex; align-items: center; gap: 6px; }
 
 /* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
