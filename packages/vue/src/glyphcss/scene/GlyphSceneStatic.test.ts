@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createApp, h } from "vue";
 import { GlyphSceneStatic } from "./GlyphSceneStatic";
-import { cubePolygons } from "@glyphcss/core";
-import { compileScene, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
+import { cubePolygons, icosahedronPolygons } from "@glyphcss/core";
+import { compileScene, createGlyphPerspectiveCamera, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
 import type { Polygon } from "@glyphcss/core";
 
 const semanticPolygon: Polygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" };
@@ -38,6 +38,20 @@ describe("GlyphSceneStatic (Vue)", () => {
     const el = mount({ polygons: polys, cols: 30, rows: 12, autoCenter: true, useColors: false });
     const pre = el.querySelector("pre.glyph-output");
     expect(pre?.innerHTML).not.toContain("<span");
+  });
+
+  it("forwards colorTolerance to compileScene (COLOR-TOLERANCE.md Phase 3)", () => {
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 3 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 25, zoom: 15 });
+    const cfg = { camera, cols: 40, rows: 20, useColors: true, colorTolerance: 400 } as const;
+    const expected = compileScene({ polygons: polys, ...cfg }).inner;
+    const el = mount({ polygons: polys, ...cfg });
+    expect(el.querySelector("pre")?.innerHTML).toBe(expected);
+
+    // Doing real work on this fixture, not merely failing to regress a no-op.
+    const withoutTolerance = compileScene({ polygons: polys, ...cfg, colorTolerance: 0 }).inner;
+    const spanCount = (s: string) => (s.match(/<span/g) ?? []).length;
+    expect(spanCount(expected)).toBeLessThan(spanCount(withoutTolerance));
   });
 
   it("matches compileScene semantic output in colored and plain modes", () => {

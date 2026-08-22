@@ -61,6 +61,16 @@ export interface CompileSceneOptions {
    * exactly like `charMode` — no browser/canvas dependency at compile time.
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /**
+   * Row-wise greedy run-extension color merge tolerance — see
+   * {@link RasterizeContextOptions.colorTolerance}. A pure function of the
+   * final cell grid, exactly like `charMode`, so a static bake gets the same
+   * span-reduction lever the runtime scene does. Default `0` = off,
+   * byte-identical output. Not applied to `glyphOutput: "semantic"` output
+   * (semantic colors are exact class identifiers, not shaded appearance —
+   * merging them under a tolerance would corrupt the lineage).
+   */
+  colorTolerance?: number;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -147,6 +157,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     charMode: opts.charMode,
     hiddenLines: opts.hiddenLines,
     solidWeightRamp: opts.solidWeightRamp,
+    colorTolerance: opts.colorTolerance,
     useColors,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

@@ -145,6 +145,30 @@ export interface RasterizeContextOptions {
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
   /**
+   * Row-wise greedy run-extension against an anchor color (COLOR-TOLERANCE.md):
+   * a run keeps extending while the next cell's true color is within
+   * `colorTolerance` of the run's anchor (redmean distance), emitting the
+   * anchor's color for the whole run — trading color fidelity for fewer
+   * `<span>`s, which is what actually gates frame rate for colored output.
+   * Default `0` = off, byte-identical output. **The metric's range is 0..765,
+   * not 0..255** (black↔white is 764.83 under redmean) — a UI slider bound
+   * that assumes 0..255 leaves two thirds of the range unreachable.
+   *
+   * Validated at this layer ({@link buildRasterizeContext}), not in the hot
+   * encoder: `NaN` and negative values degrade to `0` (off); `+Infinity` is
+   * honored as-is (every same-glyph run in a row merges to one span — a
+   * legitimate, if extreme, choice, not an error); `-Infinity` degrades to
+   * `0` like any other negative value.
+   *
+   * Applies to every colored render path — wireframe (plain and `"braille"`
+   * `charMode`), `ink`, and `solid` (including `charMode: "halfblock"`/
+   * `"quadrant"`, where a run must hold for both independent color channels).
+   * NOT gated behind `temporalBlend`: measured with a control arm, tolerance
+   * pays off MOST under active TAA reprojection (span reduction up to 4.5x on
+   * the measured fixture) — see COLOR-TOLERANCE.md's Interactions section.
+   */
+  colorTolerance?: number;
+  /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
    */
@@ -337,6 +361,8 @@ export interface RasterizeContext {
   hiddenLines: "show" | "hide";
   /** Solid-mode font-weight density ramp — see {@link RasterizeContextOptions.solidWeightRamp}. */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /** Run-extension color merge tolerance — see {@link RasterizeContextOptions.colorTolerance}. Always a validated, non-negative number (or `+Infinity`); never `NaN`. */
+  colorTolerance: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -417,6 +443,30 @@ function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {
   return out;
 }
 
+/**
+ * Public-layer validation for `colorTolerance` (COLOR-TOLERANCE.md Phase 3):
+ * runs once per {@link buildRasterizeContext} call, never in the hot encoder.
+ * `undefined` and `NaN` degrade to `0` (off) rather than throwing or
+ * propagating `NaN` into a per-cell comparison. A negative value degrades to
+ * `0` the same way (there is no meaningful "negative tolerance"). `+Infinity`
+ * is honored as-is: `withinColorTolerance`'s `d2 <= tolerance^2` comparison
+ * is trivially true for any finite `d2`, so this deliberately merges every
+ * same-glyph run in a row — an extreme but valid configuration, not an
+ * error. `-Infinity` falls out of the same negative-degrades-to-0 rule.
+ *
+ * Exported so every public entry point that stores a `colorTolerance` before
+ * it reaches {@link buildRasterizeContext} (`createGlyphScene`'s internal
+ * `options`, read directly by the retained-effect-layer `encodeCellGrid`
+ * path, which never calls `buildRasterizeContext`) can normalize once at the
+ * same layer instead of duplicating this rule or leaving that second path
+ * unvalidated.
+ */
+export function normalizeGlyphColorTolerance(value: number | undefined): number {
+  if (value === undefined || Number.isNaN(value)) return 0;
+  if (value === Infinity) return Infinity;
+  return value > 0 ? value : 0;
+}
+
 export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeContext {
   const polygons = opts.polygons ?? [];
   const mode = opts.mode ?? (polygons.length ? "solid" : "wireframe");
@@ -433,6 +483,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     charMode: opts.charMode ?? "ascii",
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
+    colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

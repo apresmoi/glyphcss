@@ -186,11 +186,11 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Supersample | `supersample` / `--supersample` | 1 |
 | Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
 
-`charMode`, `hiddenLines` and `solidWeightRamp` are pure functions of geometry +
-camera, so a static bake reproduces them exactly. `compileScene` and
-`GlyphSceneStatic` (React + Vue) accept all three. `@glyphcss/compile`'s CLI,
-Vite plugin and `compileFile` do **not** accept them yet; call `compileScene`
-directly if you need them in those pipelines.
+`charMode`, `hiddenLines`, `solidWeightRamp`, and `colorTolerance` are pure
+functions of the final cell grid, so a static bake reproduces them exactly.
+`compileScene` and `GlyphSceneStatic` (React + Vue) accept all four.
+`@glyphcss/compile`'s CLI, Vite plugin and `compileFile` do **not** accept
+them yet; call `compileScene` directly if you need them in those pipelines.
 
 `wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
 in every path — the static bake takes a flat polygon list and cannot represent

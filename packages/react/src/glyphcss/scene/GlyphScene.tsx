@@ -66,6 +66,16 @@ export interface GlyphSceneProps {
    * during active temporal-blend reprojection.
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /**
+   * Row-wise greedy run-extension color merge tolerance (COLOR-TOLERANCE.md):
+   * a run keeps extending while the next cell's true color is within
+   * `colorTolerance` of the run's anchor color (redmean distance), trading
+   * color fidelity for fewer `<span>`s. Default `0` = off, byte-identical.
+   * **Range is 0..765, not 0..255.** `NaN`/negative values degrade to `0`;
+   * `+Infinity` is honored as-is (merges every same-glyph run in a row). NOT
+   * gated behind `temporalBlend` — tolerance pays off most under active TAA.
+   */
+  colorTolerance?: number;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -116,6 +126,7 @@ function GlyphSceneInner({
   wireframeJunctions,
   hiddenLines,
   solidWeightRamp,
+  colorTolerance,
   useColors,
   cols,
   rows,
@@ -147,6 +158,7 @@ function GlyphSceneInner({
     wireframeJunctions,
     hiddenLines,
     solidWeightRamp,
+    colorTolerance,
     useColors,
     cols,
     rows,
@@ -199,6 +211,7 @@ function GlyphSceneInner({
     // prop actually clears the ramp in vanilla instead of being swallowed by
     // an `!== undefined` guard.
     partial.solidWeightRamp = solidWeightRamp;
+    if (colorTolerance !== undefined) partial.colorTolerance = colorTolerance;
     if (useColors !== undefined) partial.useColors = useColors;
     if (cols !== undefined) partial.cols = cols;
     if (rows !== undefined) partial.rows = rows;
@@ -223,7 +236,7 @@ function GlyphSceneInner({
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorTolerance, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

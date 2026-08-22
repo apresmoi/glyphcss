@@ -561,10 +561,16 @@ export function encodeGlyphBuffers(
   return parts.join("");
 }
 
-/** Encode a validated cell grid for innerHTML (colored) or textContent (plain). */
-export function encodeCellGrid(grid: CellGrid, useColors = true): string {
+/**
+ * Encode a validated cell grid for innerHTML (colored) or textContent (plain).
+ * `colorTolerance` (default `0` = off) forwards to {@link encodeGlyphBuffers}
+ * unchanged — this is the encode path retained Glyph Effect layers use
+ * (`createGlyphScene.ts`'s `renderRetainedEffects`), so an effect-composited
+ * `<pre>` gets the same span-reduction lever as the base render.
+ */
+export function encodeCellGrid(grid: CellGrid, useColors = true, colorTolerance = 0): string {
   assertCellGridShape(grid);
-  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors, grid.weight ?? null);
+  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors, grid.weight ?? null, colorTolerance);
 }
 
 /**

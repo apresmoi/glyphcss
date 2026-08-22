@@ -32,6 +32,7 @@ const OBSERVED_ATTRS = [
   "char-mode",
   "wireframe-junctions",
   "hidden-lines",
+  "color-tolerance",
   "use-colors",
   "cols",
   "rows",
@@ -149,6 +150,8 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const hiddenLines = parseHiddenLines(this.getAttribute("hidden-lines"));
     if (hiddenLines !== undefined) opts.hiddenLines = hiddenLines;
     if (this._solidWeightRamp !== undefined) opts.solidWeightRamp = this._solidWeightRamp;
+    const colorTolerance = parseNumber(this.getAttribute("color-tolerance"));
+    if (colorTolerance !== undefined) opts.colorTolerance = colorTolerance;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));

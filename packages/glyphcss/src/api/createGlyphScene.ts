@@ -32,7 +32,7 @@ import type {
 import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
-import { buildRasterizeContext } from "./rasterizeContext";
+import { buildRasterizeContext, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
 import { encodeCellGrid, encodeGlyphBuffers, type CellGrid, type TransformCells } from "../render/cells";
@@ -121,6 +121,20 @@ export interface GlyphSceneOptions {
    * reprojection.
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /**
+   * Row-wise greedy run-extension color merge tolerance (COLOR-TOLERANCE.md):
+   * a run keeps extending while the next cell's true color is within
+   * `colorTolerance` of the run's anchor color (redmean distance), trading
+   * color fidelity for fewer `<span>`s — the lever that actually gates frame
+   * rate for colored output. Default `0` = off, byte-identical. **Range is
+   * 0..765, not 0..255** (black↔white is 764.83 under redmean). `NaN` and
+   * negative values degrade to `0`; `+Infinity` is honored as-is (merges
+   * every same-glyph run in a row). NOT gated behind `temporalBlend` —
+   * measured with a control arm, tolerance pays off MOST under active TAA
+   * reprojection (up to 4.5x span reduction). See
+   * {@link RasterizeContextOptions.colorTolerance}.
+   */
+  colorTolerance?: number;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -421,6 +435,7 @@ export function createGlyphScene(
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
     solidWeightRamp: opts.solidWeightRamp,
+    colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -561,7 +576,7 @@ export function createGlyphScene(
     for (const output of retainedEffectOutputs.values()) {
       testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors) });
+      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors, options.colorTolerance) });
     }
     commitRender({
       writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
@@ -868,6 +883,7 @@ export function createGlyphScene(
       wireframeJunctions: options.wireframeJunctions,
       hiddenLines: options.hiddenLines,
       solidWeightRamp: options.solidWeightRamp,
+      colorTolerance: options.colorTolerance,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1318,6 +1334,7 @@ export function createGlyphScene(
           wireframeJunctions: options.wireframeJunctions,
           hiddenLines: options.hiddenLines,
           solidWeightRamp: options.solidWeightRamp,
+          colorTolerance: options.colorTolerance,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1623,6 +1640,7 @@ export function createGlyphScene(
     // so clearing it needs the same explicit "key present" check `shadow`/
     // `sceneManifest`/`dictionary` use below, not a `!== undefined` guard.
     if ("solidWeightRamp" in partial) options.solidWeightRamp = partial.solidWeightRamp;
+    if (partial.colorTolerance !== undefined) options.colorTolerance = normalizeGlyphColorTolerance(partial.colorTolerance);
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

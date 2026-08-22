@@ -24,6 +24,7 @@ export interface GlyphSceneStaticProps {
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   hiddenLines?: "show" | "hide";
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  colorTolerance?: number;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -48,6 +49,7 @@ export const GlyphSceneStatic = defineComponent({
     charMode: { type: String as PropType<"ascii" | "braille" | "halfblock" | "quadrant">, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
+    colorTolerance: { type: Number, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
@@ -70,6 +72,7 @@ export const GlyphSceneStatic = defineComponent({
       charMode: props.charMode,
       hiddenLines: props.hiddenLines,
       solidWeightRamp: props.solidWeightRamp,
+      colorTolerance: props.colorTolerance,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,

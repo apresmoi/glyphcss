@@ -462,10 +462,10 @@ export function rasterize(scene: RasterizeContext): string {
       }
     }
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
 
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask);
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene.colorTolerance);
 }
 
 /** N/E/S/W side bits for the box-drawing junction resolve pass. */
@@ -1101,9 +1101,9 @@ function rasterizeInk(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
-  return solidBufToString(charBuf, colorBuf, cols, rows, false);
+  return solidBufToString(charBuf, colorBuf, cols, rows, false, scene.colorTolerance);
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
@@ -1880,7 +1880,7 @@ function rasterizeSolid(
     // terminates the function here: `reproject` and `transformCells` are both
     // guaranteed false by `wantsHalfblockSolid`, so the single-color
     // downsample/TAA/hook machinery below is never reached for this cell path.
-    const out = encodeHalfblockSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const out = encodeHalfblockSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors, scene.colorTolerance);
     if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
     return out;
   }
@@ -1890,7 +1890,7 @@ function rasterizeSolid(
     // shape as the halfblock branch above: `wantsQuadrantSolid` already
     // guarantees no `transformCells`/reprojection, so the downsample/TAA/hook
     // machinery below is never reached for this cell path.
-    const out = encodeQuadrantSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const out = encodeQuadrantSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors, scene.colorTolerance);
     if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
     return out;
   }
@@ -1968,8 +1968,8 @@ function rasterizeSolid(
   // temporal reprojection didn't drop it) — the byte-identical default path
   // (`finalWeight === null`) keeps using the original unweighted encoder.
   const out = finalWeight
-    ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight)
-    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells);
+    ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight, scene.colorTolerance)
+    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells, scene.colorTolerance);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
   return out;
 }
@@ -2277,6 +2277,7 @@ export function encodeHalfblockSolid(
   outRows: number,
   S: number,
   useColors: boolean,
+  colorTolerance = 0,
 ): string {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
@@ -2333,7 +2334,7 @@ export function encodeHalfblockSolid(
       }
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
 }
 
 /** Quadrant bit ordering: TL/TR/BL/BR, matching the classic sixel/chafa quadrant convention. */
@@ -2430,6 +2431,7 @@ export function encodeQuadrantSolid(
   outRows: number,
   S: number,
   useColors: boolean,
+  colorTolerance = 0,
 ): string {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
@@ -2510,7 +2512,7 @@ export function encodeQuadrantSolid(
       fgBuf[oi] = avgColor(15);
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
 }
 
 /**
@@ -3586,10 +3588,10 @@ function rasterizeWireframeBraille(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
 
-  return solidBufToString(cChar, cColor, cols, rows, false);
+  return solidBufToString(cChar, cColor, cols, rows, false, scene.colorTolerance);
 }
 
 /**
@@ -3817,6 +3819,17 @@ function foldBrailleSubStampToCells(
   return { char, color: colorBuf };
 }
 
+/**
+ * `colorTolerance` (default `0` = off, byte-identical) via the shared
+ * {@link colorRunExtends} test — this is the plain-`charMode: "ascii"`
+ * wireframe/voxel no-hook path (`rasterize()`'s default branch), a
+ * DUPLICATE run-coalescer alongside `solidBufToString`'s unsafe branch for
+ * the same "avoid `encodeGlyphBuffers`'s per-cell validation cost on the hot
+ * path" reason (COLOR-TOLERANCE.md review Finding 5 covered `solidBufToString`
+ * explicitly but missed this sibling coalescer — closed here so `colorTolerance`
+ * actually reaches the single most common render path instead of silently
+ * no-op'ing there).
+ */
 function stampToGlyphs(
   stamp: Uint8Array,
   colorBuf: (string | null)[] | null,
@@ -3824,9 +3837,12 @@ function stampToGlyphs(
   rows: number,
   glyphs: { thin: string[]; normal: string[]; core: string[] },
   junctionMask: Uint8Array | null = null,
+  colorTolerance = 0,
 ): string {
   // Coalesce same-color consecutive non-empty cells into one <span> per run.
   // When colors are disabled (colorBuf=null) we emit plain text — one text node.
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
   const parts: string[] = [];
   let runColor: string | null = null;
   let runText = "";
@@ -3852,7 +3868,7 @@ function stampToGlyphs(
         g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
-      if (col !== runColor) {
+      if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
       }
