@@ -9,12 +9,21 @@ a cell actually breaks that band. This file is the reproducible bench for
 COLOR-TOLERANCE.md's acceptance items 5 and 6: the six-preset span table and
 the live FPS delta.
 
-**Headline: a 1.6x–31x lever depending on scene content, not a flat
-multiplier.** Flat and hard-edged scenes (per-face colour, shade ramps,
-carved solids) win enormously; smooth noisy fields win modestly because their
-spans are dominated by genuine per-cell variation no merge policy can
-invent coherence around; already-flat scenes gain nothing and — this is the
-important half — do not regress either.
+**Headline: a 1.2x–9.2x lever depending on scene content, not a flat
+multiplier.** That range is unquantized→best across the six presets below,
+excluding Cube tiles (already flat, 1.0x, no win by design — see below): Aurora
+1.2x, Lava 1.3x, Nebula 1.5x, Menger 2.9x, Gyroid xray 9.2x. Flat and
+hard-edged scenes (per-face colour, shade ramps, carved solids) win
+enormously; smooth noisy fields win modestly because their spans are
+dominated by genuine per-cell variation no merge policy can invent coherence
+around; already-flat scenes gain nothing and — this is the important half —
+do not regress either.
+
+An earlier hand measurement on a different, non-reproducible rig claimed
+1.6x–31x. Re-running this committed script reproduces the table below
+exactly, and the real derived ratios are 1.2x–9.2x, not 1.6x–31x — that
+earlier figure is superseded and should not be cited. This file is the
+reproducible source of truth going forward.
 
 **Monotonicity is measured on real content, not guaranteed.** Raising
 tolerance lowers span count on every shipped preset measured, but greedy

@@ -161,9 +161,10 @@ export interface RasterizeContextOptions {
    * `0` like any other negative value.
    *
    * Applies to every colored render path THAT ENCODES THROUGH `rasterize()`
-   * itself — wireframe (plain and `"braille"` `charMode`), `ink`, and `solid`
-   * (including `charMode: "halfblock"`/`"quadrant"`, where a run must hold
-   * for both independent color channels). NOT gated behind `temporalBlend`:
+   * itself — wireframe and voxel (both plain and `"braille"` `charMode` —
+   * voxel falls through to the wireframe branch and is covered), `ink`, and
+   * `solid` (including `charMode: "halfblock"`/`"quadrant"`, where a run must
+   * hold for both independent color channels). NOT gated behind `temporalBlend`:
    * measured with a control arm, tolerance pays off MOST under active TAA
    * reprojection (span reduction up to 4.5x on the measured fixture) — see
    * COLOR-TOLERANCE.md's Interactions section.

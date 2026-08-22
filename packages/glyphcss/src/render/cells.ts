@@ -441,11 +441,12 @@ function withinColorTolerance(
  * (`colorTolerance > 0`, i.e. `cache !== null`) and two non-null colors can
  * extend it, via {@link withinColorTolerance}. `encodeGlyphBuffers` and
  * {@link encodeGlyphBuffersDual} both call this directly (once, resp. twice
- * per cell for the independent fg/bg channels); `rasterize.ts`'s unsafe
- * default-path coalescer (`solidBufToString`, COLOR-TOLERANCE.md review
- * Finding 5) imports it too, so its `colorTolerance` behavior can't silently
- * drift out of sync with either encoder's — one comparison rule, three
- * call sites.
+ * per cell for the independent fg/bg channels); `rasterize.ts`'s two
+ * DUPLICATE coalescers — `solidBufToString`'s unsafe branch (COLOR-TOLERANCE.md
+ * review Finding 5) and `stampToGlyphs` (the plain-`charMode: "ascii"`
+ * wireframe/voxel no-hook path, the same review's Phase 3 follow-up) — import
+ * it too, so their `colorTolerance` behavior can't silently drift out of sync
+ * with either encoder's — one comparison rule, four call sites.
  */
 export function colorRunExtends(
   cache: Map<string, number> | null,
@@ -595,8 +596,8 @@ export function encodeCellGrid(grid: CellGrid, useColors = true, colorTolerance 
  * tolerance of the run's `fg` anchor AND its true `bg` is within tolerance of
  * the run's `bg` anchor (redmean distance, compared squared). Requiring BOTH
  * channels to hold is strictly harder than the single-color case, so the win
- * is smaller than {@link encodeGlyphBuffers}'s own 1.6x-31x range in
- * COLOR-TOLERANCE.md's table — measured independently at 140x50 through the
+ * is smaller than {@link encodeGlyphBuffers}'s own 1.2x-9.2x range in
+ * `bench/color-tolerance.md`'s table — measured independently at 140x50 through the
  * real `rasterize()` + `charMode` pipeline at tolerance 32/128: **halfblock**
  * 1.59x/1.85x on a smooth-shaded icosphere but only 1.00x/1.28x on a flat
  * per-face cube; **quadrant** 1.39x/1.62x on the icosphere but 1.01x/1.04x on

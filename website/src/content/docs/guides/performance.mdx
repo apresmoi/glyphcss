@@ -44,8 +44,10 @@ off) merges adjacent cells into one run while their colors stay within a
 redmean colour distance of each other, trading a little color fidelity for
 far fewer spans.
 
-The win depends entirely on scene content — it is a **1.6x–31x lever, not a
-flat multiplier**. Flat, hard-edged output (per-face color, shade ramps,
+The win depends entirely on scene content — it is a **1.2x–9.2x lever, not a
+flat multiplier** (measured unquantized→best across `bench/color-tolerance.md`'s
+six presets, excluding the already-flat Cube tiles case, which gains nothing
+at 1.0x by design). Flat, hard-edged output (per-face color, shade ramps,
 carved solids) wins enormously; smooth noisy fields win modestly because
 their spans are dominated by genuine per-cell colour variation no merge
 policy can invent coherence around; an already-flat scene gains nothing and,

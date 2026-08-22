@@ -187,10 +187,17 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
 
 `charMode`, `hiddenLines`, `solidWeightRamp`, and `colorTolerance` are pure
-functions of the final cell grid, so a static bake reproduces them exactly.
-`compileScene` and `GlyphSceneStatic` (React + Vue) accept all four.
+functions of geometry + camera, so a static bake reproduces them exactly.
+`colorTolerance` is the odd one out mechanically — it operates on the
+already-rasterized cell grid as a post-hoc span merge, while the other three
+change rasterization itself — but all four are equally reproducible at build
+time. `compileScene` and `GlyphSceneStatic` (React + Vue) accept all four.
 `@glyphcss/compile`'s CLI, Vite plugin and `compileFile` do **not** accept
 them yet; call `compileScene` directly if you need them in those pipelines.
+`buildGlyphFramesExport`, `buildGlyphInteractiveExport`, and
+`buildGlyphFieldSynthStaticExport` (`@glyphcss/effects`) accept none of the
+four either — a `colorTolerance` value set through the `/synth` page's UI (it
+persists to the URL) is silently dropped by that page's CodePen export.
 
 `wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
 in every path — the static bake takes a flat polygon list and cannot represent
