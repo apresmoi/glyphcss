@@ -561,6 +561,24 @@ export function encodeCellGrid(grid: CellGrid, useColors = true): string {
  * {@link CellGrid} (single color per cell), so the `transformCells` hook and
  * the generic effect compositor (`effectCompositor.ts`, one-color-per-cell
  * until its own item) are completely unaffected by this two-color path.
+ *
+ * `colorTolerance` (COLOR-TOLERANCE.md Phase 2, default `0` = off, byte-
+ * identical) is the same row-wise greedy anchor run-extension
+ * {@link encodeGlyphBuffers} does, applied independently to `fg` and `bg`: a
+ * run keeps extending only when BOTH the next cell's true `fg` is within
+ * tolerance of the run's `fg` anchor AND its true `bg` is within tolerance of
+ * the run's `bg` anchor (redmean distance, compared squared). Requiring BOTH
+ * channels to hold is strictly harder than the single-color case, so the win
+ * is smaller — measured 1.5x-2.2x span reduction at tolerance 32-128 on a
+ * smooth-shaded icosphere rendered through the real `charMode: "halfblock"`/
+ * `"quadrant"` pipeline, per-cell buffers reconstructed losslessly from the
+ * real HTML output, vs. the single-color path's 1.6x-31x range in
+ * COLOR-TOLERANCE.md's own table — but it is real on every scene measured
+ * (never zero), so it ships rather than being a documented no-op. `null`
+ * only ever matches `null` (an empty/half-covered subcell can't tolerance-
+ * merge into a covered one, exactly like
+ * {@link encodeGlyphBuffers}'s own blank-cell reset), and the `===` fast path
+ * (both channels reference-equal) never parses.
  */
 export function encodeGlyphBuffersDual(
   char: readonly string[],
@@ -569,6 +587,7 @@ export function encodeGlyphBuffersDual(
   cols: number,
   rows: number,
   useColors = true,
+  colorTolerance = 0,
 ): string {
   if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
     throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
@@ -577,6 +596,14 @@ export function encodeGlyphBuffersDual(
   assertCellBufferLength(char, n, "cell char buffer");
   assertCellBufferLength(fg, n, "cell fg buffer");
   assertCellBufferLength(bg, n, "cell bg buffer");
+
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
+  const channelExtends = (runColor: string | null, nextColor: string | null): boolean => {
+    if (nextColor === runColor) return true;
+    if (!colorPackCache || nextColor === null || runColor === null) return false;
+    return withinColorTolerance(colorPackCache, tolerance2, runColor, nextColor);
+  };
 
   const parts: string[] = [];
   let runFg: string | null = null;
@@ -609,7 +636,8 @@ export function encodeGlyphBuffersDual(
         assertColor(nextFg, index);
         assertColor(nextBg, index);
       }
-      if (nextFg !== runFg || nextBg !== runBg) {
+      const extendsRun = channelExtends(runFg, nextFg) && channelExtends(runBg, nextBg);
+      if (!extendsRun) {
         flushRun();
         runFg = nextFg;
         runBg = nextBg;

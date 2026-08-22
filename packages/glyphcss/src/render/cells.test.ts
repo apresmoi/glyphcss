@@ -445,4 +445,139 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
     // off path, so `withinColorTolerance`/`packColorCached` never run.
     expect(getGlyphColorParseCountForTests()).toBe(0);
   });
+
+  // COLOR-TOLERANCE.md Phase 2, interaction 3 (`solidWeightRamp`): tolerance
+  // is colour-only, so a weight change must still force a new run even when
+  // both the outgoing and incoming colour are well within tolerance of each
+  // other. Phase 1's reviewer already mutation-checked this at the encoder
+  // level with tolerance absent; this pins it with tolerance ACTIVE and a
+  // realistic weighted-ramp step sequence (400/500/600/700, the shape
+  // `calibrateWeightedGlyphRamp` produces), not just a synthetic 0/700 pair.
+  it("solidWeightRamp: a weight change still breaks a run even when color is within tolerance", () => {
+    const char = ["a", "b", "c", "d"];
+    // All four colors are mutually within redmean ~7 of each other (tight
+    // in-band jitter) — comfortably inside tolerance 40 — so color alone
+    // would merge all four into one run.
+    const color: (string | null)[] = ["#404040", "#414040", "#424040", "#434040"];
+    const weight = [400, 400, 500, 500];
+    const out = encodeGlyphBuffers(char, color, 4, 1, true, weight, 40);
+    // Weight still splits the run in two — a new run (and a fresh color
+    // anchor, re-seeded from the first cell of the new weight group) starts
+    // exactly where weight changes, even though every color here is within
+    // tolerance of every other. Color tolerance keeps merging within each
+    // weight group.
+    expect(out).toBe(
+      `<span style="color:#404040;font-weight:400">ab</span>`
+      + `<span style="color:#424040;font-weight:500">cd</span>`,
+    );
+  });
+});
+
+// COLOR-TOLERANCE.md Phase 2, interaction 1 (`charMode: "halfblock"` /
+// `"quadrant"`): both use `encodeGlyphBuffersDual`, whose run key is TWO
+// independent colors (`fg`/`bg`). Measured against a REAL rendered scene (a
+// smooth-shaded icosphere through the real `rasterize()` +
+// `charMode: "halfblock"`/`"quadrant"` pipeline, 140x50 grid, per-cell
+// buffers losslessly reconstructed from the real HTML output and re-encoded
+// through this same encoder at rising tolerance): requiring BOTH channels to
+// hold makes the win smaller than the single-color path (1.5x-2.2x span
+// reduction at tolerance 32-128, vs. 1.6x-31x for `encodeGlyphBuffers`), but
+// it is real and never zero — so this ships rather than being a documented
+// no-op, unlike interaction 2 below.
+describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase 2)", () => {
+  function spanCount(html: string): number {
+    return (html.match(/<span /g) ?? []).length;
+  }
+
+  it("colorTolerance: 0 is byte-identical to omitting the parameter", () => {
+    const char = ["▀", "▀", "█", " ", "▄"];
+    const fg: (string | null)[] = ["#ff0000", "#ff1000", "#123456", null, "#00ff00"];
+    const bg: (string | null)[] = ["#0000ff", "#0000ee", null, null, null];
+    const omitted = encodeGlyphBuffersDual(char, fg, bg, 5, 1, true);
+    const explicitZero = encodeGlyphBuffersDual(char, fg, bg, 5, 1, true, 0);
+    expect(explicitZero).toBe(omitted);
+    // Near-but-distinct fg (redmean ~16) confirms 0 keeps exact-match only —
+    // it would merge under any real tolerance.
+    expect(spanCount(omitted)).toBe(4);
+  });
+
+  it("requires BOTH fg and bg within tolerance independently — fg-only or bg-only proximity never merges", () => {
+    // Cell 0/1: fg identical, bg far apart (redmean > 400) -> must NOT merge
+    // even at a generous tolerance.
+    // Cell 2/3: bg identical, fg far apart -> must NOT merge either.
+    const char = ["a", "b", "c", "d"];
+    const fg: (string | null)[] = ["#000000", "#000000", "#000000", "#ffffff"];
+    const bg: (string | null)[] = ["#000000", "#ffffff", "#000000", "#000000"];
+    const out = encodeGlyphBuffersDual(char, fg, bg, 4, 1, true, 100);
+    expect(spanCount(out)).toBe(4);
+  });
+
+  it("merges when BOTH fg and bg are within tolerance of the run anchor", () => {
+    const char = ["a", "b", "c"];
+    const fg: (string | null)[] = ["#404040", "#414040", "#424040"];
+    const bg: (string | null)[] = ["#101010", "#111010", "#121010"];
+    const out = encodeGlyphBuffersDual(char, fg, bg, 3, 1, true, 40);
+    expect(out).toBe(`<span style="color:#404040;background-color:#101010">abc</span>`);
+  });
+
+  it("never merges a covered cell into an uncovered (null) neighbor regardless of tolerance", () => {
+    const char = ["▀", " ", "▀"];
+    const fg: (string | null)[] = ["#404040", null, "#414040"];
+    const bg: (string | null)[] = [null, null, null];
+    const out = encodeGlyphBuffersDual(char, fg, bg, 3, 1, true, 765);
+    expect(out).toBe(
+      `<span style="color:#404040">▀</span>` + " " + `<span style="color:#414040">▀</span>`,
+    );
+  });
+
+  // Real-scene measurement (see the describe-block comment above): a smooth
+  // icosphere rendered through the real halfblock pipeline, per-cell fg/bg
+  // reconstructed losslessly from the real (tolerance-0) HTML output, then
+  // re-encoded through this same encoder at rising tolerance. Pinned here as
+  // a smaller synthetic stand-in with the same qualitative shape (smoothly
+  // drifting fg alongside a smoothly drifting bg) so the real span-reduction
+  // claim has a regression test, without shipping the full bench harness.
+  it("span count is non-increasing as colorTolerance rises on a smoothly-varying two-channel grid (measured shape, not a general guarantee)", () => {
+    const cols = 64;
+    const char: string[] = [];
+    const fg: (string | null)[] = [];
+    const bg: (string | null)[] = [];
+    for (let col = 0; col < cols; col++) {
+      const t = col / (cols - 1);
+      const fr = Math.round(40 + t * 180);
+      const br = Math.round(180 - t * 140);
+      char.push("▀");
+      fg.push(`#${[fr, 80, 90].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+      bg.push(`#${[br, 60, 70].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+    }
+    const tolerances = [0, 8, 16, 32, 64, 128];
+    const spanCounts = tolerances.map((t) => spanCount(encodeGlyphBuffersDual(char, fg, bg, cols, 1, true, t)));
+    for (let i = 1; i < spanCounts.length; i++) {
+      expect(spanCounts[i]!).toBeLessThanOrEqual(spanCounts[i - 1]!);
+    }
+    expect(spanCounts[spanCounts.length - 1]!).toBeLessThan(spanCounts[0]!);
+  });
+
+  it("bounds withinColorTolerance calls by the pre-merge span count, not the cell count", () => {
+    const cols = 64;
+    const char: string[] = [];
+    const fg: (string | null)[] = [];
+    const bg: (string | null)[] = [];
+    for (let col = 0; col < cols; col++) {
+      const t = col / (cols - 1);
+      const fr = Math.round(40 + t * 180);
+      char.push("▀");
+      fg.push(`#${[fr, 80, 90].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+      bg.push("#101010");
+    }
+    const preMergeSpanCount = spanCount(encodeGlyphBuffersDual(char, fg, bg, cols, 1, true, 0));
+
+    resetGlyphColorToleranceCallCountForTests();
+    encodeGlyphBuffersDual(char, fg, bg, cols, 1, true, 20);
+    const callCount = getGlyphColorToleranceCallCountForTests();
+
+    expect(callCount).toBeGreaterThan(0);
+    expect(callCount).toBeLessThanOrEqual(preMergeSpanCount * 2); // fg + bg checked independently
+    expect(callCount).toBeLessThan(cols * 2);
+  });
 });
