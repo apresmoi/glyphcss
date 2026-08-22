@@ -12,6 +12,26 @@ import {
   type CellGrid,
 } from "./cells";
 
+/** Independent redmean re-implementation for bounded-error assertions —
+ * deliberately not the internal helper, so a test doesn't validate the
+ * implementation against itself. Shared by the single-color (Phase 1) and
+ * dual-color (Phase 2) `colorTolerance` suites below. */
+function redmeanDistance(hexA: string, hexB: string): number {
+  const a = parseInt(hexA.slice(1), 16);
+  const b = parseInt(hexB.slice(1), 16);
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const br = (b >> 16) & 0xff;
+  const bg = (b >> 8) & 0xff;
+  const bb = b & 0xff;
+  const rm = (ar + br) / 2;
+  const dr = ar - br;
+  const dg = ag - bg;
+  const db = ab - bb;
+  return Math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db);
+}
+
 // B7 spike: font-weight is an opt-in per-cell buffer threaded alongside the
 // existing color buffer, so a weight-bearing span composes with color
 // without ever changing default (no-weight) output.
@@ -239,25 +259,6 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
       }
     }
     return { char, color, cols: COLS, rows: ROWS };
-  }
-
-  /** Independent redmean re-implementation for the bounded-error assertion —
-   * deliberately not the internal helper, so the test doesn't validate the
-   * implementation against itself. */
-  function redmeanDistance(hexA: string, hexB: string): number {
-    const a = parseInt(hexA.slice(1), 16);
-    const b = parseInt(hexB.slice(1), 16);
-    const ar = (a >> 16) & 0xff;
-    const ag = (a >> 8) & 0xff;
-    const ab = a & 0xff;
-    const br = (b >> 16) & 0xff;
-    const bg = (b >> 8) & 0xff;
-    const bb = b & 0xff;
-    const rm = (ar + br) / 2;
-    const dr = ar - br;
-    const dg = ag - bg;
-    const db = ab - bb;
-    return Math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db);
   }
 
   /** Reconstruct one decoded color (or `null`) per grid cell, in row-major
@@ -489,6 +490,48 @@ describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase
     return (html.match(/<span /g) ?? []).length;
   }
 
+  /** Reconstruct one decoded `{fg, bg}` pair per grid cell, in row-major
+   * order, from an `encodeGlyphBuffersDual` HTML string — the two-channel
+   * sibling of the Phase 1 suite's `decodeSpanColors`, independent of the
+   * encoder's own run/span structure. */
+  function decodeDualSpanColors(html: string): { fg: string | null; bg: string | null }[] {
+    const out: { fg: string | null; bg: string | null }[] = [];
+    const re = /<span style="([^"]*)">([^<]*)<\/span>|([^<\n]+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(html)) !== null) {
+      if (match[1] !== undefined) {
+        const style = match[1]!;
+        const fgMatch = style.match(/(?<!background-)color:(#[0-9a-fA-F]{6})/);
+        const bgMatch = style.match(/background-color:(#[0-9a-fA-F]{6})/);
+        const fg = fgMatch ? fgMatch[1]! : null;
+        const bg = bgMatch ? bgMatch[1]! : null;
+        for (let i = 0; i < match[2]!.length; i++) out.push({ fg, bg });
+      } else if (match[3] !== undefined) {
+        for (let i = 0; i < match[3].length; i++) out.push({ fg: null, bg: null });
+      }
+    }
+    return out;
+  }
+
+  /** The smooth 64-cell two-channel row shared by the monotonicity and
+   * bounded-error tests below — fg and bg drift in OPPOSITE directions so
+   * neither channel is a scaled copy of the other. */
+  function buildDualSmoothGrid(): { char: string[]; fg: (string | null)[]; bg: (string | null)[]; cols: number } {
+    const cols = 64;
+    const char: string[] = [];
+    const fg: (string | null)[] = [];
+    const bg: (string | null)[] = [];
+    for (let col = 0; col < cols; col++) {
+      const t = col / (cols - 1);
+      const fr = Math.round(40 + t * 180);
+      const br = Math.round(180 - t * 140);
+      char.push("▀");
+      fg.push(`#${[fr, 80, 90].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+      bg.push(`#${[br, 60, 70].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+    }
+    return { char, fg, bg, cols };
+  }
+
   it("colorTolerance: 0 is byte-identical to omitting the parameter", () => {
     const char = ["▀", "▀", "█", " ", "▄"];
     const fg: (string | null)[] = ["#ff0000", "#ff1000", "#123456", null, "#00ff00"];
@@ -496,8 +539,21 @@ describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase
     const omitted = encodeGlyphBuffersDual(char, fg, bg, 5, 1, true);
     const explicitZero = encodeGlyphBuffersDual(char, fg, bg, 5, 1, true, 0);
     expect(explicitZero).toBe(omitted);
-    // Near-but-distinct fg (redmean ~16) confirms 0 keeps exact-match only —
-    // it would merge under any real tolerance.
+
+    // Meaningful beyond a span-count smoke check (P3, COLOR-TOLERANCE.md
+    // review): near-but-distinct fg (redmean ~16, cells 0/1) stays unmerged,
+    // and every decoded cell matches its true input color exactly — a
+    // spanCount-only assertion can't distinguish "nothing merged" from a
+    // different also-4-span merge pattern, but a full per-cell truth match
+    // can.
+    const decoded = decodeDualSpanColors(omitted);
+    expect(decoded).toEqual([
+      { fg: "#ff0000", bg: "#0000ff" },
+      { fg: "#ff1000", bg: "#0000ee" },
+      { fg: "#123456", bg: null },
+      { fg: null, bg: null },
+      { fg: "#00ff00", bg: null },
+    ]);
     expect(spanCount(omitted)).toBe(4);
   });
 
@@ -538,24 +594,88 @@ describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase
   // drifting fg alongside a smoothly drifting bg) so the real span-reduction
   // claim has a regression test, without shipping the full bench harness.
   it("span count is non-increasing as colorTolerance rises on a smoothly-varying two-channel grid (measured shape, not a general guarantee)", () => {
-    const cols = 64;
-    const char: string[] = [];
-    const fg: (string | null)[] = [];
-    const bg: (string | null)[] = [];
-    for (let col = 0; col < cols; col++) {
-      const t = col / (cols - 1);
-      const fr = Math.round(40 + t * 180);
-      const br = Math.round(180 - t * 140);
-      char.push("▀");
-      fg.push(`#${[fr, 80, 90].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
-      bg.push(`#${[br, 60, 70].map((v) => v.toString(16).padStart(2, "0")).join("")}`);
-    }
+    const { char, fg, bg, cols } = buildDualSmoothGrid();
     const tolerances = [0, 8, 16, 32, 64, 128];
     const spanCounts = tolerances.map((t) => spanCount(encodeGlyphBuffersDual(char, fg, bg, cols, 1, true, t)));
     for (let i = 1; i < spanCounts.length; i++) {
       expect(spanCounts[i]!).toBeLessThanOrEqual(spanCounts[i - 1]!);
     }
     expect(spanCounts[spanCounts.length - 1]!).toBeLessThan(spanCounts[0]!);
+  });
+
+  // P2 (blocking), COLOR-TOLERANCE.md review: `encodeGlyphBuffersDual` had NO
+  // bounded-error test at all. Mutation-verified against the exact bug Phase
+  // 1 already caught once on the single-color path — comparing each channel
+  // against the PREVIOUS cell (`prevFg`/`prevBg`) while still emitting the
+  // anchor's color — reintroduced here and confirmed to pass every other
+  // test in this file (585) while collapsing this fixture to 1 span with fg
+  // error 285.05 (35x the tolerance-8 bound); the anchor-correct
+  // implementation gives 7.91 / 31 spans. Both channels are checked
+  // independently since a per-channel bug (e.g. only fg using the wrong
+  // reference) would otherwise hide behind a passing bg channel.
+  it("no cell's output fg/bg colour differs from its true colour by more than colorTolerance (redmean)", () => {
+    const { char, fg, bg, cols } = buildDualSmoothGrid();
+    const tolerance = 8;
+    const out = encodeGlyphBuffersDual(char, fg, bg, cols, 1, true, tolerance);
+    const decoded = decodeDualSpanColors(out);
+    expect(decoded.length).toBe(cols);
+
+    let maxFgError = 0;
+    let maxBgError = 0;
+    let mergedSomeCell = false;
+    for (let i = 0; i < cols; i++) {
+      expect(decoded[i]!.fg).not.toBeNull();
+      expect(decoded[i]!.bg).not.toBeNull();
+      const fgError = redmeanDistance(fg[i]!, decoded[i]!.fg!);
+      const bgError = redmeanDistance(bg[i]!, decoded[i]!.bg!);
+      maxFgError = Math.max(maxFgError, fgError);
+      maxBgError = Math.max(maxBgError, bgError);
+      expect(fgError).toBeLessThanOrEqual(tolerance + 1e-6);
+      expect(bgError).toBeLessThanOrEqual(tolerance + 1e-6);
+      if (decoded[i]!.fg !== fg[i] || decoded[i]!.bg !== bg[i]) mergedSomeCell = true;
+    }
+    // Meaningful, not a vacuous pass: the tolerance actually merged some
+    // cells (pinned reviewer numbers — see comment above), and the row
+    // doesn't collapse into one giant out-of-bounds run.
+    expect(mergedSomeCell).toBe(true);
+    expect(spanCount(out)).toBe(31);
+    expect(maxFgError).toBeCloseTo(7.91, 1);
+    expect(maxBgError).toBeCloseTo(7.90, 1);
+  });
+
+  // Finding 3 (COLOR-TOLERANCE.md review, Phase 2): mirrors Phase 1's own
+  // Finding 3 for the dual encoder. The `colorTolerance > 0` guard
+  // (cells.ts:600-601) must gate BOTH the tolerance machinery's allocation
+  // (the per-call `Map` cache) and whether a numerically-identical but
+  // string-distinct color (case-variant hex) can merge — independently on
+  // fg AND bg. Mutating either guard to `>= 0` passes the entire 593-test
+  // run but lets a redmean-0, string-distinct fg or bg pair merge at the
+  // nominally-off tolerance, and allocates a `Map` on every default-path
+  // halfblock/quadrant render.
+  it("colorTolerance 0 (default/off) never engages the tolerance machinery on either channel: case-variant hex fg/bg stay distinct spans and cost zero parses", () => {
+    const char = ["a", "b"];
+
+    // fg case-variant (redmean 0), bg string-identical -> must stay 2 spans.
+    const fgCaseVariant: (string | null)[] = ["#AABBCC", "#aabbcc"];
+    const bgSame: (string | null)[] = ["#112233", "#112233"];
+    const expectedFgCase =
+      `<span style="color:#AABBCC;background-color:#112233">a</span>`
+      + `<span style="color:#aabbcc;background-color:#112233">b</span>`;
+    resetGlyphColorParseCountForTests();
+    expect(encodeGlyphBuffersDual(char, fgCaseVariant, bgSame, 2, 1, true)).toBe(expectedFgCase);
+    expect(encodeGlyphBuffersDual(char, fgCaseVariant, bgSame, 2, 1, true, 0)).toBe(expectedFgCase);
+    expect(getGlyphColorParseCountForTests()).toBe(0);
+
+    // bg case-variant (redmean 0), fg string-identical -> must stay 2 spans.
+    const fgSame: (string | null)[] = ["#112233", "#112233"];
+    const bgCaseVariant: (string | null)[] = ["#AABBCC", "#aabbcc"];
+    const expectedBgCase =
+      `<span style="color:#112233;background-color:#AABBCC">a</span>`
+      + `<span style="color:#112233;background-color:#aabbcc">b</span>`;
+    resetGlyphColorParseCountForTests();
+    expect(encodeGlyphBuffersDual(char, fgSame, bgCaseVariant, 2, 1, true)).toBe(expectedBgCase);
+    expect(encodeGlyphBuffersDual(char, fgSame, bgCaseVariant, 2, 1, true, 0)).toBe(expectedBgCase);
+    expect(getGlyphColorParseCountForTests()).toBe(0);
   });
 
   it("bounds withinColorTolerance calls by the pre-merge span count, not the cell count", () => {

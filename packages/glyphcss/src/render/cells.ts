@@ -436,6 +436,29 @@ function withinColorTolerance(
 }
 
 /**
+ * Shared run-extension test for every `colorTolerance`-aware encoder: exact
+ * string equality always extends a run; otherwise only a live cache
+ * (`colorTolerance > 0`, i.e. `cache !== null`) and two non-null colors can
+ * extend it, via {@link withinColorTolerance}. `encodeGlyphBuffers` and
+ * {@link encodeGlyphBuffersDual} both call this directly (once, resp. twice
+ * per cell for the independent fg/bg channels); `rasterize.ts`'s unsafe
+ * default-path coalescer (`solidBufToString`, COLOR-TOLERANCE.md review
+ * Finding 5) imports it too, so its `colorTolerance` behavior can't silently
+ * drift out of sync with either encoder's — one comparison rule, three
+ * call sites.
+ */
+export function colorRunExtends(
+  cache: Map<string, number> | null,
+  tolerance2: number,
+  runColor: string | null,
+  nextColor: string | null,
+): boolean {
+  if (nextColor === runColor) return true;
+  if (!cache || nextColor === null || runColor === null) return false;
+  return withinColorTolerance(cache, tolerance2, runColor, nextColor);
+}
+
+/**
  * Encode final cell buffers for a `<pre>`. Colored output is HTML-escaped and
  * accepts only canonical hex colors; plain output is suitable for textContent.
  */
@@ -522,10 +545,7 @@ export function encodeGlyphBuffers(
       if (useColors) assertColor(nextColor, index);
       const nextWeight = useColors && glyph !== " " && weight ? weight[index]! : 0;
       if (useColors && weight) assertWeight(nextWeight, index);
-      let extendsColorRun = nextColor === runColor;
-      if (!extendsColorRun && colorPackCache && nextColor !== null && runColor !== null) {
-        extendsColorRun = withinColorTolerance(colorPackCache, tolerance2, runColor, nextColor);
-      }
+      const extendsColorRun = colorRunExtends(colorPackCache, tolerance2, runColor, nextColor);
       if (!extendsColorRun || nextWeight !== runWeight) {
         flushRun();
         runColor = nextColor;
@@ -569,16 +589,19 @@ export function encodeCellGrid(grid: CellGrid, useColors = true): string {
  * tolerance of the run's `fg` anchor AND its true `bg` is within tolerance of
  * the run's `bg` anchor (redmean distance, compared squared). Requiring BOTH
  * channels to hold is strictly harder than the single-color case, so the win
- * is smaller — measured 1.5x-2.2x span reduction at tolerance 32-128 on a
- * smooth-shaded icosphere rendered through the real `charMode: "halfblock"`/
- * `"quadrant"` pipeline, per-cell buffers reconstructed losslessly from the
- * real HTML output, vs. the single-color path's 1.6x-31x range in
- * COLOR-TOLERANCE.md's own table — but it is real on every scene measured
- * (never zero), so it ships rather than being a documented no-op. `null`
- * only ever matches `null` (an empty/half-covered subcell can't tolerance-
- * merge into a covered one, exactly like
- * {@link encodeGlyphBuffers}'s own blank-cell reset), and the `===` fast path
- * (both channels reference-equal) never parses.
+ * is smaller than {@link encodeGlyphBuffers}'s own 1.6x-31x range in
+ * COLOR-TOLERANCE.md's table — measured independently at 140x50 through the
+ * real `rasterize()` + `charMode` pipeline at tolerance 32/128: **halfblock**
+ * 1.59x/1.85x on a smooth-shaded icosphere but only 1.00x/1.28x on a flat
+ * per-face cube; **quadrant** 1.39x/1.62x on the icosphere but 1.01x/1.04x on
+ * the cube. Like the single-color path, an already-flat scene gains nothing
+ * at low tolerance and does not regress — it is NOT "real on every scene
+ * measured", so treat this the same as `colorTolerance`'s general "small or
+ * zero on already-flat content" caveat, not as a guaranteed win. `null` only
+ * ever matches `null` (an empty/half-covered subcell can't tolerance-merge
+ * into a covered one, exactly like {@link encodeGlyphBuffers}'s own
+ * blank-cell reset), and the `===` fast path (both channels reference-equal)
+ * never parses.
  */
 export function encodeGlyphBuffersDual(
   char: readonly string[],
@@ -599,11 +622,6 @@ export function encodeGlyphBuffersDual(
 
   const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
   const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
-  const channelExtends = (runColor: string | null, nextColor: string | null): boolean => {
-    if (nextColor === runColor) return true;
-    if (!colorPackCache || nextColor === null || runColor === null) return false;
-    return withinColorTolerance(colorPackCache, tolerance2, runColor, nextColor);
-  };
 
   const parts: string[] = [];
   let runFg: string | null = null;
@@ -636,7 +654,9 @@ export function encodeGlyphBuffersDual(
         assertColor(nextFg, index);
         assertColor(nextBg, index);
       }
-      const extendsRun = channelExtends(runFg, nextFg) && channelExtends(runBg, nextBg);
+      const extendsRun =
+        colorRunExtends(colorPackCache, tolerance2, runFg, nextFg)
+        && colorRunExtends(colorPackCache, tolerance2, runBg, nextBg);
       if (!extendsRun) {
         flushRun();
         runFg = nextFg;
