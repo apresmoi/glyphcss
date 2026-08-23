@@ -1466,6 +1466,88 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
   );
 }
 
+// ── Editable slider readout ───────────────────────────────────────────────
+/**
+ * The `<b>` value column beside every `.voice-slider` track, made
+ * type-to-set — the ONE place this renders, shared by every geometry-voice,
+ * colour-voice, palette, and layer-group row that uses `.voice-slider`'s
+ * shape (call sites just swap in this component for their old `<b>…</b>`).
+ * Several values here are effectively unreachable by dragging: the shipped
+ * Menger recipe depends on `duty: 0.333`/`phase: -0.333`, and `freq` runs
+ * through a TAPERED dial (`freqToSlider`/`freqFromSlider` above), so slider
+ * position isn't linear in the value at all.
+ *
+ * `input[type="text"]`, not `type="number"` — spinners fight this page's
+ * aesthetic and native `number` brings step/locale quirks; the Dock's own
+ * `LogSliderRow` text input above already set this precedent on this page.
+ *
+ * `value`/`min`/`max` are always the REAL param value/range. For the
+ * tapered freq row that means `[0, FREQ_MAX]` (or `CFREQ_MAX`), never the
+ * `[0, 1]` slider-POSITION range the `<input type="range">` itself uses —
+ * a typed number commits straight to the real param via `onCommit`,
+ * bypassing `freqToSlider`/`freqFromSlider` entirely (those only shape
+ * where the DRAG handle sits; the range `<input>`'s own `value=` already
+ * re-derives its position from the real param on every render, so typing
+ * a new real value moves the handle for free).
+ *
+ * Local `draft` state holds the in-progress text only while focused — the
+ * live param can be animating underneath (e.g. a nonzero `speed`), and
+ * rendering `value={draft ?? format(value)}` means the field only ever
+ * reads the live prop while UNfocused, so a re-render mid-typing can't
+ * clobber keystrokes. Enter or blur commits (clamped to `[min, max]`,
+ * rounded when `integer`); an unparseable or empty entry reverts instead of
+ * committing `NaN`. Escape reverts too, via a synchronous ref flag: calling
+ * `.blur()` from the keydown handler fires the blur handler SYNCHRONOUSLY,
+ * before React has applied any `setDraft` from this same handler, so a
+ * plain state flag can't distinguish "cancel" from "commit" inside that one
+ * shared blur handler — a ref can, since ref writes are immediate.
+ */
+export function EditableReadout({ value, min, max, format, onCommit, integer = false, disabled = false }: {
+  value: number;
+  min: number;
+  max: number;
+  /** Formats the live value for display while unfocused — keep each call
+   *  site's existing precision/units (e.g. angle's trailing `°`). */
+  format: (v: number) => string;
+  onCommit: (next: number) => void;
+  /** Rounds a committed value to the nearest integer (e.g. `iter`). */
+  integer?: boolean;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
+  const commit = (raw: string) => {
+    const parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed)) {
+      const clamped = Math.min(max, Math.max(min, parsed));
+      onCommit(integer ? Math.round(clamped) : clamped);
+    }
+    setDraft(null);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className="voice-slider-readout"
+      disabled={disabled}
+      value={draft ?? format(value)}
+      onFocus={() => setDraft(format(value))}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (cancelledRef.current) { cancelledRef.current = false; setDraft(null); return; }
+        commit(draft ?? format(value));
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          (e.target as HTMLInputElement).blur();
+        } else if (e.key === "Escape") {
+          cancelledRef.current = true;
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+}
 
 /**
  * A voice's `angle` and origin live nowhere in its waveform — a 1D trace has no
@@ -1753,12 +1835,12 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         </div>
         <IconToggle groupTitle="Wave — the oscillator shape sampled across this voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
         <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={volumetric ? FIELD_TOGGLE_3D : FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
-        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), FREQ_MAX)} style={fill(freqToSlider(num("freq"), FREQ_MAX), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, FREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
-        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
-        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>}
-        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction. 0.5 (default) is an even on/off split; a smaller value selects a narrower high band (e.g. 1/3 for a middle-third selector)."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`duty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
-        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice. For a menger/sierpinski voice, phase is an ISO-LEVEL offset instead — it erodes/dilates the solid, not a translation."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>}
-        {isSdfIterField(f("field")) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal. Capped at 4: carve/xray's march resolution caps at 256 steps, and iteration 5 would need ~486 and render guaranteed false holes."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`iter${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), FREQ_MAX)} style={fill(freqToSlider(num("freq"), FREQ_MAX), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, FREQ_MAX))} /></span><EditableReadout value={num("freq")} min={0} max={FREQ_MAX} format={(v) => (v < 2 ? v.toFixed(2) : v.toFixed(1))} onCommit={(v) => onParam(`freq${slot}`, v)} /></label>
+        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><EditableReadout value={num("speed")} min={-8} max={8} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`speed${slot}`, v)} /></label>
+        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><EditableReadout value={num("amp")} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`amp${slot}`, v)} /></label>}
+        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction. 0.5 (default) is an even on/off split; a smaller value selects a narrower high band (e.g. 1/3 for a middle-third selector)."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`duty${slot}`, +e.target.value)} /></span><EditableReadout value={num("duty")} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`duty${slot}`, v)} /></label>}
+        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles. Shifts the wave itself, unlike Origin U/V (which linear fields ignore entirely) — the only way to phase-shift a linear voice. For a menger/sierpinski voice, phase is an ISO-LEVEL offset instead — it erodes/dilates the solid, not a translation."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`phase${slot}`, +e.target.value)} /></span><EditableReadout value={num("phase")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`phase${slot}`, v)} /></label>}
+        {isSdfIterField(f("field")) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal. Capped at 4: carve/xray's march resolution caps at 256 steps, and iteration 5 would need ~486 and render guaranteed false holes."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`iter${slot}`, +e.target.value)} /></span><EditableReadout value={num("iter")} min={1} max={4} integer format={(v) => String(v)} onCommit={(v) => onParam(`iter${slot}`, v)} /></label>}
         {showAdvanced && (
           <div className="voice-layer-row" title="Layer — which of up to 3 groups this voice folds into before layers combine. All voices default to layer 1, which folds exactly like today's flat mix.">
             <span className="voice-layer-label">layer</span>
@@ -1779,10 +1861,10 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
           <div className="voice-placement">
             <VoiceFieldMap params={params} slot={slot} />
             <div className="voice-placement-rows">
-        {angleApplies(f("field")) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
-        <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
-        <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
-        {(volumetric || isSdfField(f("field"))) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis. No effect on a 2D linear/angular/radial/noise field, but an SDF voice (gyroid/menger/sierpinski) reads it even in 2D — the field is evaluated as a z=0 slice, and Origin W moves that slice through the volume."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`originW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
+        {angleApplies(f("field")) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><EditableReadout value={num("angle")} min={-180} max={180} format={(v) => `${v.toFixed(0)}°`} onCommit={(v) => onParam(`angle${slot}`, v)} /></label>}
+        <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><EditableReadout value={num("originU")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`originU${slot}`, v)} /></label>
+        <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><EditableReadout value={num("originV")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`originV${slot}`, v)} /></label>
+        {(volumetric || isSdfField(f("field"))) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis. No effect on a 2D linear/angular/radial/noise field, but an SDF voice (gyroid/menger/sierpinski) reads it even in 2D — the field is evaluated as a z=0 slice, and Origin W moves that slice through the volume."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`originW${slot}`, +e.target.value)} /></span><EditableReadout value={num("originW")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`originW${slot}`, v)} /></label>}
             </div>
           </div>
         )}
@@ -1968,12 +2050,12 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
           value={field}
           onChange={(v) => onParam(`cfield${slot}`, v)}
         />
-        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), CFREQ_MAX)} style={fill(freqToSlider(num("freq"), CFREQ_MAX), 0, 1)} onChange={(e) => onParam(`cfreq${slot}`, freqFromSlider(+e.target.value, CFREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
-        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`cspeed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
-        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running colour-stack result toward combine(result, this voice) by this amount. 0 skips the voice entirely."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`camp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>}
-        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`cduty${slot}`, +e.target.value)} /></span><b>{num("duty").toFixed(2)}</b></label>}
-        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`cphase${slot}`, +e.target.value)} /></span><b>{num("phase").toFixed(2)}</b></label>}
-        {isSdfIterField(field) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`citer${slot}`, +e.target.value)} /></span><b>{num("iter")}</b></label>}
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), CFREQ_MAX)} style={fill(freqToSlider(num("freq"), CFREQ_MAX), 0, 1)} onChange={(e) => onParam(`cfreq${slot}`, freqFromSlider(+e.target.value, CFREQ_MAX))} /></span><EditableReadout value={num("freq")} min={0} max={CFREQ_MAX} format={(v) => (v < 2 ? v.toFixed(2) : v.toFixed(1))} onCommit={(v) => onParam(`cfreq${slot}`, v)} /></label>
+        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`cspeed${slot}`, +e.target.value)} /></span><EditableReadout value={num("speed")} min={-8} max={8} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`cspeed${slot}`, v)} /></label>
+        {showAdvanced && <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running colour-stack result toward combine(result, this voice) by this amount. 0 skips the voice entirely."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`camp${slot}`, +e.target.value)} /></span><EditableReadout value={num("amp")} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`camp${slot}`, v)} /></label>}
+        {f("wave") === "square" && <label className="voice-slider" title="Duty — the square wave's high fraction."><span>duty</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.01} value={num("duty")} style={fill(num("duty"), 0, 1)} onChange={(e) => onParam(`cduty${slot}`, +e.target.value)} /></span><EditableReadout value={num("duty")} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`cduty${slot}`, v)} /></label>}
+        {showAdvanced && <label className="voice-slider" title="Phase — added to this voice's wave argument, in cycles."><span>phase</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("phase")} style={fill(num("phase"), -1, 1)} onChange={(e) => onParam(`cphase${slot}`, +e.target.value)} /></span><EditableReadout value={num("phase")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`cphase${slot}`, v)} /></label>}
+        {isSdfIterField(field) && <label className="voice-slider" title="Iterations — recursion depth of the box (menger) / corner-tetra (sierpinski) fractal."><span>iter</span><span className="voice-slider-track"><input type="range" min={1} max={4} step={1} value={num("iter")} style={fill(num("iter"), 1, 4)} onChange={(e) => onParam(`citer${slot}`, +e.target.value)} /></span><EditableReadout value={num("iter")} min={1} max={4} integer format={(v) => String(v)} onCommit={(v) => onParam(`citer${slot}`, v)} /></label>}
         {showAdvanced && canPlace && (
           <button
             type="button"
@@ -1988,10 +2070,10 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
           <div className="voice-placement">
             <VoiceFieldMap params={params} slot={slot} keyPrefix="c" fallbackColor={COLOR_VOICE_ACCENT} />
             <div className="voice-placement-rows">
-              {angleApplies(field) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`cangle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
-              <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`coriginU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
-              <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`coriginV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
-              {(volumetric || isSdfField(field)) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`coriginW${slot}`, +e.target.value)} /></span><b>{num("originW").toFixed(2)}</b></label>}
+              {angleApplies(field) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`cangle${slot}`, +e.target.value)} /></span><EditableReadout value={num("angle")} min={-180} max={180} format={(v) => `${v.toFixed(0)}°`} onCommit={(v) => onParam(`cangle${slot}`, v)} /></label>}
+              <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`coriginU${slot}`, +e.target.value)} /></span><EditableReadout value={num("originU")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`coriginU${slot}`, v)} /></label>
+              <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`coriginV${slot}`, +e.target.value)} /></span><EditableReadout value={num("originV")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`coriginV${slot}`, v)} /></label>
+              {(volumetric || isSdfField(field)) && <label className="voice-slider" title="Origin W — as Origin U/V, on the third (depth) axis."><span>w</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originW")} style={fill(num("originW"), -1, 1)} onChange={(e) => onParam(`coriginW${slot}`, +e.target.value)} /></span><EditableReadout value={num("originW")} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`coriginW${slot}`, v)} /></label>}
             </div>
           </div>
         )}
@@ -2164,7 +2246,7 @@ export function ColorStackSection({ params, onParam, stageShape }: {
                 <label className="voice-slider" title="Gradient — interpolation position between Color and Color B.">
                   <span>grad</span>
                   <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={Number(params.gradient ?? 0)} style={fill(Number(params.gradient ?? 0), 0, 1)} onChange={(e) => onParam("gradient", +e.target.value)} /></span>
-                  <b>{Number(params.gradient ?? 0).toFixed(2)}</b>
+                  <EditableReadout value={Number(params.gradient ?? 0)} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam("gradient", v)} />
                 </label>
               </>
             )}
@@ -2173,22 +2255,22 @@ export function ColorStackSection({ params, onParam, stageShape }: {
                 <label className="voice-slider" title="Hue offset — rotates the hue wheel, in cycles (a whole-wheel rotation is 1 regardless of Hue range).">
                   <span>hue</span>
                   <span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={Number(params.hueOffset ?? 0)} style={fill(Number(params.hueOffset ?? 0), -1, 1)} onChange={(e) => onParam("hueOffset", +e.target.value)} /></span>
-                  <b>{Number(params.hueOffset ?? 0).toFixed(2)}</b>
+                  <EditableReadout value={Number(params.hueOffset ?? 0)} min={-1} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam("hueOffset", v)} />
                 </label>
                 <label className="voice-slider" title="Hue range — how much of the wheel the sweep covers, in degrees.">
                   <span>range</span>
                   <span className="voice-slider-track"><input type="range" min={0} max={360} step={1} value={Number(params.hueRange ?? 360)} style={fill(Number(params.hueRange ?? 360), 0, 360)} onChange={(e) => onParam("hueRange", +e.target.value)} /></span>
-                  <b>{Number(params.hueRange ?? 360).toFixed(0)}°</b>
+                  <EditableReadout value={Number(params.hueRange ?? 360)} min={0} max={360} format={(v) => `${v.toFixed(0)}°`} onCommit={(v) => onParam("hueRange", v)} />
                 </label>
                 <label className="voice-slider" title="Hue saturation — fixed saturation for every hue in the sweep.">
                   <span>sat</span>
                   <span className="voice-slider-track"><input type="range" min={0} max={100} step={1} value={Number(params.hueSat ?? 70)} style={fill(Number(params.hueSat ?? 70), 0, 100)} onChange={(e) => onParam("hueSat", +e.target.value)} /></span>
-                  <b>{Number(params.hueSat ?? 70).toFixed(0)}%</b>
+                  <EditableReadout value={Number(params.hueSat ?? 70)} min={0} max={100} format={(v) => `${v.toFixed(0)}%`} onCommit={(v) => onParam("hueSat", v)} />
                 </label>
                 <label className="voice-slider" title="Hue lightness — fixed lightness for every hue in the sweep.">
                   <span>light</span>
                   <span className="voice-slider-track"><input type="range" min={0} max={100} step={1} value={Number(params.hueLight ?? 55)} style={fill(Number(params.hueLight ?? 55), 0, 100)} onChange={(e) => onParam("hueLight", +e.target.value)} /></span>
-                  <b>{Number(params.hueLight ?? 55).toFixed(0)}%</b>
+                  <EditableReadout value={Number(params.hueLight ?? 55)} min={0} max={100} format={(v) => `${v.toFixed(0)}%`} onCommit={(v) => onParam("hueLight", v)} />
                 </label>
               </>
             )}
@@ -2454,7 +2536,7 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
               <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
                 <span>mix</span>
                 <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
-                <b>{n("layerAmp").toFixed(2)}</b>
+                <EditableReadout value={n("layerAmp")} min={0} max={1} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`layerAmp${layer}`, v)} />
               </label>
             </div>
             {/* Stable row — the slider is always mounted (user report: toggling
@@ -2472,7 +2554,7 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
                 title="Threshold value — the level the layer's combined value is cut against. A thresholded layer's folded value maps to ±1, so this range spans the ±1 signal's usable extent. Only active while the checkbox is on."
               >
                 <span className="voice-slider-track"><input type="range" min={-3} max={3} step={0.05} disabled={!thresholdOn} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} /></span>
-                <b>{n("layerThreshold").toFixed(2)}</b>
+                <EditableReadout value={n("layerThreshold")} min={-3} max={3} disabled={!thresholdOn} format={(v) => v.toFixed(2)} onCommit={(v) => onParam(`layerThreshold${layer}`, v)} />
               </label>
             </div>
           </div>

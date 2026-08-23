@@ -507,11 +507,35 @@
    for the source of truth these values are copied from. */
 .voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 11px; }
 .voice-slider span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
-.voice-slider b {
+/* The value readout is a real `input[type="text"]` now (EditableReadout in
+   synthKit.tsx), not a static `<b>` — typing a value commits it directly
+   (see that component's own doc for the tapered-freq/clamp/revert
+   contract). Kept visually identical to the old `<b>` (same color, weight,
+   alignment, dotted underline) so this reads as an edit, not a redesign;
+   `box-sizing: border-box` + `width: 100%` keeps it inside the grid's fixed
+   34px value column without the padding/width overflow class of bug fixed
+   in 7942e2b (this rule's own padding is vertical-only, so there's nothing
+   to overflow horizontally). `border: none` on every edge but the bottom
+   strips the native text-input chrome down to the same underline the `<b>`
+   used to have. */
+.voice-slider-readout {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   color: #38bdf8; font-weight: 400; text-align: right; font-size: 11px;
   font-family: inherit; padding: 1px 0; margin-left: -7px;
+  border: none;
   border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+  background: transparent;
+  -webkit-appearance: none; appearance: none;
 }
+.voice-slider-readout:hover:not(:disabled) { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.voice-slider-readout:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+  border-bottom-color: rgba(56, 189, 248, 0.8);
+}
+.voice-slider-readout:disabled { cursor: not-allowed; opacity: 0.6; }
 /* Wrapper reserves the 8px on each side the `[ … ]` bracket pseudos sit in —
    mirrors the Dock's `.controller.number .widget { padding-inline: 8px }`. */
 .voice-slider-track { position: relative; padding-inline: 8px; }
