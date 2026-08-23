@@ -149,6 +149,21 @@ describe("GlyphEffectLayerElement", () => {
     expect(addEffectLayer).toHaveBeenCalledTimes(2);
   });
 
+  it("forwards a GlyphMeshHandle/array target verbatim (JS property, not attribute — mesh handles cannot serialize to a string)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const meshA = { id: 1 } as unknown as import("../api/createGlyphScene").GlyphMeshHandle;
+    const meshB = { id: 2 } as unknown as import("../api/createGlyphScene").GlyphMeshHandle;
+    element.configure({ effect: effectA, target: [meshA, meshB] });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ target: [meshA, meshB] }));
+
+    // A subsequent flush with the handle already mounted forwards target
+    // through setOptions the same way.
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalledWith(expect.objectContaining({ target: [meshA, meshB] }));
+  });
+
   it("dispatches readiness once the atomic configuration mounts", async () => {
     const { element } = mountWithScene();
     const onReady = vi.fn();
@@ -156,5 +171,38 @@ describe("GlyphEffectLayerElement", () => {
     element.configure({ effect: effectA, params: { time: 4 } });
     await flush();
     expect(onReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards a `program` option only at layer creation (VOLUMETRIC-3.md §4, JS property — program-as-data is not attribute-serializable)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const payload = { domain: "2d", layers: [] };
+    element.configure({ effect: effectA, program: payload });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ program: payload }));
+
+    // A later flush on the SAME (already-mounted) handle never forwards
+    // `program` through setOptions — it's immutable after mount, so this
+    // wrapper doesn't even attempt to re-apply it.
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalled();
+    for (const call of (handles[0]!.setOptions as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[0]).not.toHaveProperty("program");
+    }
+  });
+
+  it("forwards a `colorProgram` option only at layer creation (VOLUMETRIC-4.md §1, program-as-data's named sibling — same JS-property, mount-only contract as `program`)", async () => {
+    const { element, addEffectLayer, handles } = mountWithScene();
+    const payload = { domain: "2d", layers: [] };
+    element.configure({ effect: effectA, colorProgram: payload });
+    await flush();
+    expect(addEffectLayer).toHaveBeenCalledWith(expect.objectContaining({ colorProgram: payload }));
+
+    element.setAttribute("opacity", "0.5");
+    await flush();
+    expect(handles[0]!.setOptions).toHaveBeenCalled();
+    for (const call of (handles[0]!.setOptions as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[0]).not.toHaveProperty("colorProgram");
+    }
   });
 });

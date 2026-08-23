@@ -133,6 +133,24 @@ Documented no-op in `solid` (already depth-buffered per cell). Mirrored as
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
 `compileScene`/`GlyphSceneStatic`, unlike `wireframeJunctions`.
 
+`colorTolerance: number` (default `0`, off, byte-identical) merges adjacent
+cells into one `<span>` while their colors stay within this redmean colour
+distance — fewer spans, faster paint, at the cost of color fidelity. Range is
+`0`–`765`, not `0`–`255` (black↔white is 764.83 under redmean); `NaN`/negative
+values degrade to `0`, `+Infinity` merges every same-glyph run in a row. It is
+a **lever, not a flat multiplier**: measured 1.2x–9.1x fewer spans
+(unquantized→best) depending on scene content — flat, hard-edged output
+(per-face color, carved solids) wins enormously, smooth noisy fields win
+modestly, and an already-flat scene gains nothing without regressing either. One shared comparison policy
+(`colorRunExtends`) backs all four coalescers glyphcss can emit color from, so
+`charMode: "halfblock"`/`"quadrant"` and the unsafe default render path get it
+too, not just the primary encoder. No-op under `glyphOutput: "semantic"` —
+semantic colors are exact class identifiers, not shaded appearance. Mirrored
+as `color-tolerance` on `<glyph-scene>` and `colorTolerance` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`, and accepted by
+`compileScene`/`GlyphSceneStatic` — a pure function of the final cell grid,
+like `charMode`. See `bench/color-tolerance.md` for measured span/FPS numbers.
+
 ## Static & build-time rendering
 
 `rasterize` is pure (geometry + camera → string), so a scene can be rendered ahead of time and inlined as text with **zero runtime**:

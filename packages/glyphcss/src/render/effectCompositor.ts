@@ -42,6 +42,8 @@ const SUPPORTED_REQUIREMENTS = new Set<GlyphEffectRequirement>([
   "normal",
   "worldPosition",
   "objectPosition",
+  "objectExit",
+  "objectNormal",
   "uv0",
 ]);
 
@@ -63,6 +65,15 @@ export interface GlyphEffectOutputMetadata {
   readonly worldToSceneScale?: number;
 }
 
+/**
+ * A layer's runtime target: the two scene-wide strings, or the canonical
+ * immutable mesh-id SET a `GlyphMeshHandle` / `GlyphMeshHandle[]` target
+ * normalizes to at mount (VOLUMETRIC-3.md §1). Module-level mesh ids are
+ * monotonic and never alias across scenes, so a bare `Set<number>` is
+ * unambiguous without carrying a scene reference.
+ */
+export type RuntimeGlyphEffectTarget = "surfaces" | "viewport" | ReadonlySet<number>;
+
 export interface RuntimeGlyphEffectLayer {
   readonly declarationOrder: number;
   readonly program: AnyProgram;
@@ -71,7 +82,22 @@ export interface RuntimeGlyphEffectLayer {
   readonly committedParams: AnyParams;
   readonly state: unknown;
   readonly handle: GlyphEffectLayerHandle<AnyParams>;
-  target: "surfaces" | "viewport";
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — the definition-layer `program`
+   * option, opaque to glyphcss, forwarded onto the evaluate context
+   * unchanged. `undefined` when no `program` option was supplied at mount.
+   * Immutable after mount (see `setOptions` below).
+   */
+  readonly programOption: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — the
+   * definition-layer `colorProgram` option, opaque to glyphcss, forwarded
+   * onto the evaluate context unchanged. `undefined` when no `colorProgram`
+   * option was supplied at mount. Immutable after mount (see `setOptions`
+   * below), mirroring `programOption` exactly.
+   */
+  readonly colorProgramOption: unknown;
+  target: RuntimeGlyphEffectTarget;
   blend: GlyphEffectBlend;
   opacity: number;
   order: number;
@@ -158,13 +184,19 @@ function isDefinition(value: unknown): value is GlyphEffectDefinition<GlyphEffec
   return !!value && typeof value === "object" && "parameterSchema" in value && "program" in value;
 }
 
-function assertProgram(program: AnyProgram): void {
+function assertProgram(program: AnyProgram, initialParams: AnyParams): void {
   if (!program || typeof program !== "object" || typeof program.evaluate !== "function") {
     throw new TypeError("glyphcss: an effect program must define evaluate().");
   }
   for (const requirement of [
     ...(program.requirements ?? []),
     ...(program.optionalRequirements ?? []),
+    // Only the INITIAL params are checked here (mount time); `dynamicRequirements`
+    // is re-evaluated per params transaction thereafter (see `effectRequests` in
+    // `createGlyphScene.ts`), so a requirement name that only becomes reachable
+    // through a later param value is caught the first time that value is live,
+    // not necessarily at mount.
+    ...(program.dynamicRequirements?.(initialParams) ?? []),
   ]) {
     if (!SUPPORTED_REQUIREMENTS.has(requirement)) {
       throw new Error(`glyphcss: effect requirement "${requirement}" is not supported by this runtime slice.`);
@@ -179,10 +211,53 @@ function assertProgram(program: AnyProgram): void {
   }
 }
 
-function normalizeTarget(target: GlyphEffectTarget | undefined): "surfaces" | "viewport" {
+interface MeshHandleLike { readonly id: number }
+
+function isMeshHandleLike(value: unknown): value is MeshHandleLike {
+  return !!value && typeof value === "object" && typeof (value as MeshHandleLike).id === "number";
+}
+
+/**
+ * Normalize a layer's `target` option. `"surfaces"` (default) / `"viewport"`
+ * pass through unchanged; a `GlyphMeshHandle` or `readonly GlyphMeshHandle[]`
+ * normalizes to a canonical, immutable `Set` of mesh ids — the mount-time
+ * snapshot `targetCoverage` filters winner-mesh cells against
+ * (VOLUMETRIC-3.md §1). The set is captured once; it is never re-derived
+ * from live handles, so a later mesh removal naturally makes that id match
+ * nothing rather than mutating the target.
+ */
+function normalizeTarget(target: GlyphEffectTarget | undefined): RuntimeGlyphEffectTarget {
   if (target === undefined || target === "surfaces") return "surfaces";
   if (target === "viewport") return "viewport";
-  throw new Error("glyphcss: GlyphMeshHandle effect targets are not supported by this runtime slice.");
+  if (isMeshHandleLike(target)) return new Set([target.id]);
+  if (Array.isArray(target)) {
+    if (target.length === 0) {
+      throw new TypeError("glyphcss: an effect target mesh array must contain at least one GlyphMeshHandle.");
+    }
+    const ids = new Set<number>();
+    for (const entry of target) {
+      if (!isMeshHandleLike(entry)) {
+        throw new TypeError("glyphcss: an effect target array must contain only GlyphMeshHandle values.");
+      }
+      ids.add(entry.id);
+    }
+    return ids;
+  }
+  throw new TypeError("glyphcss: unsupported effect target.");
+}
+
+/** Set-equivalence for two normalized targets — `"surfaces"`/`"viewport"` compare by
+ *  identity, two mesh-id sets compare by membership regardless of construction order. */
+function targetsEqual(a: RuntimeGlyphEffectTarget, b: RuntimeGlyphEffectTarget): boolean {
+  const aSet = a instanceof Set ? a : null;
+  const bSet = b instanceof Set ? b : null;
+  if (aSet && bSet) {
+    if (aSet.size !== bSet.size) return false;
+    for (const id of aSet) if (!bSet.has(id)) return false;
+    return true;
+  }
+  if (aSet || bSet) return false;
+  return a === b;
 }
 
 function normalizeBlend(blend: GlyphEffectBlend | undefined): GlyphEffectBlend {
@@ -214,16 +289,42 @@ function paramsEqual(a: Readonly<AnyParams>, b: Readonly<AnyParams>): boolean {
   return keys.every((key) => Object.is(a[key], b[key]));
 }
 
+function requirementSetKey(requirements: readonly GlyphEffectRequirement[] | undefined): string {
+  if (!requirements || requirements.length === 0) return "";
+  return Array.from(new Set(requirements)).sort().join(",");
+}
+
+/**
+ * Whether a params change altered `program.dynamicRequirements`'s result
+ * (order-independent). A plain params change only needs a cheap retained-
+ * effect recompose; a REQUIREMENTS change additionally invalidates whatever
+ * retained input buffers the previous requirement set produced (e.g. a
+ * newly-live `objectExit` need), which only a full geometry render repopulates
+ * — see the `onDirty(requirementsChanged)` callers below and their
+ * `createGlyphScene.ts` handling.
+ */
+function dynamicRequirementsChanged(program: AnyProgram, before: Readonly<AnyParams>, after: Readonly<AnyParams>): boolean {
+  if (!program.dynamicRequirements) return false;
+  return requirementSetKey(program.dynamicRequirements(before)) !== requirementSetKey(program.dynamicRequirements(after));
+}
+
 export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>, State>(
   options: GlyphEffectDefinitionLayerOptions<any, State> | GlyphEffectProgramLayerOptions<P, State>,
   declarationOrder: number,
-  onDirty: () => void,
+  onDirty: (requirementsChanged?: boolean) => void,
   onDispose: (layer: RuntimeGlyphEffectLayer) => void,
 ): RuntimeGlyphEffectLayer {
   const effect = options.effect as unknown;
   let schema: GlyphEffectParamSchema | undefined;
   let program: AnyProgram;
   const initial: AnyParams = {};
+  // Program-as-data (VOLUMETRIC-3.md §4) — only a `GlyphEffectDefinitionLayerOptions`
+  // carries this; a raw `GlyphEffectProgramLayerOptions` has no separate
+  // definition-level `validateProgram` hook to call it through.
+  let programOption: unknown;
+  // Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same rule as
+  // `programOption` above.
+  let colorProgramOption: unknown;
 
   if (isDefinition(effect)) {
     if (typeof effect.id !== "string" || !effect.id.trim()) throw new TypeError("glyphcss: an effect definition needs a non-empty id.");
@@ -240,6 +341,8 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       assertParamValue(value, spec, key);
       initial[key] = value;
     }
+    programOption = (options as GlyphEffectDefinitionLayerOptions<any, State>).program;
+    colorProgramOption = (options as GlyphEffectDefinitionLayerOptions<any, State>).colorProgram;
   } else {
     program = effect as AnyProgram;
     const supplied = (options as GlyphEffectProgramLayerOptions<P, State>).params as unknown;
@@ -252,8 +355,10 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     }
   }
 
-  assertProgram(program);
+  assertProgram(program, initial);
   program.validateParams?.(initial);
+  if (programOption !== undefined) program.validateProgram?.(programOption);
+  if (colorProgramOption !== undefined) program.validateColorProgram?.(colorProgramOption);
 
   const paramsTarget: AnyParams = { ...initial };
   const candidateParams: AnyParams = { ...initial };
@@ -270,8 +375,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       }
       assertParamValue(value, schema?.[property], property);
       if (Object.is(target[property], value)) return true;
+      const before = { ...target };
       target[property] = value;
-      onDirty();
+      onDirty(dynamicRequirementsChanged(program, before, target));
       return true;
     },
     defineProperty(target, property, descriptor): boolean {
@@ -291,8 +397,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
       if (!("value" in descriptor)) return Reflect.defineProperty(target, property, descriptor);
       assertParamValue(descriptor.value, schema?.[property], property);
       const changed = !Object.is(target[property], descriptor.value);
+      const before = { ...target };
       const defined = Reflect.defineProperty(target, property, descriptor);
-      if (defined && changed) onDirty();
+      if (defined && changed) onDirty(dynamicRequirementsChanged(program, before, target));
       return defined;
     },
     deleteProperty(target, property): boolean {
@@ -320,8 +427,9 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     }
     program.validateParams?.(candidateParams);
     if (paramsEqual(candidateParams, paramsTarget)) return;
+    const before = { ...paramsTarget };
     copyParams(paramsTarget, candidateParams);
-    onDirty();
+    onDirty(dynamicRequirementsChanged(program, before, paramsTarget));
   }
 
   function setOptions(partial: Partial<{
@@ -332,14 +440,36 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     enabled: boolean;
   }>): void {
     assertLive();
+    // Program-as-data is immutable after mount (VOLUMETRIC-3.md §4), same
+    // rule as mesh-set `target` below — `program` isn't part of `setOptions`'s
+    // typed signature, but a caller can still pass it through untyped JS, so
+    // this guards the runtime contract regardless of what TS enforces.
+    if ("program" in partial && !Object.is((partial as Record<string, unknown>).program, layer.programOption)) {
+      throw new Error("glyphcss: an effect layer's program-as-data payload is immutable after mount; remove and re-add the layer to change it.");
+    }
+    // Program-as-data's NAMED sibling is immutable after mount too
+    // (VOLUMETRIC-4.md §1), same rule as `program` above.
+    if ("colorProgram" in partial && !Object.is((partial as Record<string, unknown>).colorProgram, layer.colorProgramOption)) {
+      throw new Error("glyphcss: an effect layer's colorProgram payload is immutable after mount; remove and re-add the layer to change it.");
+    }
     const nextTarget = "target" in partial ? normalizeTarget(partial.target) : layer.target;
+    // Mesh-set targeting is immutable after mount (VOLUMETRIC-3.md §1): once
+    // either side of the comparison is a mesh-id set, an equivalent set is a
+    // no-op (falls through to the full no-op check below) and any other
+    // change — including switching to/from `"surfaces"`/`"viewport"` — is
+    // live retargeting, out of scope; remove and re-add the layer instead.
+    // Plain `"surfaces"` <-> `"viewport"` retargeting (neither side a set) is
+    // unaffected and stays freely mutable, as before this option existed.
+    if ((nextTarget instanceof Set || layer.target instanceof Set) && !targetsEqual(nextTarget, layer.target)) {
+      throw new Error("glyphcss: an effect layer's mesh target is immutable after mount; remove and re-add the layer to retarget it.");
+    }
     const nextBlend = "blend" in partial ? normalizeBlend(partial.blend) : layer.blend;
     const nextOpacity = "opacity" in partial ? normalizeOpacity(partial.opacity) : layer.opacity;
     const nextOrder = "order" in partial ? normalizeOrder(partial.order) : layer.order;
     const nextEnabled = "enabled" in partial ? partial.enabled : layer.enabled;
     if (typeof nextEnabled !== "boolean") throw new TypeError("glyphcss: effect enabled must be boolean.");
     if (
-      nextTarget === layer.target && nextBlend === layer.blend && nextOpacity === layer.opacity &&
+      targetsEqual(nextTarget, layer.target) && nextBlend === layer.blend && nextOpacity === layer.opacity &&
       nextOrder === layer.order && nextEnabled === layer.enabled
     ) return;
     layer.target = nextTarget;
@@ -380,6 +510,8 @@ export function createRuntimeGlyphEffectLayer<P extends GlyphEffectParamShape<P>
     committedParams,
     state,
     handle,
+    programOption,
+    colorProgramOption,
     target: normalizeTarget(options.target),
     blend: normalizeBlend(options.blend),
     opacity: normalizeOpacity(options.opacity),
@@ -410,8 +542,31 @@ export function prepareRuntimeGlyphEffectLayers(
   return sorted.map((layer) => ({ layer, params: layer.committedParams }));
 }
 
-function packCellColor(color: string | null): number {
-  return color === null ? GlyphEffectNoColor : parseGlyphEffectColor(color).packed;
+/**
+ * `retainGlyphEffectOutput` packs EVERY cell's base color string on EVERY
+ * full geometry render (e.g. every orbit frame), but a rasterized grid only
+ * ever contains a handful of DISTINCT color strings (one per lit
+ * triangle/material, not one per cell) — so a plain call-scoped memo turns
+ * thousands of `parseGlyphEffectColor` regex parses into a couple dozen.
+ * Deliberately NOT a persistent field on `RetainedGlyphEffectOutput` (unlike
+ * `packedColorCache`, its packed->string sibling below): that cache holds
+ * EFFECT-EMITTED colors, which can vary continuously frame to frame under
+ * animation, so it's cleared every `composeRetainedGlyphEffectOutput` call to
+ * stay bounded. This forward direction only ever sees `baseGrid.color` —
+ * geometry's own lit colors, already deduplicated to a small, stable set for
+ * a given scene — so a cache scoped to one `retainGlyphEffectOutput` call
+ * already gets ~100% of the dedup benefit within that single pass, with no
+ * risk of unbounded growth across a long session (a persistent module- or
+ * scene-level map would have to survive many scenes / material changes with
+ * no eviction to match this).
+ */
+function packCellColorCached(cache: Map<string, number>, color: string): number {
+  let packed = cache.get(color);
+  if (packed === undefined) {
+    packed = parseGlyphEffectColor(color).packed;
+    cache.set(color, packed);
+  }
+  return packed;
 }
 
 function unpackCellColor(color: number): string | null {
@@ -429,16 +584,68 @@ function composedCellColor(retained: RetainedGlyphEffectOutput, index: number, p
   return color;
 }
 
+// Structural (not value) shape match for the WORKING scratch grid a pooled
+// `RetainedGlyphEffectOutput` can safely reuse — see `retainGlyphEffectOutput`'s
+// `previous` doc below. `composeRetainedGlyphEffectOutput` only copies an
+// optional field from `baseGrid` into `workingGrid` when `workingGrid`
+// ALREADY has that field (`if (workingGrid.shade && baseGrid.shade) ...`),
+// so a stale/undersized `workingGrid` would silently drop data instead of
+// throwing — this check is what makes falling back to a fresh
+// `cloneCellGrid` the safe default whenever a mounted effect's retained
+// requirements (or the grid resolution) changed since the previous frame.
+function cellGridShapeMatches(a: CellGrid, b: CellGrid): boolean {
+  return a.cols === b.cols && a.rows === b.rows
+    && !!a.shade === !!b.shade
+    && !!a.worldPosition === !!b.worldPosition
+    && !!a.objectPosition === !!b.objectPosition
+    && !!a.objectExit === !!b.objectExit
+    && !!a.normal === !!b.normal
+    && !!a.objectNormal === !!b.objectNormal
+    && !!a.winnerPolygon === !!b.winnerPolygon
+    && !!a.winnerMesh === !!b.winnerMesh
+    && !!a.albedoRgb === !!b.albedoRgb
+    && !!a.targetRgb === !!b.targetRgb
+    && !!a.surfaceUv === !!b.surfaceUv
+    && !!a.weight === !!b.weight;
+}
+
+/**
+ * `previous` (optional): the output this same `metadata.id` retained on the
+ * LAST full geometry render, when one exists at the matching resolution —
+ * under camera orbit, a full render (and so a fresh `retainGlyphEffectOutput`
+ * call) happens every animation frame, and before this, EVERY buffer below
+ * was a brand-new allocation each time (measured as the dominant per-frame
+ * allocator during orbit on a dense scene — see the perf work that added
+ * this parameter). `baseGrid`/`base`/`baseColor`/`baseCoverage` are this
+ * frame's own ground-truth snapshot and are ALWAYS freshly allocated
+ * (never reused): `createGlyphScene.ts`'s `commitRender` can roll a failed
+ * transaction back to the PREVIOUS retained output
+ * (`retainedEffectOutputs = oldRetained`), so mutating `previous`'s ground
+ * truth in place would corrupt that rollback target. Everything else —
+ * `inputGlyph`/`inputColor`/`inputCoverage`/`targetCoverage`/`emission`/
+ * `packedColorCache`/`workingGrid` — is pure working scratch: every element
+ * is unconditionally overwritten before it's ever read, on EVERY call to
+ * `composeRetainedGlyphEffectOutput` (which already reuses these same
+ * buffers across repeated param-only recomposes of one retained output —
+ * this just extends that to survive a fresh geometry render too), so
+ * reusing them from `previous` — when its shape still matches this frame's
+ * — is byte-identical output, not an approximation. A shape mismatch (grid
+ * resize, or a mounted effect's retained requirements changing) falls back
+ * to the exact pre-pooling fresh-allocation behavior.
+ */
 export function retainGlyphEffectOutput(
   grid: CellGrid,
   metadata: GlyphEffectOutputMetadata,
+  previous?: RetainedGlyphEffectOutput,
 ): RetainedGlyphEffectOutput {
   const baseGrid = cloneCellGrid(grid);
   const n = baseGrid.cols * baseGrid.rows;
   const baseColor = new Uint32Array(n);
   const baseCoverage = new Float32Array(n);
+  const colorPackCache = new Map<string, number>();
   for (let i = 0; i < n; i++) {
-    baseColor[i] = packCellColor(baseGrid.color[i] ?? null);
+    const color = baseGrid.color[i];
+    baseColor[i] = color == null ? GlyphEffectNoColor : packCellColorCached(colorPackCache, color);
     baseCoverage[i] = Number.isFinite(baseGrid.depth[i]!) ? 1 : 0;
   }
   let uv0 = baseGrid.surfaceUv;
@@ -458,26 +665,32 @@ export function retainGlyphEffectOutput(
     ...(baseGrid.shade ? { shade: baseGrid.shade } : {}),
     ...(baseGrid.worldPosition ? { worldPosition: baseGrid.worldPosition } : {}),
     ...(baseGrid.objectPosition ? { objectPosition: baseGrid.objectPosition } : {}),
+    ...(baseGrid.objectExit ? { objectExit: baseGrid.objectExit } : {}),
     ...(baseGrid.normal ? { normal: baseGrid.normal } : {}),
+    ...(baseGrid.objectNormal ? { objectNormal: baseGrid.objectNormal } : {}),
+    ...(baseGrid.winnerMesh ? { winnerMesh: baseGrid.winnerMesh } : {}),
   };
+  const reusable = previous && previous.inputColor.length === n && cellGridShapeMatches(previous.workingGrid, baseGrid)
+    ? previous
+    : null;
   return {
     metadata,
     baseGrid,
     base,
     baseColor,
     baseCoverage,
-    inputGlyph: new Array<string>(n).fill(" "),
-    inputColor: new Uint32Array(n),
-    inputCoverage: new Float32Array(n),
-    targetCoverage: new Float32Array(n),
-    emission: {
+    inputGlyph: reusable ? reusable.inputGlyph : new Array<string>(n).fill(" "),
+    inputColor: reusable ? reusable.inputColor : new Uint32Array(n),
+    inputCoverage: reusable ? reusable.inputCoverage : new Float32Array(n),
+    targetCoverage: reusable ? reusable.targetCoverage : new Float32Array(n),
+    emission: reusable ? reusable.emission : {
       glyph: new Array<string>(n).fill(" "),
       color: new Uint32Array(n),
       coverage: new Float32Array(n),
       channels: new Uint8Array(n),
     },
-    packedColorCache: new Map(),
-    workingGrid: cloneCellGrid(baseGrid),
+    packedColorCache: reusable ? reusable.packedColorCache : new Map(),
+    workingGrid: reusable ? reusable.workingGrid : cloneCellGrid(baseGrid),
   };
 }
 
@@ -513,6 +726,34 @@ function blendPackedColor(
   }
   if (inputPacked !== emittedPacked) return emittedWeight >= inputWeight ? emitted : input;
   return GlyphEffectNoColor;
+}
+
+/**
+ * Per-cell `targetCoverage` for one layer (VOLUMETRIC-3.md §1). `"viewport"`
+ * covers every base cell (and, on a detail grid, follows base coverage —
+ * `isBase` alone decides the constant-1 case). `"surfaces"` is today's
+ * unrestricted behavior. A mesh-id set is 0 on any cell whose depth-winning
+ * mesh is NOT in the target — including a cell with no winner data at all
+ * (non-solid render mode: `winnerMesh` is `null`, so every cell reads as
+ * non-target; the layer degrades to inactive rather than throwing) and an
+ * occlusion-blanked cell (winner `-1`, never in any target set). This is
+ * deliberately NOT emission-zeroing: zeroing `targetCoverage` instead of the
+ * program's output lets every existing blend/opacity formula (and every
+ * stock program's own `target.coverage[i] <= 0` self-skip) stay correct
+ * unchanged — zeroing emission instead would ERASE the base on non-targeted
+ * cells under `blend: "replace"` at opacity 1 (see the module doc / spec).
+ */
+function targetCoverageForCell(
+  target: RuntimeGlyphEffectLayer["target"],
+  isBase: boolean,
+  baseCellCoverage: number,
+  winnerMesh: Int32Array | null,
+  index: number,
+): number {
+  if (target === "viewport") return isBase ? 1 : baseCellCoverage;
+  if (target === "surfaces") return baseCellCoverage;
+  const winner = winnerMesh ? winnerMesh[index]! : -1;
+  return winner >= 0 && target.has(winner) ? baseCellCoverage : 0;
 }
 
 const BAYER_4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5] as const;
@@ -551,7 +792,14 @@ export function composeRetainedGlyphEffectOutput(
   if (workingGrid.objectPosition && baseGrid.objectPosition) {
     workingGrid.objectPosition.set(baseGrid.objectPosition);
   }
+  if (workingGrid.objectExit && baseGrid.objectExit) {
+    workingGrid.objectExit.set(baseGrid.objectExit);
+  }
   if (workingGrid.normal && baseGrid.normal) workingGrid.normal.set(baseGrid.normal);
+  if (workingGrid.objectNormal && baseGrid.objectNormal) {
+    workingGrid.objectNormal.set(baseGrid.objectNormal);
+  }
+  if (workingGrid.winnerMesh && baseGrid.winnerMesh) workingGrid.winnerMesh.set(baseGrid.winnerMesh);
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
   if (workingGrid.surfaceUv && baseGrid.surfaceUv) workingGrid.surfaceUv.set(baseGrid.surfaceUv);
@@ -578,9 +826,29 @@ export function composeRetainedGlyphEffectOutput(
     color: inputColor,
   };
   const target: GlyphEffectTargetView = { coverage: targetCoverage };
+  // Read directly off `baseGrid` (not `base.winnerMesh`) purely because this
+  // is computed once before `base` even needs to exist as a view — `base`
+  // now ALSO surfaces the same buffer read-only (see `CellGrid.winnerMesh`'s
+  // doc comment) for programs that need exact mesh-boundary equality.
+  const winnerMesh = retained.baseGrid.winnerMesh ?? null;
 
   for (const prepared of preparedLayers) {
     const { layer, params } = prepared;
+    // Deliberately STATIC `requirements` only, not `dynamicRequirements`:
+    // `assertEffectMode` (createGlyphScene.ts) already forces a hard STATIC
+    // requirement's mode to `"solid"` at mount time, so these checks only
+    // ever fire where the buffer is actually expected to exist. But
+    // `dynamicRequirements` has no such mode gate (it can't see the render
+    // mode at all — see VOLUMETRIC.md) and is optional-shaped everywhere
+    // else in this pipeline (`effectRequests` uses it only to decide what to
+    // RETAIN, never to hard-fail); folding it into this hard-throw guard
+    // would turn a wireframe/voxel program's dynamic-only `objectExit`
+    // request into a synchronous render-killing error instead of the
+    // documented degrade-to-undefined (the same way `space: "object"`
+    // degrades outside solid mode). Mount-time retention for a LIVE dynamic
+    // requirement in solid mode is handled separately by `needsInputRaster`
+    // (createGlyphScene.ts's `addEffectLayer`), so this guard doesn't need
+    // to duplicate that as a hard failure here.
     if (layer.program.requirements?.includes("baseShade") && !base.shade) {
       throw new Error("glyphcss: retained base shading is unavailable for an effect that requires baseShade.");
     }
@@ -590,11 +858,17 @@ export function composeRetainedGlyphEffectOutput(
     if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
       throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
     }
+    if (layer.program.requirements?.includes("objectExit") && !base.objectExit) {
+      throw new Error("glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
+    }
     if (layer.program.requirements?.includes("normal") && !base.normal) {
       throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
     }
+    if (layer.program.requirements?.includes("objectNormal") && !base.objectNormal) {
+      throw new Error("glyphcss: retained object-space face normals are unavailable for an effect that requires objectNormal.");
+    }
     for (let i = 0; i < n; i++) {
-      targetCoverage[i] = layer.target === "viewport" && metadata.isBase ? 1 : baseCoverage[i]!;
+      targetCoverage[i] = targetCoverageForCell(layer.target, metadata.isBase, baseCoverage[i]!, winnerMesh, i);
     }
     emission.glyph.fill(" ");
     emission.coverage.fill(0);
@@ -609,6 +883,8 @@ export function composeRetainedGlyphEffectOutput(
       coordinates,
       scratch: EMPTY_SCRATCH,
       output: emission,
+      ...(layer.programOption !== undefined ? { program: layer.programOption } : {}),
+      ...(layer.colorProgramOption !== undefined ? { colorProgram: layer.colorProgramOption } : {}),
     });
 
     for (let i = 0; i < n; i++) {

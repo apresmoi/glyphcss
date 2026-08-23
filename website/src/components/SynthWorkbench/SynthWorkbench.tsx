@@ -19,6 +19,7 @@ import {
   combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
+  isGlyphFieldSynthStaticExportSupported,
   measureGlyphInkCoverage,
   synthWave,
 } from "@glyphcss/effects";
@@ -27,8 +28,10 @@ import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
+import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
-import { readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
+import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
+import { readUrlParam } from "../../lib/urlState";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -48,24 +51,54 @@ import "../GalleryWorkbench/gallery-workbench.css";
 // actually renders with.
 const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 
-/** Stage density a preset wants, by name. Only for patterns whose read depends
- *  on cell size — everything else keeps whatever density you were already on. */
-const PRESET_DENSITY: Record<string, number> = {
-  "Cube tiles": 1.5,
-};
+// Default (non-flat) orbit camera angle/zoom — `STAGE_CAMERA_ROT_X/Y/ZOOM`
+// from synthKit.tsx, the single source of truth `shapeTransform("pyramid")`'s
+// upright reorientation is tuned against and the arbiter test in
+// synthKit.test.ts projects through. Kept as local aliases so
+// `applyPreset`'s stage-hint reset can restore exactly this, not a
+// magic-number duplicate of it.
+const DEFAULT_CAMERA_ROT_X = STAGE_CAMERA_ROT_X;
+const DEFAULT_CAMERA_ROT_Y = STAGE_CAMERA_ROT_Y;
+
+// Camera auto-orbit pace (user request, "screensaver, not spin cycle") at
+// `orbitSpeed: 1`, the slider's default — a full yaw revolution takes a
+// minute, and the pitch ping-pong's own period (~135° of travel at 4°/s, one
+// way) isn't a clean multiple of the yaw period, so the combined path reads
+// as a gentle Lissajous drift rather than an obviously looping tour. Pitch
+// bounces between MIN and MAX instead of wrapping through the poles — a full
+// -90..90 sweep would flip past looking straight down/up, which reads as a
+// glitch, not a drift — but the range still dips below and rises above the
+// horizontal (0°) so both the top and underside of the stage come into view.
+const ORBIT_YAW_DEG_PER_SEC = 6;
+const ORBIT_PITCH_DEG_PER_SEC = 4;
+const ORBIT_PITCH_MIN = -55;
+const ORBIT_PITCH_MAX = 80;
 
 import {
+  MAX_LAYERS,
   MAX_VOICES,
+  STAGE_CAMERA_ROT_X,
+  STAGE_CAMERA_ROT_Y,
+  STAGE_CAMERA_ZOOM,
+  STAGE_HINTS,
   buildLighting,
   synthDefaults,
   shapePolys,
+  shapeTransform,
   isFlat,
+  computeSynthTickPlan,
+  wrapDrivenTime,
   frameObject,
+  LayerGroup,
   VoiceCard,
+  ColorStackSection,
   PresetTile,
   SynthDock,
+  IconToggle,
+  VOICE_MODE_TOGGLE,
   type ParamValue,
   type Params,
+  type VoiceDisplayMode,
 } from "./synthKit";
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
@@ -77,7 +110,17 @@ import {
 // ── Workbench ────────────────────────────────────────────────────────────────
 export default function SynthWorkbench() {
   const initial = useMemo(() => readInitialSynthState(), []);
+  // Captured once, in the SAME memo pass as `initial` above — i.e. before
+  // any effect (including the URL-persistence effect below) has a chance to
+  // overwrite `?s=` — so the async catch-up effect a few lines down always
+  // decodes the link the page actually loaded with, not whatever state has
+  // since been written back.
+  const initialRawParam = useMemo(() => readUrlParam(SYNTH_PARAM), []);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // State, not a ref: StatsOverlay mounts imperatively into this element,
+  // and a ref mutation would not re-run its effect (same pattern as
+  // /wordart's own `stageHost`).
+  const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
   const sceneRef = useRef<GlyphSceneHandle | null>(null);
   const cameraRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
@@ -88,8 +131,39 @@ export default function SynthWorkbench() {
   const [timeScale, setTimeScale] = useState(initial.timeScale);
   const [paused, setPaused] = useState(false);
   const [density, setDensity] = useState(initial.density);
+  // Run-extension colour-merge tolerance (COLOR-TOLERANCE.md Phase 4) — a
+  // SCENE option (`scene.setOptions({ colorTolerance })` below), not a
+  // field-synth param, so it's page state alongside `density` rather than
+  // living in `params`. Replaces the removed `colorQuantize` effect param as
+  // the page's one performance lever (see synthKit.tsx's Output-folder
+  // slider doc) and is URL-persisted the same way `density` is — a shared
+  // link should reproduce the performance/visual profile the sharer had.
+  const [colorTolerance, setColorTolerance] = useState(initial.colorTolerance);
   const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
+  // Camera auto-orbit (user request, separate from `paused`/mesh-spin): a
+  // gentle screensaver-style two-axis drift of the CAMERA itself, independent
+  // of the Stage folder's existing Speed/Paused (which spins the MESH about
+  // one axis). Page state only — camera angles aren't URL-persisted today
+  // (see `cameraAnglesRef`'s own doc above), so neither is this.
+  const [orbitAuto, setOrbitAuto] = useState(false);
+  const [orbitSpeed, setOrbitSpeed] = useState(1);
+  const orbitAutoRef = useRef(orbitAuto); orbitAutoRef.current = orbitAuto;
+  const orbitSpeedRef = useRef(orbitSpeed); orbitSpeedRef.current = orbitSpeed;
+  // Camera orbit angle for the NEXT scene rebuild (a stage-hint's rotX/rotY —
+  // VOLUMETRIC-2.md §3 — or the plain default). Not React state: nothing
+  // needs to re-render off it, and it must be read fresh by the scene-rebuild
+  // effect below without adding itself as a dependency (that would tear the
+  // scene down and rebuild it on every orbit drag).
+  const cameraAnglesRef = useRef<{ rotX: number; rotY: number }>({ rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y });
+  // A preset's own `STAGE_HINTS` entry (for a one-way animation arc, like a
+  // `wave: "step"` SDF voice's erosion, that should replay instead of
+  // playing once and sitting at its end state — see `SynthStageHint
+  // .loopSeconds`'s own doc) — read fresh by the tick loop below, same
+  // "not React state, no re-render needed" rationale as `cameraAnglesRef`.
+  // Always reset on `applyPreset` (never carried over from a previous
+  // preset — see that callback), so an un-hinted preset is unaffected.
+  const loopSecondsRef = useRef<number | null>(null);
 
   // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
   // Mirrors the gallery's `mobilePanel` pattern (same tab-bar/drawer mechanism,
@@ -106,6 +180,7 @@ export default function SynthWorkbench() {
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const densityRef = useRef(density); densityRef.current = density;
+  const colorToleranceRef = useRef(colorTolerance); colorToleranceRef.current = colorTolerance;
 
   // Build (or rebuild) the whole scene for the current shape. A fresh scene is the
   // reliable way to give the effect layer the new geometry's retained coverage —
@@ -115,19 +190,39 @@ export default function SynthWorkbench() {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const flat = isFlat(shape);
-    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : 58, rotY: flat ? 0 : 32, zoom: 46 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
+    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : cameraAnglesRef.current.rotX, rotY: flat ? 0 : cameraAnglesRef.current.rotY, zoom: STAGE_CAMERA_ZOOM });
+    // interactiveDownscale > 1 renders at 1/n resolution WHILE a control is
+    // actively dragging (same on-screen size, coarser cell) and restores
+    // full detail on release — createGlyphOrbitControls already drives
+    // scene.setInteracting() itself on drag start/end (the shared
+    // emitInteraction registry, controls/common.ts), so enabling it here is
+    // the only change needed. This was previously pinned at 1 (off), which
+    // meant orbiting a heavy volumetric carve patch (a deep-recursion SDF
+    // voice, ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
+    // resolution on every drag frame — 2 (÷4 cells) matches the loaders
+    // gallery's own default (glyph-runtime.ts's `parseInteractiveDownscale`).
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, colorTolerance: colorToleranceRef.current, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
-    if (!flat) createGlyphOrbitControls(scene, { drag: true, wheel: true });
+    // Handle captured (not discarded) so the auto-orbit tick below can listen for
+    // drag start/end and pause/resume around it — see `orbitDragging`.
+    const orbitControls = flat ? null : createGlyphOrbitControls(scene, { drag: true, wheel: true });
+    let orbitDragging = false;
+    orbitControls?.addEventListener("start", () => { orbitDragging = true; });
+    orbitControls?.addEventListener("end", () => { orbitDragging = false; });
+    let orbitPitchDir: 1 | -1 = 1;
     const polys = shapePolys(shape);
-    meshRef.current = scene.add(polys) as { dispose: () => void };
+    const meshTransform = shapeTransform(shape);
+    meshRef.current = scene.add(polys, meshTransform) as { dispose: () => void };
     scene.fit();
     scene.rerender(); // render once so the <pre> reflects the real cell size
     // `cover` + slight overscan (fill > 1) so the plane reaches every edge of a
     // non-square viewport instead of "contain"-fitting with letterbox margins.
-    frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat);
+    // Pass `meshTransform` so the fitted bbox is the actually-rendered
+    // (world-space) silhouette, not the shape's untransformed local geometry —
+    // load-bearing for the pyramid stage, whose transform rotates+translates it.
+    frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat, meshTransform);
     scene.rerender();
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
@@ -135,10 +230,43 @@ export default function SynthWorkbench() {
     let last = performance.now(), t = 0, raf = 0;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
-      if (pausedRef.current) { last = now; return; }
       const dt = Math.min((now - last) / 1000, 0.1); last = now;
-      t += dt * tsRef.current;
-      layerRef.current?.setParams({ time: t });
+      // Mesh spin (`paused`) and camera auto-orbit (`orbitAuto`) are
+      // independent: pausing one must not pause the other. `computeSynthTickPlan`
+      // is the single pure decision point for both — see its own doc for why
+      // this is one function and not two inline `if`s (a perf change gating
+      // `time` advancement behind `isTimeInvariantPatch` must never fold the
+      // orbit branch under the same guard).
+      const plan = computeSynthTickPlan({
+        paused: pausedRef.current,
+        timeScale: tsRef.current,
+        params: paramsRef.current,
+        flat,
+        orbitAuto: orbitAutoRef.current,
+        orbitDragging,
+      });
+      if (plan.advanceTime) {
+        t += dt * tsRef.current;
+        // `t` itself keeps growing monotonically (simplest accumulator, no
+        // precision concerns from re-deriving it). A preset whose
+        // `STAGE_HINTS` entry declares `loopSeconds` (for a one-way
+        // animation arc that never returns to its start on its own, see
+        // that hint's own doc in synthKit.tsx) instead gets the WRAPPED
+        // value here, so the driven `time` cycles back to 0 and replays the
+        // arc instead of settling at its end state forever.
+        layerRef.current?.setParams({ time: wrapDrivenTime(t, loopSecondsRef.current) });
+      }
+      if (plan.orbit) {
+        camera.rotY = camera.rotY + ORBIT_YAW_DEG_PER_SEC * dt * orbitSpeedRef.current;
+        // Ping-pong pitch off the current rotX — not a stored/absolute phase —
+        // so a user drag, a preset's stage hint, or resuming after the pointer
+        // lifts all continue the drift from wherever the camera actually is.
+        let nextPitch = camera.rotX + orbitPitchDir * ORBIT_PITCH_DEG_PER_SEC * dt * orbitSpeedRef.current;
+        if (nextPitch >= ORBIT_PITCH_MAX) { nextPitch = ORBIT_PITCH_MAX; orbitPitchDir = -1; }
+        else if (nextPitch <= ORBIT_PITCH_MIN) { nextPitch = ORBIT_PITCH_MIN; orbitPitchDir = 1; }
+        camera.rotX = nextPitch;
+        scene.rerender();
+      }
     };
     raf = requestAnimationFrame(tick);
     // Camera.zoom is CSS px per world unit, independent of host size — resizing
@@ -150,12 +278,12 @@ export default function SynthWorkbench() {
       resizeObserver = new ResizeObserver(() => {
         scene.fit();
         scene.rerender();
-        frameObject(scene, camera, polys, 1.02, true);
+        frameObject(scene, camera, polys, 1.02, true, meshTransform);
         scene.rerender();
       });
       resizeObserver.observe(host);
     }
-    return () => { cancelAnimationFrame(raf); resizeObserver?.disconnect(); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
+    return () => { cancelAnimationFrame(raf); resizeObserver?.disconnect(); orbitControls?.destroy(); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
@@ -167,6 +295,13 @@ export default function SynthWorkbench() {
     scene.setOptions(buildLighting(lighting));
     scene.rerender();
   }, [lighting]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({ colorTolerance });
+    scene.rerender();
+  }, [colorTolerance]);
 
   // Density → render font-size only. The renderer projects with the MEASURED cell,
   // so on-screen size is ≈ worldSpan × zoom (font-independent): changing the font
@@ -184,34 +319,117 @@ export default function SynthWorkbench() {
   const [voiceSlots, setVoiceSlots] = useState<number[]>(initial.voiceSlots);
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
 
+  // Voice card display mode (crowding fix, VoiceCard's own `mode` prop) —
+  // viewer preference, deliberately NOT part of `writeSynthUrlState` above
+  // (a shared link's bytes must not change with how densely the RECEIVER
+  // likes to view their own sidebar). `voiceMode` is the global default every
+  // card without its own override reads; a per-card `[bsc|adv]` toggle
+  // (`voiceModeOverrides`) can diverge from it afterwards. Defaults to
+  // "basic" — the whole point of this control is to declutter a multi-voice
+  // patch by default, not to open every card and ask the viewer to close them.
+  const [voiceMode, setVoiceMode] = useState<VoiceDisplayMode>("basic");
+  const [voiceModeOverrides, setVoiceModeOverrides] = useState<Record<number, VoiceDisplayMode>>({});
+  // The ONE global control (sidebar header) — sets every card at once by
+  // clearing any per-card override, so a stale override can't leave one card
+  // silently un-affected by the next global click.
+  const setAllVoiceModes = useCallback((next: VoiceDisplayMode) => { setVoiceMode(next); setVoiceModeOverrides({}); }, []);
+  const setVoiceCardMode = useCallback((slot: number, next: VoiceDisplayMode) => {
+    setVoiceModeOverrides((prev) => ({ ...prev, [slot]: next }));
+  }, []);
+
+  // Async catch-up for a compressed ('z') `?s=` link: `readInitialSynthState`
+  // above is synchronous and can only ever read the 'p' (raw packed) format
+  // — a link past the compaction threshold (~400 packed chars, routine once
+  // a preset touches many voices/colour-stack keys) decodes to schema
+  // defaults on that path with no signal at all. This resolves it the moment
+  // native decompression finishes (typically well under a frame) and applies
+  // the real patch over whatever defaults were rendered first. No-op (the
+  // promise resolves to `null`) for the overwhelmingly common 'p'-tagged or
+  // absent-param case — see `decodeSynthUrlStateAsync`'s doc.
+  useEffect(() => {
+    let cancelled = false;
+    void decodeSynthUrlStateAsync(initialRawParam).then((state) => {
+      if (cancelled || !state) return;
+      setShape(state.shape);
+      setParams(state.params as Params);
+      setTimeScale(state.timeScale);
+      setDensity(state.density);
+      setColorTolerance(state.colorTolerance);
+      setLighting(state.lighting);
+      setVoiceSlots(state.voiceSlots);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRawParam]);
+
   // Persist everything to the single packed `?s=` param so a reload/share
   // restores the patch (see synthUrlState.ts).
   useEffect(() => {
-    writeSynthUrlState({ shape, params, timeScale, density, lighting, voiceSlots });
-  }, [params, shape, timeScale, density, voiceSlots, lighting]);
+    writeSynthUrlState({ shape, params, timeScale, density, colorTolerance, lighting, voiceSlots });
+  }, [params, shape, timeScale, density, colorTolerance, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
-  // Density is STAGE state, not part of the patch, so a `GlyphEffectPreset`
-  // cannot carry it — the same preset has to work on a loader tile, a mesh face
-  // and this viewport. A few patterns only read correctly at a particular cell
-  // size though, so the page keeps its own hint per preset name and applies it
-  // alongside the params.
+  // Stage presentation (density, camera angle, shape, paused) is STAGE
+  // state, not part of the patch, so a `GlyphEffectPreset` cannot carry it —
+  // the same preset has to work on a loader tile, a mesh face and this
+  // viewport. A few patterns only read correctly with a particular hint
+  // though (VOLUMETRIC-2.md §3), so the page keeps ONE consolidated table
+  // (`STAGE_HINTS`, keyed by preset object identity — synthKit.tsx) and
+  // applies it alongside the params. Fields the hint doesn't specify are
+  // left exactly as the user had them (this preserves the old
+  // `PRESET_DENSITY` behavior of "everything else keeps whatever density you
+  // were already on", extended to angle/paused too).
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
     const next = { ...synthDefaults(), ...(preset.params as Params) };
     setParams(next);
     setVoiceSlots(Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(next[`amp${k}`]) > 0));
-    const stageDensity = PRESET_DENSITY[preset.name];
-    if (stageDensity !== undefined) setDensity(stageDensity);
-  }, []);
+    const hint = STAGE_HINTS.get(preset);
+    if (hint?.density !== undefined) setDensity(hint.density);
+    if (hint?.paused !== undefined) setPaused(hint.paused);
+    // Always reset (never carried over from a previous preset, unlike
+    // density/paused above): a loop period belongs to the specific one-way
+    // animation that needed it, not to "whatever the user had before".
+    loopSecondsRef.current = hint?.loopSeconds ?? null;
+    // `hint.shape` overrides the plain `space`-derived stage default (a
+    // volumetric preset needs SOME 3D stage to render meaningfully, and a 2D
+    // preset needs the fullscreen plane back) — otherwise a non-cube
+    // volumetric preset like the pyramid-stage Sierpinski one would land on
+    // the cube (VOLUMETRIC-2.md §3).
+    const nextShape = hint?.shape ?? (next.space === "object" ? "cube" : "plane");
+    const shapeChanging = nextShape !== shape;
+    if (hint?.rotX !== undefined || hint?.rotY !== undefined) {
+      cameraAnglesRef.current = { rotX: hint.rotX ?? cameraAnglesRef.current.rotX, rotY: hint.rotY ?? cameraAnglesRef.current.rotY };
+    } else if (shapeChanging) {
+      // No angle hint: a stage rebuild (triggered below) would otherwise
+      // inherit whatever a PREVIOUS preset's hint left in the ref — reset to
+      // the plain default so an un-hinted preset always starts from the
+      // same angle a fresh stage always used to, before hints existed.
+      cameraAnglesRef.current = { rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y };
+    }
+    setShape(nextShape);
+    if (!shapeChanging && (hint?.rotX !== undefined || hint?.rotY !== undefined) && !isFlat(nextShape)) {
+      // No shape change means the scene-rebuild effect (keyed on `[shape]`)
+      // won't fire to pick up the new angle from the ref — apply it to the
+      // already-live camera directly instead.
+      const camera = cameraRef.current;
+      if (camera) { camera.rotX = cameraAnglesRef.current.rotX; camera.rotY = cameraAnglesRef.current.rotY; sceneRef.current?.rerender(); }
+    }
+  }, [shape]);
 
-  const addVoice = useCallback(() => {
+  // Adds a voice assigned to `layer` (VOLUMETRIC-2.md §4's LayerGroup "+ Add
+  // to layer N" affordance). Every voice's `layerN` schema default is
+  // already 1 (packages/effects/src/stock.ts), so the GLOBAL "+ Add" button
+  // (the rail header's own action, used for layer 1 / the empty state) is
+  // just this same function called with `1` — one add path, not two.
+  const addVoiceToLayer = useCallback((layer: number) => {
     const slots = voiceSlotsRef.current;
     let slot = 0;
     for (let k = 1; k <= MAX_VOICES; k++) if (!slots.includes(k)) { slot = k; break; }
     if (!slot) return;
     setVoiceSlots([...slots, slot].sort((a, b) => a - b));
-    setParams((p) => ({ ...p, [`amp${slot}`]: 1 }));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 1, [`layer${slot}`]: layer }));
   }, []);
+  const addVoice = useCallback(() => addVoiceToLayer(1), [addVoiceToLayer]);
   const removeVoice = useCallback((slot: number) => {
     setVoiceSlots((slots) => slots.filter((s) => s !== slot));
     setParams((p) => ({ ...p, [`amp${slot}`]: 0 }));
@@ -280,6 +498,24 @@ export default function SynthWorkbench() {
     form.remove();
   }
 
+  // `buildGlyphFieldSynthStaticExport` explicitly REJECTS several patch
+  // shapes it can't bake: volumetric/carve (a march per cell per frame is a
+  // different export design — see AGENTS.md's "Static export"), an active
+  // `linearZ` voice, and a nonzero `originW` on an active voice (both
+  // 3D-only semantics with no meaning in the 2D branch this exporter ports).
+  // `isGlyphFieldSynthStaticExportSupported` is the exporter's OWN predicate (from
+  // `@glyphcss/effects`, mirroring `assertStaticExportSupported` exactly) —
+  // reading it here instead of duplicating the condition list means this
+  // button can never drift out of sync with what the exporter actually
+  // rejects (a URL-loaded patch can carry either of the latter two without
+  // being volumetric/carve, and used to slip past a narrower local check).
+  // The static "Open in CodePen" button below is disabled whenever this is
+  // false, instead of letting the exporter's throw reach the user; the
+  // "Export" code window's OWN CodePen action (`handleExportCodepenDynamic`)
+  // is unaffected — it mounts a LIVE effect at runtime from the CDN, which
+  // handles every one of these cases fine.
+  const staticExportSupported = useMemo(() => isGlyphFieldSynthStaticExportSupported(params), [params]);
+
   // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
   // bakes for the standalone "Open in CodePen" button — reads the mesh, the
   // current patch, the camera, the density-driven grid, and the blend the
@@ -289,6 +525,7 @@ export default function SynthWorkbench() {
   // wall-clock wait, and vice-versa; the exported clock is otherwise
   // independent — it starts fresh from `time=0` on load.
   const buildSynthExport = useCallback((): GlyphFieldSynthStaticExportResult | null => {
+    if (!staticExportSupported) return null;
     const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
     if (!scene || !camera || !host) return null;
     const pre = host.querySelector("pre.glyph-output") as HTMLElement | null;
@@ -376,23 +613,66 @@ export default function SynthWorkbench() {
         <InstrumentRail
           id="synth-voices-panel"
           title="Voices"
-          action={<button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>}
+          action={
+            <span className="synth-voices-head-actions">
+              <span className="voice-mode-toggle">
+                <IconToggle
+                  groupTitle="Set every voice card to Basic or Advanced at once. A card's own [bsc|adv] toggle can still override this afterwards."
+                  options={VOICE_MODE_TOGGLE}
+                  value={voiceMode}
+                  onChange={(v) => setAllVoiceModes(v as VoiceDisplayMode)}
+                />
+              </span>
+              <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
+            </span>
+          }
           open={mobilePanel === "voices"}
         >
-            {voiceSlots.map((slot, i) => (
-              <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
-            ))}
+            {/* Grouped by layer (VOLUMETRIC-2.md §4's LayerGroup rewrite) — a
+                group renders only when it has at least one voice card; every
+                EXISTING voice slot lives in exactly one group (moving a voice
+                via its own 1/2/3 layer buttons re-renders it into a different
+                group, since this is derived straight from `layerN`, not a
+                separate list). The global "+ Add" above always lands on
+                layer 1 (every `layerN` schema default is 1), so an
+                all-empty page needs no special-cased empty group here. */}
+            {Array.from({ length: MAX_LAYERS }, (_, i) => i + 1)
+              .map((layer) => ({
+                layer,
+                slots: voiceSlots.filter((slot) => Math.round(Number(params[`layer${slot}`] ?? 1)) === layer),
+              }))
+              .filter(({ slots }) => slots.length > 0)
+              .map(({ layer, slots }) => (
+                <LayerGroup key={layer} layer={layer} params={params} onParam={onParam} onAddVoice={addVoiceToLayer} canAddVoice={voiceSlots.length < MAX_VOICES}>
+                  {slots.map((slot) => (
+                    <VoiceCard
+                      key={slot} slot={slot} index={voiceSlots.indexOf(slot)} params={params} onParam={onParam}
+                      onRemove={() => removeVoice(slot)} stageShape={shape} hoverToAnimate
+                      mode={voiceModeOverrides[slot] ?? voiceMode}
+                      onModeChange={(next) => setVoiceCardMode(slot, next)}
+                    />
+                  ))}
+                </LayerGroup>
+              ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
+            {/* Colour voice stack (VOLUMETRIC-4.md §1) — below the geometry
+                layer groups, since it's a second, independent voice program
+                (colour only, no occupancy/glyph say) rather than another
+                layer of them. */}
+            <ColorStackSection params={params} onParam={onParam} stageShape={shape} />
         </InstrumentRail>
-        <InstrumentMain>
+        <InstrumentMain elementRef={setStageHost}>
           <InstrumentViewport elementRef={hostRef} />
+          <StatsOverlay anchor="top-left" container={stageHost} />
           <div className="synth-export-bar">
             <button
               type="button"
               className="gw-code-panel__action gw-code-panel__action--codepen"
               onClick={handleExportCodepenStatic}
-              disabled={exporting}
-              title="Open the current rendered patch as a static, zero-runtime CodePen"
+              disabled={exporting || !staticExportSupported}
+              title={staticExportSupported
+                ? "Open the current rendered patch as a static, zero-runtime CodePen"
+                : "This patch can't bake to a static, zero-runtime CodePen — volumetric/carve (a march can't be prebaked per cell per frame), an active linearZ voice, or a nonzero origin W on an active voice all have no meaning in the baked 2D evaluator. Use \"Export\" instead, which ships a live effect from the CDN."}
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
             </button>
@@ -417,7 +697,7 @@ export default function SynthWorkbench() {
           )}
         </InstrumentMain>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
         </Dock>
       </InstrumentBody>
       <InstrumentTray id="synth-presets-panel" label="Pattern presets" open={mobilePanel === "presets"}>

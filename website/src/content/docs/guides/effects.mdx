@@ -161,6 +161,66 @@ How a layer combines with the base render:
   cells on top of it.
 - `target: "surfaces"` limits writes to visible rendered geometry.
 - `target: "viewport"` can also author the base output's background.
+- `target: mesh` or `target: [meshA, meshB]` limits writes to that mesh (or
+  meshes) only — see [Targeting specific meshes](#targeting-specific-meshes)
+  below.
+
+### Targeting specific meshes
+
+Pass the handle returned by `scene.add(...)` (or an array of handles) as
+`target` to apply a layer to specific geometry instead of the whole scene —
+a normal render plus one weird effect object, without touching anything
+else:
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+
+const ground = scene.add(groundPolygons);
+const cube = scene.add(cubePolygons);
+
+const carve = scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  target: cube, // only the cube's own cells — the ground is untouched
+  blend: "replace",
+  params: {
+    space: "object",
+    render: "carve",
+    field1: "menger", wave1: "step", freq1: 3, amp1: 1, iter1: 3,
+    amp2: 0,
+    combine: "min",
+    glyphs: " .:-=+*#%@",
+    color: "#ffcf5a",
+  },
+});
+
+function frame(now: number) {
+  carve.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+The target normalizes to an immutable set of mesh ids at mount — it cannot
+be changed afterward (`setOptions({ target: ... })` with a different mesh set
+throws; an equivalent set, e.g. the same handles in a different array, is a
+no-op). To retarget, remove the layer and add a new one. A mesh removed from
+the scene later simply stops matching — the layer degrades to inactive, it
+does not error. Targeting a mesh outside `solid` mode is also a documented
+no-op rather than a throw, since only solid mode tracks a per-cell winning
+mesh.
+
+**Ordering note:** a later scene-wide (`target: "surfaces"`/`"viewport"`)
+layer still composites *over* an earlier targeted layer's output, including
+painting into any holes a targeted `render: "carve"` cut — that's the normal
+layer-order semantics working as designed, not a bug specific to targeting.
+
+Mesh identity also matters inside a single targeted carve layer: [ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
+never bridge a contour or Braille dot across a boundary between two different
+target meshes, even when they're coplanar and share a normal — the same
+per-cell winning-mesh data `target` itself reads.
 
 ### Coordinate space (`space`)
 
@@ -279,7 +339,7 @@ scan.parameterSchema.width;                      // { kind, default, min, max, s
 
 ## Field synth
 
-`fieldSynth` is a small composable synth: up to six oscillators, each a
+`fieldSynth` is a small composable synth: up to nine oscillators, each a
 spatial **field** sampled through a **waveform**, combined into one scalar and
 mapped to a glyph ramp and color. It is the glyph-grid analogue of a fragment
 shader — interfering a handful of oscillators is where the emergent moiré,
@@ -287,20 +347,31 @@ plaid, sonar, and lattice patterns come from.
 
 ### Voices
 
-Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
-`field6`/…/`amp6`) is independent:
+Each of the nine voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
+`field9`/…/`amp9`) is independent:
 
 - `fieldN` — the spatial field. `radial` measures distance from the origin,
   `angular` the angle around it, `spiral` combines both;
   `linearX`/`linearY`/`diagonal` are ramps; `noise` is a 3D value-noise field
-  that evolves in place over `time` rather than sliding.
-- `waveN` — the waveform: `sin`, `triangle`, `saw`, or `square`.
+  that evolves in place over `time` rather than sliding. `linearZ` exists only
+  under the volumetric branch — see [below](#volumetric-fields-space-object).
+  `gyroid`/`menger`/`sierpinski` are a separate SDF family — see
+  [below](#sdf-fields-gyroid-menger-sierpinski).
+- `waveN` — the waveform: `sin`, `triangle`, `saw`, `square`, or the
+  non-periodic `step` (`+1` at or above its argument's zero, else `−1`).
 - `freqN` — spatial frequency, in cycles per unit.
 - `speedN` — animation rate, in cycles per second.
 - `ampN` — a **mix weight**, not a signal gain. Each active voice blends the
   running result toward `combine(result, voice)` by its own `ampN`. `amp: 0`
   skips the voice entirely; a low `ampN` gently mixes it in instead of
   crushing the field.
+- `dutyN` (`0..1`, default `0.5`) — the square wave's high fraction (other
+  waveforms ignore it).
+- `phaseN` (cycles, default `0`) — added to that voice's wave argument. Voice
+  origins don't shift linear fields at all (`linearX`/`linearY`/`diagonal`
+  ignore the origin; only `angleN` and the radial/angular/spiral centers read
+  it), so `phase` is how you shift one: a middle-third band selector is
+  `wave: "square", duty: 1/3, phase: -1/3`.
 
 ### Combine, gain, bias
 
@@ -371,6 +442,239 @@ shear on genuinely curved surfaces.
 `fieldSynth` shares the same `space: "auto" | "surface" | "scene" | "object"`
 mapping described [above](#composition-and-mapping).
 
+### Volumetric fields (`space: "object"`)
+
+Under `space: "object"`, field synth takes its own 3D branch rather than
+reusing the 2D formulas with `z` fixed at `0` — most fields are genuinely
+different in the two branches:
+
+- `linearZ` — the third axis projection. Only meaningful in 3D.
+- `diagonal` is `(x + y + z) / √3` here, vs. `(x + y) / √2` in 2D — the 2D
+  formula is untouched so existing presets don't shift.
+- `radial` measures spherical distance from the voice origin.
+- `angular` and `spiral` stay evaluated in the XY plane; `z` is ignored.
+- `noise` becomes a 4D hash (adding `z` to the existing `x, y, time` lattice)
+  so a volumetric noise voice animates instead of freezing.
+
+Voice origins gain `originWN` (default `0`) for the third axis, alongside the
+existing `originUN`/`originVN`. `angleN` keeps its 2D meaning — rotation about
+Z. `scale` is a 3D field frequency under `"object"`, the same caveat matrix
+rain's own volumetric mode carries: a value tuned for `"auto"`/`"surface"`
+does not carry over 1:1.
+
+`subcellRes: "2x4"` and `"ink"` still work volumetrically, finite-differencing
+neighboring cells' resolved 3D coordinate, for `render: "paint"`. Under
+`render: "carve"` both are legal too, but through a different mechanism —
+[ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve),
+below — since a march has no stable neighbor *coordinate* to difference, only
+a per-cell hit/hole result. `render: "xray"` still rejects both: an
+accumulated transmittance integral has no per-cell hit point for either
+volumetric subcell mode to read.
+
+### SDF fields (`gyroid`, `menger`, `sierpinski`)
+
+Every field above is a 1D wave sampled along some scalar projection of space
+— constant along its own level sets, terrain always ruled or revolved. The
+SDF family breaks that: `gyroid`, `menger`, and `sierpinski` are genuine
+implicit surfaces, so a single voice already carries real 2D/3D relief with
+no `combine` needed.
+
+They also read placement differently from every other field. `originUN`/
+`originVN`/`originWN` **translate the sampled point** before evaluation —
+the opposite of a linear field (which ignores origin) or radial/angular/
+spiral (which read origin only as a distance-from-center anchor) — since an
+implicit surface has no other way to align itself to its host mesh. `phaseN`
+correspondingly becomes an **iso-level offset**: it erodes or dilates the
+solid rather than sliding it.
+
+- `gyroid` — a smooth periodic implicit
+  (`sin(2πx)cos(2πy) + sin(2πy)cos(2πz) + sin(2πz)cos(2πx)`), `freq`-normalized
+  so `freq` means cycles per domain unit like every other field. Its sign
+  means "which labyrinth half," not inside/outside solid.
+- `menger` / `sierpinski` — the signed distance to the depth-`iterN`
+  approximation of a Menger sponge / corner-tetra Sierpinski fractal: the
+  union of solid boxes (menger) or corner tetras (sierpinski) kept after
+  `iterN` rounds of subdivision. This is an **exact** union distance (computed
+  by a pruned recursive descent over the same kept-child tree the fractal's
+  own membership rule walks), not a distance-estimator approximation — a true
+  limit-set SDF is positive almost everywhere and would carve to nothing.
+  `iterN` (integer `1..4`, default `3`) is capped at 4 because carve/xray's
+  march resolution caps at 256 steps; `menger` at `iter: 4` already needs
+  ~162 steps on a unit chord, and `iter: 5` would need ~486 and render
+  guaranteed false holes. **`iter: 3` and up costs noticeably more** to
+  march/integrate at full resolution — turn on `interactiveDownscale` while
+  dragging camera controls on a deep menger/sierpinski patch.
+
+Both fractal fields assume the unit cube `[0, 1]³` as their domain window,
+matching the `pyramid` stage's own (uncentered) authoring box — see the
+Sierpinski pyramid preset below. In the 2D branch, every SDF field evaluates
+at `z = 0` (a slice through the volume).
+
+The non-periodic `step` waveform exists mainly for this family: every SDF
+preset relies on "inside the solid → `step` → `+1` → density above the
+default bias → solid," which a periodic wave can't express directly. `step`
+is legal on any field, though — a `linearX` + `step` voice is a half-space.
+
+### Voice layers
+
+Voices can opt into one of three **layers** (`layer1..9`, default `1`), each
+with its own intra-layer combine, threshold, invert, and blend into the next
+layer:
+
+- `layerCombineL` — how that layer's own voices fold (default: the patch's
+  `combine`).
+- `layerThresholdOnL` / `layerThresholdL` (`-3..3`, default off / `0`) — when
+  on, the layer's folded value collapses to `+1` above the threshold or `-1`
+  below it.
+- `layerInvertL` — negates the layer's value (after thresholding, if on).
+- `layerBlendL` (`add`/`multiply`/`max`/`min`/`difference`, default
+  `multiply`) and `layerAmpL` (`0..1`, default `1`) — how the layer enters the
+  stack, one level up from how voices enter a layer.
+
+Layers exist because a flat fold of voices — every voice is a 1D wave along
+one axis — cannot express a **per-scale** rule like a Menger sponge's ("hole
+if at least two axes are in their middle third at the *same* scale"). A
+threshold per layer, one layer per scale, is what makes that expressible; a
+single flat `combine` cannot mix a per-scale threshold into the fold.
+
+A single-layer patch with threshold and invert off and amp `1` is identical
+to the pre-layers flat fold — existing patches and presets are unaffected.
+`argmax` stays single-layer: a multi-layer patch is only valid if every
+populated layer's *effective* combine (its own override, or else the patch's
+`combine`) resolves to something other than `argmax`.
+
+### Carve mode
+
+`render: "paint"` (default) is everything above. `render: "carve"` raymarches
+the field through the mesh's own volume and turns it into interior structure —
+holes, walls, hollow chambers — instead of a surface texture. `render: "xray"`
+(below) shares the same march but reports a transmittance brightness instead
+of a first hit. Both require the volumetric branch (`space: "object"`); xray
+is `subcellRes: "1x1"` only, while carve also supports `"2x4"` and `"ink"` —
+see [Ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
+below.
+
+Per cell, carve marches from the mesh's entry point to its exit point along
+the view ray, sampling the same combined field paint uses. `marchSteps`
+(default `48`, max `256`) sets the sampling density; a chord with fine
+enough content near the cap raises this automatically so thin walls don't
+flicker in and out under rotation. Where the march finds no solid sample, the
+cell renders nothing; the recommended mount is `blend: "replace"` at full
+opacity, so a hole shows the page background — the "hollowed-out" look. Under
+`blend: "over"`, the base surface still shows through a hole instead.
+
+An interior hit fades with depth — `marchFade` (default `1`) controls how
+quickly a wall recedes into shadow as the march goes deeper — so a
+near-surface wall reads brighter than one buried further in.
+
+This layer/duty/phase/volumetric machinery is what a Menger-membership carve
+is built from (`space: "object"`, `render: "carve"`, three layers of three
+axis voices each — a scale-3, then scale-9, then scale-27 lattice,
+`min`-blended so solid means "solid at every scale") on a plain cube mesh —
+no sponge geometry, no baked frames needed. `fieldSynth` ships one preset
+built from this same recipe — **Sierpinski pyramid** (base-2 constants, two
+layers instead of three) — tuned for the dedicated `pyramid` stage the
+[`/synth`](/synth) page offers alongside its cube/sphere/tetrahedron shapes —
+an uncentered corner-tetra whose window matches the recipe's own `[0, 1]³`
+assumption. The recipe's own `square`-wave axis voices (not the
+`menger`/`sierpinski` SDF fields) drive its Nyquist floor, and that floor is
+duty-aware: `freq / min(duty, 1 − duty)` (two samples per narrowest band)
+rather than a flat `2 × freq` — a three-layer, scale-27 Menger recipe's finest
+band needs only 94 steps under the fixed formula, well inside the 256-step
+cap; an earlier, un-fixed estimate put it past ~281 and out of carve's budget
+entirely.
+
+### Ink-over-carve and braille-over-carve
+
+`subcellRes: "ink"` and `"2x4"` both work under `render: "carve"` — a
+different mechanism from their `render: "paint"` form, since carve has no
+stable per-cell field coordinate to finite-difference, only a per-cell march
+result.
+
+- **`"ink"`** contours the march's hit/hole boundary instead of shading every
+  hit cell — an outline of the sponge/fractal interior rather than a filled
+  one. A new param, `inkSpacing` (domain units, default `0.25`), sets contour
+  spacing in absolute terms (not a fraction of the observed depth range, which
+  would make contours crawl frame-to-frame under orbit). Every silhouette
+  edge — a hit cell next to a hole, or next to a cell on a *different* target
+  mesh — is always inked as a rim; interior cells ink where a multiple of
+  `inkSpacing` falls between two neighboring march depths. `inkLevels` is a
+  no-op here (2D `subcellRes: "ink"` keeps using it).
+- **`"2x4"`** marches 8 sub-rays per cell, one per Braille dot position,
+  registering a dot wherever its own sub-ray hits — finer silhouette detail
+  than `"1x1"`'s one glyph per cell. One color per cell (the center sub-ray's
+  hit color, or the first hitting sub-ray's).
+
+Both respect [mesh targeting](#targeting-specific-meshes): a contour or dot
+mask never bridges across a boundary between two different target meshes,
+even when they're coplanar and share a normal.
+
+### Sphere tracing
+
+For programs that are provably distance fields — a single layer, every active
+voice `menger` or `sierpinski` with `wave: "step"` and `amp: 1`, `combine`
+`"min"`, no layer threshold — carve automatically switches from fixed-step
+marching to sphere tracing: stepping by the field's own reported distance
+instead of a fixed grid, converging faster on thin or deep recursive detail.
+It falls back to an ordinary fixed-step scan of the remaining segment when a
+ray stalls near an off-axis feature or runs into its own step budget, so it
+never finds *fewer* hits than fixed-step marching would — only the same or
+more, at the same shaded ramp step. Measured roughly 1.8-1.9× faster than
+fixed-step marching on a deep (`iter: 3`) recursive scene. A single SDF voice
+(`menger` or `sierpinski`, `wave: "step"`, `amp: 1`, `combine: "min"`, no
+layer threshold) is what qualifies — the shipped Sierpinski pyramid preset
+above is built from linear recipe voices instead and never qualifies, so it
+stays on the fixed-step path unchanged. No preset currently ships built from a
+genuine SDF voice, so no shipped preset exercises sphere tracing directly —
+the mechanism itself remains fully implemented and tested independent of any
+preset. No params control this — it applies automatically whenever a mounted
+carve patch qualifies.
+
+### Xray mode
+
+`render: "xray"` is carve's sibling: instead of stopping at the first solid
+sample, it **integrates** density along the whole chord and reports how much
+of it a viewer sees through. Per cell: transmittance
+`T = exp(-xrayGain * integral)`, brightness `B = 1 - T`. `xrayGain` (default
+`4`, range `0..16`) is xray's own contrast knob — `marchFade` doesn't apply
+here, since carve's own default fade barely dims a solid unit chord and `0`
+means opposite things in the two modes (no fade in carve, fully invisible in
+xray).
+
+A cell with `B` under `1/255` renders nothing; anything at or above it gets
+**full coverage**, regardless of the resolved color's alpha — a translucent
+xray color is a stylistic choice, not a transparency signal to dither through.
+`voiceColors` has no meaning under xray (an integral has no single winning
+voice) and is hidden in the UI. A degenerate chord (no exit point, or zero
+length) also renders nothing — unlike carve's paint-at-entry fallback, since a
+bright rim around a transmittance volume would contradict the mode.
+
+**Absorption reads near-binary fields best.** A smoothly oscillating field
+integrates to roughly its own `bias` over any long-enough chord — the
+structure averages into fog. Shaping a voice with a layer threshold (turning
+it into a flat two-level field) before feeding it to xray reads its actual
+structure instead; the shipped **Breathing gyroid** preset does exactly this.
+
+### Animated volumetrics
+
+Every volumetric preset's `speedN` is exactly the same time axis every 2D
+preset's own animation already uses (`raw*freq - time*speed + phase`, or for
+the SDF voice family `sdfRaw - time*speed + phase`) — nothing new is needed to
+animate a carve/xray patch, just a nonzero `speedN` on an already-volumetric
+recipe. One shipped preset turns this on: **Breathing gyroid** animates the
+gyroid xray recipe's one voice — the implicit surface deforms in place rather
+than sliding along a single axis (a gyroid's three-term sum has no one "flow
+axis" the way a linear voice does), reading as an organic pulse rather than a
+directional sweep.
+
+A `wave: "step"` SDF voice (the only wave [sphere tracing](#sphere-tracing)
+qualifies) can animate the same way, but stays a one-way erosion/bloom rather
+than a looping breathe cycle: `synthWave`'s `step` case is explicitly
+non-periodic (`+1` when `t >= 0`, else `-1`, no wraparound), so raising
+`speed*time` over time only ever SHRINKS the solid region — an inherent
+trade-off of staying inside the sphere-tracing predicate rather than a tuning
+mistake. A consumer wanting a repeating loop resets or wraps `time` itself.
+
 ### Example
 
 ```ts
@@ -403,8 +707,69 @@ requestAnimationFrame(frame);
 `Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
 `Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
 `Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`) as `{ name, params }` pairs — quick starting points for `params`.
-`Cube tiles` and `Ink cells` exercise `argmax` and the ink contour mode.
+`Ink cells`, `Sierpinski pyramid`, `Breathing gyroid`,
+`Menger (cssGraphics)`) as `{ name, params }` pairs — quick starting points
+for `params`. `Cube tiles` and `Ink cells` exercise `argmax` and the ink
+contour mode; `Sierpinski pyramid` and `Menger (cssGraphics)` exercise the
+volumetric branch, voice layers, and carve together, on the `pyramid` and
+`cube` stages respectively; `Breathing gyroid` exercises the SDF family,
+`render: "xray"`, and volumetric animation together — see
+[Animated volumetrics](#animated-volumetrics). These three volumetric
+presets are also individually exported by object identity
+(`GlyphSierpinskiPyramidPreset`, `GlyphBreathingGyroidPreset`,
+`GlyphCssGraphicsMengerPreset`, alongside `GlyphCubeTilesPreset`), for a
+consumer that needs to key off a specific preset rather than its display
+name.
+
+### Program builder and program-as-data
+
+Two more ways to author a field, beyond the flat `field1..9`/`layer1..9`
+params:
+
+- **`buildGlyphFieldProgram({ domain, layers: [{ voices: [...] }] })`**
+  (`@glyphcss/effects`) fills in every internal default from a pleasant
+  `voices: [...]` shape — a nicer authoring surface for the same program the
+  flat schema compiles down to, with no 9-voice cap.
+- **Program-as-data**: pass a fully-formed program straight to a layer via
+  the `program` option, instead of `params`:
+
+  ```ts
+  import { buildGlyphFieldProgram } from "@glyphcss/effects";
+
+  const program = buildGlyphFieldProgram({
+    domain: "3d",
+    layers: [{
+      voices: [{ field: "menger", wave: "step", freq: 3, iter: 3 }],
+      combine: "min",
+    }],
+  });
+
+  scene.addEffectLayer({
+    effect: GlyphEffects.fieldSynth,
+    program, // an unbounded field, not limited to 9 voices
+    params: { space: "object", render: "carve", glyphs: " .:-=+*#%@" }, // still governs space/render/march/output
+  });
+  ```
+
+  When `program` is set, field-synth ignores its own per-voice/per-layer
+  params entirely — `params` still controls `space`/`render`/`marchSteps`/
+  output mapping (ramp, color, `lit`, and so on). `validateGlyphFieldProgram`
+  (also exported) shape-checks an arbitrary value before you hand it to
+  `evaluateFieldProgram` yourself, if you're building the program by other
+  means. `program` is **immutable after mount** — pass a different one and
+  the layer's `setOptions` throws; remove and re-add the layer instead.
+  React/Vue and `<glyph-effect-layer>` all accept a `program` prop/property,
+  applied only at creation. It's an API-first feature: `program` is not
+  URL-persistable, and the [`/synth`](/synth) page and the static exporter
+  (below) don't support it.
+
+  `program` has a colour-stack sibling, **`colorProgram`**: field-synth's
+  independent colour voice stack (its own `min`/`max`/etc.-combined layers of
+  voices, evaluated separately from geometry) accepts its own program-as-data
+  payload the same way — opaque, forwarded unchanged, validated once at mount
+  via `validateGlyphFieldProgram`, and immutable after mount. Pass it
+  alongside `program` (not instead of it) when both geometry and colour are
+  program-authored; mirrored the same way across React/Vue/`<glyph-effect-layer>`.
 
 ### `GlyphRamps`
 
@@ -478,9 +843,18 @@ own font.
 ### Design it live
 
 The [`/synth`](/synth) page is a dual-sidebar modular synth built on
-`fieldSynth`: voice cards with live previews, per-voice mix, Stage / Mix /
-Output / Lighting docks, and a live preset gallery. The full patch persists to
-the URL, so a design can be shared or pasted straight into `params`.
+`fieldSynth`: voice cards — with live previews that stay static until
+hovered — grouped into collapsible per-layer groups (blend mode, mix,
+threshold, invert) in the voice sidebar, plus Stage / Mix / Output / Lighting
+docks and a live preset gallery. A single **Mapping** dropdown is the whole
+2D/3D control (it just sets `space`; there's no separate mode toggle), and
+once a volumetric stage is active an optional camera auto-orbit is available.
+The full patch persists to the URL, so a design can be shared or pasted
+straight into `params`; a two-tier repair gate means an invalid or
+older-schema URL still hydrates to a working page instead of throwing — known
+bad combinations get their offending keys reset to defaults, and anything the
+repair table doesn't recognize resets the whole effect patch rather than
+leaving the page blank.
 
 ## Use Anime.js directly
 
@@ -508,11 +882,12 @@ The runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
 glyph and coverage buffers. Hard surface requirements need `solid` mode;
 `optionalRequirements` let a program request retained fields while still
 providing a wireframe/voxel fallback. Layers compose in order with
-`over`/`replace` blends and `surfaces`/`viewport` targets.
+`over`/`replace` blends and `surfaces`/`viewport`/mesh-handle targets (see
+[Targeting specific meshes](#targeting-specific-meshes)).
 
-Not implemented yet — these reject explicitly: mesh-handle targeting,
-scene-image sampling/displacement, shader-like scratch graphs, and
-surface-key / UV-footprint fields.
+Not implemented yet — these reject explicitly: scene-image sampling/
+displacement, shader-like scratch graphs, and surface-key / UV-footprint
+fields.
 
 Effects can cross into exports in two cases: the
 [interactive export](/guides/compile#interactive-export) mounts a stock effect
@@ -520,3 +895,25 @@ by id in its CDN snippet, and
 [`buildGlyphFieldSynthStaticExport`](/guides/compile#effect-only-static-export-field-synth)
 bakes an effect-only, static-camera field-synth scene with zero runtime.
 Other static compile paths do not evaluate effects.
+
+`buildGlyphFieldSynthStaticExport` supports layers, `duty`, `phase`,
+per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and —
+since slice 2 — the SDF fields (`gyroid`/`menger`/`sierpinski`, with `iterN`)
+and the `step` waveform, all at real-renderer exact parity, all 2D. It
+rejects, with a specific error naming the reason: `space: "object"` (the
+volumetric branch), `render: "carve"`/`"xray"`, a `program` option
+([program-as-data](#program-builder-and-program-as-data) — an unbounded
+authoring surface with no schema this baked coordinate-table/affine-fit
+exporter can serialize), and an active voice (`ampN > 0`) using `linearZ` or
+a nonzero `originWN` — all semantics a per-cell coordinate bake can't fake,
+since carve/xray in particular need a march per cell per frame and a program
+has no flat-param shape to merge and bake. The `originWN` reject is waived
+for an active SDF
+voice: `gyroid`/`menger`/`sierpinski` genuinely read `originW` even in the 2D
+branch (it's part of their translation contract), so that combination exports
+normally. Call `isGlyphFieldSynthStaticExportSupported(params)` to check
+before exporting rather than duplicating this list; the `/synth` page's
+CodePen button uses it to decide which export to offer. A volumetric or
+carve/xray patch still exports through the
+[interactive export](/guides/compile#interactive-export) — it ships and
+evaluates the live effect runtime instead of a baked approximation.

@@ -14,6 +14,7 @@ function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   hiddenLines?: "show" | "hide";
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  colorTolerance?: number;
 }): string {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -21,7 +22,7 @@ function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   const scene = createGlyphScene(host, {
     camera, cols: opts.cols, rows: opts.rows, useColors: opts.useColors,
     mode: opts.mode, charMode: opts.charMode, hiddenLines: opts.hiddenLines,
-    solidWeightRamp: opts.solidWeightRamp,
+    solidWeightRamp: opts.solidWeightRamp, colorTolerance: opts.colorTolerance,
   });
   scene.add(polys);
   scene.rerender(); // createGlyphScene paints async (rAF); force a synchronous render
@@ -239,6 +240,34 @@ describe("compileScene — matches the runtime render", () => {
     // And every pre-existing (no-charMode) call site is unaffected: the
     // original parity tests above already assert compileScene === runtime
     // render byte-for-byte with charMode entirely absent from both calls.
+  });
+
+  it("colorTolerance forwards to the runtime scene byte-for-byte (COLOR-TOLERANCE.md Phase 3)", () => {
+    // Solid mode is deterministic (see the charMode test above), so a direct
+    // byte comparison is meaningful. A large tolerance is picked deliberately
+    // so the assertion is sensitive to `colorTolerance` actually reaching the
+    // render — if `compileScene` dropped the option, its output would still
+    // match a colorTolerance:0 runtime render (MORE spans) but NOT this one.
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 3 });
+    const cfg = { rotX: 20, rotY: 25, zoom: 15, cols: 40, rows: 20, useColors: true, colorTolerance: 400 } as const;
+    const runtime = runtimeRender(polys, cfg);
+    const compiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      colorTolerance: cfg.colorTolerance,
+    });
+    expect(compiled.inner).toBe(runtime);
+
+    // And the tolerance is doing real work on this fixture, not merely
+    // failing to regress a no-op: span count strictly drops vs colorTolerance: 0.
+    const compiledOff = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+    });
+    const spanCount = (s: string) => (s.match(/<span/g) ?? []).length;
+    expect(spanCount(compiled.inner)).toBeLessThan(spanCount(compiledOff.inner));
   });
 
   it("wraps output in a .glyph-output <pre>", () => {

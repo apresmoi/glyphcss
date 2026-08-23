@@ -57,10 +57,30 @@ export interface CellGrid {
    */
   objectPosition?: Float32Array;
   /**
+   * Interleaved object-space EXIT positions: `[x0, y0, z0, ...]` — the
+   * farthest intersection of the depth-winning mesh along each cell's view
+   * ray, in the same pre-transform frame as `objectPosition`. Empty cells
+   * contain `NaN`. Present only when requested by an effect program
+   * (`objectExit` requirement). The object-space ray is not its own field —
+   * it is `normalize(objectExit − objectPosition)` per cell.
+   */
+  objectExit?: Float32Array;
+  /**
    * Interleaved depth-winning geometric face normals: `[x0, y0, z0, ...]`.
    * Empty cells contain `NaN`. Present only when requested by an effect program.
    */
   normal?: Float32Array;
+  /**
+   * Interleaved depth-winning geometric face normals in the mesh's own
+   * PRE-TRANSFORM 3D frame: `[x0, y0, z0, ...]`, the object-space sibling of
+   * `normal` (which is built from baked WORLD vertices). Empty cells contain
+   * `NaN`. Present only when requested by an effect program (`objectNormal`
+   * requirement) — the self-consistent frame to pair with `objectPosition`/
+   * `objectExit`, since a world normal cannot be dotted against the
+   * object-space ray for a rotated mesh. No inverse-transpose is applied, so
+   * under non-uniform scale this is the object-frame GEOMETRIC normal.
+   */
+  objectNormal?: Float32Array;
   /**
    * Positional index into the source polygon array for the depth-winning solid
    * surface. `-1` marks an empty cell. This is deliberately opaque: callers
@@ -68,6 +88,19 @@ export interface CellGrid {
    * it as a semantic class ID.
    */
   winnerPolygon?: Int32Array;
+  /**
+   * Winning MESH id (see `RasterizeContext.polygonMeshIds`) for the
+   * depth-winning solid surface. `-1` marks an empty or occlusion-blanked
+   * cell. Solid-mode-only (never populated by wireframe/voxel/ink). It is
+   * the substrate for per-object effect targeting (`targetCoverage`) AND,
+   * as of VOLUMETRIC-3.md Phase 2, is also read-only-surfaced on
+   * `GlyphEffectFrameView.winnerMesh` (never a `GlyphEffectRequirement` —
+   * a program cannot request it) so a volumetric subcell program can test
+   * exact mesh-boundary equality between neighboring cells instead of only
+   * position/normal, which two coplanar same-normal meshes can't
+   * distinguish.
+   */
+  winnerMesh?: Int32Array;
   /** Packed `0xRRGGBB` unlit albedo from the same depth-winning surface cell. */
   albedoRgb?: Uint32Array;
   /** Packed `0xRRGGBB` final lit RGB from the same depth-winning surface cell. */
@@ -149,6 +182,9 @@ export function buildCellGrid(
   targetRgbSrc: Uint32Array | null = null,
   weightSrc: Uint16Array | null = null,
   objectPositionSrc: Float32Array | null = null,
+  objectExitSrc: Float32Array | null = null,
+  winnerMeshSrc: Int32Array | null = null,
+  objectNormalSrc: Float32Array | null = null,
 ): CellGrid {
   const n = cols * rows;
   const outChar = char.slice(0, n);
@@ -180,11 +216,20 @@ export function buildCellGrid(
   if (normalSrc !== null && normalSrc.length >= n * 3) {
     grid.normal = new Float32Array(normalSrc.subarray(0, n * 3));
   }
+  if (objectNormalSrc !== null && objectNormalSrc.length >= n * 3) {
+    grid.objectNormal = new Float32Array(objectNormalSrc.subarray(0, n * 3));
+  }
   if (objectPositionSrc !== null && objectPositionSrc.length >= n * 3) {
     grid.objectPosition = new Float32Array(objectPositionSrc.subarray(0, n * 3));
   }
+  if (objectExitSrc !== null && objectExitSrc.length >= n * 3) {
+    grid.objectExit = new Float32Array(objectExitSrc.subarray(0, n * 3));
+  }
   if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
     grid.winnerPolygon = new Int32Array(winnerPolygonSrc.subarray(0, n));
+  }
+  if (winnerMeshSrc !== null && winnerMeshSrc.length >= n) {
+    grid.winnerMesh = new Int32Array(winnerMeshSrc.subarray(0, n));
   }
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = new Uint32Array(albedoRgbSrc.subarray(0, n));
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = new Uint32Array(targetRgbSrc.subarray(0, n));
@@ -215,8 +260,11 @@ function assertCellGridShape(grid: CellGrid): void {
   if (grid.shade) assertCellBufferLength(grid.shade, n, "cell-grid shade buffer");
   if (grid.worldPosition) assertCellBufferLength(grid.worldPosition, n * 3, "cell-grid worldPosition buffer");
   if (grid.objectPosition) assertCellBufferLength(grid.objectPosition, n * 3, "cell-grid objectPosition buffer");
+  if (grid.objectExit) assertCellBufferLength(grid.objectExit, n * 3, "cell-grid objectExit buffer");
   if (grid.normal) assertCellBufferLength(grid.normal, n * 3, "cell-grid normal buffer");
+  if (grid.objectNormal) assertCellBufferLength(grid.objectNormal, n * 3, "cell-grid objectNormal buffer");
   if (grid.winnerPolygon) assertCellBufferLength(grid.winnerPolygon, n, "cell-grid winnerPolygon buffer");
+  if (grid.winnerMesh) assertCellBufferLength(grid.winnerMesh, n, "cell-grid winnerMesh buffer");
   if (grid.albedoRgb) assertCellBufferLength(grid.albedoRgb, n, "cell-grid albedoRgb buffer");
   if (grid.targetRgb) assertCellBufferLength(grid.targetRgb, n, "cell-grid targetRgb buffer");
   if (grid.surfaceUv) assertCellBufferLength(grid.surfaceUv, n * 2, "cell-grid surfaceUv buffer");
@@ -239,8 +287,11 @@ export function cloneCellGrid(grid: CellGrid): CellGrid {
   if (grid.shade) clone.shade = new Float32Array(grid.shade.subarray(0, n));
   if (grid.worldPosition) clone.worldPosition = new Float32Array(grid.worldPosition.subarray(0, n * 3));
   if (grid.objectPosition) clone.objectPosition = new Float32Array(grid.objectPosition.subarray(0, n * 3));
+  if (grid.objectExit) clone.objectExit = new Float32Array(grid.objectExit.subarray(0, n * 3));
   if (grid.normal) clone.normal = new Float32Array(grid.normal.subarray(0, n * 3));
+  if (grid.objectNormal) clone.objectNormal = new Float32Array(grid.objectNormal.subarray(0, n * 3));
   if (grid.winnerPolygon) clone.winnerPolygon = new Int32Array(grid.winnerPolygon.subarray(0, n));
+  if (grid.winnerMesh) clone.winnerMesh = new Int32Array(grid.winnerMesh.subarray(0, n));
   if (grid.albedoRgb) clone.albedoRgb = new Uint32Array(grid.albedoRgb.subarray(0, n));
   if (grid.targetRgb) clone.targetRgb = new Uint32Array(grid.targetRgb.subarray(0, n));
   if (grid.surfaceUv) clone.surfaceUv = new Float32Array(grid.surfaceUv.subarray(0, n * 2));
@@ -296,6 +347,119 @@ function assertColor(color: unknown, index: number): asserts color is string | n
 }
 
 /**
+ * Test-only instrumentation for `colorTolerance` (COLOR-TOLERANCE.md Phase 1):
+ * counts actual `parseInt` calls made by {@link packColorCached} (cache
+ * misses only), so a test can observe that repeated comparisons against the
+ * same distinct color string only ever parse once. A single integer
+ * increment per cache miss costs nothing in production; these two functions
+ * exist purely so a test can observe it.
+ */
+let colorParseCallCountForTests = 0;
+
+export function resetGlyphColorParseCountForTests(): void {
+  colorParseCallCountForTests = 0;
+}
+
+export function getGlyphColorParseCountForTests(): number {
+  return colorParseCallCountForTests;
+}
+
+/**
+ * Test-only instrumentation for `colorTolerance` (COLOR-TOLERANCE.md Phase 1):
+ * counts every {@link withinColorTolerance} INVOCATION (not cache misses —
+ * that's {@link colorParseCallCountForTests}), so a test can pin the cost
+ * claim in COLOR-TOLERANCE.md's "Cost" section: the `===` fast path in
+ * `encodeGlyphBuffers` must keep the number of NUMERIC comparisons bounded by
+ * the pre-merge span count, not the cell count. Counting distinct-string
+ * parses alone can't catch a fast-path regression — with the memo in place,
+ * parses are bounded by the number of distinct colors regardless of how many
+ * times each one gets numerically compared, so a test needs the call count,
+ * not the parse count, to observe the fast path actually firing.
+ */
+let colorToleranceCallCountForTests = 0;
+
+export function resetGlyphColorToleranceCallCountForTests(): void {
+  colorToleranceCallCountForTests = 0;
+}
+
+export function getGlyphColorToleranceCallCountForTests(): number {
+  return colorToleranceCallCountForTests;
+}
+
+/**
+ * Memoized `#rrggbb` string -> packed `0xRRGGBB` parse, scoped to a single
+ * `encodeGlyphBuffers` call. A rasterized row only ever contains a handful of
+ * distinct color strings, so this turns a worst case of one parse per
+ * mismatched cell into one parse per distinct string — same call-scoped,
+ * no-unbounded-growth shape as `packCellColorCached` in
+ * `effectCompositor.ts` (commit 6006461). `assertColor` already guarantees
+ * canonical `#rrggbb` by the time a color reaches here, so parsing is a
+ * direct `parseInt(slice, 16)` with no regex and no named-colour table.
+ */
+function packColorCached(cache: Map<string, number>, color: string): number {
+  let packed = cache.get(color);
+  if (packed === undefined) {
+    packed = parseInt(color.slice(1), 16);
+    cache.set(color, packed);
+    colorParseCallCountForTests++;
+  }
+  return packed;
+}
+
+/**
+ * Redmean distance (squared, compared against `tolerance^2` to avoid a
+ * per-cell `sqrt`) between two ALREADY-canonical `#rrggbb` colors, via the
+ * shared per-call {@link packColorCached} memo. Only called on a string
+ * mismatch — the `===` fast path in `encodeGlyphBuffers` never reaches here.
+ */
+function withinColorTolerance(
+  cache: Map<string, number>,
+  tolerance2: number,
+  anchor: string,
+  candidate: string,
+): boolean {
+  colorToleranceCallCountForTests++;
+  const a = packColorCached(cache, anchor);
+  const c = packColorCached(cache, candidate);
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const cr = (c >> 16) & 0xff;
+  const cg = (c >> 8) & 0xff;
+  const cb = c & 0xff;
+  const rm = (ar + cr) / 2;
+  const dr = ar - cr;
+  const dg = ag - cg;
+  const db = ab - cb;
+  const d2 = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
+  return d2 <= tolerance2;
+}
+
+/**
+ * Shared run-extension test for every `colorTolerance`-aware encoder: exact
+ * string equality always extends a run; otherwise only a live cache
+ * (`colorTolerance > 0`, i.e. `cache !== null`) and two non-null colors can
+ * extend it, via {@link withinColorTolerance}. `encodeGlyphBuffers` and
+ * {@link encodeGlyphBuffersDual} both call this directly (once, resp. twice
+ * per cell for the independent fg/bg channels); `rasterize.ts`'s two
+ * DUPLICATE coalescers — `solidBufToString`'s unsafe branch (COLOR-TOLERANCE.md
+ * review Finding 5) and `stampToGlyphs` (the plain-`charMode: "ascii"`
+ * wireframe/voxel no-hook path, the same review's Phase 3 follow-up) — import
+ * it too, so their `colorTolerance` behavior can't silently drift out of sync
+ * with either encoder's — one comparison rule, four call sites.
+ */
+export function colorRunExtends(
+  cache: Map<string, number> | null,
+  tolerance2: number,
+  runColor: string | null,
+  nextColor: string | null,
+): boolean {
+  if (nextColor === runColor) return true;
+  if (!cache || nextColor === null || runColor === null) return false;
+  return withinColorTolerance(cache, tolerance2, runColor, nextColor);
+}
+
+/**
  * Encode final cell buffers for a `<pre>`. Colored output is HTML-escaped and
  * accepts only canonical hex colors; plain output is suitable for textContent.
  */
@@ -316,6 +480,22 @@ function assertWeight(weight: unknown, index: number): asserts weight is number 
  * only has an effect under `useColors: true` (plain `textContent` cannot
  * carry a style), and starts a new run alongside color so `font-weight`
  * lands in the same `<span style="...">` as the existing color styling.
+ *
+ * `colorTolerance` (COLOR-TOLERANCE.md Phase 1, default `0` = off, byte-
+ * identical) is row-wise greedy run-extension against an ANCHOR color: while
+ * `colorTolerance > 0`, a run keeps extending as long as each next cell's
+ * true color is within `colorTolerance` of the run's anchor (redmean
+ * distance, compared squared to avoid a per-cell `sqrt`) — not against the
+ * previous cell, so error never drifts across a run. A merged cell is
+ * EMITTED at the anchor's color, not its own true color; that substitution
+ * is exactly what a higher tolerance trades for fewer spans. The anchor
+ * itself resets on any non-extending cell, including a blank (space) cell,
+ * which already forces `nextColor = null` and so already breaks any run
+ * (verified, not assumed). The `===` string check is the fast path with no
+ * parse; only a string mismatch reaches {@link withinColorTolerance}, which
+ * parses through the call-scoped {@link packColorCached} memo — bounding
+ * parse calls by the number of DISTINCT color strings actually compared,
+ * itself bounded by the pre-merge span count, never the cell count.
  */
 export function encodeGlyphBuffers(
   char: readonly string[],
@@ -324,6 +504,7 @@ export function encodeGlyphBuffers(
   rows: number,
   useColors = true,
   weight: ArrayLike<number> | null = null,
+  colorTolerance = 0,
 ): string {
   if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
     throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
@@ -332,6 +513,9 @@ export function encodeGlyphBuffers(
   assertCellBufferLength(char, n, "cell char buffer");
   assertCellBufferLength(color, n, "cell color buffer");
   if (weight) assertCellBufferLength(weight, n, "cell weight buffer");
+
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
 
   const parts: string[] = [];
   let runColor: string | null = null;
@@ -362,7 +546,8 @@ export function encodeGlyphBuffers(
       if (useColors) assertColor(nextColor, index);
       const nextWeight = useColors && glyph !== " " && weight ? weight[index]! : 0;
       if (useColors && weight) assertWeight(nextWeight, index);
-      if (nextColor !== runColor || nextWeight !== runWeight) {
+      const extendsColorRun = colorRunExtends(colorPackCache, tolerance2, runColor, nextColor);
+      if (!extendsColorRun || nextWeight !== runWeight) {
         flushRun();
         runColor = nextColor;
         runWeight = nextWeight;
@@ -377,10 +562,16 @@ export function encodeGlyphBuffers(
   return parts.join("");
 }
 
-/** Encode a validated cell grid for innerHTML (colored) or textContent (plain). */
-export function encodeCellGrid(grid: CellGrid, useColors = true): string {
+/**
+ * Encode a validated cell grid for innerHTML (colored) or textContent (plain).
+ * `colorTolerance` (default `0` = off) forwards to {@link encodeGlyphBuffers}
+ * unchanged — this is the encode path retained Glyph Effect layers use
+ * (`createGlyphScene.ts`'s `renderRetainedEffects`), so an effect-composited
+ * `<pre>` gets the same span-reduction lever as the base render.
+ */
+export function encodeCellGrid(grid: CellGrid, useColors = true, colorTolerance = 0): string {
   assertCellGridShape(grid);
-  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors, grid.weight ?? null);
+  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors, grid.weight ?? null, colorTolerance);
 }
 
 /**
@@ -397,6 +588,27 @@ export function encodeCellGrid(grid: CellGrid, useColors = true): string {
  * {@link CellGrid} (single color per cell), so the `transformCells` hook and
  * the generic effect compositor (`effectCompositor.ts`, one-color-per-cell
  * until its own item) are completely unaffected by this two-color path.
+ *
+ * `colorTolerance` (COLOR-TOLERANCE.md Phase 2, default `0` = off, byte-
+ * identical) is the same row-wise greedy anchor run-extension
+ * {@link encodeGlyphBuffers} does, applied independently to `fg` and `bg`: a
+ * run keeps extending only when BOTH the next cell's true `fg` is within
+ * tolerance of the run's `fg` anchor AND its true `bg` is within tolerance of
+ * the run's `bg` anchor (redmean distance, compared squared). Requiring BOTH
+ * channels to hold is strictly harder than the single-color case, so the win
+ * is smaller than {@link encodeGlyphBuffers}'s own 1.2x-9.1x range in
+ * `bench/color-tolerance.md`'s table — measured independently at 140x50 through the
+ * real `rasterize()` + `charMode` pipeline at tolerance 32/128: **halfblock**
+ * 1.59x/1.85x on a smooth-shaded icosphere but only 1.00x/1.28x on a flat
+ * per-face cube; **quadrant** 1.39x/1.62x on the icosphere but 1.01x/1.04x on
+ * the cube. Like the single-color path, an already-flat scene gains nothing
+ * at low tolerance and does not regress — it is NOT "real on every scene
+ * measured", so treat this the same as `colorTolerance`'s general "small or
+ * zero on already-flat content" caveat, not as a guaranteed win. `null` only
+ * ever matches `null` (an empty/half-covered subcell can't tolerance-merge
+ * into a covered one, exactly like {@link encodeGlyphBuffers}'s own
+ * blank-cell reset), and the `===` fast path (both channels reference-equal)
+ * never parses.
  */
 export function encodeGlyphBuffersDual(
   char: readonly string[],
@@ -405,6 +617,7 @@ export function encodeGlyphBuffersDual(
   cols: number,
   rows: number,
   useColors = true,
+  colorTolerance = 0,
 ): string {
   if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
     throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
@@ -413,6 +626,9 @@ export function encodeGlyphBuffersDual(
   assertCellBufferLength(char, n, "cell char buffer");
   assertCellBufferLength(fg, n, "cell fg buffer");
   assertCellBufferLength(bg, n, "cell bg buffer");
+
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
 
   const parts: string[] = [];
   let runFg: string | null = null;
@@ -445,7 +661,10 @@ export function encodeGlyphBuffersDual(
         assertColor(nextFg, index);
         assertColor(nextBg, index);
       }
-      if (nextFg !== runFg || nextBg !== runBg) {
+      const extendsRun =
+        colorRunExtends(colorPackCache, tolerance2, runFg, nextFg)
+        && colorRunExtends(colorPackCache, tolerance2, runBg, nextBg);
+      if (!extendsRun) {
         flushRun();
         runFg = nextFg;
         runBg = nextBg;
@@ -485,6 +704,9 @@ export function applyCellHook(
   targetRgbSrc: Uint32Array | null = null,
   objectPositionSrc: Float32Array | null = null,
   weightSrc: Uint16Array | null = null,
+  objectExitSrc: Float32Array | null = null,
+  winnerMeshSrc: Int32Array | null = null,
+  objectNormalSrc: Float32Array | null = null,
 ): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
   if (!hook) return { char, color, weight: weightSrc };
   const n = cols * rows;
@@ -503,12 +725,17 @@ export function applyCellHook(
     grid.worldPosition = worldPositionSrc;
   }
   if (normalSrc !== null && normalSrc.length >= n * 3) grid.normal = normalSrc;
+  if (objectNormalSrc !== null && objectNormalSrc.length >= n * 3) grid.objectNormal = objectNormalSrc;
   if (objectPositionSrc !== null && objectPositionSrc.length >= n * 3) grid.objectPosition = objectPositionSrc;
+  if (objectExitSrc !== null && objectExitSrc.length >= n * 3) grid.objectExit = objectExitSrc;
   if (surfaceUvSrc !== null && surfaceUvSrc.length >= cols * rows * 2) {
     grid.surfaceUv = surfaceUvSrc;
   }
   if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
     grid.winnerPolygon = winnerPolygonSrc;
+  }
+  if (winnerMeshSrc !== null && winnerMeshSrc.length >= n) {
+    grid.winnerMesh = winnerMeshSrc;
   }
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = albedoRgbSrc;
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;

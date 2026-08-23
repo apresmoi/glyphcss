@@ -32,7 +32,7 @@ import type {
 import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
-import { buildRasterizeContext } from "./rasterizeContext";
+import { buildRasterizeContext, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
 import { encodeCellGrid, encodeGlyphBuffers, type CellGrid, type TransformCells } from "../render/cells";
@@ -121,6 +121,22 @@ export interface GlyphSceneOptions {
    * reprojection.
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /**
+   * Row-wise greedy run-extension color merge tolerance (COLOR-TOLERANCE.md):
+   * a run keeps extending while the next cell's true color is within
+   * `colorTolerance` of the run's anchor color (redmean distance), trading
+   * color fidelity for fewer `<span>`s — the lever that actually gates frame
+   * rate for colored output. Default `0` = off, byte-identical. **Range is
+   * 0..765, not 0..255** (black↔white is 764.83 under redmean). `NaN` and
+   * negative values degrade to `0`; `+Infinity` is honored as-is (merges
+   * every same-glyph run in a row). NOT gated behind `temporalBlend` —
+   * measured with a control arm, tolerance pays off MOST under active TAA
+   * reprojection (up to 4.5x span reduction). Documented no-op under
+   * `glyphOutput: "semantic"` — semantic colors are exact class identifiers,
+   * not shaded appearance, so merging them under a tolerance would corrupt
+   * the lineage. See {@link RasterizeContextOptions.colorTolerance}.
+   */
+  colorTolerance?: number;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -421,6 +437,7 @@ export function createGlyphScene(
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
     solidWeightRamp: opts.solidWeightRamp,
+    colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -488,13 +505,26 @@ export function createGlyphScene(
     return effectLayers.length > 0;
   }
 
-  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition"): boolean {
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition" | "objectExit" | "objectNormal"): boolean {
     return effectLayers.some((layer) => (
       !layer.disposed && (
         layer.program.requirements?.includes(requirement) === true
         || layer.program.optionalRequirements?.includes(requirement) === true
+        // Params-aware gating (VOLUMETRIC.md "Step 1"): re-evaluated against the
+        // layer's LIVE params every render, so a requirement that only becomes
+        // reachable under a particular param value (e.g. field-synth's carve
+        // render mode) doesn't force every mounted instance to pay for it.
+        || layer.program.dynamicRequirements?.(layer.paramsTarget).includes(requirement) === true
       )
     ));
+  }
+
+  // Any non-disposed layer whose target normalized to a mesh-id set
+  // (VOLUMETRIC-3.md §1). Drives `retainWinnerMesh`: the winner-mesh buffer
+  // is only worth computing/downsampling/exposing when at least one mounted
+  // layer actually needs it to filter `targetCoverage`.
+  function hasMeshTargetedLayers(): boolean {
+    return effectLayers.some((layer) => !layer.disposed && layer.target instanceof Set);
   }
 
   function assertEffectMode(mode: RenderMode, layers = effectLayers): void {
@@ -515,7 +545,17 @@ export function createGlyphScene(
     if (!activePreparedEffects || !collectingEffectOutputs || !currentEffectOutputMetadata) {
       throw new Error("glyphcss: effect compositor ran outside an active render transaction.");
     }
-    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata);
+    // Pool this output's pure working scratch across full geometry renders
+    // (e.g. every frame of a camera orbit) by handing the LAST successfully
+    // committed retained output for this same id, if any, to
+    // `retainGlyphEffectOutput` as a reuse candidate — see that function's
+    // own doc for why only its working-scratch fields are eligible and why
+    // `retainedEffectOutputs` (not `collectingEffectOutputs`, which only
+    // holds outputs already staged for the transaction IN PROGRESS) is the
+    // right source: it is never mutated once a render commits, exactly the
+    // "safe to hand out, never itself corrupted by a failed frame" contract
+    // `retainGlyphEffectOutput` documents.
+    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
   };
@@ -538,7 +578,7 @@ export function createGlyphScene(
     for (const output of retainedEffectOutputs.values()) {
       testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors) });
+      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors, options.colorTolerance) });
     }
     commitRender({
       writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
@@ -716,6 +756,7 @@ export function createGlyphScene(
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
     const basePolygonGlobalIndexes: number[] = [];
+    const basePolygonMeshIds: number[] = [];
     const castShadowFlags: boolean[] = [];
     const receiveShadowFlags: boolean[] = [];
     const depthBiases: number[] = [];
@@ -740,6 +781,7 @@ export function createGlyphScene(
         const p = transformed[polygonIndex]!;
         allPolygons.push(p);
         basePolygonGlobalIndexes.push(globalOffset + polygonIndex);
+        basePolygonMeshIds.push(entry.id);
         castShadowFlags.push(cast);
         receiveShadowFlags.push(receive);
         depthBiases.push(bias);
@@ -783,6 +825,14 @@ export function createGlyphScene(
     const retainWorldPosition = effectsActive && effectRequests("worldPosition");
     const retainNormal = effectsActive && effectRequests("normal");
     const retainObjectPosition = effectsActive && effectRequests("objectPosition");
+    const retainObjectExit = effectsActive && effectRequests("objectExit");
+    const retainObjectNormal = effectsActive && effectRequests("objectNormal");
+    // Per-object effect targeting (VOLUMETRIC-3.md §1): the winner-mesh
+    // buffer only needs to be downsampled/exposed when a mounted layer's
+    // target actually normalized to a mesh-id set — ORed with
+    // `retainObjectExit`'s own (internal, never-exposed) need for the same
+    // buffer at `polygonMeshIds`-supply time, below.
+    const retainWinnerMesh = effectsActive && hasMeshTargetedLayers();
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -835,6 +885,7 @@ export function createGlyphScene(
       wireframeJunctions: options.wireframeJunctions,
       hiddenLines: options.hiddenLines,
       solidWeightRamp: options.solidWeightRamp,
+      colorTolerance: options.colorTolerance,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -846,10 +897,14 @@ export function createGlyphScene(
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
+      polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? basePolygonMeshIds : undefined,
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
       retainObjectPosition,
+      retainObjectExit,
+      retainObjectNormal,
+      retainWinnerMesh,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -914,6 +969,9 @@ export function createGlyphScene(
       retainWorldPosition,
       retainNormal,
       retainObjectPosition,
+      retainObjectExit,
+      retainObjectNormal,
+      retainWinnerMesh,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -1115,6 +1173,9 @@ export function createGlyphScene(
     retainWorldPosition: boolean,
     retainNormal: boolean,
     retainObjectPosition: boolean,
+    retainObjectExit: boolean,
+    retainObjectNormal: boolean,
+    retainWinnerMesh: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -1275,6 +1336,7 @@ export function createGlyphScene(
           wireframeJunctions: options.wireframeJunctions,
           hiddenLines: options.hiddenLines,
           solidWeightRamp: options.solidWeightRamp,
+          colorTolerance: options.colorTolerance,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1293,6 +1355,23 @@ export function createGlyphScene(
           retainWorldPosition,
           retainNormal,
           retainObjectPosition,
+          retainObjectNormal,
+          // A detail layer's `tp` is always a single mesh's own polygons, but
+          // the winner-mesh buffer's uninitialized/occlusion-blanked cells
+          // ALSO default to `-1` — the same value every polygon here would
+          // carry if `polygonMeshIds` were omitted (see `RasterizeContext.polygonMeshIds`'s
+          // "no mesh ids supplied" fallback in rasterize.ts). That collision let
+          // a back-facing-only polygon's exit sweep leak into cells with no
+          // entry-pass winner at all. Supplying this mesh's own real (>=1) id
+          // for every polygon keeps the winner-mesh sentinel unambiguous.
+          // Same OR-gate as the base layer above: `retainWinnerMesh` needs
+          // this mesh's own id supplied even when no `objectExit` effect is
+          // mounted, so a mesh-targeted layer's `targetCoverage` can match
+          // this detail grid's own real per-cell winner (VOLUMETRIC-3.md §1
+          // — "detail grids already carry a real mesh id").
+          polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? tp.map(() => entry.id) : undefined,
+          retainObjectExit,
+          retainWinnerMesh,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = textureSamplers;
@@ -1413,7 +1492,16 @@ export function createGlyphScene(
     const layer = createRuntimeGlyphEffectLayer(
       effectOptions,
       nextEffectDeclarationOrder++,
-      scheduleEffectRender,
+      // A plain params change only needs a cheap retained-effect recompose;
+      // a `dynamicRequirements`-changing one (e.g. field-synth's `render`
+      // flipping to `"carve"`) additionally invalidates whatever retained
+      // input buffers the previous requirement set produced — only a full
+      // geometry render (which recomputes `effectRequests`/`retainObjectExit`
+      // and reruns the exit sweep) repopulates those.
+      (requirementsChanged) => {
+        if (requirementsChanged) scheduleRender();
+        else scheduleEffectRender();
+      },
       (disposedLayer) => {
         const index = effectLayers.indexOf(disposedLayer);
         if (index >= 0) effectLayers.splice(index, 1);
@@ -1425,11 +1513,24 @@ export function createGlyphScene(
     const requested = new Set([
       ...(layer.program.requirements ?? []),
       ...(layer.program.optionalRequirements ?? []),
+      ...(layer.program.dynamicRequirements?.(layer.paramsTarget) ?? []),
     ]);
     const needsInputRaster = Array.from(retainedEffectOutputs.values()).some((output) => (
       (requested.has("baseShade") && !output.base.shade)
       || (requested.has("worldPosition") && !output.base.worldPosition)
       || (requested.has("normal") && !output.base.normal)
+      || (requested.has("objectPosition") && !output.base.objectPosition)
+      || (requested.has("objectExit") && !output.base.objectExit)
+      || (requested.has("objectNormal") && !output.base.objectNormal)
+      // A newly-mounted mesh-targeted layer (VOLUMETRIC-3.md §1) needs a
+      // full geometry render when retained frames predate it and so lack
+      // winner-mesh data — otherwise it silently no-ops (targetCoverage
+      // reads a missing winnerMesh as "no winner", so nothing composites)
+      // until the next geometry render. Checks the retained `CellGrid`
+      // directly rather than `output.base.winnerMesh` — equivalent (both
+      // mirror the same buffer as of Phase 2), but this is the one already
+      // guaranteed to exist regardless of whether `base` was built yet.
+      || (layer.target instanceof Set && !output.baseGrid.winnerMesh)
     ));
     if (needsInputRaster) scheduleRender();
     else if (retainedEffectOutputs.size > 0) scheduleEffectRender();
@@ -1541,6 +1642,7 @@ export function createGlyphScene(
     // so clearing it needs the same explicit "key present" check `shadow`/
     // `sceneManifest`/`dictionary` use below, not a `!== undefined` guard.
     if ("solidWeightRamp" in partial) options.solidWeightRamp = partial.solidWeightRamp;
+    if (partial.colorTolerance !== undefined) options.colorTolerance = normalizeGlyphColorTolerance(partial.colorTolerance);
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

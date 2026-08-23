@@ -59,6 +59,7 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `use-colors` | bool | Emit color spans in the output |
 | `wireframe-junctions` | flag | Box-drawing junction resolve pass (wireframe + `char-mode="ascii"` only): corners/T-junctions/crossings render from `┌┐└┘├┤┬┴┼─│` instead of a random per-edge glyph |
 | `hidden-lines` | `"show" \| "hide"` | Hidden-line removal for wireframe (+ braille) and `ink`. Default `show`. No-op in `solid`, which is already depth-buffered |
+| `color-tolerance` | number | Merge adjacent cells into one `<span>` while their colors stay within this redmean distance (range `0`–`765`, not `0`–`255`). Default `0` (off, byte-identical). `NaN`/negative values degrade to `0`; `+Infinity`/`-Infinity` are recognized literally (as strings) and behave the same as the JS surface. No-op under `glyph-output="semantic"` — semantic colors are exact class identifiers, not shaded appearance |
 | `glyph-output` | `"visible" \| "semantic"` | Default `visible`. `semantic` needs `sceneManifest` + `dictionary`, which are set as JS **properties** (they are data, not string attributes) |
 | `directional-direction` | `"x,y,z"` | Key-light source vector — the direction from the shaded surface *toward* the light. Comma-separated, like `<glyph-mesh position>`. Either this or `directional-intensity` configures the light; the other falls back to its default |
 | `directional-intensity` | number | Key-light intensity |

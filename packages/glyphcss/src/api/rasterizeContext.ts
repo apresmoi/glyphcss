@@ -145,6 +145,42 @@ export interface RasterizeContextOptions {
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
   /**
+   * Row-wise greedy run-extension against an anchor color (COLOR-TOLERANCE.md):
+   * a run keeps extending while the next cell's true color is within
+   * `colorTolerance` of the run's anchor (redmean distance), emitting the
+   * anchor's color for the whole run — trading color fidelity for fewer
+   * `<span>`s, which is what actually gates frame rate for colored output.
+   * Default `0` = off, byte-identical output. **The metric's range is 0..765,
+   * not 0..255** (black↔white is 764.83 under redmean) — a UI slider bound
+   * that assumes 0..255 leaves two thirds of the range unreachable.
+   *
+   * Validated at this layer ({@link buildRasterizeContext}), not in the hot
+   * encoder: `NaN` and negative values degrade to `0` (off); `+Infinity` is
+   * honored as-is (every same-glyph run in a row merges to one span — a
+   * legitimate, if extreme, choice, not an error); `-Infinity` degrades to
+   * `0` like any other negative value.
+   *
+   * Applies to every colored render path THAT ENCODES THROUGH `rasterize()`
+   * itself — wireframe and voxel (both plain and `"braille"` `charMode` —
+   * voxel falls through to the wireframe branch and is covered), `ink`, and
+   * `solid` (including `charMode: "halfblock"`/`"quadrant"`, where a run must
+   * hold for both independent color channels). NOT gated behind `temporalBlend`:
+   * measured with a control arm, tolerance pays off MOST under active TAA
+   * reprojection (span reduction up to 4.5x on the measured fixture) — see
+   * COLOR-TOLERANCE.md's Interactions section.
+   *
+   * Does NOT reach `glyphOutput: "semantic"` output, even though a
+   * `RasterizeContext` carrying this option is still built for that path
+   * (`createGlyphScene`'s `rasterizeToCells` call, used to retain the
+   * winner-polygon buffer semantic output needs) — the final semantic
+   * glyph/color string is produced separately, from the resolved class
+   * lineage, and never goes through this context's own `rasterize()`/
+   * encode step. Semantic colors are exact class identifiers, not shaded
+   * appearance, so merging them under a tolerance would corrupt the
+   * lineage — see {@link GlyphSceneOptions.colorTolerance}.
+   */
+  colorTolerance?: number;
+  /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
    */
@@ -196,6 +232,15 @@ export interface RasterizeContextOptions {
   /** Per-polygon relative depth bias (parallel to `polygons`). `pixelDepth *= 1 + bias`. */
   depthBiases?: number[];
   /**
+   * Per-polygon owning-mesh id (parallel to `polygons`), the same
+   * `globalPolygonOffsets` mesh-identity convention the semantic winner
+   * buffer uses. Only meaningful (and only supplied) when `retainObjectExit`
+   * is active: the exit sweep restricts its farthest-depth scan per cell to
+   * the mesh that won that cell in the main pass, so a farther, non-winning
+   * mesh's back face can never leak into another mesh's exit point.
+   */
+  polygonMeshIds?: number[];
+  /**
    * Global depth-test deadband (0 = exact, the default). A polygon replaces the
    * current cell only when nearer by more than this relative fraction, so
    * near-coplanar surfaces (overlapping brushes, decals, a translucent plane
@@ -224,11 +269,41 @@ export interface RasterizeContextOptions {
    */
   retainObjectPosition?: boolean;
   /**
+   * Retain the farthest object-space intersection of the depth-winning mesh
+   * along each cell's view ray (`objectExit` effect input — see
+   * VOLUMETRIC.md "Step 1"). Requires a second, all-faces, near-plane-
+   * clipping farthest-depth sweep restricted per cell to the winning mesh
+   * (via `polygonMeshIds`), so this is allocated and run ONLY when a mounted
+   * effect's requirement asks for it — zero cost otherwise.
+   */
+  retainObjectExit?: boolean;
+  /**
+   * Retain depth-winning geometric face normals in each mesh's own
+   * pre-transform 3D frame for an effect input (`objectNormal` — see
+   * VOLUMETRIC-4.md "Phase 0"). Computed at the same scan-fill call site as
+   * `objectPosition`, from the cross product of the same `ov0/ov1/ov2`
+   * object vertices — the self-consistent object-frame pair to
+   * `objectPosition`/`objectExit`, since the existing `normal` buffer is
+   * WORLD space and cannot be combined with the object-space ray for a
+   * rotated mesh.
+   */
+  retainObjectNormal?: boolean;
+  /**
    * Retain the positional source-polygon index that won each solid cell.
    * `-1` marks an empty cell. This is an opaque lookup key for durable control
    * capture; it is not a semantic label and is never allocated by default.
    */
   retainWinnerPolygon?: boolean;
+  /**
+   * Retain the winning MESH id per cell (solid mode only) — the substrate
+   * for per-object effect targeting (`targetCoverage`). ORed with
+   * {@link RasterizeContextOptions.retainObjectExit}'s own need for the same
+   * internal buffer: either flag causes `polygonMeshIds` to actually be
+   * consulted and the resulting per-cell winner to be downsampled and
+   * exposed on `CellGrid.winnerMesh`. Compositor-internal — never a
+   * `GlyphEffectRequirement`, never read by a program directly.
+   */
+  retainWinnerMesh?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -298,6 +373,8 @@ export interface RasterizeContext {
   hiddenLines: "show" | "hide";
   /** Solid-mode font-weight density ramp — see {@link RasterizeContextOptions.solidWeightRamp}. */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /** Run-extension color merge tolerance — see {@link RasterizeContextOptions.colorTolerance}. Always a validated, non-negative number (or `+Infinity`); never `NaN`. */
+  colorTolerance: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -308,6 +385,8 @@ export interface RasterizeContext {
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
   depthBiases?: number[];
+  /** Per-polygon owning-mesh id — see {@link RasterizeContextOptions.polygonMeshIds}. */
+  polygonMeshIds?: number[];
   /** Global depth-test deadband — see {@link RasterizeContextOptions.depthEpsilon}. */
   depthEpsilon?: number;
   /** Optional cross-frame shading cache (see {@link ShadeCache}). */
@@ -331,8 +410,14 @@ export interface RasterizeContext {
   retainNormal?: boolean;
   /** Retain depth-winning pre-transform (mesh-local) positions for an effect input. */
   retainObjectPosition?: boolean;
+  /** Retain the farthest object-space exit position for an effect input — see {@link RasterizeContextOptions.retainObjectExit}. */
+  retainObjectExit?: boolean;
+  /** Retain depth-winning object-space face normals — see {@link RasterizeContextOptions.retainObjectNormal}. */
+  retainObjectNormal?: boolean;
   /** Retain the positional source-polygon winner for durable control capture. */
   retainWinnerPolygon?: boolean;
+  /** Retain the winning mesh id per cell — see {@link RasterizeContextOptions.retainWinnerMesh}. */
+  retainWinnerMesh?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -370,6 +455,30 @@ function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {
   return out;
 }
 
+/**
+ * Public-layer validation for `colorTolerance` (COLOR-TOLERANCE.md Phase 3):
+ * runs once per {@link buildRasterizeContext} call, never in the hot encoder.
+ * `undefined` and `NaN` degrade to `0` (off) rather than throwing or
+ * propagating `NaN` into a per-cell comparison. A negative value degrades to
+ * `0` the same way (there is no meaningful "negative tolerance"). `+Infinity`
+ * is honored as-is: `withinColorTolerance`'s `d2 <= tolerance^2` comparison
+ * is trivially true for any finite `d2`, so this deliberately merges every
+ * same-glyph run in a row — an extreme but valid configuration, not an
+ * error. `-Infinity` falls out of the same negative-degrades-to-0 rule.
+ *
+ * Exported so every public entry point that stores a `colorTolerance` before
+ * it reaches {@link buildRasterizeContext} (`createGlyphScene`'s internal
+ * `options`, read directly by the retained-effect-layer `encodeCellGrid`
+ * path, which never calls `buildRasterizeContext`) can normalize once at the
+ * same layer instead of duplicating this rule or leaving that second path
+ * unvalidated.
+ */
+export function normalizeGlyphColorTolerance(value: number | undefined): number {
+  if (value === undefined || Number.isNaN(value)) return 0;
+  if (value === Infinity) return Infinity;
+  return value > 0 ? value : 0;
+}
+
 export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeContext {
   const polygons = opts.polygons ?? [];
   const mode = opts.mode ?? (polygons.length ? "solid" : "wireframe");
@@ -386,6 +495,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     charMode: opts.charMode ?? "ascii",
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
+    colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
@@ -399,10 +509,14 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainWorldPosition: opts.retainWorldPosition ?? false,
     retainNormal: opts.retainNormal ?? false,
     retainObjectPosition: opts.retainObjectPosition ?? false,
+    retainObjectExit: opts.retainObjectExit ?? false,
+    retainObjectNormal: opts.retainObjectNormal ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
+    retainWinnerMesh: opts.retainWinnerMesh ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
     retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
+    ...(opts.polygonMeshIds ? { polygonMeshIds: opts.polygonMeshIds } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
     ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),

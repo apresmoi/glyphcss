@@ -95,6 +95,60 @@ describe("createGlyphScene effects", () => {
     scene.destroy();
   });
 
+  it("reuses pooled effect-compositor scratch buffers across a rolled-back full render without corrupting the retained baseline", async () => {
+    // `retainGlyphEffectOutput` reuses the previous retained output's pure
+    // working-scratch buffers (inputGlyph/inputColor/workingGrid/etc, see its
+    // own doc in effectCompositor.ts) whenever a full geometry render's grid
+    // shape matches. Those buffers are the SAME array instances the last
+    // COMMITTED retained output still references — a render that reuses them
+    // and then fails before commit mutates them in place. This proves that
+    // doesn't corrupt anything: `baseGrid`/`baseColor`/`baseCoverage` (the
+    // actual rollback ground truth) are never shared, so the next render
+    // still produces byte-identical output to a clean, non-pooled render.
+    const camera = createGlyphOrthographicCamera({ zoom: 50 });
+    const sceneOptions = { cols: 32, rows: 18, useColors: true, camera } as const;
+    const scene = createGlyphScene(host, sceneOptions);
+    scene.addEffectLayer({ effect: glyphProgram("X"), params: { phase: 0 }, blend: "replace" });
+    scene.add(makeCubePolygons(), { position: [-0.6, 0, 0] });
+    await flushRenders();
+    scene.add(makeCubePolygons(), { position: [0.6, 0, 0] }); // full render #2 — reuses render #1's pooled scratch
+    await flushRenders();
+    const beforeFailure = scene.output.innerHTML;
+
+    // Schedules full render #3, which reuses render #2's pooled scratch
+    // buffers; force it to fail synchronously right at commit, after the
+    // pooled buffers have already been written into during rasterization.
+    scene.add(makeCubePolygons(), { position: [0, 0.6, 0] });
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "commit-write") throw new Error("commit failed"); };
+    expect(() => scene.rerender()).toThrow("commit failed");
+    delete globalThis.__glyphRenderStage;
+    expect(scene.output.innerHTML).toBe(beforeFailure);
+
+    // A further successful full render reuses the SAME pooled buffers the
+    // failed attempt above just wrote into. The mesh added above stays
+    // registered (mesh registration isn't part of the render transaction),
+    // so this render covers it plus one more mesh.
+    scene.add(makeCubePolygons(), { position: [0, -0.6, 0] });
+    await flushRenders();
+    const finalOutput = scene.output.innerHTML;
+    scene.destroy();
+
+    // Cross-check against a scene reaching the identical final geometry
+    // directly, in one shot — it never exercises pooled-reuse-through-a-
+    // failed-render, so this is the "clean" ground truth.
+    const cleanHost = document.createElement("div");
+    document.body.appendChild(cleanHost);
+    const cleanScene = createGlyphScene(cleanHost, sceneOptions);
+    cleanScene.addEffectLayer({ effect: glyphProgram("X"), params: { phase: 0 }, blend: "replace" });
+    cleanScene.add(makeCubePolygons(), { position: [-0.6, 0, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0.6, 0, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0, 0.6, 0] });
+    cleanScene.add(makeCubePolygons(), { position: [0, -0.6, 0] });
+    await flushRenders();
+    expect(finalOutput).toBe(cleanScene.output.innerHTML);
+    cleanScene.destroy();
+  });
+
   it("uses definition defaults and exposes stable Anime-compatible params", async () => {
     const schema = {
       amount: { kind: "number", default: 0.25, min: 0, max: 1 },
@@ -285,7 +339,7 @@ describe("createGlyphScene effects", () => {
     scene.destroy();
   });
 
-  it("rejects unsupported requirements, mesh targets, and incompatible modes atomically", () => {
+  it("rejects unsupported requirements and incompatible modes atomically", () => {
     const scene = createGlyphScene(host, { mode: "solid" });
     const mesh = scene.add(makeCubePolygons());
     const unsupportedProgram = defineGlyphEffect<{ phase: number }>({
@@ -295,16 +349,32 @@ describe("createGlyphScene effects", () => {
     expect(() => scene.addEffectLayer({ effect: unsupportedProgram, params: { phase: 0 } }))
       .toThrow(/not supported/);
 
+    // Mesh-handle targets are now supported (VOLUMETRIC-3.md §1) — mounting
+    // one no longer throws.
     const uvProgram = defineGlyphEffect<{ phase: number }>({
       requirements: ["uv0"],
       evaluate() {},
     });
-    expect(() => scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 }, target: mesh }))
-      .toThrow(/meshhandle effect targets/i);
+    const meshTargeted = scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 }, target: mesh });
+    expect(meshTargeted.disposed).toBe(false);
     const layer = scene.addEffectLayer({ effect: uvProgram, params: { phase: 0 } });
     expect(() => scene.setOptions({ mode: "wireframe" })).toThrow(/only available in solid mode/);
     expect(scene.getOptions().mode).toBe("solid");
-    expect(() => layer.setOptions({ target: mesh })).toThrow(/meshhandle effect targets/i);
+    // A layer mounted with the default "surfaces" target cannot be
+    // retargeted to a mesh set after mount — live retargeting is out of
+    // scope; remove and re-add the layer instead.
+    expect(() => layer.setOptions({ target: mesh })).toThrow(/immutable after mount/i);
+    scene.destroy();
+  });
+
+  it("rejects malformed mesh-handle targets", () => {
+    const scene = createGlyphScene(host, { mode: "solid" });
+    scene.add(makeCubePolygons());
+    const program = defineGlyphEffect<{ phase: number }>({ evaluate() {} });
+    expect(() => scene.addEffectLayer({ effect: program, params: { phase: 0 }, target: [] }))
+      .toThrow(/at least one GlyphMeshHandle/i);
+    expect(() => scene.addEffectLayer({ effect: program, params: { phase: 0 }, target: [{} as never] }))
+      .toThrow(/only GlyphMeshHandle values/i);
     scene.destroy();
   });
 
@@ -338,5 +408,37 @@ describe("createGlyphScene effects", () => {
     await flushRenders();
     expect(queued.disposed).toBe(true);
     expect(host.querySelector(".glyph-scene")).toBeNull();
+  });
+
+  it("program-as-data (VOLUMETRIC-3.md §4): addEffectLayer's `program` option reaches evaluate() through the real render pipeline, and setOptions rejects changing it", async () => {
+    let seenProgram: unknown;
+    const schema = { phase: { kind: "number", default: 0 } } as const;
+    const definition = {
+      id: "test.program-as-data",
+      version: 1,
+      parameterSchema: schema,
+      program: defineGlyphEffect<{ phase: number }>({
+        evaluate({ target, program, output }) {
+          seenProgram = program;
+          for (let i = 0; i < output.coverage.length; i++) {
+            if (target.coverage[i]! <= 0) continue;
+            output.glyph[i] = "P";
+            output.coverage[i] = 1;
+            output.channels[i] = GlyphEffectOutputChannel.Glyph;
+          }
+        },
+      }),
+    } satisfies GlyphEffectDefinition<typeof schema>;
+    const scene = createGlyphScene(host, { cols: 20, rows: 10, useColors: false, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    scene.add(makeCubePolygons());
+    const payload = { domain: "2d" as const, layers: [] };
+    const layer = scene.addEffectLayer({ effect: definition, params: { phase: 0 }, program: payload });
+    await flushRenders();
+    expect(seenProgram).toBe(payload);
+    expect(scene.output.textContent).toContain("P");
+
+    expect(() => layer.setOptions({ program: { domain: "2d", layers: [] } } as never))
+      .toThrow(/immutable after mount/i);
+    scene.destroy();
   });
 });

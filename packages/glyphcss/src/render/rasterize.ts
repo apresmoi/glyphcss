@@ -1,9 +1,9 @@
 import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
-import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
-import { applyCellHook, buildCellGrid, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
+import { applyCellHook, buildCellGrid, colorRunExtends, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
 import type { CellGrid } from "./cells";
 
 /**
@@ -42,6 +42,21 @@ interface ProjectCamera {
  */
 const HLR_BIAS = 0.03;
 const HLR_SLOPE_SCALE = 0.5;
+
+// `winnerMeshBuf`'s "no winner yet" / occlusion-blanked sentinel (see its
+// declaration and `exitScanFillTriangle`'s gate below) is `-1`. A polygon's
+// meshId fallback when the caller supplies no `polygonMeshIds` array at all
+// must be a DIFFERENT constant — otherwise every polygon implicitly carries
+// the same value as an unclaimed cell, and the exit sweep's
+// `winnerMeshBuf[idx] !== meshId` restriction passes on every cell in a
+// triangle's bounding box regardless of whether that cell actually has a
+// winner, leaking finite `objectExit` data into empty/occluded cells (a
+// back-facing-only polygon is the sharpest case: it never wins any cell in
+// the entry pass, so every cell it touches in the exit sweep must be
+// rejected). `NO_MESH_ID_SUPPLIED` is used consistently by both the entry
+// and exit sweeps' meshId fallback, so a legitimately-won cell in a
+// no-mesh-ids scene still matches itself in the exit sweep.
+const NO_MESH_ID_SUPPLIED = -2;
 
 function projectionMetricsForGrid(
   cols: number,
@@ -447,10 +462,10 @@ export function rasterize(scene: RasterizeContext): string {
       }
     }
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
 
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask);
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene.colorTolerance);
 }
 
 /** N/E/S/W side bits for the box-drawing junction resolve pass. */
@@ -1086,9 +1101,9 @@ function rasterizeInk(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
-  return solidBufToString(charBuf, colorBuf, cols, rows, false);
+  return solidBufToString(charBuf, colorBuf, cols, rows, false, scene.colorTolerance);
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
@@ -1109,6 +1124,7 @@ function rasterizeSolid(
   const rows = outRows * supersample;
   const { camera: rawCamera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, doubleSided, castShadowFlags, receiveShadowFlags } = scene;
   const depthBiases = scene.depthBiases;
+  const polygonMeshIds = scene.polygonMeshIds;
   const depthEpsilon = scene.depthEpsilon ?? 0;
   const scaledMetrics: GlyphProjectionMetrics = supersample > 1
     ? {
@@ -1159,8 +1175,12 @@ function rasterizeSolid(
       world: Float32Array | null;
       objectPos: Float32Array | null;
       normal: Float32Array | null;
+      objectNormal: Float32Array | null;
       surfaceUv: Float32Array | null;
       winnerPolygon: Int32Array | null;
+      winnerMesh: Int32Array | null;
+      objectExit: Float32Array | null;
+      objectExitDepth: Float64Array | null;
       albedoRgb: Uint32Array | null;
       targetRgb: Uint32Array | null;
       weight: Uint16Array | null;
@@ -1177,8 +1197,12 @@ function rasterizeSolid(
       world: null,
       objectPos: null,
       normal: null,
+      objectNormal: null,
       surfaceUv: null,
       winnerPolygon: null,
+      winnerMesh: null,
+      objectExit: null,
+      objectExitDepth: null,
       albedoRgb: null,
       targetRgb: null,
       weight: null,
@@ -1227,6 +1251,20 @@ function rasterizeSolid(
     normalBuf = scratch.normal;
     normalBuf.fill(NaN);
   }
+  // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): the object-frame
+  // sibling of `objectPosBuf`, computed from the same `ov0/ov1/ov2` object
+  // vertices at the same scan-fill call site. Never driven by `retainNormal`
+  // — the world `normal` buffer stays untouched (the generated-surface basis
+  // still needs it) — so this is allocated ONLY when an effect's requirement
+  // asked for it, exactly like `objectPosBuf`.
+  let objectNormalBuf: Float32Array | null = null;
+  if (scene.retainObjectNormal) {
+    if (!scratch.objectNormal || scratch.objectNormal.length !== n * 3) {
+      scratch.objectNormal = new Float32Array(n * 3);
+    }
+    objectNormalBuf = scratch.objectNormal;
+    objectNormalBuf.fill(NaN);
+  }
   let surfaceUvBuf: Float32Array | null = null;
   if (needSurfaceUv) {
     if (!scratch.surfaceUv || scratch.surfaceUv.length !== n * 2) {
@@ -1242,6 +1280,26 @@ function rasterizeSolid(
     }
     winnerPolygonBuf = scratch.winnerPolygon;
     winnerPolygonBuf.fill(-1);
+  }
+  // Winner-mesh buffer: which mesh id won each cell in THIS pass, at the
+  // pass's supersample resolution. Independent of `retainWinnerPolygon`
+  // (semantic-mode-only). Allocated under EITHER `retainObjectExit` (which
+  // needs it to restrict the exit sweep's farthest-depth scan per cell to
+  // the mesh that actually won there) OR `retainWinnerMesh` (per-object
+  // effect targeting's `targetCoverage` substrate — VOLUMETRIC-3.md §1),
+  // whichever is live. Downsampled and exposed on `CellGrid.winnerMesh`
+  // whenever EITHER gate is live — see the exposure assignment below
+  // (revised in VOLUMETRIC-3.md Phase 2: `retainObjectExit` alone used to
+  // allocate the buffer without ever surfacing it, which left every carve
+  // volumetric-subcell program — always `retainObjectExit`, rarely
+  // mesh-targeted — with no way to test exact mesh-boundary equality
+  // between neighboring cells; two coplanar same-normal meshes were
+  // otherwise indistinguishable to those programs, the Phase 2 P1 fix).
+  let winnerMeshBuf: Int32Array | null = null;
+  if (scene.retainObjectExit || scene.retainWinnerMesh) {
+    if (!scratch.winnerMesh || scratch.winnerMesh.length !== n) scratch.winnerMesh = new Int32Array(n);
+    winnerMeshBuf = scratch.winnerMesh;
+    winnerMeshBuf.fill(-1);
   }
   let albedoRgbBuf: Uint32Array | null = null;
   if (scene.retainAlbedoRgb) {
@@ -1349,6 +1407,11 @@ function rasterizeSolid(
     if (verts.length < 3) continue;
     // Pre-transform vertices, parallel to `verts` — see `objectPosBuf`.
     const objVerts = poly.objectVertices ?? verts;
+    // Owning-mesh id for the winner-mesh buffer (`objectExit`'s second sweep
+    // restricts its farthest-depth scan to whichever mesh won each cell
+    // here). `NO_MESH_ID_SUPPLIED` when the scene didn't supply `polygonMeshIds`
+    // — distinct from the `-1` "no winner" sentinel; see its declaration.
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : NO_MESH_ID_SUPPLIED;
     // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
     // projection/shading/scan-fill. `triT` must still advance by this polygon's
     // triangle count so the positional cross-frame shadeCache stays aligned when
@@ -1435,6 +1498,27 @@ function rasterizeSolid(
         fnxN = fnx / fnLen;
         fnyN = fny / fnLen;
         fnzN = fnz / fnLen;
+      }
+      // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): same cross
+      // product as the world normal above, but against the PRE-transform
+      // `ov0/ov1/ov2` object vertices `objectPosBuf` already interpolates —
+      // never against `v0/v1/v2`. This is deliberately the object-frame
+      // GEOMETRIC normal with no inverse-transpose: under non-uniform scale
+      // that would diverge from a true shading normal, but it is the exact
+      // self-consistent pair for `objectPosition`/`objectExit`, which are
+      // themselves plain (non-inverse-transformed) barycentric interpolations
+      // of the same object vertices.
+      let onxN = 0, onyN = 0, onzN = 0;
+      if (objectNormalBuf !== null) {
+        const oux = ov1[0] - ov0[0], ouy = ov1[1] - ov0[1], ouz = ov1[2] - ov0[2];
+        const ovx = ov2[0] - ov0[0], ovy = ov2[1] - ov0[1], ovz = ov2[2] - ov0[2];
+        const onx = ouy * ovz - ouz * ovy;
+        const ony = ouz * ovx - oux * ovz;
+        const onz = oux * ovy - ouy * ovx;
+        const onLen = Math.hypot(onx, ony, onz) || 1;
+        onxN = onx / onLen;
+        onyN = ony / onLen;
+        onzN = onz / onLen;
       }
       let iA: number, iB: number, iC: number;
       let litColor: string | null = null;
@@ -1562,6 +1646,7 @@ function rasterizeSolid(
           v0, v1, v2, worldPosBuf,
           ov0, ov1, ov2, objectPosBuf,
           fnxN, fnyN, fnzN, normalBuf,
+          onxN, onyN, onzN, objectNormalBuf,
           surfaceUvCtx, surfaceUvBuf,
           depthEpsilon,
           texCtx,
@@ -1572,6 +1657,7 @@ function rasterizeSolid(
           ambIntensity, ambRgb, keyRgb,
           poly.color ?? "#ffffff",
           weightRamp, weightBuf,
+          meshId, winnerMeshBuf,
         );
       } else {
         // Straddles the near plane: clip the triangle to the visible half-space
@@ -1656,6 +1742,7 @@ function rasterizeSolid(
               cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
               cow ? cow[0]! : ov0, cow ? cow[f]! : ov1, cow ? cow[f + 1]! : ov2, objectPosBuf,
               fnxN, fnyN, fnzN, normalBuf,
+              onxN, onyN, onzN, objectNormalBuf,
               clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
               // Near-plane-clipped sub-triangles do not yet rebuild the bitmap
@@ -1669,6 +1756,7 @@ function rasterizeSolid(
               ambIntensity, ambRgb, keyRgb,
               poly.color ?? "#ffffff",
               weightRamp, weightBuf,
+              meshId, winnerMeshBuf,
             );
           }
         }
@@ -1717,17 +1805,49 @@ function rasterizeSolid(
             normalBuf[idx * 3 + 1] = NaN;
             normalBuf[idx * 3 + 2] = NaN;
           }
+          if (objectNormalBuf) {
+            objectNormalBuf[idx * 3] = NaN;
+            objectNormalBuf[idx * 3 + 1] = NaN;
+            objectNormalBuf[idx * 3 + 2] = NaN;
+          }
           if (surfaceUvBuf) {
             surfaceUvBuf[idx * 2] = NaN;
             surfaceUvBuf[idx * 2 + 1] = NaN;
           }
           if (winnerPolygonBuf) winnerPolygonBuf[idx] = -1;
+          if (winnerMeshBuf) winnerMeshBuf[idx] = -1;
           if (albedoRgbBuf) albedoRgbBuf[idx] = 0;
           if (targetRgbBuf) targetRgbBuf[idx] = 0;
           if (weightBuf) weightBuf[idx] = 0;
         }
       }
     }
+  }
+
+  // Second sweep — `objectExit` (see VOLUMETRIC.md "Step 1"): the farthest
+  // intersection of the depth-winning mesh along each cell's view ray, in
+  // that mesh's own pre-transform frame. Cannot be produced inside the pass
+  // above (the winner is only final after the last polygon, and back faces
+  // never reach scan-fill there at all — they're culled before it). Runs at
+  // this pass's supersample resolution, gated per cell by `winnerMeshBuf` so
+  // a farther, non-winning mesh's back face never leaks in. Allocated and
+  // run ONLY when a mounted effect's requirement asked for it.
+  let exitPosBuf: Float32Array | null = null;
+  if (scene.retainObjectExit && winnerMeshBuf !== null) {
+    if (!scratch.objectExit || scratch.objectExit.length !== n * 3) {
+      scratch.objectExit = new Float32Array(n * 3);
+    }
+    exitPosBuf = scratch.objectExit;
+    exitPosBuf.fill(NaN);
+    if (!scratch.objectExitDepth || scratch.objectExitDepth.length !== n) {
+      scratch.objectExitDepth = new Float64Array(n);
+    }
+    const exitDepthBuf = scratch.objectExitDepth;
+    exitDepthBuf.fill(Infinity);
+    rasterizeObjectExit(
+      polygons, polygonMeshIds ?? null, camera, cols, rows, cellAspect, scaledMetrics,
+      winnerMeshBuf, depthBiases, depthEpsilon, exitPosBuf, exitDepthBuf,
+    );
   }
 
   if (__detail) { (__detail.loop ??= []).push(performance.now() - __tLoop); }
@@ -1739,12 +1859,20 @@ function rasterizeSolid(
   let finalShade: Float32Array | null = shadeBuf;
   let finalWorldPos: Float32Array | null = worldPosBuf;
   let finalObjectPos: Float32Array | null = objectPosBuf;
+  let finalExitPos: Float32Array | null = exitPosBuf;
   let finalNormal: Float32Array | null = normalBuf;
+  let finalObjectNormal: Float32Array | null = objectNormalBuf;
   let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
   let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
   let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
   let finalTargetRgb: Uint32Array | null = targetRgbBuf;
   let finalWeight: Uint16Array | null = weightBuf;
+  // Exposed on `CellGrid.winnerMesh` whenever the buffer above was actually
+  // allocated (`retainWinnerMesh` for per-object targeting OR
+  // `retainObjectExit` for every carve/volumetric-subcell effect — see the
+  // allocation comment above for why `retainObjectExit` alone must expose
+  // it too, as of VOLUMETRIC-3.md Phase 2).
+  let finalWinnerMesh: Int32Array | null = (scene.retainWinnerMesh || scene.retainObjectExit) ? winnerMeshBuf : null;
   if (supersample > 1 && wantsHalfblockSolid(scene)) {
     // Two-color (`▀`/`▄`/`█`) encoding straight from the raw supersampled
     // subcells — see `encodeHalfblockSolid` for the per-cell decision table
@@ -1752,7 +1880,7 @@ function rasterizeSolid(
     // terminates the function here: `reproject` and `transformCells` are both
     // guaranteed false by `wantsHalfblockSolid`, so the single-color
     // downsample/TAA/hook machinery below is never reached for this cell path.
-    const out = encodeHalfblockSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const out = encodeHalfblockSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors, scene.colorTolerance);
     if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
     return out;
   }
@@ -1762,7 +1890,7 @@ function rasterizeSolid(
     // shape as the halfblock branch above: `wantsQuadrantSolid` already
     // guarantees no `transformCells`/reprojection, so the downsample/TAA/hook
     // machinery below is never reached for this cell path.
-    const out = encodeQuadrantSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const out = encodeQuadrantSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors, scene.colorTolerance);
     if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
     return out;
   }
@@ -1784,6 +1912,9 @@ function rasterizeSolid(
       ramp,
       objectPosBuf,
       weightRamp,
+      exitPosBuf,
+      finalWinnerMesh,
+      objectNormalBuf,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1791,12 +1922,15 @@ function rasterizeSolid(
     finalShade = ds.shade;
     finalWorldPos = ds.worldPos;
     finalNormal = ds.normal;
+    finalObjectNormal = ds.objectNormal;
     finalSurfaceUv = ds.surfaceUv;
     finalWinnerPolygon = ds.winnerPolygon;
     finalAlbedoRgb = ds.albedoRgb;
     finalTargetRgb = ds.targetRgb;
     finalObjectPos = ds.objectPos;
+    finalExitPos = ds.exitPos;
     finalWeight = ds.weight;
+    finalWinnerMesh = ds.winnerMesh;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
@@ -1822,6 +1956,9 @@ function rasterizeSolid(
       finalTargetRgb,
       finalObjectPos,
       finalWeight,
+      finalExitPos,
+      finalWinnerMesh,
+      finalObjectNormal,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -1831,8 +1968,8 @@ function rasterizeSolid(
   // temporal reprojection didn't drop it) — the byte-identical default path
   // (`finalWeight === null`) keeps using the original unweighted encoder.
   const out = finalWeight
-    ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight)
-    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells);
+    ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight, scene.colorTolerance)
+    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells, scene.colorTolerance);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
   return out;
 }
@@ -1974,6 +2111,19 @@ function downsampleSolid(
   // `font-weight` always describe the same ramp step — never a glyph from
   // one step paired with the weight of another. `null` → no weight buffer.
   weightRamp: Uint16Array | null = null,
+  // `objectExit` (opt-in): downsampled from the SAME representative subcell
+  // as `objectPosIn` — the exit sweep is gated by the entry pass's own
+  // winner buffer, so entry and exit always describe one subcell's ray.
+  exitPosIn: Float32Array | null = null,
+  // `retainWinnerMesh` (opt-in): downsampled from the SAME representative
+  // subcell as every other winner-keyed field above — see
+  // VOLUMETRIC-3.md §1's winner-mesh plumbing checklist. `null` → no
+  // winnerMesh buffer (byte-identical to before this option existed).
+  winnerMeshIn: Int32Array | null = null,
+  // `objectNormal` (opt-in, VOLUMETRIC-4.md "Phase 0"): downsampled from the
+  // SAME representative subcell as `objectPosIn`/`exitPosIn`/`normalIn` —
+  // they must all agree subcell-for-subcell.
+  objectNormalIn: Float32Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -1981,12 +2131,15 @@ function downsampleSolid(
   shade: Float32Array | null;
   worldPos: Float32Array | null;
   normal: Float32Array | null;
+  objectNormal: Float32Array | null;
   surfaceUv: Float32Array | null;
   winnerPolygon: Int32Array | null;
   albedoRgb: Uint32Array | null;
   targetRgb: Uint32Array | null;
   objectPos: Float32Array | null;
   weight: Uint16Array | null;
+  exitPos: Float32Array | null;
+  winnerMesh: Int32Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -1999,12 +2152,15 @@ function downsampleSolid(
   const os: Float32Array | null = shadeBuf ? new Float32Array(outCols * outRows).fill(NaN) : null;
   const ow: Float32Array | null = worldPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const on: Float32Array | null = normalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const oon: Float32Array | null = objectNormalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const ouv: Float32Array | null = surfaceUvIn ? new Float32Array(outCols * outRows * 2).fill(NaN) : null;
   const owinner: Int32Array | null = winnerPolygonIn ? new Int32Array(outCols * outRows).fill(-1) : null;
   const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
   const otarget: Uint32Array | null = targetRgbIn ? new Uint32Array(outCols * outRows) : null;
   const oobj: Float32Array | null = objectPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const oexit: Float32Array | null = exitPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const oweight: Uint16Array | null = weightRamp ? new Uint16Array(outCols * outRows) : null;
+  const owinnerMesh: Int32Array | null = winnerMeshIn ? new Int32Array(outCols * outRows).fill(-1) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
@@ -2051,6 +2207,11 @@ function downsampleSolid(
         on[oi * 3 + 1] = normalIn![representative * 3 + 1]!;
         on[oi * 3 + 2] = normalIn![representative * 3 + 2]!;
       }
+      if (oon && representative >= 0) {
+        oon[oi * 3] = objectNormalIn![representative * 3]!;
+        oon[oi * 3 + 1] = objectNormalIn![representative * 3 + 1]!;
+        oon[oi * 3 + 2] = objectNormalIn![representative * 3 + 2]!;
+      }
       if (ouv && representative >= 0) {
         ouv[oi * 2] = surfaceUvIn![representative * 2]!;
         ouv[oi * 2 + 1] = surfaceUvIn![representative * 2 + 1]!;
@@ -2063,9 +2224,15 @@ function downsampleSolid(
         oobj[oi * 3 + 1] = objectPosIn![representative * 3 + 1]!;
         oobj[oi * 3 + 2] = objectPosIn![representative * 3 + 2]!;
       }
+      if (oexit && representative >= 0) {
+        oexit[oi * 3] = exitPosIn![representative * 3]!;
+        oexit[oi * 3 + 1] = exitPosIn![representative * 3 + 1]!;
+        oexit[oi * 3 + 2] = exitPosIn![representative * 3 + 2]!;
+      }
+      if (owinnerMesh && representative >= 0) owinnerMesh[oi] = winnerMeshIn![representative]!;
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, objectNormal: oon, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight, exitPos: oexit, winnerMesh: owinnerMesh };
 }
 
 /**
@@ -2110,6 +2277,7 @@ export function encodeHalfblockSolid(
   outRows: number,
   S: number,
   useColors: boolean,
+  colorTolerance = 0,
 ): string {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
@@ -2166,7 +2334,7 @@ export function encodeHalfblockSolid(
       }
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
 }
 
 /** Quadrant bit ordering: TL/TR/BL/BR, matching the classic sixel/chafa quadrant convention. */
@@ -2263,6 +2431,7 @@ export function encodeQuadrantSolid(
   outRows: number,
   S: number,
   useColors: boolean,
+  colorTolerance = 0,
 ): string {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
@@ -2343,7 +2512,7 @@ export function encodeQuadrantSolid(
       fgBuf[oi] = avgColor(15);
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
 }
 
 /**
@@ -2580,6 +2749,12 @@ function scanFillTriangle(
   objectPosBuf: Float32Array | null,
   normalX: number, normalY: number, normalZ: number,
   normalBuf: Float32Array | null,
+  // Object-space face normal (VOLUMETRIC-4.md "Phase 0") — face-constant per
+  // triangle, same as `normalX/Y/Z` above but computed from `ov0/ov1/ov2`.
+  // Written verbatim to every cell this triangle wins, exactly like the
+  // world normal; `null` when no effect requested it.
+  objectNormalX: number, objectNormalY: number, objectNormalZ: number,
+  objectNormalBuf: Float32Array | null,
   surfaceUv: ScanFillSurfaceUvCtx | null,
   surfaceUvBuf: Float32Array | null,
   // Relative depth-test deadband (0 = exact). A new triangle replaces the
@@ -2601,6 +2776,11 @@ function scanFillTriangle(
   // unset — `weightBuf` is never written and output stays byte-identical.
   weightRamp: Uint16Array | null = null,
   weightBuf: Uint16Array | null = null,
+  // Winning MESH id for this polygon (see `RasterizeContext.polygonMeshIds`)
+  // + the per-cell winner-mesh buffer it's written into. `-1`/`null` when the
+  // scene didn't request `objectExit` — the exit sweep is the only reader.
+  meshId = -1,
+  winnerMeshBuf: Int32Array | null = null,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -2656,6 +2836,7 @@ function scanFillTriangle(
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
         if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
+        if (winnerMeshBuf !== null) winnerMeshBuf[idx] = meshId;
         const invQ = interpolatePerspective
           ? 1 / (wA * aq + wB * bq + wC * cq)
           : invArea2;
@@ -2690,6 +2871,12 @@ function scanFillTriangle(
           normalBuf[o] = normalX;
           normalBuf[o + 1] = normalY;
           normalBuf[o + 2] = normalZ;
+        }
+        if (objectNormalBuf !== null) {
+          const o = idx * 3;
+          objectNormalBuf[o] = objectNormalX;
+          objectNormalBuf[o + 1] = objectNormalY;
+          objectNormalBuf[o + 2] = objectNormalZ;
         }
         if (surfaceUvBuf !== null) {
           const o = idx * 2;
@@ -2843,6 +3030,201 @@ function scanFillTriangle(
 }
 
 /**
+ * Farthest-depth scan-fill for the `objectExit` second sweep. Unlike
+ * `scanFillTriangle`, this ALWAYS fills both windings (no backface cull —
+ * the far side of a closed mesh is by definition a back face from the
+ * camera) and keeps the FARTHEST depth instead of the nearest, restricted
+ * per cell to `meshId === winnerMeshBuf[idx]` (a farther, non-winning mesh's
+ * geometry must never leak into another mesh's exit point). Interpolates
+ * ONLY the pre-transform (object-space) position — no shading, color, or
+ * UV — since this buffer feeds a volumetric effect's marcher, not a glyph.
+ */
+function exitScanFillTriangle(
+  ax: number, ay: number, az: number, aq: number,
+  bx: number, by: number, bz: number, bq: number,
+  cx: number, cy: number, cz: number, cq: number,
+  ov0: Vec3, ov1: Vec3, ov2: Vec3,
+  exitPosBuf: Float32Array,
+  exitDepthBuf: Float64Array,
+  meshId: number,
+  winnerMeshBuf: Int32Array,
+  depthEpsilon: number,
+  cols: number,
+  rows: number,
+): void {
+  const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (area2 === 0) return;
+  const invArea2 = 1 / area2;
+  const ccw = area2 > 0;
+  const perspectiveAttributes = aq !== 1 || bq !== 1 || cq !== 1;
+
+  let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
+  let maxX = ax > bx ? ax : bx; if (cx > maxX) maxX = cx;
+  let minY = ay < by ? ay : by; if (cy < minY) minY = cy;
+  let maxY = ay > by ? ay : by; if (cy > maxY) maxY = cy;
+  const colLeft = Math.max(0, Math.ceil(minX));
+  const colRight = Math.min(cols - 1, Math.floor(maxX));
+  const rowTop = Math.max(0, Math.ceil(minY));
+  const rowBot = Math.min(rows - 1, Math.floor(maxY));
+  if (colLeft > colRight || rowTop > rowBot) return;
+
+  for (let row = rowTop; row <= rowBot; row++) {
+    const py = row;
+    for (let col = colLeft; col <= colRight; col++) {
+      const px = col;
+      const wA = (bx - px) * (cy - py) - (by - py) * (cx - px);
+      const wB = (cx - px) * (ay - py) - (cy - py) * (ax - px);
+      const wC = (ax - px) * (by - py) - (ay - py) * (bx - px);
+      // Inside test only (no winding cull): both windings share this same
+      // "all three weights share the sign of area2" condition.
+      if (ccw ? (wA < 0 || wB < 0 || wC < 0) : (wA > 0 || wB > 0 || wC > 0)) continue;
+
+      const idx = row * cols + col;
+      // Restrict to the mesh that actually won this cell in the entry pass.
+      if (winnerMeshBuf[idx] !== meshId) continue;
+
+      const pixelDepth = (wA * az + wB * bz + wC * cz) * invArea2;
+      const prevDepth = exitDepthBuf[idx]!;
+      // Mirror of the entry pass's draw-order deadband, sign-flipped: keep
+      // the FARTHEST (smallest) depth, with the same relative slack so
+      // near-coplanar back faces don't z-fight sweep to sweep.
+      if (pixelDepth < (prevDepth < Infinity ? prevDepth * (1 + depthEpsilon) : prevDepth)) {
+        exitDepthBuf[idx] = pixelDepth;
+        const invQ = perspectiveAttributes ? 1 / (wA * aq + wB * bq + wC * cq) : invArea2;
+        const o = idx * 3;
+        if (perspectiveAttributes) {
+          exitPosBuf[o] = (wA * aq * ov0[0]! + wB * bq * ov1[0]! + wC * cq * ov2[0]!) * invQ;
+          exitPosBuf[o + 1] = (wA * aq * ov0[1]! + wB * bq * ov1[1]! + wC * cq * ov2[1]!) * invQ;
+          exitPosBuf[o + 2] = (wA * aq * ov0[2]! + wB * bq * ov1[2]! + wC * cq * ov2[2]!) * invQ;
+        } else {
+          exitPosBuf[o] = (wA * ov0[0]! + wB * ov1[0]! + wC * ov2[0]!) * invArea2;
+          exitPosBuf[o + 1] = (wA * ov0[1]! + wB * ov1[1]! + wC * ov2[1]!) * invArea2;
+          exitPosBuf[o + 2] = (wA * ov0[2]! + wB * ov1[2]! + wC * ov2[2]!) * invArea2;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * `objectExit`'s second sweep (see VOLUMETRIC.md "Step 1"). Walks every
+ * polygon of every solid mesh a second time — back faces included, no
+ * culling — clipping any triangle that straddles the near plane instead of
+ * skipping it (a perspective camera near or inside the mesh is the
+ * marquee volumetric case; skipping would NaN the exit there). For each
+ * covered cell, keeps the FARTHEST depth among triangles belonging to the
+ * mesh that won that cell in the entry pass (`winnerMeshBuf`), barycentric-
+ * interpolating `objectVertices` at that depth into `exitPosBuf`.
+ *
+ * Same per-mesh `biasScale`/`depthEpsilon` and perspective-z convention as
+ * the entry pass, so entry and exit depths are directly comparable.
+ */
+function rasterizeObjectExit(
+  polygons: Polygon[],
+  polygonMeshIds: number[] | null,
+  camera: GlyphCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  winnerMeshBuf: Int32Array,
+  depthBiases: number[] | undefined,
+  depthEpsilon: number,
+  exitPosBuf: Float32Array,
+  exitDepthBuf: Float64Array,
+): void {
+  const projScratch: [number, number, number, number?][] = [];
+  for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
+    const poly = polygons[polyIdx]!;
+    const verts = poly.vertices;
+    if (verts.length < 3 || poly.hidden) continue;
+    const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : NO_MESH_ID_SUPPLIED;
+    const objVerts = poly.objectVertices ?? verts;
+    const biasScale = 1 + (depthBiases?.[polyIdx] ?? 0);
+
+    for (let k = 0; k < verts.length; k++) {
+      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, metrics);
+    }
+
+    for (let fanIdx = 1; fanIdx < verts.length - 1; fanIdx++) {
+      const vi0 = 0, vi1 = fanIdx, vi2 = fanIdx + 1;
+      const v0 = verts[vi0]! as Vec3;
+      const v1 = verts[vi1]! as Vec3;
+      const v2 = verts[vi2]! as Vec3;
+      const ov0 = objVerts[vi0]! as Vec3;
+      const ov1 = objVerts[vi1]! as Vec3;
+      const ov2 = objVerts[vi2]! as Vec3;
+
+      const pa = projScratch[vi0]!;
+      const pb = projScratch[vi1]!;
+      const pc = projScratch[vi2]!;
+      const nanCount =
+        (pa[0] !== pa[0] ? 1 : 0) + (pb[0] !== pb[0] ? 1 : 0) + (pc[0] !== pc[0] ? 1 : 0);
+      if (nanCount === 3) continue;
+
+      if (nanCount === 0) {
+        exitScanFillTriangle(
+          pa[0], pa[1], (pa[3] ?? pa[2]) * biasScale, pa[3] ?? 1,
+          pb[0], pb[1], (pb[3] ?? pb[2]) * biasScale, pb[3] ?? 1,
+          pc[0], pc[1], (pc[3] ?? pc[2]) * biasScale, pc[3] ?? 1,
+          ov0, ov1, ov2,
+          exitPosBuf, exitDepthBuf, meshId, winnerMeshBuf, depthEpsilon, cols, rows,
+        );
+      } else {
+        // Straddles the near plane: clip to the visible half-space exactly
+        // like the entry pass, but only carrying position (`cw`) and
+        // object-space position (`cow`) — no intensity/UV interpolation.
+        const cw: Vec3[] = [];
+        const cow: Vec3[] = [];
+        const tri: Vec3[] = [v0, v1, v2];
+        const objTri: Vec3[] = [ov0, ov1, ov2];
+        const d0 = camera.eyeDepth(v0);
+        const d1 = camera.eyeDepth(v1);
+        const d2 = camera.eyeDepth(v2);
+        const triD = [d0, d1, d2];
+        for (let e = 0; e < 3; e++) {
+          const n = (e + 1) % 3;
+          const de = triD[e]!;
+          const dn = triD[n]!;
+          if (de > 0) {
+            cw.push(tri[e]!);
+            cow.push(objTri[e]!);
+          }
+          if ((de > 0) !== (dn > 0)) {
+            const t = de / (de - dn);
+            const ve = tri[e]!, vn = tri[n]!;
+            cw.push([
+              ve[0] + t * (vn[0] - ve[0]),
+              ve[1] + t * (vn[1] - ve[1]),
+              ve[2] + t * (vn[2] - ve[2]),
+            ] as Vec3);
+            const oe = objTri[e]!, on = objTri[n]!;
+            cow.push([
+              oe[0] + t * (on[0] - oe[0]),
+              oe[1] + t * (on[1] - oe[1]),
+              oe[2] + t * (on[2] - oe[2]),
+            ] as Vec3);
+          }
+        }
+        if (cw.length >= 3) {
+          const cp = cw.map((w) => camera.project(w, cols, rows, cellAspect, metrics));
+          for (let f = 1; f < cw.length - 1; f++) {
+            const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
+            exitScanFillTriangle(
+              qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, qa[3] ?? 1,
+              qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, qb[3] ?? 1,
+              qc[0], qc[1], (qc[3] ?? qc[2]) * biasScale, qc[3] ?? 1,
+              cow[0]!, cow[f]!, cow[f + 1]!,
+              exitPosBuf, exitDepthBuf, meshId, winnerMeshBuf, depthEpsilon, cols, rows,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * Compute per-polygon, per-vertex smoothed normals for Gouraud shading.
  *
  * Vertices are bucketed by their exact world-space position (string key).
@@ -2911,20 +3293,43 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
   return out;
 }
 
+/**
+ * `safe` (named for the `assertGlyph`/`assertColor` validation `true` buys,
+ * not for `colorTolerance`) picks one of two coalescers. `true` (a
+ * `transformCells` hook ran) routes through {@link encodeGlyphBuffers}, which
+ * re-validates every cell since a hook can hand back arbitrary glyphs/colors.
+ * `false` (the default, hookless, hot path — wireframe/ink/braille/solid all
+ * reach it) uses its own duplicated run-coalescer instead of
+ * `encodeGlyphBuffers`, because routing it through that validated encoder
+ * measurably regresses this path: ~90-100% more time per call at ~86k cells,
+ * a faithful standalone port of both loop bodies timed head-to-head
+ * (`assertGlyph`/`assertColor` on every cell — COLOR-TOLERANCE.md review
+ * Finding 5, not assumed). Both branches now support
+ * `colorTolerance` (default `0` = off, byte-identical) — the unsafe branch
+ * via the shared {@link colorRunExtends} test `encodeGlyphBuffers` and
+ * `encodeGlyphBuffersDual` also use, so its comparison rule can't drift out
+ * of sync with either encoder's, without paying their per-cell validation
+ * cost. `colorTolerance` is a public scene option (see
+ * `RasterizeContextOptions.colorTolerance`) and ten call sites in this file
+ * pass `scene.colorTolerance` through to one of these two branches.
+ */
 function solidBufToString(
   glyphBuf: string[],
   colorBuf: (string | null)[] | null,
   cols: number,
   rows: number,
   safe = false,
+  colorTolerance = 0,
 ): string {
   if (safe) {
-    return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null);
+    return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null, null, colorTolerance);
   }
   // Coalesce runs of same-color consecutive cells into one <span> per run.
   // For ~5k colored cells with average run length 5, this drops total <span>
   // count by ~5x — innerHTML parsing scales linearly with DOM-node count, so
   // fewer larger spans is materially faster than one span per glyph.
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
   const parts: string[] = [];
   let runColor: string | null = null;
   let runText = "";
@@ -2942,7 +3347,7 @@ function solidBufToString(
       const idx = y * cols + x;
       const g = glyphBuf[idx]!;
       const col = (colorBuf && g !== " ") ? (colorBuf[idx] ?? null) : null;
-      if (col !== runColor) {
+      if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
       }
@@ -2991,6 +3396,9 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.targetRgb ?? null,
       g.weight ?? null,
       g.objectPosition ?? null,
+      g.objectExit ?? null,
+      g.winnerMesh ?? null,
+      g.objectNormal ?? null,
     );
   };
   rasterize({
@@ -3180,10 +3588,10 @@ function rasterizeWireframeBraille(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
   }
 
-  return solidBufToString(cChar, cColor, cols, rows, false);
+  return solidBufToString(cChar, cColor, cols, rows, false, scene.colorTolerance);
 }
 
 /**
@@ -3411,6 +3819,17 @@ function foldBrailleSubStampToCells(
   return { char, color: colorBuf };
 }
 
+/**
+ * `colorTolerance` (default `0` = off, byte-identical) via the shared
+ * {@link colorRunExtends} test — this is the plain-`charMode: "ascii"`
+ * wireframe/voxel no-hook path (`rasterize()`'s default branch), a
+ * DUPLICATE run-coalescer alongside `solidBufToString`'s unsafe branch for
+ * the same "avoid `encodeGlyphBuffers`'s per-cell validation cost on the hot
+ * path" reason (COLOR-TOLERANCE.md review Finding 5 covered `solidBufToString`
+ * explicitly but missed this sibling coalescer — closed here so `colorTolerance`
+ * actually reaches the single most common render path instead of silently
+ * no-op'ing there).
+ */
 function stampToGlyphs(
   stamp: Uint8Array,
   colorBuf: (string | null)[] | null,
@@ -3418,9 +3837,12 @@ function stampToGlyphs(
   rows: number,
   glyphs: { thin: string[]; normal: string[]; core: string[] },
   junctionMask: Uint8Array | null = null,
+  colorTolerance = 0,
 ): string {
   // Coalesce same-color consecutive non-empty cells into one <span> per run.
   // When colors are disabled (colorBuf=null) we emit plain text — one text node.
+  const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
+  const colorPackCache = colorTolerance > 0 ? new Map<string, number>() : null;
   const parts: string[] = [];
   let runColor: string | null = null;
   let runText = "";
@@ -3446,7 +3868,7 @@ function stampToGlyphs(
         g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
-      if (col !== runColor) {
+      if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
       }

@@ -77,8 +77,19 @@ function decodePackedString(
 }
 
 // ── Colors: bare hex packed as 5 base36 chars (0..0xffffff), no "#"/"%23". ──
+// Accepts the CSS 3-digit shorthand (`#9df` === `#99ddff`) as well as the
+// full 6-digit form: a stock preset (field-synth's "Moiré rings") authors
+// its color in shorthand, and `encodeFieldValue` treats `undefined` as "drop
+// this field silently" — before this normalization, a shorthand color was
+// never packed at all, so that preset's custom color silently reverted to
+// the schema default on every single shared link, 'z' or 'p', found by the
+// same real-entry-point preset round-trip test that caught the 'z' P0
+// (synthUrlState.e2e.test.ts).
 function encodePackedColor(value: string): string | undefined {
-  const hex = value.replace(/^#/, "").toLowerCase();
+  const stripped = value.replace(/^#/, "").toLowerCase();
+  const hex = /^[0-9a-f]{3}$/.test(stripped)
+    ? stripped.split("").map((c) => c + c).join("")
+    : stripped;
   if (!/^[0-9a-f]{6}$/.test(hex)) return undefined;
   return Number.parseInt(hex, 16).toString(BASE36).padStart(5, "0");
 }
@@ -345,6 +356,20 @@ export function createUrlCodec<S extends object>(
 
   function decode(raw: string | null | undefined): Partial<S> {
     if (!raw || raw.length < 2) return {};
+    if (raw[0] === "z") {
+      // A real ('z'-tagged) compressed link landed on the SYNCHRONOUS decode
+      // path, which by contract only understands 'p' (see `UrlCodec.decode`'s
+      // doc) — decompression is inherently async. This is not garbage input;
+      // it's a real payload the caller must catch up on via `decodeAsync`, or
+      // every param silently reverts to schema defaults with no signal at
+      // all (the exact silent-loss failure mode this warning exists to
+      // surface — see AGENTS.md-adjacent VOLUMETRIC notes on the /synth URL
+      // codec P0).
+      console.warn(
+        `urlState: received a compressed ('z') URL parameter but decode() only reads the synchronous 'p' format — call decodeAsync() to read it. Falling back to defaults until that resolves.`,
+      );
+      return {};
+    }
     if (raw[0] !== "p") return {};
     if (raw[1] !== version) return {}; // unknown/future version: never throw, just default
     try {
@@ -358,12 +383,19 @@ export function createUrlCodec<S extends object>(
     if (!raw || raw.length < 2) return {};
     if (raw[0] === "p") return decode(raw);
     if (raw[0] !== "z") return {};
-    if (raw[1] !== version) return {};
-    if (!supportsCompressionStreams()) return {};
+    if (raw[1] !== version) {
+      console.warn(`urlState: compressed URL parameter is tagged version "${raw[1]}", but this codec only decodes version "${version}" — falling back to defaults.`);
+      return {};
+    }
+    if (!supportsCompressionStreams()) {
+      console.warn("urlState: compressed URL parameter present, but this browser has no CompressionStream/DecompressionStream support — falling back to defaults.");
+      return {};
+    }
     try {
       const inflated = await inflateRaw(raw.slice(2));
-      return decode(inflated);
-    } catch {
+      return decodePacked(inflated);
+    } catch (error) {
+      console.warn("urlState: failed to decompress a 'z'-tagged URL parameter — falling back to defaults.", error);
       return {};
     }
   }
@@ -397,13 +429,46 @@ export type EffectParamSchemaLike = Readonly<Record<string, EffectParamSpecLike>
 
 const BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-function toBase62Char(index: number): string | undefined {
-  return BASE62[index];
-}
 function fromBase62Char(char: string | undefined): number | undefined {
   if (char === undefined) return undefined;
   const index = BASE62.indexOf(char);
   return index < 0 ? undefined : index;
+}
+
+// A single BASE62 char only reaches indices 0..61. `fieldSynthSchema` alone
+// is past 120 keys (duty/phase/originW/layer/layer*/render/march params all
+// landed past that cap across VOLUMETRIC.md's phases), so indices >= 62 need
+// a second form. `INDEX_ESCAPE` is a char OUTSIDE the BASE62 alphabet, so it
+// can only ever be read as an escape at a fresh token-start position —
+// decoding is strictly positional (every value is length-prefixed or
+// fixed-width and self-delimiting), so this char can never appear mid-value
+// and be misread as a token. An escaped index is 2 BASE62 digits
+// (big-endian), covering 0..3843 — comfortably past any schema this codec
+// packs. A pre-fix packed string never contains `_` (indices >= 62 were
+// silently DROPPED, never encoded — see the `encodeEffectParamsPacked` doc
+// below), so every previously shared link decodes through this same path
+// unchanged; `synthUrlState.ts`'s version bump is the belt-and-suspenders
+// legacy path for the OUTER codec regardless.
+const INDEX_ESCAPE = "_";
+
+function encodeTokenIndex(index: number): string {
+  if (index < BASE62.length) return BASE62[index]!;
+  const hi = Math.floor(index / BASE62.length);
+  const lo = index % BASE62.length;
+  return `${INDEX_ESCAPE}${BASE62[hi]}${BASE62[lo]}`;
+}
+
+function decodeTokenIndex(raw: string, index: number): { value: number; next: number } | undefined {
+  const char = raw[index];
+  if (char === undefined) return undefined;
+  if (char === INDEX_ESCAPE) {
+    const hi = fromBase62Char(raw[index + 1]);
+    const lo = fromBase62Char(raw[index + 2]);
+    if (hi === undefined || lo === undefined) return undefined;
+    return { value: hi * BASE62.length + lo, next: index + 3 };
+  }
+  const i = fromBase62Char(char);
+  return i === undefined ? undefined : { value: i, next: index + 1 };
 }
 
 function specStep(spec: EffectParamSpecLike): number {
@@ -444,10 +509,11 @@ function sameSpecValue(spec: EffectParamSpecLike, a: unknown, b: unknown): boole
 }
 
 /** Diff `values` against `defaults` and pack the overrides against `schema`,
- *  keyed by each param's position in `Object.keys(schema)` (a single base62
- *  char — every stock effect schema is well under 62 params). Returns "" for
- *  no overrides. `time`/`skipKeys` are excluded (animated/derived, not part
- *  of a shareable link). */
+ *  keyed by each param's position in `Object.keys(schema)` — a single base62
+ *  char for indices 0..61, an `INDEX_ESCAPE`-prefixed 2-char form beyond that
+ *  (see `encodeTokenIndex`; `fieldSynthSchema` is already past 120 keys, so
+ *  this isn't a theoretical case). Returns "" for no overrides. `time`/
+ *  `skipKeys` are excluded (animated/derived, not part of a shareable link). */
 export function encodeEffectParamsPacked(
   schema: EffectParamSchemaLike,
   defaults: Record<string, unknown>,
@@ -462,10 +528,10 @@ export function encodeEffectParamsPacked(
     if (!spec) continue;
     if (sameSpecValue(spec, value, defaults[name])) continue;
     const index = keys.indexOf(name);
-    const token = toBase62Char(index);
+    if (index < 0) continue;
     const encoded = encodeSpecValue(spec, value);
-    if (token === undefined || encoded === undefined) continue;
-    out += token + encoded;
+    if (encoded === undefined) continue;
+    out += encodeTokenIndex(index) + encoded;
   }
   return out;
 }
@@ -482,10 +548,10 @@ export function decodeEffectParamsPacked(
   let index = 0;
   try {
     while (index < packed.length) {
-      const charIndex = fromBase62Char(packed[index]);
-      if (charIndex === undefined) break;
-      index += 1;
-      const name = keys[charIndex];
+      const token = decodeTokenIndex(packed, index);
+      if (!token) break;
+      index = token.next;
+      const name = keys[token.value];
       const spec = name ? schema[name] : undefined;
       if (!name || !spec) break;
       const decoded = decodeSpecValue(spec, packed, index);

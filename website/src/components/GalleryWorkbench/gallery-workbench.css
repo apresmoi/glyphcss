@@ -1233,9 +1233,6 @@
   appearance: none;
   width: 32px !important;
   height: 16px !important;
-  background: rgba(255, 232, 184, 0.05) !important;
-  border: 1px solid rgba(255, 232, 184, 0.25) !important;
-  border-radius: 0 !important;
   cursor: pointer !important;
   position: relative !important;
   flex-shrink: 0 !important;
@@ -1256,14 +1253,22 @@
   line-height: 1;
 }
 
-.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:checked {
-  background: rgba(56, 189, 248, 0.10) !important;
-  border-color: rgba(56, 189, 248, 0.55) !important;
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:hover::before {
+  color: rgba(255, 232, 184, 0.75);
+}
+
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6) !important;
+  outline-offset: 2px !important;
 }
 
 .dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:checked::before {
   content: "[x]";
   color: #38bdf8;
+}
+
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:checked:hover::before {
+  color: #7dd3fc;
 }
 
 /* Color pickers — lil-gui's structure:

@@ -34,6 +34,34 @@ For "highlight every vertex" UIs, consider:
 - Render hotspots only for the front-facing hemisphere (skip backface verts).
 - Hide hotspots you do not need rather than mounting and re-projecting them.
 
+## Spans, not just cells: `colorTolerance`
+
+Colored output is emitted as `<span>` runs, and span count — not cell count —
+is what gates frame rate for a busy, continuously-animating scene: the
+browser's own raster/paint/parse-HTML work over a large `<pre>` costs far
+more than the render pass that produces it. `colorTolerance` (default `0`,
+off) merges adjacent cells into one run while their colors stay within a
+redmean colour distance of each other, trading a little color fidelity for
+far fewer spans.
+
+The win depends entirely on scene content — it is a **1.2x–9.1x lever, not a
+flat multiplier** (measured unquantized→best across `bench/color-tolerance.md`'s
+six presets, excluding the already-flat Cube tiles case, which gains nothing
+at 1.0x by design). Flat, hard-edged output (per-face color, shade ramps,
+carved solids) wins enormously; smooth noisy fields win modestly because
+their spans are dominated by genuine per-cell colour variation no merge
+policy can invent coherence around; an already-flat scene gains nothing and,
+just as importantly, does not regress. Raising tolerance lowers span count on
+every real scene measured, but this is **observed behavior, not a guarantee**
+— see `bench/color-tolerance.md` for the measured six-preset table, the live
+FPS delta, and the (rare, small) counterexample where a larger tolerance can
+land the next run's anchor at a slightly worse starting color.
+
+Set it on `<GlyphScene colorTolerance={...}>` / `<glyph-scene
+color-tolerance="...">`. Range is `0`–`765` (redmean, not `0`–`255` RGB) —
+`765` merges essentially everything, `24`–`128` is the useful band for most
+scenes.
+
 ## Avoid steady-state JS
 
 If you find yourself reaching for `requestAnimationFrame` to update the scene

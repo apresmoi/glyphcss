@@ -32,6 +32,7 @@ const OBSERVED_ATTRS = [
   "char-mode",
   "wireframe-junctions",
   "hidden-lines",
+  "color-tolerance",
   "use-colors",
   "cols",
   "rows",
@@ -59,6 +60,20 @@ function parseNumber(value: string | null): number | undefined {
   if (value == null) return undefined;
   const n = parseFloat(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+// `colorTolerance` is the one numeric option whose public range legitimately
+// includes non-finite values (`+Infinity` — COLOR-TOLERANCE.md, "honored
+// as-is", verified at the JS/React/Vue surfaces): `parseNumber`'s blanket
+// `Number.isFinite` guard exists for every OTHER numeric attribute, where a
+// non-finite value is always a mistake, so `color-tolerance` gets its own
+// parse instead of loosening the shared one.
+function parseColorTolerance(value: string | null): number | undefined {
+  if (value == null) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === "Infinity" || trimmed === "+Infinity") return Infinity;
+  if (trimmed === "-Infinity") return -Infinity; // degrades to 0 downstream, same as any other negative value.
+  return parseNumber(value);
 }
 
 function parseMode(value: string | null): RenderMode | undefined {
@@ -149,6 +164,8 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const hiddenLines = parseHiddenLines(this.getAttribute("hidden-lines"));
     if (hiddenLines !== undefined) opts.hiddenLines = hiddenLines;
     if (this._solidWeightRamp !== undefined) opts.solidWeightRamp = this._solidWeightRamp;
+    const colorTolerance = parseColorTolerance(this.getAttribute("color-tolerance"));
+    if (colorTolerance !== undefined) opts.colorTolerance = colorTolerance;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));

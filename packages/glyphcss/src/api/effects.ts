@@ -108,6 +108,54 @@ export interface GlyphEffectFrameView extends GlyphEffectImageView {
    * rather than a per-face UV surface.
    */
   readonly objectPosition?: GlyphReadonlyNumberArray;
+  /**
+   * Interleaved object-space EXIT positions: the farthest intersection of
+   * the depth-winning mesh along the cell's view ray, in the same
+   * pre-transform frame as `objectPosition`. NaN for empty cells, same
+   * contract as `objectPosition`/`worldPosition`. The object-space ray a
+   * volumetric effect marches is not its own buffer — it is
+   * `normalize(objectExit − objectPosition)` — so a cell where the two
+   * coincide (a grazing silhouette) is a degenerate ray; treat a
+   * non-finite or zero-length ray as "no volume". Requested via the
+   * `"objectExit"` requirement.
+   */
+  readonly objectExit?: GlyphReadonlyNumberArray;
+  /**
+   * Interleaved object-space GEOMETRIC FACE normals: `[x0, y0, z0, ...]`,
+   * the same pre-transform frame as `objectPosition`/`objectExit`. NaN for
+   * empty cells. Requested via the `"objectNormal"` requirement.
+   *
+   * Deliberately distinct from `normal` (WORLD space, built from baked world
+   * vertices): mixing a world normal with the object-space ray
+   * (`normalize(objectExit − objectPosition)`) is meaningless for any
+   * rotated mesh — `n · viewDir` would answer a question about two
+   * different frames. This buffer is the cross product of the same
+   * `ov0/ov1/ov2` object vertices `objectPosition` already interpolates,
+   * so it is the self-consistent pair for object-space math (fresnel/
+   * incidence terms, iridescence, etc.). Computed with NO inverse-transpose
+   * — under non-uniform scale this is the object-frame GEOMETRIC normal,
+   * not the shading-correct normal a full inverse-transpose would produce,
+   * which is the deliberate self-consistent pairing with the object-space
+   * ray (also built with no inverse transform).
+   */
+  readonly objectNormal?: GlyphReadonlyNumberArray;
+  /**
+   * Winning MESH id per cell (see `CellGrid.winnerMesh`), `-1` for an empty
+   * or occlusion-blanked cell. Read-only — NOT a `GlyphEffectRequirement`;
+   * a program cannot request it and its presence is never gated by one.
+   * Populated whenever `objectExit` retention is active (every carve layer
+   * qualifies, since carve's `objectExit` requirement is static) OR at
+   * least one mounted layer is mesh-targeted (VOLUMETRIC-3.md §1),
+   * whichever is live — same substrate the compositor already computes for
+   * `targetCoverage`. Exposed for exact mesh-boundary tests a volumetric
+   * subcell program needs and `objectPosition`/`normal` alone can't
+   * express: two adjacent, coplanar, same-normal meshes are otherwise
+   * indistinguishable to a program, so a contour/interpolation that only
+   * checks position and normal can bridge across a genuine mesh seam
+   * (VOLUMETRIC-3.md Phase 2 P1 fix). Absent outside solid mode and when
+   * neither condition above holds.
+   */
+  readonly winnerMesh?: GlyphReadonlyNumberArray;
   readonly surfaceKey?: GlyphReadonlyNumberArray;
   readonly uv0?: GlyphReadonlyNumberArray;
 }
@@ -189,6 +237,30 @@ export interface GlyphEffectEvaluateContext<P extends object, S> {
   readonly coordinates: GlyphEffectCoordinates;
   readonly scratch: GlyphEffectScratchView;
   readonly output: GlyphEffectOutput;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4): the definition-layer `program`
+   * option, forwarded unchanged. glyphcss treats this as fully opaque —
+   * it's the DEFINITION's own program shape (e.g. `@glyphcss/effects`'s
+   * field-synth `GlyphFieldProgram`), which this package must not import
+   * (the dependency points the other way: `@glyphcss/effects` depends on
+   * `glyphcss`, never the reverse). `undefined` when no `program` option
+   * was supplied at mount.
+   */
+  readonly program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (a second, independent payload —
+   * VOLUMETRIC-4.md §1's colour voice stack): `program`'s own opaque-payload
+   * contract has no room for a second one, so a definition that drives two
+   * independent programs (e.g. field-synth's geometry stack plus its colour
+   * stack) gets its own named slot instead of overloading `program`. The
+   * definition-layer `colorProgram` option, forwarded unchanged and
+   * validated once at mount via the definition's own
+   * `program.validateColorProgram` hook — mirrors `program`/`validateProgram`
+   * in every other respect, including immutability after mount
+   * (`setOptions` with a DIFFERENT `colorProgram` value throws). `undefined`
+   * when no `colorProgram` option was supplied at mount.
+   */
+  readonly colorProgram?: unknown;
 }
 
 export type GlyphEffectRequirement =
@@ -198,6 +270,8 @@ export type GlyphEffectRequirement =
   | "normal"
   | "worldPosition"
   | "objectPosition"
+  | "objectExit"
+  | "objectNormal"
   | "surfaceKey"
   | "uv0"
   | "uv0Footprint";
@@ -210,9 +284,47 @@ export interface GlyphEffectProgramBase<P extends object, S> {
    * render mode, so evaluate() must provide a fallback.
    */
   readonly optionalRequirements?: readonly GlyphEffectRequirement[];
+  /**
+   * Params-aware requirement gating. Requirements are otherwise static per
+   * program, and `optionalRequirements` is retention-equivalent to hard
+   * requirements — so a program whose requirement depends on a param (e.g.
+   * only marching a volume under one render mode) would otherwise force
+   * every mounted instance, including ones that never touch that mode, to
+   * pay for the retained input. When present, the returned requirements are
+   * merged with the static `requirements`/`optionalRequirements` arrays and
+   * re-evaluated on every params transaction — a requirements change
+   * invalidates retained inputs the same way a params change already
+   * schedules a recompose.
+   */
+  dynamicRequirements?(params: Readonly<P>): readonly GlyphEffectRequirement[];
   readonly sceneSampling?: "nearest";
   readonly scratch?: GlyphEffectScratchRequirements;
   validateParams?(params: Readonly<P>): void;
+  /**
+   * Program-as-data validator (VOLUMETRIC-3.md §4): when a layer mounts with
+   * a `program` option (`GlyphEffectDefinitionLayerOptions.program`), the
+   * compositor calls this once, at mount, with that opaque payload — never
+   * on every params transaction the way `validateParams` is. glyphcss
+   * itself never interprets `program`; a definition owns its own program's
+   * shape (e.g. field-synth's `GlyphFieldProgram`, validated through
+   * `@glyphcss/effects`'s own `validateGlyphFieldProgram`) and validates it
+   * here, throwing on a malformed payload exactly like `validateParams`
+   * does for flat params. Absent (or a no-op) on a program that doesn't
+   * support program-as-data at all — an unvalidated `program` option is
+   * still forwarded onto the evaluate context unchanged, opaque to
+   * glyphcss either way.
+   */
+  validateProgram?(program: unknown): void;
+  /**
+   * Program-as-data's NAMED sibling validator (VOLUMETRIC-4.md §1): when a
+   * layer mounts with a `colorProgram` option
+   * (`GlyphEffectDefinitionLayerOptions.colorProgram`), the compositor calls
+   * this once, at mount, with that opaque payload — mirrors `validateProgram`
+   * exactly, as its own hook, since `program`'s validator has no way to tell
+   * the two payloads apart. Absent (or a no-op) on a definition that doesn't
+   * support a second program at all.
+   */
+  validateColorProgram?(program: unknown): void;
   prepare?(context: GlyphEffectPrepareContext<P>, state: S): void;
   evaluate(context: GlyphEffectEvaluateContext<P, S>): void;
 }
@@ -314,6 +426,32 @@ export interface GlyphEffectDefinitionLayerOptions<
 > extends GlyphEffectLayerCommonOptions {
   effect: GlyphEffectDefinition<Schema, State>;
   params?: Partial<GlyphEffectParamValues<Schema>>;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4): an opaque program payload owned by
+   * the effect DEFINITION, not by glyphcss — plumbed onto
+   * `GlyphEffectEvaluateContext.program` unchanged, and (when present)
+   * validated once at mount via the definition's own `program.validateProgram`
+   * hook. When set, the definition's own semantics decide what — if
+   * anything — of `params` still applies (field-synth: `params` still
+   * governs space/render/march/output mapping; every per-voice/per-layer
+   * param is ignored as the field definition). Immutable after mount:
+   * `setOptions` with a DIFFERENT `program` value throws (remove and re-add
+   * the layer to change it) — mirroring mesh-handle `target`'s own
+   * immutable-after-mount rule (VOLUMETRIC-3.md §1).
+   */
+  program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — a second,
+   * independent opaque program payload, plumbed onto
+   * `GlyphEffectEvaluateContext.colorProgram` unchanged and validated once
+   * at mount via `program.validateColorProgram`. Exists because `program`'s
+   * own single-opaque-payload contract has no room for a second one (e.g.
+   * field-synth's colour voice stack, a program independent of its geometry
+   * `program`). Same immutable-after-mount rule as `program`. Ignored by a
+   * definition that doesn't support a second program (or that doesn't gate
+   * anything on it, e.g. field-synth only reads it when `colorStackOn`).
+   */
+  colorProgram?: unknown;
 }
 
 export interface GlyphEffectProgramLayerOptions<

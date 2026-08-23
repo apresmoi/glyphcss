@@ -20,7 +20,7 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "build:packages": "pnpm --filter './packages/*' -r build",
-    "test": "pnpm --filter './packages/*' -r --if-present test",
+    "test": "pnpm --filter './packages/*' -r --if-present test && pnpm --filter @glyphcss/website test",
     "test:coverage": "pnpm --filter './packages/*' -r --if-present test:coverage",
     "test:research": "pnpm --filter @glyphcss/ascii-image-generation test && pnpm --filter @glyphcss/ascii-image-generation validate:schema",
     "build:research": "pnpm --filter @glyphcss/ascii-image-generation typecheck",

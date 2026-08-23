@@ -68,6 +68,10 @@ type GlyphEffectLayerPropsFor<
   ? {
     effect: Effect;
     params?: Partial<GlyphEffectParamValues<Schema>>;
+    /** Program-as-data (VOLUMETRIC-3.md §4) — see `RuntimeProps.program`'s doc below. */
+    program?: unknown;
+    /** Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — see `RuntimeProps.colorProgram`'s doc below. */
+    colorProgram?: unknown;
   } & GlyphEffectLayerCommonOptions
   : {
     effect: Effect & GlyphEffectProgramLike<P>;
@@ -93,6 +97,24 @@ interface RuntimeProps {
   opacity?: number;
   order?: number;
   enabled?: boolean;
+  /**
+   * Program-as-data (VOLUMETRIC-3.md §4) — a definition-layer-only option
+   * (opaque to glyphcss and this wrapper alike), forwarded to
+   * `scene.addEffectLayer` ONLY at layer creation: it's immutable after
+   * mount (the imperative handle's `setOptions` throws on a change — see
+   * `GlyphEffectDefinitionLayerOptions.program`'s own doc), so this wrapper
+   * doesn't diff/re-apply it the way `target`/`blend`/etc. are. Changing
+   * the prop after creation is a silent no-op here, matching that
+   * immutability rather than throwing from inside a watcher.
+   */
+  program?: unknown;
+  /**
+   * Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1) — same
+   * creation-only-forward, immutable-after-creation contract as `program`
+   * above, for a definition that drives a second independent program (e.g.
+   * field-synth's colour voice stack).
+   */
+  colorProgram?: unknown;
 }
 
 interface NormalizedLayerOptions {
@@ -164,12 +186,26 @@ function normalizeLayerOptions(props: RuntimeProps): NormalizedLayerOptions {
   };
 }
 
+/**
+ * Canonical key for a `target` value: `"surfaces"`/`"viewport"` pass through,
+ * a `GlyphMeshHandle` / `GlyphMeshHandle[]` normalizes to its sorted mesh-id
+ * set. Diffing by this key (not `Object.is`) means a fresh `[a, b]` array
+ * built each render — same meshes, new array identity — is a no-op instead
+ * of a spurious `setOptions` call (VOLUMETRIC-3.md §1).
+ */
+function targetKey(target: GlyphEffectTarget | undefined): string {
+  const resolved = target ?? "surfaces";
+  if (resolved === "surfaces" || resolved === "viewport") return resolved;
+  const handles = Array.isArray(resolved) ? resolved : [resolved];
+  return handles.map((handle) => handle.id).sort((a, b) => a - b).join(",");
+}
+
 function changedLayerOptions(
   previous: NormalizedLayerOptions,
   next: NormalizedLayerOptions,
 ): Partial<NormalizedLayerOptions> {
   const changed: Partial<NormalizedLayerOptions> = {};
-  if (!Object.is(previous.target, next.target)) changed.target = next.target;
+  if (targetKey(previous.target) !== targetKey(next.target)) changed.target = next.target;
   if (previous.blend !== next.blend) changed.blend = next.blend;
   if (previous.opacity !== next.opacity) changed.opacity = next.opacity;
   if (previous.order !== next.order) changed.order = next.order;
@@ -187,6 +223,8 @@ const GlyphEffectLayerRuntime = defineComponent({
     opacity: { type: Number, default: undefined },
     order: { type: Number, default: undefined },
     enabled: { type: Boolean, default: undefined },
+    program: { type: null as unknown as PropType<unknown>, default: undefined },
+    colorProgram: { type: null as unknown as PropType<unknown>, default: undefined },
   },
   setup(props, { expose }) {
     const context = inject(GlyphSceneContextKey);
@@ -238,6 +276,8 @@ const GlyphEffectLayerRuntime = defineComponent({
       handleRef.value = scene.addEffectLayer({
         effect: props.effect,
         ...(props.params !== undefined ? { params: props.params } : {}),
+        ...(props.program !== undefined ? { program: props.program } : {}),
+        ...(props.colorProgram !== undefined ? { colorProgram: props.colorProgram } : {}),
         ...options,
       } as never) as RuntimeHandle;
       previousParams = snapshotParams(props.params);

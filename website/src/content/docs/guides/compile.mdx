@@ -186,11 +186,18 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Supersample | `supersample` / `--supersample` | 1 |
 | Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
 
-`charMode`, `hiddenLines` and `solidWeightRamp` are pure functions of geometry +
-camera, so a static bake reproduces them exactly. `compileScene` and
-`GlyphSceneStatic` (React + Vue) accept all three. `@glyphcss/compile`'s CLI,
-Vite plugin and `compileFile` do **not** accept them yet; call `compileScene`
-directly if you need them in those pipelines.
+`charMode`, `hiddenLines`, `solidWeightRamp`, and `colorTolerance` are pure
+functions of geometry + camera, so a static bake reproduces them exactly.
+`colorTolerance` is the odd one out mechanically — it operates on the
+already-rasterized cell grid as a post-hoc span merge, while the other three
+change rasterization itself — but all four are equally reproducible at build
+time. `compileScene` and `GlyphSceneStatic` (React + Vue) accept all four.
+`@glyphcss/compile`'s CLI, Vite plugin and `compileFile` do **not** accept
+them yet; call `compileScene` directly if you need them in those pipelines.
+`buildGlyphFramesExport`, `buildGlyphInteractiveExport`, and
+`buildGlyphFieldSynthStaticExport` (`@glyphcss/effects`) accept none of the
+four either — a `colorTolerance` value set through the `/synth` page's UI (it
+persists to the URL) is silently dropped by that page's CodePen export.
 
 `wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
 in every path — the static bake takes a flat polygon list and cannot represent
@@ -310,3 +317,21 @@ Field synth only: another effect id would need its own exported coordinate
 resolver plus a hand-written port of its per-cell math, since there is no way to
 ship an arbitrary `GlyphEffectProgram.evaluate()` without shipping the effect
 runtime with it.
+
+This exporter ports field synth's 2D machinery — layers, `duty`, `phase`,
+per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and the
+[SDF fields and `step` wave](/guides/effects#sdf-fields-gyroid-menger-sierpinski)
+(`gyroid`/`menger`/`sierpinski`, at real-renderer exact parity) — but rejects
+the [volumetric branch and carve/xray](/guides/effects#volumetric-fields-space-object)
+explicitly (`space: "object"`, `render: "carve"`/`"xray"`, or an active voice
+using `linearZ`/a nonzero `originWN`): a per-cell-per-frame march is a
+different export design this affine-fit/coordinate-table bake can't fake. It
+also rejects a `program` option
+([program-as-data](/guides/effects#program-builder-and-program-as-data)) up
+front, before the flat-param merge/bake — an unbounded field has no schema
+this bake can serialize. The `originWN` reject is waived for an active SDF
+voice, since that family reads `originW` even in the 2D branch. Check
+`isGlyphFieldSynthStaticExportSupported(params)` before calling; a
+volumetric or carve/xray patch (with no `program`) exports through the
+[interactive export](#interactive-export) instead, which ships and evaluates
+the live effect runtime rather than a baked approximation.

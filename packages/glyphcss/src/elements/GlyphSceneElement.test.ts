@@ -58,6 +58,7 @@ describe("GlyphSceneElement", () => {
     expect(GlyphSceneElement.observedAttributes).toContain("use-colors");
     expect(GlyphSceneElement.observedAttributes).toContain("glyph-palette");
     expect(GlyphSceneElement.observedAttributes).toContain("char-mode");
+    expect(GlyphSceneElement.observedAttributes).toContain("color-tolerance");
     expect(GlyphSceneElement.observedAttributes).toContain("wireframe-junctions");
     expect(GlyphSceneElement.observedAttributes).toContain("cell-aspect");
     expect(GlyphSceneElement.observedAttributes).toContain("directional-intensity");
@@ -107,6 +108,68 @@ describe("GlyphSceneElement", () => {
     document.body.appendChild(camEl);
     // Falls back to the default vector, keeping the intensity that parsed.
     expect(host.getScene()?.getOptions().directionalLight?.intensity).toBe(0.5);
+  });
+
+  // COLOR-TOLERANCE.md Phase 3 — `color-tolerance` attribute reflection.
+  it("reads color-tolerance into the scene options", () => {
+    host.setAttribute("color-tolerance", "42");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(42);
+  });
+
+  it("defaults colorTolerance to 0 when the attribute is absent", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+  });
+
+  it("attributeChangedCallback updates colorTolerance on a live scene", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+    host.setAttribute("color-tolerance", "17");
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(17);
+  });
+
+  it("ignores an unparseable color-tolerance attribute rather than throwing", () => {
+    host.setAttribute("color-tolerance", "not-a-number");
+    expect(() => document.body.appendChild(camEl)).not.toThrow();
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+  });
+
+  it("a negative color-tolerance attribute is accepted here and degrades to 0 downstream", () => {
+    host.setAttribute("color-tolerance", "-5");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+  });
+
+  // color-tolerance's own +Infinity special case (COLOR-TOLERANCE.md Phase 3
+  // review Finding 3): the shared `parseNumber` used by every other numeric
+  // attribute drops non-finite input via `Number.isFinite`, which would
+  // silently ignore `color-tolerance="Infinity"` even though the JS/React/Vue
+  // surfaces (and the documented attribute table) honor +Infinity as a
+  // legitimate maximal-merge value, not an error.
+  it("honors color-tolerance=\"Infinity\" as +Infinity", () => {
+    host.setAttribute("color-tolerance", "Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
+  });
+
+  it("honors color-tolerance=\"+Infinity\" as +Infinity", () => {
+    host.setAttribute("color-tolerance", "+Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
+  });
+
+  it("degrades color-tolerance=\"-Infinity\" to 0, same as any other negative value", () => {
+    host.setAttribute("color-tolerance", "-Infinity");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+  });
+
+  it("attributeChangedCallback honors a live update to color-tolerance=\"Infinity\"", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(0);
+    host.setAttribute("color-tolerance", "Infinity");
+    expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
   });
 
   it("dispatches glyphcss:scene-ready on connect", () => {

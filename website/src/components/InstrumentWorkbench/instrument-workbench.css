@@ -22,6 +22,11 @@
   --overlay-right: 12px;
   --overlay-bottom: 12px;
   --overlay-left: 12px;
+  /* `.synth-presets`' own natural single-row height (104px square tile +
+     ~21px label row + 10px top/bottom padding + 1px border-top) — pinned
+     here as the one source of truth `.synth-presets` itself is sized from
+     below, instead of a bare number duplicated at each use site. */
+  --synth-footer-height: 146px;
 }
 /* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
 .synth-body {
@@ -29,6 +34,28 @@
   display: flex;
   min-height: 0;
   position: relative;
+}
+
+/* Desktop only (mobile's own `--mobile-panel-bottom` below already reserves
+   its OWN clearance, and the footer collapses into a hidden drawer there —
+   see the `@media (max-width: 760px)` block's own comment): `.dn-floating-
+   controls`'s wrapper already clips correctly against `.synth-body` (its
+   positioned containing block, already shrunk by the footer's normal flex
+   flow), but `.lil-gui.root`'s OWN `max-height` (gallery-workbench.css) is
+   computed from `100vh`, a viewport-absolute figure with no notion of
+   `.synth-presets` at all — it grows straight through the wrapper's
+   `overflow: visible` and into the footer strip. Folding the footer's height
+   into `--overlay-bottom` here fixes both `.dn-floating-controls`'s own calc
+   and `.lil-gui.root`'s generic one in the same stroke, since both already
+   read this variable; `.lil-gui.root`'s pre-existing `overflow-y: auto
+   !important` then does the "scroll inside instead of overlap" work with no
+   further change needed. Scoped to `.synth-shell.dn-root` (this page only) —
+   the gallery page's own `--overlay-bottom` (gallery-workbench.css) is
+   untouched. */
+@media (min-width: 761px) {
+  .synth-shell.dn-root {
+    --overlay-bottom: calc(var(--synth-footer-height) + 12px);
+  }
 }
 
 /* ── Left rail: voices ─────────────────────────────────────────────────── */
@@ -63,19 +90,332 @@
 }
 .voice-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.2); }
 .voice-add:disabled { opacity: 0.35; cursor: not-allowed; }
+/* Wraps the sidebar header's global Basic/Advanced toggle + "+ Add", so both
+   sit as one group on the header's right side (`.synth-voices-head`'s own
+   `justify-content: space-between` against the "VOICES" title). */
+.synth-voices-head-actions { display: flex; align-items: center; gap: 6px; }
 .synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
-/* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
+/* Layer group (VOLUMETRIC-2.md §4's LayerGroup rewrite, header compressed
+   for footprint) — a collapsible wrapper around the voice cards assigned to
+   one layer, with the layer's own shaping controls (combine, blend, mix,
+   threshold, invert) split across its header and a 1-2 row body. Replaces
+   the dock's old lil-gui "Layers" folder entirely; this is the single place
+   a layer's controls now live. */
+.layer-group {
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  background: #030509;
+}
+/* Header ROW: the collapse/expand toggle (caret + title) plus the
+   combine/blend selects, as flex siblings — NOT one <button> spanning the
+   whole row (see the doc comment above `LayerGroup` for why a <select>
+   can't live inside that button). */
+.layer-group-head {
+  /* No `width: 100%` — a block-level flex container (no float/inline-block
+     context) already stretches to fill `.layer-group`'s content width, same
+     as `.layer-group-body` right below (identical padding, no width rule,
+     no overflow); adding `width: 100%` on top of `padding` with the default
+     content-box sizing made this rule 18px WIDER than its parent (found
+     live, both on this rule and `.color-stack-head`'s identical mistake). */
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 9px;
+  background: #070a10;
+}
+.layer-group-head:hover { background: #0c111a; }
+.layer-group-toggle {
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  font: inherit; text-align: left; cursor: pointer;
+  padding: 0; background: transparent; border: 0;
+  color: rgba(56, 189, 248, 0.95);
+}
+.layer-group-caret { font-size: 9px; color: rgba(255, 232, 184, 0.55); width: 8px; }
+.layer-group-title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+/* Combine/blend: compact selects sharing the header's remaining width evenly. */
+.layer-group-head-select { flex: 1 1 0; min-width: 0; }
+.layer-group-head-select select {
+  font-size: 10px; padding: 2px 15px 2px 5px; text-overflow: ellipsis;
+}
+.layer-group-head-select::after { font-size: 8px; right: 5px; }
+.layer-group-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12);
+}
+/* A single shared 5-column CSS Grid for BOTH rows (not two independent flex
+   rows) — mix's slider and threshold's slider land in the EXACT same
+   track/value column tracks regardless of what precedes them: a leading
+   text label ("mix") on one row, no leading label at all on the other,
+   never the same width, which independent per-row layouts can't reconcile
+   (a prior version tried, and left the threshold row's track/value visibly
+   offset from mix's — see the reported "short track, stranded value" bug
+   this replaces). Both rows' own checkboxes ("inv", "thr") also share ONE
+   pair of columns instead of sitting diagonally opposite each other (mix-row
+   trailing, threshold-row leading) — the reported "pretty shitty" alignment
+   complaint this replaces. Columns: 1 = the row's own checkbox LABEL text
+   ("inv"/"thr", max-content, right-aligned so it sits snug against the
+   checkbox rather than floating with a gap the width difference of the two
+   words would otherwise leave — see `justify-self: end` below); 2 = the
+   checkbox itself (max-content, fixed 20px either way — see
+   `.layer-group-check input[type="checkbox"]`); 3 = a second leading text
+   label ("mix" on row 1, empty on row 2, since "thr" in column 1 already
+   labels its own checkbox and a second "threshold" label would just repeat
+   it); 4 = track (1fr); 5 = value readout (34px, shared so "1.00"/"0.00"
+   right-align at the same x). The label text sits BEFORE its checkbox
+   (`inv [x]`, not `[x] inv`) so "inv" and the mix row's own "mix" label
+   don't end up directly adjacent with no separator between them — the
+   checkbox itself is what visually separates the two words. */
+.layer-group-controls {
+  display: grid;
+  grid-template-columns: max-content max-content max-content 1fr 34px;
+  align-items: center;
+  row-gap: 5px;
+  column-gap: 7px;
+}
+/* Color-stack's own combine/mode rows (ColorStackSection, further below in
+   this file) are the one other `.layer-group-row` consumer. `max-content`
+   (was a hardcoded 34px, sized for "mix"/"freq"-length labels) sizes the
+   label column to whatever text it holds instead — a fixed-too-narrow
+   column let a longer label like "combine" overflow into the gap, where the
+   adjacent opaque select then visually clipped it to "combin" (found live). */
+.layer-group-row {
+  display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 7px; font-size: 11px;
+}
+.layer-group-row span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
+/* Row 2: invert checkbox + mix slider share one line; row 3 is the
+   threshold checkbox + its value slider — the slider used to only mount
+   when the toggle was on, which made the toggle insert/remove a whole row
+   and jump the layout (rejected: "the threshold toggle is like it makes
+   appear a new row and its weird"). Both are now STABLE rows, always
+   present — same shape as this file's `.dock-subcell`/`IconToggle`
+   controls, which never hide themselves either. `display: contents` (not
+   `flex`) so each row's own children promote straight into
+   `.layer-group-controls`'s shared grid columns above, instead of laying
+   themselves out in an independent flex context per row that could drift
+   from its sibling row's. */
+.layer-group-row2 { display: contents; }
+/* Both rows' own checkbox LABEL is DOM-first now (invert leads the mix row,
+   same as threshold already led its own) — one shared rule instead of the
+   old first-child/last-child split, since neither checkbox trails anymore.
+   The `<label>` wrapping the text + checkbox is itself `display: contents`
+   (not a grid item) so its two children — the text `<span>` and the
+   `<input type="checkbox">` — promote straight into `.layer-group-controls`'s
+   shared grid as two SEPARATE items (columns 1 and 2). This is required, not
+   cosmetic: keeping text+checkbox as one flex-box item sized by max-content
+   would only line up column 2's checkbox between rows if "inv" and "thr"
+   happened to measure the exact same pixel width in the live font — placing
+   them as independent grid items guarantees the checkbox column aligns
+   regardless. The label element itself still mediates the native
+   text-click-toggles-checkbox association (implicit label association is a
+   DOM-structure contract, not a CSS box-model one, so `display: contents`
+   on the `<label>` doesn't break it). */
+.layer-group-row2 .layer-group-check--compact { display: contents; }
+.layer-group-row2 .layer-group-check--compact span {
+  grid-column: 1;
+  justify-self: end;
+}
+.layer-group-row2 .layer-group-check--compact input[type="checkbox"] { grid-column: 2; }
+.layer-group-row2 .layer-group-mix {
+  grid-column: 3 / 6;
+  grid-template-columns: subgrid;
+}
+/* Threshold row: the checkbox is a plain sibling (not wrapping the slider)
+   so its click target stays the small bracket toggle, not the whole row —
+   same split `.layer-group-head`'s toggle/selects and `.color-stack-head`'s
+   checkbox/selects already use. It spans only the track/value columns
+   (4/6) — this row's own "thr" label lives in column 1 (leading its own
+   checkbox in column 2) instead of repeating inside the slider, and column 3
+   (the mix row's "mix" label column) is left empty on this row — and, like
+   the mix row's slider, borrows the track/value columns via `subgrid` rather
+   than sizing its own, so both rows' tracks and value readouts land at
+   IDENTICAL x positions regardless of either row's leading content. */
+.layer-group-row2 .layer-group-threshold-slider {
+  grid-column: 4 / 6;
+  grid-template-columns: subgrid;
+}
+/* Dimmed-but-visible while the toggle is off — same `opacity: 0.35` idiom
+   `.layer-group-add:disabled`/`.voice-add:disabled` already use for an
+   inactive control, applied here via a state class (not `:disabled` alone)
+   so the whole row — track AND the value readout — dims together; the
+   value stays visible either way per the "was invisible entirely before
+   7ca4496" complaint this replaces. */
+.layer-group-threshold-slider--off { opacity: 0.35; }
+.layer-group-threshold-slider--off input[type="range"] { cursor: not-allowed; }
+.layer-group-check {
+  display: flex; align-items: center; gap: 5px; font-size: 11px;
+  color: rgba(255, 232, 184, 0.70); cursor: pointer;
+}
+.layer-group-check--compact { flex: 0 0 auto; gap: 4px; white-space: nowrap; }
+/* "[x]" / "[ ]" via pseudo — same technique as the Dock's own boolean
+   controller checkbox (`.dn-floating-controls .lil-gui .controller.boolean
+   input[type="checkbox"]` in gallery-workbench.css), so the layer-group
+   header reads as one control idiom with a voice card and the Dock instead
+   of a native browser checkbox breaking the pattern (found live: a plain
+   blue browser checkmark next to the already-styled select/slider rows). */
+.layer-group-check input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  /* 20px, not the old 32px: sized to fit the "[x]"/"[ ]" glyph (measures
+     ~18.06px at this font) instead of the wider pill-chrome box a prior
+     commit removed the background/border/radius from but left the box size
+     alone. `margin: 0` resets the UA default checkbox margin (Chrome:
+     `3px 3px 3px 4px`) that otherwise adds an untracked 4px of left offset
+     on top of the flex `gap` — both found live via a header-alignment bug
+     report ("colour header sits ~23px further right than the layer header
+     directly above it"), since this checkbox's width feeds directly into
+     `.layer-group-controls`'s `max-content` column 2 (see that rule's doc
+     comment) and, in `.color-stack-head`, into how far the combine/mode
+     selects sit from the left edge. */
+  width: 20px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.layer-group-check input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 232, 184, 0.45);
+  pointer-events: none;
+  line-height: 1;
+}
+.layer-group-check input[type="checkbox"]:hover::before {
+  color: rgba(255, 232, 184, 0.75);
+}
+.layer-group-check input[type="checkbox"]:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
+}
+.layer-group-check input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: #38bdf8;
+}
+.layer-group-check input[type="checkbox"]:checked:hover::before {
+  color: #7dd3fc;
+}
+.layer-group-voices { display: flex; flex-direction: column; gap: 9px; }
+.layer-group-add {
+  align-self: flex-start;
+  font: inherit; font-size: 10px; letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08);
+  color: rgba(56, 189, 248, 0.9); border-radius: 0; cursor: pointer;
+  transition: background 0.12s ease;
+}
+.layer-group-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.18); }
+.layer-group-add:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Colour voice stack section (VOLUMETRIC-4.md §1) — sits below the layer
+   groups in the voice sidebar. Deliberately a warm pink/magenta accent
+   (`#f472b6`), distinct from the layer groups' cyan, so the section reads
+   as visually separate from the geometry stack above it even before its
+   label is read — it's a second, independent voice program (colour only),
+   not another layer. Collapses to just its own toggle when `colorStackOn`
+   is off (`.color-stack-body` simply isn't rendered — see
+   `ColorStackSection` in synthKit.tsx). */
+.color-stack {
+  border: 1px solid rgba(244, 114, 182, 0.28);
+  background: #090509;
+}
+/* Header ROW: the enable-checkbox `<label>` (the actual click target — see
+   `ColorStackSection` in synthKit.tsx for why the combine/mode selects
+   moved OUT of that label) plus the combine/mode selects, as flex siblings —
+   same split `.layer-group-head`/`.layer-group-toggle` established above. */
+.color-stack-head {
+  /* No `width: 100%` — same overflow mistake and same fix as
+     `.layer-group-head` above (see its doc comment). */
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 9px;
+}
+.color-stack-check {
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  cursor: pointer;
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(244, 114, 182, 0.95);
+}
+/* Same "[x]"/"[ ]" pseudo-checkbox technique as `.layer-group-check` — one
+   control idiom across the whole sidebar — recolored to this section's own
+   accent instead of sharing the cyan class directly. */
+.color-stack-check input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none;
+  /* 20px + `margin: 0`, same fix and same rationale as
+     `.layer-group-check input[type="checkbox"]` above — this is the
+     checkbox whose old 32px box + untracked UA margin pushed the whole
+     header (checkbox, "COLOUR" label, and both selects) out of alignment
+     with `.layer-group-head` directly above it. */
+  width: 20px; height: 16px; margin: 0;
+  cursor: pointer; position: relative; flex-shrink: 0;
+}
+.color-stack-check input[type="checkbox"]::before {
+  content: "[ ]"; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px; color: rgba(244, 114, 182, 0.5); pointer-events: none; line-height: 1;
+}
+.color-stack-check input[type="checkbox"]:hover::before { color: rgba(244, 114, 182, 0.85); }
+.color-stack-check input[type="checkbox"]:focus-visible {
+  outline: 1px solid rgba(244, 114, 182, 0.7); outline-offset: 2px;
+}
+.color-stack-check input[type="checkbox"]:checked::before { content: "[x]"; color: #f472b6; }
+.color-stack-check input[type="checkbox"]:checked:hover::before { color: #fb9fd0; }
+/* Combine/mode: compact selects sharing the header's remaining width evenly
+   — same technique as `.layer-group-head-select`, recolored isn't needed
+   since `.gx-select` is already accent-neutral. */
+.color-stack-head-select { flex: 1 1 0; min-width: 0; }
+.color-stack-head-select select {
+  font-size: 10px; padding: 2px 15px 2px 5px; text-overflow: ellipsis;
+}
+.color-stack-head-select::after { font-size: 8px; right: 5px; }
+.color-stack-body {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 9px; border-top: 1px solid rgba(244, 114, 182, 0.2);
+}
+.color-stack-voices { display: flex; flex-direction: column; gap: 9px; }
+/* Wraps the section's own global Basic/Advanced toggle + "+ Add colour
+   voice", same pairing as `.synth-voices-head-actions` does for the
+   geometry sidebar header — this section's equivalent add affordance sits
+   in its body (not a header action prop), since `ColorStackSection` has no
+   separate host header to place it in. */
+.color-stack-voices-actions { display: flex; align-items: center; gap: 6px; }
+
+/* Palette — the mode-appropriate colour endpoints (Color/Color B/Gradient
+   under `colorMode: "gradient"`, the four Hue sliders under `"hue"`), moved
+   in from the right Dock's Output folder so they sit beside the voices that
+   feed them (see `ColorStackSection` in synthKit.tsx). Sits above the voice
+   list within `.color-stack-body`, sharing that container's own gap instead
+   of adding a second border — it's a sub-section of the same box, not a
+   separate card. `.voice-slider` rows (Gradient, Hue offset/range/sat/light)
+   reuse the geometry rail's own cyan slider styling unchanged — same
+   precedent `ColorVoiceCard`'s freq/speed/mix rows already set: this
+   section's pink/magenta accent marks its HEADER and border, not every
+   control inside it. */
+.color-stack-palette { display: flex; flex-direction: column; gap: 7px; }
+.color-stack-swatches { display: flex; gap: 14px; }
+.color-stack-swatch {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em;
+}
+
+/* Card: [ left column — trendline stacked above the square preview ] [ controls column ]
+   Left column is 120px (was 92px) — the preview square is the hardest thing on this
+   card to read (a whole 2D pattern collapsed into a few hundred glyphs), so it gets
+   first claim on any spare width; the `1fr` controls column absorbs the other side of
+   that trade for free (grid math, not a second width to keep in sync). */
 .voice-card {
   display: grid;
-  grid-template-columns: 92px 1fr;
+  grid-template-columns: 120px 1fr;
   gap: 8px 10px;
   border: 1px solid rgba(255, 232, 184, 0.16);
   background: #04060b;
   padding: 9px;
 }
-/* Left column: a fixed-92px flex stack so the square preview below stays exactly
+/* Left column: a fixed-120px flex stack so the square preview below stays exactly
    square regardless of the grid track's stretch behavior — both children pin
    their own width/height instead of inheriting it from the grid item. */
 .voice-left {
@@ -86,21 +426,31 @@
 }
 /* The voice's own waveform: freq = cycles across the width, mix = vertical
    amplitude, wave toggle = shape — a direct visual read of the sliders below it.
-   Confined to the 92px left column now (was full-card-width) and roughly
+   Confined to the 120px left column now (was full-card-width) and roughly
    aligns with the "Voice N" title row on the right. */
 .voice-trend {
   /* Grow to absorb the left column's slack (the grid stretches this column to the
      controls' height) so no empty row sits below the fixed-square glyph. */
-  display: block; width: 92px; flex: 1 1 auto; min-height: 24px;
+  display: block; width: 120px; flex: 1 1 auto; min-height: 24px;
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-trend-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
 .voice-trend-line { stroke-width: 1.4; opacity: 0.95; }
 .voice-preview {
-  display: block; width: 92px; height: 92px; flex: 0 0 92px;
+  display: block; width: 120px; height: 120px; flex: 0 0 120px;
   overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
+/* Normal-derived colour voice (VOLUMETRIC-4.md §1) — explicit "no preview"
+   state instead of mounting a scene that would only ever show a flat wash
+   (a flat preview plane's object-space normal never varies). Same box as
+   `.voice-preview` so the card's layout doesn't jump when a field toggle
+   switches into/out of this state. */
+.voice-preview-none {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-size: 9px; letter-spacing: 0.04em; line-height: 1.3; padding: 4px;
+  color: rgba(255, 232, 184, 0.35);
+}
 .voice-controls { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .voice-head { display: flex; align-items: center; justify-content: space-between; }
 .voice-head-right { display: flex; align-items: center; gap: 6px; }
@@ -118,6 +468,18 @@
 }
 .voice-remove:hover { background: rgba(255, 90, 90, 0.16); border-color: rgba(255, 120, 120, 0.5); }
 .voice-row { display: flex; gap: 6px; }
+
+/* Basic/Advanced display-mode toggle (crowding fix) — same `.gx-toggle`
+   segmented-control markup the layer-assignment `[1][2][3]` toggle uses
+   (`gx-toggle-text` for its short text labels instead of a shape icon), just
+   sized down: this sits inline in a tight title row (`VoiceCard`'s own
+   header, next to the colour swatch and ×) or the sidebar header (next to
+   "+ Add"), not in its own full-width row like `.voice-layer-row`'s copy.
+   `flex: 0 0 auto` keeps `.gx-toggle`'s own `flex:1` buttons from stretching
+   to fill the row the way the layer selector's row-spanning copy does. */
+.voice-mode-toggle .gx-toggle { flex: 0 0 auto; }
+.voice-mode-toggle .gx-toggle-btn { flex: 0 0 auto; padding: 2px 6px; font-size: 9px; letter-spacing: 0.02em; }
+.voice-mode-toggle .gx-toggle-text { font-weight: 600; }
 
 /* Segmented icon multi-toggle (field / wave) */
 .gx-toggle { display: flex; }
@@ -140,6 +502,9 @@
   border-color: transparent; box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.85);
   position: relative; z-index: 1;
 }
+/* Numbered toggle buttons (voice layer assignment) — a text label instead of
+   a shape icon, so it needs a touch more weight to read at the same size. */
+.gx-toggle-text { font-weight: 600; }
 
 /* glyphcss select — square, dark, custom caret (like the Dock) */
 .gx-select { position: relative; flex: 1; min-width: 0; }
@@ -163,11 +528,35 @@
    for the source of truth these values are copied from. */
 .voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 11px; }
 .voice-slider span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
-.voice-slider b {
+/* The value readout is a real `input[type="text"]` now (EditableReadout in
+   synthKit.tsx), not a static `<b>` — typing a value commits it directly
+   (see that component's own doc for the tapered-freq/clamp/revert
+   contract). Kept visually identical to the old `<b>` (same color, weight,
+   alignment, dotted underline) so this reads as an edit, not a redesign;
+   `box-sizing: border-box` + `width: 100%` keeps it inside the grid's fixed
+   34px value column without the padding/width overflow class of bug fixed
+   in 7942e2b (this rule's own padding is vertical-only, so there's nothing
+   to overflow horizontally). `border: none` on every edge but the bottom
+   strips the native text-input chrome down to the same underline the `<b>`
+   used to have. */
+.voice-slider-readout {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   color: #38bdf8; font-weight: 400; text-align: right; font-size: 11px;
   font-family: inherit; padding: 1px 0; margin-left: -7px;
+  border: none;
   border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+  background: transparent;
+  -webkit-appearance: none; appearance: none;
 }
+.voice-slider-readout:hover:not(:disabled) { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.voice-slider-readout:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+  border-bottom-color: rgba(56, 189, 248, 0.8);
+}
+.voice-slider-readout:disabled { cursor: not-allowed; opacity: 0.6; }
 /* Wrapper reserves the 8px on each side the `[ … ]` bracket pseudos sit in —
    mirrors the Dock's `.controller.number .widget { padding-inline: 8px }`. */
 .voice-slider-track { position: relative; padding-inline: 8px; }
@@ -229,11 +618,22 @@
    only needs to override the base `.gw-code-panel` rule's position so it
    sits above the bar instead of on top of it, and to redo the mobile
    drawer sizing scoped to `.dn-root--synth` (the gallery's own mobile
-   override only matches `.dn-root--gallery`, so it never applies here). */
+   override only matches `.dn-root--gallery`, so it never applies here).
+
+   BOTH rules below use a plain 12px `bottom`, not `var(--overlay-bottom)`:
+   that variable folds in `--synth-footer-height` (see `.synth-shell.dn-root`
+   above) so the Dock's own floating panel — a SIBLING of `.synth-main`,
+   positioned against `.synth-body` — doesn't visually overflow into the
+   preset footer strip below. `.synth-export-bar`/`.synth-code-panel` are
+   positioned against `.synth-main` instead (`position: relative` above),
+   whose own flex-computed height ALREADY stops before the footer — reusing
+   the footer-inflated variable here double-counts that clearance and pins
+   both mid-viewport instead of at the bottom (found live: floating well
+   above the bottom edge, not flush with it). */
 .synth-export-bar {
   position: absolute;
   left: var(--overlay-left, 12px);
-  bottom: var(--overlay-bottom, 12px);
+  bottom: 12px;
   z-index: 15;
   display: flex;
   gap: 6px;
@@ -255,7 +655,7 @@
    would then lose the cascade to `.gw-code-panel`'s base rule. The extra
    specificity makes this override win regardless of chunk/link order. */
 .synth-code-panel.gw-code-panel {
-  bottom: calc(var(--overlay-bottom, 12px) + 34px);
+  bottom: calc(12px + 34px);
   width: clamp(360px, 42vw, 640px);
   /* `.gw-code-panel`'s own max-height formula assumes the gallery's taller
      chrome above the panel (`- 60vh`) and starves this shorter `.synth-main`
@@ -321,6 +721,12 @@
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-fieldmap-axis { stroke: rgba(255, 232, 184, 0.14); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* Per-voice layer assignment (VOLUMETRIC.md's Step 3) — same label+control
+   row shape as `.voice-slider`, minus the numeric readout (the toggle IS the
+   readout) and minus the bracketed track (a segmented control, not a slider). */
+.voice-layer-row { display: flex; align-items: center; gap: 7px; font-size: 11px; margin-top: 2px; }
+.voice-layer-label { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; flex: 0 0 34px; }
+.voice-layer-row .gx-toggle { flex: 1 1 auto; }
 /* The log-mapped Scale row reproduces lil-gui's own row markup so the dock
    stylesheet dresses it identically; the slot itself must not add chrome. */
 .dock-logrow-slot { display: contents; }
@@ -402,8 +808,15 @@
 }
 
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
+/* No `width: 100%` — same overflow mistake as `.layer-group-head`/
+   `.color-stack-head` above (`width: 100%` + `padding` + content-box
+   overflowed the row 24px past `.synth-shell`, silently clipped by that
+   shell's own `overflow: hidden` instead of visibly breaking). A flex-column
+   child already stretches to the container's full cross width by default
+   (`.synth-shell`'s unset `align-items` is `stretch`), so the rule was
+   redundant even before it was wrong. */
 .synth-presets {
-  flex: 0 0 auto; width: 100%; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
+  flex: 0 0 auto; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
   border-top: 1px solid rgba(255, 232, 184, 0.14); background: rgba(6, 8, 13, 0.92);
 }
 .synth-tile {

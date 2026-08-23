@@ -7,7 +7,37 @@ import {
   type GlyphEffectEvaluateContext,
   type GlyphEffectParamSchema,
   type GlyphEffectParamValues,
+  type GlyphEffectParsedColor,
+  type GlyphEffectRequirement,
 } from "glyphcss";
+import {
+  buildGlyphFieldDistanceOracle,
+  combineSynth,
+  effectiveVoiceFinestFreq,
+  evaluateFieldProgram,
+  fieldStepCount,
+  integrateField,
+  marchField,
+  marchGlyphFieldSphere,
+  sampleFieldVoice,
+  validateGlyphFieldProgram,
+  NORMAL_DERIVED_FIELDS,
+  SYNTH_COMBINES,
+  SYNTH_FIELDS,
+  SYNTH_WAVES,
+  synthWave,
+  type FieldLayer,
+  type FieldProgram,
+  type FieldVoice,
+  type FieldVoiceRawOverride,
+} from "./fieldProgram";
+
+// Re-exported so `staticExport.ts` and the wider `@glyphcss/effects` public
+// surface keep importing these names from "./stock" unchanged — the field
+// program IR (voices, layers, `evaluateFieldProgram`, `marchField`) now lives
+// in `fieldProgram.ts`, but these three predate the IR split and have
+// external consumers.
+export { combineSynth, SYNTH_COMBINES, SYNTH_FIELDS, SYNTH_WAVES, synthWave };
 
 export interface GlyphEffectPreset<Schema extends GlyphEffectParamSchema> {
   readonly name: string;
@@ -16,7 +46,8 @@ export interface GlyphEffectPreset<Schema extends GlyphEffectParamSchema> {
 
 export interface GlyphStockEffectDefinition<
   Schema extends GlyphEffectParamSchema = GlyphEffectParamSchema,
-> extends GlyphEffectDefinition<Schema> {
+  State = undefined,
+> extends GlyphEffectDefinition<Schema, State> {
   readonly label: string;
   readonly description: string;
   readonly defaultBlend: GlyphEffectBlend;
@@ -27,8 +58,14 @@ export interface GlyphStockEffectDefinition<
 // Exported (alongside a handful of coordinate-resolution internals below) so
 // `staticExport.ts`'s build-time baker can construct the same evaluate()
 // context shape and reuse the real surface-basis math instead of copying it.
+// `S` (default `undefined`, matching every stateless stock effect) lets the
+// handful of module-level helpers shared across effects (`setGlyph`,
+// `setColor`, `findUvBounds`, `generatedSurfaceField`) stay generic over
+// whichever effect calls them — field-synth is the one definition with real
+// per-layer `state` (see `FieldSynthState` below), inferred automatically at
+// each of its call sites without touching the stateless callers.
 export type AnyParams = Record<string, number | string | boolean>;
-export type AnyContext<P extends AnyParams> = GlyphEffectEvaluateContext<P, undefined>;
+export type AnyContext<P extends AnyParams, S = undefined> = GlyphEffectEvaluateContext<P, S>;
 
 const GLYPH = GlyphEffectOutputChannel.Glyph;
 const COLOR = GlyphEffectOutputChannel.Color;
@@ -91,6 +128,26 @@ const TRIPLANAR_K = 4;
 type EffectDirection = "down" | "up" | "right" | "left";
 const GENERATED_SURFACE_PITCH = 4;
 const generatedSurfaceFieldCache = new WeakMap<object, GeneratedSurfaceField>();
+
+// `parseGlyphEffectColor` regex-parses a CSS color STRING (hex/rgb/rgba) —
+// every stock effect below already calls it once per `evaluate()` (once per
+// animation frame), never per cell, but a mounted effect's color params are
+// almost always the same string frame to frame (a user drags the camera far
+// more than they drag a color picker), so re-parsing on every frame is pure
+// waste. Memoized by the exact input string: none of this file's call sites
+// mutate the returned `{ packed, opacity }` (every one only reads it), so
+// returning the same cached object across frames is safe. Unbounded — color
+// param strings are a small, UI-driven set (never per-cell-generated), so
+// this can never grow proportional to grid size or frame count.
+const parsedColorCache = new Map<string, GlyphEffectParsedColor>();
+function parseGlyphEffectColorCached(value: string): GlyphEffectParsedColor {
+  let cached = parsedColorCache.get(value);
+  if (!cached) {
+    cached = parseGlyphEffectColor(value);
+    parsedColorCache.set(value, cached);
+  }
+  return cached;
+}
 
 function positiveMod(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
@@ -174,7 +231,7 @@ function glyphRamp(value: string): string[] {
 // Callers only truth-test the result as an "authored UVs are usable" gate —
 // no caller reads bound values, so this returns the gate directly instead of
 // a bounds struct.
-export function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boolean {
+export function findUvBounds<P extends AnyParams, S = undefined>(context: AnyContext<P, S>): boolean {
   const uv = context.base.uv0;
   if (!uv) return false;
   let minU = Infinity;
@@ -196,7 +253,7 @@ export function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boole
   return Number.isFinite(spanU) && Number.isFinite(spanV) && Math.max(spanU, spanV) >= 1e-6;
 }
 
-function sceneCoordinate<P extends AnyParams>(context: AnyContext<P>, index: number): [number, number] {
+function sceneCoordinate<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number): [number, number] {
   const col = index % context.base.cols;
   const row = (index / context.base.cols) | 0;
   const [a, b, c, d, e, f] = context.coordinates.cellToSceneGrid;
@@ -226,8 +283,8 @@ interface SurfaceBasisSample {
 // per-cell, per-frame template-string allocation it immediately discards.
 // generatedSurfaceField still needs the key to group cells into coplanar
 // surfaces, so it calls surfaceGroupKey directly on the basis it already has.
-function surfaceBasisSample<P extends AnyParams>(
-  context: AnyContext<P>,
+function surfaceBasisSample<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
 ): SurfaceBasisSample | null {
   const position = context.base.worldPosition;
@@ -350,8 +407,8 @@ function surfaceGroupKey(basis: SurfaceBasisSample): string {
   return `${Math.round(basis.nx * 4096)},${Math.round(basis.ny * 4096)},${Math.round(basis.nz * 4096)},${Math.round(basis.planeOffset * basis.worldToSceneScale * 1024)},${Math.round(basis.horizontalX * 4096)},${Math.round(basis.horizontalY * 4096)},${Math.round(basis.horizontalZ * 4096)},${Math.round(basis.verticalX * 4096)},${Math.round(basis.verticalY * 4096)},${Math.round(basis.verticalZ * 4096)}`;
 }
 
-function generatedSurfaceSample<P extends AnyParams>(
-  context: AnyContext<P>,
+function generatedSurfaceSample<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
 ): readonly [number, number] | null {
   const basis = surfaceBasisSample(context, index);
@@ -419,7 +476,7 @@ function solveSurfaceMetric(group: SurfaceMetricAccumulator): void {
   group.dyDv = dyDv * vScale;
 }
 
-export function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): GeneratedSurfaceField | null {
+export function generatedSurfaceField<P extends AnyParams, S = undefined>(context: AnyContext<P, S>): GeneratedSurfaceField | null {
   const position = context.base.worldPosition;
   const normal = context.base.normal;
   if (!position || !normal || typeof position !== "object" || typeof normal !== "object") return null;
@@ -624,12 +681,12 @@ function projectedSurfaceDirection(
   ];
 }
 
-function setGlyph<P extends AnyParams>(context: AnyContext<P>, index: number, glyph: string): void {
+function setGlyph<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number, glyph: string): void {
   context.output.glyph[index] = glyph;
   context.output.channels[index] |= GLYPH;
 }
 
-function setColor<P extends AnyParams>(context: AnyContext<P>, index: number, packed: number): void {
+function setColor<P extends AnyParams, S = undefined>(context: AnyContext<P, S>, index: number, packed: number): void {
   context.output.color[index] = packed;
   context.output.channels[index] |= COLOR;
 }
@@ -642,6 +699,38 @@ function scalePackedColor(packed: number, intensity: number): number {
   return (red << 16) | (green << 8) | blue;
 }
 
+// Stable rule identifiers for every `fieldSynth.program.validateParams` throw
+// site (VOLUMETRIC-2.md §4 P2 fix). The website's URL hydration repair table
+// used to mirror these throw sites by hand — a manually maintained list whose
+// own "completeness" test asserted its length against itself, catching
+// nothing. Tagging each thrown error's `code` with one of these ids, and
+// exporting the id list, gives the website a REAL cross-package contract: it
+// can key its repair table by id and assert every exported id is covered,
+// so a validator added here without a matching website row/coercion entry
+// fails the website test via this array, not a hand-mirror.
+//
+// `validatePositiveScale` is shared by matrixRain/flowText/scan too — tagging
+// its thrown error with `"non-positive-scale"` is harmless there (those
+// effects never read `.code`) and keeps the tag in exactly one place instead
+// of duplicated per call site.
+export const GLYPH_FIELD_SYNTH_VALIDATION_RULES = [
+  "empty-glyphs",
+  "non-positive-scale",
+  "multi-layer-argmax",
+  "carve-requires-object-space",
+  "xray-subcell-unsupported",
+  "normal-field-requires-color-stack",
+] as const;
+export type GlyphFieldSynthValidationRuleId = typeof GLYPH_FIELD_SYNTH_VALIDATION_RULES[number];
+
+export interface GlyphFieldSynthValidationError extends Error {
+  readonly code: GlyphFieldSynthValidationRuleId;
+}
+
+function taggedValidationError<E extends Error>(error: E, code: GlyphFieldSynthValidationRuleId): E {
+  return Object.assign(error, { code });
+}
+
 function validateGlyphs(params: Readonly<{ glyphs: string }>): void {
   if (parseGlyphPattern(params.glyphs).length === 0) {
     throw new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character");
@@ -650,12 +739,17 @@ function validateGlyphs(params: Readonly<{ glyphs: string }>): void {
 
 function validateGlyphRamp(params: Readonly<{ glyphs: string }>): void {
   if (parseGlyphRamp(params.glyphs).length === 0) {
-    throw new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character");
+    throw taggedValidationError(
+      new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character"),
+      "empty-glyphs",
+    );
   }
 }
 
 function validatePositiveScale(params: Readonly<{ scale: number }>): void {
-  if (!(params.scale > 0)) throw new RangeError("glyphcss effect scale must be greater than zero");
+  if (!(params.scale > 0)) {
+    throw taggedValidationError(new RangeError("glyphcss effect scale must be greater than zero"), "non-positive-scale");
+  }
 }
 
 const timeSpec = {
@@ -809,8 +903,8 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
       const uvBounds = findUvBounds(context);
       const trail = Math.max(1, Math.round(params.trail));
       const period = Math.max(trail + 1, trail * 3);
-      const parsedHead = parseGlyphEffectColor(params.headColor);
-      const parsedColor = parseGlyphEffectColor(params.color);
+      const parsedHead = parseGlyphEffectColorCached(params.headColor);
+      const parsedColor = parseGlyphEffectColorCached(params.color);
       const monochrome = params.colorMode === "monochrome";
       // Volumetric branch is all-or-nothing per render: `objectPosition` is
       // either retained for every solid-mode cell or entirely absent (any
@@ -964,7 +1058,7 @@ export const scan: GlyphStockEffectDefinition<typeof scanSchema> = {
     evaluate(context) {
       const { params } = context;
       const uvBounds = findUvBounds(context);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const spacing = Math.max(params.width, params.spacing);
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
@@ -1071,7 +1165,7 @@ export const glitch: GlyphStockEffectDefinition<typeof glitchSchema> = {
     evaluate(context) {
       const { params } = context;
       const glyphs = glyphPattern(params.glyphs);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const frame = Math.floor(params.time * params.rate);
       const bandSize = Math.max(1, Math.round(params.bandSize));
       for (let i = 0; i < context.base.length; i++) {
@@ -1146,7 +1240,7 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
     evaluate(context) {
       const { params } = context;
       const glyphs = glyphPattern(params.glyphs);
-      const parsed = parseGlyphEffectColor(params.color);
+      const parsed = parseGlyphEffectColorCached(params.color);
       const [cols, rows] = context.coordinates.sceneGridSize;
       const cx = cols * 0.5;
       const cy = rows * 0.5;
@@ -1170,83 +1264,46 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // sampled through a WAVEFORM, combined into one scalar field that maps to a
 // glyph ramp + color. Composing/interfering the oscillators is where emergent
 // patterns (moiré, plaid, sonar, lattices) come from. Runs over surfaces via
-// `space`.
+// `space`. The actual evaluation (voices, layers, waveform/noise primitives)
+// lives in `fieldProgram.ts` as the field-program IR (see VOLUMETRIC.md's
+// "The field program IR"); this module compiles the flat schema down to that
+// IR once per `evaluate()` call and re-exports a few of its pieces that
+// already have external consumers (`staticExport.ts`, the website).
 
-// Exported so `staticExport.ts` can enumerate voices / validate field-wave-
-// combine names against the same lists the schema uses, instead of a second
-// hardcoded copy that could drift.
-export const SYNTH_VOICES = 6;
-export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
-export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
-export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
+// `SYNTH_VOICES` caps the flat SCHEMA only — see fieldProgram.ts's module doc
+// for why the IR/evaluator stay uncapped. 6 -> 9 (VOLUMETRIC-3.md §4): voices
+// 7-9's key families are appended at the schema TAIL (see `fieldSynthSchema`
+// below), never interleaved into the voice1..6 blocks — append-only ordering
+// is load-bearing for the /synth URL codec's positional decode.
+export const SYNTH_VOICES = 9;
 
-// Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
-// plot the exact same shape+phase math the engine evaluates, instead of a
-// second copy that could drift.
-export function synthWave(kind: string, t: number): number {
-  const p = t - Math.floor(t); // 0..1
-  switch (kind) {
-    case "triangle": return 4 * Math.abs(p - 0.5) - 1;
-    case "saw": return 2 * p - 1;
-    case "square": return p < 0.5 ? 1 : -1;
-    default: return Math.sin(t * Math.PI * 2); // sin
-  }
-}
+// Voice layers (VOLUMETRIC.md's Step 3) cap the flat SCHEMA at 3 layer slots
+// — the IR's `FieldProgram.layers` itself is length-free, same relationship
+// `SYNTH_VOICES` has to the voice IR.
+export const SYNTH_LAYERS = 3;
 
-function synthHash3(x: number, y: number, z: number): number {
-  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
-  return h - Math.floor(h);
-}
+// The colour voice stack (VOLUMETRIC-4.md §1) is single-layer, v1 — 3 colour
+// voices, independent of `SYNTH_VOICES`/`SYNTH_LAYERS`.
+export const SYNTH_COLOR_VOICES = 3;
 
-// Time is a third lattice axis (not an x-translation), so the pattern morphs
-// in place — trilinear interpolation between the z and z+1 lattice frames —
-// instead of sliding sideways as `time` advances.
-function synthNoise3(x: number, y: number, z: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
-  const xf = x - xi, yf = y - yi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
-  const a000 = synthHash3(xi, yi, zi), a100 = synthHash3(xi + 1, yi, zi);
-  const a010 = synthHash3(xi, yi + 1, zi), a110 = synthHash3(xi + 1, yi + 1, zi);
-  const a001 = synthHash3(xi, yi, zi + 1), a101 = synthHash3(xi + 1, yi, zi + 1);
-  const a011 = synthHash3(xi, yi + 1, zi + 1), a111 = synthHash3(xi + 1, yi + 1, zi + 1);
-  const frame0 = (a000 * (1 - u) + a100 * u) * (1 - v) + (a010 * (1 - u) + a110 * u) * v;
-  const frame1 = (a001 * (1 - u) + a101 * u) * (1 - v) + (a011 * (1 - u) + a111 * u) * v;
-  return frame0 * (1 - w) + frame1 * w; // 0..1
-}
+// `subcellRes: "ink"`'s contour count. Shared by the schema bound below AND
+// the evaluate-path clamp (see `inkLevels` usage in `computeFieldSynthPoint`'s
+// caller) so a hostile URL that sets `inkLevels` far past the schema's own
+// slider max (e.g. 5e6) can't turn the per-cell level-crossing loop into a
+// tab-hanging scan — the repair gate only catches enum/string violations,
+// never a numeric range, so the evaluate path must clamp itself.
+export const INK_LEVELS_MAX = 12;
 
-// One oscillator → value in ~[-amp, amp].
-function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number, angle = 0): number {
-  if (amp === 0) return 0;
-  if (angle !== 0) {
-    // Rotate the SAMPLE about this voice's own centre rather than rotating the
-    // field: radial/spiral then stay anchored where they were, and a linear
-    // field becomes a plane wave at `angle`.
-    const a = (-angle * Math.PI) / 180;
-    const dx = x - cx;
-    const dy = y - cy;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
-    x = cx + dx * ca - dy * sa;
-    y = cy + dx * sa + dy * ca;
-  }
-  if (field === "noise") {
-    return amp * (2 * synthNoise3(x * freq, y * freq, time * speed) - 1);
-  }
-  let raw: number;
-  switch (field) {
-    case "linearX": raw = x; break;
-    case "linearY": raw = y; break;
-    case "diagonal": raw = (x + y) * 0.70710678; break;
-    // atan2/(2π) jumps by 1 crossing the -x ray; a wave sampled at raw*freq
-    // is seamless there only when freq lands on an integer number of cycles
-    // per revolution. Non-integer freq leaves a visible seam along that ray —
-    // topological to the angular coordinate, not fixable by clamping freq.
-    case "angular": raw = Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
-    case "spiral": raw = Math.hypot(x - cx, y - cy) + Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
-    default: raw = Math.hypot(x - cx, y - cy); // radial
-  }
-  return amp * synthWave(wave, raw * freq - time * speed);
-}
+// `layerBlendL` (how a layer's shaped output enters the stack) has no
+// "argmax" value — layers are value-folded, not selected by identity (see
+// `FieldLayer.blend`'s doc in fieldProgram.ts). `layerCombineL` (the
+// intra-layer VOICE fold) reuses this same non-argmax set plus "inherit",
+// which resolves to the patch-level `combine` at compile time — the only way
+// a layer's resolved combine becomes "argmax" is by inheriting a
+// patch-level `combine: "argmax"`, never by an explicit per-layer override.
+// This is what keeps `validateFieldSynthLayers` simple (see below).
+const LAYER_VALUE_OPS = ["add", "multiply", "max", "min", "difference"] as const;
+const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
 
 function lerpPacked(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
@@ -1255,6 +1312,49 @@ function lerpPacked(a: number, b: number, t: number): number {
   const g = Math.round(ag + (bg - ag) * t);
   const bl = Math.round(ab + (bb - ab) * t);
   return (r << 16) | (g << 8) | bl;
+}
+
+// Split from a single `hslToPackedRgb(hDeg, s, l)` (same math, same result,
+// bit-for-bit): `s`/`l` (`hueSat`/`hueLight`) are per-FRAME constants in
+// fieldSynth's colour-stack hue mode, while `hDeg` is the only genuinely
+// per-CELL input (it depends on that cell's colour-stack scalar). The old
+// single-call form re-derived `sat`/`light`/`q`/`p` — and re-ran the
+// `sat <= 0` achromatic branch — on every cell even though only `hDeg`
+// changed. `computeHuePalette` now runs that invariant part once per
+// `evaluate()`; `hueToPackedRgb` is the cheap per-cell remainder.
+interface HuePalette {
+  readonly achromaticPacked: number | null;
+  readonly p: number;
+  readonly q: number;
+}
+
+function computeHuePalette(s: number, l: number): HuePalette {
+  const sat = clamp01(s);
+  const light = clamp01(l);
+  if (sat <= 0) {
+    const v = Math.round(light * 255);
+    return { achromaticPacked: (v << 16) | (v << 8) | v, p: light, q: light };
+  }
+  const q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat;
+  const p = 2 * light - q;
+  return { achromaticPacked: null, p, q };
+}
+
+function hueToPackedRgb(hDeg: number, palette: HuePalette): number {
+  if (palette.achromaticPacked !== null) return palette.achromaticPacked;
+  const { p, q } = palette;
+  const h = positiveMod(hDeg, 360) / 360;
+  const hueToChannel = (t: number): number => {
+    const tt = positiveMod(t, 1);
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const r = Math.round(clamp01(hueToChannel(h + 1 / 3)) * 255);
+  const g = Math.round(clamp01(hueToChannel(h)) * 255);
+  const b = Math.round(clamp01(hueToChannel(h - 1 / 3)) * 255);
+  return (r << 16) | (g << 8) | b;
 }
 
 const fieldSynthSchema = {
@@ -1328,7 +1428,7 @@ const fieldSynthSchema = {
   // "ink" reads the field's SHAPE rather than its level: see `inkGlyphForField`.
   // How many evenly spaced cuts through the amplitude axis to contour — a
   // topographic map of the field, not a single iso-line.
-  inkLevels: { kind: "number", default: 4, min: 1, max: 12, step: 1, label: "Ink levels" },
+  inkLevels: { kind: "number", default: 4, min: 1, max: INK_LEVELS_MAX, step: 1, label: "Ink levels" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -1336,6 +1436,11 @@ const fieldSynthSchema = {
   // Per-voice colors: when on, each cell's color is the contribution-weighted blend
   // of the active voices' colors (composes colors through the mix). Off keeps the
   // single color/colorB gradient (so existing presets are unchanged).
+  // Documented no-op under render: "xray" (VOLUMETRIC-2.md §1) — xray's
+  // brightness comes from an absorption integral over the WHOLE chord, not a
+  // single winning voice/point, so there is no coherent per-voice color to
+  // report; it always uses the plain color/colorB gradient. The UI hides the
+  // toggle under xray (a website concern, not enforced here).
   voiceColors: { kind: "boolean", default: false, animation: "discrete", label: "Per-voice colors" },
   color1: { kind: "color", default: "#7df9ff", label: "Voice 1 color" },
   color2: { kind: "color", default: "#ff4fa3", label: "Voice 2 color" },
@@ -1343,20 +1448,308 @@ const fieldSynthSchema = {
   color4: { kind: "color", default: "#ffcf5a", label: "Voice 4 color" },
   color5: { kind: "color", default: "#c78bff", label: "Voice 5 color" },
   color6: { kind: "color", default: "#ff7a45", label: "Voice 6 color" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Step 2: append-
+  // only ordering is load-bearing for the /synth URL codec's positional
+  // decode). Defaults reproduce today's behavior exactly: duty 0.5 is the
+  // pre-duty `p < 0.5` square split, phase 0 adds nothing to the wave
+  // argument, originW 0 leaves the volumetric branch's Z origin untouched.
+  duty1: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 1 duty" },
+  duty2: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 2 duty" },
+  duty3: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 3 duty" },
+  duty4: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 4 duty" },
+  duty5: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 5 duty" },
+  duty6: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 6 duty" },
+  // Cycles. Schema min/max/step are UI hints, not validation — a preset value
+  // like -1/3 (the Menger middle-third selector) is carried at full float
+  // precision regardless of `step`.
+  phase1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 1 phase" },
+  phase2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 2 phase" },
+  phase3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 3 phase" },
+  phase4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 4 phase" },
+  phase5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 5 phase" },
+  phase6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 6 phase" },
+  // Volumetric-branch-only third origin component (see "Domain" in
+  // VOLUMETRIC.md's Step 2) — a no-op in the 2D branch.
+  originW1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin W" },
+  originW2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin W" },
+  originW3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin W" },
+  originW4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin W" },
+  originW5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin W" },
+  originW6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin W" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Step 3: voice
+  // layers). Default 1 for every voice's layer assignment means "layer 1,
+  // shaping off" — a single-layer stack whose fold is exactly today's flat
+  // fold (structural backward compatibility; see `compileFieldSynthProgram`).
+  layer1: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 1 layer" },
+  layer2: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 2 layer" },
+  layer3: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 3 layer" },
+  layer4: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 4 layer" },
+  layer5: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 5 layer" },
+  layer6: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 6 layer" },
+  // Default "inherit" resolves to the patch-level `combine` at compile time —
+  // a single populated layer (today's shape) folds exactly like `combine`
+  // always has.
+  layerCombine1: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 1 combine" },
+  layerCombine2: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 2 combine" },
+  layerCombine3: { kind: "string", default: "inherit", values: LAYER_COMBINE_VALUES, animation: "discrete", label: "Layer 3 combine" },
+  layerThresholdOn1: { kind: "boolean", default: false, animation: "discrete", label: "Layer 1 threshold on" },
+  layerThresholdOn2: { kind: "boolean", default: false, animation: "discrete", label: "Layer 2 threshold on" },
+  layerThresholdOn3: { kind: "boolean", default: false, animation: "discrete", label: "Layer 3 threshold on" },
+  // Range -3..3: an add-fold of three amp-1 voices spans +-3 (VOLUMETRIC.md's
+  // Step 3 — a +-1..1 range could not express "all three axes mid").
+  layerThreshold1: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 1 threshold" },
+  layerThreshold2: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 2 threshold" },
+  layerThreshold3: { kind: "number", default: 0, min: -3, max: 3, step: 0.05, label: "Layer 3 threshold" },
+  layerInvert1: { kind: "boolean", default: false, animation: "discrete", label: "Layer 1 invert" },
+  layerInvert2: { kind: "boolean", default: false, animation: "discrete", label: "Layer 2 invert" },
+  layerInvert3: { kind: "boolean", default: false, animation: "discrete", label: "Layer 3 invert" },
+  layerBlend1: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 1 blend" },
+  layerBlend2: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 2 blend" },
+  layerBlend3: { kind: "string", default: "multiply", values: LAYER_VALUE_OPS, animation: "discrete", label: "Layer 3 blend" },
+  layerAmp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 1 amp" },
+  layerAmp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 2 amp" },
+  layerAmp3: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Layer 3 amp" },
+  // Appended after every pre-existing key (VOLUMETRIC.md's Carve mode /
+  // VOLUMETRIC-2.md's "March view modes": append-only ordering is load-
+  // bearing for the /synth URL codec's positional decode). "paint" (default)
+  // reproduces today's behavior exactly; "carve" and "xray" both require the
+  // volumetric branch (`validateFieldSynthRender` below) — carve raymarches
+  // for the first interior hit, xray integrates transmittance along the
+  // whole chord instead of shading the entry surface.
+  render: { kind: "string", default: "paint", values: ["paint", "carve", "xray"], animation: "discrete", label: "Render" },
+  // Minimum march step count; the implementation raises this per cell via a
+  // Nyquist floor (`ceil(2 * chordLength * finestActiveFreq)`) so thin solid
+  // walls don't skip past the sampling grid. `bench/carve-march.mjs` measures
+  // the depth-2 Menger recipe over a 120x48/half-covered grid: 32 steps ~2.5ms,
+  // 48 ~3.3ms, 96 ~5.3ms per evaluate() call (Node, M-series laptop) — 48 stays
+  // well under a 16.6ms/60fps budget for one layer while resolving the recipe's
+  // finest (1/9-domain) features comfortably; see bench/carve-march.md. xray
+  // reads this as its minimum step floor too, but resolves ONE step count for
+  // the whole evaluate() pass (see the `xrayActive` block below), not a
+  // per-cell one.
+  marchSteps: { kind: "number", default: 48, min: 1, max: 256, step: 1, label: "March steps" },
+  // Domain units; `exp(-marchFade * distance)` fades an interior hit's color
+  // toward black with depth. 0 disables the falloff (factor stays 1). Carve
+  // only — xray has its own `xrayGain` (see below for why the two can't share
+  // one knob).
+  marchFade: { kind: "number", default: 1, min: 0, max: 8, step: 0.05, label: "March fade" },
+  // Appended after every pre-existing key (VOLUMETRIC-2.md §1 "March view
+  // modes" — append-only ordering is load-bearing for the /synth URL codec's
+  // positional decode). xray's own absorption gain, deliberately NOT
+  // `marchFade`: at `marchFade`'s default of 1 a fully solid unit chord only
+  // reaches brightness ~0.63 and a typical preset domain (span ~1) never
+  // saturates, and `0` means opposite things in the two modes (no fade in
+  // carve vs. fully invisible in xray).
+  xrayGain: { kind: "number", default: 4, min: 0, max: 16, step: 0.05, label: "Xray gain" },
+  // Appended after every pre-existing key (VOLUMETRIC-2.md §2: append-only
+  // ordering is load-bearing for the /synth URL codec's positional decode).
+  // Menger/Sierpinski recursion depth; every other field ignores it. Capped
+  // at 4 because carve/xray's march resolution caps at 256 steps — menger
+  // iter 4 needs ~162 steps on a unit chord and fits, iter 5 needs ~486 and
+  // would render guaranteed false holes (see `effectiveVoiceFinestFreq`,
+  // fieldProgram.ts). Default 3 matches `clampSdfIter`'s own fallback there,
+  // so a hand-built IR voice that omits `iter` behaves identically to a
+  // schema voice at its default.
+  iter1: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 1 iterations" },
+  iter2: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 2 iterations" },
+  iter3: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 3 iterations" },
+  iter4: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 4 iterations" },
+  iter5: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 5 iterations" },
+  iter6: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 6 iterations" },
+  // Appended after every pre-existing key (VOLUMETRIC-3.md §2: append-only
+  // ordering is load-bearing for the /synth URL codec's positional decode).
+  // Ink-over-carve's contour spacing, in ABSOLUTE domain units — deliberately
+  // NOT a fraction of the observed depth range (that would make contours
+  // crawl frame-to-frame under orbit, differ across output grids, and
+  // degenerate on a flat wall). Documented no-op under 2D `subcellRes: "ink"`
+  // (that path keeps `inkLevels`) and under any non-carve render.
+  inkSpacing: { kind: "number", default: 0.25, min: 0.05, max: 4, step: 0.05, label: "Ink spacing" },
+  // Appended after every pre-existing key (VOLUMETRIC-3.md §4: SYNTH_VOICES
+  // 6 -> 9 — append-only ordering is load-bearing for the /synth URL codec's
+  // positional decode). ALL 14 per-voice key families for the three new
+  // voices, grouped by FAMILY (not by voice) — every family's voice7/8/9
+  // triple together, in the same family order the module-load guard below
+  // checks. amp7/8/9 default 0 (like voice3-6) so an untouched patch's fold
+  // is unaffected by the new voices existing.
+  field7: { kind: "string", default: "spiral", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 7 field" },
+  field8: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 8 field" },
+  field9: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 9 field" },
+  wave7: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 7 wave" },
+  wave8: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 8 wave" },
+  wave9: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 9 wave" },
+  freq7: { kind: "number", default: 6, min: 0, max: 96, step: 0.1, label: "Osc 7 freq" },
+  freq8: { kind: "number", default: 7, min: 0, max: 96, step: 0.1, label: "Osc 8 freq" },
+  freq9: { kind: "number", default: 8, min: 0, max: 96, step: 0.1, label: "Osc 9 freq" },
+  speed7: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 7 speed" },
+  speed8: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 8 speed" },
+  speed9: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 9 speed" },
+  amp7: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 7 amp" },
+  amp8: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 8 amp" },
+  amp9: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 9 amp" },
+  angle7: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 7 angle" },
+  angle8: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 8 angle" },
+  angle9: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 9 angle" },
+  originU7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin U" },
+  originU8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin U" },
+  originU9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin U" },
+  originV7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin V" },
+  originV8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin V" },
+  originV9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin V" },
+  originW7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 7 origin W" },
+  originW8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 8 origin W" },
+  originW9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 9 origin W" },
+  duty7: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 7 duty" },
+  duty8: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 8 duty" },
+  duty9: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Osc 9 duty" },
+  phase7: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 7 phase" },
+  phase8: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 8 phase" },
+  phase9: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Osc 9 phase" },
+  iter7: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 7 iterations" },
+  iter8: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 8 iterations" },
+  iter9: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Osc 9 iterations" },
+  layer7: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 7 layer" },
+  layer8: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 8 layer" },
+  layer9: { kind: "number", default: 1, min: 1, max: SYNTH_LAYERS, step: 1, label: "Osc 9 layer" },
+  color7: { kind: "color", default: "#5ad1ff", label: "Voice 7 color" },
+  color8: { kind: "color", default: "#ffb454", label: "Voice 8 color" },
+  color9: { kind: "color", default: "#ff5da2", label: "Voice 9 color" },
+  // Appended after every pre-existing key (VOLUMETRIC-4.md §1: the colour
+  // voice stack — append-only ordering is load-bearing for the /synth URL
+  // codec's positional decode; the frozen tail order is quoted verbatim in
+  // VOLUMETRIC-4.md and MUST NOT be reordered). A second, independent voice
+  // program that drives COLOUR only, decoupled from the geometry stack that
+  // drives occupancy/glyph selection — see `resolveFieldSynthColor` in
+  // `evaluate()` below. `colorStackOn: false` (the default) is
+  // byte-identical to today; every key below is retained-but-inert while
+  // it's off, so toggling it never loses authored work.
+  colorStackOn: { kind: "boolean", default: false, animation: "discrete", label: "Color stack" },
+  // Single-layer fold across the 3 colour voices (VOLUMETRIC-4.md §1: "Single
+  // layer in v1 — no colour-layer shaping"), the same mix-weight combine op
+  // the geometry stack's patch-level `combine` uses.
+  colorCombine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Color combine" },
+  // "gradient" (default) reuses `color` -> `colorB` through the SAME
+  // clamp01(v * gradient) mapping the non-stack path already uses (v being
+  // the colour stack's own bias/gain-mapped scalar) — a one-linear-voice
+  // colour stack reproduces today's plain gradient exactly. "hue" is cyclic:
+  // `hue = (v*0.5 + 0.5 + hueOffset) * hueRange` degrees at fixed
+  // `hueSat`/`hueLight` — the iridescence mode.
+  colorMode: { kind: "string", default: "gradient", values: ["gradient", "hue"], animation: "discrete", label: "Color mode" },
+  // Cycles: added to the 0..1-normalized stack scalar before the hue-range
+  // multiply, so a whole-wheel rotation is `hueOffset: 1` regardless of
+  // `hueRange`. "hue"-mode-only; ignored under "gradient".
+  hueOffset: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Hue offset" },
+  hueRange: { kind: "number", default: 360, min: 0, max: 360, step: 1, unit: "°", label: "Hue range" },
+  hueSat: { kind: "number", default: 70, min: 0, max: 100, step: 1, unit: "%", label: "Hue saturation" },
+  hueLight: { kind: "number", default: 55, min: 0, max: 100, step: 1, unit: "%", label: "Hue lightness" },
+  // 3 colour voices (`SYNTH_COLOR_VOICES`), 12 key families each, grouped BY
+  // FAMILY (every family's voice1/2/3 triple together) in EXACTLY the order
+  // VOLUMETRIC-4.md's frozen tail specifies — field, wave, freq, speed, amp,
+  // phase, angle, originU, originV, originW, duty, iter. This is NOT the
+  // same family order the geometry voices use (which puts angle right after
+  // amp and duty/iter earlier) — the spec's own listed order is the wire
+  // format here and must be followed verbatim, not harmonized with
+  // precedent. No `ccolorN`/`clayerN` family: colour voices have no
+  // per-voice palette (voiceColors is ignored while the stack is on) and no
+  // layer assignment (single layer, v1).
+  cfield1: { kind: "string", default: "radial", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 1 field" },
+  cfield2: { kind: "string", default: "angular", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 2 field" },
+  cfield3: { kind: "string", default: "linearX", values: SYNTH_FIELDS, animation: "discrete", label: "Color osc 3 field" },
+  cwave1: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 1 wave" },
+  cwave2: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 2 wave" },
+  cwave3: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Color osc 3 wave" },
+  cfreq1: { kind: "number", default: 3, min: 0, max: 96, step: 0.1, label: "Color osc 1 freq" },
+  cfreq2: { kind: "number", default: 5, min: 0, max: 96, step: 0.1, label: "Color osc 2 freq" },
+  cfreq3: { kind: "number", default: 4, min: 0, max: 96, step: 0.1, label: "Color osc 3 freq" },
+  cspeed1: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 1 speed" },
+  cspeed2: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 2 speed" },
+  cspeed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Color osc 3 speed" },
+  camp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Color osc 1 amp" },
+  camp2: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Color osc 2 amp" },
+  camp3: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Color osc 3 amp" },
+  cphase1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 1 phase" },
+  cphase2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 2 phase" },
+  cphase3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, unit: "cyc", label: "Color osc 3 phase" },
+  cangle1: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 1 angle" },
+  cangle2: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 2 angle" },
+  cangle3: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Color osc 3 angle" },
+  coriginU1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin U" },
+  coriginU2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin U" },
+  coriginU3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin U" },
+  coriginV1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin V" },
+  coriginV2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin V" },
+  coriginV3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin V" },
+  coriginW1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 1 origin W" },
+  coriginW2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 2 origin W" },
+  coriginW3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Color osc 3 origin W" },
+  cduty1: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 1 duty" },
+  cduty2: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 2 duty" },
+  cduty3: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Color osc 3 duty" },
+  citer1: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 1 iterations" },
+  citer2: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 2 iterations" },
+  citer3: { kind: "number", default: 3, min: 1, max: 4, step: 1, label: "Color osc 3 iterations" },
+  // `colorQuantize` (per-cell RGB bucketing) was removed here: `colorTolerance`
+  // (COLOR-TOLERANCE.md), a SCENE option rather than a field-synth param,
+  // strictly dominates it on span count and error and isn't chaotic to drive.
+  // `adaptive`/`adaptiveTolerance` (VOLUMETRIC-4.md §2) remain withheld — the
+  // schema tail's next open slot is unclaimed, not `citer3` above.
 } as const satisfies GlyphEffectParamSchema;
+
+// Every per-voice key family fieldSynth's evaluate() (via `SynthVoice`/
+// `buildFieldSynthVoices`) and the field-program IR (`FieldVoice`) dereference
+// — 14 total. Exported so a mutation test can exercise the checker below
+// against a deliberately incomplete fake schema without needing to break the
+// real module-load guard to prove it actually checks all 14 (VOLUMETRIC-3.md
+// §4 acceptance 6: the guard used to check only 7 of 14, letting a future
+// voice-count bump ship a partial block silently).
+export const FIELD_SYNTH_VOICE_KEY_FAMILIES = [
+  "field", "wave", "freq", "speed", "amp", "angle",
+  "originU", "originV", "originW", "duty", "phase", "iter", "layer", "color",
+] as const;
+
+// The colour voice stack's own sibling (VOLUMETRIC-4.md §1's "Colour-voice
+// completeness guard"): 12 families, no `color`/`layer` (colour voices carry
+// no per-voice palette — voiceColors is ignored while the stack is on — and
+// fold into a single v1 layer). Order matches the schema's own family
+// grouping above, which is itself the spec's frozen wire-format order.
+export const FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES = [
+  "cfield", "cwave", "cfreq", "cspeed", "camp", "cphase",
+  "cangle", "coriginU", "coriginV", "coriginW", "cduty", "citer",
+] as const;
 
 // Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
 // SYNTH_VOICES ever changes without the schema following, this fails loudly at
 // module load instead of silently reading `undefined` through a stale cast.
-for (let voice = 1; voice <= SYNTH_VOICES; voice++) {
-  for (const prefix of ["field", "wave", "freq", "speed", "amp", "color"] as const) {
-    if (!(`${prefix}${voice}` in fieldSynthSchema)) {
-      throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${SYNTH_VOICES} voices.`);
+// Exported (alongside `FIELD_SYNTH_VOICE_KEY_FAMILIES`) so the mutation test
+// can call the SAME checker the module-load guard below invokes, rather than
+// a parallel reimplementation that could drift from what's actually enforced.
+// `families` defaults to the geometry stack's own list so every pre-existing
+// call site (including every test written against the two-argument form)
+// keeps working unchanged; the colour stack's module-load guard below passes
+// `FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES` explicitly.
+export function assertFieldSynthVoiceSchemaComplete(
+  schema: Readonly<Record<string, unknown>>,
+  voiceCount: number,
+  families: readonly string[] = FIELD_SYNTH_VOICE_KEY_FAMILIES,
+): void {
+  for (let voice = 1; voice <= voiceCount; voice++) {
+    for (const prefix of families) {
+      if (!(`${prefix}${voice}` in schema)) {
+        throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${voiceCount} voices.`);
+      }
+    }
+  }
+}
+assertFieldSynthVoiceSchemaComplete(fieldSynthSchema, SYNTH_VOICES);
+assertFieldSynthVoiceSchemaComplete(fieldSynthSchema, SYNTH_COLOR_VOICES, FIELD_SYNTH_COLOR_VOICE_KEY_FAMILIES);
+for (let layer = 1; layer <= SYNTH_LAYERS; layer++) {
+  for (const prefix of ["layerCombine", "layerThresholdOn", "layerThreshold", "layerInvert", "layerBlend", "layerAmp"] as const) {
+    if (!(`${prefix}${layer}` in fieldSynthSchema)) {
+      throw new Error(`glyphcss: field-synth schema is missing "${prefix}${layer}" for ${SYNTH_LAYERS} layers.`);
     }
   }
 }
 
-interface SynthVoice {
+export interface SynthVoice {
   readonly field: string;
   readonly wave: string;
   readonly freq: number;
@@ -1372,6 +1765,80 @@ interface SynthVoice {
    *  figure, unreachable at any voice count while the centre was shared). */
   readonly originU: number;
   readonly originV: number;
+  /** Volumetric-branch-only third origin component; unused in 2D. */
+  readonly originW: number;
+  /** Square wave's high fraction; other wave kinds ignore it. Default 0.5. */
+  readonly duty: number;
+  /** Cycles, added to the wave argument for every field/wave kind. Default 0. */
+  readonly phase: number;
+  /** Which of the (up to `SYNTH_LAYERS`) layers this voice folds into. Default 1. */
+  readonly layer: number;
+  /** Menger/Sierpinski recursion depth (schema range 1..4, default 3); every other field ignores it. */
+  readonly iter: number;
+}
+
+// Reads field-synth's flat field1..6/layer1..6 params into the SynthVoice
+// frontend shape (VOLUMETRIC.md's "The flat param schema is a frontend that
+// compiles to the IR"). Exported so `evaluate()` below and the static
+// exporter (`staticExport.ts`) build this list from the exact same code —
+// the whole reason the static exporter's older port silently diverged on
+// `angleN`/per-voice origins was a hand-copied second construction of this
+// list that fell out of sync; a shared source makes that class of bug
+// impossible.
+export function buildFieldSynthVoices(params: AnyParams): readonly SynthVoice[] {
+  const voices: SynthVoice[] = [];
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    voices.push({
+      field: params[`field${k}`] as string,
+      wave: params[`wave${k}`] as string,
+      freq: params[`freq${k}`] as number,
+      speed: params[`speed${k}`] as number,
+      amp: params[`amp${k}`] as number,
+      color: params[`color${k}`] as string,
+      angle: params[`angle${k}`] as number,
+      originU: params[`originU${k}`] as number,
+      originV: params[`originV${k}`] as number,
+      originW: params[`originW${k}`] as number,
+      duty: params[`duty${k}`] as number,
+      phase: params[`phase${k}`] as number,
+      layer: params[`layer${k}`] as number,
+      iter: params[`iter${k}`] as number,
+    });
+  }
+  return voices;
+}
+
+// Colour voice stack sibling (VOLUMETRIC-4.md §1): reads `cfield1..3`/
+// `camp1..3`/etc into the SAME `SynthVoice` frontend shape `compileFieldVoices`
+// already compiles, so the colour stack reuses that exact IR-compile step
+// rather than a second, driftable one. `color` is a required `SynthVoice`
+// field but colour voices have no per-voice palette of their own (there is
+// no `ccolorN` — see the schema's own doc) — filled with an inert placeholder
+// that is never read: `voiceColors` is ignored while the colour stack is on
+// (see `resolveFieldSynthColor` in `evaluate()`), and `evaluateFieldProgram`
+// never reads `FieldVoice.color` for anything but that fallback. `layer` is
+// likewise always `1` (single layer, v1).
+export function buildFieldSynthColorVoices(params: AnyParams): readonly SynthVoice[] {
+  const voices: SynthVoice[] = [];
+  for (let k = 1; k <= SYNTH_COLOR_VOICES; k++) {
+    voices.push({
+      field: params[`cfield${k}`] as string,
+      wave: params[`cwave${k}`] as string,
+      freq: params[`cfreq${k}`] as number,
+      speed: params[`cspeed${k}`] as number,
+      amp: params[`camp${k}`] as number,
+      color: "#ffffff",
+      angle: params[`cangle${k}`] as number,
+      originU: params[`coriginU${k}`] as number,
+      originV: params[`coriginV${k}`] as number,
+      originW: params[`coriginW${k}`] as number,
+      duty: params[`cduty${k}`] as number,
+      phase: params[`cphase${k}`] as number,
+      layer: 1,
+      iter: params[`citer${k}`] as number,
+    });
+  }
+  return voices;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1388,8 +1855,8 @@ interface SynthVoice {
 // matrixRain reads, just with min/max also tracked), returning a per-cell
 // (cx, cy) alongside (x, y). UV and scene branches keep the original
 // origin*scale center untouched.
-export function fieldSynthCoordinate<P extends AnyParams>(
-  context: AnyContext<P>,
+export function fieldSynthCoordinate<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
@@ -1429,79 +1896,221 @@ export function fieldSynthCoordinate<P extends AnyParams>(
 // Braille block (U+2800..U+28FF) dot bit weights, indexed [dotCol][dotRow].
 // This is the block's actual bit layout, NOT raster order: column 0 runs
 // 0x01,0x02,0x04 top-to-bottom then jumps to 0x40 for its bottom dot; column 1
-// mirrors that at 0x08,0x10,0x20,0x80.
-const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
+// mirrors that at 0x08,0x10,0x20,0x80. Exported so the static exporter's
+// bake-time affine-fit safety check (`affineDecisionsMatch` in
+// staticExport.ts) can verify a `subcellRes: "2x4"` patch's dot mask the
+// exact same way this live path does, instead of a second, driftable copy.
+export const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
   [0x01, 0x02, 0x04, 0x40],
   [0x08, 0x10, 0x20, 0x80],
 ];
 
-// Same voice-fold as the main evaluate() loop below, minus the color
-// bookkeeping the main loop needs — used to resample the scalar field at each
-// of a cell's 8 Braille subcell offsets, where only the scalar matters.
-/**
- * Evaluate the whole voice stack at one point. `winner` is only meaningful under
- * `combine: "argmax"`, where the output is CATEGORICAL — which voice won, not
- * how much it won by. Every other mode folds values as before and reports -1.
- *
- * argmax is what makes hard-edged tilings possible: the pairwise ops all return
- * a value, so a region's shading keeps varying inside it, whereas selecting by
- * identity gives each region one flat level (and, with per-voice colors, the
- * winning voice's own colour).
- */
-function evaluateVoices(
-  voices: readonly SynthVoice[],
-  combine: string,
-  x: number,
-  y: number,
-  cx: number,
-  cy: number,
-  time: number,
-  scale: number,
-): { combined: number; winner: number; active: number } {
-  let combined = 0;
-  let active = 0;
-  let best = -Infinity;
-  let winner = -1;
-  let winnerOrder = -1;
-  const argmax = combine === "argmax";
-  for (let k = 0; k < SYNTH_VOICES; k++) {
-    const voice = voices[k]!;
-    if (!(voice.amp > 0)) continue;
-    // Same units as the global origin, which `fieldSynthCoordinate` already
-    // scaled (`originU * scale`) — adding a raw offset here made a voice's
-    // centre drift by half the grid at scale 2 and by 1% of it at scale 100.
-    const vcx = cx + voice.originU * scale;
-    const vcy = cy + voice.originV * scale;
-    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, vcx, vcy, time, voice.angle);
-    if (argmax) {
-      const contribution = voice.amp * o;
-      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
-    } else if (active === 0) {
-      combined = voice.amp * o;
-    } else {
-      combined += voice.amp * (combineSynth(combine, combined, o) - combined);
-    }
-    active++;
-  }
-  if (argmax) {
-    // Evenly spaced flat levels across the range, one per ACTIVE voice, so the
-    // ramp (or ink) reads each region as a single constant tone.
-    combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
-  }
-  return { combined, winner, active };
+// A compiled voice retains its schema-authored `layer` assignment alongside
+// the IR's own `FieldVoice` shape — `compileFieldSynthProgram` groups by it,
+// and the voiceColors fallback loop in `evaluate()` reads the FLAT list (see
+// that function) so per-voice color contribution is never affected by which
+// layer a voice happens to fold into.
+export type CompiledFieldVoice = FieldVoice & { readonly layer: number };
+
+// Voice origins are pre-scaled here (`* scale`) so `evaluateFieldProgram`
+// never needs to know about `scale` at all — it only combines a voice's
+// relative origin with the call-level origin it's given. Exported alongside
+// `resolveFieldSynthLayerShapes`/`compileFieldSynthProgram` so the static
+// exporter (`staticExport.ts`) compiles the SAME IR the live evaluator runs,
+// instead of a second, driftable compile step (VOLUMETRIC.md: "the static
+// exporter ports the IR evaluator, not the schema").
+export function compileFieldVoices(voices: readonly SynthVoice[], scale: number): readonly CompiledFieldVoice[] {
+  return voices.map((voice, sourceIndex) => ({
+    field: voice.field,
+    wave: voice.wave,
+    freq: voice.freq,
+    speed: voice.speed,
+    amp: voice.amp,
+    phase: voice.phase,
+    duty: voice.duty,
+    angle: voice.angle,
+    origin: { u: voice.originU * scale, v: voice.originV * scale, w: voice.originW * scale },
+    color: voice.color,
+    layer: voice.layer,
+    iter: voice.iter,
+    // Flat position in `voices` (field-synth's voice1..6 order), the same
+    // order `parsedVoiceColors` is indexed by — carried through so an argmax
+    // winner reported by `evaluateFieldProgram` always identifies the
+    // original voice, not its position within whichever layer it folded
+    // into (see `FieldVoice.sourceIndex`'s doc).
+    sourceIndex,
+  }));
 }
 
-function subcellFieldValue(
-  voices: readonly SynthVoice[],
-  combine: string,
-  x: number,
-  y: number,
-  cx: number,
-  cy: number,
-  time: number,
-  scale: number,
-): number {
-  return evaluateVoices(voices, combine, x, y, cx, cy, time, scale).combined;
+// Per-layer shaping, resolved once per `evaluate()` call from flat params
+// (VOLUMETRIC.md's Step 3): `combine: "inherit"` (the schema default) resolves
+// to the patch-level `combine`, which is what keeps a single-layer stack
+// (today's shape, before layers existed) folding exactly like `combine`
+// always has, including when `combine` is `"argmax"` (see
+// `validateFieldSynthLayers` below for why an EXPLICIT per-layer override can
+// never be `"argmax"` — the schema's `layerCombineL` values exclude it).
+export interface FieldLayerShape {
+  readonly combine: string;
+  readonly thresholdOn: boolean;
+  readonly threshold: number;
+  readonly invert: boolean;
+  readonly blend: string;
+  readonly amp: number;
+}
+
+export function resolveFieldSynthLayerShapes(params: AnyParams): readonly FieldLayerShape[] {
+  const patchCombine = params.combine as string;
+  const shapes: FieldLayerShape[] = [];
+  for (let l = 1; l <= SYNTH_LAYERS; l++) {
+    const combineRaw = params[`layerCombine${l}`] as string;
+    shapes.push({
+      combine: combineRaw === "inherit" ? patchCombine : combineRaw,
+      thresholdOn: params[`layerThresholdOn${l}`] as boolean,
+      threshold: params[`layerThreshold${l}`] as number,
+      invert: params[`layerInvert${l}`] as boolean,
+      blend: params[`layerBlend${l}`] as string,
+      amp: params[`layerAmp${l}`] as number,
+    });
+  }
+  return shapes;
+}
+
+// Compiles field-synth's flat per-voice/per-layer params into the field
+// program IR — the frontend→IR compile step (VOLUMETRIC.md's "The field
+// program IR" and Step 3), called once per `evaluate()` call. A single
+// populated layer with threshold/invert off and amp 1 (every voice's default
+// `layer` is 1, every layer's default shape is that no-op) folds to exactly
+// `combine`'s own output (see `evaluateFieldProgram`'s doc), which is what
+// keeps every pre-layers preset byte-identical. Layers with no voices
+// assigned are still emitted (not omitted) — `evaluateFieldProgram` already
+// skips a layer with zero ACTIVE (amp > 0) voices at fold time, exactly like
+// an amp-0 voice, so compile doesn't need to duplicate that logic.
+export function compileFieldSynthProgram(
+  compiledVoices: readonly CompiledFieldVoice[],
+  layerShapes: readonly FieldLayerShape[],
+  volumetric: boolean,
+): FieldProgram {
+  const layers: FieldLayer[] = layerShapes.map((shape, li) => ({
+    voices: compiledVoices.filter((voice) => voice.layer === li + 1),
+    combine: shape.combine,
+    thresholdOn: shape.thresholdOn,
+    threshold: shape.threshold,
+    invert: shape.invert,
+    blend: shape.blend,
+    amp: shape.amp,
+  }));
+  return { domain: volumetric ? "3d" : "2d", layers };
+}
+
+// Effective-argmax validation (VOLUMETRIC.md's Step 3, "argmax and voice
+// colors"): argmax stays categorical and single-layer. A patch is invalid
+// when argmax is EFFECTIVE (a populated layer's resolved combine — its
+// override, else the inherited patch-level `combine` — is "argmax") in more
+// than one populated layer's worth of context, i.e. while MORE THAN ONE layer
+// is populated. Because `layerCombineL`'s schema values exclude "argmax"
+// entirely (see `LAYER_COMBINE_VALUES`), the only way a layer's resolved
+// combine becomes "argmax" is by inheriting a patch-level `combine: "argmax"`
+// — so a multi-layer patch whose every populated layer overrides to an
+// explicit value op is valid regardless of the (then dead) patch-level
+// `combine`, deliberately not validated. A single populated layer stays valid
+// exactly as today, whatever it resolves to.
+function validateFieldSynthLayers(params: AnyParams): void {
+  const patchCombine = params.combine as string;
+  const populated: boolean[] = new Array(SYNTH_LAYERS).fill(false) as boolean[];
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    if (!((params[`amp${k}`] as number) > 0)) continue;
+    const layer = params[`layer${k}`] as number;
+    if (layer >= 1 && layer <= SYNTH_LAYERS) populated[layer - 1] = true;
+  }
+  if (populated.filter(Boolean).length <= 1) return; // single-layer argmax stays exactly as today
+  for (let l = 1; l <= SYNTH_LAYERS; l++) {
+    if (!populated[l - 1]) continue;
+    const combineRaw = params[`layerCombine${l}`] as string;
+    const resolved = combineRaw === "inherit" ? patchCombine : combineRaw;
+    if (resolved === "argmax") {
+      throw taggedValidationError(
+        new TypeError(
+          `glyphcss field-synth: layer ${l} resolves to combine "argmax" while more than one layer is populated — `
+          + "argmax is categorical and stays single-layer (VOLUMETRIC.md's Step 3). Give it an explicit non-argmax "
+          + `layerCombine${l} override, or reduce the patch to a single populated layer.`,
+        ),
+        "multi-layer-argmax",
+      );
+    }
+  }
+}
+
+// Carve/xray march modes (VOLUMETRIC.md's "Carve mode (hollowness)",
+// VOLUMETRIC-2.md §1 "March view modes"): both require the volumetric
+// branch. In wireframe/voxel modes carve/xray degrade to paint at RUNTIME
+// (no `objectPosition`/`objectExit` retained, same optional-requirement
+// degradation `space: "object"` already uses) — that degradation can't be
+// validated here, since `validateParams` never sees the render mode, only
+// params.
+//
+// `subcellRes` rejection (VOLUMETRIC-3.md §2): carve+ink and carve+2x4 are
+// now legal — carve's own march loop computes both directly (see
+// `fieldSynth`'s `evaluate()`: the ink post-pass and the braille sub-ray
+// probe). xray still rejects both: an accumulated transmittance integral has
+// no per-cell hit point/depth for the ink/braille neighbor probes to read,
+// unlike carve's first-hit search. This used to share `carve-subcell-
+// unsupported` with carve's own (now-removed) rejection of the same pair —
+// splitting the rule id keeps a valid carve+ink/2x4 URL from being
+// "repaired" back to `1x1` by a repair-table row that no longer applies to
+// carve (VOLUMETRIC-3.md §2, reviewer-caught).
+function validateFieldSynthRender(params: AnyParams): void {
+  if (params.render !== "carve" && params.render !== "xray") return;
+  const mode = params.render as string;
+  if (params.space !== "object") {
+    throw taggedValidationError(
+      new TypeError(
+        `glyphcss field-synth: render: "${mode}" requires space: "object" (the volumetric branch) — ${mode} marches `
+        + "objectPosition -> objectExit, which only exist for a volumetric patch.",
+      ),
+      "carve-requires-object-space",
+    );
+  }
+  if (mode === "xray" && (params.subcellRes === "2x4" || params.subcellRes === "ink")) {
+    throw taggedValidationError(
+      new TypeError(
+        `glyphcss field-synth: render: "xray" does not support subcellRes: "${params.subcellRes as string}" — an `
+        + "accumulated transmittance integral has no per-cell hit point for the ink/braille neighbor probes to "
+        + 'read. Use subcellRes: "1x1" with xray, or render: "carve" for a volumetric ink/braille outline.',
+      ),
+      "xray-subcell-unsupported",
+    );
+  }
+}
+
+// Normal-derived field sources (VOLUMETRIC-4.md §1's "Normal-derived field
+// sources") are legal ONLY in the colour voice stack (`cfield1..3`) —
+// reviewer-forced: a normal is one value per CELL, not a function of the
+// domain point, so in the GEOMETRY stack it would be constant along the whole
+// march ray. It could only flip an entire chord solid/empty, never produce
+// structure, and it would silently corrupt the subcell probes and the
+// `effectiveVoiceFinestFreq` Nyquist floor (both of which key off the
+// geometry stack's own compiled voices). Checked against every `field1..N`
+// slot regardless of `colorStackOn` — the geometry stack never legally reads
+// one of these four kinds, on or off. Scoped to the flat schema path only:
+// a hand-built geometry `program` bypasses this (VOLUMETRIC-4.md §1's
+// documented "recorded extension point"), same as every other
+// `validateFieldSynthLayers`/`validateFieldSynthRender` check here.
+function validateFieldSynthGeometryNormalFields(params: AnyParams): void {
+  for (let k = 1; k <= SYNTH_VOICES; k++) {
+    if (!((params[`amp${k}`] as number) > 0)) continue;
+    const field = params[`field${k}`] as string;
+    if (NORMAL_DERIVED_FIELDS.has(field)) {
+      throw taggedValidationError(
+        new TypeError(
+          `glyphcss field-synth: voice ${k}'s field${k}: "${field}" is a normal-derived field kind (VOLUMETRIC-4.md `
+          + `§1) — legal only in the colour voice stack (cfield1..${SYNTH_COLOR_VOICES}, with colorStackOn: true), `
+          + `never on an active geometry voice (amp${k} > 0). Move it to a colour voice, or pick a spatial field${k} `
+          + "for the geometry voice.",
+        ),
+        "normal-field-requires-color-stack",
+      );
+    }
+  }
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1512,9 +2121,13 @@ function subcellFieldValue(
 // static field-synth exporter's affine-fit already relies on for the common
 // flat-surface case. Falls back to the opposite neighbor at a grid edge, and
 // to a zero gradient (all 8 subcells collapse to the cell-center sample) when
-// a neighbor's coordinate is unavailable.
-function fieldSynthSubcellGradient<P extends AnyParams>(
-  context: AnyContext<P>,
+// a neighbor's coordinate is unavailable. Exported (2D-only — the exporter
+// never reaches the volumetric branch, `space: "object"` is rejected before
+// `bake()` runs) so `staticExport.ts` can bake the SAME gradient the live
+// `subcellRes: "2x4"`/`"ink"` path reads, instead of a second, driftable
+// derivation.
+export function fieldSynthSubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
@@ -1555,20 +2168,377 @@ function fieldSynthSubcellGradient<P extends AnyParams>(
   return [dxCol, dyCol, dxRow, dyRow];
 }
 
-// Exported for the same reason as `synthWave` above — reuse the exact
-// per-voice mix-weight fold instead of re-deriving it.
-export function combineSynth(mode: string, a: number, b: number): number {
-  switch (mode) {
-    // Pairwise, argmax can only report the winning VALUE; the winning identity
-    // is resolved by `evaluateVoices`, which sees the whole stack at once.
-    case "argmax": return Math.max(a, b);
-    case "add": return a + b;
-    case "max": return Math.max(a, b);
-    case "min": return Math.min(a, b);
-    case "difference": return Math.abs(a - b);
-    default: return a * b; // multiply
+// The volumetric-branch counterpart to `fieldSynthSubcellGradient`: the
+// resolved coordinate is `objectPosition * scale` directly (see fieldSynth's
+// `evaluate()`), so the neighbor probe finite-differences `objectPosition`
+// itself instead of re-deriving it through `fieldSynthCoordinate` — same
+// local-affine approximation, now in 3D (VOLUMETRIC.md's "Subcell modes").
+function fieldSynthVolumetricSubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
+  index: number,
+  scale: number,
+  x: number,
+  y: number,
+  z: number,
+): readonly [number, number, number, number, number, number] {
+  const cols = context.base.cols;
+  const rows = context.base.rows;
+  const col = index % cols;
+  const row = (index / cols) | 0;
+  const op = context.base.objectPosition!;
+  let dxCol = 0, dyCol = 0, dzCol = 0, dxRow = 0, dyRow = 0, dzRow = 0;
+  if (cols > 1) {
+    const hasRight = col + 1 < cols;
+    const rightIndex = hasRight ? index + 1 : index - 1;
+    const rx = op[rightIndex * 3]!, ry = op[rightIndex * 3 + 1]!, rz = op[rightIndex * 3 + 2]!;
+    if (Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rz)) {
+      const sign = hasRight ? 1 : -1;
+      dxCol = (rx * scale - x) * sign;
+      dyCol = (ry * scale - y) * sign;
+      dzCol = (rz * scale - z) * sign;
+    }
   }
+  if (rows > 1) {
+    const hasDown = row + 1 < rows;
+    const downIndex = hasDown ? index + cols : index - cols;
+    const dxp = op[downIndex * 3]!, dyp = op[downIndex * 3 + 1]!, dzp = op[downIndex * 3 + 2]!;
+    if (Number.isFinite(dxp) && Number.isFinite(dyp) && Number.isFinite(dzp)) {
+      const sign = hasDown ? 1 : -1;
+      dxRow = (dxp * scale - x) * sign;
+      dyRow = (dyp * scale - y) * sign;
+      dzRow = (dzp * scale - z) * sign;
+    }
+  }
+  return [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow];
 }
+
+// Dispatches to the 2D or volumetric subcell gradient probe and normalizes
+// both to the same 6-component (col, row) x/y/z shape — the 2D probe has no
+// z gradient, so it pads with 0 in the correct (not spread-appended) slots.
+function fieldSynthAnySubcellGradient<P extends AnyParams, S = undefined>(
+  context: AnyContext<P, S>,
+  index: number,
+  space: EffectSpace,
+  uvBounds: boolean,
+  scale: number,
+  originU: number,
+  originV: number,
+  sceneCols: number,
+  sceneRows: number,
+  generatedSurface: GeneratedSurfaceField | null | undefined,
+  x: number,
+  y: number,
+  z: number,
+  volumetric: boolean,
+): readonly [number, number, number, number, number, number] {
+  if (volumetric) return fieldSynthVolumetricSubcellGradient(context, index, scale, x, y, z);
+  const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+    context, index, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface, x, y,
+  );
+  return [dxCol, dyCol, 0, dxRow, dyRow, 0];
+}
+
+// Per-cell result of evaluating the field program and (when `voiceColors` is
+// on) its per-voice color contribution at one point — shared between the
+// plain-ramp paint path and carve's hit-point emission (see `fieldSynth`'s
+// `evaluate()`: `computeFieldSynthPoint`/`applyFieldSynthColor`), which is
+// what makes carve's t=0 (an everywhere-solid field, or a degenerate-segment
+// fallback) literally reuse paint's own code path rather than a hand-copied
+// parallel implementation (VOLUMETRIC.md's Carve section: "the no-op
+// equivalence test is derivable, not asserted").
+interface FieldSynthPointSample {
+  readonly active: number;
+  readonly value: number;
+  readonly cr: number;
+  readonly cg: number;
+  readonly cbv: number;
+  readonly cw: number;
+  readonly co: number;
+  readonly car: number;
+  readonly cag: number;
+  readonly cabv: number;
+  readonly cao: number;
+  readonly caw: number;
+  /**
+   * The colour voice stack's own RAW folded scalar (VOLUMETRIC-4.md §1,
+   * `~[-1, 1]`, same convention as `evaluateFieldProgram`'s `.combined` —
+   * NOT yet bias/gain-mapped), evaluated at this SAME point
+   * (x, y, z, cx, cy, cz) — carve/braille's raw confirmed-solid sample,
+   * paint's surface point — the geometry stack just resolved.
+   * `resolveFieldSynthColor` maps it per `colorMode`: "gradient" pushes it
+   * through the SAME `clamp01(bias + gain*v*0.5)` derivation that produces
+   * `value` above (literally "replaces point.value" in that formula, per
+   * VOLUMETRIC-4.md §1's precedence table) before feeding the existing
+   * `clamp01(v * gradient)` blend; "hue" reads it directly (`v*0.5+0.5` is
+   * its own 0..1 normalization, independent of bias/gain — a brightness/
+   * contrast knob has no bearing on a hue-wheel position). `NaN` whenever
+   * the colour stack doesn't apply here: `colorStackOn` is off, or the call
+   * site is xray's synthetic point (xray never populates this — the colour
+   * stack is a documented no-op there, exactly like `voiceColors`).
+   */
+  readonly colorValue: number;
+}
+
+// P1-B (VOLUMETRIC-2.md §3 fix review): these four presets are consumed
+// elsewhere by OBJECT IDENTITY, not by display name — the website's
+// `STAGE_HINTS` table (synthKit.tsx) needs a stable reference to "the Menger
+// sponge preset" that survives a future rename of its `.name`. A name-keyed
+// lookup at module load (`fieldSynthPresets.find(p => p.name === "...")`)
+// would throw at import time the moment this file's `name` string and that
+// lookup's string drift apart — not rename-proof, just rename-brittle at a
+// different layer. Exporting the actual objects is the fix: importers hold
+// the same reference `fieldSynthPresets` below reuses, so there is no name
+// string to keep in sync and no lookup that can fail.
+export const cubeTilesPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
+    // Drift, not shear: a rigid translation needs each wave's phase rate to be
+    // its own normal projected on the drift direction, `speed = freq * (n · v)`.
+    // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —
+    // equal speeds would pump the cells' areas instead of sliding the lattice.
+    field1: "linearX", wave1: "triangle", freq1: 1, speed1: 0.6, amp1: 1, angle1: 0,
+    field2: "linearX", wave2: "triangle", freq2: 1, speed2: 0.3, amp2: 1, angle2: 60,
+    field3: "linearX", wave3: "triangle", freq3: 1, speed3: -0.3, amp3: 1, angle3: 120,
+    // At gain 3 / bias 1 the three argmax levels clamp to {0, 1, 1}: the two lit
+    // faces paint solid blocks in their voice colour, and the third lands on 0
+    // and is skipped — the unpainted cells ARE the cube's shadowed face, which
+    // is why this looks right despite ~a third of the grid staying blank. The
+    // level sits exactly on the `value <= 0` boundary, so it is deliberate but
+    // fragile; bias 0.95 would push it clearly negative for the same picture.
+    amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
+    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 },
+};
+
+// The base-2 sibling of the Menger membership recipe (VOLUMETRIC-2.md's
+// addendum: "at every binary scale, at most one axis is in its upper
+// half" — the corner-tetra Sierpinski rule), reusing the exact same
+// per-scale shape (three axis voices, `add` fold, threshold at 0, invert,
+// `min`-blend across scales) with base-2 constants instead of base-3:
+// `duty 1/2`/`phase -1/2` select each axis's upper half instead of its
+// middle third, and `freq 2^(k-1)` (1, then 2) doubles the lattice each
+// scale instead of tripling it. Reviewer-verified numerically (see this
+// file's header comment / VOLUMETRIC-2.md's addendum) and pinned against
+// `sierpinskiSolidRef` (a hand-derived first-principles reference,
+// independent of this recipe) in fieldProgram.test.ts and stock.test.ts.
+//
+// `scale: 2.0` (retuned from an earlier `1/3` domain-normalizing pin — the
+// /synth `pyramid` stage's corner tetra is authored at `s = 3`, uncentered
+// so its own corner sits at the domain origin, matching this recipe's
+// `phase -1/2` upper-half selectors): the higher scale tiles several
+// repeats of the corner-tetra membership pattern across the stage's
+// footprint instead of fitting exactly one, reading as a denser, more
+// finely recursive lattice at the same camera angle. Sanity-checked by
+// direct render (stock.test.ts): still a coherent, structured carve at 2.0,
+// not noise.
+export const sierpinskiPyramidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Sierpinski pyramid", params: {
+    space: "object", scale: 2.0, render: "carve", subcellRes: "1x1",
+    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 2, phase1: -1 / 2, layer1: 1,
+    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 2, phase2: -1 / 2, layer2: 1,
+    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 2, phase3: -1 / 2, layer3: 1,
+    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+    field4: "linearX", wave4: "square", freq4: 2, speed4: 0, amp4: 1, duty4: 1 / 2, phase4: -1 / 2, layer4: 2,
+    field5: "linearY", wave5: "square", freq5: 2, speed5: 0, amp5: 1, duty5: 1 / 2, phase5: -1 / 2, layer5: 2,
+    field6: "linearZ", wave6: "square", freq6: 2, speed6: 0, amp6: 1, duty6: 1 / 2, phase6: -1 / 2, layer6: 2,
+    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    glyphs: " .:-=+*#%@", color: "#ffb454", colorB: "#ff5da2", gradient: 0.4, lit: 1,
+    // A sane, moderate depth cue — same rationale as the Menger retrofit
+    // above, at a lower value: the corner-tetra's own uncentered geometry
+    // (mass concentrated toward one corner rather than spread through a
+    // centered cube) already reads its recursive structure more readily
+    // than a centered sponge does, so it needs less compensating fade.
+    marchFade: 2,
+  },
+};
+
+// `field: "menger"`/`"sierpinski"` SDF voices (VOLUMETRIC-2.md §2) are
+// genuine implicit-distance fields, unlike the linear-voice recipe
+// `sierpinskiPyramidPreset` uses above — they read the voice origin as a
+// pre-evaluation TRANSLATION (see AGENTS.md's "SDF voice family") rather
+// than a periodic multiplicative `scale`, and are what qualifies a patch
+// for `buildGlyphFieldDistanceOracle`'s sphere-tracing path (every active
+// voice `wave: "step"`, `amp === 1`, single `combine: "min"` layer,
+// threshold off). No shipped preset currently exercises either the SDF
+// voice family or sphere tracing — see AGENTS.md's "Sphere tracing for
+// carve" for the mechanism, which remains fully implemented and tested
+// independent of any preset.
+
+// `breathingGyroidPreset`'s own recipe below is the surviving animated
+// gyroid/xray patch; its params are the retuned single-`gyroid`-voice,
+// thresholded absorption-mode xray recipe (VOLUMETRIC-2.md §1: an
+// oscillating field integrates to ~`bias` per unit length — "structure
+// averages into fog" — unless shaped near-binary first via a layer
+// threshold), inlined here with `speed1: 0.15` added so the SAME
+// `sdfRaw - time*speed + phase` term the SDF branch already computes (see
+// `sampleFieldVoice`) slides the gyroid's implicit surface through the
+// volume every frame — the absorbed labyrinth pattern morphs continuously
+// rather than staying static. `scale: 0.4`/`freq1: 1.5`/`xrayGain: 3` keep
+// under one gyroid period across the cube's body diagonal (individually
+// resolvable labyrinth cells) with enough absorption contrast that a
+// chord's own solid/hole alternation reads instead of washing out to fog —
+// measured directly on the real cube-stage chords (stock.test.ts): the
+// chord-controlled within-chord-length-bin brightness std rose from ~0.069
+// (un-thresholded) to ~0.102 (thresholded, these params). `speed: 0.15`
+// eyeballed via ASCII dumps at t=0/2/4 on the real cube stage: the
+// labyrinth stays legible and clearly distinct at every sampled time.
+export const breathingGyroidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Breathing gyroid", params: {
+    space: "object", scale: 0.4, render: "xray", xrayGain: 3,
+    field1: "gyroid", wave1: "sin", freq1: 1.5, speed1: 0.15, amp1: 1, phase1: 0,
+    amp2: 0, amp3: 0,
+    layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: false,
+    glyphs: " .:-=+*#%@", color: "#8fd8ff", colorB: "#c9a6ff", gradient: 0.6, lit: 1,
+  },
+};
+
+// "Menger (cssGraphics)" — user request: reproduce cssGraphics' own Menger
+// sponge colour behaviour ("the cube that looks as close to the one in
+// cssGraphics as possible ... on the color changes") as closely as this
+// engine's primitives allow. cssGraphics' real recipe (read from its source,
+// `src/adapters/menger/src/prepare/cssmenger/sourcePlayback.mjs`,
+// `makeSmoothColormap`/`makeColorPath` ~L369-449): a 128-entry smooth CYCLIC
+// colormap (an XScreenSaver-style closed path through random HSV waypoints —
+// muted/artistic, not a raw rainbow), with the THREE axis-groups (the visible
+// faces) reading `palette[(tick + k*42) % 128]` for k=0,1,2 — i.e. exactly
+// 1/3 and 2/3 of the wheel apart, advancing together as `tick` increments.
+// Reproducing the literal random palette isn't the point (a fresh RNG path
+// per seed is cssGraphics' own aesthetic accident, not a target); the
+// OBSERVABLE properties are: three evenly ~120°-apart hues, cycling smoothly
+// together over time, in a muted (not neon) palette.
+//
+// This engine's colour stack has no per-face-group categorical assignment
+// that ALSO carries a continuous, time-varying value (`argmax` gives the
+// former but discards the wave's own value for a fixed per-region level —
+// `foldVoices` in fieldProgram.ts explicitly computes evenly-spaced flat
+// levels from `winnerOrder`, not the sampled wave — so it is perfectly even
+// but frozen in time; verified directly, see stock.test.ts's
+// `hueLight`/`hueSat` neighbourhood tests and the scratch probe this preset
+// was tuned with). A three-voice `normalX`/`normalY`/`normalZ` sum was also
+// tried: on an axis-aligned cube exactly one component is ±1 and the other
+// two are exactly 0, so their SUM is index-invariant (always the same total
+// regardless of which face), collapsing all three faces to one identical
+// hue — architecturally a dead end, not a tuning miss.
+//
+// The single-voice `incidence` colour-stack approach (VOLUMETRIC-4.md §1)
+// beats both of those, but its default camera (`STAGE_HINTS`' shared
+// `rotX:15, rotY:40` Menger-recipe hint) gives an unevenly-spaced triple
+// (measured 0.152/0.551/0.719) — nowhere near 120° apart in hue once
+// mapped through `colorMode: "hue"`. Two further measured fixes, together
+// closing that gap to within ~1-5°:
+//
+// 1. **`cwave1: "saw"` instead of `"sin"`.** `sin` is the more obvious
+//    choice, but it is NONLINEAR: a camera tuned so the
+//    THREE face incidences map to evenly-spaced hues at time=0 does NOT stay
+//    evenly spaced as `cspeed1` advances the shared `-time*speed` term
+//    through `sin`'s curve — measured directly (this preset's own scratch
+//    probe): gaps swing between ~10° and ~246° at intermediate `time`
+//    samples even though the camera was optimized for time=0. `saw(θ) =
+//    2*frac(θ)-1` is PIECEWISE LINEAR, so `hue = (incidence*cfreq1 +
+//    hueOffset) * hueRange` (mod `hueRange` at the wrap) — the same additive
+//    time shift applied to all three faces is now a RIGID rotation of the
+//    hue triple, preserving whatever gap the camera achieves at EVERY time
+//    except the instant an individual face's own argument wraps (a brief,
+//    once-per-cycle-per-face jump, not a sustained drift). Measured across a
+//    full period (`time` 0 through ~64.4, this preset's own `cspeed1`
+//    period): gaps hold at 119-121° throughout, vs. sin's 10-246° swing.
+// 2. **Camera retuned to `rotX: 32.5, rotY: 19`** (from the Menger recipe's
+//    shared `rotX: 15, rotY: 40` hint) — because `saw` makes hue an EXACT
+//    affine function of incidence (`freq1: 1` — no wave nonlinearity to
+//    exploit), evening the hue gaps is exactly evening the INCIDENCE gaps,
+//    a property of the camera alone. Grid-searched directly against the real
+//    `evaluate()` pipeline (not hand-derived — a closed-form inverse of the
+//    voxcss camera rotation was attempted and did not reproduce the
+//    `rotX:15,rotY:40` baseline's own documented tones, so the search reads
+//    real renders instead of trusting that derivation): measured hue triple
+//    at `rotX:32.5, rotY:19` (t=0) is `[56.3°, 177.0°, 297.0°]` — gaps
+//    `[120.7°, 120.0°, 119.3°]`, within 1.5° of exactly even, vs. the
+//    default camera's `[14.9°, 194.1°, 151.0°]` gaps (a >100° spread).
+//
+// `cspeed1: 0.0155` targets a ~46s full wheel traversal at the page's
+// default `timeScale: 1.4` (`1/(46*1.4) ≈ 0.0155`), matching cssGraphics'
+// own approximate republish rate; verified by sampling rendered hues across
+// a `time` sweep (t=0 and t≈64.4 — one full period at this speed — land on
+// nearly the same triple, confirming the period). `hueSat: 45, hueLight: 60`
+// (muted, not a saturated rainbow); measured average rendered luminance
+// across `hueSat`/`hueLight` candidates
+// (70/55, 50/58, 45/60, 40/62) stayed comfortably bright throughout
+// (159-166/255), so the choice is purely about chroma character, not
+// legibility.
+export const cssGraphicsMengerPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Menger (cssGraphics)", params: {
+    // Inlined Menger-membership recipe (no longer a shared preset to spread
+    // from — see the base-2 Sierpinski recipe's own doc above for the
+    // shape: per scale k, three axis voices select that scale's middle
+    // third, fold with add/threshold/invert, and layers min-blend across
+    // scales). `scale`/`marchFade`/`marchSteps` below are this preset's own
+    // hand-tuned overrides on top of that base recipe, folded directly into
+    // their final values rather than layered as a spread + override.
+    space: "object", render: "carve", subcellRes: "1x1",
+    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
+    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
+    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
+    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+    field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
+    field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
+    field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
+    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
+    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
+    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
+    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
+    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+    colorStackOn: true, colorMode: "hue",
+    cfield1: "incidence", cwave1: "saw", cfreq1: 1, cspeed1: 0.0155, camp1: 1, camp2: 0, camp3: 0,
+    hueRange: 360, hueOffset: 0, hueSat: 45, hueLight: 60,
+    // User hand-tuned this preset live on the /synth page and asked those
+    // settings become the shipped defaults. Extracted programmatically (not
+    // eyeballed) via `decodeSynthUrlStateAsync` against their shared link —
+    // every other param in the URL (glyphs, color/colorB, gradient, hueSat/
+    // hueLight, voiceColors, gain/bias, cspeed1, every geometry/colour voice)
+    // came back EQUAL to what this preset already ships, once compared with
+    // the URL codec's own per-field quantization step (e.g. `cspeed1`'s
+    // shipped 0.0155 round-trips to 0 through the codec's 0.05 step — that is
+    // codec lossiness, not a retune, so `cspeed1` is intentionally left
+    // untouched above). Exactly three params differed by more than their
+    // codec step:
+    //  - `scale`   1/3 (0.333)  -> 0.7
+    //  - `marchFade` 2.5        -> 1.35
+    //  - `marchSteps` 48 (default, unset) -> 1
+    // `marchSteps: 1` looks alarming next to the schema default of 48, but it
+    // never actually binds: `fieldStepCount` takes `max(marchSteps,
+    // min(256, ceil(2 * chordLength * finestFreq)))`, and this recipe's own
+    // finest voice (freq 9, duty 1/3 square wave) resolves to an effective
+    // frequency of 27 regardless of `marchSteps` (see `effectiveVoiceFinestFreq`
+    // in fieldProgram.ts). At the cube stage's scaled body diagonal
+    // (`sqrt(3) * 3 * 0.7 ≈ 3.64` domain
+    // units) that Nyquist floor alone resolves to `ceil(2 * 3.64 * 27) = 197`
+    // steps — the ACTUAL step count every carve ray in this preset marches
+    // at, regardless of the `marchSteps: 1` knob. Setting `marchSteps` this
+    // low simply stops the user-facing floor from ever raising the Nyquist
+    // floor further (its only job once the floor already dominates), and
+    // matches the render this preset was tuned against (measured: no visible
+    // difference from `marchSteps: 48`, 19,460 covered glyph cells either
+    // way). `scale: 0.7` (vs. the base sponge recipe's domain-normalizing
+    // 1/3) makes the carved lattice roughly twice as fine on screen — this
+    // moves finestFreq's OWN Nyquist floor up proportionally (chord length
+    // scales with `scale` too), which is why lowering `marchSteps` to 1 is
+    // safe here specifically: the floor was already comfortably above any
+    // value `marchSteps` could have contributed for this recipe. `marchFade:
+    // 1.35` (vs. the base recipe's 2.5) is a brighter interior falloff —
+    // lets more of the recursive depth read through instead of crushing deep
+    // walls to black, matching the shallower `scale` change's busier texture.
+    //
+    // Hue-triple spacing (the ~120°-apart invariant this preset's own doc
+    // above was written to hit) is UNCHANGED by this retune: `cfield1:
+    // "incidence"` derives the per-face hue purely from the camera/normal
+    // geometry (view direction vs. object-space face normal), which none of
+    // `scale`/`marchFade`/`marchSteps` touch — they only reshape which
+    // interior cells get carved away and how their depth is shaded, not the
+    // three cap faces' own orientation. Re-measured directly against the real
+    // pipeline after this retune (stock.test.ts's own hue tests, unchanged
+    // assertions): hues still land within ~1-5° of exactly 120° apart.
+    scale: 0.7, marchFade: 1.35, marchSteps: 1,
+  } as never,
+};
 
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
@@ -1586,22 +2556,7 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
     amp4: 0, amp5: 0, amp6: 0,
     voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
-  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
-    // Drift, not shear: a rigid translation needs each wave's phase rate to be
-    // its own normal projected on the drift direction, `speed = freq * (n · v)`.
-    // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —
-    // equal speeds would pump the cells' areas instead of sliding the lattice.
-    field1: "linearX", wave1: "triangle", freq1: 1, speed1: 0.6, amp1: 1, angle1: 0,
-    field2: "linearX", wave2: "triangle", freq2: 1, speed2: 0.3, amp2: 1, angle2: 60,
-    field3: "linearX", wave3: "triangle", freq3: 1, speed3: -0.3, amp3: 1, angle3: 120,
-    // At gain 3 / bias 1 the three argmax levels clamp to {0, 1, 1}: the two lit
-    // faces paint solid blocks in their voice colour, and the third lands on 0
-    // and is skipped — the unpainted cells ARE the cube's shadowed face, which
-    // is why this looks right despite ~a third of the grid staying blank. The
-    // level sits exactly on the `value <= 0` boundary, so it is deliberate but
-    // fragile; bias 0.95 would push it clearly negative for the same picture.
-    amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
-    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 } },
+  cubeTilesPreset,
   { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
   { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
   { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
@@ -1621,6 +2576,9 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Weave", params: { field1: "linearX", wave1: "triangle", freq1: 7, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "triangle", freq2: 7, speed2: -0.4, amp2: 1, amp3: 0, combine: "add", scale: 2, glyphs: " ░▒▓█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
   { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
+  sierpinskiPyramidPreset,
+  breathingGyroidPreset,
+  cssGraphicsMengerPreset,
 ];
 
 
@@ -1645,7 +2603,10 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
  * which desynchronizes the character grid (see the Braille notes in AGENTS.md).
  */
 const INK_STROKES = ["-", "\\", "|", "/"] as const;
-function inkGlyphForField(gx: number, gy: number): string {
+// Exported for the same reason as `BRAILLE_DOT_BITS` — the static exporter's
+// `affineDecisionsMatch` reuses this exact bucket function to verify a
+// `subcellRes: "ink"` patch's stroke direction, not a re-derivation.
+export function inkGlyphForField(gx: number, gy: number): string {
   // Contour tangent is perpendicular to the gradient. Rows grow downward, so a
   // tangent heading right-and-down reads as "\".
   let angle = Math.atan2(gx, -gy);
@@ -1654,7 +2615,63 @@ function inkGlyphForField(gx: number, gy: number): string {
   return INK_STROKES[bucket]!;
 }
 
-export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
+// Ink-over-carve's per-evaluate() scratch (VOLUMETRIC-3.md §2's "pooling is
+// a recorded optimization" item, coming due — see `runCarveInkResolve`
+// below). `hitState`/`hitDistance`/`hitPacked`/`hitOpacity` were plain
+// `new TypedArray(length)` allocations inside `runCarveInkResolve`, i.e. one
+// fresh 4-buffer set per `evaluate()` call — under camera orbit (a full
+// geometry re-render, and so a fresh `evaluate()`, every animation frame)
+// this is the loop's own dominant allocation source. Every element of every
+// buffer is unconditionally written before it is ever read within the SAME
+// `runCarveInkResolve()` call (pass 1 writes `hitState[i]` for every `i` up
+// front, including a `CARVE_INK_OUT` default; `hitDistance`/`hitPacked`/
+// `hitOpacity` are only read in pass 2 for an index whose `hitState` is
+// confirmed `CARVE_INK_HIT`, which only happens where pass 1 already wrote
+// them) — so reusing the previous evaluate's buffers instead of zeroing or
+// reallocating them is byte-identical, not just "probably fine".
+interface CarveInkScratch {
+  length: number;
+  hitState: Uint8Array;
+  hitDistance: Float32Array;
+  hitPacked: Uint32Array;
+  hitOpacity: Float32Array;
+}
+
+function createCarveInkScratch(): CarveInkScratch {
+  return {
+    length: 0,
+    hitState: new Uint8Array(0),
+    hitDistance: new Float32Array(0),
+    hitPacked: new Uint32Array(0),
+    hitOpacity: new Float32Array(0),
+  };
+}
+
+// Grow-or-shrink-to-exact-size on a cell-count change (grid resize, density
+// change, a preview thumbnail's own resolution) — same reallocate-on-mismatch
+// idiom `rasterize.ts`'s `camHost.__glyphScratch` already uses, so a resize
+// never leaves a stale, wrongly-sized buffer behind.
+function ensureCarveInkScratch(scratch: CarveInkScratch, length: number): void {
+  if (scratch.length === length) return;
+  scratch.length = length;
+  scratch.hitState = new Uint8Array(length);
+  scratch.hitDistance = new Float32Array(length);
+  scratch.hitPacked = new Uint32Array(length);
+  scratch.hitOpacity = new Float32Array(length);
+}
+
+// Field-synth is the one stock effect with real per-layer `state`
+// (`createState()` below) — every other definition in this file stays
+// `GlyphStockEffectDefinition<Schema>` (state `undefined`), unaffected by
+// this. The pooled scratch is layer-scoped (one `FieldSynthState` per
+// mounted `addEffectLayer` call, per `effectCompositor.ts`'s
+// `createRuntimeGlyphEffectLayer`), so concurrent layers/scenes — including
+// the many preview scenes a gallery page mounts — never share a buffer.
+interface FieldSynthState {
+  readonly carveInk: CarveInkScratch;
+}
+
+export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, FieldSynthState> = {
   id: "field-synth",
   version: 1,
   label: "Field synth",
@@ -1663,10 +2680,79 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   parameterSchema: fieldSynthSchema,
   presets: fieldSynthPresets,
   program: {
+    createState(): FieldSynthState {
+      return { carveInk: createCarveInkScratch() };
+    },
     optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
+    // See VOLUMETRIC.md's "Params-aware requirement gating": objectPosition
+    // is retained only for patches actually using the volumetric branch, and
+    // objectExit only for patches actually carving or x-raying (most mounted
+    // patches are 2D and pay for neither).
+    //
+    // VOLUMETRIC-4.md §1: `colorStackOn` additionally requests `objectNormal`
+    // (the colour stack's `normalX/Y/Z` source) and `objectExit` (paired with
+    // `objectPosition` for `incidence`'s `viewDir`), REGARDLESS of `space`/
+    // `render` — this hook only ever sees `params`, never a `colorProgram`
+    // (a colour voice using a normal-derived field could be hiding inside an
+    // opaque program), so it can't know in advance whether the colour stack
+    // will actually use one. Over-requesting here is cheap (an unused
+    // retained buffer costs a render pass, not correctness); the normal
+    // fields themselves still degrade to 0 outside `space: "object"`/solid
+    // mode (see `resolveNormalDerivedRaw` in `evaluate()`).
+    dynamicRequirements(params) {
+      const reqs = new Set<GlyphEffectRequirement>();
+      if (params.space === "object") {
+        reqs.add("objectPosition");
+        if (params.render === "carve" || params.render === "xray") reqs.add("objectExit");
+      }
+      if (params.colorStackOn) {
+        reqs.add("objectNormal");
+        reqs.add("objectExit");
+      }
+      return Array.from(reqs);
+    },
+    // Program-as-data (VOLUMETRIC-3.md §4): packages/glyphcss's compositor
+    // calls this at mount, once, when a layer's `program` option is present
+    // — glyphcss itself never interprets the payload (it's opaque data to
+    // that package), so this definition owns validating its own shape.
+    // Reuses `@glyphcss/effects`'s own `validateGlyphFieldProgram` (the
+    // same validator a caller building a program by hand should run
+    // directly) rather than a second, driftable check.
+    validateProgram(program) {
+      validateGlyphFieldProgram(program);
+    },
+    // Program-as-data's NAMED sibling (VOLUMETRIC-4.md §1): the colour voice
+    // stack's own opaque program payload, mount-time validated exactly like
+    // `validateProgram` above — it's the SAME `FieldProgram` shape
+    // (`evaluateFieldProgram` doesn't distinguish geometry from colour
+    // programs), so it reuses the identical validator. Ignored unless
+    // `colorStackOn` (see `evaluate()` below).
+    validateColorProgram(program) {
+      validateGlyphFieldProgram(program);
+    },
+    // Structural enforcement, not just a test convention: any throw from the
+    // five validators below that isn't tagged with a registered
+    // `GLYPH_FIELD_SYNTH_VALIDATION_RULES` id surfaces as THIS distinct
+    // "unregistered rule id" error instead of propagating untagged — so a new
+    // throw site added to one of those validators without also registering
+    // its rule id fails the moment it's exercised, not silently.
     validateParams(params) {
-      validateGlyphRamp(params);
-      validatePositiveScale(params);
+      try {
+        validateGlyphRamp(params);
+        validatePositiveScale(params);
+        validateFieldSynthLayers(params as unknown as AnyParams);
+        validateFieldSynthRender(params as unknown as AnyParams);
+        validateFieldSynthGeometryNormalFields(params as unknown as AnyParams);
+      } catch (error) {
+        const code = error instanceof Error ? (error as Partial<GlyphFieldSynthValidationError>).code : undefined;
+        if (!code || !(GLYPH_FIELD_SYNTH_VALIDATION_RULES as readonly string[]).includes(code)) {
+          throw new Error(
+            `glyphcss field-synth: validation error with no registered rule id (message: "${(error as Error).message}"). `
+            + "Tag it via taggedValidationError(..., code) and add the code to GLYPH_FIELD_SYNTH_VALIDATION_RULES.",
+          );
+        }
+        throw error;
+      }
     },
     evaluate(context) {
       const { params } = context;
@@ -1675,49 +2761,251 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
       const scale = params.scale;
-      const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
+      // Guarded exactly like matrixRain's own volumetric branch: `space:
+      // "object"` with a retained objectPosition buffer (solid mode only —
+      // wireframe/voxel degrade to the 2D surface/scene fallback below).
+      const volumetric = params.space === "object" && !!context.base.objectPosition;
+      const generatedSurface = !volumetric && params.space !== "scene" && !(params.space === "auto" && uvBounds)
         ? generatedSurfaceField(context)
         : undefined;
-      const cA = parseGlyphEffectColor(params.color);
-      const cB = parseGlyphEffectColor(params.colorB);
+      const cA = parseGlyphEffectColorCached(params.color);
+      const cB = parseGlyphEffectColorCached(params.colorB);
+      // Colour stack's "hue" palette mode reads this once per evaluate() —
+      // `hueSat`/`hueLight` never vary per cell, only the hue angle does
+      // (see `computeHuePalette`'s doc).
+      const huePalette = params.colorStackOn && params.colorMode === "hue"
+        ? computeHuePalette(params.hueSat / 100, params.hueLight / 100)
+        : null;
       const useVoiceColors = params.voiceColors;
-      const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6 },
-      ];
-      const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
+      // Program-as-data (VOLUMETRIC-3.md §4): when a layer mounts with a
+      // `program` option, packages/glyphcss plumbs it onto the evaluate
+      // context unchanged (opaque to glyphcss itself — this definition owns
+      // the shape, validated at mount via `validateProgram` below). Its
+      // presence REPLACES the flat voice/layer params as the field
+      // definition entirely — every per-voice/per-layer param (field1..9,
+      // layer1..9, layerCombine*, etc.) is ignored — while `params` still
+      // governs space/render/march/output mapping (scale, origin, render
+      // mode, march steps, ramp, lighting, ...), exactly as before.
+      const programOption = context.program as FieldProgram | undefined;
+      // Compile once per evaluate() call, from params only (VOLUMETRIC.md's
+      // "The field program IR" and Step 3) — the per-cell loop below only
+      // ever calls the IR evaluator, never touches `params.field1`-style flat
+      // accessors again. `flatVoices` is the FLAT, unfiltered, original-
+      // voice-order list (pre-scaled origins for the flat-params path; a
+      // program's own voices, already in its own units, when one is
+      // present) — the voiceColors fallback loop below indexes it by
+      // original voice number regardless of which layer a voice folds into
+      // (VOLUMETRIC.md's Step 3: "voiceColors keeps its current
+      // definition... across ALL active voices regardless of layer"), and
+      // reads `.color` from EACH voice — `FieldVoice.color` for a program
+      // (never the ignored `colorN` params), the flat schema-compiled
+      // voices' own `.color` otherwise. `fieldProgram` is either the
+      // program option directly, or the same flat voices grouped into
+      // `FieldLayer`s for the evaluator — both come from the same source so
+      // they can never disagree.
+      let fieldProgram: FieldProgram;
+      let flatVoices: readonly FieldVoice[];
+      if (programOption) {
+        fieldProgram = programOption;
+        flatVoices = programOption.layers.flatMap((layer) => layer.voices);
+      } else {
+        const voices = buildFieldSynthVoices(params as unknown as AnyParams);
+        const compiledVoices = compileFieldVoices(voices, scale);
+        const layerShapes = resolveFieldSynthLayerShapes(params as unknown as AnyParams);
+        fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, volumetric);
+        flatVoices = compiledVoices;
+      }
+      const parsedVoiceColors = useVoiceColors ? flatVoices.map((voice) => parseGlyphEffectColorCached(voice.color)) : undefined;
+      // Colour voice stack (VOLUMETRIC-4.md §1): a second, independent
+      // `FieldProgram` compiled the SAME way the geometry stack's own
+      // `program`/flat-voices split above works — a `colorProgram` layer
+      // option (opaque, mount-time-validated via `validateColorProgram`
+      // above) REPLACES the flat `cfield1..3`/`camp1..3`/etc params entirely
+      // when present, exactly mirroring `program`'s own precedence. `null`
+      // whenever the stack is off — every downstream site below treats a
+      // `null` `colorProgram` as "no colour stack" without a separate
+      // boolean to keep in sync. Single layer, v1 (no colour-layer shaping):
+      // `colorCombine` folds the 3 colour voices directly, mirroring the
+      // patch-level `combine` the geometry stack's own single-layer
+      // structural-compatibility case already reduces to (see
+      // `compileFieldSynthProgram`'s doc). Domain matches the geometry
+      // stack's own (`volumetric` ? "3d" : "2d") — both are evaluated at the
+      // SAME point, so they must agree on what that point even means.
+      const colorStackOn = params.colorStackOn;
+      const colorProgramOption = context.colorProgram as FieldProgram | undefined;
+      const colorProgram: FieldProgram | null = !colorStackOn ? null : colorProgramOption ?? {
+        domain: volumetric ? "3d" : "2d",
+        layers: [{
+          voices: compileFieldVoices(buildFieldSynthColorVoices(params as unknown as AnyParams), scale),
+          combine: params.colorCombine,
+          thresholdOn: false,
+          threshold: 0,
+          invert: false,
+          blend: "multiply",
+          amp: 1,
+        }],
+      };
       const time = params.time;
       const rampMax = glyphs.length - 1;
-      for (let i = 0; i < context.base.length; i++) {
-        if (context.target.coverage[i]! <= 0) continue;
-        const coord = fieldSynthCoordinate(
-          context,
-          i,
-          params.space as EffectSpace,
-          uvBounds,
-          scale,
-          params.originU,
-          params.originV,
-          sceneCols,
-          sceneRows,
-          generatedSurface,
-        );
-        if (!coord) continue;
-        const [x, y, cx, cy] = coord;
-        // One evaluator for the whole stack (see `evaluateVoices`) so the
-        // scalar here, the 2x4 subcell probes and the ink gradient probes can
-        // never disagree about what the patch sounds like. `amp` is a MIX
-        // WEIGHT, not a signal gain: the first voice enters at its weight, each
-        // later voice blends the result toward `combine(result, voice)` by its
-        // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
-        // instead of `multiply` crushing the field to zero.
-        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time, scale);
-        const combined = stack.combined;
-        const active = stack.active;
+      // Global pattern origin: same `originU/originV * scale` resolution the
+      // 2D "scene"/"auto"-without-UV path already uses (see
+      // `fieldSynthCoordinate`). The volumetric branch has no schema-level Z
+      // origin control (only each voice's own `originW`), so cz is always 0.
+      const volumetricOriginX = params.originU * scale;
+      const volumetricOriginY = params.originV * scale;
+
+      // Carve/xray require the volumetric branch AND a retained objectExit
+      // buffer (`dynamicRequirements` above asks for it when render is
+      // "carve" or "xray"; it degrades to absent in wireframe/voxel, same as
+      // `objectPosition` already does for `volumetric` — see VOLUMETRIC.md's
+      // "Semantics and limits"). Gating on both here, not just `params.render`,
+      // is what makes carve/xray degrade to the ordinary paint loop below
+      // instead of throwing.
+      const carveActive = params.render === "carve" && volumetric && !!context.base.objectExit;
+      const xrayActive = params.render === "xray" && volumetric && !!context.base.objectExit;
+      // Sphere tracing for carve (VOLUMETRIC-3.md §3): built once per
+      // evaluate() call from the SAME compiled `fieldProgram` carve's own
+      // march already reads — never for xray (excluded above at the
+      // `carveActive` gate; xray's transmittance integral has no first-hit
+      // concept to accelerate). `null` for any non-qualifying program (the
+      // overwhelming majority — every recipe-based preset, every non-SDF
+      // patch), in which case the fixed-step `marchField` path below runs
+      // byte-identically to before this option existed.
+      const distanceOracle = carveActive ? buildGlyphFieldDistanceOracle(fieldProgram, params, time) : null;
+      // The Nyquist floor's f_finest (VOLUMETRIC.md's Carve section): the
+      // highest ACTIVE (amp > 0) voice frequency across every layer, computed
+      // once per evaluate() call — `marchField`/`integrateField` raise the
+      // step count to `ceil(2 * chordLength * finestFreq)` so a thin solid
+      // wall isn't stepped over. 0 when no voice is active (no Nyquist floor
+      // to apply). Reads each voice's own EFFECTIVE finest frequency
+      // (VOLUMETRIC-2.md §2), not the raw `freq` param: a menger/sierpinski
+      // voice's finest feature is `iter` recursion levels finer than `freq`
+      // alone would suggest, and a gyroid voice's implicit is twice as fine
+      // — see `effectiveVoiceFinestFreq` (fieldProgram.ts) for the exact
+      // per-field multipliers. Reads from `flatVoices` — the program's own
+      // voices when one is present, never the ignored flat params
+      // (VOLUMETRIC-3.md §4: "carve/xray finest-frequency comes from the
+      // PROGRAM's voices").
+      let finestFreq = 0;
+      for (const voice of flatVoices) {
+        if (voice.amp > 0) {
+          const voiceFinestFreq = effectiveVoiceFinestFreq(voice);
+          if (voiceFinestFreq > finestFreq) finestFreq = voiceFinestFreq;
+        }
+      }
+
+      // Shared by carve's march and xray's integral — both sample the SAME
+      // clamp01(bias + gain*v*0.5) density mapping paint itself uses (see
+      // `computeFieldSynthPoint` below), at the fixed volumetric-branch
+      // origin (cx, cy, cz) every carve/xray cell shares (unlike the 2D
+      // branch's per-cell origin).
+      const densitySample = (mx: number, my: number, mz: number, mt: number): number => clamp01(
+        params.bias + params.gain * evaluateFieldProgram(fieldProgram, mx, my, mz, mt, volumetricOriginX, volumetricOriginY, 0).combined * 0.5,
+      );
+
+      // xray computes ONE step count for the whole evaluate() pass, from the
+      // MAX chord over every covered cell — not a per-cell
+      // Nyquist floor the way carve uses. A per-cell count would let
+      // neighboring cells' `ceil()` step-count flip by +-1 or +-2 steps,
+      // which carve's first-hit search tolerates (the error is a sub-step
+      // shift in WHERE the hit lands) but an accumulated integral does not:
+      // two neighboring cells integrating the same density over a
+      // near-identical chord at slightly different step counts can read up
+      // to ~20% apart in brightness, which is visible as per-cell speckle
+      // (VOLUMETRIC-2.md §1 "Uniform step count per evaluate"). This costs a
+      // first pass over every covered cell before the shading pass below.
+      let xrayUniformSteps = 0;
+      if (xrayActive) {
+        const op = context.base.objectPosition!;
+        const exitBuf = context.base.objectExit!;
+        let maxChord = 0;
+        for (let i = 0; i < context.base.length; i++) {
+          if (context.target.coverage[i]! <= 0) continue;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
+          const chordLength = Math.hypot((exx - px) * scale, (exy - py) * scale, (exz - pz) * scale);
+          if (chordLength > maxChord && Number.isFinite(chordLength)) maxChord = chordLength;
+        }
+        xrayUniformSteps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
+      }
+
+      // Normal-derived field sources (VOLUMETRIC-4.md §1's "Normal-derived
+      // field sources") are resolved HERE, per CELL — never inside
+      // fieldProgram.ts, which stays pure spatial math (see that module's own
+      // header). `field` is one of the four `NORMAL_DERIVED_FIELDS` kinds;
+      // `i` is the cell index. `normalX/Y/Z` read the object-space face
+      // normal buffer directly (VOLUMETRIC-4.md's documented v1
+      // approximation: under carve this is the ENTRY surface's normal, not
+      // the march hit's — interior walls seen through a hole tint like the
+      // front face). `incidence` is `1 - |objectNormal . viewDir|`, `viewDir
+      // = normalize(objectExit - objectPosition)` — the CELL's entry/exit
+      // chord direction, not the (possibly march-refined) sample point,
+      // because there is no camera position or view ray in the effect
+      // context and it cannot be recovered from a single frame's buffers;
+      // this is evaluated identically in every render mode INCLUDING paint.
+      // Degrades to 0 (never throws) whenever the buffers this needs aren't
+      // retained/finite at cell `i` — outside `space: "object"`/solid mode,
+      // at an occlusion-blanked/empty cell, or a degenerate (zero-length)
+      // chord.
+      function resolveNormalDerivedRaw(field: string, i: number): number {
+        const onBuf = context.base.objectNormal;
+        if (!onBuf) return 0;
+        const onx = onBuf[i * 3]!, ony = onBuf[i * 3 + 1]!, onz = onBuf[i * 3 + 2]!;
+        if (!Number.isFinite(onx) || !Number.isFinite(ony) || !Number.isFinite(onz)) return 0;
+        if (field === "normalX") return onx;
+        if (field === "normalY") return ony;
+        if (field === "normalZ") return onz;
+        // "incidence"
+        const opBuf = context.base.objectPosition;
+        const exBuf = context.base.objectExit;
+        if (!opBuf || !exBuf) return 0;
+        const px = opBuf[i * 3]!, py = opBuf[i * 3 + 1]!, pz = opBuf[i * 3 + 2]!;
+        const ex = exBuf[i * 3]!, ey = exBuf[i * 3 + 1]!, ez = exBuf[i * 3 + 2]!;
+        if (
+          !Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)
+          || !Number.isFinite(ex) || !Number.isFinite(ey) || !Number.isFinite(ez)
+        ) return 0;
+        const vx = ex - px, vy = ey - py, vz = ez - pz;
+        const len = Math.hypot(vx, vy, vz);
+        if (!(len > 0) || !Number.isFinite(len)) return 0;
+        const dot = (onx * vx + ony * vy + onz * vz) / len;
+        return 1 - Math.abs(dot);
+      }
+
+      // The thin per-voice substitution wrapper (VOLUMETRIC-4.md §1:
+      // "Resolved PER CELL in stock.ts, substituted into the colour
+      // program's evaluation"): intercepts ONLY the four normal-derived
+      // kinds via `evaluateFieldProgram`'s `rawOverride` seam, letting every
+      // other field kind fall through to fieldProgram.ts's own spatial
+      // sampling untouched (`undefined` return). Built fresh per cell — the
+      // colour program is the only caller that ever needs it, since these
+      // kinds are rejected on every geometry voice (see
+      // `validateFieldSynthGeometryNormalFields`).
+      function colorVoiceRawOverride(i: number): FieldVoiceRawOverride {
+        return (voice) => (NORMAL_DERIVED_FIELDS.has(voice.field) ? resolveNormalDerivedRaw(voice.field, i) : undefined);
+      }
+
+      // One evaluator for the whole program (see `evaluateFieldProgram`) so
+      // the scalar here, the 2x4 subcell probes, the ink gradient probes, and
+      // carve's march can never disagree about what the patch sounds like.
+      // `amp` is a MIX WEIGHT, not a signal gain: the first voice enters at
+      // its weight, each later voice blends the result toward
+      // `combine(result, voice)` by its amp. So amp 0 = no effect, amp 1 =
+      // full combine, low amp gently mixes instead of `multiply` crushing the
+      // field to zero.
+      //
+      // Shared by the plain-ramp paint path and carve's hit-point emission
+      // (see `FieldSynthPointSample`'s doc) — evaluates the program and the
+      // voiceColors contribution at one point, without deciding whether that
+      // point actually emits (the caller applies the ink/non-ink skip rule).
+      // `i` (the cell index) is used ONLY by the colour stack's normal-field
+      // substitution above — the geometry program (`fieldProgram`) never
+      // reads it, matching its own `(x, y, z, cx, cy, cz)` pure-spatial call
+      // below.
+      function computeFieldSynthPoint(i: number, x: number, y: number, z: number, cx: number, cy: number, cz: number): FieldSynthPointSample {
+        const stack = evaluateFieldProgram(fieldProgram, x, y, z, time, cx, cy, cz);
         // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
         // and drives the normal blend; `caw` (amp alone) is always > 0 for an
         // active voice and only feeds the fallback below, for cells where every
@@ -1725,7 +3013,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0;
         let car = 0, cag = 0, cabv = 0, cao = 0, caw = 0;
         if (parsedVoiceColors) {
-          if (stack.winner >= 0) {
+          // Bounds-checked regardless of source (VOLUMETRIC-3.md §4): a
+          // program's `sourceIndex` is trusted authoring data (a hand-built
+          // IR, not necessarily built through `buildGlyphFieldProgram`) and
+          // can exceed `parsedVoiceColors.length` — an out-of-range winner
+          // degrades to the mixed-fallback loop below (the same path an
+          // unresolved winner already takes) instead of an unchecked
+          // `parsedVoiceColors[stack.winner]` TypeError.
+          if (stack.winner >= 0 && stack.winner < parsedVoiceColors.length) {
             // argmax is categorical: the region belongs to ONE voice, so it
             // takes that voice's colour flat rather than a blend of all of them.
             const c = parsedVoiceColors[stack.winner]!;
@@ -1733,12 +3028,13 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             co = c.opacity; cw = 1;
             car = cr; cag = cg; cabv = cbv; cao = co; caw = 1;
           } else {
-            for (let k = 0; k < SYNTH_VOICES; k++) {
-              const voice = voices[k]!;
+            for (let k = 0; k < flatVoices.length; k++) {
+              const voice = flatVoices[k]!;
               if (!(voice.amp > 0)) continue;
-              const o = synthOsc(
-                voice.field, voice.wave, voice.freq, voice.speed, 1,
-                x, y, cx + voice.originU * scale, cy + voice.originV * scale, time, voice.angle,
+              const o = sampleFieldVoice(
+                voice, x, y, z,
+                cx + voice.origin.u, cy + voice.origin.v, cz + voice.origin.w,
+                time, volumetric,
               );
               const w = voice.amp * Math.abs(o);
               const c = parsedVoiceColors[k]!;
@@ -1749,27 +3045,775 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             }
           }
         }
-        if (active === 0) continue;
-        const value = clamp01(params.bias + params.gain * combined * 0.5);
+        const value = clamp01(params.bias + params.gain * stack.combined * 0.5);
+        // Colour voice stack (VOLUMETRIC-4.md §1): evaluated at this SAME
+        // (x, y, z, cx, cy, cz) the geometry stack just resolved — the RAW
+        // fold, mapped per `colorMode` in `resolveFieldSynthColor`. `NaN`
+        // when the stack is off (`colorProgram` is `null`). The `rawOverride`
+        // is the normal-field substitution wrapper above — a no-op for every
+        // colour voice that isn't one of the four normal-derived kinds.
+        const colorValue = colorProgram
+          ? evaluateFieldProgram(colorProgram, x, y, z, time, cx, cy, cz, colorVoiceRawOverride(i)).combined
+          : Number.NaN;
+        return { active: stack.active, value, cr, cg, cbv, cw, co, car, cag, cabv, cao, caw, colorValue };
+      }
+
+      // Shared color-compose + lit-shade tail — factored out of
+      // `applyFieldSynthColor` (VOLUMETRIC-3.md §2) so the ink-over-carve
+      // resolve pass can compute and STORE a cell's fully-resolved packed
+      // color/opacity in its own hit-record buffer (for a rim cell to borrow
+      // from a neighbor later) without writing to `context.output` itself —
+      // `applyFieldSynthColor` below still does exactly what it always did,
+      // now via this shared helper, so every non-ink call site is
+      // byte-identical. `colorFactor` is carve's `exp(-marchFade * distance)`
+      // falloff (1 for every non-carve call, and for a carve hit at distance
+      // 0 — an everywhere-solid field, or a degenerate-segment fallback — so
+      // those cases multiply by exactly 1, reproducing plain paint output
+      // bit-for-bit).
+      function resolveFieldSynthColor(i: number, point: FieldSynthPointSample, colorFactor: number): { packed: number; resolvedOpacity: number } {
+        let packed: number;
+        let resolvedOpacity: number;
+        // Colour voice stack takes precedence over `voiceColors` entirely
+        // (VOLUMETRIC-4.md §1's precedence table: "voiceColors is ignored"
+        // while the stack is on) — checked FIRST, ahead of the
+        // `parsedVoiceColors` branches below, which this simply never
+        // reaches while `Number.isFinite(point.colorValue)`. That finite
+        // check is what makes the stack a no-op under xray (its synthetic
+        // point never sets `colorValue`) without a separate render-mode
+        // flag threaded through this function.
+        if (colorStackOn && Number.isFinite(point.colorValue)) {
+          if (params.colorMode === "hue") {
+            const hueDeg = (point.colorValue * 0.5 + 0.5 + params.hueOffset) * params.hueRange;
+            packed = hueToPackedRgb(hueDeg, huePalette!);
+          } else {
+            // "gradient": the colour stack's raw scalar pushed through the
+            // SAME clamp01(bias + gain*v*0.5) derivation `value` above
+            // uses, then fed into the pre-existing clamp01(v * gradient)
+            // blend unchanged (VOLUMETRIC-4.md §1: "replaces point.value in
+            // the existing clamp01(v * gradient) mapping").
+            const mapped = clamp01(params.bias + params.gain * point.colorValue * 0.5);
+            packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(mapped * params.gradient)) : cA.packed;
+          }
+          resolvedOpacity = cA.opacity;
+        } else if (parsedVoiceColors && point.cw > 0) {
+          packed = (Math.round(point.cr / point.cw) << 16) | (Math.round(point.cg / point.cw) << 8) | Math.round(point.cbv / point.cw);
+          resolvedOpacity = point.co / point.cw;
+        } else if (parsedVoiceColors && point.caw > 0) {
+          packed = (Math.round(point.car / point.caw) << 16) | (Math.round(point.cag / point.caw) << 8) | Math.round(point.cabv / point.caw);
+          resolvedOpacity = point.cao / point.caw;
+        } else {
+          packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(point.value * params.gradient)) : cA.packed;
+          resolvedOpacity = cA.opacity;
+        }
+        // Modulate by the surface's Lambert shade so lighting reads through the
+        // texture (lit=1 → full shading, lit=0 → flat/unlit). Carve applies this
+        // unchanged for an interior hit too (VOLUMETRIC.md: "the surface lit/
+        // shade term applies via the same paint path evaluated at the hit") —
+        // there is no separate per-hit-point shadow term (v1 shading contract).
+        if (params.lit > 0 && shade) {
+          const sh = shade[i]!;
+          if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
+        }
+        if (colorFactor !== 1) packed = scalePackedColor(packed, colorFactor);
+        return { packed, resolvedOpacity };
+      }
+
+      // Shared set-output tail, also part of the shared t=0 emission path
+      // (see `FieldSynthPointSample`'s doc).
+      function applyFieldSynthColor(i: number, point: FieldSynthPointSample, coverageIsLevelScaled: boolean, colorFactor: number): void {
+        const { packed, resolvedOpacity } = resolveFieldSynthColor(i, point, colorFactor);
+        setColor(context, i, packed);
+        // Shaded modes fade a cell by its level; an inked cell is a decision, not
+        // a level — half a contour lies BELOW the iso-level and would render
+        // almost invisible if its coverage were scaled by it.
+        context.output.coverage[i] = coverageIsLevelScaled ? point.value * resolvedOpacity : resolvedOpacity;
+      }
+
+      // ---- Ink-over-carve (VOLUMETRIC-3.md §2) --------------------------
+      //
+      // Outlines carve's march instead of shading every hit cell. Two passes
+      // over per-evaluate local buffers (plain per-evaluate() allocations,
+      // never compositor scratch — v1, per the spec): pass 1 runs carve's
+      // own march at every cell and records a classification (`hitState`)
+      // plus, for a genuine hit, its absolute-domain-unit `sampleDistance`
+      // and fully-resolved output color; pass 2 reads ONLY those buffers
+      // (never re-marches) to decide which cells ink and how.
+      //
+      // `hitState` collapses the spec's four neighbor categories (hit / hole
+      // / uncovered / non-target) to three: OUT covers both "no geometry
+      // here" (uncovered) and "geometry here, but from a mesh outside this
+      // layer's target set" (non-target) — both behave identically for a
+      // rim/contour decision, since the compositor's own `targetCoverage`
+      // weighting already discards whatever a non-target OUT cell emits
+      // here, so folding it in with "uncovered" changes nothing observable.
+      //
+      // A DIFFERENT winner mesh between two HIT cells (VOLUMETRIC-3.md
+      // Phase 2 P1 fix) is its own case, tracked via `context.base.winnerMesh`
+      // (read-only, populated whenever `objectExit` retention is active —
+      // every carve layer qualifies, see `GlyphEffectFrameView.winnerMesh`'s
+      // doc comment): two coplanar, same-normal, globally-targeted meshes at
+      // different depths both resolve to `CARVE_INK_HIT` with no state
+      // difference between them, so relying on `hitState` alone (as v1 did)
+      // let a contour/interior-edge decision bridge straight across a real
+      // mesh seam instead of rimming it. `meshBoundary` below treats two
+      // HIT neighbors with different, both-known mesh ids as a boundary —
+      // same as a `hitState` flip — for both the rim/contour classification
+      // and the rim orientation mask; when mesh data is unavailable (`-1`
+      // sentinel) it never fires, so a scene rendered before mesh-boundary
+      // data existed (or a non-carve/no-effect fallback) keeps this file's
+      // pre-fix behavior exactly.
+      const CARVE_INK_OUT = 0;
+      const CARVE_INK_HOLE = 1;
+      const CARVE_INK_HIT = 2;
+
+      // Rule (c)'s interior-edge threshold, in ADDITION to the raw
+      // `inkSpacing` — VOLUMETRIC-3.md's oblique-angle vanishing-hole bug
+      // (instrumented on the depth-3 Menger preset, real-scene, camera
+      // rotX 45/rotY 30): rim (a) only fires for a TRUE through-hole, which
+      // is angle-dependent — an oblique face-hole ray that used to exit
+      // clean instead clips an interior wall, turning a HOLE neighbor into a
+      // same-mesh HIT one cell over. That leaves rule (c) as the only
+      // remaining catcher, but depth-3's finest recursion level is a
+      // 1/finestFreq-deep step (measured ~1/9 and ~1/27 domain units at this
+      // preset's `finestFreq` of 9/27), almost always well under the
+      // absolute default `inkSpacing` (0.25) — so the hole silently
+      // stops rendering. Confirmed empirically: at the reproducing oblique
+      // angle NO cell ever reads `CARVE_INK_HOLE` at all (rays that would
+      // have been true misses head-on instead clip a shallow interior wall
+      // obliquely), while 250+ HIT-HIT neighbor pairs carry a nonzero,
+      // sub-`inkSpacing` depth delta.
+      //
+      // The fix scales rule (c)'s own threshold down to the program's own
+      // finest resolvable feature size instead of leaving it pinned to the
+      // user-facing `inkSpacing` knob alone — the same "self-resolving like
+      // the Nyquist floor" idea `finestFreq` already drives for march step
+      // count. `marchField`/`integrateField` size their step count so a
+      // step is `~= 1 / (2 * finestFreq)` domain units (Nyquist: >=2 samples
+      // per finest feature) — that step size is this rule's real noise
+      // floor, and the finest feature genuinely present in the field is
+      // `>= 1 / finestFreq` by the very definition of `finestFreq`. Those
+      // two bounds sit a factor of 2 apart regardless of scene/chord length
+      // (both derive from the same `finestFreq`), so a fixed fraction
+      // between them is a stable, scene-independent choice:
+      // `CARVE_INK_EDGE_FREQ_SCALE = 0.75` sits above the ~1x-step-size
+      // quantization noise floor (measured: sub-0.02 deltas at finestFreq
+      // 27, where 1 step ~= 0.0185) with margin and below the ~1x-feature-
+      // size real minimum (1/27 ~= 0.037) with margin, so a genuinely flat,
+      // camera-facing wall's near-zero deltas still don't cross it (the
+      // pinned "flat wall = rim only" invariant), while depth-3's shallow
+      // steps now do. This only ever SHRINKS the effective threshold below
+      // whatever `inkSpacing` the user set (`Math.min`) — a low-frequency
+      // patch (`finestFreq` small) is unaffected, and rule (b)'s own
+      // contour-multiple spacing (the user-facing "Ink spacing" knob) is
+      // untouched, so it stays exactly the absolute, non-crawling density
+      // control VOLUMETRIC-3.md's "Contour spacing is ABSOLUTE" design
+      // requires.
+      const CARVE_INK_EDGE_FREQ_SCALE = 0.75;
+
+      function runCarveInkResolve(): void {
+        const length = context.base.length;
+        const winnerMeshBuf = context.base.winnerMesh;
+        function meshAt(idx: number): number {
+          return idx < 0 || !winnerMeshBuf ? -1 : winnerMeshBuf[idx]!;
+        }
+        // Two HIT cells only count as a mesh boundary when BOTH ids are
+        // known (`>= 0`) and differ — an unknown/missing id never manufactures
+        // a boundary that wasn't there before this fix.
+        function meshBoundary(selfState: number, selfMesh: number, nState: number, nMesh: number): boolean {
+          return selfState === CARVE_INK_HIT && nState === CARVE_INK_HIT && selfMesh >= 0 && nMesh >= 0 && selfMesh !== nMesh;
+        }
+        const carveInkScratch = context.state.carveInk;
+        ensureCarveInkScratch(carveInkScratch, length);
+        const { hitState, hitDistance, hitPacked, hitOpacity } = carveInkScratch;
+
+        for (let i = 0; i < length; i++) {
+          if (context.target.coverage[i]! <= 0) { hitState[i] = CARVE_INK_OUT; continue; }
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) { hitState[i] = CARVE_INK_OUT; continue; }
+          const entryX = px * scale, entryY = py * scale, entryZ = pz * scale;
+          const cx = volumetricOriginX, cy = volumetricOriginY, cz = 0;
+
+          const exitBuf = context.base.objectExit!;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          const hasExit = Number.isFinite(exx) && Number.isFinite(exy) && Number.isFinite(exz);
+          let hitX = entryX, hitY = entryY, hitZ = entryZ, distance = 0;
+          if (hasExit) {
+            const exitX = exx * scale, exitY = exy * scale, exitZ = exz * scale;
+            const chordLength = Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
+            if (chordLength > 0 && Number.isFinite(chordLength)) {
+              const result = marchField(
+                [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
+                { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
+              );
+              if (!result.hit) { hitState[i] = CARVE_INK_HOLE; continue; }
+              distance = result.sampleDistance;
+              hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
+            }
+          }
+          // Degenerate/absent chord: fall back to surface sampling at the
+          // TRUE entry (`hitX/Y/Z` still default to `entryX/Y/Z`, `distance`
+          // to 0) — carve's fallback emits only when that entry is solid;
+          // silhouette closure comes from rule (a) below, not this fallback.
+          const point = computeFieldSynthPoint(i, hitX, hitY, hitZ, cx, cy, cz);
+          if (point.active === 0 || point.value <= 0) { hitState[i] = CARVE_INK_HOLE; continue; }
+          hitState[i] = CARVE_INK_HIT;
+          hitDistance[i] = distance;
+          const resolved = resolveFieldSynthColor(i, point, Math.exp(-params.marchFade * distance));
+          hitPacked[i] = resolved.packed;
+          hitOpacity[i] = resolved.resolvedOpacity;
+        }
+
+        const cols = context.base.cols;
+        const rows = context.base.rows;
+        const spacing = params.inkSpacing > 0 ? params.inkSpacing : 0.25;
+        // Rule (c) only — see `CARVE_INK_EDGE_FREQ_SCALE`'s doc above. `0`
+        // `finestFreq` (no active voice) divides to `Infinity`, so `Math.min`
+        // degrades to plain `spacing` with no special case.
+        const edgeSpacing = Math.min(spacing, CARVE_INK_EDGE_FREQ_SCALE / finestFreq);
+        function neighborAt(i: number, dc: -1 | 0 | 1, dr: -1 | 0 | 1): number {
+          // Off-grid reads back as OUT via `stateAt` below (a grid edge
+          // behaves like leaving the visible world — background, not a
+          // special case).
+          const col = i % cols, row = (i / cols) | 0;
+          const nc = col + dc, nr = row + dr;
+          return nc < 0 || nc >= cols || nr < 0 || nr >= rows ? -1 : nr * cols + nc;
+        }
+        function stateAt(idx: number): number {
+          return idx < 0 ? CARVE_INK_OUT : hitState[idx]!;
+        }
+
+        // Real-scene bug (a rendered Menger sponge silhouette, `subcellRes:
+        // "ink"`): the outer silhouette read as sparse, disconnected "-"
+        // dashes instead of a continuous outline that turns with the edge.
+        // Instrumenting the real scene (not a synthetic axis-aligned
+        // fixture, which never exercises either failure) isolated two
+        // distinct bugs in what was previously a 4-neighbor (N/E/S/W) rim
+        // test:
+        //
+        // 1. UNDER-firing: a real projected silhouette steps diagonally in
+        //    screen space as often as orthogonally (a rotated cube edge is
+        //    rarely grid-aligned). A cell whose ONLY differing neighbor is
+        //    a corner (NE/NW/SE/SW) never triggered rule (a) at all — not
+        //    "wrong glyph", genuinely skipped, unconditionally on the
+        //    real Menger-sponge render.
+        // 2. MIS-orientation: the coverage mask (`maskOf`, HIT vs
+        //    everything else) correctly treats HOLE and OUT as the same
+        //    "not solid" bucket for a HIT self-cell's own rim (that's the
+        //    fix the "all-dashes" pinned test covers). But a RIM cell that
+        //    is itself HOLE — the outer ring one step beyond the last real
+        //    HIT, common at a grazing silhouette angle where the march
+        //    itself just misses solid — has no orthogonal HIT neighbor at
+        //    all when its whole 4-neighborhood is HOLE/OUT. The mask
+        //    gradient then reads (0, 0) and `inkGlyphForField(0, 0)`
+        //    degenerates to `atan2(0, -0) = π` → bucket 0 → "-", regardless
+        //    of the true edge direction (confirmed empirically: ~40% of
+        //    the outer HOLE ring on the real render).
+        //
+        // Both are fixed together with a proper 3x3 Sobel operator instead
+        // of a plain 2-tap orthogonal difference: (a) detection widens to
+        // all 8 neighbors (a corner-only transition now counts), and (b)
+        // orientation gets 8-neighbor support so a diagonal-only edge still
+        // yields a nonzero gradient. Sobel reduces to the exact prior
+        // 2-tap result whenever the boundary IS purely orthogonal (the
+        // diagonal terms reinforce, never contradict, the orthogonal ones
+        // on a straight edge — verified against every pinned rim-orientation
+        // test below), so this is a strict widening, not a behavior change
+        // on the fixtures those tests already cover.
+        //
+        // Mask fix 2 is a two-tier fallback, not a mask redefinition: tier
+        // 1 stays the existing HIT-only mask (HOLE and OUT both "not
+        // solid") — this is what the pinned "vertical silhouette edge"
+        // test exercises (a HIT/HOLE boundary with no OUT cell anywhere)
+        // and must keep working unchanged. Only when tier 1's Sobel comes
+        // back exactly (0, 0) — no HIT cell anywhere in the 3x3
+        // neighborhood to orient against — does tier 2 fall back to a
+        // coverage mask (covered, i.e. HIT or HOLE, vs OUT): the only
+        // meaningful boundary left to orient a HOLE rim cell against, at
+        // that point, is the mesh's own screen footprint edge.
+        function sobel(maskAt: (idx: number) => number, rIdx: number, lIdx: number, dIdx: number, uIdx: number, neIdx: number, nwIdx: number, seIdx: number, swIdx: number): [number, number] {
+          const e = maskAt(rIdx), w = maskAt(lIdx), s = maskAt(dIdx), n = maskAt(uIdx);
+          const ne = maskAt(neIdx), nw = maskAt(nwIdx), se = maskAt(seIdx), sw = maskAt(swIdx);
+          return [(ne - nw) + 2 * (e - w) + (se - sw), (sw + 2 * s + se) - (nw + 2 * n + ne)];
+        }
+
+        for (let i = 0; i < length; i++) {
+          const self = hitState[i]!;
+          if (self === CARVE_INK_OUT) continue;
+          const rIdx = neighborAt(i, 1, 0), lIdx = neighborAt(i, -1, 0), dIdx = neighborAt(i, 0, 1), uIdx = neighborAt(i, 0, -1);
+          const neIdx = neighborAt(i, 1, -1), nwIdx = neighborAt(i, -1, -1), seIdx = neighborAt(i, 1, 1), swIdx = neighborAt(i, -1, 1);
+          const rState = stateAt(rIdx), lState = stateAt(lIdx), dState = stateAt(dIdx), uState = stateAt(uIdx);
+          const neState = stateAt(neIdx), nwState = stateAt(nwIdx), seState = stateAt(seIdx), swState = stateAt(swIdx);
+          const selfMesh = meshAt(i);
+          const rMesh = meshAt(rIdx), lMesh = meshAt(lIdx), dMesh = meshAt(dIdx), uMesh = meshAt(uIdx);
+          const neMesh = meshAt(neIdx), nwMesh = meshAt(nwIdx), seMesh = meshAt(seIdx), swMesh = meshAt(swIdx);
+          // Rule (a): ANY of the 8 neighbors in a different category, OR
+          // (Phase 2 P1 fix) a same-category HIT neighbor with a DIFFERENT
+          // winner mesh — always inked, regardless of what `self` itself is
+          // (a hole/OUT cell right next to a hit is rimmed too, so a rim
+          // cell with no hit of its own can borrow a color below). 8-neighbor
+          // (not just N/E/S/W): a real projected silhouette steps diagonally
+          // as often as orthogonally, and a corner-only transition is still
+          // a genuine rim (see this function's doc above).
+          const isRim = self !== rState || self !== lState || self !== dState || self !== uState
+            || self !== neState || self !== nwState || self !== seState || self !== swState
+            || meshBoundary(self, selfMesh, rState, rMesh) || meshBoundary(self, selfMesh, lState, lMesh)
+            || meshBoundary(self, selfMesh, dState, dMesh) || meshBoundary(self, selfMesh, uState, uMesh)
+            || meshBoundary(self, selfMesh, neState, neMesh) || meshBoundary(self, selfMesh, nwState, nwMesh)
+            || meshBoundary(self, selfMesh, seState, seMesh) || meshBoundary(self, selfMesh, swState, swMesh);
+
+          let gx = 0, gy = 0;
+          let inked = isRim;
+          if (isRim) {
+            // Rim orientation: the screen-space gradient of the hit/no-hit
+            // COVERAGE MASK — a depth gradient is undefined against a
+            // sentinel (non-hit) neighbor, and the naive depth-everywhere
+            // fallback renders every rim cell as "-" (the pinned all-dashes
+            // counter-case). A HIT neighbor on a DIFFERENT winner mesh reads
+            // as "not my surface" here too (mask 0), same reasoning: the
+            // mesh seam is exactly as undefined a depth reference as a
+            // sentinel non-hit neighbor is. Tier 1 (HIT-only mask) via a
+            // full 3x3 Sobel; tier 2 (coverage mask, see doc above) only
+            // when tier 1 is genuinely uninformative (no HIT anywhere
+            // nearby to orient against).
+            const hitMaskAt = (idx: number): number => {
+              const s = stateAt(idx);
+              return s === CARVE_INK_HIT && !meshBoundary(self, selfMesh, s, meshAt(idx)) ? 1 : 0;
+            };
+            [gx, gy] = sobel(hitMaskAt, rIdx, lIdx, dIdx, uIdx, neIdx, nwIdx, seIdx, swIdx);
+            if (gx === 0 && gy === 0) {
+              const coverMaskAt = (idx: number): number => (stateAt(idx) !== CARVE_INK_OUT ? 1 : 0);
+              [gx, gy] = sobel(coverMaskAt, rIdx, lIdx, dIdx, uIdx, neIdx, nwIdx, seIdx, swIdx);
+            }
+          } else if (self === CARVE_INK_HIT) {
+            // Rule (a) didn't fire, so every EXISTING neighbor already
+            // shares `self`'s state (CARVE_INK_HIT) AND, per `meshBoundary`
+            // above, its winner mesh too — rules (b)/(c): a multiple of
+            // `inkSpacing` between two hit depths (contour), or too great a
+            // depth jump (interior edge), are only ever compared WITHIN one
+            // mesh's own surface. A missing (off-grid) neighbor contributes
+            // 0 (defaults to `self`'s own depth), the same edge-mirroring
+            // convention the rest of this file's subcell gradient probes use.
+            const selfDist = hitDistance[i]!;
+            const rDist = rIdx >= 0 ? hitDistance[rIdx]! : selfDist;
+            const lDist = lIdx >= 0 ? hitDistance[lIdx]! : selfDist;
+            const dDist = dIdx >= 0 ? hitDistance[dIdx]! : selfDist;
+            const uDist = uIdx >= 0 ? hitDistance[uIdx]! : selfDist;
+            let crosses = false;
+            for (const other of [rDist, lDist, dDist, uDist]) {
+              const lo = Math.min(selfDist, other), hi = Math.max(selfDist, other);
+              if (Math.floor(lo / spacing) !== Math.floor(hi / spacing) || hi - lo > edgeSpacing) { crosses = true; break; }
+            }
+            if (crosses) {
+              inked = true;
+              // Contour/edge orientation: the depth gradient (both sides are
+              // real hits here, so this is well-defined, unlike the rim case).
+              gx = rDist - lDist;
+              gy = dDist - uDist;
+            }
+          }
+          if (!inked) continue;
+
+          setGlyph(context, i, inkGlyphForField(gx, gy));
+          let packed: number;
+          let opacity: number;
+          if (self === CARVE_INK_HIT) {
+            packed = hitPacked[i]!;
+            opacity = hitOpacity[i]!;
+          } else {
+            // A rim cell with no hit of its own borrows its nearest inked
+            // (i.e. any) hit neighbor's color; with none, the layer's base
+            // color (no field sample exists here to gradient/voice-blend).
+            // 8-neighbor, matching the rim detection/orientation widening
+            // above — a diagonal-only HIT neighbor is exactly as valid a
+            // color source as an orthogonal one.
+            let borrowed = -1;
+            if (rIdx >= 0 && rState === CARVE_INK_HIT) borrowed = rIdx;
+            else if (lIdx >= 0 && lState === CARVE_INK_HIT) borrowed = lIdx;
+            else if (dIdx >= 0 && dState === CARVE_INK_HIT) borrowed = dIdx;
+            else if (uIdx >= 0 && uState === CARVE_INK_HIT) borrowed = uIdx;
+            else if (neIdx >= 0 && neState === CARVE_INK_HIT) borrowed = neIdx;
+            else if (nwIdx >= 0 && nwState === CARVE_INK_HIT) borrowed = nwIdx;
+            else if (seIdx >= 0 && seState === CARVE_INK_HIT) borrowed = seIdx;
+            else if (swIdx >= 0 && swState === CARVE_INK_HIT) borrowed = swIdx;
+            if (borrowed >= 0) {
+              packed = hitPacked[borrowed]!;
+              opacity = hitOpacity[borrowed]!;
+            } else {
+              packed = cA.packed;
+              opacity = cA.opacity;
+            }
+          }
+          setColor(context, i, packed);
+          // Inked cells get full coverage, not level-scaled — an inked cell
+          // is a decision, not a level (same precedent as 2D `subcellRes:
+          // "ink"`'s own coverage line above).
+          context.output.coverage[i] = opacity;
+        }
+      }
+
+      // ---- Braille-over-carve (VOLUMETRIC-3.md §2) -----------------------
+      //
+      // `subcellRes: "2x4"` under carve marches 8 sub-rays per covered cell,
+      // each with its own interpolated entry/exit chord, sharing ONE step
+      // count sized from the longest chord among them (xray's own
+      // rationale — VOLUMETRIC-2.md §1 "Uniform step count per evaluate" —
+      // applied per-cell here instead of per-evaluate: a per-subray count
+      // would let neighboring dots inside the SAME cell disagree about how
+      // finely a thin feature is resolved).
+      interface CarveCellGeometry {
+        readonly ex: number; readonly ey: number; readonly ez: number;
+        readonly xx: number; readonly xy: number; readonly xz: number;
+        readonly nx: number; readonly ny: number; readonly nz: number;
+        readonly mesh: number;
+      }
+
+      // A covered, in-target cell's own (already scale-applied) entry/exit
+      // chord, geometric face normal, and winner mesh id — `null` when this
+      // cell has no finite chord to march at all (mirrors the 1x1 path's
+      // own skip). `mesh` is `-1` when no winner-mesh data is retained
+      // (never populates without `objectExit` retention — see
+      // `GlyphEffectFrameView.winnerMesh`'s doc comment — so this is a
+      // theoretical fallback, not an expected runtime path for carve).
+      function carveCellGeometry(idx: number): CarveCellGeometry | null {
+        if (context.target.coverage[idx]! <= 0) return null;
+        const op = context.base.objectPosition!;
+        const px = op[idx * 3]!, py = op[idx * 3 + 1]!, pz = op[idx * 3 + 2]!;
+        if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return null;
+        const exitBuf = context.base.objectExit!;
+        const exx = exitBuf[idx * 3]!, exy = exitBuf[idx * 3 + 1]!, exz = exitBuf[idx * 3 + 2]!;
+        if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) return null;
+        let nx = 0, ny = 0, nz = 1;
+        const nrm = context.base.normal;
+        if (nrm) {
+          const rnx = nrm[idx * 3]!, rny = nrm[idx * 3 + 1]!, rnz = nrm[idx * 3 + 2]!;
+          if (Number.isFinite(rnx) && Number.isFinite(rny) && Number.isFinite(rnz)) { nx = rnx; ny = rny; nz = rnz; }
+        }
+        const winnerMeshBuf = context.base.winnerMesh;
+        const mesh = winnerMeshBuf ? winnerMeshBuf[idx]! : -1;
+        return { ex: px * scale, ey: py * scale, ez: pz * scale, xx: exx * scale, xy: exy * scale, xz: exz * scale, nx, ny, nz, mesh };
+      }
+
+      // Strict neighbor eligibility: finite entry AND exit (via
+      // `carveCellGeometry`'s own null check), the SAME winner mesh
+      // (VOLUMETRIC-3.md Phase 2 P1 fix — an agreeing normal alone is not
+      // enough: two adjacent, coplanar, same-normal meshes previously
+      // passed this gate and interpolated a sub-ray's endpoint off the
+      // near mesh's own surface toward the far mesh's unrelated position;
+      // both ids known-and-different is required to REJECT, so unknown
+      // mesh data — `-1` — never blocks eligibility it didn't block before
+      // this fix), AND the geometric normals agree (dot > 0.9) — a finite
+      // neighbor on a different cube FACE of the SAME mesh interpolates
+      // endpoints off the surface too, breaking every visible crease-edge
+      // column without this second gate.
+      function eligibleCarveNeighbor(selfGeom: CarveCellGeometry, idx: number): CarveCellGeometry | null {
+        if (idx < 0) return null;
+        const g = carveCellGeometry(idx);
+        if (!g) return null;
+        if (selfGeom.mesh >= 0 && g.mesh >= 0 && selfGeom.mesh !== g.mesh) return null;
+        const dot = g.nx * selfGeom.nx + g.ny * selfGeom.ny + g.nz * selfGeom.nz;
+        return dot > 0.9 ? g : null;
+      }
+
+      function runCarveBrailleCell(i: number): void {
+        const selfGeom = carveCellGeometry(i);
+        if (!selfGeom) return; // no finite chord — emits nothing, matching the 1x1 path's own skip
+        const cols = context.base.cols, rows = context.base.rows;
+        const col = i % cols, row = (i / cols) | 0;
+        const rIdx = col + 1 < cols ? i + 1 : -1;
+        const lIdx = col - 1 >= 0 ? i - 1 : -1;
+        const dIdx = row + 1 < rows ? i + cols : -1;
+        const uIdx = row - 1 >= 0 ? i - cols : -1;
+        const rG = eligibleCarveNeighbor(selfGeom, rIdx);
+        const lG = eligibleCarveNeighbor(selfGeom, lIdx);
+        const dG = eligibleCarveNeighbor(selfGeom, dIdx);
+        const uG = eligibleCarveNeighbor(selfGeom, uIdx);
+
+        // Otherwise: cell-center sub-rays (fallback) — when NEITHER side of
+        // an axis has an eligible neighbor, that axis's gradient stays 0 and
+        // every sub-ray collapses to this cell's own (entry, exit) chord.
+        let entryDxCol = 0, entryDyCol = 0, entryDzCol = 0, exitDxCol = 0, exitDyCol = 0, exitDzCol = 0;
+        if (rG) {
+          entryDxCol = rG.ex - selfGeom.ex; entryDyCol = rG.ey - selfGeom.ey; entryDzCol = rG.ez - selfGeom.ez;
+          exitDxCol = rG.xx - selfGeom.xx; exitDyCol = rG.xy - selfGeom.xy; exitDzCol = rG.xz - selfGeom.xz;
+        } else if (lG) {
+          entryDxCol = selfGeom.ex - lG.ex; entryDyCol = selfGeom.ey - lG.ey; entryDzCol = selfGeom.ez - lG.ez;
+          exitDxCol = selfGeom.xx - lG.xx; exitDyCol = selfGeom.xy - lG.xy; exitDzCol = selfGeom.xz - lG.xz;
+        }
+        let entryDxRow = 0, entryDyRow = 0, entryDzRow = 0, exitDxRow = 0, exitDyRow = 0, exitDzRow = 0;
+        if (dG) {
+          entryDxRow = dG.ex - selfGeom.ex; entryDyRow = dG.ey - selfGeom.ey; entryDzRow = dG.ez - selfGeom.ez;
+          exitDxRow = dG.xx - selfGeom.xx; exitDyRow = dG.xy - selfGeom.xy; exitDzRow = dG.xz - selfGeom.xz;
+        } else if (uG) {
+          entryDxRow = selfGeom.ex - uG.ex; entryDyRow = selfGeom.ey - uG.ey; entryDzRow = selfGeom.ez - uG.ez;
+          exitDxRow = selfGeom.xx - uG.xx; exitDyRow = selfGeom.xy - uG.xy; exitDzRow = selfGeom.xz - uG.xz;
+        }
+
+        const cx = volumetricOriginX, cy = volumetricOriginY, cz = 0;
+
+        function marchSubray(
+          ex: number, ey: number, ez: number, xx: number, xy: number, xz: number, steps: number,
+        ): { packed: number; value: number; resolvedOpacity: number } | null {
+          const chordLength = Math.hypot(xx - ex, xy - ey, xz - ez);
+          if (chordLength > 0 && Number.isFinite(chordLength)) {
+            const result = marchField([ex, ey, ez], [xx, xy, xz], densitySample, { steps, maxSteps: steps, finestFreq: 0, time });
+            if (!result.hit) return null;
+            const point = computeFieldSynthPoint(i, result.sampleX, result.sampleY, result.sampleZ, cx, cy, cz);
+            if (point.active === 0 || point.value <= 0) return null;
+            const resolved = resolveFieldSynthColor(i, point, Math.exp(-params.marchFade * result.sampleDistance));
+            return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
+          }
+          // Degenerate sub-ray chord: sample directly at its (shared) entry
+          // point, same t=0 fallback the 1x1/ink paths use.
+          const point = computeFieldSynthPoint(i, ex, ey, ez, cx, cy, cz);
+          if (point.active === 0 || point.value <= 0) return null;
+          const resolved = resolveFieldSynthColor(i, point, 1);
+          return { packed: resolved.packed, value: point.value, resolvedOpacity: resolved.resolvedOpacity };
+        }
+
+        let maxChord = Math.hypot(selfGeom.xx - selfGeom.ex, selfGeom.xy - selfGeom.ey, selfGeom.xz - selfGeom.ez);
+        const subrayEndpoints: Array<readonly [number, number, number, number, number, number]> = [];
+        for (let dotCol = 0; dotCol < 2; dotCol++) {
+          const fx = dotCol === 0 ? -0.25 : 0.25;
+          for (let dotRow = 0; dotRow < 4; dotRow++) {
+            const fy = (dotRow + 0.5) / 4 - 0.5;
+            const ex = selfGeom.ex + fx * entryDxCol + fy * entryDxRow;
+            const ey = selfGeom.ey + fx * entryDyCol + fy * entryDyRow;
+            const ez = selfGeom.ez + fx * entryDzCol + fy * entryDzRow;
+            const xx = selfGeom.xx + fx * exitDxCol + fy * exitDxRow;
+            const xy = selfGeom.xy + fx * exitDyCol + fy * exitDyRow;
+            const xz = selfGeom.xz + fx * exitDzCol + fy * exitDzRow;
+            subrayEndpoints.push([ex, ey, ez, xx, xy, xz]);
+            const chord = Math.hypot(xx - ex, xy - ey, xz - ez);
+            if (Number.isFinite(chord) && chord > maxChord) maxChord = chord;
+          }
+        }
+        const steps = fieldStepCount(maxChord, { steps: params.marchSteps, maxSteps: 256, finestFreq });
+
+        const centerHit = marchSubray(selfGeom.ex, selfGeom.ey, selfGeom.ez, selfGeom.xx, selfGeom.xy, selfGeom.xz, steps);
+        let mask = 0;
+        let firstHit: { packed: number; value: number; resolvedOpacity: number } | null = null;
+        let dotIndex = 0;
+        for (let dotCol = 0; dotCol < 2; dotCol++) {
+          for (let dotRow = 0; dotRow < 4; dotRow++) {
+            const [ex, ey, ez, xx, xy, xz] = subrayEndpoints[dotIndex]!;
+            dotIndex++;
+            const hit = marchSubray(ex, ey, ez, xx, xy, xz, steps);
+            if (hit) {
+              mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
+              if (!firstHit) firstHit = hit;
+            }
+          }
+        }
+
+        // One color per cell: the center sub-ray's hit color if it hit,
+        // else the first hitting sub-ray's (scan order), else no emission.
+        const chosen = centerHit ?? firstHit;
+        if (!chosen) return;
+        setGlyph(context, i, String.fromCharCode(0x2800 + mask));
+        setColor(context, i, chosen.packed);
+        context.output.coverage[i] = chosen.value * chosen.resolvedOpacity;
+      }
+
+      const carveInkActive = carveActive && params.subcellRes === "ink";
+      if (carveInkActive) {
+        runCarveInkResolve();
+        return;
+      }
+
+      for (let i = 0; i < context.base.length; i++) {
+        if (context.target.coverage[i]! <= 0) continue;
+
+        if (carveActive) {
+          if (params.subcellRes === "2x4") {
+            runCarveBrailleCell(i);
+            continue;
+          }
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          const entryX = px * scale, entryY = py * scale, entryZ = pz * scale;
+          const cx = volumetricOriginX, cy = volumetricOriginY, cz = 0;
+
+          const exitBuf = context.base.objectExit!;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          const hasExit = Number.isFinite(exx) && Number.isFinite(exy) && Number.isFinite(exz);
+          let hitX = entryX, hitY = entryY, hitZ = entryZ, hitDistance = 0;
+          if (hasExit) {
+            const exitX = exx * scale, exitY = exy * scale, exitZ = exz * scale;
+            const chordLength = Math.hypot(exitX - entryX, exitY - entryY, exitZ - entryZ);
+            // A degenerate/non-finite ray (grazing silhouette: entry === exit)
+            // has no chord to march — `marchField` itself already misses this
+            // case, but the CALLER must not read that miss as a hole: it falls
+            // back to surface sampling at the TRUE entry, which shares paint's
+            // own emission path unchanged.
+            if (chordLength > 0 && Number.isFinite(chordLength)) {
+              // Sphere tracing (VOLUMETRIC-3.md §3): a qualifying program
+              // (`distanceOracle` non-null) marches by distance-stepping
+              // against the oracle instead of the fixed grid below — same
+              // `FieldMarchResult` shape either way, so every line after
+              // this call is unchanged regardless of which marcher ran.
+              const result = distanceOracle
+                ? marchGlyphFieldSphere(
+                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], distanceOracle, densitySample,
+                    { time, originX: cx, originY: cy, originZ: cz, steps: params.marchSteps, maxSteps: 256, finestFreq },
+                  )
+                : marchField(
+                    [entryX, entryY, entryZ], [exitX, exitY, exitZ], densitySample,
+                    { steps: params.marchSteps, maxSteps: 256, finestFreq, time },
+                  );
+              // No solid sample anywhere along a genuine (non-degenerate) chord:
+              // a real hole. The cell emits nothing — ordinary compositor
+              // semantics (VOLUMETRIC.md's Carve section) — not a fallback to
+              // the entry point.
+              if (!result.hit) continue;
+              // Emit at the CONFIRMED-solid raw grid sample, not the
+              // interpolated `result.x/y/z`: `marchField`'s secant refinement
+              // is exact for an affine field, but a hard-thresholded field
+              // (every voice/layer boundary in the Menger recipe, or any
+              // square-wave voice) has a plateau at 0 under the ramp's own
+              // clamp01(bias+gain*v*0.5) mapping, so the interpolated position
+              // can land exactly on that plateau's edge and resample non-solid
+              // (see `marchField`'s doc). `sampleX/Y/Z` is guaranteed to
+              // resample > 0 by construction — it IS the raw sample that
+              // triggered this hit. `hitDistance` must describe that SAME
+              // point: pairing the emission point with the interpolated
+              // `distance` instead fades the point as if it sat wherever the
+              // secant root landed, which is a different position whenever
+              // the crossing isn't already bracket-exact (VOLUMETRIC.md's
+              // Carve section — "hit at parameter t evaluates the paint
+              // pipeline at the hit point"). `sampleDistance` is `marchField`'s
+              // own `sampleT * chordLength` along the marched chord.
+              hitDistance = result.sampleDistance;
+              hitX = result.sampleX; hitY = result.sampleY; hitZ = result.sampleZ;
+            }
+          }
+          // else: no finite exit for this cell (should not happen once
+          // objectExit is retained for a covered cell, but degrades the same
+          // way — surface sampling at the entry point).
+
+          const point = computeFieldSynthPoint(i, hitX, hitY, hitZ, cx, cy, cz);
+          // This is the plain `subcellRes: "1x1"` carve path — "ink" and
+          // "2x4" both branch out above (carveInkActive / runCarveBrailleCell)
+          // before this loop body runs, so the skip rule here is the plain,
+          // non-ink one; `marchField`'s own solid test already used this same
+          // clamp01(bias+gain*v*0.5) mapping, so this should already hold at
+          // the hit point — checked again anyway, since the degenerate-segment
+          // fallback never went through that test.
+          if (point.active === 0 || point.value <= 0) continue;
+          setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(point.value * rampMax)))]!);
+          // `distance` (absolute domain units), NOT the chord-normalized `t` —
+          // two cells with different chord lengths must shade the same interior
+          // wall identically; normalizing by chord would paint a spurious
+          // silhouette-tracking gradient (VOLUMETRIC.md's Carve section).
+          applyFieldSynthColor(i, point, true, Math.exp(-params.marchFade * hitDistance));
+          continue;
+        }
+
+        if (xrayActive) {
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          const exitBuf = context.base.objectExit!;
+          const exx = exitBuf[i * 3]!, exy = exitBuf[i * 3 + 1]!, exz = exitBuf[i * 3 + 2]!;
+          // Unlike carve, xray has NO surface-sampling fallback for a
+          // degenerate/absent chord: this deliberately differs from carve's
+          // paint-at-entry fallback (VOLUMETRIC-2.md §1 "Degenerate chord") —
+          // brightness of a zero-length chord is 0 (no material to absorb
+          // through), and a full-strength rim ring around a transmittance
+          // volume would contradict the mode. The cell just emits nothing.
+          if (!Number.isFinite(exx) || !Number.isFinite(exy) || !Number.isFinite(exz)) continue;
+
+          const mEntry: readonly [number, number, number] = [px * scale, py * scale, pz * scale];
+          const mExit: readonly [number, number, number] = [exx * scale, exy * scale, exz * scale];
+          const chordLength = Math.hypot(mExit[0] - mEntry[0], mExit[1] - mEntry[1], mExit[2] - mEntry[2]);
+          if (!(chordLength > 0) || !Number.isFinite(chordLength)) continue; // degenerate -> emits nothing, see above
+
+          const integral = integrateField(mEntry, mExit, densitySample, {
+            steps: xrayUniformSteps, maxSteps: xrayUniformSteps, finestFreq: 0, time,
+          });
+          const transmittance = Math.exp(-params.xrayGain * integral.sum);
+          const brightness = 1 - transmittance;
+          // The `subcellRes: "ink"` full-coverage precedent: a cell that
+          // emits at all gets full coverage (not level-scaled) — half a
+          // transmittance value is still a real, visible brightness, and
+          // fractional-coverage dither would drown the look. Cells under the
+          // 1/255 threshold don't emit at all (VOLUMETRIC-2.md §1 "Output
+          // mapping").
+          if (brightness < 1 / 255) continue;
+
+          setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(brightness * rampMax)))]!);
+          // `voiceColors` AND the colour voice stack are both inert under
+          // xray (documented no-ops on `voiceColors`/`colorStackOn` — an
+          // accumulated transmittance integral has no coherent single
+          // point/winner to report a colour for): an all-zero-weight point
+          // with `colorValue: NaN` makes `resolveFieldSynthColor` skip both
+          // and fall through to the plain color/colorB gradient
+          // unconditionally, regardless of either toggle.
+          applyFieldSynthColor(i, {
+            active: 1, value: brightness,
+            cr: 0, cg: 0, cbv: 0, cw: 0, co: 0,
+            car: 0, cag: 0, cabv: 0, cao: 0, caw: 0,
+            colorValue: Number.NaN,
+          }, false, 1);
+          // `applyFieldSynthColor`'s shared coverage line folds the resolved
+          // color's alpha into coverage — correct for paint/ink, where alpha
+          // IS the intended coverage. xray's contract is different (checked
+          // above, "full-coverage precedent"): coverage is 1 for any B >=
+          // 1/255 regardless of color alpha, which may still tint the RGB
+          // output (unchanged above) but must never thin the glyph itself —
+          // a translucent xray color is a color choice, not a transmittance
+          // signal. Overriding here (rather than a coverage-forcing flag
+          // threaded through the shared helper) keeps carve/paint's own
+          // alpha-as-coverage behavior untouched.
+          context.output.coverage[i] = 1;
+          continue;
+        }
+
+        let x: number, y: number, z: number, cx: number, cy: number, cz: number;
+        if (volumetric) {
+          const op = context.base.objectPosition!;
+          const px = op[i * 3]!, py = op[i * 3 + 1]!, pz = op[i * 3 + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) continue;
+          x = px * scale; y = py * scale; z = pz * scale;
+          cx = volumetricOriginX; cy = volumetricOriginY; cz = 0;
+        } else {
+          const coord = fieldSynthCoordinate(
+            context, i, params.space as EffectSpace, uvBounds, scale,
+            params.originU, params.originV, sceneCols, sceneRows, generatedSurface,
+          );
+          if (!coord) continue;
+          x = coord[0]; y = coord[1]; cx = coord[2]; cy = coord[3]; z = 0; cz = 0;
+        }
+        const point = computeFieldSynthPoint(i, x, y, z, cx, cy, cz);
+        if (point.active === 0) continue;
+        const value = point.value;
         const inkMode = params.subcellRes === "ink";
         // A contour cell can sit BELOW the level — it is one side of a crossing.
         // Dropping it here would draw only the inner edge of every contour.
         if (!inkMode && value <= 0) continue;
         if (inkMode) {
-          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+          const [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow] = fieldSynthAnySubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
-            sceneCols, sceneRows, generatedSurface, x, y,
+            sceneCols, sceneRows, generatedSurface, x, y, z, volumetric,
           );
-          const sample = (ox: number, oy: number): number =>
-            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time, scale) * 0.5);
-          const right = sample(dxCol, dyCol);
-          const down = sample(dxRow, dyRow);
+          const sample = (ox: number, oy: number, oz: number): number =>
+            clamp01(params.bias + params.gain * evaluateFieldProgram(
+              fieldProgram, x + ox, y + oy, z + oz, time, cx, cy, cz,
+            ).combined * 0.5);
+          const right = sample(dxCol, dyCol, dzCol);
+          const down = sample(dxRow, dyRow, dzRow);
           const gx = right - value;
           const gy = down - value;
           // Contour every level, not just one: `n / (levels + 1)` spreads the
           // cuts across the interior of the range so neither extreme (a flat
           // floor or a saturated ceiling) gets a degenerate line of its own.
-          const levels = Math.max(1, Math.round(params.inkLevels));
+          // Clamp past the schema max (not just floor it) — a crafted URL
+          // can set `inkLevels` to an arbitrary number (e.g. 5e6), bypassing
+          // the slider's own bound, and this loop runs once per level per
+          // cell: unclamped, that hangs the tab (pre-existing hostile-URL
+          // hole; see `INK_LEVELS_MAX`'s doc).
+          const levels = Math.min(INK_LEVELS_MAX, Math.max(1, Math.round(params.inkLevels)));
           let crosses = false;
           for (let n = 1; n <= levels && !crosses; n++) {
             const level = n / (levels + 1);
@@ -1779,9 +3823,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (!crosses) continue;
           setGlyph(context, i, inkGlyphForField(gx, gy));
         } else if (params.subcellRes === "2x4") {
-          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+          const [dxCol, dyCol, dzCol, dxRow, dyRow, dzRow] = fieldSynthAnySubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
-            sceneCols, sceneRows, generatedSurface, x, y,
+            sceneCols, sceneRows, generatedSurface, x, y, z, volumetric,
           );
           let mask = 0;
           for (let dotCol = 0; dotCol < 2; dotCol++) {
@@ -1790,7 +3834,8 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               const fy = (dotRow + 0.5) / 4 - 0.5;
               const subX = x + fx * dxCol + fy * dxRow;
               const subY = y + fx * dyCol + fy * dyRow;
-              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time, scale);
+              const subZ = z + fx * dzCol + fy * dzRow;
+              const subCombined = evaluateFieldProgram(fieldProgram, subX, subY, subZ, time, cx, cy, cz).combined;
               const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
               if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
             }
@@ -1799,29 +3844,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         } else {
           setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
         }
-        let packed: number;
-        let resolvedOpacity: number;
-        if (parsedVoiceColors && cw > 0) {
-          packed = (Math.round(cr / cw) << 16) | (Math.round(cg / cw) << 8) | Math.round(cbv / cw);
-          resolvedOpacity = co / cw;
-        } else if (parsedVoiceColors && caw > 0) {
-          packed = (Math.round(car / caw) << 16) | (Math.round(cag / caw) << 8) | Math.round(cabv / caw);
-          resolvedOpacity = cao / caw;
-        } else {
-          packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
-          resolvedOpacity = cA.opacity;
-        }
-        // Modulate by the surface's Lambert shade so lighting reads through the
-        // texture (lit=1 → full shading, lit=0 → flat/unlit).
-        if (params.lit > 0 && shade) {
-          const sh = shade[i]!;
-          if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
-        }
-        setColor(context, i, packed);
-        // Shaded modes fade a cell by its level; an inked cell is a decision, not
-        // a level — half a contour lies BELOW the iso-level and would render
-        // almost invisible if its coverage were scaled by it.
-        context.output.coverage[i] = inkMode ? resolvedOpacity : value * resolvedOpacity;
+        applyFieldSynthColor(i, point, !inkMode, 1);
       }
     },
   },
@@ -1865,15 +3888,17 @@ export function getGlyphEffect(id: string): GlyphStockEffect | undefined {
   return registry.get(id);
 }
 
-export function defaultGlyphEffectParams<Schema extends GlyphEffectParamSchema>(
-  definition: GlyphStockEffectDefinition<Schema>,
+export function defaultGlyphEffectParams<Schema extends GlyphEffectParamSchema, State = undefined>(
+  definition: GlyphStockEffectDefinition<Schema, State>,
 ): GlyphEffectParamValues<Schema> {
   const params: Record<string, number | string | boolean> = {};
   for (const [key, spec] of Object.entries(definition.parameterSchema)) params[key] = spec.default;
   return params as GlyphEffectParamValues<Schema>;
 }
 
-export function glyphEffectHasColor(definition: GlyphStockEffectDefinition): boolean {
+export function glyphEffectHasColor<Schema extends GlyphEffectParamSchema, State = undefined>(
+  definition: GlyphStockEffectDefinition<Schema, State>,
+): boolean {
   return Object.values(definition.parameterSchema).some((spec) => spec.kind === "color");
 }
 
