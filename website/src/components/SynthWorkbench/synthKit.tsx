@@ -2448,8 +2448,8 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
           <div className="layer-group-controls">
             <div className="layer-group-row2">
               <label className="layer-group-check layer-group-check--compact" title="Invert — flips which side of the layer's result counts as solid.">
-                <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
                 <span>inv</span>
+                <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
               </label>
               <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
                 <span>mix</span>
@@ -2464,8 +2464,8 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
                 off, but its value stays readable either way. */}
             <div className="layer-group-row2">
               <label className="layer-group-check layer-group-check--compact" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
-                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
                 <span>thr</span>
+                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
               </label>
               <label
                 className={`voice-slider layer-group-mix layer-group-threshold-slider${thresholdOn ? "" : " layer-group-threshold-slider--off"}`}

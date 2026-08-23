@@ -141,7 +141,7 @@
   display: flex; flex-direction: column; gap: 8px;
   padding: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12);
 }
-/* A single shared 4-column CSS Grid for BOTH rows (not two independent flex
+/* A single shared 5-column CSS Grid for BOTH rows (not two independent flex
    rows) — mix's slider and threshold's slider land in the EXACT same
    track/value column tracks regardless of what precedes them: a leading
    text label ("mix") on one row, no leading label at all on the other,
@@ -149,17 +149,24 @@
    (a prior version tried, and left the threshold row's track/value visibly
    offset from mix's — see the reported "short track, stranded value" bug
    this replaces). Both rows' own checkboxes ("inv", "thr") also share ONE
-   left column instead of sitting diagonally opposite each other (mix-row
+   pair of columns instead of sitting diagonally opposite each other (mix-row
    trailing, threshold-row leading) — the reported "pretty shitty" alignment
-   complaint this replaces. Columns: 1 = the row's own checkbox (max-content
-   — sized to whichever of "inv" or "thr" is wider); 2 = leading text label
-   (max-content — "mix" on row 1, empty on row 2, since "thr" already labels
-   its own checkbox and a second "threshold" label would just repeat it); 3
-   = track (1fr); 4 = value readout (34px, shared so "1.00"/"0.00"
-   right-align at the same x). */
+   complaint this replaces. Columns: 1 = the row's own checkbox LABEL text
+   ("inv"/"thr", max-content, right-aligned so it sits snug against the
+   checkbox rather than floating with a gap the width difference of the two
+   words would otherwise leave — see `justify-self: end` below); 2 = the
+   checkbox itself (max-content, fixed 32px either way — see
+   `.layer-group-check input[type="checkbox"]`); 3 = a second leading text
+   label ("mix" on row 1, empty on row 2, since "thr" in column 1 already
+   labels its own checkbox and a second "threshold" label would just repeat
+   it); 4 = track (1fr); 5 = value readout (34px, shared so "1.00"/"0.00"
+   right-align at the same x). The label text sits BEFORE its checkbox
+   (`inv [x]`, not `[x] inv`) so "inv" and the mix row's own "mix" label
+   don't end up directly adjacent with no separator between them — the
+   checkbox itself is what visually separates the two words. */
 .layer-group-controls {
   display: grid;
-  grid-template-columns: max-content max-content 1fr 34px;
+  grid-template-columns: max-content max-content max-content 1fr 34px;
   align-items: center;
   row-gap: 5px;
   column-gap: 7px;
@@ -186,26 +193,43 @@
    themselves out in an independent flex context per row that could drift
    from its sibling row's. */
 .layer-group-row2 { display: contents; }
-/* Both rows' own checkbox is DOM-first now (invert leads the mix row, same
-   as threshold already led its own) — one shared rule instead of the old
-   first-child/last-child split, since neither checkbox trails anymore. */
-.layer-group-row2 .layer-group-check--compact { grid-column: 1; }
+/* Both rows' own checkbox LABEL is DOM-first now (invert leads the mix row,
+   same as threshold already led its own) — one shared rule instead of the
+   old first-child/last-child split, since neither checkbox trails anymore.
+   The `<label>` wrapping the text + checkbox is itself `display: contents`
+   (not a grid item) so its two children — the text `<span>` and the
+   `<input type="checkbox">` — promote straight into `.layer-group-controls`'s
+   shared grid as two SEPARATE items (columns 1 and 2). This is required, not
+   cosmetic: keeping text+checkbox as one flex-box item sized by max-content
+   would only line up column 2's checkbox between rows if "inv" and "thr"
+   happened to measure the exact same pixel width in the live font — placing
+   them as independent grid items guarantees the checkbox column aligns
+   regardless. The label element itself still mediates the native
+   text-click-toggles-checkbox association (implicit label association is a
+   DOM-structure contract, not a CSS box-model one, so `display: contents`
+   on the `<label>` doesn't break it). */
+.layer-group-row2 .layer-group-check--compact { display: contents; }
+.layer-group-row2 .layer-group-check--compact span {
+  grid-column: 1;
+  justify-self: end;
+}
+.layer-group-row2 .layer-group-check--compact input[type="checkbox"] { grid-column: 2; }
 .layer-group-row2 .layer-group-mix {
-  grid-column: 2 / 5;
+  grid-column: 3 / 6;
   grid-template-columns: subgrid;
 }
 /* Threshold row: the checkbox is a plain sibling (not wrapping the slider)
    so its click target stays the small bracket toggle, not the whole row —
    same split `.layer-group-head`'s toggle/selects and `.color-stack-head`'s
    checkbox/selects already use. It spans only the track/value columns
-   (3/5) — this row's own "thr" label lives on the checkbox (column 1)
-   instead of repeating inside the slider, and column 2 (the mix row's
-   "mix" label column) is left empty on this row — and, like the mix row's
-   slider, borrows the track/value columns via `subgrid` rather than sizing
-   its own, so both rows' tracks and value readouts land at IDENTICAL x
-   positions regardless of either row's leading content. */
+   (4/6) — this row's own "thr" label lives in column 1 (leading its own
+   checkbox in column 2) instead of repeating inside the slider, and column 3
+   (the mix row's "mix" label column) is left empty on this row — and, like
+   the mix row's slider, borrows the track/value columns via `subgrid` rather
+   than sizing its own, so both rows' tracks and value readouts land at
+   IDENTICAL x positions regardless of either row's leading content. */
 .layer-group-row2 .layer-group-threshold-slider {
-  grid-column: 3 / 5;
+  grid-column: 4 / 6;
   grid-template-columns: subgrid;
 }
 /* Dimmed-but-visible while the toggle is off — same `opacity: 0.35` idiom
