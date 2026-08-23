@@ -144,19 +144,22 @@
 /* A single shared 4-column CSS Grid for BOTH rows (not two independent flex
    rows) — mix's slider and threshold's slider land in the EXACT same
    track/value column tracks regardless of what precedes them: a leading
-   text label ("mix") on one row, a leading bracket checkbox ("[ ] thr") on
-   the other, never the same width, which independent per-row layouts can't
-   reconcile (a prior version tried, and left the threshold row's track/value
-   visibly offset from mix's — see the reported "short track, stranded
-   value" bug this replaces). Columns: 1 = leading label/checkbox
-   (max-content — sized to whichever of "mix" or "[ ] thr" is wider, so both
-   rows' tracks START at the same x); 2 = track (1fr); 3 = value readout
-   (34px, shared so "1.00"/"0.00" right-align at the same x); 4 = the mix
-   row's trailing "inv" checkbox, left empty by the threshold row so both
-   rows still span the same overall width. */
+   text label ("mix") on one row, no leading label at all on the other,
+   never the same width, which independent per-row layouts can't reconcile
+   (a prior version tried, and left the threshold row's track/value visibly
+   offset from mix's — see the reported "short track, stranded value" bug
+   this replaces). Both rows' own checkboxes ("inv", "thr") also share ONE
+   left column instead of sitting diagonally opposite each other (mix-row
+   trailing, threshold-row leading) — the reported "pretty shitty" alignment
+   complaint this replaces. Columns: 1 = the row's own checkbox (max-content
+   — sized to whichever of "inv" or "thr" is wider); 2 = leading text label
+   (max-content — "mix" on row 1, empty on row 2, since "thr" already labels
+   its own checkbox and a second "threshold" label would just repeat it); 3
+   = track (1fr); 4 = value readout (34px, shared so "1.00"/"0.00"
+   right-align at the same x). */
 .layer-group-controls {
   display: grid;
-  grid-template-columns: max-content 1fr 34px max-content;
+  grid-template-columns: max-content max-content 1fr 34px;
   align-items: center;
   row-gap: 5px;
   column-gap: 7px;
@@ -171,40 +174,40 @@
   display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 7px; font-size: 11px;
 }
 .layer-group-row span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
-/* Row 2: mix slider + invert toggle share one line; row 3 is the threshold
-   checkbox + its value slider — the slider used to only mount when the
-   toggle was on, which made the toggle insert/remove a whole row and jump
-   the layout (rejected: "the threshold toggle is like it makes appear a new
-   row and its weird"). Both are now STABLE rows, always present — same
-   shape as this file's `.dock-subcell`/`IconToggle` controls, which never
-   hide themselves either. `display: contents` (not `flex`) so each row's
-   own children promote straight into `.layer-group-controls`'s shared grid
-   columns above, instead of laying themselves out in an independent flex
-   context per row that could drift from its sibling row's. */
+/* Row 2: invert checkbox + mix slider share one line; row 3 is the
+   threshold checkbox + its value slider — the slider used to only mount
+   when the toggle was on, which made the toggle insert/remove a whole row
+   and jump the layout (rejected: "the threshold toggle is like it makes
+   appear a new row and its weird"). Both are now STABLE rows, always
+   present — same shape as this file's `.dock-subcell`/`IconToggle`
+   controls, which never hide themselves either. `display: contents` (not
+   `flex`) so each row's own children promote straight into
+   `.layer-group-controls`'s shared grid columns above, instead of laying
+   themselves out in an independent flex context per row that could drift
+   from its sibling row's. */
 .layer-group-row2 { display: contents; }
+/* Both rows' own checkbox is DOM-first now (invert leads the mix row, same
+   as threshold already led its own) — one shared rule instead of the old
+   first-child/last-child split, since neither checkbox trails anymore. */
+.layer-group-row2 .layer-group-check--compact { grid-column: 1; }
 .layer-group-row2 .layer-group-mix {
-  grid-column: 1 / 4;
+  grid-column: 2 / 5;
   grid-template-columns: subgrid;
 }
 /* Threshold row: the checkbox is a plain sibling (not wrapping the slider)
    so its click target stays the small bracket toggle, not the whole row —
    same split `.layer-group-head`'s toggle/selects and `.color-stack-head`'s
    checkbox/selects already use. It spans only the track/value columns
-   (2/3) — this row's own "thr" label lives on the checkbox (column 1)
-   instead of repeating inside the slider — and, like the mix row's slider,
-   borrows those columns via `subgrid` rather than sizing its own, so both
-   rows' tracks and value readouts land at IDENTICAL x positions regardless
-   of the checkbox's own width. */
+   (3/5) — this row's own "thr" label lives on the checkbox (column 1)
+   instead of repeating inside the slider, and column 2 (the mix row's
+   "mix" label column) is left empty on this row — and, like the mix row's
+   slider, borrows the track/value columns via `subgrid` rather than sizing
+   its own, so both rows' tracks and value readouts land at IDENTICAL x
+   positions regardless of either row's leading content. */
 .layer-group-row2 .layer-group-threshold-slider {
-  grid-column: 2 / 4;
+  grid-column: 3 / 5;
   grid-template-columns: subgrid;
 }
-/* The row's one checkbox sits in column 1 when it leads (threshold row) or
-   column 4 when it trails (mix row's "inv") — distinguished by DOM position
-   among the row's two children, not a per-row modifier class, so no extra
-   markup is needed to tell the two apart. */
-.layer-group-row2 .layer-group-check--compact:first-child { grid-column: 1; }
-.layer-group-row2 .layer-group-check--compact:last-child { grid-column: 4; }
 /* Dimmed-but-visible while the toggle is off — same `opacity: 0.35` idiom
    `.layer-group-add:disabled`/`.voice-add:disabled` already use for an
    inactive control, applied here via a state class (not `:disabled` alone)

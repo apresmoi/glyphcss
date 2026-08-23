@@ -2435,14 +2435,14 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
         <div className="layer-group-body">
           <div className="layer-group-controls">
             <div className="layer-group-row2">
+              <label className="layer-group-check layer-group-check--compact" title="Invert — flips which side of the layer's result counts as solid.">
+                <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
+                <span>inv</span>
+              </label>
               <label className="voice-slider layer-group-mix" title="Mix — this LAYER's own opacity into the stack (same idea as a voice's own mix, one level up: group opacity vs. element opacity).">
                 <span>mix</span>
                 <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
                 <b>{n("layerAmp").toFixed(2)}</b>
-              </label>
-              <label className="layer-group-check layer-group-check--compact" title="Invert — flips which side of the layer's result counts as solid.">
-                <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
-                <span>inv</span>
               </label>
             </div>
             {/* Stable row — the slider is always mounted (user report: toggling
