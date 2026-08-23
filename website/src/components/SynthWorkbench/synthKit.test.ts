@@ -1087,7 +1087,7 @@ describe("nextFreeVoiceSlot (colour voice add cap)", () => {
 // pinned so the two can't independently drift.
 describe("VOICE_FIELD_MAP_BASE_ANGLE", () => {
   it("is exactly the three linear/diagonal fields, each with its own base angle", () => {
-    expect(VOICE_FIELD_MAP_BASE_ANGLE).toEqual({ linearX: 0, linearY: 90, diagonal: 45 });
+    expect(VOICE_FIELD_MAP_BASE_ANGLE).toEqual({ linearX: 90, linearY: 0, diagonal: 45 });
   });
 
   it("every one of its keys resolves to the \"linear\" VoiceFieldMap kind", () => {

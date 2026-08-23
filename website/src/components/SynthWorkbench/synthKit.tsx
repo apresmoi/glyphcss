@@ -307,9 +307,18 @@ export const FIELD_ICONS: Record<string, ReactNode> = {
       <circle cx="8" cy="8" r="6.5" />
     </ToggleIcon>
   ),
-  linearX: <ToggleIcon><path d="M2 8 H12 M9 5 L12 8 L9 11" /></ToggleIcon>,
-  linearY: <ToggleIcon><path d="M8 2 V12 M5 9 L8 12 L11 9" /></ToggleIcon>,
-  diagonal: <ToggleIcon><path d="M3 3 L13 13 M9 13 H13 V9" /></ToggleIcon>,
+  // Level-set icons, matching the convention `radial`/`angular` already use:
+  // each shows what you'll actually SEE on screen, not the domain-space
+  // sweep axis. The camera's voxcss convention maps world X to on-screen
+  // Y (see AGENTS.md's numeric-conventions section + `rotateVec3Voxcss`),
+  // so `linearX` reads as HORIZONTAL bands and `linearY` as VERTICAL bands
+  // on the rendered field — the opposite of a naive domain-space reading.
+  linearX: <ToggleIcon><path d="M2 4 H14 M2 8 H14 M2 12 H14" /></ToggleIcon>,
+  linearY: <ToggleIcon><path d="M4 2 V14 M8 2 V14 M12 2 V14" /></ToggleIcon>,
+  // `diagonal`'s bands run "/" (anti-diagonal, bottom-left to top-right) on
+  // screen — SVG y is down, so this is drawn as three parallel segments
+  // with dx > 0, dy < 0.
+  diagonal: <ToggleIcon><path d="M1 9 L9 1 M4 12 L12 4 M7 15 L15 7" /></ToggleIcon>,
   angular: (
     <ToggleIcon>
       <path d="M13 6 A6 6 0 1 1 6.2 2.3" />
@@ -427,9 +436,9 @@ Object.assign(FIELD_ICONS, {
 });
 export const FIELD_DESCRIPTIONS: Record<string, string> = {
   radial: "distance from a center point — concentric rings",
-  linearX: "sweeps left to right across the field",
-  linearY: "sweeps bottom to top across the field",
-  diagonal: "sweeps along the diagonal",
+  linearX: "horizontal bands, stacked top to bottom",
+  linearY: "vertical bands, side by side",
+  diagonal: "diagonal bands, bottom-left to top-right",
   angular: "angle around a center point — rotational bands",
   spiral: "winds outward from a center point",
   noise: "randomized, non-repeating — no directional structure",
@@ -1507,7 +1516,12 @@ export const fieldHasPlacement = (field: string): boolean => !NORMAL_DERIVED_SYN
 // bug" class VOLUMETRIC-4.md calls out). `baseAngle`'s keys ARE the "linear"
 // case's field set (kept as one object below so the map and this function
 // can't independently drift on which fields count as "linear").
-export const VOICE_FIELD_MAP_BASE_ANGLE: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
+// Screen-space angles (0 = along +x/right, 90 = along +y/down in this SVG's
+// own coordinate frame), not domain-space. `linearX` reads as vertical
+// on-screen gradient / horizontal bands (world X maps to on-screen Y via the
+// voxcss camera convention — see AGENTS.md), `linearY` the reverse; `diagonal`
+// is a fixed point of that swap (45 either way), unchanged.
+export const VOICE_FIELD_MAP_BASE_ANGLE: Record<string, number> = { linearX: 90, linearY: 0, diagonal: 45 };
 export type VoiceFieldMapKind = "linear" | "ring" | "no-direction" | "generic";
 export function voiceFieldMapKind(field: string): VoiceFieldMapKind {
   if (field in VOICE_FIELD_MAP_BASE_ANGLE) return "linear";
