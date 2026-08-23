@@ -112,7 +112,13 @@
    whole row (see the doc comment above `LayerGroup` for why a <select>
    can't live inside that button). */
 .layer-group-head {
-  display: flex; align-items: center; gap: 6px; width: 100%;
+  /* No `width: 100%` — a block-level flex container (no float/inline-block
+     context) already stretches to fill `.layer-group`'s content width, same
+     as `.layer-group-body` right below (identical padding, no width rule,
+     no overflow); adding `width: 100%` on top of `padding` with the default
+     content-box sizing made this rule 18px WIDER than its parent (found
+     live, both on this rule and `.color-stack-head`'s identical mistake). */
+  display: flex; align-items: center; gap: 6px;
   padding: 6px 9px;
   background: #070a10;
 }
@@ -147,11 +153,30 @@
 }
 .layer-group-row span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
 .layer-group-mix { grid-template-columns: 34px 1fr 34px; }
-/* Row 2: mix slider + threshold/invert toggles share one line — the
-   threshold VALUE slider (below) only adds its own row when the toggle is
-   on, which is most of the header-compression footprint win. */
+/* Row 2: mix slider + invert toggle share one line. Row 3 (below) is the
+   threshold checkbox + its value slider — the slider used to only mount
+   when the toggle was on, which made the toggle insert/remove a whole row
+   and jump the layout (rejected: "the threshold toggle is like it makes
+   appear a new row and its weird"). It is now a STABLE row, always present,
+   the checkbox sitting directly in front of it — same shape as this file's
+   `.dock-subcell`/`IconToggle` controls, which never hide themselves either. */
 .layer-group-row2 { display: flex; align-items: center; gap: 8px; }
 .layer-group-row2 .layer-group-mix { flex: 1 1 auto; min-width: 0; }
+/* Threshold row: the checkbox is a plain sibling (not wrapping the slider)
+   so its click target stays the small bracket toggle, not the whole row —
+   same split `.layer-group-head`'s toggle/selects and `.color-stack-head`'s
+   checkbox/selects already use. Two grid columns only (track, value) since
+   this row's own "thr" label lives on the checkbox instead of repeating on
+   the slider. */
+.layer-group-threshold-slider { grid-template-columns: 1fr 34px; }
+/* Dimmed-but-visible while the toggle is off — same `opacity: 0.35` idiom
+   `.layer-group-add:disabled`/`.voice-add:disabled` already use for an
+   inactive control, applied here via a state class (not `:disabled` alone)
+   so the whole row — track AND the value readout — dims together; the
+   value stays visible either way per the "was invisible entirely before
+   7ca4496" complaint this replaces. */
+.layer-group-threshold-slider--off { opacity: 0.35; }
+.layer-group-threshold-slider--off input[type="range"] { cursor: not-allowed; }
 .layer-group-check {
   display: flex; align-items: center; gap: 5px; font-size: 11px;
   color: rgba(255, 232, 184, 0.70); cursor: pointer;
@@ -228,7 +253,9 @@
    moved OUT of that label) plus the combine/mode selects, as flex siblings —
    same split `.layer-group-head`/`.layer-group-toggle` established above. */
 .color-stack-head {
-  display: flex; align-items: center; gap: 6px; width: 100%;
+  /* No `width: 100%` — same overflow mistake and same fix as
+     `.layer-group-head` above (see its doc comment). */
+  display: flex; align-items: center; gap: 6px;
   padding: 6px 9px;
 }
 .color-stack-check {
@@ -673,8 +700,15 @@
 }
 
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
+/* No `width: 100%` — same overflow mistake as `.layer-group-head`/
+   `.color-stack-head` above (`width: 100%` + `padding` + content-box
+   overflowed the row 24px past `.synth-shell`, silently clipped by that
+   shell's own `overflow: hidden` instead of visibly breaking). A flex-column
+   child already stretches to the container's full cross width by default
+   (`.synth-shell`'s unset `align-items` is `stretch`), so the rule was
+   redundant even before it was wrong. */
 .synth-presets {
-  flex: 0 0 auto; width: 100%; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
+  flex: 0 0 auto; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
   border-top: 1px solid rgba(255, 232, 184, 0.14); background: rgba(6, 8, 13, 0.92);
 }
 .synth-tile {

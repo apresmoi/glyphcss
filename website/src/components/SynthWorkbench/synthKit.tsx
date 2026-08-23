@@ -2445,22 +2445,29 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
                 <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={n("layerAmp")} style={fill(n("layerAmp"), 0, 1)} onChange={(e) => onParam(`layerAmp${layer}`, +e.target.value)} /></span>
                 <b>{n("layerAmp").toFixed(2)}</b>
               </label>
-              <label className="layer-group-check layer-group-check--compact" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
-                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
-                <span>thr</span>
-              </label>
               <label className="layer-group-check layer-group-check--compact" title="Invert — flips which side of the layer's result counts as solid.">
                 <input type="checkbox" checked={b("layerInvert")} onChange={(e) => onParam(`layerInvert${layer}`, e.target.checked)} />
                 <span>inv</span>
               </label>
             </div>
-            {thresholdOn && (
-              <label className="voice-slider" title="Threshold value — the level the layer's combined value is cut against. A thresholded layer's folded value maps to ±1, so this range spans the ±1 signal's usable extent.">
+            {/* Stable row — the slider is always mounted (user report: toggling
+                threshold used to insert/remove a whole row and jump the layout).
+                The checkbox sits directly in front of it and stays the enable/
+                disable control; the slider itself goes `disabled` and dims when
+                off, but its value stays readable either way. */}
+            <div className="layer-group-row2">
+              <label className="layer-group-check layer-group-check--compact" title="Threshold — cuts the layer's combined value at a level instead of shading it continuously.">
+                <input type="checkbox" checked={thresholdOn} onChange={(e) => onParam(`layerThresholdOn${layer}`, e.target.checked)} />
                 <span>thr</span>
-                <span className="voice-slider-track"><input type="range" min={-3} max={3} step={0.05} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} /></span>
+              </label>
+              <label
+                className={`voice-slider layer-group-mix layer-group-threshold-slider${thresholdOn ? "" : " layer-group-threshold-slider--off"}`}
+                title="Threshold value — the level the layer's combined value is cut against. A thresholded layer's folded value maps to ±1, so this range spans the ±1 signal's usable extent. Only active while the checkbox is on."
+              >
+                <span className="voice-slider-track"><input type="range" min={-3} max={3} step={0.05} disabled={!thresholdOn} value={n("layerThreshold")} style={fill(n("layerThreshold"), -3, 3)} onChange={(e) => onParam(`layerThreshold${layer}`, +e.target.value)} /></span>
                 <b>{n("layerThreshold").toFixed(2)}</b>
               </label>
-            )}
+            </div>
           </div>
           <div className="layer-group-voices">{children}</div>
           <button type="button" className="layer-group-add" onClick={() => onAddVoice(layer)} disabled={!canAddVoice} title={`Add a voice assigned to layer ${layer}`}>
