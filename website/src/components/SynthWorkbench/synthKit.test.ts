@@ -911,29 +911,33 @@ describe("isSdfField / isSdfIterField (VOLUMETRIC-2.md §2)", () => {
 
 // VOLUMETRIC-4.md §1's precedence table (verbatim, see `resolveColorStackVisibility`'s
 // own doc): the enable toggle's on/off state plus `colorMode` together decide
-// three independent visibility questions — `showVoiceColorsToggle` gates a
+// four independent visibility questions — `showVoiceColorsToggle` gates a
 // right-dock row, `showGradientColors`/`showHueControls` gate rows that live
 // in the right dock's Output folder while the stack is off and in the left
 // sidebar's `ColorStackSection` once it's on (see that component and
-// `SynthDock`'s own `!colorStackOn` gate for where each half renders).
+// `SynthDock`'s own `!colorStackOn` gate for where each half renders), and
+// `showVoiceColorSwatch` gates each geometry `VoiceCard`'s own per-voice
+// `.voice-color` swatch — it tracks `showVoiceColorsToggle` exactly (`colorMode`
+// has no bearing on it), since the swatch drives the same `voiceColors`
+// blending that toggle already hides as meaningless once the stack is on.
 describe("resolveColorStackVisibility (VOLUMETRIC-4.md §1 precedence table)", () => {
-  it("stack off: voiceColors live, gradient endpoints live, hue controls hidden — today's behavior, regardless of colorMode", () => {
+  it("stack off: voiceColors live, gradient endpoints live, hue controls hidden, voice swatch shown — today's behavior, regardless of colorMode", () => {
     for (const colorMode of ["gradient", "hue"]) {
       expect(resolveColorStackVisibility(false, colorMode)).toEqual({
-        showVoiceColorsToggle: true, showGradientColors: true, showHueControls: false,
+        showVoiceColorsToggle: true, showGradientColors: true, showHueControls: false, showVoiceColorSwatch: true,
       });
     }
   });
 
-  it("stack on + gradient mode: voiceColors hides, gradient endpoints STAY visible (repurposed), hue controls hidden", () => {
+  it("stack on + gradient mode: voiceColors hides, gradient endpoints STAY visible (repurposed), hue controls hidden, voice swatch hidden", () => {
     expect(resolveColorStackVisibility(true, "gradient")).toEqual({
-      showVoiceColorsToggle: false, showGradientColors: true, showHueControls: false,
+      showVoiceColorsToggle: false, showGradientColors: true, showHueControls: false, showVoiceColorSwatch: false,
     });
   });
 
-  it("stack on + hue mode: voiceColors hides, gradient endpoints hide, hue controls show", () => {
+  it("stack on + hue mode: voiceColors hides, gradient endpoints hide, hue controls show, voice swatch hidden", () => {
     expect(resolveColorStackVisibility(true, "hue")).toEqual({
-      showVoiceColorsToggle: false, showGradientColors: false, showHueControls: true,
+      showVoiceColorsToggle: false, showGradientColors: false, showHueControls: true, showVoiceColorSwatch: false,
     });
   });
 });

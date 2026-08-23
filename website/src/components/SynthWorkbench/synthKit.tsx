@@ -1655,6 +1655,10 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
 }) {
   const managed = mode !== undefined;
   const showAdvanced = !managed || mode === "advanced";
+  // Colour stack precedence table (`resolveColorStackVisibility`'s doc
+  // above) — this card's own swatch drives `voiceColors` blending, whose
+  // toggle is already hidden once the colour stack owns colour instead.
+  const { showVoiceColorSwatch } = resolveColorStackVisibility(params.colorStackOn === true, String(params.colorMode ?? ""));
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
   const f = (k: string) => String(params[`${k}${slot}`]);
@@ -1731,7 +1735,9 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover, sta
         <div className="voice-head">
           <span className="voice-title">Voice {index + 1}</span>
           <span className="voice-head-right">
-            <input type="color" className="voice-color" value={f("color")} onChange={(e) => onParam(`color${slot}`, e.target.value)} title="Voice color" />
+            {showVoiceColorSwatch && (
+              <input type="color" className="voice-color" value={f("color")} onChange={(e) => onParam(`color${slot}`, e.target.value)} title="Voice color" />
+            )}
             {managed && (
               <span className="voice-mode-toggle">
                 <IconToggle
@@ -2018,16 +2024,22 @@ export function nextFreeVoiceSlot(existing: readonly number[], max: number): num
 // |     | `colorMode: "gradient"` (repurposed as its endpoints); under `"hue"` they hide and the
 // |     | hue params (offset/range/sat/light) show there instead. Either way, once the stack is
 // |     | on the Dock gives up all five rows outright — see `SynthDock`'s own `!colorStackOn`
-// |     | gate on Color/Color B/Gradient, and the fact it never creates a Hue* row at all. |
+// |     | gate on Color/Color B/Gradient, and the fact it never creates a Hue* row at all. Each
+// |     | geometry `VoiceCard`'s own per-voice `color${slot}` swatch (`.voice-color`) hides too —
+// |     | it drives `voiceColors` blending, whose own toggle is already hidden as meaningless in
+// |     | this state; the stored value is untouched (display-only), and the card's trendline/solo
+// |     | preview keep reading `color${slot}` directly rather than through the swatch. |
 export function resolveColorStackVisibility(colorStackOn: boolean, colorMode: string): {
   showVoiceColorsToggle: boolean;
   showGradientColors: boolean;
   showHueControls: boolean;
+  showVoiceColorSwatch: boolean;
 } {
   return {
     showVoiceColorsToggle: !colorStackOn,
     showGradientColors: !colorStackOn || colorMode === "gradient",
     showHueControls: colorStackOn && colorMode === "hue",
+    showVoiceColorSwatch: !colorStackOn,
   };
 }
 
