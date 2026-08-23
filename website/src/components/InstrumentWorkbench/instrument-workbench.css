@@ -271,6 +271,24 @@
    separate host header to place it in. */
 .color-stack-voices-actions { display: flex; align-items: center; gap: 6px; }
 
+/* Palette — the mode-appropriate colour endpoints (Color/Color B/Gradient
+   under `colorMode: "gradient"`, the four Hue sliders under `"hue"`), moved
+   in from the right Dock's Output folder so they sit beside the voices that
+   feed them (see `ColorStackSection` in synthKit.tsx). Sits above the voice
+   list within `.color-stack-body`, sharing that container's own gap instead
+   of adding a second border — it's a sub-section of the same box, not a
+   separate card. `.voice-slider` rows (Gradient, Hue offset/range/sat/light)
+   reuse the geometry rail's own cyan slider styling unchanged — same
+   precedent `ColorVoiceCard`'s freq/speed/mix rows already set: this
+   section's pink/magenta accent marks its HEADER and border, not every
+   control inside it. */
+.color-stack-palette { display: flex; flex-direction: column; gap: 7px; }
+.color-stack-swatches { display: flex; gap: 14px; }
+.color-stack-swatch {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em;
+}
+
 /* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
   display: grid;

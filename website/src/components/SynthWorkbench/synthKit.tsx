@@ -1997,10 +1997,14 @@ export function nextFreeVoiceSlot(existing: readonly number[], max: number): num
 //
 // | `colorStackOn` | Behaviour |
 // |---|---|
-// | off | today exactly — `voiceColors` toggle live, `color`/`colorB`/`gradient` its endpoints. |
-// | on  | `voiceColors` toggle HIDES (ignored by the engine). `color`/`colorB`/`gradient` stay
-// |     | visible under `colorMode: "gradient"` (they're repurposed as its endpoints) and hide
-// |     | under `"hue"`, where the hue params (offset/range/sat/light) show instead. |
+// | off | today exactly — `voiceColors` toggle live (right Dock), `color`/`colorB`/`gradient`
+// |     | its endpoints (right Dock). |
+// | on  | `voiceColors` toggle HIDES from the Dock (ignored by the engine). `color`/`colorB`/
+// |     | `gradient` move to the left sidebar's `ColorStackSection` and stay visible there under
+// |     | `colorMode: "gradient"` (repurposed as its endpoints); under `"hue"` they hide and the
+// |     | hue params (offset/range/sat/light) show there instead. Either way, once the stack is
+// |     | on the Dock gives up all five rows outright — see `SynthDock`'s own `!colorStackOn`
+// |     | gate on Color/Color B/Gradient, and the fact it never creates a Hue* row at all. |
 export function resolveColorStackVisibility(colorStackOn: boolean, colorMode: string): {
   showVoiceColorsToggle: boolean;
   showGradientColors: boolean;
@@ -2027,6 +2031,15 @@ export function ColorStackSection({ params, onParam, stageShape }: {
   params: Params; onParam: (key: string, value: ParamValue) => void; stageShape: string;
 }) {
   const colorStackOn = params.colorStackOn === true;
+  const colorMode = String(params.colorMode ?? "gradient");
+  // Which palette controls this section owns right now — same precedence
+  // table `SynthDock` reads (`resolveColorStackVisibility`'s doc above): with
+  // the stack on, gradient's Color/Color B/Gradient and hue's four sliders
+  // are mutually exclusive on `colorMode`, and the Dock gives them up
+  // entirely (see that function's call site in `SynthDock` below) — a
+  // control lives in exactly one of the two places, never both.
+  const { showGradientColors, showHueControls } = resolveColorStackVisibility(colorStackOn, colorMode);
+  const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   // Existence == `campN > 0` (VOLUMETRIC-4.md §1: "far less structure" than
   // the fractal geometry voices), unlike the geometry rail's independent
   // `voiceSlots` state (SynthWorkbench.tsx), which lets a MUTED voice keep
@@ -2087,7 +2100,7 @@ export function ColorStackSection({ params, onParam, stageShape }: {
                 {COMBINES.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </label>
-            <label className="gx-select color-stack-head-select" title="Mode — gradient reuses Color / Color B / Gradient (right dock, Output folder) as its endpoints; hue cycles through the hue wheel instead (Hue offset/range/saturation/lightness, same folder) — the iridescence mode.">
+            <label className="gx-select color-stack-head-select" title="Mode — gradient exposes Color / Color B / Gradient below as its endpoints; hue exposes Hue offset/range/saturation/lightness instead — the iridescence mode.">
               <select value={String(params.colorMode ?? "gradient")} onChange={(e) => onParam("colorMode", e.target.value)}>
                 <option value="gradient">gradient</option>
                 <option value="hue">hue</option>
@@ -2098,6 +2111,59 @@ export function ColorStackSection({ params, onParam, stageShape }: {
       </div>
       {colorStackOn && (
         <div className="color-stack-body">
+          {/* Palette — the mode-appropriate colour endpoints, moved in from the
+              right Dock's Output folder (which gives them up entirely while
+              the stack owns them — see `SynthDock`'s own `!colorStackOn` gate
+              below) so "how do I pick the gradient colours" has an answer
+              right next to the voices that feed them. `showGradientColors`/
+              `showHueControls` are mutually exclusive whenever `colorStackOn`
+              is true (`colorMode` is a two-value enum), so exactly one of
+              the two blocks below renders. */}
+          <div className="color-stack-palette">
+            {showGradientColors && (
+              <>
+                <div className="color-stack-swatches">
+                  <label className="color-stack-swatch" title="Color — the gradient's start endpoint.">
+                    <input type="color" className="voice-color" value={String(params.color ?? "#7df9ff")} onChange={(e) => onParam("color", e.target.value)} />
+                    <span>Color</span>
+                  </label>
+                  <label className="color-stack-swatch" title="Color B — the gradient's end endpoint.">
+                    <input type="color" className="voice-color" value={String(params.colorB ?? "#ff4fa3")} onChange={(e) => onParam("colorB", e.target.value)} />
+                    <span>Color B</span>
+                  </label>
+                </div>
+                <label className="voice-slider" title="Gradient — interpolation position between Color and Color B.">
+                  <span>grad</span>
+                  <span className="voice-slider-track"><input type="range" min={0} max={1} step={0.05} value={Number(params.gradient ?? 0)} style={fill(Number(params.gradient ?? 0), 0, 1)} onChange={(e) => onParam("gradient", +e.target.value)} /></span>
+                  <b>{Number(params.gradient ?? 0).toFixed(2)}</b>
+                </label>
+              </>
+            )}
+            {showHueControls && (
+              <>
+                <label className="voice-slider" title="Hue offset — rotates the hue wheel, in cycles (a whole-wheel rotation is 1 regardless of Hue range).">
+                  <span>hue</span>
+                  <span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={Number(params.hueOffset ?? 0)} style={fill(Number(params.hueOffset ?? 0), -1, 1)} onChange={(e) => onParam("hueOffset", +e.target.value)} /></span>
+                  <b>{Number(params.hueOffset ?? 0).toFixed(2)}</b>
+                </label>
+                <label className="voice-slider" title="Hue range — how much of the wheel the sweep covers, in degrees.">
+                  <span>range</span>
+                  <span className="voice-slider-track"><input type="range" min={0} max={360} step={1} value={Number(params.hueRange ?? 360)} style={fill(Number(params.hueRange ?? 360), 0, 360)} onChange={(e) => onParam("hueRange", +e.target.value)} /></span>
+                  <b>{Number(params.hueRange ?? 360).toFixed(0)}°</b>
+                </label>
+                <label className="voice-slider" title="Hue saturation — fixed saturation for every hue in the sweep.">
+                  <span>sat</span>
+                  <span className="voice-slider-track"><input type="range" min={0} max={100} step={1} value={Number(params.hueSat ?? 70)} style={fill(Number(params.hueSat ?? 70), 0, 100)} onChange={(e) => onParam("hueSat", +e.target.value)} /></span>
+                  <b>{Number(params.hueSat ?? 70).toFixed(0)}%</b>
+                </label>
+                <label className="voice-slider" title="Hue lightness — fixed lightness for every hue in the sweep.">
+                  <span>light</span>
+                  <span className="voice-slider-track"><input type="range" min={0} max={100} step={1} value={Number(params.hueLight ?? 55)} style={fill(Number(params.hueLight ?? 55), 0, 100)} onChange={(e) => onParam("hueLight", +e.target.value)} /></span>
+                  <b>{Number(params.hueLight ?? 55).toFixed(0)}%</b>
+                </label>
+              </>
+            )}
+          </div>
           <div className="color-stack-voices">
             {colorVoiceSlots.map((slot) => (
               <ColorVoiceCard
@@ -2597,8 +2663,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   const colorMode = s("colorMode") || "gradient";
   // Precedence table (VOLUMETRIC-4.md §1) — see `resolveColorStackVisibility`'s
   // own doc above, shared by this dock and (indirectly, via the same param
-  // shape) the sidebar's `ColorStackSection`.
-  const { showVoiceColorsToggle, showGradientColors, showHueControls } = resolveColorStackVisibility(colorStackOn, colorMode);
+  // shape) the sidebar's `ColorStackSection`. Only `showVoiceColorsToggle` is
+  // read here now — `showGradientColors`/`showHueControls` used to gate this
+  // dock's own Color/Color B/Gradient/Hue* rows, but those rows moved into
+  // `ColorStackSection` (the left sidebar) entirely; see the Color/Color
+  // B/Gradient block below for the dock's own (simpler) visibility rule.
+  const { showVoiceColorsToggle } = resolveColorStackVisibility(colorStackOn, colorMode);
   // `voiceColors` is inert under `render: "xray"` (xray reads only the
   // absorbed density, not per-voice color — VOLUMETRIC-2.md §1) AND while the
   // colour stack is on (its own precedence rule: "voiceColors is ignored" —
@@ -2610,37 +2680,23 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
   const colorBCtrl = useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
   const gradientCtrl = useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
-  // Hue-mode palette params (VOLUMETRIC-4.md §1: `hue = (v*0.5 + 0.5 +
-  // hueOffset) * hueRange` degrees at fixed `hueSat`/`hueLight`) — created
-  // ALWAYS, right after Gradient, and merely shown/hidden, the same
-  // "created here so lil-gui's append order is stable, toggled via
-  // `.raw.show()/.hide()`" idiom `inkLevelsCtrl`/`inkSpacingCtrl` above use,
-  // so the two mappings swap IN PLACE under the same "Mode" choice instead of
-  // one permanently trailing the other.
-  const hueOffsetCtrl = useSlider(out, "Hue offset", { min: -1, max: 1, step: 0.01 }, n("hueOffset"), (v) => onParam("hueOffset", v));
-  const hueRangeCtrl = useSlider(out, "Hue range", { min: 0, max: 360, step: 1 }, n("hueRange"), (v) => onParam("hueRange", v));
-  const hueSatCtrl = useSlider(out, "Hue saturation", { min: 0, max: 100, step: 1 }, n("hueSat"), (v) => onParam("hueSat", v));
-  const hueLightCtrl = useSlider(out, "Hue lightness", { min: 0, max: 100, step: 1 }, n("hueLight"), (v) => onParam("hueLight", v));
-  // Color/Color B/Gradient drive output when the colour stack is off (today,
-  // unchanged) OR on with `colorMode: "gradient"` (repurposed as that mode's
-  // endpoints — VOLUMETRIC-4.md §1's precedence table); Hue offset/range/
-  // saturation/lightness are the "hue" mode's own mapping and swap in as
-  // Color/Color B/Gradient swap out. Within the gradient case, per-voice
-  // colors (when the stack is OFF) still wins over Color/Color B/Gradient —
-  // each voice's own color wins over them once it's on (`fieldSynth`'s
-  // evaluate()) — so the enable/disable dimming stays keyed off
-  // `voiceColorsOn` exactly as before; the colour stack being ON forces
-  // `voiceColors` inert (hidden above), so there's nothing to dim against —
-  // Color/Color B/Gradient are always fully enabled in that state.
+  // Color/Color B/Gradient live here ONLY while the colour stack is off —
+  // `ColorStackSection` (the left sidebar) owns these same params outright
+  // once the stack is on, including under `colorMode: "gradient"` where
+  // they're repurposed as its endpoints (VOLUMETRIC-4.md §1's precedence
+  // table): a param lives in exactly one visible control, never a second,
+  // disconnected copy in both places at once. Hue offset/range/saturation/
+  // lightness moved there too and have no row here anymore at all — they're
+  // only ever reachable via `colorMode: "hue"`, which only exists while the
+  // stack owns the palette, so a Dock row for them would never be visible.
+  // Per-voice colors still wins when it's on (the stack being on already
+  // forces `voiceColors` inert — hidden above — so this dimming only matters
+  // in the stack-off case these controls are now exclusively shown in).
   useEffect(() => {
-    colorCtrl?.setVisible(showGradientColors); colorCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
-    colorBCtrl?.setVisible(showGradientColors); colorBCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
-    gradientCtrl?.setVisible(showGradientColors); gradientCtrl?.setEnabled(colorStackOn || !voiceColorsOn);
-    hueOffsetCtrl?.setVisible(showHueControls);
-    hueRangeCtrl?.setVisible(showHueControls);
-    hueSatCtrl?.setVisible(showHueControls);
-    hueLightCtrl?.setVisible(showHueControls);
-  }, [colorCtrl, colorBCtrl, gradientCtrl, hueOffsetCtrl, hueRangeCtrl, hueSatCtrl, hueLightCtrl, voiceColorsOn, colorStackOn, showGradientColors, showHueControls]);
+    colorCtrl?.setVisible(!colorStackOn); colorCtrl?.setEnabled(!voiceColorsOn);
+    colorBCtrl?.setVisible(!colorStackOn); colorBCtrl?.setEnabled(!voiceColorsOn);
+    gradientCtrl?.setVisible(!colorStackOn); gradientCtrl?.setEnabled(!voiceColorsOn);
+  }, [colorCtrl, colorBCtrl, gradientCtrl, voiceColorsOn, colorStackOn]);
   // `colorTolerance` (COLOR-TOLERANCE.md Phase 4) replaces the removed
   // `colorQuantize`: it's a SCENE option (`scene.setOptions({ colorTolerance
   // })`, wired through the `colorTolerance`/`onColorTolerance` props below),

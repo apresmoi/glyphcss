@@ -911,7 +911,11 @@ describe("isSdfField / isSdfIterField (VOLUMETRIC-2.md §2)", () => {
 
 // VOLUMETRIC-4.md §1's precedence table (verbatim, see `resolveColorStackVisibility`'s
 // own doc): the enable toggle's on/off state plus `colorMode` together decide
-// three independent visibility questions in the right dock's Output folder.
+// three independent visibility questions — `showVoiceColorsToggle` gates a
+// right-dock row, `showGradientColors`/`showHueControls` gate rows that live
+// in the right dock's Output folder while the stack is off and in the left
+// sidebar's `ColorStackSection` once it's on (see that component and
+// `SynthDock`'s own `!colorStackOn` gate for where each half renders).
 describe("resolveColorStackVisibility (VOLUMETRIC-4.md §1 precedence table)", () => {
   it("stack off: voiceColors live, gradient endpoints live, hue controls hidden — today's behavior, regardless of colorMode", () => {
     for (const colorMode of ["gradient", "hue"]) {
