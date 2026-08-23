@@ -141,7 +141,26 @@
   display: flex; flex-direction: column; gap: 8px;
   padding: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12);
 }
-.layer-group-controls { display: flex; flex-direction: column; gap: 5px; }
+/* A single shared 4-column CSS Grid for BOTH rows (not two independent flex
+   rows) — mix's slider and threshold's slider land in the EXACT same
+   track/value column tracks regardless of what precedes them: a leading
+   text label ("mix") on one row, a leading bracket checkbox ("[ ] thr") on
+   the other, never the same width, which independent per-row layouts can't
+   reconcile (a prior version tried, and left the threshold row's track/value
+   visibly offset from mix's — see the reported "short track, stranded
+   value" bug this replaces). Columns: 1 = leading label/checkbox
+   (max-content — sized to whichever of "mix" or "[ ] thr" is wider, so both
+   rows' tracks START at the same x); 2 = track (1fr); 3 = value readout
+   (34px, shared so "1.00"/"0.00" right-align at the same x); 4 = the mix
+   row's trailing "inv" checkbox, left empty by the threshold row so both
+   rows still span the same overall width. */
+.layer-group-controls {
+  display: grid;
+  grid-template-columns: max-content 1fr 34px max-content;
+  align-items: center;
+  row-gap: 5px;
+  column-gap: 7px;
+}
 /* Color-stack's own combine/mode rows (ColorStackSection, further below in
    this file) are the one other `.layer-group-row` consumer. `max-content`
    (was a hardcoded 34px, sized for "mix"/"freq"-length labels) sizes the
@@ -152,23 +171,40 @@
   display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 7px; font-size: 11px;
 }
 .layer-group-row span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
-.layer-group-mix { grid-template-columns: 34px 1fr 34px; }
-/* Row 2: mix slider + invert toggle share one line. Row 3 (below) is the
-   threshold checkbox + its value slider — the slider used to only mount
-   when the toggle was on, which made the toggle insert/remove a whole row
-   and jump the layout (rejected: "the threshold toggle is like it makes
-   appear a new row and its weird"). It is now a STABLE row, always present,
-   the checkbox sitting directly in front of it — same shape as this file's
-   `.dock-subcell`/`IconToggle` controls, which never hide themselves either. */
-.layer-group-row2 { display: flex; align-items: center; gap: 8px; }
-.layer-group-row2 .layer-group-mix { flex: 1 1 auto; min-width: 0; }
+/* Row 2: mix slider + invert toggle share one line; row 3 is the threshold
+   checkbox + its value slider — the slider used to only mount when the
+   toggle was on, which made the toggle insert/remove a whole row and jump
+   the layout (rejected: "the threshold toggle is like it makes appear a new
+   row and its weird"). Both are now STABLE rows, always present — same
+   shape as this file's `.dock-subcell`/`IconToggle` controls, which never
+   hide themselves either. `display: contents` (not `flex`) so each row's
+   own children promote straight into `.layer-group-controls`'s shared grid
+   columns above, instead of laying themselves out in an independent flex
+   context per row that could drift from its sibling row's. */
+.layer-group-row2 { display: contents; }
+.layer-group-row2 .layer-group-mix {
+  grid-column: 1 / 4;
+  grid-template-columns: subgrid;
+}
 /* Threshold row: the checkbox is a plain sibling (not wrapping the slider)
    so its click target stays the small bracket toggle, not the whole row —
    same split `.layer-group-head`'s toggle/selects and `.color-stack-head`'s
-   checkbox/selects already use. Two grid columns only (track, value) since
-   this row's own "thr" label lives on the checkbox instead of repeating on
-   the slider. */
-.layer-group-threshold-slider { grid-template-columns: 1fr 34px; }
+   checkbox/selects already use. It spans only the track/value columns
+   (2/3) — this row's own "thr" label lives on the checkbox (column 1)
+   instead of repeating inside the slider — and, like the mix row's slider,
+   borrows those columns via `subgrid` rather than sizing its own, so both
+   rows' tracks and value readouts land at IDENTICAL x positions regardless
+   of the checkbox's own width. */
+.layer-group-row2 .layer-group-threshold-slider {
+  grid-column: 2 / 4;
+  grid-template-columns: subgrid;
+}
+/* The row's one checkbox sits in column 1 when it leads (threshold row) or
+   column 4 when it trails (mix row's "inv") — distinguished by DOM position
+   among the row's two children, not a per-row modifier class, so no extra
+   markup is needed to tell the two apart. */
+.layer-group-row2 .layer-group-check--compact:first-child { grid-column: 1; }
+.layer-group-row2 .layer-group-check--compact:last-child { grid-column: 4; }
 /* Dimmed-but-visible while the toggle is off — same `opacity: 0.35` idiom
    `.layer-group-add:disabled`/`.voice-add:disabled` already use for an
    inactive control, applied here via a state class (not `:disabled` alone)

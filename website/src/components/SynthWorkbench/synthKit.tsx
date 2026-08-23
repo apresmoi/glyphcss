@@ -1940,7 +1940,7 @@ export function ColorVoiceCard({ slot, index, params, onParam, onRemove, stageSh
       </div>
       <div className="voice-controls">
         <div className="voice-head">
-          <span className="voice-title">Color voice {index + 1}</span>
+          <span className="voice-title">Voice {index + 1}</span>
           <span className="voice-head-right">
             {managed && (
               <span className="voice-mode-toggle">
@@ -2080,16 +2080,19 @@ export function ColorStackSection({ params, onParam, stageShape }: {
   // slot numbers (1..MAX_COLOR_VOICES) overlap the geometry rail's own
   // (1..MAX_VOICES) — a shared override map keyed only by slot number would
   // silently cross-apply an override from one stack's card to the other's
-  // same-numbered card. A shared top-level DEFAULT would also mean toggling
-  // the geometry header's global control unexpectedly re-densifies the
-  // colour section below it, which the "independent voice program" framing
-  // argues against. Viewer preference only — never URL-persisted, same
+  // same-numbered card. Viewer preference only — never URL-persisted, same
   // contract as the geometry rail's `voiceMode`.
-  const [colorVoiceMode, setColorVoiceMode] = useState<VoiceDisplayMode>("basic");
-  const [colorVoiceModeOverrides, setColorVoiceModeOverrides] = useState<Record<number, VoiceDisplayMode>>({});
-  const setAllColorVoiceModes = useCallback((next: VoiceDisplayMode) => { setColorVoiceMode(next); setColorVoiceModeOverrides({}); }, []);
+  //
+  // No section-wide "set every card at once" toggle here (unlike the
+  // geometry rail's `voiceMode`, which manages up to `MAX_VOICES` = 9 cards)
+  // — `MAX_COLOR_VOICES` = 3, so a global toggle next to "+ Add colour
+  // voice" was managing at most three per-card `[bsc|adv]` toggles it sat
+  // nowhere near (user report: "why do we have bsc/adv next to the add
+  // colour voice? shouldn't that only be next to color voice 1?"). Each
+  // card's own toggle is the only control now; default "basic" per card.
+  const [colorVoiceModeByCard, setColorVoiceModeByCard] = useState<Record<number, VoiceDisplayMode>>({});
   const setColorVoiceCardMode = useCallback((slot: number, next: VoiceDisplayMode) => {
-    setColorVoiceModeOverrides((prev) => ({ ...prev, [slot]: next }));
+    setColorVoiceModeByCard((prev) => ({ ...prev, [slot]: next }));
   }, []);
   return (
     <div className="color-stack">
@@ -2183,21 +2186,13 @@ export function ColorStackSection({ params, onParam, stageShape }: {
               <ColorVoiceCard
                 key={slot} slot={slot} index={colorVoiceSlots.indexOf(slot)} params={params} onParam={onParam}
                 onRemove={() => removeColorVoice(slot)} stageShape={stageShape} hoverToAnimate
-                mode={colorVoiceModeOverrides[slot] ?? colorVoiceMode}
+                mode={colorVoiceModeByCard[slot] ?? "basic"}
                 onModeChange={(next) => setColorVoiceCardMode(slot, next)}
               />
             ))}
           </div>
           {colorVoiceSlots.length === 0 && <p className="synth-empty">No colour voices — add one to start.</p>}
           <div className="color-stack-voices-actions">
-            <span className="voice-mode-toggle">
-              <IconToggle
-                groupTitle="Set every colour voice card to Basic or Advanced at once. A card's own [bsc|adv] toggle can still override this afterwards."
-                options={VOICE_MODE_TOGGLE}
-                value={colorVoiceMode}
-                onChange={(v) => setAllColorVoiceModes(v as VoiceDisplayMode)}
-              />
-            </span>
             <button type="button" className="layer-group-add" onClick={addColorVoice} disabled={colorVoiceSlots.length >= MAX_COLOR_VOICES} title="Add a colour voice">
               + Add colour voice
             </button>
