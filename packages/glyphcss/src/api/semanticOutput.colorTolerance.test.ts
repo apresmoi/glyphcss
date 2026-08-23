@@ -49,8 +49,8 @@ const dictionary: GlyphObjectDictionary = {
 // mapped to its own class below, so the semantic grid is one continuous
 // coverage run split by class/color at the midpoint (mirrors
 // `nearColorGradientProgram`'s viewport-fill run shape).
-function quad(cx: number): Polygon {
-  return { vertices: [[cx - 1, -1, 0], [cx - 1, 1, 0], [cx + 1, 1, 0], [cx + 1, -1, 0]], color: "#ffffff" };
+function quad(cx: number, color = "#ffffff"): Polygon {
+  return { vertices: [[cx - 1, -1, 0], [cx - 1, 1, 0], [cx + 1, 1, 0], [cx + 1, -1, 0]], color };
 }
 const polygons: Polygon[] = [quad(-1), quad(1)];
 
@@ -104,9 +104,17 @@ describe("compileScene — glyphOutput: \"semantic\" ignores colorTolerance (com
   });
 
   it("is non-vacuous: the same near-color pair genuinely merges under colorTolerance in VISIBLE mode on this exact geometry", () => {
-    const visibleOff = compileScene({ polygons, camera, cols, rows, useColors: true, colorTolerance: 0, doubleSided: true }).inner;
-    const visibleOn = compileScene({ polygons, camera, cols, rows, useColors: true, colorTolerance: 30, doubleSided: true }).inner;
-    expect(countSpans(visibleOff)).toBeGreaterThanOrEqual(countSpans(visibleOn));
+    // Unlike `polygons` above (both quads plain white — class identity is
+    // carried by the dictionary, not polygon color), these two quads carry
+    // the near-color pair directly as polygon colors so visible-mode
+    // rendering actually exercises colorTolerance's run-merging on them.
+    const nearColorPolygons: Polygon[] = [quad(-1, "#802020"), quad(1, "#822020")];
+    const render = (colorTolerance: number) =>
+      compileScene({ polygons: nearColorPolygons, camera, cols, rows, useColors: true, colorTolerance, doubleSided: true }).inner;
+    const visibleOff = render(0);
+    const visibleOn = render(30);
+    expect(countSpans(visibleOff)).toBe(2); // distinct colors, no merge
+    expect(countSpans(visibleOn)).toBeLessThan(countSpans(visibleOff)); // near colors merge into one run
   });
 });
 
