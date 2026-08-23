@@ -155,7 +155,7 @@
    ("inv"/"thr", max-content, right-aligned so it sits snug against the
    checkbox rather than floating with a gap the width difference of the two
    words would otherwise leave — see `justify-self: end` below); 2 = the
-   checkbox itself (max-content, fixed 32px either way — see
+   checkbox itself (max-content, fixed 20px either way — see
    `.layer-group-check input[type="checkbox"]`); 3 = a second leading text
    label ("mix" on row 1, empty on row 2, since "thr" in column 1 already
    labels its own checkbox and a second "threshold" label would just repeat
@@ -254,8 +254,20 @@
 .layer-group-check input[type="checkbox"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 32px;
+  /* 20px, not the old 32px: sized to fit the "[x]"/"[ ]" glyph (measures
+     ~18.06px at this font) instead of the wider pill-chrome box a prior
+     commit removed the background/border/radius from but left the box size
+     alone. `margin: 0` resets the UA default checkbox margin (Chrome:
+     `3px 3px 3px 4px`) that otherwise adds an untracked 4px of left offset
+     on top of the flex `gap` — both found live via a header-alignment bug
+     report ("colour header sits ~23px further right than the layer header
+     directly above it"), since this checkbox's width feeds directly into
+     `.layer-group-controls`'s `max-content` column 2 (see that rule's doc
+     comment) and, in `.color-stack-head`, into how far the combine/mode
+     selects sit from the left edge. */
+  width: 20px;
   height: 16px;
+  margin: 0;
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
@@ -332,7 +344,12 @@
    accent instead of sharing the cyan class directly. */
 .color-stack-check input[type="checkbox"] {
   -webkit-appearance: none; appearance: none;
-  width: 32px; height: 16px;
+  /* 20px + `margin: 0`, same fix and same rationale as
+     `.layer-group-check input[type="checkbox"]` above — this is the
+     checkbox whose old 32px box + untracked UA margin pushed the whole
+     header (checkbox, "COLOUR" label, and both selects) out of alignment
+     with `.layer-group-head` directly above it. */
+  width: 20px; height: 16px; margin: 0;
   cursor: pointer; position: relative; flex-shrink: 0;
 }
 .color-stack-check input[type="checkbox"]::before {
