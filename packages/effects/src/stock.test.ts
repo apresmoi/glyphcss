@@ -4636,24 +4636,35 @@ describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptanc
 
   it("uniform step count is pinned by the PASS's max chord, not a per-cell ceil (a per-cell implementation fails this)", () => {
     // Two cells at different (x, y): cell 0 has a SHORT chord (length 1)
-    // along z, cell 1 has a much LONGER chord (length 20) along z. Unlike
-    // the old same-chord version of this test, a per-cell `ceil` implementation
-    // and the spec's pinned-global-max-chord implementation provably diverge
-    // here — cell 0's own chord alone would floor to `marchSteps`, but the
-    // pass-wide max chord (cell 1's) drives every cell's step count far above
-    // that (VOLUMETRIC-2.md §1 "Uniform step count per evaluate").
+    // along z, cell 1 has a LONGER chord (length 3) along z. Unlike the old
+    // version of this test, freq1/duty1 here are chosen so the real
+    // per-voice floor — duty-aware (`effectiveVoiceFinestFreq`,
+    // VOLUMETRIC-3.md §4), not the raw `freq` param — puts cell 0's OWN
+    // per-cell Nyquist floor (2 * finestFreq * shortChord) BELOW
+    // `marchSteps` (48), so a per-cell implementation would floor it to 48,
+    // while the pass-wide max chord (cell 1's, length 3) genuinely needs
+    // more (103) and is NOT capped at 256. A naive "just widen the chord
+    // ratio" fix (the old version used a 20x ratio) instead pushes BOTH
+    // counts past the 256-step cap at any freq high enough to matter
+    // (e.g. at the duty-aware effective freq 220 the old fixture actually
+    // used: ceil(2*1*220) = 440 -> 256 and ceil(2*20*220) = 8800 -> 256),
+    // making them numerically identical regardless of which implementation
+    // ran and silently defeating this test's own discriminating purpose
+    // (found by the adversarial council review of PR #35, finding 2). This
+    // fixture keeps both counts under the cap AND genuinely different (48
+    // vs 103) by relying on the floor, not just raw chord-length scaling.
     const length = 12 * 6;
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
     objectPosition[0 * 3] = 0; objectPosition[0 * 3 + 1] = 0; objectPosition[0 * 3 + 2] = 0;
     objectExit[0 * 3] = 0; objectExit[0 * 3 + 1] = 0; objectExit[0 * 3 + 2] = 1;
     objectPosition[1 * 3] = 5; objectPosition[1 * 3 + 1] = 5; objectPosition[1 * 3 + 2] = 0;
-    objectExit[1 * 3] = 5; objectExit[1 * 3 + 1] = 5; objectExit[1 * 3 + 2] = 20;
+    objectExit[1 * 3] = 5; objectExit[1 * 3 + 1] = 5; objectExit[1 * 3 + 2] = 3;
 
     const overrides = {
       space: "object" as const, scale: 1, render: "xray" as const,
       bias: 0.3, gain: 1, xrayGain: 8, marchSteps: 48,
-      field1: "linearZ", wave1: "square", freq1: 22, duty1: 0.1, speed1: 0, phase1: 0.03, amp1: 1,
+      field1: "linearZ", wave1: "square", freq1: 6, duty1: 0.35, speed1: 0, phase1: 0.17, amp1: 1,
       amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, // isolate voice1 (amp2 defaults to 1)
       // color=black, colorB=white, gradient=1: the output color channel
       // becomes an 8-bit-resolution encode of raw brightness
@@ -4672,8 +4683,18 @@ describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptanc
     const compiledVoices = compileFieldVoices(voices, params.scale as number);
     const layerShapes = resolveFieldSynthLayerShapes(params);
     const fieldProgram = compileFieldSynthProgram(compiledVoices, layerShapes, true);
+    // Duty-aware, matching the real `evaluate()`'s own derivation
+    // (VOLUMETRIC-3.md §4) — NOT the bare `voice.freq` a duty-agnostic
+    // reading would assume. Using the raw freq here is exactly the bug the
+    // adversarial council caught: it silently mismeasures the effective
+    // finest frequency and can make this test's own reference values
+    // saturate at the 256-step cap regardless of which implementation ran.
     let finestFreq = 0;
-    for (const voice of compiledVoices) if (voice.amp > 0 && voice.freq > finestFreq) finestFreq = voice.freq;
+    for (const voice of compiledVoices) {
+      if (voice.amp <= 0) continue;
+      const f = effectiveVoiceFinestFreq(voice);
+      if (f > finestFreq) finestFreq = f;
+    }
     const originX = (params.originU as number) * (params.scale as number);
     const originY = (params.originV as number) * (params.scale as number);
     const bias = params.bias as number, gain = params.gain as number;
@@ -4684,13 +4705,17 @@ describe("field-synth xray mode — the integral (VOLUMETRIC-2.md §1, acceptanc
 
     const shortEntry: readonly [number, number, number] = [0, 0, 0];
     const shortExit: readonly [number, number, number] = [0, 0, 1];
-    const shortChord = 1, longChord = 20;
+    const shortChord = 1, longChord = 3;
     const marchOpts = { steps: params.marchSteps as number, maxSteps: 256, finestFreq };
     const globalSteps = fieldStepCount(Math.max(shortChord, longChord), marchOpts);
     const perCellSteps = fieldStepCount(shortChord, marchOpts);
     // The setup only discriminates the two implementations if the counts
-    // themselves actually diverge.
+    // themselves actually diverge AND neither has saturated the 256-step
+    // cap (a capped pair reads identically regardless of which
+    // implementation produced it — the exact failure mode this test used to
+    // have).
     expect(perCellSteps).toBeLessThan(globalSteps);
+    expect(globalSteps).toBeLessThan(256);
 
     const xrayGain = params.xrayGain as number;
     const globalSum = integrateField(shortEntry, shortExit, densitySample, {

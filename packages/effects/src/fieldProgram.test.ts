@@ -1755,6 +1755,11 @@ describe("buildGlyphFieldDistanceOracle — qualifying predicate (VOLUMETRIC-3.m
     expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice({ amp: 0 })]), REGIME_PARAMS, 0)).toBeNull();
   });
 
+  it("rejects the layer's own mix weight (`layer.amp`) being other than 1 — a layer mix < 1 scales the folded VALUE toward bias, not a distance, the same reason a per-voice amp != 1 is rejected above", () => {
+    expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice()], { amp: 0.5 }), REGIME_PARAMS, 0)).toBeNull();
+    expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice()], { amp: 0 }), REGIME_PARAMS, 0)).toBeNull();
+  });
+
   it('rejects a layer combine other than "min" — the qualifying intersection fold', () => {
     expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice()], { combine: "add" }), REGIME_PARAMS, 0)).toBeNull();
     expect(buildGlyphFieldDistanceOracle(distanceLayerProgram([sdfVoice()], { combine: "max" }), REGIME_PARAMS, 0)).toBeNull();
@@ -1796,6 +1801,40 @@ describe("buildGlyphFieldDistanceOracle — qualifying predicate (VOLUMETRIC-3.m
       // Exactly on the exclusive `> 0` boundary: bias+gain/2 === 0 must reject.
       expect(buildGlyphFieldDistanceOracle(program, { bias: -0.5, gain: 1 }, 0)).toBeNull();
     });
+  });
+});
+
+describe("buildGlyphFieldDistanceOracle — layer mix (adversarial council finding, WRONG RENDERS)", () => {
+  // Reproduces the reported bug directly through the public program-builder
+  // API: `mix: 0.5` on a single min-combine menger layer at the schema's own
+  // default bias/gain (0.5, 1). Before the `layer.amp !== 1` guard, this
+  // program qualified for sphere tracing even though its folded value only
+  // ever reaches ±0.5 — never the ±1 the oracle's SDF distances assume — so
+  // the density mapping and the oracle's own "surface" disagreed about
+  // whether the entry point is solid.
+  const program = buildGlyphFieldProgram({
+    domain: "3d",
+    layers: [{ combine: "min", mix: 0.5, voices: [{ field: "menger", wave: "step", freq: 1, iter: 2 }] }],
+  });
+  const REGIME = { bias: 0.5, gain: 1 };
+
+  it("does not qualify for sphere tracing (oracle is null)", () => {
+    expect(buildGlyphFieldDistanceOracle(program, REGIME, 0)).toBeNull();
+  });
+
+  it("fixed-step marching alone (the only path left once the oracle is null) agrees with the density model: the entry point is solid, matching evaluateFieldProgram's own reading", () => {
+    const entry: [number, number, number] = [0, 0, 0];
+    const exit: [number, number, number] = [0.01, 0, 0]; // degenerate-avoiding, effectively "at entry"
+    const density: FieldSampler = (x, y, z, t) => clamp01(
+      REGIME.bias + REGIME.gain * evaluateFieldProgram(program, x, y, z, t, 0, 0, 0).combined * 0.5,
+    );
+    // Density at the entry point itself, straight from the compiled program
+    // — mix 0.5 folds the min-combine's ±1 result to ±0.5, so bias 0.5 puts
+    // the "empty" side at clamp01(0.5 - 0.25) = 0.25, i.e. solid (> 0).
+    expect(density(entry[0], entry[1], entry[2], 0)).toBeGreaterThan(0);
+    const fixed = marchField(entry, exit, density, { steps: 8, maxSteps: 256, finestFreq: 3, time: 0 });
+    expect(fixed.hit).toBe(true);
+    if (fixed.hit) expect(fixed.sampleDistance).toBeCloseTo(0, 5);
   });
 });
 
@@ -2005,6 +2044,67 @@ describe("marchGlyphFieldSphere (VOLUMETRIC-3.md §3)", () => {
       const highRes = marchGlyphFieldSphere([0, 0, 0], [1, 0, 0], oracle, sampler, { steps: 8, maxSteps: 256, finestFreq: 200 });
       expect(lowRes.hit).toBe(false);
       expect(highRes.hit).toBe(true);
+    });
+
+    it("the fallback quantizes onto the SAME ABSOLUTE GRID a plain fixed-step call over the FULL chord would use — not a grid re-derived from the shorter remaining segment (adversarial council review of PR #35, finding 4)", () => {
+      // AGENTS.md calls this property load-bearing for the hit-set-superset
+      // guarantee: re-deriving the fallback's step count from
+      // `chordLength - distSoFar` (the remaining segment) instead of the
+      // FULL `chordLength` shifts the grid's PHASE, not just its step count
+      // — a thin feature that sits exactly on a full-chord grid node can
+      // fall strictly BETWEEN two remaining-segment grid nodes and be
+      // missed. This fixture is constructed, not incidental: it places a
+      // spike exactly on the full-chord grid's node at `iHit` and proves
+      // (via `fieldStepCount`, the same helper both grids would use) that
+      // no node of the WOULD-BE remaining-segment grid falls anywhere near
+      // it, so a grid-phase regression is guaranteed to miss this spike
+      // rather than merely likely to.
+      const chordLength = 0.02;
+      const entry: readonly [number, number, number] = [0, 0, 0];
+      const exit: readonly [number, number, number] = [chordLength, 0, 0];
+
+      // Same stall mechanism the sibling tests above use: 8 advances of
+      // STALL_ADVANCE/2 trigger the fallback at a known, exact `distSoFar`.
+      const stallAdvance = SPHERE_MARCH_STALL_ADVANCE / 2;
+      const oracle: FieldDistanceSampler = () => stallAdvance / SPHERE_MARCH_SAFETY;
+      const distSoFar = SPHERE_MARCH_STALL_STEPS * stallAdvance;
+
+      const marchOpts = { steps: 8, maxSteps: 256, finestFreq: 3000 };
+      // The correct grid (full chord) and the WOULD-BE buggy grid (remaining
+      // segment) genuinely have different step counts on this fixture —
+      // otherwise the two grids could coincide and this test would prove
+      // nothing.
+      const stepsCorrect = fieldStepCount(chordLength, marchOpts);
+      const stepsBuggy = fieldStepCount(chordLength - distSoFar, marchOpts);
+      expect(stepsBuggy).not.toBe(stepsCorrect);
+
+      const prevT = distSoFar / chordLength;
+      const startICorrect = Math.max(1, Math.ceil(prevT * stepsCorrect));
+      const startIBuggy = Math.max(1, Math.ceil(prevT * stepsBuggy));
+      const xCorrect = (i: number): number => (i / stepsCorrect) * chordLength;
+      const xBuggy = (i: number): number => (i / stepsBuggy) * chordLength;
+
+      // A node a few steps past distSoFar — not the very first one, so the
+      // spike has clearance from the fallback's own "already solid at
+      // distSoFar" short-circuit.
+      const iHit = startICorrect + 5;
+      const xHit = xCorrect(iHit);
+
+      let minBuggyDist = Infinity;
+      for (let i = startIBuggy; i <= stepsBuggy; i++) minBuggyDist = Math.min(minBuggyDist, Math.abs(xBuggy(i) - xHit));
+      const distFromStart = Math.abs(xHit - distSoFar);
+      const spacingCorrect = chordLength / stepsCorrect;
+      // The spike's half-width is the tightest of three clearances, so it
+      // contains ONLY the correct grid's `iHit` node: no buggy-grid node
+      // (the mutation's own miss), no adjacent correct-grid node, and it
+      // doesn't reach back to the short-circuited `distSoFar` point itself.
+      const halfWidth = Math.min(minBuggyDist, distFromStart, spacingCorrect) * 0.4;
+      expect(halfWidth).toBeGreaterThan(0); // the fixture's own clearances must be real, not degenerate
+      const sampler: FieldSampler = (x) => (Math.abs(x - xHit) < halfWidth ? 1 : -1);
+
+      const result = marchGlyphFieldSphere(entry, exit, oracle, sampler, marchOpts);
+      expect(result.hit).toBe(true);
+      if (result.hit) expect(result.sampleX).toBeCloseTo(xHit, 9);
     });
   });
 });

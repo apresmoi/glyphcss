@@ -659,13 +659,18 @@ function sdfVoiceLatticeCoords(
  * when `duty < 0.5` (or its high half when `duty > 0.5`), which is
  * `min(duty, 1-duty)` of a full `1/freq` cycle — resolving it needs two
  * samples per that narrower band, i.e. `freq / min(duty, 1-duty)`, not the
- * bare `freq` a duty-agnostic reading would assume (identity at duty 1/2,
- * where the two halves are equal and this reduces to `2*freq*chord`'s old
- * one-sample-per-band convention). `step` is non-periodic — there is no
- * "band" to resolve, `synthWave` never even reads `duty` for it (see its own
- * doc) — so it stays exactly `freq`, unaffected. `sin`/`triangle`/`saw` stay
- * `freq` too: none of the three has a `duty`-shaped narrow feature the way a
- * square wave's asymmetric split does.
+ * bare `freq` a duty-agnostic reading would assume. This is NOT an identity
+ * at duty 1/2: even there, where the two halves are equal, it still reads
+ * `freq / 0.5 = 2*freq` — DOUBLE the old duty-agnostic `freq` reading, which
+ * in turn doubles `fieldStepCount`'s `2*freq*chord` Nyquist term to
+ * `4*freq*chord` — a genuine one-to-two-samples-per-band convention change,
+ * not a no-op (AGENTS.md's "Authoring tier" section states this correctly;
+ * this comment previously claimed a false identity here). `step` is
+ * non-periodic — there is no "band" to resolve, `synthWave` never even reads
+ * `duty` for it (see its own doc) — so it stays exactly `freq`, unaffected.
+ * `sin`/`triangle`/`saw` stay `freq` too: none of the three has a
+ * `duty`-shaped narrow feature the way a square wave's asymmetric split
+ * does.
  */
 export function effectiveVoiceFinestFreq(voice: FieldVoice): number {
   switch (voice.field) {
@@ -1805,6 +1810,11 @@ export interface FieldDistanceOracleParams {
  * - Exactly one POPULATED layer (a layer with at least one `amp > 0` voice);
  *   every other layer must be empty. Multiple populated layers fold through
  *   `combineSynth`, which is a VALUE op with no distance-preserving meaning.
+ * - That layer's own `amp` (the layer MIX weight, `layerAmpL`/`mix` in the
+ *   authoring surface) is `1` exactly — like the per-voice `amp` below, a
+ *   mix weight scales the folded ±1 VALUE toward `bias`, not a distance, and
+ *   any weight other than 1 can flip which side of the density mapping's
+ *   solid/empty split a point falls on without moving the ±1 field at all.
  * - Every ACTIVE voice in that layer is `field: "menger"` or `"sierpinski"`
  *   — `"gyroid"`'s implicit has no genuine distance reading (it is a
  *   continuous sinusoidal field, not a distance to a boundary), so it is
@@ -1862,6 +1872,13 @@ export function buildGlyphFieldDistanceOracle(
   if (populatedLayers.length !== 1) return null;
   const layer = populatedLayers[0]!;
   if (layer.combine !== "min" || layer.thresholdOn) return null;
+  // `layer.amp` is the layer MIX weight (`stackValue = layer.amp * v` in
+  // `foldVoices`) — it scales the folded ±1 VALUE toward `bias`, not a
+  // distance. A mix below 1 can make the density mapping read solid (or
+  // empty) somewhere the ±1 field itself disagrees, exactly like a per-voice
+  // `amp !== 1` below breaks the `sdf - c` reading; the same exact-1
+  // requirement applies at the layer level.
+  if (layer.amp !== 1) return null;
 
   const activeVoices = layer.voices.filter((voice) => voice.amp > 0);
   if (activeVoices.length === 0) return null;
