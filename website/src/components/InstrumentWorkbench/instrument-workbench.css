@@ -168,9 +168,6 @@
   appearance: none;
   width: 32px;
   height: 16px;
-  background: rgba(255, 232, 184, 0.05);
-  border: 1px solid rgba(255, 232, 184, 0.25);
-  border-radius: 0;
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
@@ -188,13 +185,19 @@
   pointer-events: none;
   line-height: 1;
 }
-.layer-group-check input[type="checkbox"]:checked {
-  background: rgba(56, 189, 248, 0.10);
-  border-color: rgba(56, 189, 248, 0.55);
+.layer-group-check input[type="checkbox"]:hover::before {
+  color: rgba(255, 232, 184, 0.75);
+}
+.layer-group-check input[type="checkbox"]:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
 }
 .layer-group-check input[type="checkbox"]:checked::before {
   content: "[x]";
   color: #38bdf8;
+}
+.layer-group-check input[type="checkbox"]:checked:hover::before {
+  color: #7dd3fc;
 }
 .layer-group-voices { display: flex; flex-direction: column; gap: 9px; }
 .layer-group-add {
@@ -240,8 +243,7 @@
 .color-stack-check input[type="checkbox"] {
   -webkit-appearance: none; appearance: none;
   width: 32px; height: 16px;
-  background: rgba(244, 114, 182, 0.05); border: 1px solid rgba(244, 114, 182, 0.3);
-  border-radius: 0; cursor: pointer; position: relative; flex-shrink: 0;
+  cursor: pointer; position: relative; flex-shrink: 0;
 }
 .color-stack-check input[type="checkbox"]::before {
   content: "[ ]"; position: absolute; inset: 0;
@@ -249,8 +251,12 @@
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: 10px; color: rgba(244, 114, 182, 0.5); pointer-events: none; line-height: 1;
 }
-.color-stack-check input[type="checkbox"]:checked { background: rgba(244, 114, 182, 0.14); border-color: rgba(244, 114, 182, 0.65); }
+.color-stack-check input[type="checkbox"]:hover::before { color: rgba(244, 114, 182, 0.85); }
+.color-stack-check input[type="checkbox"]:focus-visible {
+  outline: 1px solid rgba(244, 114, 182, 0.7); outline-offset: 2px;
+}
 .color-stack-check input[type="checkbox"]:checked::before { content: "[x]"; color: #f472b6; }
+.color-stack-check input[type="checkbox"]:checked:hover::before { color: #fb9fd0; }
 /* Combine/mode: compact selects sharing the header's remaining width evenly
    — same technique as `.layer-group-head-select`, recolored isn't needed
    since `.gx-select` is already accent-neutral. */
