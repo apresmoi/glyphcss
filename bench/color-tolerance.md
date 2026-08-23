@@ -9,10 +9,10 @@ a cell actually breaks that band. This file is the reproducible bench for
 COLOR-TOLERANCE.md's acceptance items 5 and 6: the six-preset span table and
 the live FPS delta.
 
-**Headline: a 1.2x–9.2x lever depending on scene content, not a flat
+**Headline: a 1.2x–9.1x lever depending on scene content, not a flat
 multiplier.** That range is unquantized→best across the six presets below,
 excluding Cube tiles (already flat, 1.0x, no win by design — see below): Aurora
-1.2x, Lava 1.3x, Nebula 1.5x, Menger 2.9x, Gyroid xray 9.2x. Flat and
+1.2x, Lava 1.3x, Nebula 1.5x, Menger 2.9x, Breathing gyroid 9.1x. Flat and
 hard-edged scenes (per-face colour, shade ramps, carved solids) win
 enormously; smooth noisy fields win modestly because their spans are
 dominated by genuine per-cell variation no merge policy can invent coherence
@@ -21,9 +21,14 @@ do not regress either.
 
 An earlier hand measurement on a different, non-reproducible rig claimed
 1.6x–31x. Re-running this committed script reproduces the table below
-exactly, and the real derived ratios are 1.2x–9.2x, not 1.6x–31x — that
+exactly, and the real derived ratios are 1.2x–9.1x, not 1.6x–31x — that
 earlier figure is superseded and should not be cited. This file is the
-reproducible source of truth going forward.
+reproducible source of truth going forward. (Re-measured after a preset cull
+removed "Gyroid xray" — the fixed-recipe, unanimated preset this range
+originally cited — in favor of "Breathing gyroid", the same recipe with
+`speedN` turned on; measured at this bench's own `time: 3` frame, so the
+numbers below differ slightly from the original 1341/145-unquantized/best
+pair, not just a rename.)
 
 **Monotonicity is measured on real content, not guaranteed.** Raising
 tolerance lowers span count on every shipped preset measured, but greedy
@@ -55,7 +60,7 @@ target), so the comparison is like-for-like:
 - **greedy perceptual** — the SHIPPED mechanism: `colorRunExtends`
   (redmean), called through the real production `encodeGlyphBuffers`.
 
-Volumetric presets (Menger, Gyroid xray) render on a 3-unit cube with
+Volumetric presets (Menger, Breathing gyroid) render on a 3-unit cube with
 `retainObjectPosition`/`retainObjectExit`/`retainObjectNormal`, the same rig
 `bench/color-quantize.mjs` (now deleted, see below) used. The four 2D
 presets render on a single flat quad with `retainWorldPosition`/
@@ -66,8 +71,8 @@ default flat stage does.
 
 | preset | unquantized | uniform | greedy RGB | greedy perceptual |
 |---|---|---|---|---|
-| Menger (cssGraphics) | 1218 | 851 (N=26, err 7.7) | 422 (tol=19, err 7.9) | **428** (tol=33, err 7.8) |
-| Gyroid xray | 1341 | 395 (N=24, err 6.7) | **145** (tol=13, err 7.6) | 145 (tol=24, err 7.6) |
+| Menger (cssGraphics) | 1218 | 851 (N=26, err 7.7) | **422** (tol=19, err 7.9) | 428 (tol=33, err 7.8) |
+| Breathing gyroid | 1370 | 336 (N=19, err 7.8) | 156 (tol=12, err 7.2) | **150** (tol=22, err 7.7) |
 | Lava | 391 | 373 (N=21, err 7.9) | **301** (tol=32, err 7.9) | 301 (tol=62, err 7.9) |
 | Aurora | 365 | 361 (N=37, err 5.4) | **303** (tol=47, err 7.8) | 303 (tol=89, err 7.8) |
 | Nebula | 419 | 399 (N=27, err 7.8) | 289 (tol=30, err 7.6) | **287** (tol=49, err 7.8) |
@@ -81,20 +86,22 @@ same span count at zero tolerance; this is the "already-flat scenes don't
 regress" half of the headline, not a bug in the sweep.
 
 The qualitative shape matches COLOR-TOLERANCE.md's own hand-measured table:
-Menger and Gyroid xray (hard-edged carved/xray geometry) win the most (2.9x
-and 9.2x, unquantized→best), the three 2D noise presets win modestly (1.3x,
-1.2x, 1.5x), and Cube tiles wins nothing. Absolute span counts differ from
-that table's figures — this script's own 140×50 rig (chosen to match
+Menger and Breathing gyroid (hard-edged carved/xray geometry) win the most
+(2.9x and 9.1x, unquantized→best), the three 2D noise presets win modestly
+(1.3x, 1.2x, 1.5x), and Cube tiles wins nothing. Absolute span counts differ
+from that table's figures — this script's own 140×50 rig (chosen to match
 `bench/color-quantize.mjs`'s precedent for the volumetric presets) is not
 the same resolution or camera setup the original figures were measured
 under, and this file is now the reproducible source of truth going forward:
 run `pnpm build && node bench/color-tolerance.mjs` to regenerate it.
 
 `greedy RGB` occasionally edges out `greedy perceptual` by a cell or two
-(Menger, Lava, Aurora above) — expected and consistent with
-COLOR-TOLERANCE.md's own table, where `greedy RGB` beats `greedy perceptual`
-on Gyroid xray (232 vs 236). Redmean is a better objective on average, not a
-guaranteed per-scene winner.
+(Lava, Aurora above, and Menger in this table's own numbers) — expected and
+consistent with COLOR-TOLERANCE.md's own table, where `greedy RGB` beats
+`greedy perceptual` on the same recipe (then measured as "Gyroid xray",
+before an unrelated preset cull renamed/animated it to "Breathing gyroid":
+232 vs 236). Redmean is a better objective on average, not a guaranteed
+per-scene winner.
 
 ## `charMode` two-colour encoders (Phase 2)
 

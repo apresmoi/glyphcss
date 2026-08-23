@@ -5,7 +5,6 @@ import {
   createGlyphOrthographicCamera,
   createGlyphScene,
   defineGlyphEffect,
-  spherePolygons,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
@@ -33,20 +32,14 @@ import {
   generatedSurfaceField,
   getGlyphEffect,
   glitch,
-  gyroidXrayPreset,
   inkGlyphForField,
-  iridescentShellPreset,
-  iridescentSpongePreset,
   matrixRain,
-  mengerFlowPreset,
-  mengerSpongePreset,
   noiseDissolve,
   objectVolumetricAlongLane,
   resolveFieldSynthLayerShapes,
   ripple,
   scan,
   scramble,
-  sdfBloomPreset,
   sierpinskiPyramidPreset,
   synthWave,
   wipe,
@@ -2084,57 +2077,18 @@ describe("field-synth field-program IR refactor: byte-identity regression", () =
       Weave: { render: "fd19e86f", params: "dcc5eb00" },
       "Pulse grid": { render: "829c38e1", params: "92ab91cb" },
       Nebula: { render: "987c9199", params: "ee4f824d" },
-      // Added in VOLUMETRIC.md's Phase 6 (the /synth preset gallery, the
-      // original depth-2 recipe), then user-decision merged with its
-      // depth-3 sibling under this same name (VOLUMETRIC-3.md's Phase 4
-      // preset, "Menger sponge (depth 3)" — see `mengerSpongePreset`'s doc
-      // in stock.ts): depth 3 reads more legibly at the shared cube-stage
-      // camera angle, so it replaces depth 2 rather than the reverse. The
-      // depth-2 recipe's own params live on as a non-exported fixture in
-      // this file (`mengerSpongeDepth2Params`, below) for the one
-      // acceptance test that specifically needs its lower finest frequency.
-      // These hash values are the former "Menger sponge (depth 3)" entry's,
-      // unchanged by the rename — `hashOf`/`paramsHashOf` only ever see
-      // `preset.params`, never the sibling `name` field.
-      "Menger sponge": { render: "311c9985", params: "1c2bb271" },
       // Added in VOLUMETRIC-2.md's Phase 3 — pinned the same way as every
       // preset above it.
-      "Sierpinski pyramid": { render: "945f235b", params: "52c55f59" },
-      // Re-pinned deliberately: retuned `scale`/`freq1`/`xrayGain` for
-      // legibility (see `gyroidXrayPreset`'s doc in stock.ts and the P2
-      // real-scene band-contrast test below).
-      "Gyroid xray": { render: "f7783431", params: "828d26a8" },
-      // Added in VOLUMETRIC-3.md's Phase 3 — the sphere-tracing oracle's own
-      // fixtures (real SDF voices, not the linear recipe the two presets
-      // above use). Pinned the same way as every preset above it.
-      // Re-pinned deliberately: `freq1` 0.4 -> 0.5 fixes the preset's
-      // centering (see `mengerSdfPreset`'s doc in stock.ts and the
-      // oracle-level centering tests in fieldProgram.test.ts).
-      "Menger SDF": { render: "d62f9075", params: "50fd26fb" },
-      "Sierpinski SDF": { render: "9d7a7abb", params: "da384260" },
-      // Volumetric time-animation presets (user report: "we don't have any
-      // animation for the volumetric ones") — each is an existing recipe
-      // above with `speedN` turned on; see their docs in stock.ts. Pinned
-      // the same way as every preset above them.
-      "Menger flow": { render: "311c9985", params: "423ff66d" },
+      // Re-pinned deliberately: retuned `scale` 1/3 -> 2.0 (preset cull —
+      // tiles several repeats of the corner-tetra membership pattern across
+      // the stage instead of fitting exactly one; see the preset's own doc
+      // in stock.ts).
+      "Sierpinski pyramid": { render: "00d1c6f0", params: "e33d11b7" },
+      // `breathingGyroidPreset`'s recipe is inlined directly in stock.ts now
+      // (the "Gyroid xray" preset it used to spread from was removed in the
+      // preset cull) but its resolved params are byte-identical to before,
+      // so this hash is unchanged.
       "Breathing gyroid": { render: "f7783431", params: "e9728cf2" },
-      // Re-pinned deliberately (params only — `render` is unaffected: the
-      // synthetic 2D `pinnedEvaluate` harness never exercises the volumetric
-      // carve path `marchFade` colours, same documented gap as the Menger
-      // sponge's own `marchFade` retune above): brightness retune, user
-      // report "why is the SDF bloom so dark and darker every time?" —
-      // `marchFade` 2.5 -> 1.2 (inherited from `mengerSdfPreset`, now
-      // overridden). See `sdfBloomPreset`'s own doc in stock.ts for the
-      // measured before/after.
-      "SDF bloom": { render: "d62f9075", params: "8ed78cf2" },
-      // VOLUMETRIC-4.md §1's shipped patch — the colour voice stack's own
-      // presets. Pinned the same way as every preset above them.
-      // Re-pinned deliberately: retuned `hueLight` 55 -> 75 (sponge) and
-      // `hueSat`/`hueRange` 90/360 -> 45/150 (shell) for legibility — see
-      // each preset's own doc in stock.ts and VOLUMETRIC-4.md's
-      // Reconciliation.
-      "Iridescent sponge": { render: "ba9ce875", params: "61fa66ec" },
-      "Iridescent shell": { render: "1ddb4165", params: "df674de0" },
       // User request: reproduce cssGraphics' own Menger colour behaviour as
       // closely as measurably possible — see `cssGraphicsMengerPreset`'s own
       // doc in stock.ts for the full measurement (camera + wave choice that
@@ -2481,6 +2435,31 @@ function mengerParams(depth: 1 | 2): Record<string, number | string | boolean> {
   return params;
 }
 
+// The depth-3 Menger membership recipe (VOLUMETRIC.md/VOLUMETRIC-3.md §4) —
+// no longer a shipped preset (removed in the preset cull), but several
+// acceptance tests below pin exact numbers derived from this EXACT recipe
+// (a 94-step Nyquist floor at its own `scale: 1/3` domain-normalizing pin,
+// a 56-cell ink count, specific hit/hole patterns) that have nothing to do
+// with whatever `scale` a currently-shipped preset happens to use. Kept as
+// a standalone, non-exported fixture for exactly that reason.
+const mengerSpongeDepth3Params: Record<string, number | string | boolean> = {
+  space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+  ...mengerAxisVoice(1, "linearX", 1, 1),
+  ...mengerAxisVoice(2, "linearY", 1, 1),
+  ...mengerAxisVoice(3, "linearZ", 1, 1),
+  ...mengerLayerShape(1),
+  ...mengerAxisVoice(4, "linearX", 3, 2),
+  ...mengerAxisVoice(5, "linearY", 3, 2),
+  ...mengerAxisVoice(6, "linearZ", 3, 2),
+  ...mengerLayerShape(2),
+  ...mengerAxisVoice(7, "linearX", 9, 3),
+  ...mengerAxisVoice(8, "linearY", 9, 3),
+  ...mengerAxisVoice(9, "linearZ", 9, 3),
+  ...mengerLayerShape(3),
+  glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+  marchFade: 2.5,
+};
+
 describe("field-synth Menger membership — schema frontend (VOLUMETRIC.md acceptance criterion 2a)", () => {
   // First-principles reference, identical to fieldProgram.test.ts's own
   // depth-3 IR test (VOLUMETRIC.md acceptance 2b) — reused as a REFERENCE,
@@ -2753,10 +2732,7 @@ async function flushCarveRenders(): Promise<void> {
 
 // The real /synth `cube` stage's own authored size (`shapePolys("cube")` in
 // synthKit.tsx: `resolveGeometry(name, { size: 3 })`) — extent -1.5..1.5,
-// NOT `carveCubePolygons`'s extent -1..1. `mengerSpongePreset`'s own
-// `scale: 1/3` domain remap (see its doc in stock.ts) assumes this exact
-// footprint, so `mengerFlowPreset` (built from that same recipe) needs this
-// cube, not the smaller one other carve/xray tests share.
+// NOT `carveCubePolygons`'s extent -1..1.
 function size3CubePolygons(): Polygon[] {
   const s = 1.5;
   const faces: Vec3[][] = [
@@ -2771,10 +2747,9 @@ function size3CubePolygons(): Polygon[] {
 }
 
 // VOLUMETRIC-3.md's animation retrofit (user report: "we don't have any
-// animation for the volumetric ones") — `mengerFlowPreset`/
-// `breathingGyroidPreset`/`sdfBloomPreset` are existing recipes with
-// `speedN` turned on (see their docs in stock.ts). The smoke test per
-// preset: a REAL scene render (not the synthetic 2D `hashOf` harness above,
+// animation for the volumetric ones") — `breathingGyroidPreset` is an
+// existing recipe with `speedN` turned on (see its doc in stock.ts). The
+// smoke test: a REAL scene render (not the synthetic 2D `hashOf` harness above,
 // which fixes `time` at the schema default and therefore can't see any
 // speed-driven difference at all) is non-empty, and differs between two
 // `time` values — the animation actually reaches the rendered `<pre>`, not
@@ -2807,15 +2782,6 @@ describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-s
     return text;
   }
 
-  it("Menger flow: non-empty and differs between t=0 and t=2 on the real cube stage", async () => {
-    const camera = { rotX: 15, rotY: 40, zoom: 380 };
-    const atZero = await renderAt(mengerFlowPreset, size3CubePolygons(), 0, camera);
-    const atTwo = await renderAt(mengerFlowPreset, size3CubePolygons(), 2, camera);
-    expect(atZero.split("\n").some((row) => row.trim().length > 0)).toBe(true);
-    expect(atTwo.split("\n").some((row) => row.trim().length > 0)).toBe(true);
-    expect(atTwo).not.toBe(atZero);
-  });
-
   it("Breathing gyroid: non-empty and differs between t=0 and t=2 on the real cube stage", async () => {
     const camera = { rotX: 22, rotY: 30, zoom: 560 };
     const atZero = await renderAt(breathingGyroidPreset, carveCubePolygons(), 0, camera);
@@ -2825,10 +2791,29 @@ describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-s
     expect(atTwo).not.toBe(atZero);
   });
 
-  it("SDF bloom: non-empty and differs between t=0 and t=9 (mid-erosion) on the real cube stage", async () => {
+  // No shipped preset animates a sphere-tracing-qualifying SDF voice anymore
+  // (the "SDF bloom"/"Menger SDF" presets that used to were removed in the
+  // preset cull — see AGENTS.md's "Sphere tracing for carve"), so this and
+  // the oracle test below use a hand-built fixture instead of a preset —
+  // `mengerSdfPreset`'s former recipe (a single `menger`/`step` voice,
+  // centered via `originU1/V1/W1: -1`, `combine: "min"`), with a nonzero
+  // `speed1` so the sphere-tracing oracle's `c = phase - speed*time` fold is
+  // genuinely exercised across two different `time` values.
+  const animatedSdfFixtureParams = {
+    space: "object", scale: 1, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0.0012, amp1: 1, iter1: 3,
+    originU1: -1, originV1: -1, originW1: -1,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+    marchFade: 1.2,
+  } as const;
+
+  it("Animated SDF fixture: non-empty and differs between t=0 and t=9 (mid-erosion) on the real cube stage", async () => {
     const camera = { rotX: 15, rotY: 40, zoom: 380 };
-    const atZero = await renderAt(sdfBloomPreset, carveCubePolygons(), 0, camera);
-    const atNine = await renderAt(sdfBloomPreset, carveCubePolygons(), 9, camera);
+    const preset = { params: animatedSdfFixtureParams as unknown as Record<string, number | string | boolean> };
+    const atZero = await renderAt(preset, carveCubePolygons(), 0, camera);
+    const atNine = await renderAt(preset, carveCubePolygons(), 9, camera);
     expect(atZero.split("\n").some((row) => row.trim().length > 0)).toBe(true);
     expect(atNine.split("\n").some((row) => row.trim().length > 0)).toBe(true);
     expect(atNine).not.toBe(atZero);
@@ -2836,22 +2821,19 @@ describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-s
 
   // VOLUMETRIC-3.md §3's sphere-tracing oracle folds `c = phase - speed *
   // time` once per `evaluate()` call (fieldProgram.ts's
-  // `buildGlyphFieldDistanceOracle`) — `sdfBloomPreset` is the first shipped
-  // preset with a nonzero `speed` on a sphere-tracing-qualifying voice, so
-  // nothing previously exercised that fold across two DIFFERENT `time`
-  // values. This verifies, directly against the real preset params (not a
-  // hand-built fixture), that: (1) the oracle still qualifies (non-null) at
-  // both times — animating speed/phase doesn't change any of the qualifying
-  // predicate's OTHER conditions (field/wave/amp/combine/threshold/regime),
-  // only `c`; (2) the oracle's own returned distance at a fixed point
-  // genuinely differs between the two times (the animation reaches the
-  // oracle, not just the flat params object); (3) a sphere-traced march
-  // through the volume tracks that same difference — the real evaluate()
-  // path (which is what a mounted layer actually runs) renders differently
-  // at the two times too, so the accelerated sphere-tracing path isn't
-  // silently ignoring the time-varying oracle it built.
-  it("SDF bloom: the sphere-tracing oracle stays correct and tracks the animation across two time samples", () => {
-    const params = { ...defaultGlyphEffectParams(fieldSynth), ...(sdfBloomPreset.params as Record<string, number | string | boolean>) } as AnyParams;
+  // `buildGlyphFieldDistanceOracle`). This verifies, against the fixture
+  // above, that: (1) the oracle still qualifies (non-null) at both times —
+  // animating speed/phase doesn't change any of the qualifying predicate's
+  // OTHER conditions (field/wave/amp/combine/threshold/regime), only `c`;
+  // (2) the oracle's own returned distance at a fixed point genuinely
+  // differs between the two times (the animation reaches the oracle, not
+  // just the flat params object); (3) a sphere-traced march through the
+  // volume tracks that same difference — the real evaluate() path (which is
+  // what a mounted layer actually runs) renders differently at the two
+  // times too, so the accelerated sphere-tracing path isn't silently
+  // ignoring the time-varying oracle it built.
+  it("Animated SDF fixture: the sphere-tracing oracle stays correct and tracks the animation across two time samples", () => {
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...animatedSdfFixtureParams } as AnyParams;
     const voices = buildFieldSynthVoices(params);
     const compiledVoices = compileFieldVoices(voices, params.scale as number);
     const layerShapes = resolveFieldSynthLayerShapes(params);
@@ -2863,11 +2845,11 @@ describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-s
     expect(oracleAtZero).not.toBeNull();
     expect(oracleAtNine).not.toBeNull();
 
-    // A fixed point near the fractal's own centered lattice cell (see
-    // `mengerSdfPreset`'s doc: `originU1`/`originV1`/`originW1` all `-1`
-    // centers the lattice on the object-space origin) — the oracle's
-    // distance to the boundary at this SAME point must differ once `c` has
-    // shifted the boundary between the two times.
+    // A fixed point near the fractal's own centered lattice cell
+    // (`originU1`/`originV1`/`originW1` all `-1` centers the lattice on the
+    // object-space origin) — the oracle's distance to the boundary at this
+    // SAME point must differ once `c` has shifted the boundary between the
+    // two times.
     const dAtZero = oracleAtZero!(0, 0, 0);
     const dAtNine = oracleAtNine!(0, 0, 0);
     expect(Number.isFinite(dAtZero)).toBe(true);
@@ -2890,8 +2872,8 @@ describe("field-synth volumetric time-animation presets (VOLUMETRIC-3.md, real-s
         objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 1;
       }
     }
-    const renderAtZero = evaluate(fieldSynth, { ...(sdfBloomPreset.params as Record<string, number | string | boolean>), time: 0 }, { objectPosition, objectExit });
-    const renderAtNine = evaluate(fieldSynth, { ...(sdfBloomPreset.params as Record<string, number | string | boolean>), time: 9 }, { objectPosition, objectExit });
+    const renderAtZero = evaluate(fieldSynth, { ...animatedSdfFixtureParams, time: 0 }, { objectPosition, objectExit });
+    const renderAtNine = evaluate(fieldSynth, { ...animatedSdfFixtureParams, time: 9 }, { objectPosition, objectExit });
     expect(Array.from(renderAtZero.coverage)).not.toEqual(Array.from(renderAtNine.coverage));
   });
 });
@@ -3729,7 +3711,7 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
         objectExit[i * 3] = ox + 3; objectExit[i * 3 + 1] = oy + 3; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongeDepth3Params;
     const output = evaluateFieldSynthGrid(
       cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
     );
@@ -3770,7 +3752,7 @@ describe("field-synth ink-over-carve (VOLUMETRIC-3.md §2)", () => {
         objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongeDepth3Params;
     const output = evaluateFieldSynthGrid(
       cols, rows, { ...presetParams, subcellRes: "ink" }, () => {}, { objectPosition, objectExit },
     );
@@ -4324,6 +4306,19 @@ function shippedSierpinskiPresetParams(): Record<string, number | string | boole
   return { ...defaultGlyphEffectParams(fieldSynth), ...(preset.params as Record<string, number | string | boolean>) };
 }
 
+// The Sierpinski corner-tetra recipe at its own domain-normalizing
+// `scale: 1/STAGE_SIZE` pin — decoupled from `shippedSierpinskiPresetParams`
+// on purpose. The shipped "Sierpinski pyramid" preset's own `scale` is a
+// stylistic retune (2.0, tiling several repeats of the pattern across the
+// stage — see its doc in stock.ts) and no longer maps the domain 1:1, so
+// the domain-ALIGNMENT correctness tests below — which assert an exact
+// match against a first-principles reference — use this fixed-scale recipe
+// instead of reading `scale` off whatever the shipped preset currently
+// ships with.
+function domainNormalizedSierpinskiParams(): Record<string, number | string | boolean> {
+  return { ...shippedSierpinskiPresetParams(), scale: 1 / 3 };
+}
+
 describe("field-synth Sierpinski pyramid stage alignment (VOLUMETRIC-2.md acceptance 4, \"stage alignment\")", () => {
   function sierpinskiSolidUnit(x: number, y: number, z: number, depth: number): boolean {
     let cx = x, cy = y, cz = z;
@@ -4383,15 +4378,15 @@ describe("field-synth Sierpinski pyramid stage alignment (VOLUMETRIC-2.md accept
     return output;
   }
 
-  it("solid cells on the pyramid stage's own [0, s]^3 box, scaled by the shipped preset's `scale` pin, match the corner-tetra reference exactly", () => {
-    const params = shippedSierpinskiPresetParams();
+  it("solid cells on the pyramid stage's own [0, s]^3 box, scaled by the recipe's own domain-normalizing `scale` pin, match the corner-tetra reference exactly", () => {
+    const params = domainNormalizedSierpinskiParams();
     const points = stageGridPoints();
     const output = evaluateAtObjectPoints(params, points);
     let solidCount = 0, holeCount = 0;
     for (let i = 0; i < points.length; i++) {
       const [x, y, z] = points[i]!;
-      // The preset's `scale: 1/STAGE_SIZE` (see stock.ts's comment) maps this
-      // point back onto the recipe's assumed [0,1]^3 window.
+      // `scale: 1/STAGE_SIZE` maps this point back onto the recipe's
+      // assumed [0,1]^3 window.
       const refSolid = sierpinskiSolidUnit(x / STAGE_SIZE, y / STAGE_SIZE, z / STAGE_SIZE, 2);
       const engineSolid = output.coverage[i]! > 0;
       expect(engineSolid).toBe(refSolid);
@@ -4402,7 +4397,7 @@ describe("field-synth Sierpinski pyramid stage alignment (VOLUMETRIC-2.md accept
   });
 
   it("pinned counter-case: a CENTERED window (the same recipe applied as if the stage's own box straddled the origin instead of cornering it there) disagrees with the reference on a large fraction of points — this is exactly why the pyramid stage is authored uncentered", () => {
-    const params = shippedSierpinskiPresetParams();
+    const params = domainNormalizedSierpinskiParams();
     const points = stageGridPoints();
     // Shift every sampled point by -STAGE_SIZE/2 on every axis before
     // evaluating — i.e. pretend the mesh had been authored the way every
@@ -4806,7 +4801,7 @@ describe("field-synth xray mode — real scene (VOLUMETRIC-2.md acceptance crite
 // the exact same captured real chords — proving the statistic actually
 // separates the two, not just that the shipped preset clears a hand-picked
 // number.
-describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRIC-2.md §1 P2)", () => {
+describe("field-synth Breathing gyroid preset — real scene band contrast (VOLUMETRIC-2.md §1 P2)", () => {
   // Real per-cell entry/exit chords, captured once from an actual rendered
   // scene (real camera + real cube mesh projection) and reused to evaluate
   // both the shipped preset and its no-threshold negative control — so both
@@ -4828,7 +4823,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     // projection, same as the Menger xray real-scene test above.
     scene.addEffectLayer({
       effect: fieldSynth,
-      params: { ...defaultGlyphEffectParams(fieldSynth), ...(gyroidXrayPreset.params as Record<string, number | string | boolean>) } as never,
+      params: { ...defaultGlyphEffectParams(fieldSynth), ...(breathingGyroidPreset.params as Record<string, number | string | boolean>) } as never,
       blend: "replace",
       opacity: 1,
     });
@@ -4864,7 +4859,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     const { cols, rows, length, objectPosition, objectExit } = chords;
     const params = {
       ...defaultGlyphEffectParams(fieldSynth),
-      ...(gyroidXrayPreset.params as Record<string, number | string | boolean>),
+      ...(breathingGyroidPreset.params as Record<string, number | string | boolean>),
       color: "#000000", colorB: "#ffffff", gradient: 1,
       ...overrides,
     };
@@ -4971,7 +4966,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     const thresholdedStat = withinBinSpread(thresholded);
     const fogStat = withinBinSpread(fog);
     // eslint-disable-next-line no-console
-    console.log("Gyroid xray P2 chord-controlled within-bin brightness std:", {
+    console.log("Breathing gyroid P2 chord-controlled within-bin brightness std:", {
       thresholded: { ...thresholdedStat, n: thresholded.length, emittedFraction: thresholded.emittedFraction },
       fog: { ...fogStat, n: fog.length },
       ratio: thresholdedStat.stat / fogStat.stat,
@@ -4989,7 +4984,7 @@ describe("field-synth Gyroid xray preset — real scene band contrast (VOLUMETRI
     //
     // Re-pinned for the legibility retune (user report: "looks awful, too
     // much transparency and high scale doesn't let you see anything" — see
-    // `gyroidXrayPreset`'s doc in stock.ts). Measured on the retuned preset
+    // `breathingGyroidPreset`'s doc in stock.ts). Measured on the retuned preset
     // (`scale: 0.4, freq1: 1.5, xrayGain: 3`, down from `scale: 1, freq1: 2,
     // xrayGain: 1.5`) against the SAME real cube-stage chords: ~0.102
     // (thresholded) vs ~0.080 (fog); 0.09 sits with margin on both sides —
@@ -5114,9 +5109,10 @@ describe("field-synth colour voice schema guard (VOLUMETRIC-4.md §1 — mutatio
   });
 });
 
-// The retired depth-2 Menger sponge recipe — superseded in stock.ts by the
-// depth-3 recipe under the shared "Menger sponge" name (user decision: one
-// Menger sponge preset, not two; see `mengerSpongePreset`'s doc there).
+// The retired depth-2 Menger sponge recipe — superseded by the depth-3
+// recipe (`mengerSpongeDepth3Params` above; originally shipped as the
+// "Menger sponge" preset, removed from stock.ts in a later preset cull, but
+// several tests below still pin exact numbers derived from its recipe).
 // Kept here as a params-only, non-exported fixture because THIS specific
 // acceptance test needs the lower-frequency recipe: it asserts the
 // duty-aware Nyquist floor doesn't bind for a preset whose finest voice
@@ -5140,7 +5136,7 @@ const mengerSpongeDepth2Params: AnyParams = {
 };
 
 describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floors unchanged (VOLUMETRIC-3.md §4 acceptance 1)", () => {
-  it.each([{ name: "Menger sponge (retired depth-2 recipe)", params: mengerSpongeDepth2Params }, sierpinskiPyramidPreset])(
+  it.each([{ name: "Menger sponge (retired depth-2 recipe)", params: mengerSpongeDepth2Params }])(
     "$name still resolves to the schema default marchSteps floor (48) — the duty-aware Nyquist floor doesn't bind either before or after the fix",
     (preset) => {
       const params = { ...defaultGlyphEffectParams(fieldSynth), ...preset.params } as AnyParams;
@@ -5154,13 +5150,38 @@ describe("effectiveVoiceFinestFreq square-wave fix — shipped carve preset floo
         }
       }
       // The cube/pyramid stage's own body diagonal at this preset's own
-      // `scale` pin (the same chord-length derivation
-      // `mengerSpongePreset`'s own doc comment uses).
+      // `scale` pin (the same chord-length derivation the depth-3 Menger
+      // recipe's own empirical gate below uses).
       const chord = Math.sqrt(3) * 3 * (params.scale as number);
       const resolved = fieldStepCount(chord, { steps: params.marchSteps as number, maxSteps: 256, finestFreq });
       expect(resolved).toBe(params.marchSteps);
     },
   );
+
+  // Sierpinski pyramid's shipped `scale` retuned 1/3 -> 2.0 in the preset
+  // cull (stock.ts): the floor no longer sits comfortably under the
+  // default, because the retuned scale multiplies the very chord length
+  // this floor is derived from. This is a genuine consequence of the
+  // retune, not a bug — pinned here so a future retune of either `scale`
+  // has to deliberately re-examine this number instead of silently
+  // drifting it.
+  it("'Sierpinski pyramid' now resolves ABOVE the schema default marchSteps floor (84, not 48) — the `scale: 2.0` retune raises the chord length the Nyquist floor scales with", () => {
+    const params = { ...defaultGlyphEffectParams(fieldSynth), ...sierpinskiPyramidPreset.params } as AnyParams;
+    const voices = buildFieldSynthVoices(params);
+    const compiledVoices = compileFieldVoices(voices, params.scale as number);
+    let finestFreq = 0;
+    for (const voice of compiledVoices) {
+      if (voice.amp > 0) {
+        const f = effectiveVoiceFinestFreq(voice);
+        if (f > finestFreq) finestFreq = f;
+      }
+    }
+    const chord = Math.sqrt(3) * 3 * (params.scale as number);
+    const resolved = fieldStepCount(chord, { steps: params.marchSteps as number, maxSteps: 256, finestFreq });
+    expect(resolved).toBe(84);
+    expect(resolved).toBeGreaterThan(params.marchSteps as number);
+    expect(resolved).toBeLessThanOrEqual(256);
+  });
 });
 
 describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gate (VOLUMETRIC-3.md §4)", () => {
@@ -5169,11 +5190,11 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
     const objectPosition = new Float32Array(length * 3);
     const objectExit = new Float32Array(length * 3);
     // Straight rays through the cube stage's own [0,3]^3 authoring box
-    // (matching `mengerSpongePreset`'s `scale: 1/3` pin), one per
+    // (matching `mengerSpongeDepth3Params`'s `scale: 1/3` pin), one per
     // cell, entering at z=0 and exiting at z=3. Scaled chord length is
     // 3 * (1/3) = 1 domain unit — the SHORT-chord regime, whose own
     // Nyquist floor (ceil(2*1*27) = 54) is well below the 94-step floor the
-    // preset's own doc comment claims for the cube's body diagonal (see the
+    // fixture's own doc comment claims for the cube's body diagonal (see the
     // dedicated diagonal probe below, which is the one that actually
     // exercises that number).
     for (let row = 0; row < rows; row++) {
@@ -5185,7 +5206,7 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
         objectExit[i * 3] = x; objectExit[i * 3 + 1] = y; objectExit[i * 3 + 2] = 3;
       }
     }
-    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongeDepth3Params;
     const defaultRun = evaluate(fieldSynth, presetParams, { objectPosition, objectExit });
     const groundTruth = evaluate(fieldSynth, { ...presetParams, marchSteps: 256 }, { objectPosition, objectExit });
     let hits = 0;
@@ -5199,7 +5220,7 @@ describe("field-synth depth-3 Menger recipe — empirical ground-truth carve gat
   });
 
   it("body-diagonal rays (the actual chord the preset's doc comment claims 94 steps for): the resolved step count is pinned at 94, and the diagonal hit set matches a forced 256-step ground truth exactly", () => {
-    const presetParams = mengerSpongePreset.params as Record<string, number | string | boolean>;
+    const presetParams = mengerSpongeDepth3Params;
 
     // The resolved step count is a function of chord length + finestFreq,
     // not of anything per-cell — confirm the ACTUAL Nyquist floor the doc
@@ -5796,134 +5817,14 @@ describe("normal-derived field sources (VOLUMETRIC-4.md §1)", () => {
     }
   });
 
-  // Real-scene render helper (mirrors the pattern
-  // "field-synth volumetric time-animation presets" above uses for its own
-  // per-preset smoke tests) — a genuine camera + rasterizer + mounted effect
-  // layer render, not the synthetic 2D `evaluate()` harness.
-  async function renderAt(
-    preset: { params: Record<string, number | string | boolean> },
-    polygons: Polygon[],
-    time: number,
-    camera: { rotX: number; rotY: number; zoom: number },
-  ): Promise<string> {
-    const cols = 64, rows = 40;
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const scene = createGlyphScene(host, {
-      cols, rows, useColors: true, doubleSided: true,
-      camera: createGlyphOrthographicCamera({ zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY }),
-    });
-    scene.add(polygons);
-    scene.addEffectLayer({
-      effect: fieldSynth,
-      params: { ...defaultGlyphEffectParams(fieldSynth), ...preset.params, time } as never,
-      blend: "replace",
-      opacity: 1,
-    });
-    await flushCarveRenders();
-    const text = scene.output.innerHTML ?? "";
-    scene.destroy();
-    host.remove();
-    return text;
-  }
-
-  describe("shipped patch: both iridescent presets render and animate", () => {
-    it("Iridescent sponge: non-empty and its colours change between t=0 and t=8 (slow cspeed) on the real cube stage", async () => {
-      const camera = { rotX: 15, rotY: 40, zoom: 380 };
-      const atZero = await renderAt(iridescentSpongePreset, size3CubePolygons(), 0, camera);
-      const atEight = await renderAt(iridescentSpongePreset, size3CubePolygons(), 8, camera);
-      expect(atZero.length).toBeGreaterThan(0);
-      expect(atEight.length).toBeGreaterThan(0);
-      expect(atEight).not.toBe(atZero);
-    });
-
-    it("Iridescent shell: non-empty and its colours change between t=0 and t=8 (slow cspeed) on a real sphere stage", async () => {
-      const camera = { rotX: 58, rotY: 32, zoom: 220 };
-      const sphere = spherePolygons({ center: [0, 0, 0], size: 1.5, subdivisions: 2 });
-      const atZero = await renderAt(iridescentShellPreset, sphere, 0, camera);
-      const atEight = await renderAt(iridescentShellPreset, sphere, 8, camera);
-      expect(atZero.length).toBeGreaterThan(0);
-      expect(atEight.length).toBeGreaterThan(0);
-      expect(atEight).not.toBe(atZero);
-    });
-  });
-
-  // VOLUMETRIC-4.md §1's own reviewer measurement: "under orthographic
-  // projection every view ray is parallel, so on an axis-aligned mesh like
-  // the sponge `1 - |n . v|` takes exactly THREE values — 0.719 / 0.551 /
-  // 0.152 — i.e. three flat face tones, not a continuous sweep". This
-  // measures the REAL shipped preset against the REAL /synth stage camera
-  // (`STAGE_HINTS`'s own `rotX: 15, rotY: 40` for this preset) and a REAL
-  // rasterized cube — not a hand-derived approximation — via
-  // `rasterizeToCells`, the same pipeline a mounted scene uses.
-  // `marchFade`/`lit` are zeroed for this ONE measurement to isolate the
-  // colour stack's own hue output from the two OTHER, independent brightness
-  // axes the real preset also applies (per-hit-depth fade, Lambert shade) —
-  // both are expected to vary continuously within a face and would
-  // otherwise mask the three discrete hue tones this test exists to count.
-  it("Iridescent sponge: exactly three distinct incidence-driven tones emerge across the real cube stage's visible faces", () => {
-    const cols = 64, rows = 40;
-    const grid = rasterizeToCells(buildRasterizeContext({
-      camera: createGlyphOrthographicCamera({ rotX: 15, rotY: 40, zoom: 380 }),
-      grid: { cols, rows, cellAspect: 2 },
-      polygons: size3CubePolygons(),
-      mode: "solid",
-      useColors: false,
-      doubleSided: true,
-      retainObjectPosition: true,
-      retainObjectExit: true,
-      retainObjectNormal: true,
-    }));
-    const n = cols * rows;
-    const coverage = new Float32Array(n);
-    for (let i = 0; i < n; i++) coverage[i] = grid.depth[i] === -Infinity ? 0 : 1;
-    const glyph = new Array<string>(n).fill(" ");
-    const color = new Uint32Array(n).fill(GlyphEffectNoColor);
-    const output = {
-      glyph: new Array<string>(n).fill(" "),
-      color: new Uint32Array(n).fill(GlyphEffectNoColor),
-      coverage: new Float32Array(n),
-      channels: new Uint8Array(n),
-    };
-    const params = {
-      ...defaultGlyphEffectParams(fieldSynth),
-      ...(iridescentSpongePreset.params as Record<string, number | string | boolean>),
-      time: 0, marchFade: 0, lit: 0,
-    };
-    fieldSynth.program.evaluate({
-      params,
-      state: fieldSynth.program.createState ? fieldSynth.program.createState() : undefined,
-      base: {
-        cols, rows, length: n, glyph, coverage, color,
-        objectPosition: grid.objectPosition, objectExit: grid.objectExit, objectNormal: grid.objectNormal,
-      },
-      input: { cols, rows, length: n, glyph, coverage, color },
-      target: { coverage },
-      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [cols, rows], localCellFootprint: [1, 1] },
-      scratch: { images: [], floatFields: [], uintFields: [], glyphFields: [], samples: [] },
-      output,
-    } as never);
-
-    const seenColors = new Set<number>();
-    let coveredCount = 0;
-    for (let i = 0; i < n; i++) {
-      if (coverage[i]! <= 0 || output.color[i] === GlyphEffectNoColor) continue;
-      coveredCount++;
-      seenColors.add(output.color[i]!);
-    }
-    expect(coveredCount).toBeGreaterThan(50); // the sponge genuinely covers a meaningful chunk of the grid
-    // eslint-disable-next-line no-console
-    console.log(`Iridescent sponge measured tones: ${seenColors.size} (covered cells: ${coveredCount})`);
-    expect(seenColors.size).toBe(3);
-  });
-
   // "Menger (cssGraphics)" — user request to reproduce cssGraphics' own
   // Menger colour behaviour (three evenly ~120°-apart hues, cycling
   // smoothly) as closely as this engine's primitives allow. See
   // `cssGraphicsMengerPreset`'s own doc in stock.ts for the full measured
-  // reasoning (camera + `saw` wave choice). Reuses the exact same
-  // `rasterizeToCells`/direct-`evaluate()` harness as the Iridescent sponge
-  // test above (packed-color readback, not an HTML/regex scrape).
+  // reasoning (camera + `saw` wave choice). Uses `rasterizeToCells` + a
+  // direct `evaluate()` call (packed-color readback, not an HTML/regex
+  // scrape) against a REAL rasterized cube — not a hand-derived
+  // approximation.
   function packedRgbToHue(packed: number): number {
     const r = (packed >> 16) & 0xff, g = (packed >> 8) & 0xff, b = packed & 0xff;
     const rf = r / 255, gf = g / 255, bf = b / 255;

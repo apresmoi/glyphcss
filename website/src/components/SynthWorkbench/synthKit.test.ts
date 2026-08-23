@@ -244,29 +244,29 @@ describe("buildWavePathD", () => {
 // renames a preset's `.name`.
 //
 // P1-B fix: the map used to get to that object identity via a name-string
-// LOOKUP at module load (`fieldSynth.presets.find(p => p.name === "Menger
-// sponge")`, throwing if nothing matched) — rename-proof only AFTER
-// construction, not rename-proof getting there. Renaming a shipped preset in
-// `stock.ts` without updating that lookup's string crashed module
-// evaluation itself. The fix removes the lookup: `STAGE_HINTS` is built
-// directly from `GlyphMengerSpongePreset` etc. (named const exports —
-// `stock.ts` — that are the literal same objects `fieldSynth.presets`
-// holds), so there is no name string anywhere in this file to drift out of
-// sync. These tests prove that at both the unit level (object identity
-// survives a post-construction rename) and the module-init level (renaming
-// a preset's display name AT THE SOURCE, before `synthKit`'s own
-// `STAGE_HINTS` top-level runs, does not throw and the hint still applies)
-// — the real rename scenario the old name-lookup test only simulated half of.
+// LOOKUP at module load (`fieldSynth.presets.find(p => p.name === "...")`,
+// throwing if nothing matched) — rename-proof only AFTER construction, not
+// rename-proof getting there. Renaming a shipped preset in `stock.ts`
+// without updating that lookup's string crashed module evaluation itself.
+// The fix removes the lookup: `STAGE_HINTS` is built directly from
+// `GlyphBreathingGyroidPreset` etc. (named const exports — `stock.ts` —
+// that are the literal same objects `fieldSynth.presets` holds), so there
+// is no name string anywhere in this file to drift out of sync. These
+// tests prove that at both the unit level (object identity survives a
+// post-construction rename) and the module-init level (renaming a preset's
+// display name AT THE SOURCE, before `synthKit`'s own `STAGE_HINTS`
+// top-level runs, does not throw and the hint still applies) — the real
+// rename scenario the old name-lookup test only simulated half of.
 describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
   it("looks up by preset object identity — renaming a preset's display name after the fact doesn't drop its hint", () => {
-    const preset = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge");
+    const preset = (fieldSynth.presets ?? []).find((p) => p.name === "Breathing gyroid");
     expect(preset).toBeDefined();
     const before = STAGE_HINTS.get(preset!);
     expect(before).toBeDefined();
     expect(before?.shape).toBe("cube");
 
     const original = preset!.name;
-    (preset as { name: string }).name = "Renamed sponge";
+    (preset as { name: string }).name = "Renamed gyroid";
     try {
       // A `Record<string, Hint>` keyed on the OLD name would now miss.
       expect(STAGE_HINTS.get(preset!)).toBe(before);
@@ -279,16 +279,16 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
   // The real rename scenario P1-B was about: the preset's `.name` changes AT
   // THE SOURCE (`@glyphcss/effects`) before `synthKit`'s own module-level
   // `STAGE_HINTS = new Map([...])` construction runs — i.e. the moment the
-  // OLD `shippedPreset("Menger sponge")` name-lookup helper would have
-  // thrown and taken the whole module (and every page importing it) down
-  // with it. `vi.resetModules()` + a fresh dynamic `import()` re-runs that
-  // top-level construction from scratch against the renamed object.
+  // OLD `shippedPreset("...")` name-lookup helper would have thrown and
+  // taken the whole module (and every page importing it) down with it.
+  // `vi.resetModules()` + a fresh dynamic `import()` re-runs that top-level
+  // construction from scratch against the renamed object.
   it("module init never throws when a preset is renamed at the source before synthKit's own module load, and the hint still applies by identity", async () => {
     vi.resetModules();
     const effects = await import("@glyphcss/effects");
-    const renamedPreset = effects.GlyphMengerSpongePreset as { name: string };
+    const renamedPreset = effects.GlyphBreathingGyroidPreset as { name: string };
     const original = renamedPreset.name;
-    renamedPreset.name = "Renamed sponge (module init)";
+    renamedPreset.name = "Renamed gyroid (module init)";
     try {
       const freshSynthKit = await import("./synthKit");
       const hint = freshSynthKit.STAGE_HINTS.get(renamedPreset as never);
@@ -302,49 +302,43 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
   });
 
   it("every shipped stage-hinted preset resolves through STAGE_HINTS, and an un-hinted preset falls back to the space-derived default", () => {
-    const menger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge")!;
     const sierpinski = (fieldSynth.presets ?? []).find((p) => p.name === "Sierpinski pyramid")!;
-    const gyroid = (fieldSynth.presets ?? []).find((p) => p.name === "Gyroid xray")!;
+    const breathingGyroid = (fieldSynth.presets ?? []).find((p) => p.name === "Breathing gyroid")!;
+    const cssGraphicsMenger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger (cssGraphics)")!;
     const sunburst = (fieldSynth.presets ?? []).find((p) => p.name === "Sunburst")!;
-    expect(stagePreviewShape(menger)).toBe("cube");
     expect(stagePreviewShape(sierpinski)).toBe("pyramid");
-    expect(stagePreviewShape(gyroid)).toBe("cube");
+    expect(stagePreviewShape(breathingGyroid)).toBe("cube");
+    expect(stagePreviewShape(cssGraphicsMenger)).toBe("cube");
     // Sunburst has no stage hint and isn't volumetric (`space` defaults away
     // from "object") — falls back to the flat plane.
     expect(STAGE_HINTS.get(sunburst)).toBeUndefined();
     expect(stagePreviewShape(sunburst)).toBe("plane");
   });
 
-  // Perf packet follow-up: "SDF bloom" (stock.ts) is a one-way SDF erosion
-  // (`wave: "step"`, non-periodic — required to stay sphere-tracing
-  // eligible) that never returns to its start on its own. Its hint must
-  // declare `loopSeconds` so the page replays the arc instead of playing it
-  // once and sitting at the fully-eroded end state forever.
-  it("declares loopSeconds on the SDF bloom preset's hint, and leaves every other preset unset (today's plain monotonic time)", () => {
-    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
-    expect(bloom).toBeDefined();
-    // Re-pinned 15 -> 11 (user report: the old 15s window spent its last
-    // third sitting at or near fully-dissolved) — see the hint's own doc.
-    expect(STAGE_HINTS.get(bloom)?.loopSeconds).toBe(11);
-
-    const menger = (fieldSynth.presets ?? []).find((p) => p.name === "Menger sponge")!;
-    const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
-    const mengerFlow = (fieldSynth.presets ?? []).find((p) => p.name === "Menger flow")!;
-    for (const preset of [menger, mengerSdf, mengerFlow]) {
-      expect(STAGE_HINTS.get(preset)?.loopSeconds).toBeUndefined();
+  // The "SDF bloom" preset that used to declare `loopSeconds` (a one-way SDF
+  // erosion, `wave: "step"`, non-periodic — required to stay sphere-tracing
+  // eligible, so it needed a hint to replay the arc instead of sitting at
+  // its fully-eroded end state forever) was removed in a later preset cull
+  // — see AGENTS.md's "Sphere tracing for carve". No surviving preset needs
+  // this shape of animation, so every current hint leaves `loopSeconds`
+  // unset (today's plain monotonic `time`) — `wrapDrivenTime`'s own describe
+  // block below still exercises the mechanism directly.
+  it("leaves loopSeconds unset on every currently shipped preset hint (today's plain monotonic time)", () => {
+    for (const hint of STAGE_HINTS.values()) {
+      expect(hint.loopSeconds).toBeUndefined();
     }
   });
 });
 
 describe("isTimeInvariantPatch", () => {
-  it("is true when every active (amp > 0) voice has speed 0 — the shipped Menger SDF preset's own case", () => {
-    const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
-    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(mengerSdf.params as Record<string, unknown>) } as never)).toBe(true);
+  it("is true when every active (amp > 0) voice has speed 0 — the shipped Sierpinski pyramid preset's own case", () => {
+    const sierpinski = (fieldSynth.presets ?? []).find((p) => p.name === "Sierpinski pyramid")!;
+    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(sierpinski.params as Record<string, unknown>) } as never)).toBe(true);
   });
 
-  it("is false when an active voice has a nonzero speed — the shipped SDF bloom preset's own case", () => {
-    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
-    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(bloom.params as Record<string, unknown>) } as never)).toBe(false);
+  it("is false when an active voice has a nonzero speed — the shipped Breathing gyroid preset's own case", () => {
+    const breathingGyroid = (fieldSynth.presets ?? []).find((p) => p.name === "Breathing gyroid")!;
+    expect(isTimeInvariantPatch({ ...synthDefaults(), ...(breathingGyroid.params as Record<string, unknown>) } as never)).toBe(false);
   });
 
   it("ignores a nonzero speed on a MUTED voice (amp 0)", () => {
@@ -372,37 +366,37 @@ describe("isTimeInvariantPatch", () => {
 // time-invariant patch; this suite pins the invariant at the level the rest
 // of this file already tests tick-loop logic at.
 describe("computeSynthTickPlan", () => {
-  const mengerSdf = (fieldSynth.presets ?? []).find((p) => p.name === "Menger SDF")!;
-  const mengerSdfParams = { ...synthDefaults(), ...(mengerSdf.params as Record<string, unknown>) } as never;
+  const sierpinski = (fieldSynth.presets ?? []).find((p) => p.name === "Sierpinski pyramid")!;
+  const sierpinskiParams = { ...synthDefaults(), ...(sierpinski.params as Record<string, unknown>) } as never;
 
   it("orbits a time-invariant patch (the reported repro): advanceTime false, orbit true", () => {
     const plan = computeSynthTickPlan({
-      paused: false, timeScale: 1, params: mengerSdfParams,
+      paused: false, timeScale: 1, params: sierpinskiParams,
       flat: false, orbitAuto: true, orbitDragging: false,
     });
     expect(plan).toEqual({ advanceTime: false, orbit: true });
   });
 
   it("advances time for a time-variant patch regardless of orbit", () => {
-    const bloom = (fieldSynth.presets ?? []).find((p) => p.name === "SDF bloom")!;
-    const bloomParams = { ...synthDefaults(), ...(bloom.params as Record<string, unknown>) } as never;
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: bloomParams, flat: false, orbitAuto: false, orbitDragging: false }).advanceTime).toBe(true);
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: bloomParams, flat: false, orbitAuto: true, orbitDragging: false }).advanceTime).toBe(true);
+    const breathingGyroid = (fieldSynth.presets ?? []).find((p) => p.name === "Breathing gyroid")!;
+    const breathingGyroidParams = { ...synthDefaults(), ...(breathingGyroid.params as Record<string, unknown>) } as never;
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: breathingGyroidParams, flat: false, orbitAuto: false, orbitDragging: false }).advanceTime).toBe(true);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: breathingGyroidParams, flat: false, orbitAuto: true, orbitDragging: false }).advanceTime).toBe(true);
   });
 
   it("orbit is independent of paused/timeScale (mesh spin stopping must not stop the camera)", () => {
-    expect(computeSynthTickPlan({ paused: true, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
-    expect(computeSynthTickPlan({ paused: false, timeScale: 0, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
+    expect(computeSynthTickPlan({ paused: true, timeScale: 1, params: sierpinskiParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 0, params: sierpinskiParams, flat: false, orbitAuto: true, orbitDragging: false }).orbit).toBe(true);
   });
 
   it("orbit is off when orbitAuto is off, the stage is flat, or a drag is in progress", () => {
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: false, orbitDragging: false }).orbit).toBe(false);
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: true, orbitAuto: true, orbitDragging: false }).orbit).toBe(false);
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: true, orbitDragging: true }).orbit).toBe(false);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: sierpinskiParams, flat: false, orbitAuto: false, orbitDragging: false }).orbit).toBe(false);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: sierpinskiParams, flat: true, orbitAuto: true, orbitDragging: false }).orbit).toBe(false);
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: sierpinskiParams, flat: false, orbitAuto: true, orbitDragging: true }).orbit).toBe(false);
   });
 
   it("neither advances nor orbits when idle (time-invariant, orbit off) — the perf win this packet shipped", () => {
-    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: mengerSdfParams, flat: false, orbitAuto: false, orbitDragging: false })).toEqual({ advanceTime: false, orbit: false });
+    expect(computeSynthTickPlan({ paused: false, timeScale: 1, params: sierpinskiParams, flat: false, orbitAuto: false, orbitDragging: false })).toEqual({ advanceTime: false, orbit: false });
   });
 });
 

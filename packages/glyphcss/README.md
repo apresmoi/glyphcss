@@ -138,7 +138,7 @@ cells into one `<span>` while their colors stay within this redmean colour
 distance — fewer spans, faster paint, at the cost of color fidelity. Range is
 `0`–`765`, not `0`–`255` (black↔white is 764.83 under redmean); `NaN`/negative
 values degrade to `0`, `+Infinity` merges every same-glyph run in a row. It is
-a **lever, not a flat multiplier**: measured 1.2x–9.2x fewer spans
+a **lever, not a flat multiplier**: measured 1.2x–9.1x fewer spans
 (unquantized→best) depending on scene content — flat, hard-edged output
 (per-face color, carved solids) wins enormously, smooth noisy fields win
 modestly, and an already-flat scene gains nothing without regressing either. One shared comparison policy

@@ -2308,78 +2308,7 @@ export const cubeTilesPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
     color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 },
 };
 
-// The driving example from VOLUMETRIC.md: a Menger sponge carved out of a
-// plain cube mesh, with no sponge geometry and no prepared playback. Recipe
-// verbatim from the acceptance tests (stock.test.ts's `mengerParams(3)` /
-// VOLUMETRIC.md's "The acceptance pattern: Menger membership"): per scale
-// k, three axis voices (linearX/Y/Z), wave square, freq 3^(k-1), duty 1/3,
-// phase -1/3 select that scale's middle third; each layer folds its three
-// axes with add, thresholds at 0, inverts (solid = +1), and layers
-// min-blend across scales — the ±1 AND: solid overall iff every scale says
-// solid. `scale: 1/3` remaps the /synth page's centered size-3 cube
-// (extent 3, -1.5..1.5) onto the one unit-domain period this recipe
-// assumes; the square wave is exactly periodic in that domain, so a plain
-// multiplicative scale (no offset) is enough to fill the cube with one
-// full sponge regardless of where the domain's origin sits.
-//
-// Three scale layers (freq 1, 3, 9 = 3^0..3^2), not two — depth 2 shipped
-// first (VOLUMETRIC.md/VOLUMETRIC-2.md) and a depth-3 sibling shipped
-// alongside it later as a separate "Menger sponge (depth 3)" preset
-// (VOLUMETRIC-3.md §4, needing the 9-voice `SYNTH_VOICES` bump the
-// frontend didn't have yet). User decision: one Menger sponge preset, not
-// two — depth 3 reads more recursive/labyrinthine at the same cube-stage
-// camera angle and is the more interesting of the two, so it replaces
-// depth 2 under the shared "Menger sponge" name rather than the reverse;
-// depth 2's own params live on as a params-only fixture in stock.test.ts
-// for the acceptance tests that specifically exercise the lower-frequency
-// recipe (e.g. the marchSteps-floor-doesn't-bind regression), not as a
-// shipped preset.
-//
-// Safe to ship at depth 3 for a second reason, not just voice count: the
-// OLD `effectiveVoiceFinestFreq` read a square voice's finest frequency as
-// its bare `freq` (ignoring `duty`), which under-reported this recipe's
-// finest band by 3x (duty 1/3 means the narrow high band is a THIRD of a
-// `1/freq` cycle, needing `freq / (1/3) = 3*freq` to resolve — see that
-// function's own doc) — corrected in VOLUMETRIC-3.md §4. With the fix, this
-// preset's finest band (duty 1/3 at freq 9) resolves to `9 / (1/3) = 27`;
-// at this preset's `scale: 1/3` mapping onto the cube stage's body diagonal
-// (domain-unit chord length `sqrt(3) * 3 * (1/3) ≈ 1.732`), the Nyquist
-// floor is `ceil(2 * 1.732 * 27) = 94` steps — comfortably inside the
-// 256-step cap. Gated on an EMPIRICAL ground-truth march comparison
-// (stock.test.ts), not formula trust alone — a thresholded multi-layer fold
-// can in principle produce thinner walls than any single voice's own
-// frequency bound guarantees.
-export const mengerSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Menger sponge", params: {
-    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
-    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
-    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
-    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
-    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
-    field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
-    field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
-    field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
-    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
-    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
-    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
-    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
-    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
-    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
-    // Raised from the schema default (1) — VOLUMETRIC-2.md §3's "menger
-    // invisible at the oblique camera" backlog item, carried over unchanged
-    // from the depth-2 preset this merges with. The /synth stage hint table
-    // (SynthWorkbench) points the camera at a face-on-ish angle for this
-    // preset, but a shallower angle alone still reads as a flat, evenly-lit
-    // texture — the carved holes need a depth cue independent of viewing
-    // angle. A stronger `exp(-marchFade * distance)` interior falloff
-    // supplies that: near (shallow) carved walls stay bright, walls several
-    // recursion levels deep fade toward black, so the sponge's actual 3D
-    // recursive structure pops even head-on.
-    marchFade: 2.5,
-  },
-};
-
-// The base-2 sibling of the Menger recipe above (VOLUMETRIC-2.md's
+// The base-2 sibling of the Menger membership recipe (VOLUMETRIC-2.md's
 // addendum: "at every binary scale, at most one axis is in its upper
 // half" — the corner-tetra Sierpinski rule), reusing the exact same
 // per-scale shape (three axis voices, `add` fold, threshold at 0, invert,
@@ -2391,18 +2320,18 @@ export const mengerSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
 // `sierpinskiSolidRef` (a hand-derived first-principles reference,
 // independent of this recipe) in fieldProgram.test.ts and stock.test.ts.
 //
-// `scale: 1/3` mirrors the Menger preset's own domain-normalizing pin: the
-// /synth `pyramid` stage's corner tetra is authored at `s = 3` (matching
-// every other stage's `size: 3` footprint — see synthKit.tsx), so
-// `1/scale = 3` remaps `objectPosition`'s `[0,3]^3` authoring box onto the
-// `[0,1]^3` window this recipe's `phase -1/2` selectors assume. That
-// window's own corner must sit at the domain origin (not centered) for the
-// upper-half selectors to land in the right octants — the `pyramid` stage
-// is authored uncentered for exactly this reason (see its vertices in
-// synthKit.tsx).
+// `scale: 2.0` (retuned from an earlier `1/3` domain-normalizing pin — the
+// /synth `pyramid` stage's corner tetra is authored at `s = 3`, uncentered
+// so its own corner sits at the domain origin, matching this recipe's
+// `phase -1/2` upper-half selectors): the higher scale tiles several
+// repeats of the corner-tetra membership pattern across the stage's
+// footprint instead of fitting exactly one, reading as a denser, more
+// finely recursive lattice at the same camera angle. Sanity-checked by
+// direct render (stock.test.ts): still a coherent, structured carve at 2.0,
+// not noise.
 export const sierpinskiPyramidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Sierpinski pyramid", params: {
-    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+    space: "object", scale: 2.0, render: "carve", subcellRes: "1x1",
     field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 2, phase1: -1 / 2, layer1: 1,
     field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 2, phase2: -1 / 2, layer2: 1,
     field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 2, phase3: -1 / 2, layer3: 1,
@@ -2421,327 +2350,43 @@ export const sierpinskiPyramidPreset: GlyphEffectPreset<typeof fieldSynthSchema>
   },
 };
 
-// A single `gyroid` voice, absorption-mode xray (VOLUMETRIC-2.md §1's own
-// rationale: an oscillating field integrates to ~`bias` per unit length —
-// "structure averages into fog" — unless shaped near-binary first).
-// Thresholding the layer (not raising `gain`/`bias`) is the more literal
-// fix: it turns the gyroid's continuous implicit into an exact two-level
-// read of "which labyrinth half" at every point, so absorbing through a
-// hole-dominated chord and a solid-dominated chord land at genuinely
-// different brightness levels instead of both washing out toward the same
-// mid-gray fog average.
-//
-// Retuned (user report: "looks awful, too much transparency and high scale
-// doesn't let you see anything") from the original `scale: 1, freq1: 2,
-// xrayGain: 1.5`. Real-scene band-contrast measurement (the cube stage,
-// rotX 22/rotY 30, the same harness stock.test.ts's P2 describe block
-// uses) diagnosed BOTH complaints as the same root cause: `scale * freq`
-// packed ~4 gyroid periods across the cube's body diagonal, so at every
-// chord the labyrinth's own solid/hole alternation averaged out within a
-// single cell — same failure mode as the un-thresholded "fog" case, just
-// one level removed — and the low `xrayGain` then made even the
-// hole-dominated average read as a faint, near-empty (transparent) cell.
-// `scale: 1 → 0.4` and `freq1: 2 → 1.5` together drop the period count to
-// under 1 across the cube (bigger, individually resolvable labyrinth
-// cells); `xrayGain: 1.5 → 3` restores absorption contrast now that a
-// chord more often stays on one side of the labyrinth for its whole
-// length. Measured on the real cube-stage chords (stock.test.ts's P2
-// describe block): the chord-controlled within-chord-length-bin brightness
-// std rose from ~0.069 (old) to ~0.102 (new) — a real, not just
-// proportional, legibility gain — while the ratio against the
-// `layerThresholdOn1: false` negative control on the SAME chords stayed
-// comfortably above 1 (~1.27), so the threshold shaping is still doing the
-// separating, not merely a higher-contrast fog. Eyeballed via ASCII dumps
-// of the real render: the old params painted one nearly-solid, edge-lit
-// blob; the retuned params paint a legible meander of open/solid cells
-// that actually reads as a labyrinth.
-export const gyroidXrayPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Gyroid xray", params: {
+// `field: "menger"`/`"sierpinski"` SDF voices (VOLUMETRIC-2.md §2) are
+// genuine implicit-distance fields, unlike the linear-voice recipe
+// `sierpinskiPyramidPreset` uses above — they read the voice origin as a
+// pre-evaluation TRANSLATION (see AGENTS.md's "SDF voice family") rather
+// than a periodic multiplicative `scale`, and are what qualifies a patch
+// for `buildGlyphFieldDistanceOracle`'s sphere-tracing path (every active
+// voice `wave: "step"`, `amp === 1`, single `combine: "min"` layer,
+// threshold off). No shipped preset currently exercises either the SDF
+// voice family or sphere tracing — see AGENTS.md's "Sphere tracing for
+// carve" for the mechanism, which remains fully implemented and tested
+// independent of any preset.
+
+// `breathingGyroidPreset`'s own recipe below is the surviving animated
+// gyroid/xray patch; its params are the retuned single-`gyroid`-voice,
+// thresholded absorption-mode xray recipe (VOLUMETRIC-2.md §1: an
+// oscillating field integrates to ~`bias` per unit length — "structure
+// averages into fog" — unless shaped near-binary first via a layer
+// threshold), inlined here with `speed1: 0.15` added so the SAME
+// `sdfRaw - time*speed + phase` term the SDF branch already computes (see
+// `sampleFieldVoice`) slides the gyroid's implicit surface through the
+// volume every frame — the absorbed labyrinth pattern morphs continuously
+// rather than staying static. `scale: 0.4`/`freq1: 1.5`/`xrayGain: 3` keep
+// under one gyroid period across the cube's body diagonal (individually
+// resolvable labyrinth cells) with enough absorption contrast that a
+// chord's own solid/hole alternation reads instead of washing out to fog —
+// measured directly on the real cube-stage chords (stock.test.ts): the
+// chord-controlled within-chord-length-bin brightness std rose from ~0.069
+// (un-thresholded) to ~0.102 (thresholded, these params). `speed: 0.15`
+// eyeballed via ASCII dumps at t=0/2/4 on the real cube stage: the
+// labyrinth stays legible and clearly distinct at every sampled time.
+export const breathingGyroidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
+  name: "Breathing gyroid", params: {
     space: "object", scale: 0.4, render: "xray", xrayGain: 3,
-    field1: "gyroid", wave1: "sin", freq1: 1.5, speed1: 0, amp1: 1, phase1: 0,
+    field1: "gyroid", wave1: "sin", freq1: 1.5, speed1: 0.15, amp1: 1, phase1: 0,
     amp2: 0, amp3: 0,
     layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: false,
     glyphs: " .:-=+*#%@", color: "#8fd8ff", colorB: "#c9a6ff", gradient: 0.6, lit: 1,
-  },
-};
-
-// The sphere-tracing oracle's own fixtures (VOLUMETRIC-3.md §3): a genuine
-// `field: "menger"`/`"sierpinski"` SDF voice, not the linear-voice recipe
-// `mengerSpongePreset`/`sierpinskiPyramidPreset` use — those recipes can
-// never qualify (`buildGlyphFieldDistanceOracle` only reads the SDF voice
-// family), so no shipped preset exercised the sphere-tracing path before
-// these two. Every condition of the qualifying predicate is met: one
-// populated layer, `wave: "step"`, `amp1: 1`, `combine: "min"` (needed even
-// with a single voice — the predicate checks it literally, VOLUMETRIC-3.md
-// §3), `layerThresholdOn1` at its schema default `false`, and `bias`/`gain`
-// left at their schema defaults (0.5/1), which already sit inside the
-// step-selective regime (`0.5+0.5=1>0`, `0.5-0.5=0<=0`) — no preset-level
-// override needed for that half of the predicate.
-//
-// `iter1: 3` is the task's requested depth (also the schema default) —
-// deep enough to need many fixed-step samples per cell (matching the bench
-// scenario below) while staying inside the 256-step cap comfortably at
-// these frequencies.
-
-// `field: "menger"` has no periodic reduction (VOLUMETRIC-2.md §2: a single
-// fixed instance of the fractal, unlike the linear recipe's periodic square
-// waves), so — unlike `mengerSpongePreset` — a plain multiplicative `scale`
-// isn't enough to align it with the /synth cube stage's CENTERED authoring
-// box (extent 3, -1.5..1.5): the fractal's own lattice domain is [0,1]^3,
-// not periodic, so it must be explicitly translated to overlap the visible
-// cube. `sampleFieldVoice`'s SDF branch computes
-// `q = objectPosition·scale - (originU·scale + originU1·scale)` per axis
-// (the patch-level and per-voice origins both translate in raw
-// objectPosition units, unlike every other field's normalized-UV
-// `originU`/`originV`), then `f = q·freq` is what actually samples the
-// [0,1]^3 lattice — so `f = 0` lands at `objectPosition = originU+originU1`
-// and `f = 1` lands at `objectPosition = (originU+originU1) + 1/freq`,
-// INDEPENDENT of each other's choice of `freq` (a bug fixed in this same
-// slice: an earlier revision picked `freq1: 0.4` to land the cube's `+1.5`
-// edge exactly on the lattice's own right boundary, `f = 1` at
-// `objX = 1.5` — correct numerically, but it anchored only ONE edge, so the
-// lattice cell sat pushed against the cube's `+X`/`+Y`/`+Z` faces with all
-// of the resulting slack on the `-X`/`-Y`/`-Z` side: the fractal read
-// visibly off-center, not the "small empty margin" the old comment
-// intended). The schema's combined origin range (`originU` 0..1 plus a
-// voice's own `originU1` -1..1) bottoms out at `-1` (`originU: 0`,
-// `originU1: -1`, both already at their preset/schema minimum below) — that
-// is the LARGEST-magnitude origin this preset can reach, so it is also the
-// best achievable `f = 0` anchor for a SYMMETRIC fit. Solving
-// `(originU+originU1) + 0.5/freq = 0` (lattice center at the cube's own
-// object-space center) with that fixed `-1` anchor gives `freq1: 0.5`: `f`
-// then spans `objX = -1 .. +1`, i.e. the full [0,1]^3 lattice cell centered
-// exactly on the cube's own center, with an equal 0.5-unit margin on every
-// one of the cube's 6 faces (verified numerically, and by the oracle-level
-// centering test in stock.test.ts) — the largest centered lattice cell this
-// origin range can reach, at the cost of that margin instead of the old
-// version's one-sided flush edge. `scale: 1` (objectPosition read directly,
-// no rescale) keeps that derivation in one
-// step instead of two compounding ones.
-export const mengerSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Menger SDF", params: {
-    space: "object", scale: 1, render: "carve",
-    combine: "min", originU: 0, originV: 0,
-    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
-    originU1: -1, originV1: -1, originW1: -1,
-    amp2: 0, amp3: 0,
-    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
-    marchFade: 2.5,
-  },
-};
-
-// `field: "sierpinski"`'s sibling fixture, aimed at the `pyramid` stage
-// exactly like the linear-recipe `sierpinskiPyramidPreset` — and, unlike the
-// Menger fixture above, needs NO origin correction: the pyramid stage's own
-// corner tetra is authored UNCENTERED, spanning objectPosition [0,3]^3 with
-// its own corner already at the domain origin (see
-// `sierpinskiPyramidPreset`'s doc), so `scale: 1/3` alone maps it exactly
-// onto the SDF family's own [0,1]^3 lattice domain — the same alignment
-// that recipe's comment describes, just without that recipe's periodicity
-// making it forgiving of a bad origin. `originU`/`originV` are still pinned
-// to 0 (overriding the 0.5 schema default) because the SDF voice family
-// reads origin as a real translation, unlike the linear voices the schema
-// default was chosen around.
-export const sierpinskiSdfPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Sierpinski SDF", params: {
-    space: "object", scale: 1 / 3, render: "carve",
-    combine: "min", originU: 0, originV: 0,
-    field1: "sierpinski", wave1: "step", freq1: 1, speed1: 0, amp1: 1, iter1: 3,
-    amp2: 0, amp3: 0,
-    glyphs: " .:-=+*#%@", color: "#ffb454", colorB: "#ff5da2", gradient: 0.4, lit: 1,
-    marchFade: 2,
-  },
-};
-
-// User report: "we don't have any animation for the volumetric ones" — every
-// volumetric preset above ships with every `speedN` at its inert `0`, so
-// `time` has no effect on any of them despite the field program having a
-// genuine, already-wired time axis (`raw*freq - time*speed + phase`, the
-// same mechanism every 2D preset's own animation already uses). These three
-// presets are exactly the existing recipes above with nonzero `speedN` —
-// no new params, no new render machinery, just turning on an axis that was
-// already there.
-//
-// `mengerSpongePreset`'s own recipe, unchanged except for speed: the X-axis
-// voice at each of the three scale layers (`field1`/`field4`/`field7`,
-// freq 1/3/9) gets the SAME `speed` (a phase-CYCLES-per-second rate, per the
-// schema's `unit: "cyc/s"` — NOT a raw-position rate, so one shared value
-// keeps every scale's own pattern completing cycles in lockstep rather than
-// drifting apart), while the Y/Z voices at each layer stay at `speed: 0` —
-// an isotropic drift on all 9 voices reads as directionless noise; a single
-// drifting axis reads as the carved walls sweeping through the cube along
-// one axis, which is the "flow" this preset is named for. Tuned on the real
-// `cube` stage (rotX 15/rotY 40, matching `mengerSpongePreset`'s own stage
-// hint): `speed: 0.15` sweeps a visibly different hole pattern every ~1-2s
-// of `time` without the recursive structure dissolving into pure noise —
-// eyeballed via ASCII dumps at t=0/1/2 on the real size-3 cube stage.
-export const mengerFlowPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Menger flow", params: {
-    ...(mengerSpongePreset.params as AnyParams),
-    speed1: 0.15, speed4: 0.15, speed7: 0.15,
-  } as never,
-};
-
-// `gyroidXrayPreset`'s own recipe, unchanged except for speed on its one
-// voice. A gyroid's absorption-mode xray already reads as an organic
-// labyrinth (VOLUMETRIC-2.md §1) — animating it costs nothing extra: the
-// SAME `sdfRaw - time*speed + phase` term the SDF branch already computes
-// (see `sampleFieldVoice`) slides the gyroid's implicit surface through the
-// volume every frame, so the absorbed labyrinth pattern morphs continuously
-// instead of a hard directional sweep (unlike `mengerFlowPreset`'s linear
-// axis voices, `gyroid`'s own three-term sum has no single "flow axis" —
-// the whole implicit surface deforms in place, which is what reads as
-// "breathing" rather than "flowing"). `speed: 0.15` matches `mengerFlowPreset`'s
-// own tuned rate — eyeballed via ASCII dumps at t=0/2/4 on the real cube
-// stage: the labyrinth stays legible and clearly distinct at every sampled
-// time, never washing out toward uniform fog the way the pre-retune preset
-// did even at a single fixed time (see `gyroidXrayPreset`'s own doc).
-export const breathingGyroidPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Breathing gyroid", params: {
-    ...(gyroidXrayPreset.params as AnyParams),
-    speed1: 0.15,
-  } as never,
-};
-
-// `mengerSdfPreset`'s own recipe, unchanged except for speed on its one SDF
-// voice — deliberately keeps `wave: "step"` (not a periodic wave) so the
-// preset stays inside `buildGlyphFieldDistanceOracle`'s qualifying predicate
-// (VOLUMETRIC-3.md §3: every active voice must be `wave: "step"`) and keeps
-// sphere-tracing this preset already exercises unanimated. The oracle folds
-// `c = phase - speed*time` once per `evaluate()` call (fieldProgram.ts's
-// `buildGlyphFieldDistanceOracle`, `perVoice.c`), so animating `speed` is
-// already fully plumbed through the sphere-tracing path with no oracle
-// change needed — verified directly in stock.test.ts's two-time-samples
-// oracle test, not assumed.
-//
-// UNLIKE `mengerFlowPreset`/`breathingGyroidPreset` (whose `square`/`sin`
-// waves are genuinely periodic in their argument), `wave: "step"` is
-// explicitly non-periodic (`synthWave`'s own doc: "Non-periodic: +1 when
-// t >= 0, else -1"): raising `c` over time only ever SHRINKS the solid
-// region (never wraps back), so this preset is a one-way erosion/bloom, not
-// a looping breathe cycle — an inherent property of keeping `step` for
-// sphere-tracing eligibility, not a bug. Measured directly on the real
-// `mengerSdfPreset` recipe (iter 3, freq 0.5): the fractal is visually
-// unchanged until the accumulated `speed * time` shift passes ~0.008, then
-// visibly dissolves into an open lace/foam texture through ~0.016, and is
-// fully eroded (zero coverage) by ~0.018 — a narrow window set by the
-// recursion's own raw SDF value range at this `freq`, not a tuning choice.
-// `speed: 0.0012` spans that whole window over ~15s of `time` (0.0012 * 15
-// = 0.018), landing the interesting dissolving-lace midpoint around t=9-11
-// — eyeballed via ASCII dumps on the real cube stage. A consumer wanting a
-// repeating loop resets/wraps `time` itself; the preset's own params have
-// no periodic-and-sphere-traceable way to do that (an oscillating wave
-// would restore periodicity but drop out of the qualifying predicate
-// entirely, per the note above).
-// `marchFade: 1.2` (retuned down from the inherited `mengerSdfPreset` value
-// of 2.5 — user report: "why is the SDF bloom so dark and darker every
-// time?") is set HERE, not on `mengerSdfPreset` itself, so the static
-// "Menger SDF" preset's own tuning is untouched — this is an override on top
-// of the spread, exactly like `speed1` already is. Measured on the real
-// `/synth` stage's default lighting (matching `synthUrlState.ts`'s
-// `DEFAULT_LIGHTING` through `synthKit.tsx`'s `buildLighting`), same probe
-// camera as the sphere-tracing/time-animation tests below (`rotX 15, rotY
-// 40, zoom 380`, carve cube): at `marchFade: 2.5` a mid-erosion frame (t=6)
-// averages ~95/255 over its own covered cells; every marchFade in
-// 0.6..2.5 was swept and 1.2 was picked as the shipped value — comfortably
-// brighter (~121/255 at t=6, +27%) while still keeping SOME depth-darkening
-// falloff (not flattened to 0, which would erase the depth cue entirely).
-// The erosion TIMELINE itself (cell count vs. time) is unaffected by
-// `marchFade` — it's a pure colour-falloff parameter, never occupancy — so
-// this is independent of the `loopSeconds` retune in `synthKit.tsx`'s
-// `STAGE_HINTS` (that fixes the OTHER half of the complaint: the preset
-// spends the last third of its 15s loop nearly/fully dissolved).
-export const sdfBloomPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "SDF bloom", params: {
-    ...(mengerSdfPreset.params as AnyParams),
-    speed1: 0.0012, marchFade: 1.2,
-  } as never,
-};
-
-// The colour voice stack's own shipped patch (VOLUMETRIC-4.md §1's "Shipped
-// patch") — one `incidence` colour voice in `colorMode: "hue"` is genuine
-// fresnel/rim-style iridescence, but its honest look differs by stage
-// geometry, which is why this ships as TWO presets rather than one:
-//
-// - "Iridescent sponge" (this preset): `mengerSpongePreset`'s exact recipe,
-//   unchanged, on the same axis-aligned cube stage. Under ORTHOGRAPHIC
-//   projection every view ray is parallel, so on an axis-aligned mesh
-//   `1 - |objectNormal . viewDir|` takes exactly THREE values — one per
-//   visible cube face (a reviewer-computed measurement at the real `/synth`
-//   ortho camera: 0.719 / 0.551 / 0.152, pinned in stock.test.ts). `cspeed1`
-//   slowly walks the shared `sin` phase, so those three flat face tones
-//   CYCLE through the hue wheel over time — this is precisely the cssGraphics
-//   Menger look (its palette was face-indexed and advanced with the rotation
-//   cycle). The claim here is "we reproduce it", NOT "we make it
-//   continuous" — see "Iridescent shell" below for that.
-//
-//   `hueLight: 75` (retuned from an initial 55 — see VOLUMETRIC-4.md's
-//   Reconciliation): `resolveFieldSynthColor` (this file) multiplies the
-//   hue-mapped colour by the cube's real per-cell Lambert shade whenever
-//   `lit > 0` (kept at its schema default, 1 — that shading is what makes
-//   the sponge read as lit geometry rather than a flat decal, so the fix
-//   compensates by raising the pre-shade base lightness instead of
-//   flattening the lighting response). Measured on the real mounted `/synth`
-//   cube stage (`renderAt`-style: `createGlyphScene` + `addEffectLayer`,
-//   64x40 grid, the real orthographic camera `rotX:15, rotY:40, zoom:380`,
-//   average of every rendered `<span style="color:#...">`'s HSL lightness):
-//   `hueLight: 55` (pre-fix) → avgL 0.325 (minL 0.043, maxL 0.494, reading
-//   as near-black navy/maroon, matching the reported "dark blue / dark red"
-//   complaint); `hueLight: 75` → avgL 0.443 (minL 0.059, maxL 0.675, +36%
-//   brighter on average) while the three hues stay exactly as distinct
-//   (`hueSat`/`hueRange`/`hueOffset` untouched, so the pinned "exactly three
-//   distinct incidence-driven tones" test is unaffected).
-export const iridescentSpongePreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Iridescent sponge", params: {
-    ...(mengerSpongePreset.params as AnyParams),
-    colorStackOn: true, colorMode: "hue",
-    cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
-    hueRange: 360, hueOffset: 0, hueSat: 80, hueLight: 75,
-  } as never,
-};
-
-// - "Iridescent shell": the SAME colour stack (mirrored `cfield1`/`cwave1`/
-//   `cspeed1`), on a SPHERE stage instead — the object-space normal varies
-//   CONTINUOUSLY over a sphere's surface, so `incidence` sweeps smoothly from
-//   0 (face-on, the silhouette's own center) to 1 (grazing, the silhouette's
-//   rim) instead of collapsing to a handful of flat per-face tones like the
-//   sponge above. What this buys is genuinely SMOOTH per-facet incidence, not
-//   a continuous glyph gradient — glyphcss is a flat-shaded rasterizer
-//   (`objectNormal` is the constant GEOMETRIC face normal, AGENTS.md), so a
-//   coarse sphere still shows its tessellation as visible facets; see
-//   VOLUMETRIC-4.md's Reconciliation for the corrected claim and why fixing
-//   that (vertex-interpolated/smooth normals) is out of scope here. Geometry
-//   is deliberately flat (`bias: 1, gain: 0` forces full coverage regardless
-//   of `field1`'s own value, and a single-glyph ramp keeps every covered cell
-//   the same dense glyph) so the colour stack owns the entire visible result
-//   — nothing about the shape itself competes with the iridescence for
-//   attention.
-//
-//   `hueSat: 45, hueRange: 150` (retuned from an initial `hueSat: 90,
-//   hueRange: 360` — see VOLUMETRIC-4.md's Reconciliation): the un-tuned
-//   values swept the FULL hue wheel at near-maximum saturation, reading as a
-//   harsh full-spectrum neon rainbow rather than believable iridescence
-//   (thin-film interference shifts through a soft, muted BAND of the
-//   spectrum, not the whole wheel at full chroma). `hueLight` stays at its
-//   schema default (55) — measured average rendered lightness is unaffected
-//   by either `hueSat` or `hueRange` (HSL lightness is independent of hue and
-//   saturation by construction) and was already well-balanced (avgL ~0.48,
-//   neither crushed nor blown out) both before and after this retune, on the
-//   real mounted `/synth` sphere stage (`spherePolygons({ size: 1.5 })`, the
-//   real default isometric camera `rotX:58, rotY:32, zoom:220`). Narrowing
-//   `hueRange` to 150° (under half the wheel) turns the sweep into a
-//   shifting warm-to-cool band instead of a full spectral cycle, and halving
-//   `hueSat` desaturates it toward pastel; both keep the sweep genuinely
-//   continuous and still fully cycling over time via `cspeed1`.
-export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
-  name: "Iridescent shell", params: {
-    space: "object", scale: 1, render: "paint",
-    field1: "radial", wave1: "sin", freq1: 1, amp1: 1,
-    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, amp7: 0, amp8: 0, amp9: 0,
-    bias: 1, gain: 0, glyphs: "█",
-    colorStackOn: true, colorMode: "hue",
-    cfield1: "incidence", cwave1: "sin", cfreq1: 1, cspeed1: 0.05, camp1: 1, camp2: 0, camp3: 0,
-    hueRange: 150, hueOffset: 0, hueSat: 45, hueLight: 55,
   },
 };
 
@@ -2773,16 +2418,15 @@ export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
 // regardless of which face), collapsing all three faces to one identical
 // hue — architecturally a dead end, not a tuning miss.
 //
-// The single-voice `incidence` approach both existing iridescent presets use
-// (`iridescentSpongePreset` above) beats both of those, but its DEFAULT
-// camera (`STAGE_HINTS`' `rotX:15, rotY:40`, shared with `mengerSpongePreset`)
-// gives an unevenly-spaced triple (measured 0.152/0.551/0.719 — see
-// `iridescentSpongePreset`'s own doc) — nowhere near 120° apart in hue once
+// The single-voice `incidence` colour-stack approach (VOLUMETRIC-4.md §1)
+// beats both of those, but its default camera (`STAGE_HINTS`' shared
+// `rotX:15, rotY:40` Menger-recipe hint) gives an unevenly-spaced triple
+// (measured 0.152/0.551/0.719) — nowhere near 120° apart in hue once
 // mapped through `colorMode: "hue"`. Two further measured fixes, together
 // closing that gap to within ~1-5°:
 //
-// 1. **`cwave1: "saw"` instead of `"sin"`.** `sin` is what the existing
-//    iridescent presets use, but it is NONLINEAR: a camera tuned so the
+// 1. **`cwave1: "saw"` instead of `"sin"`.** `sin` is the more obvious
+//    choice, but it is NONLINEAR: a camera tuned so the
 //    THREE face incidences map to evenly-spaced hues at time=0 does NOT stay
 //    evenly spaced as `cspeed1` advances the shared `-time*speed` term
 //    through `sin`'s curve — measured directly (this preset's own scratch
@@ -2796,7 +2440,7 @@ export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
 //    once-per-cycle-per-face jump, not a sustained drift). Measured across a
 //    full period (`time` 0 through ~64.4, this preset's own `cspeed1`
 //    period): gaps hold at 119-121° throughout, vs. sin's 10-246° swing.
-// 2. **Camera retuned to `rotX: 32.5, rotY: 19`** (from `mengerSpongePreset`'s
+// 2. **Camera retuned to `rotX: 32.5, rotY: 19`** (from the Menger recipe's
 //    shared `rotX: 15, rotY: 40` hint) — because `saw` makes hue an EXACT
 //    affine function of incidence (`freq1: 1` — no wave nonlinearity to
 //    exploit), evening the hue gaps is exactly evening the INCIDENCE gaps,
@@ -2814,15 +2458,34 @@ export const iridescentShellPreset: GlyphEffectPreset<typeof fieldSynthSchema> =
 // own approximate republish rate; verified by sampling rendered hues across
 // a `time` sweep (t=0 and t≈64.4 — one full period at this speed — land on
 // nearly the same triple, confirming the period). `hueSat: 45, hueLight: 60`
-// (muted, not a saturated rainbow — same retuning philosophy as
-// `iridescentShellPreset` above, whose own `hueSat: 45` this mirrors);
-// measured average rendered luminance across `hueSat`/`hueLight` candidates
+// (muted, not a saturated rainbow); measured average rendered luminance
+// across `hueSat`/`hueLight` candidates
 // (70/55, 50/58, 45/60, 40/62) stayed comfortably bright throughout
 // (159-166/255), so the choice is purely about chroma character, not
 // legibility.
 export const cssGraphicsMengerPreset: GlyphEffectPreset<typeof fieldSynthSchema> = {
   name: "Menger (cssGraphics)", params: {
-    ...(mengerSpongePreset.params as AnyParams),
+    // Inlined Menger-membership recipe (no longer a shared preset to spread
+    // from — see the base-2 Sierpinski recipe's own doc above for the
+    // shape: per scale k, three axis voices select that scale's middle
+    // third, fold with add/threshold/invert, and layers min-blend across
+    // scales). `scale`/`marchFade`/`marchSteps` below are this preset's own
+    // hand-tuned overrides on top of that base recipe, folded directly into
+    // their final values rather than layered as a spread + override.
+    space: "object", render: "carve", subcellRes: "1x1",
+    field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
+    field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
+    field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
+    layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+    field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
+    field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
+    field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
+    layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+    field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
+    field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
+    field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
+    layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
+    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
     colorStackOn: true, colorMode: "hue",
     cfield1: "incidence", cwave1: "saw", cfreq1: 1, cspeed1: 0.0155, camp1: 1, camp2: 0, camp3: 0,
     hueRange: 360, hueOffset: 0, hueSat: 45, hueLight: 60,
@@ -2845,8 +2508,8 @@ export const cssGraphicsMengerPreset: GlyphEffectPreset<typeof fieldSynthSchema>
     // min(256, ceil(2 * chordLength * finestFreq)))`, and this recipe's own
     // finest voice (freq 9, duty 1/3 square wave) resolves to an effective
     // frequency of 27 regardless of `marchSteps` (see `effectiveVoiceFinestFreq`
-    // in fieldProgram.ts and this file's own Menger-sponge doc above). At the
-    // cube stage's scaled body diagonal (`sqrt(3) * 3 * 0.7 ≈ 3.64` domain
+    // in fieldProgram.ts). At the cube stage's scaled body diagonal
+    // (`sqrt(3) * 3 * 0.7 ≈ 3.64` domain
     // units) that Nyquist floor alone resolves to `ceil(2 * 3.64 * 27) = 197`
     // steps — the ACTUAL step count every carve ray in this preset marches
     // at, regardless of the `marchSteps: 1` knob. Setting `marchSteps` this
@@ -2913,16 +2576,8 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Weave", params: { field1: "linearX", wave1: "triangle", freq1: 7, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "triangle", freq2: 7, speed2: -0.4, amp2: 1, amp3: 0, combine: "add", scale: 2, glyphs: " ░▒▓█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
   { name: "Pulse grid", params: { field1: "linearX", wave1: "sin", freq1: 8, speed1: 1, amp1: 1, field2: "linearY", wave2: "sin", freq2: 8, speed2: 1, amp2: 1, amp3: 0, combine: "multiply", scale: 2, gain: 1.5, glyphs: "  ·:+#@", color: "#ffcf5a", gradient: 0 } },
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
-  mengerSpongePreset,
   sierpinskiPyramidPreset,
-  gyroidXrayPreset,
-  mengerSdfPreset,
-  sierpinskiSdfPreset,
-  mengerFlowPreset,
   breathingGyroidPreset,
-  sdfBloomPreset,
-  iridescentSpongePreset,
-  iridescentShellPreset,
   cssGraphicsMengerPreset,
 ];
 

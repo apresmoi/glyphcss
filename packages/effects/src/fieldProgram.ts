@@ -560,12 +560,11 @@ export function sampleFieldVoice(
     // alone). A patch that leaves `originU`/`originV` at their nonzero
     // schema default (0.5) while relying on `originU1`/`originV1`/`originW1`
     // for SDF alignment gets a DIFFERENT total X/Y offset than Z — X/Y
-    // recentre, Z stays anchored to the per-voice value alone. Every shipped
-    // SDF preset avoids this by pinning `originU: 0, originV: 0` explicitly
-    // (see `mengerSdfPreset`/`sierpinskiSdfPreset` in stock.ts) so all three
-    // axes read only their own per-voice origin, symmetrically — a future
-    // SDF preset or patch that skips that pin will NOT get symmetric
-    // translation across axes.
+    // recentre, Z stays anchored to the per-voice value alone. No SDF preset
+    // currently ships (see AGENTS.md's "Sphere tracing for carve"), but any
+    // SDF patch should pin `originU: 0, originV: 0` explicitly so all three
+    // axes read only their own per-voice origin, symmetrically — a patch
+    // that skips that pin will NOT get symmetric translation across axes.
     const qx = sx - cx;
     const qy = sy - cy;
     const qz = z - cz;

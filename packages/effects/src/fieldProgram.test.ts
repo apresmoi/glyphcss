@@ -28,27 +28,78 @@ import {
   type FieldSampler,
   type FieldVoice,
 } from "./fieldProgram";
-// The equivalence-bar tests below compile the REAL "Menger SDF"/"Sierpinski
-// SDF" presets (VOLUMETRIC-3.md §3's own fixtures) through the SAME
-// params->IR compile field-synth's `evaluate()` uses, instead of a
-// hand-rolled program that could drift from what actually ships — the same
-// "compile once, evaluate everywhere" discipline `compileFieldSynthProgram`'s
-// own doc describes.
+// The equivalence-bar tests below compile SDF-voice fixtures reproducing the
+// recipes the (now-removed, see AGENTS.md's "Sphere tracing for carve")
+// "Menger SDF"/"Sierpinski SDF" presets used to ship (VOLUMETRIC-3.md §3's
+// own fixtures) through the SAME params->IR compile field-synth's
+// `evaluate()` uses, instead of a hand-rolled program that could drift from
+// what the real pipeline actually compiles — the same "compile once,
+// evaluate everywhere" discipline `compileFieldSynthProgram`'s own doc
+// describes.
 import {
+  breathingGyroidPreset,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
   defaultGlyphEffectParams,
   fieldSynth,
-  gyroidXrayPreset,
-  mengerSdfPreset,
-  mengerSpongePreset,
   resolveFieldSynthLayerShapes,
   sierpinskiPyramidPreset,
-  sierpinskiSdfPreset,
   type AnyParams,
   type GlyphEffectPreset,
 } from "./stock";
+
+// The depth-3 Menger membership recipe (VOLUMETRIC.md/VOLUMETRIC-3.md §4) —
+// no longer a shipped preset (removed in a later preset cull). Reproduced
+// verbatim as a standalone fixture (see stock.test.ts's own
+// `mengerSpongeDepth3Params`, the same recipe).
+const mengerSpongeDepth3Params: Record<string, number | string | boolean> = {
+  space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+  field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1, duty1: 1 / 3, phase1: -1 / 3, layer1: 1,
+  field2: "linearY", wave2: "square", freq2: 1, speed2: 0, amp2: 1, duty2: 1 / 3, phase2: -1 / 3, layer2: 1,
+  field3: "linearZ", wave3: "square", freq3: 1, speed3: 0, amp3: 1, duty3: 1 / 3, phase3: -1 / 3, layer3: 1,
+  layerCombine1: "add", layerThresholdOn1: true, layerThreshold1: 0, layerInvert1: true, layerBlend1: "min", layerAmp1: 1,
+  field4: "linearX", wave4: "square", freq4: 3, speed4: 0, amp4: 1, duty4: 1 / 3, phase4: -1 / 3, layer4: 2,
+  field5: "linearY", wave5: "square", freq5: 3, speed5: 0, amp5: 1, duty5: 1 / 3, phase5: -1 / 3, layer5: 2,
+  field6: "linearZ", wave6: "square", freq6: 3, speed6: 0, amp6: 1, duty6: 1 / 3, phase6: -1 / 3, layer6: 2,
+  layerCombine2: "add", layerThresholdOn2: true, layerThreshold2: 0, layerInvert2: true, layerBlend2: "min", layerAmp2: 1,
+  field7: "linearX", wave7: "square", freq7: 9, speed7: 0, amp7: 1, duty7: 1 / 3, phase7: -1 / 3, layer7: 3,
+  field8: "linearY", wave8: "square", freq8: 9, speed8: 0, amp8: 1, duty8: 1 / 3, phase8: -1 / 3, layer8: 3,
+  field9: "linearZ", wave9: "square", freq9: 9, speed9: 0, amp9: 1, duty9: 1 / 3, phase9: -1 / 3, layer9: 3,
+  layerCombine3: "add", layerThresholdOn3: true, layerThreshold3: 0, layerInvert3: true, layerBlend3: "min", layerAmp3: 1,
+  glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+  marchFade: 2.5,
+};
+
+// The "Menger SDF" / "Sierpinski SDF" recipes (VOLUMETRIC-3.md §3) — no
+// longer shipped presets (both removed in a later preset cull, along with
+// the third and only other sphere-tracing-qualifying preset, "SDF bloom" —
+// see AGENTS.md's "Sphere tracing for carve"), reproduced verbatim as
+// standalone fixtures so this file's real-pipeline equivalence-bar tests
+// keep exercising the sphere-tracing path.
+const mengerSdfFixture: GlyphEffectPreset<typeof fieldSynth.parameterSchema> = {
+  name: "Menger SDF (fixture)",
+  params: {
+    space: "object", scale: 1, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
+    originU1: -1, originV1: -1, originW1: -1,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+const sierpinskiSdfFixture: GlyphEffectPreset<typeof fieldSynth.parameterSchema> = {
+  name: "Sierpinski SDF (fixture)",
+  params: {
+    space: "object", scale: 1 / 3, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "sierpinski", wave1: "step", freq1: 1, speed1: 0, amp1: 1, iter1: 3,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#ffb454", colorB: "#ff5da2", gradient: 0.4, lit: 1,
+    marchFade: 2,
+  },
+};
 // The equivalence-bar tests below harvest REAL objectPosition -> objectExit
 // chords from an actual rendered scene (the same "passive observer layer"
 // pattern stock.test.ts's own dynamicRequirements test uses) rather than
@@ -2151,8 +2202,8 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
   // "Menger SDF" the centered cube (extent 3), "Sierpinski SDF" the
   // uncentered [0, 3]^3 corner box the real pyramid stage occupies.
   const CASES: readonly [string, GlyphEffectPreset<typeof fieldSynth.parameterSchema>, readonly Polygon[]][] = [
-    ["Menger SDF", mengerSdfPreset, boxPolygons(1.5)],
-    ["Sierpinski SDF", sierpinskiSdfPreset, boxPolygons(1.5).map((p) => ({ ...p, vertices: p.vertices.map(([x, y, z]: Vec3) => [x + 1.5, y + 1.5, z + 1.5] as Vec3) }))],
+    ["Menger SDF", mengerSdfFixture, boxPolygons(1.5)],
+    ["Sierpinski SDF", sierpinskiSdfFixture, boxPolygons(1.5).map((p) => ({ ...p, vertices: p.vertices.map(([x, y, z]: Vec3) => [x + 1.5, y + 1.5, z + 1.5] as Vec3) }))],
   ];
 
   for (const [name, preset, polys] of CASES) {
@@ -2237,7 +2288,7 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
 // revision picked `freq1: 0.4` to land the CUBE's `+1.5` edge exactly on
 // the lattice's `f = 1` boundary, which only anchors ONE edge and leaves
 // all the slack on the opposite side (visibly off-center). The fix (see
-// `mengerSdfPreset`'s doc in stock.ts) is `freq1: 0.5`, chosen so the
+// `mengerSdfFixture`'s doc above) is `freq1: 0.5`, chosen so the
 // lattice's OWN center (`f = 0.5` on every axis) lands exactly at the
 // cube's object-space center (0, 0, 0) instead. The Menger sponge
 // construction is symmetric under reflection about its own lattice center
@@ -2246,7 +2297,7 @@ describe("marchGlyphFieldSphere / marchField — the four-part equivalence bar o
 // satisfy `D(p) === D(-p)` along each axis through the origin — this is
 // the oracle-level assertion a coordinate-offset bug like the diagnosed one
 // cannot pass by accident.
-describe("mengerSdfPreset centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", () => {
+describe("mengerSdfFixture centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", () => {
   function oracleOf(preset: { params: Record<string, unknown> }) {
     const merged = { ...defaultGlyphEffectParams(fieldSynth), ...(preset.params as Record<string, number | string | boolean>) } as unknown as AnyParams;
     const voices = buildFieldSynthVoices(merged);
@@ -2255,12 +2306,12 @@ describe("mengerSdfPreset centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", 
     const layerShapes = resolveFieldSynthLayerShapes(merged);
     const program = compileFieldSynthProgram(compiledVoices, layerShapes, true);
     const oracle = buildGlyphFieldDistanceOracle(program, { bias: merged.bias as number, gain: merged.gain as number }, 0);
-    if (!oracle) throw new Error("expected mengerSdfPreset to qualify for the sphere-tracing oracle");
+    if (!oracle) throw new Error("expected mengerSdfFixture to qualify for the sphere-tracing oracle");
     return oracle;
   }
 
   it("the lattice cell's own center point (object-space origin) is the fractal's recursively-removed center — always outside the solid", () => {
-    const oracle = oracleOf(mengerSdfPreset);
+    const oracle = oracleOf(mengerSdfFixture);
     // The Menger construction removes the middle-third cross at every
     // recursion depth, including the cell dead center — the oracle's raw
     // SDF convention is the geometric one (negative = inside the solid,
@@ -2272,7 +2323,7 @@ describe("mengerSdfPreset centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", 
   });
 
   it("D(p) === D(-p) along each axis through the object-space center — the anisotropy counter-case: an off-center lattice (e.g. the pre-fix freq1: 0.4) breaks this", () => {
-    const oracle = oracleOf(mengerSdfPreset);
+    const oracle = oracleOf(mengerSdfFixture);
     const probes = [0.1, 0.3, 0.5, 0.7, 0.9, 1.0, 1.2, 1.4];
     for (const p of probes) {
       expect(oracle(p, 0, 0)).toBeCloseTo(oracle(-p, 0, 0), 10);
@@ -2281,14 +2332,14 @@ describe("mengerSdfPreset centering (diagnosed VOLUMETRIC-3.md §3 follow-up)", 
     }
   });
 
-  it("sierpinskiSdfPreset's uncentered [0,3]^3 pyramid stage needs no origin correction — its own lattice-corner-at-domain-origin mapping is confirmed, not assumed: f=0 at objectPosition 0 and f=1 at objectPosition 3 on every axis", () => {
-    const oracle = oracleOf(sierpinskiSdfPreset);
+  it("sierpinskiSdfFixture's uncentered [0,3]^3 pyramid stage needs no origin correction — its own lattice-corner-at-domain-origin mapping is confirmed, not assumed: f=0 at objectPosition 0 and f=1 at objectPosition 3 on every axis", () => {
+    const oracle = oracleOf(sierpinskiSdfFixture);
     // The pyramid stage's own corner tetra spans objectPosition [0,3]^3 with
-    // its corner already at the domain origin (sierpinskiSdfPreset's own
+    // its corner already at the domain origin (sierpinskiSdfFixture's own
     // doc in stock.ts) — scale 1/3 alone maps it exactly onto [0,1]^3, so
     // the oracle's raw SDF sample at the lattice's OWN center (f=0.5 on
     // every axis, i.e. objectPosition 1.5) should read the same
-    // recursively-removed-center hole `mengerSdfPreset`'s corrected preset
+    // recursively-removed-center hole `mengerSdfFixture`'s corrected recipe
     // does, confirming the existing (uncentered-on-purpose) alignment is
     // intact, not silently different from what the doc claims.
     expect(oracle(1.5, 1.5, 1.5)).toBeGreaterThan(0);
@@ -2311,8 +2362,8 @@ describe("buildGlyphFieldDistanceOracle — non-qualifying byte-identity (VOLUME
     return { program, bias: merged.bias as number, gain: merged.gain as number };
   }
 
-  it("mengerSpongePreset (linear recipe) never qualifies", () => {
-    const { program, bias, gain } = compiledProgramOf(mengerSpongePreset);
+  it("mengerSpongeDepth3Params (linear recipe) never qualifies", () => {
+    const { program, bias, gain } = compiledProgramOf({ params: mengerSpongeDepth3Params });
     expect(buildGlyphFieldDistanceOracle(program, { bias, gain }, 0)).toBeNull();
   });
 
@@ -2321,8 +2372,8 @@ describe("buildGlyphFieldDistanceOracle — non-qualifying byte-identity (VOLUME
     expect(buildGlyphFieldDistanceOracle(program, { bias, gain }, 0)).toBeNull();
   });
 
-  it("gyroidXrayPreset never qualifies (gyroid is explicitly excluded, and it's xray besides)", () => {
-    const { program, bias, gain } = compiledProgramOf(gyroidXrayPreset);
+  it("breathingGyroidPreset never qualifies (gyroid is explicitly excluded, and it's xray besides)", () => {
+    const { program, bias, gain } = compiledProgramOf(breathingGyroidPreset);
     expect(buildGlyphFieldDistanceOracle(program, { bias, gain }, 0)).toBeNull();
   });
 });

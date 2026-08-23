@@ -1,8 +1,11 @@
 // Perf investigation: "why is the menger SDF so slow?" (/synth's Menger SDF
 // preset renders 7-15 FPS vs 60+ for wave-based patches). Profiles the
-// SHIPPED "Menger SDF" preset (mengerSdfPreset, stock.ts) at the live
-// page's approximate grid (135x52, half covered) BEFORE any optimization —
-// see the accompanying report for the after-numbers and what changed.
+// former "Menger SDF" preset's recipe (both it and the "Menger sponge"
+// control below were removed in a later preset cull — see
+// bench/sdf-carve-march.md's own note — and are reproduced here as
+// standalone fixtures) at the live page's approximate grid (135x52, half
+// covered) BEFORE any optimization — see the accompanying report for the
+// after-numbers and what changed.
 //
 // This file drives the same exported building blocks
 // bench/sdf-carve-march.mjs uses (buildGlyphFieldDistanceOracle,
@@ -43,14 +46,58 @@ const effects = require(path.join(repoRoot, "packages/effects/dist/index.cjs"));
 
 const {
   GlyphFieldSynthEffect: fieldSynth,
-  GlyphMengerSdfPreset: mengerSdfPreset,
-  GlyphMengerSpongePreset: mengerSpongePreset,
   defaultGlyphEffectParams,
   buildGlyphFieldProgram,
   buildGlyphFieldDistanceOracle,
   marchGlyphFieldSphere,
   evaluateGlyphFieldProgram: evaluateFieldProgram,
 } = effects;
+
+// Both "Menger SDF" and "Menger sponge" — the two presets this profile was
+// written against — were removed in a later preset cull (see AGENTS.md's
+// "Sphere tracing for carve" and "Preset named exports"). Reproduced
+// verbatim as standalone fixtures so this profile keeps measuring the real
+// SDF-vs-wave-recipe cost gap the engine still exhibits.
+const mengerSdfPreset = {
+  params: {
+    space: "object", scale: 1, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
+    originU1: -1, originV1: -1, originW1: -1,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+function mengerAxisVoice(prefix, field, freq, layer) {
+  return {
+    [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
+    [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 3, [`phase${prefix}`]: -1 / 3, [`layer${prefix}`]: layer,
+  };
+}
+function mengerLayerShape(layer) {
+  return {
+    [`layerCombine${layer}`]: "add",
+    [`layerThresholdOn${layer}`]: true,
+    [`layerThreshold${layer}`]: 0,
+    [`layerInvert${layer}`]: true,
+    [`layerBlend${layer}`]: "min",
+    [`layerAmp${layer}`]: 1,
+  };
+}
+const mengerSpongePreset = {
+  params: {
+    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+    ...mengerAxisVoice(1, "linearX", 1, 1), ...mengerAxisVoice(2, "linearY", 1, 1), ...mengerAxisVoice(3, "linearZ", 1, 1),
+    ...mengerLayerShape(1),
+    ...mengerAxisVoice(4, "linearX", 3, 2), ...mengerAxisVoice(5, "linearY", 3, 2), ...mengerAxisVoice(6, "linearZ", 3, 2),
+    ...mengerLayerShape(2),
+    ...mengerAxisVoice(7, "linearX", 9, 3), ...mengerAxisVoice(8, "linearY", 9, 3), ...mengerAxisVoice(9, "linearZ", 9, 3),
+    ...mengerLayerShape(3),
+    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -185,7 +232,7 @@ function benchEvaluate(name, params, rays, cols, rows, runs = 7) {
 
 console.log(`=== Menger SDF perf profile — ${COLS}x${ROWS} grid, half covered ===\n`);
 
-const rotX = 15, rotY = 40; // mengerSdfPreset's shipped STAGE_HINTS angle
+const rotX = 15, rotY = 40; // mengerSdfPreset's former shipped STAGE_HINTS angle
 const rays = buildRays(COLS, ROWS, HALF, rotX, rotY);
 console.log(`covered cells with a real box chord: ${rays.length} / ${LENGTH / 2} half-covered budget\n`);
 
@@ -194,7 +241,7 @@ const mengerParams = { ...defaultGlyphEffectParams(fieldSynth), ...mengerSdfPres
 const mengerFixedForced = { ...mengerParams, combine: "add" }; // disqualifies the oracle (see sdf-carve-march.mjs's own doc)
 const spongeParams = { ...defaultGlyphEffectParams(fieldSynth), ...mengerSpongePreset.params };
 
-const msSphere = benchEvaluate("Menger SDF (sphere-trace, shipped)", mengerParams, rays, COLS, ROWS);
+const msSphere = benchEvaluate("Menger SDF (sphere-trace, fixture)", mengerParams, rays, COLS, ROWS);
 const msFixed = benchEvaluate("Menger SDF (fixed-step, forced)", mengerFixedForced, rays, COLS, ROWS);
 const msSponge = benchEvaluate("Menger sponge (wave recipe, control)", spongeParams, rays, COLS, ROWS);
 console.log(`  sphere-trace speedup over fixed-step: ${(msFixed / msSphere).toFixed(2)}x`);

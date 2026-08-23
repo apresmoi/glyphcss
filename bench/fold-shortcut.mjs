@@ -8,17 +8,17 @@
 // -1 (or a `max`-blend chain hits +1), no remaining voice/layer can change
 // it, so both can be skipped without evaluating them.
 //
-// This bench measures the win on the REAL shipped recipe both
-// GlyphMengerSpongePreset and GlyphCssGraphicsMengerPreset compile to: 3
-// scales, 3 axis voices each, `add` combine (unbounded — the per-voice
-// `foldVoices` shortcut does NOT fire here), duty-1/3 square wave,
-// threshold+invert (`thresholdOn: true` — the bound the cross-layer
-// shortcut exploits), `min` blend across scales. `GlyphCssGraphicsMengerPreset`
-// spreads `...mengerSpongePreset.params` unchanged and only overrides
-// camera/color params (stock.ts), so it compiles to the exact SAME field
-// program as `GlyphMengerSpongePreset` — one hand-built program (verified
-// structurally equal to the real compiled IR by fieldProgram.test.ts's own
-// builder-equality test) stands in for both.
+// This bench measures the win on the REAL shipped recipe `GlyphCssGraphics
+// MengerPreset` compiles to: 3 scales, 3 axis voices each, `add` combine
+// (unbounded — the per-voice `foldVoices` shortcut does NOT fire here),
+// duty-1/3 square wave, threshold+invert (`thresholdOn: true` — the bound
+// the cross-layer shortcut exploits), `min` blend across scales.
+// `GlyphCssGraphicsMengerPreset` inlines this exact recipe unchanged
+// (stock.ts) and only overrides camera/color params on top of it — the same
+// recipe a standalone "Menger sponge" preset used to ship before a later
+// preset cull removed it (see AGENTS.md's "Preset named exports") — so one
+// hand-built program (verified structurally equal to the real compiled IR
+// by fieldProgram.test.ts's own builder-equality test) stands in for it.
 //
 // "Before" numbers come from a faithful, UNMODIFIED reimplementation of the
 // pre-shortcut fold (same technique fieldProgram.test.ts's own A/B test
@@ -65,7 +65,7 @@ function mengerRecipeProgram() {
       combine: "add", thresholdOn: true, threshold: 0, invert: true, blend: "min",
     };
   }
-  // freq 1/3/9 — exactly GlyphMengerSpongePreset's field1/field4/field7 freq.
+  // freq 1/3/9 — exactly GlyphCssGraphicsMengerPreset's field1/field4/field7 freq.
   return buildGlyphFieldProgram({ domain: "3d", layers: [scaleLayer(1), scaleLayer(3), scaleLayer(9)] });
 }
 
@@ -155,7 +155,7 @@ function timeNaive(iterations) {
   return Number(end - start) / 1e6 / iterations;
 }
 
-console.log(`shipped Menger recipe (GlyphMengerSpongePreset / GlyphCssGraphicsMengerPreset): 3 layers x 3 voices = ${totalActiveVoices} active voices/evaluate`);
+console.log(`shipped Menger recipe (GlyphCssGraphicsMengerPreset): 3 layers x 3 voices = ${totalActiveVoices} active voices/evaluate`);
 console.log(`grid: ${N} sample points\n`);
 
 const beforeCounter = { count: 0 };

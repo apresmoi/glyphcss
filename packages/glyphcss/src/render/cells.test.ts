@@ -482,7 +482,7 @@ describe("cells: encodeGlyphBuffers colorTolerance (COLOR-TOLERANCE.md Phase 1)"
 // buffers losslessly reconstructed from the real HTML output and re-encoded
 // through this same encoder at rising tolerance): requiring BOTH channels to
 // hold makes the win smaller than the single-color path (1.39x-1.85x span
-// reduction at tolerance 32-128, vs. 1.2x-9.2x for `encodeGlyphBuffers`), but
+// reduction at tolerance 32-128, vs. 1.2x-9.1x for `encodeGlyphBuffers`), but
 // it is real and never zero — so this ships rather than being a documented
 // no-op, unlike interaction 2 below.
 describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase 2)", () => {

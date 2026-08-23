@@ -18,15 +18,7 @@ import {
   GlyphBreathingGyroidPreset,
   GlyphCssGraphicsMengerPreset,
   GlyphCubeTilesPreset,
-  GlyphGyroidXrayPreset,
-  GlyphIridescentShellPreset,
-  GlyphIridescentSpongePreset,
-  GlyphMengerFlowPreset,
-  GlyphMengerSdfPreset,
-  GlyphMengerSpongePreset,
-  GlyphSdfBloomPreset,
   GlyphSierpinskiPyramidPreset,
-  GlyphSierpinskiSdfPreset,
   buildGlyphFieldSynthStaticExport,
   calibrateGlyphRamp,
   combineSynth,
@@ -121,9 +113,10 @@ export const LAYER_COMBINE_VALUES = [...LAYER_VALUE_OPS, "inherit"] as const;
 export const RENDER_MODES = ["paint", "carve", "xray"] as const;
 // The volumetric `pyramid` stage's own authoring size — matches every other
 // stage's `size: 3` footprint below (an edge length of 3, same as the
-// cube's), so the shipped "Sierpinski pyramid" preset's `scale: 1/3` pin
-// (stock.ts) correctly remaps this box back onto the recipe's assumed
-// `[0,1]^3` window.
+// cube's), matching the recipe's own domain-normalizing `scale: 1/STAGE_SIZE`
+// pin (see `sierpinskiPyramidPreset`'s doc in stock.ts — the shipped
+// preset's own `scale` is a later stylistic retune away from that pin, not
+// the pin itself).
 export const PYRAMID_STAGE_SIZE = 3;
 
 // The main stage's default (non-flat) orbit camera angle/zoom — single
@@ -671,10 +664,10 @@ export const isFlat = (name: string) => name === "plane";
 // patch where every voice with `amp > 0` also has `speed === 0` renders the
 // SAME output at every `time` value: driving `time` forward for such a
 // patch buys nothing and only pays for a wasted effect recompute every
-// frame (perf packet: "why is the Menger SDF preset slow" — its own
-// `speed1: 0` makes it exactly this case). Layers have no time-varying knob
-// of their own, so checking every voice slot regardless of layer
-// assignment is sufficient.
+// frame (perf packet: a static SDF/carve patch with every `speedN` left at
+// its schema default of `0` is exactly this case). Layers have no
+// time-varying knob of their own, so checking every voice slot regardless
+// of layer assignment is sufficient.
 export function isTimeInvariantPatch(params: Params): boolean {
   for (let k = 1; k <= MAX_VOICES; k++) {
     if (Number(params[`amp${k}`] ?? 0) > 0 && Number(params[`speed${k}`] ?? 0) !== 0) return false;
@@ -682,10 +675,11 @@ export function isTimeInvariantPatch(params: Params): boolean {
   return true;
 }
 
-// A preset's `STAGE_HINTS.loopSeconds` (e.g. `sdfBloomPreset`'s one-way SDF
-// erosion) wraps the monotonically-accumulated tick clock back into a
-// repeating cycle instead of letting the driven `time` grow forever — see
-// `SynthStageHint.loopSeconds`'s own doc. `((t % p) + p) % p`, not a bare
+// A preset's `STAGE_HINTS.loopSeconds` (for a one-way animation arc, like a
+// `wave: "step"` SDF voice's erosion) wraps the monotonically-accumulated
+// tick clock back into a repeating cycle instead of letting the driven
+// `time` grow forever — see `SynthStageHint.loopSeconds`'s own doc.
+// `((t % p) + p) % p`, not a bare
 // `t % p`: JS `%` is remainder (sign-preserving), not mathematical modulo,
 // so a bare `t % p` would return a negative value for negative `t` — `t`
 // only grows in practice (the tick loop's own accumulator), but this stays
@@ -704,8 +698,8 @@ export function wrapDrivenTime(t: number, loopSeconds: number | null | undefined
  * stage having no orbit, and an in-progress drag). These two must stay
  * decidable independently: orbiting rotates the CAMERA, which forces
  * `scene.rerender()` to re-rasterize and re-evaluate the effect regardless of
- * `time`, so a time-invariant patch (e.g. the shipped "Menger SDF" preset,
- * `speed1: 0`) still needs to visibly orbit even though its own `time`
+ * `time`, so a time-invariant patch (e.g. the shipped "Sierpinski pyramid"
+ * preset, every `speedN: 0`) still needs to visibly orbit even though its own `time`
  * advance is skipped for perf. Folding both branches under one shared guard
  * — e.g. nesting the orbit step inside the `!isTimeInvariantPatch` check —
  * would silently freeze auto-orbit for every time-invariant preset. Kept as
@@ -2311,7 +2305,7 @@ export function ColorStackSection({ params, onParam, stageShape }: {
 // object identity only after construction, but a name-string lookup to GET
 // there. Renaming a shipped preset in `stock.ts` without updating that
 // string here crashed module evaluation itself (the whole page, not just a
-// preset). `GlyphMengerSpongePreset` etc. are the SAME objects
+// preset). `GlyphCubeTilesPreset` etc. are the SAME objects
 // `fieldSynth.presets` already holds (stock.ts constructs both from one
 // const) — importing them directly removes the lookup (and its throw path)
 // entirely: there is no name string to keep in sync anymore.
@@ -2329,11 +2323,11 @@ export interface SynthStageHint {
   /**
    * Wrap the driven `params.time` modulo this many seconds instead of
    * letting it grow monotonically. For a preset whose animation is a
-   * one-way arc that never returns to its start (e.g. `sdfBloomPreset`'s
-   * `wave: "step"` SDF voice, which can only ever ERODE over time — a
-   * periodic wave would restore looping but drop the voice out of
-   * `buildGlyphFieldDistanceOracle`'s sphere-tracing-eligible predicate,
-   * see that preset's own doc in stock.ts), an un-hinted monotonic `time`
+   * one-way arc that never returns to its start (e.g. a `wave: "step"` SDF
+   * voice, which can only ever ERODE over time — a periodic wave would
+   * restore looping but drop the voice out of
+   * `buildGlyphFieldDistanceOracle`'s sphere-tracing-eligible predicate),
+   * an un-hinted monotonic `time`
    * plays the arc once and then sits at its fully-dissolved end state
    * forever — reading as broken, not as "finished". Undefined (the
    * default) keeps today's plain monotonic `time`, byte-identical for
@@ -2344,14 +2338,6 @@ export interface SynthStageHint {
 
 export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> = new Map([
   [GlyphCubeTilesPreset as GlyphEffectPreset<never>, { density: 1.5 }],
-  // Face-on-ish so the sponge reads unaided (the "menger invisible at the
-  // oblique camera" backlog item) — a shallow tilt keeps one face nearly
-  // square to the viewer while still showing enough depth to read as a 3D
-  // carve rather than a flat texture, unlike the default orbit's much
-  // steeper 58°/32° isometric-ish angle (which foreshortens the sponge's
-  // fine recursive grid into visual noise). Paired with the preset's own
-  // raised `marchFade` (stock.ts) for the depth cue that does the rest.
-  [GlyphMengerSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
   // Re-checked after the pyramid stage's upright reorientation
   // (`shapeTransform`/`alignCornerTetraApexEuler` above): the old hint
   // (rotX 35, rotY 40) was tuned to keep the origin corner in view alongside
@@ -2367,56 +2353,16 @@ export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> 
   // verified centered and well-framed on the reoriented stage, and the
   // Stage folder's auto-orbit (VOLUMETRIC-2.md §4) cycles the azimuth anyway.
   [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
-  [GlyphGyroidXrayPreset as GlyphEffectPreset<never>, { shape: "cube" }],
-  // Sphere-tracing fixtures (VOLUMETRIC-3.md §3) — same stage pairing as
-  // their linear-recipe siblings above (menger -> cube, sierpinski ->
-  // pyramid), same face-on-ish angle rationale for the menger fixture's
-  // centered, only-partially-aligned cube mapping (see `mengerSdfPreset`'s
-  // own doc in stock.ts for why it can't fill the cube edge-to-edge).
-  [GlyphMengerSdfPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
-  [GlyphSierpinskiSdfPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
-  // Time-animation presets (VOLUMETRIC-3.md, "we don't have any animation
-  // for the volumetric ones") — each is an existing recipe above with
-  // `speedN` turned on (stock.ts), so it inherits that recipe's own stage
-  // pairing and camera angle unchanged: `mengerFlowPreset`/`sdfBloomPreset`
-  // are Menger-sponge/Menger-SDF's own recipes, and `breathingGyroidPreset`
-  // is the gyroid xray recipe. `paused` is deliberately left unset (default
-  // `false`): it also stops field-synth's own `time` clock (`SynthScope` in
-  // this file), which would silently disable the very animation these
-  // presets exist to show.
-  [GlyphMengerFlowPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
+  // Time-animation preset (VOLUMETRIC-3.md, "we don't have any animation for
+  // the volumetric ones") — the gyroid xray recipe with `speedN` turned on
+  // (stock.ts). `paused` is deliberately left unset (default `false`): it
+  // also stops field-synth's own `time` clock (`SynthScope` in this file),
+  // which would silently disable the very animation this preset exists to
+  // show.
   [GlyphBreathingGyroidPreset as GlyphEffectPreset<never>, { shape: "cube" }],
-  // `loopSeconds: 11` (retuned down from 15 — user report: the old 15s
-  // window spent roughly its last third sitting at or near fully-dissolved
-  // (near-)empty, reading as broken rather than looping). Measured directly
-  // against the real preset (same probe camera/lighting as
-  // `sdfBloomPreset`'s own doc in stock.ts, carve cube): covered-cell count
-  // vs. `time` is t=0 606, t=9 436, t=11 240, t=12 138, t=13 56, t=14 10,
-  // t=15 0 — cell count keeps falling smoothly through 11 (still a clearly
-  // populated, actively-eroding lace) but collapses to near-nothing right
-  // after it. Wrapping at 11 instead of 15 keeps the whole visible
-  // dissolve arc while cutting the flat, empty tail entirely — the loop
-  // now spends its whole ~11s/1.4 ≈ 7.9s wall-clock period showing motion,
-  // never sitting on an empty stage waiting to wrap.
-  [GlyphSdfBloomPreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40, loopSeconds: 11 }],
-  // The colour voice stack's shipped patch (VOLUMETRIC-4.md §1) — same
-  // cube/face-on-ish pairing as `mengerSpongePreset` above (this preset IS
-  // that recipe, plus the colour stack), since the "three face tones"
-  // measurement it exists to show is specifically an ortho-camera-on-an-
-  // axis-aligned-mesh phenomenon.
-  [GlyphIridescentSpongePreset as GlyphEffectPreset<never>, { shape: "cube", rotX: 15, rotY: 40 }],
-  // Sphere stage: unlike the sponge above, the object-space normal varies
-  // per-facet across many more facets than the cube's 6, so this is the
-  // preset that shows a genuinely SMOOTH incidence sweep rather than a
-  // cycling three-tone palette — not literal continuity, since glyphcss is a
-  // flat-shaded rasterizer (each triangle's `objectNormal` is constant); the
-  // sphere's own tessellation is still visible as faceting up close (see
-  // VOLUMETRIC-4.md's Reconciliation). Default (isometric-ish) camera angle
-  // — there's no "menger invisible at oblique angles" concern for a sphere.
-  [GlyphIridescentShellPreset as GlyphEffectPreset<never>, { shape: "sphere" }],
-  // "Menger (cssGraphics)" — its own camera, retuned from
-  // `mengerSpongePreset`'s shared `rotX:15, rotY:40` specifically to even
-  // out its three visible faces' hue spacing (measured ~120° apart at
+  // "Menger (cssGraphics)" — its own camera, retuned from the base Menger
+  // membership recipe's shared `rotX:15, rotY:40` specifically to even out
+  // its three visible faces' hue spacing (measured ~120° apart at
   // `rotX:32.5, rotY:19` vs. the default camera's >100°-uneven spread — see
   // `cssGraphicsMengerPreset`'s own doc in stock.ts for the full measurement).
   // `density: 3.5` — user hand-tuned this on the live page and asked their
@@ -2482,10 +2428,10 @@ export function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<neve
 //
 // `layerCombineL` (how the layer's OWN voices fold together before the layer
 // blends into the stack) went uneditable in the original rewrite —
-// VOLUMETRIC-2.md §4's header list omitted it, a spec defect: the Menger and
-// Sierpinski presets both set a non-default `layerCombineL` (see
-// `GlyphMengerSpongePreset`/`GlyphSierpinskiPyramidPreset` in
-// packages/effects/src/stock.ts), so a live control is needed to actually
+// VOLUMETRIC-2.md §4's header list omitted it, a spec defect: Menger/
+// Sierpinski-membership-style multi-layer recipes (see
+// `GlyphSierpinskiPyramidPreset` in packages/effects/src/stock.ts) set a
+// non-default `layerCombineL`, so a live control is needed to actually
 // tune those patches rather than only read/write them via preset/URL. It
 // resolves BEFORE the layer's blended output exists, so it sits left of
 // `blend` on the header row.

@@ -8,12 +8,19 @@
 // identity, see fieldProgram.ts's "compiled evaluation form") into a
 // specialized closure tree and reuses it across every probe.
 //
-// This bench measures ms/evaluate on the FOUR shipped presets named in the
-// perf packet: `GlyphMengerSpongePreset`, `GlyphCssGraphicsMengerPreset`,
+// This bench measures ms/evaluate on the FOUR presets named in the perf
+// packet: `GlyphMengerSpongePreset`, `GlyphCssGraphicsMengerPreset`,
 // `GlyphGyroidXrayPreset`, `GlyphMengerSdfPreset` — each compiled through the
 // SAME params -> IR path `fieldSynth.program.evaluate()` runs internally
 // (`buildFieldSynthVoices` -> `compileFieldVoices` -> `resolveFieldSynth
 // LayerShapes` -> `compileFieldSynthProgram`), not a hand-built stand-in.
+// Three of the four (Menger sponge, Gyroid xray, Menger SDF) were removed as
+// shipped presets in a later preset cull (see AGENTS.md's "Sphere tracing
+// for carve" and "Preset named exports") — `GlyphCssGraphicsMengerPreset`
+// still ships; the other three are reproduced below as standalone fixtures
+// (Gyroid xray's fixture is just the still-shipped `GlyphBreathingGyroidPreset`
+// evaluated at `t=0`, where its added `speed1` term is inert — see
+// `sampleFieldVoice`'s `raw*freq - time*speed + phase` derivation).
 //
 // This script needs TWO temporary, bench-only re-exports from
 // packages/effects/src/index.ts, both reverted before shipping (same
@@ -32,10 +39,8 @@
 // `node bench/compiled-field-program.mjs`.
 
 import {
+  GlyphBreathingGyroidPreset,
   GlyphCssGraphicsMengerPreset,
-  GlyphGyroidXrayPreset,
-  GlyphMengerSdfPreset,
-  GlyphMengerSpongePreset,
   buildFieldSynthVoices,
   compileFieldSynthProgram,
   compileFieldVoices,
@@ -45,6 +50,52 @@ import {
   GlyphFieldSynthEffect,
   resolveFieldSynthLayerShapes,
 } from "../packages/effects/dist/index.js";
+
+// Standalone fixtures reproducing the two removed presets' recipes verbatim
+// (see the header comment above).
+function mengerAxisVoice(prefix, field, freq, layer) {
+  return {
+    [`field${prefix}`]: field, [`wave${prefix}`]: "square", [`freq${prefix}`]: freq, [`speed${prefix}`]: 0,
+    [`amp${prefix}`]: 1, [`duty${prefix}`]: 1 / 3, [`phase${prefix}`]: -1 / 3, [`layer${prefix}`]: layer,
+  };
+}
+function mengerLayerShape(layer) {
+  return {
+    [`layerCombine${layer}`]: "add",
+    [`layerThresholdOn${layer}`]: true,
+    [`layerThreshold${layer}`]: 0,
+    [`layerInvert${layer}`]: true,
+    [`layerBlend${layer}`]: "min",
+    [`layerAmp${layer}`]: 1,
+  };
+}
+const GlyphMengerSpongePreset = {
+  params: {
+    space: "object", scale: 1 / 3, render: "carve", subcellRes: "1x1",
+    ...mengerAxisVoice(1, "linearX", 1, 1), ...mengerAxisVoice(2, "linearY", 1, 1), ...mengerAxisVoice(3, "linearZ", 1, 1),
+    ...mengerLayerShape(1),
+    ...mengerAxisVoice(4, "linearX", 3, 2), ...mengerAxisVoice(5, "linearY", 3, 2), ...mengerAxisVoice(6, "linearZ", 3, 2),
+    ...mengerLayerShape(2),
+    ...mengerAxisVoice(7, "linearX", 9, 3), ...mengerAxisVoice(8, "linearY", 9, 3), ...mengerAxisVoice(9, "linearZ", 9, 3),
+    ...mengerLayerShape(3),
+    glyphs: " .:-=+*#%@", color: "#8affc1", colorB: "#3a6df0", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+const GlyphMengerSdfPreset = {
+  params: {
+    space: "object", scale: 1, render: "carve",
+    combine: "min", originU: 0, originV: 0,
+    field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
+    originU1: -1, originV1: -1, originW1: -1,
+    amp2: 0, amp3: 0,
+    glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+    marchFade: 2.5,
+  },
+};
+// Time=0, so `speed1: 0.15` is inert (see header comment) — behaviorally the
+// same recipe "Gyroid xray" used to ship.
+const GlyphGyroidXrayPreset = GlyphBreathingGyroidPreset;
 
 function compileProgramFromPreset(preset) {
   const merged = { ...defaultGlyphEffectParams(GlyphFieldSynthEffect), ...preset.params };

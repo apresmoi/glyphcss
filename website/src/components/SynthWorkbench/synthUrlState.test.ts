@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphFieldSynthEffect as fieldSynth,
-  GlyphIridescentShellPreset,
-  GlyphIridescentSpongePreset,
 } from "@glyphcss/effects";
 import { createUrlCodec, encodeEffectParamsPacked } from "../../lib/urlState";
 import {
@@ -23,17 +21,6 @@ import {
   type Params,
   type SynthUrlState,
 } from "./synthUrlState";
-
-// Captured once by running the "pins the ... packed URL string" tests below
-// and reading back the produced value (the same "compute, then pin" process
-// `"omits the whole param when everything is default"`'s `"p3"` used) — not
-// hand-derived from the base62 packing scheme.
-// Re-pinned deliberately: sponge `hueLight` 55 -> 75, shell `hueSat`/
-// `hueRange` 90/360 -> 45/150 (VOLUMETRIC-4.md §1's Reconciliation — visual
-// tuning of the shipped iridescent presets; see each preset's own doc in
-// stock.ts for the measured before/after luminance).
-const IRIDESCENT_SPONGE_PACKED = "p4s1t3g7cd1iv17a23ce21ok1uK9zelmm16pap.13213516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1Q21e_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K228_2L223_2Me_2S1a_2V11";
-const IRIDESCENT_SHELL_PACKED = "p4s2t3g7cd1iv17a23ce21ok1uK9zelmm16p1j.1321a71ah10S10T1kU1.█_2F1_2H1_2J246_2K219_2Me_2S1a_2V11";
 
 function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
   const params: Params = {
@@ -134,81 +121,19 @@ describe("synth url state", () => {
   });
 });
 
-// VOLUMETRIC-4.md §1's shipped patch: both iridescent presets exercise the
-// colour voice stack's full new key range (colorStackOn, cfield1, colorMode,
-// hueRange/Offset/Sat/Light) through the REAL shipped preset objects, not a
-// hand-built patch — the same precedent "round-trips the new voice7-9 param
-// keys" above sets for the prior schema-tail bump. Pinning the exact packed
-// STRING (not just a round-trip) is the same style `"omits the whole param
-// when everything is default"` uses above: it catches a schema-tail
-// reordering or an index shift immediately, as a diff in this literal,
-// rather than only when some future decode happens to disagree.
-describe("iridescent presets (VOLUMETRIC-4.md §1's shipped patch)", () => {
-  function presetPatch(preset: { params: Partial<Params> }, shape: string) {
-    return {
-      ...representativePatch(),
-      shape,
-      params: { ...SYNTH_PARAM_DEFAULTS, ...(preset.params as Params) },
-    };
-  }
-
-  // The packed codec quantizes every NUMBER param to its OWN schema `step`
-  // (`round(value, step) === Math.round(value/step)*step` — urlState.ts's
-  // `round`), so the correct round-trip tolerance is "within half a step",
-  // not a fixed decimal-places guess. `mengerSpongePreset`'s recipe (which
-  // "Iridescent sponge" inherits unchanged) uses `1/3`/`-1/3` for several
-  // `duty`/`phase`/`scale` keys — none of those are step-aligned, so this is
-  // pre-existing, unrelated to this preset's own colour-stack additions
-  // (every colour-stack key here IS step-aligned and round-trips exactly).
-  function stepFor(key: string): number {
-    const spec = (fieldSynth.parameterSchema as unknown as Record<string, { step?: number }>)[key];
-    return spec?.step && spec.step > 0 ? spec.step : 0.0001;
-  }
-
-  function expectParamsRoundTrip(patch: ReturnType<typeof presetPatch>): void {
-    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
-    for (const [key, value] of Object.entries(patch.params)) {
-      if (key === "time") continue;
-      if (typeof value === "number") {
-        const step = stepFor(key);
-        expect(Math.abs((restored.params[key] as number) - value), key).toBeLessThanOrEqual(step / 2 + 1e-9);
-      } else {
-        expect(restored.params[key], key).toBe(value);
-      }
-    }
-  }
-
-  it("round-trips the Iridescent sponge preset's params exactly (within each param's own schema step)", () => {
-    expectParamsRoundTrip(presetPatch(GlyphIridescentSpongePreset, "cube"));
-  });
-
-  it("round-trips the Iridescent shell preset's params exactly (within each param's own schema step)", () => {
-    expectParamsRoundTrip(presetPatch(GlyphIridescentShellPreset, "sphere"));
-  });
-
-  it("pins the Iridescent sponge preset's packed URL string", () => {
-    const packed = encodeSynthUrlState(presetPatch(GlyphIridescentSpongePreset, "cube"));
-    expect(packed).toBe(IRIDESCENT_SPONGE_PACKED);
-  });
-
-  it("pins the Iridescent shell preset's packed URL string", () => {
-    const packed = encodeSynthUrlState(presetPatch(GlyphIridescentShellPreset, "sphere"));
-    expect(packed).toBe(IRIDESCENT_SHELL_PACKED);
-  });
-});
-
-// P2 (review of VOLUMETRIC-4.md §1's shipped patch): the two round-trips
-// above exercise the colour voice stack only through the two REAL presets,
-// which leave most of the 43 new colour-stack keys (VOLUMETRIC-4.md §1's
-// schema tail — `colorStackOn`/`colorCombine`/`colorMode`/`hueOffset`/
-// `hueRange`/`hueSat`/`hueLight` plus 12 families x 3 colour voices,
-// `stock.ts`'s own tail comment: "this PR's own tail stays contiguous with
-// the 43 colour-stack keys above") at their schema DEFAULT, so a codec bug
-// specific to an untouched key (e.g. `cfield2`/`cfield3`, `cangle*`,
-// `coriginU/V/W*`, `cduty*`, `citer*`, `colorCombine`) would round-trip
+// VOLUMETRIC-4.md §1's colour voice stack — the two presets that used to
+// exercise its full new key range (colorStackOn, cfield1, colorMode,
+// hueRange/Offset/Sat/Light) through real shipped preset objects,
+// "Iridescent sponge"/"Iridescent shell", were removed in a later preset
+// cull. This hand-built patch below is the surviving, preset-independent
+// coverage: it touches EVERY one of the 43 colour-stack keys
+// (VOLUMETRIC-4.md §1's schema tail — `colorStackOn`/`colorCombine`/
+// `colorMode`/`hueOffset`/`hueRange`/`hueSat`/`hueLight` plus 12 families x
+// 3 colour voices) with a distinct non-default value, so a codec bug
+// specific to any one key (e.g. `cfield2`/`cfield3`, `cangle*`,
+// `coriginU/V/W*`, `cduty*`, `citer*`, `colorCombine`) can't round-trip
 // silently. Same precedent as "round-trips the new voice7-9 param keys"
-// above sets for the prior schema-tail bump — a hand-built patch touching
-// EVERY one of the 43 keys with a non-default value.
+// above sets for the prior schema-tail bump.
 describe("colour voice stack — every new key round-trips (VOLUMETRIC-4.md §1)", () => {
   it("round-trips a patch touching all 43 colour-stack keys with distinct non-default values", () => {
     const base = representativePatch();

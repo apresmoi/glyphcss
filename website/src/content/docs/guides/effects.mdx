@@ -567,23 +567,22 @@ An interior hit fades with depth — `marchFade` (default `1`) controls how
 quickly a wall recedes into shadow as the march goes deeper — so a
 near-surface wall reads brighter than one buried further in.
 
-`fieldSynth` ships a **Menger sponge** preset (`space: "object"`,
-`render: "carve"`, three layers of three axis voices each — a scale-3, then
-scale-9, then scale-27 lattice, `min`-blended so solid means "solid at every
-scale") built from exactly this layer/duty/phase/volumetric machinery on a
-plain cube mesh — no sponge geometry, no baked frames, plus a **Sierpinski
-pyramid** preset (the same recipe, two layers, with base-2 constants), tuned
-for the dedicated `pyramid` stage the [`/synth`](/synth) page offers alongside
-its cube/sphere/tetrahedron shapes — an uncentered corner-tetra whose window
-matches the Sierpinski recipe's own `[0, 1]³` assumption. The recipe's own
-`square`-wave axis voices (not the `menger` SDF field) drive its Nyquist
-floor, and that floor is duty-aware: `freq / min(duty, 1 − duty)` (two samples
-per narrowest band) rather than a flat `2 × freq`. Menger sponge's finest band
-needs only 94 steps under the fixed formula, well inside the 256-step cap — an
-earlier, un-fixed estimate put it past ~281 and out of carve's budget
-entirely (an earlier, shallower two-layer recipe shipped under this same name
-before being superseded — its params live on as a params-only test fixture,
-not a shipped preset).
+This layer/duty/phase/volumetric machinery is what a Menger-membership carve
+is built from (`space: "object"`, `render: "carve"`, three layers of three
+axis voices each — a scale-3, then scale-9, then scale-27 lattice,
+`min`-blended so solid means "solid at every scale") on a plain cube mesh —
+no sponge geometry, no baked frames needed. `fieldSynth` ships one preset
+built from this same recipe — **Sierpinski pyramid** (base-2 constants, two
+layers instead of three) — tuned for the dedicated `pyramid` stage the
+[`/synth`](/synth) page offers alongside its cube/sphere/tetrahedron shapes —
+an uncentered corner-tetra whose window matches the recipe's own `[0, 1]³`
+assumption. The recipe's own `square`-wave axis voices (not the
+`menger`/`sierpinski` SDF fields) drive its Nyquist floor, and that floor is
+duty-aware: `freq / min(duty, 1 − duty)` (two samples per narrowest band)
+rather than a flat `2 × freq` — a three-layer, scale-27 Menger recipe's finest
+band needs only 94 steps under the fixed formula, well inside the 256-step
+cap; an earlier, un-fixed estimate put it past ~281 and out of carve's budget
+entirely.
 
 ### Ink-over-carve and braille-over-carve
 
@@ -621,12 +620,15 @@ It falls back to an ordinary fixed-step scan of the remaining segment when a
 ray stalls near an off-axis feature or runs into its own step budget, so it
 never finds *fewer* hits than fixed-step marching would — only the same or
 more, at the same shaded ramp step. Measured roughly 1.8-1.9× faster than
-fixed-step marching on a deep (`iter: 3`) recursive scene. Two new presets,
-**Menger SDF** and **Sierpinski SDF** (one SDF voice each, carve, `iter: 3`),
-are the SDF-only patches this qualifies — the earlier Menger sponge/Sierpinski
-pyramid presets are built from linear recipe voices and never qualify, so they
-stay on the fixed-step path unchanged. No params control this — it applies
-automatically whenever a mounted carve patch qualifies.
+fixed-step marching on a deep (`iter: 3`) recursive scene. A single SDF voice
+(`menger` or `sierpinski`, `wave: "step"`, `amp: 1`, `combine: "min"`, no
+layer threshold) is what qualifies — the shipped Sierpinski pyramid preset
+above is built from linear recipe voices instead and never qualifies, so it
+stays on the fixed-step path unchanged. No preset currently ships built from a
+genuine SDF voice, so no shipped preset exercises sphere tracing directly —
+the mechanism itself remains fully implemented and tested independent of any
+preset. No params control this — it applies automatically whenever a mounted
+carve patch qualifies.
 
 ### Xray mode
 
@@ -651,7 +653,7 @@ bright rim around a transmittance volume would contradict the mode.
 integrates to roughly its own `bias` over any long-enough chord — the
 structure averages into fog. Shaping a voice with a layer threshold (turning
 it into a flat two-level field) before feeding it to xray reads its actual
-structure instead; the shipped **Gyroid xray** preset does exactly this.
+structure instead; the shipped **Breathing gyroid** preset does exactly this.
 
 ### Animated volumetrics
 
@@ -659,26 +661,19 @@ Every volumetric preset's `speedN` is exactly the same time axis every 2D
 preset's own animation already uses (`raw*freq - time*speed + phase`, or for
 the SDF voice family `sdfRaw - time*speed + phase`) — nothing new is needed to
 animate a carve/xray patch, just a nonzero `speedN` on an already-volumetric
-recipe. Three shipped presets turn this on:
+recipe. One shipped preset turns this on: **Breathing gyroid** animates the
+gyroid xray recipe's one voice — the implicit surface deforms in place rather
+than sliding along a single axis (a gyroid's three-term sum has no one "flow
+axis" the way a linear voice does), reading as an organic pulse rather than a
+directional sweep.
 
-- **Menger flow** gives the Menger sponge recipe's three X-axis voices
-  (one per scale layer) the same nonzero `speed` — a shared phase-cycles-per-
-  second rate keeps every scale completing cycles in lockstep instead of
-  drifting apart — so the carved walls visibly sweep along one axis, while the
-  Y/Z voices stay at `speed: 0`.
-- **Breathing gyroid** animates the gyroid xray recipe's one voice: the
-  implicit surface deforms in place rather than sliding along a single axis
-  (a gyroid's three-term sum has no one "flow axis" the way a linear voice
-  does), reading as an organic pulse rather than a directional sweep.
-- **SDF bloom** animates the Menger SDF recipe's one voice. It deliberately
-  keeps `wave: "step"` — the ONLY wave [sphere tracing](#sphere-tracing)
-  qualifies — so the fractal keeps sphere-tracing while animated; `synthWave`'s
-  `step` case is explicitly non-periodic (`+1` when `t >= 0`, else `-1`, no
-  wraparound), so raising `speed*time` over time only ever SHRINKS the solid
-  region — a one-way erosion/bloom, not a looping breathe cycle, and an
-  inherent trade-off of staying inside the sphere-tracing predicate rather
-  than a tuning mistake. A consumer wanting a repeating loop resets or wraps
-  `time` itself.
+A `wave: "step"` SDF voice (the only wave [sphere tracing](#sphere-tracing)
+qualifies) can animate the same way, but stays a one-way erosion/bloom rather
+than a looping breathe cycle: `synthWave`'s `step` case is explicitly
+non-periodic (`+1` when `t >= 0`, else `-1`, no wraparound), so raising
+`speed*time` over time only ever SHRINKS the solid region — an inherent
+trade-off of staying inside the sphere-tracing predicate rather than a tuning
+mistake. A consumer wanting a repeating loop resets or wraps `time` itself.
 
 ### Example
 
@@ -712,24 +707,19 @@ requestAnimationFrame(frame);
 `Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
 `Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
 `Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`, `Menger sponge`, `Sierpinski pyramid`, `Gyroid xray`,
-`Menger SDF`, `Sierpinski SDF`, `Menger flow`, `Breathing gyroid`,
-`SDF bloom`) as `{ name, params }` pairs — quick starting points for
-`params`. `Cube tiles` and `Ink cells` exercise `argmax` and the ink contour
-mode; `Menger sponge` and `Sierpinski pyramid` exercise the volumetric
-branch, voice layers, and carve together (the latter on the `pyramid`
-stage) — `Menger sponge` is three scale layers deep, safe only since the
-duty-aware Nyquist fix below; `Gyroid xray` exercises the SDF family and
-`render: "xray"`; `Menger SDF` and `Sierpinski SDF` are the single-voice SDF
-patches [sphere tracing](#sphere-tracing) qualifies; `Menger flow`,
-`Breathing gyroid`, and `SDF bloom` are those same three volumetric recipes
-with `speedN` turned on — see [Animated volumetrics](#animated-volumetrics).
-All eight volumetric presets are also individually exported by object
-identity (`GlyphMengerSpongePreset`, `GlyphSierpinskiPyramidPreset`,
-`GlyphGyroidXrayPreset`, `GlyphMengerSdfPreset`, `GlyphSierpinskiSdfPreset`,
-`GlyphMengerFlowPreset`, `GlyphBreathingGyroidPreset`,
-`GlyphSdfBloomPreset`, alongside `GlyphCubeTilesPreset`), for a consumer that
-needs to key off a specific preset rather than its display name.
+`Ink cells`, `Sierpinski pyramid`, `Breathing gyroid`,
+`Menger (cssGraphics)`) as `{ name, params }` pairs — quick starting points
+for `params`. `Cube tiles` and `Ink cells` exercise `argmax` and the ink
+contour mode; `Sierpinski pyramid` and `Menger (cssGraphics)` exercise the
+volumetric branch, voice layers, and carve together, on the `pyramid` and
+`cube` stages respectively; `Breathing gyroid` exercises the SDF family,
+`render: "xray"`, and volumetric animation together — see
+[Animated volumetrics](#animated-volumetrics). These three volumetric
+presets are also individually exported by object identity
+(`GlyphSierpinskiPyramidPreset`, `GlyphBreathingGyroidPreset`,
+`GlyphCssGraphicsMengerPreset`, alongside `GlyphCubeTilesPreset`), for a
+consumer that needs to key off a specific preset rather than its display
+name.
 
 ### Program builder and program-as-data
 

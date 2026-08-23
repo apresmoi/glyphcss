@@ -27,8 +27,8 @@ import {
 } from "../packages/glyphcss/dist/index.js";
 import {
   GlyphFieldSynthEffect as fieldSynth,
+  GlyphBreathingGyroidPreset,
   GlyphCssGraphicsMengerPreset,
-  GlyphGyroidXrayPreset,
   defaultGlyphEffectParams,
 } from "../packages/effects/dist/index.js";
 
@@ -272,7 +272,7 @@ const cube = rasterizeVolumetric(size3CubePolygons());
 const plane = rasterizeSurface(flatPlanePolygons());
 
 const cssGraphicsMengerParams = { ...defaultGlyphEffectParams(fieldSynth), ...GlyphCssGraphicsMengerPreset.params };
-const gyroidXrayParams = { ...defaultGlyphEffectParams(fieldSynth), ...GlyphGyroidXrayPreset.params };
+const breathingGyroidParams = { ...defaultGlyphEffectParams(fieldSynth), ...GlyphBreathingGyroidPreset.params };
 
 function presetParams(name) {
   const preset = fieldSynth.presets.find((p) => p.name === name);
@@ -282,7 +282,7 @@ function presetParams(name) {
 
 const results = [
   measurePreset("Menger (cssGraphics)", cube, cssGraphicsMengerParams, TARGET_ERROR),
-  measurePreset("Gyroid xray", cube, gyroidXrayParams, TARGET_ERROR),
+  measurePreset("Breathing gyroid", cube, breathingGyroidParams, TARGET_ERROR),
   measurePreset("Lava", plane, presetParams("Lava"), TARGET_ERROR),
   measurePreset("Aurora", plane, presetParams("Aurora"), TARGET_ERROR),
   measurePreset("Nebula", plane, presetParams("Nebula"), TARGET_ERROR),

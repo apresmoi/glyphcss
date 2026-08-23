@@ -99,15 +99,7 @@ export {
   breathingGyroidPreset as GlyphBreathingGyroidPreset,
   cssGraphicsMengerPreset as GlyphCssGraphicsMengerPreset,
   cubeTilesPreset as GlyphCubeTilesPreset,
-  gyroidXrayPreset as GlyphGyroidXrayPreset,
-  iridescentShellPreset as GlyphIridescentShellPreset,
-  iridescentSpongePreset as GlyphIridescentSpongePreset,
-  mengerFlowPreset as GlyphMengerFlowPreset,
-  mengerSdfPreset as GlyphMengerSdfPreset,
-  mengerSpongePreset as GlyphMengerSpongePreset,
-  sdfBloomPreset as GlyphSdfBloomPreset,
   sierpinskiPyramidPreset as GlyphSierpinskiPyramidPreset,
-  sierpinskiSdfPreset as GlyphSierpinskiSdfPreset,
 } from "./stock";
 
 // The flat schema's voice/layer caps (VOLUMETRIC-3.md §4 bumped

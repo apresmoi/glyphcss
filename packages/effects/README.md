@@ -84,20 +84,21 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   distances to the depth-`iterN` box/tetra union, not a distance-estimator
   approximation; their own Nyquist floor is separate from the square-wave duty-aware
   one below. Every voice's step-count floor for `square` waves is duty-aware —
-  `freq / min(duty, 1 − duty)` — so a narrow-duty recipe (like the Menger sponge
-  recipe's `duty: 1/3` axis voices) resolves correctly without an inflated manual
-  step estimate; this is what makes the shipped **Menger sponge** preset (three
-  scale layers deep, `freq` 1/3/9) safe. `buildGlyphFieldProgram({ domain, layers:
-  [...] })` builds a field program from a pleasant `voices: [...]` authoring
-  surface with no 9-voice cap, and `validateGlyphFieldProgram(program)`
+  `freq / min(duty, 1 − duty)` — so a narrow-duty recipe (a Menger-sponge-style
+  membership rule with `duty: 1/3` axis voices, for example) resolves correctly
+  without an inflated manual step estimate. `buildGlyphFieldProgram({ domain,
+  layers: [...] })` builds a field program from a pleasant `voices: [...]`
+  authoring surface with no 9-voice cap, and `validateGlyphFieldProgram(program)`
   shape-checks one; passing a built (or hand-built) program to a mounted layer via
   `program` instead of `params` — glyphcss plumbs this opaque payload through
   unchanged — is field-synth's unbounded "program-as-data" tier, immutable after
-  mount. Ships with a curated set of presets (Sunburst, Ring pulse, Plaid weave,
-  Menger sponge, Sierpinski pyramid, Gyroid xray, Menger SDF, Sierpinski SDF,
-  Menger flow, Breathing gyroid, SDF bloom, and more) — the last three are the
-  volumetric recipes with `speedN` turned on, showing the same `time` axis
-  every 2D preset's own animation already uses.
+  mount. Ships with a curated set of presets (Cube tiles, Ink cells, Sunburst,
+  Ring pulse, Plaid weave, Sonar ping, Lattice, Vortex, Lava, Static rain, Moiré
+  rings, Checkerboard, Warp core, Bubbles, Aurora, Zebra, Kaleidoscope, Halftone,
+  Weave, Pulse grid, Nebula, Sierpinski pyramid, Breathing gyroid, and Menger
+  (cssGraphics)) — the last two are volumetric, and Breathing gyroid animates
+  with `speedN` turned on, showing the same `time` axis every 2D preset's own
+  animation already uses.
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,
 `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. These are

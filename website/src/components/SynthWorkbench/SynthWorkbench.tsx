@@ -156,9 +156,10 @@ export default function SynthWorkbench() {
   // effect below without adding itself as a dependency (that would tear the
   // scene down and rebuild it on every orbit drag).
   const cameraAnglesRef = useRef<{ rotX: number; rotY: number }>({ rotX: DEFAULT_CAMERA_ROT_X, rotY: DEFAULT_CAMERA_ROT_Y });
-  // A preset's own `STAGE_HINTS` entry (e.g. `sdfBloomPreset`'s `loopSeconds:
-  // 15`) for a one-way animation that should replay instead of playing once
-  // and sitting at its end state — read fresh by the tick loop below, same
+  // A preset's own `STAGE_HINTS` entry (for a one-way animation arc, like a
+  // `wave: "step"` SDF voice's erosion, that should replay instead of
+  // playing once and sitting at its end state — see `SynthStageHint
+  // .loopSeconds`'s own doc) — read fresh by the tick loop below, same
   // "not React state, no re-render needed" rationale as `cameraAnglesRef`.
   // Always reset on `applyPreset` (never carried over from a previous
   // preset — see that callback), so an un-hinted preset is unaffected.
@@ -196,8 +197,8 @@ export default function SynthWorkbench() {
     // scene.setInteracting() itself on drag start/end (the shared
     // emitInteraction registry, controls/common.ts), so enabling it here is
     // the only change needed. This was previously pinned at 1 (off), which
-    // meant orbiting a heavy volumetric patch (e.g. the Menger SDF preset,
-    // ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
+    // meant orbiting a heavy volumetric carve patch (a deep-recursion SDF
+    // voice, ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
     // resolution on every drag frame — 2 (÷4 cells) matches the loaders
     // gallery's own default (glyph-runtime.ts's `parseInteractiveDownscale`).
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, colorTolerance: colorToleranceRef.current, ...buildLighting(lightingRef.current) });
@@ -248,12 +249,11 @@ export default function SynthWorkbench() {
         t += dt * tsRef.current;
         // `t` itself keeps growing monotonically (simplest accumulator, no
         // precision concerns from re-deriving it). A preset whose
-        // `STAGE_HINTS` entry declares `loopSeconds` (e.g. `sdfBloomPreset`
-        // — a one-way SDF erosion that never returns to its start on its
-        // own, see that hint's own doc in synthKit.tsx) instead gets the
-        // WRAPPED value here, so the driven `time` cycles back to 0 and
-        // replays the arc instead of settling at its fully-dissolved end
-        // state forever.
+        // `STAGE_HINTS` entry declares `loopSeconds` (for a one-way
+        // animation arc that never returns to its start on its own, see
+        // that hint's own doc in synthKit.tsx) instead gets the WRAPPED
+        // value here, so the driven `time` cycles back to 0 and replays the
+        // arc instead of settling at its end state forever.
         layerRef.current?.setParams({ time: wrapDrivenTime(t, loopSecondsRef.current) });
       }
       if (plan.orbit) {

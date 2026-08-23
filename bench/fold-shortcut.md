@@ -44,10 +44,10 @@ never corrupts it.
 
 ## Why both short-circuits are needed on the real preset
 
-The shipped Menger/Sierpinski membership recipe (`GlyphMengerSpongePreset`,
-and `GlyphCssGraphicsMengerPreset` — which spreads
-`...mengerSpongePreset.params` unchanged, camera/color only, so it compiles
-to the exact same field program) folds each layer's 3 voices with
+The Menger membership recipe `GlyphCssGraphicsMengerPreset` inlines (stock.ts
+— the same recipe a standalone "Menger sponge" preset used to ship before a
+later preset cull removed it, see AGENTS.md's "Preset named exports") folds
+each layer's 3 voices with
 **`combine: "add"`** (unbounded — short-circuit 1 does NOT fire there) but
 sets **`thresholdOn: true`** on every layer, cross-layer-folded with
 **`blend: "min"`** — that's short-circuit 2's target, not short-circuit 1's.
@@ -57,9 +57,9 @@ exposes `layerCombineN` in the schema).
 
 ## Measured: `bench/fold-shortcut.mjs`
 
-The real recipe both presets compile to (3 layers x 3 axis voices, `add`
+The real recipe the preset compiles to (3 layers x 3 axis voices, `add`
 combine, duty-1/3 square wave, threshold+invert, `min` blend — freq 1/3/9,
-matching `GlyphMengerSpongePreset`'s own field1/field4/field7), hand-built via
+matching `GlyphCssGraphicsMengerPreset`'s own field1/field4/field7), hand-built via
 the public `buildGlyphFieldProgram` (verified structurally identical to the
 real compiled IR by `fieldProgram.test.ts`'s own builder-equality test).
 400,000 sample points over `[0,1]^3` via an irrational per-axis sequence (no

@@ -1,5 +1,16 @@
 # Why is the Menger SDF preset slow?
 
+Historical investigation — the "Menger SDF" preset this doc profiles, and
+the "Menger sponge" wave-recipe preset it compares against, were both
+removed in a later preset cull (see AGENTS.md's "Sphere tracing for carve"
+and "Preset named exports" — no shipped preset currently exercises the SDF
+voice family, sphere tracing, or the three-layer wave recipe). The profile,
+fixes, and knob guidance below remain accurate as engine behavior — nothing
+here is preset-specific — but the specific `GlyphMengerSdfPreset`/
+`mengerSpongePreset` identifiers named throughout no longer exist; the
+`bench/sdf-carve-march.mjs` script this doc cites was updated to use a
+standalone fixture reproducing the same recipe instead.
+
 User report: the shipped "Menger SDF" preset (`GlyphMengerSdfPreset`,
 `stock.ts`) renders at ~7-15 FPS on `/synth` while wave-based (non-SDF)
 patches run 60+. This doc is the profile that answered the question, the

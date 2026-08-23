@@ -596,7 +596,7 @@ export function encodeCellGrid(grid: CellGrid, useColors = true, colorTolerance 
  * tolerance of the run's `fg` anchor AND its true `bg` is within tolerance of
  * the run's `bg` anchor (redmean distance, compared squared). Requiring BOTH
  * channels to hold is strictly harder than the single-color case, so the win
- * is smaller than {@link encodeGlyphBuffers}'s own 1.2x-9.2x range in
+ * is smaller than {@link encodeGlyphBuffers}'s own 1.2x-9.1x range in
  * `bench/color-tolerance.md`'s table — measured independently at 140x50 through the
  * real `rasterize()` + `charMode` pipeline at tolerance 32/128: **halfblock**
  * 1.59x/1.85x on a smooth-shaded icosphere but only 1.00x/1.28x on a flat

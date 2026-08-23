@@ -12,9 +12,23 @@
 
 import {
   GlyphFieldSynthEffect as fieldSynth,
-  GlyphMengerSdfPreset as mengerSdfPreset,
   defaultGlyphEffectParams,
 } from "../packages/effects/dist/index.js";
+
+// The "Menger SDF" preset this bench was written against was removed in a
+// later preset cull (see AGENTS.md's "Sphere tracing for carve" — no shipped
+// preset currently exercises the SDF voice family or sphere tracing).
+// Reproduced verbatim as a standalone fixture so this bench keeps measuring
+// the real sphere-tracing-vs-fixed-step cost the engine still supports.
+const mengerSdfFixtureParams = {
+  space: "object", scale: 1, render: "carve",
+  combine: "min", originU: 0, originV: 0,
+  field1: "menger", wave1: "step", freq1: 0.5, speed1: 0, amp1: 1, iter1: 3,
+  originU1: -1, originV1: -1, originW1: -1,
+  amp2: 0, amp3: 0,
+  glyphs: " .:-=+*#%@", color: "#6affc9", colorB: "#2f7bff", gradient: 0.4, lit: 1,
+  marchFade: 2.5,
+};
 
 const COLS = 120;
 const ROWS = 48;
@@ -67,9 +81,9 @@ function buildContext(params) {
 // The generic `buildContext` above generates objectPosition/objectExit as
 // fully INDEPENDENT random points in [0, 1]^3 — the right window for the
 // plain iter-4 bench's unshifted `field: "menger"` voice (scale 1, no origin
-// offset), but a poor stand-in for a genuine camera ray, and NOT the shipped
-// "Menger SDF" preset's own domain (its mapping — see stock.ts's doc on the
-// preset — deliberately sits over the CENTERED cube stage's [-1.5, 1.5]^3
+// offset), but a poor stand-in for a genuine camera ray, and NOT the Menger
+// SDF fixture's own domain (its mapping — see `mengerSdfFixtureParams`'s
+// doc above — deliberately sits over the CENTERED cube stage's [-1.5, 1.5]^3
 // objectPosition range). Measured directly (fieldProgram.test.ts's own
 // equivalence-bar findings): independent random entry/exit pairs are
 // noticeably MORE adversarial to sphere tracing than a real render's PARALLEL
@@ -98,7 +112,7 @@ function boxRayIntersect(ox, oy, oz, dx, dy, dz, half) {
   return [tmin, tmax];
 }
 
-function buildMengerSdfContext(params, half) {
+function buildMengerSdfFixtureContext(params, half) {
   const glyph = new Array(LENGTH).fill("#");
   const coverage = new Float32Array(LENGTH);
   const color = new Uint32Array(LENGTH).fill(NO_COLOR);
@@ -185,8 +199,8 @@ for (const field of ["menger", "sierpinski"]) {
 }
 
 // Sphere tracing vs fixed-step (VOLUMETRIC-3.md §3) — the pinned scene from
-// the design doc's own bench spec: 120x48, half covered, "Menger SDF" (the
-// shipped preset, iter 3) at its shipped defaults, 5 runs after warmup,
+// the design doc's own bench spec: 120x48, half covered, the Menger SDF
+// fixture (iter 3) at its former shipped-preset defaults, 5 runs after warmup,
 // median ms/evaluate, acceptance >= 1.5x vs fixed-step (amended after the
 // Phase 3 measurement: naive distance-stepping alone measured 1.2x; a
 // stalled ray's real cost is sphere-steps-until-stall + the fixed-step
@@ -197,7 +211,7 @@ for (const field of ["menger", "sierpinski"]) {
 // layer combine) WITHOUT changing a single rendered pixel: `foldVoices`
 // ignores `combine` entirely when only one voice is active (the fold has
 // nothing to combine against — see fieldProgram.ts), and the shipped
-// "Menger SDF" preset is exactly that (one active voice). So `qualifying`
+// Menger SDF fixture is exactly that (one active voice). So `qualifying`
 // and `fixedForced` march the IDENTICAL field through the IDENTICAL
 // geometry — this isolates the marcher's own cost, not a confound from
 // comparing two different scenes.
@@ -214,19 +228,19 @@ function medianEvaluateMs(context, runs) {
 }
 
 function benchSphereVsFixed() {
-  const qualifying = { ...defaultGlyphEffectParams(fieldSynth), ...mengerSdfPreset.params };
+  const qualifying = { ...defaultGlyphEffectParams(fieldSynth), ...mengerSdfFixtureParams };
   const fixedForced = { ...qualifying, combine: "add" };
   fieldSynth.program.validateParams?.(qualifying);
   fieldSynth.program.validateParams?.(fixedForced);
 
-  const probeContext = buildMengerSdfContext(qualifying, 1.5);
+  const probeContext = buildMengerSdfFixtureContext(qualifying, 1.5);
   const covered = probeContext.target.coverage.reduce((n, c) => n + (c > 0 ? 1 : 0), 0);
 
-  const sphereMs = medianEvaluateMs(buildMengerSdfContext(qualifying, 1.5), 5);
-  const fixedMs = medianEvaluateMs(buildMengerSdfContext(fixedForced, 1.5), 5);
+  const sphereMs = medianEvaluateMs(buildMengerSdfFixtureContext(qualifying, 1.5), 5);
+  const fixedMs = medianEvaluateMs(buildMengerSdfFixtureContext(fixedForced, 1.5), 5);
   const speedup = fixedMs / sphereMs;
 
-  console.log(`\nSphere tracing vs fixed-step — "Menger SDF" preset (iter 3), ${COLS}x${ROWS} grid, ${covered} covered cells, 5 runs post-warmup, median ms/evaluate\n`);
+  console.log(`\nSphere tracing vs fixed-step — Menger SDF fixture (iter 3), ${COLS}x${ROWS} grid, ${covered} covered cells, 5 runs post-warmup, median ms/evaluate\n`);
   console.log(`fixed-step: ${fixedMs.toFixed(3)} ms/evaluate`);
   console.log(`sphere:     ${sphereMs.toFixed(3)} ms/evaluate`);
   console.log(`speedup:    ${speedup.toFixed(2)}x (acceptance: >= 1.5x)`);
