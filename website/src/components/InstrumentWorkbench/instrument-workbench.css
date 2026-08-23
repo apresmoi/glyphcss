@@ -402,16 +402,20 @@
   font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em;
 }
 
-/* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
+/* Card: [ left column — trendline stacked above the square preview ] [ controls column ]
+   Left column is 120px (was 92px) — the preview square is the hardest thing on this
+   card to read (a whole 2D pattern collapsed into a few hundred glyphs), so it gets
+   first claim on any spare width; the `1fr` controls column absorbs the other side of
+   that trade for free (grid math, not a second width to keep in sync). */
 .voice-card {
   display: grid;
-  grid-template-columns: 92px 1fr;
+  grid-template-columns: 120px 1fr;
   gap: 8px 10px;
   border: 1px solid rgba(255, 232, 184, 0.16);
   background: #04060b;
   padding: 9px;
 }
-/* Left column: a fixed-92px flex stack so the square preview below stays exactly
+/* Left column: a fixed-120px flex stack so the square preview below stays exactly
    square regardless of the grid track's stretch behavior — both children pin
    their own width/height instead of inheriting it from the grid item. */
 .voice-left {
@@ -422,18 +426,18 @@
 }
 /* The voice's own waveform: freq = cycles across the width, mix = vertical
    amplitude, wave toggle = shape — a direct visual read of the sliders below it.
-   Confined to the 92px left column now (was full-card-width) and roughly
+   Confined to the 120px left column now (was full-card-width) and roughly
    aligns with the "Voice N" title row on the right. */
 .voice-trend {
   /* Grow to absorb the left column's slack (the grid stretches this column to the
      controls' height) so no empty row sits below the fixed-square glyph. */
-  display: block; width: 92px; flex: 1 1 auto; min-height: 24px;
+  display: block; width: 120px; flex: 1 1 auto; min-height: 24px;
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-trend-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
 .voice-trend-line { stroke-width: 1.4; opacity: 0.95; }
 .voice-preview {
-  display: block; width: 92px; height: 92px; flex: 0 0 92px;
+  display: block; width: 120px; height: 120px; flex: 0 0 120px;
   overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }

@@ -1063,7 +1063,7 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const camera = createGlyphOrthographicCamera(volumetric ? { rotX: 58, rotY: 32, zoom: 16 } : { rotX: 0, rotY: 0, zoom: 20 });
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
-    host.style.fontSize = "8px";
+    host.style.fontSize = "6px";
     const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
     const meshTransform = volumetric ? shapeTransform(previewShape) : {};
     scene.add(polys, meshTransform); scene.fit(); scene.rerender();
