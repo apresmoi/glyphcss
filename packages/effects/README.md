@@ -92,7 +92,11 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   shape-checks one; passing a built (or hand-built) program to a mounted layer via
   `program` instead of `params` — glyphcss plumbs this opaque payload through
   unchanged — is field-synth's unbounded "program-as-data" tier, immutable after
-  mount. Ships with a curated set of presets (Cube tiles, Ink cells, Sunburst,
+  mount. `program`'s colour-stack sibling, `colorProgram`, is the same opaque,
+  mount-immutable, once-validated (via `validateGlyphFieldProgram`) payload for
+  field-synth's independent colour voice stack — passed alongside (not instead
+  of) `program`, since geometry and colour are two separate programs. Ships
+  with a curated set of presets (Cube tiles, Ink cells, Sunburst,
   Ring pulse, Plaid weave, Sonar ping, Lattice, Vortex, Lava, Static rain, Moiré
   rings, Checkerboard, Warp core, Bubbles, Aurora, Zebra, Kaleidoscope, Halftone,
   Weave, Pulse grid, Nebula, Sierpinski pyramid, Breathing gyroid, and Menger

@@ -763,6 +763,14 @@ params:
   URL-persistable, and the [`/synth`](/synth) page and the static exporter
   (below) don't support it.
 
+  `program` has a colour-stack sibling, **`colorProgram`**: field-synth's
+  independent colour voice stack (its own `min`/`max`/etc.-combined layers of
+  voices, evaluated separately from geometry) accepts its own program-as-data
+  payload the same way — opaque, forwarded unchanged, validated once at mount
+  via `validateGlyphFieldProgram`, and immutable after mount. Pass it
+  alongside `program` (not instead of it) when both geometry and colour are
+  program-authored; mirrored the same way across React/Vue/`<glyph-effect-layer>`.
+
 ### `GlyphRamps`
 
 Named character ramps (dark → dense) for `glyphs`-style params:
