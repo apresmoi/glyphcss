@@ -81,14 +81,16 @@
 .voice-add {
   font: inherit; font-size: 11px; letter-spacing: 0.04em;
   padding: 3px 10px;
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  background: rgba(56, 189, 248, 0.1);
+  border-block: 0;
+  border-inline: 1px solid rgba(56, 189, 248, 0.55);
+  --gx-bracket: rgba(56, 189, 248, 0.55);
+  background-color: rgba(56, 189, 248, 0.1);
   color: rgba(56, 189, 248, 0.95);
   border-radius: 0;
   cursor: pointer;
   transition: background 0.12s ease;
 }
-.voice-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.2); }
+.voice-add:hover:not(:disabled) { background-color: rgba(56, 189, 248, 0.2); }
 .voice-add:disabled { opacity: 0.35; cursor: not-allowed; }
 /* Wraps the sidebar header's global Basic/Advanced toggle + "+ Add", so both
    sit as one group on the header's right side (`.synth-voices-head`'s own
@@ -304,11 +306,14 @@
   align-self: flex-start;
   font: inherit; font-size: 10px; letter-spacing: 0.04em;
   padding: 3px 8px;
-  border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08);
+  border-block: 0;
+  border-inline: 1px solid rgba(56, 189, 248, 0.4);
+  --gx-bracket: rgba(56, 189, 248, 0.4);
+  background-color: rgba(56, 189, 248, 0.08);
   color: rgba(56, 189, 248, 0.9); border-radius: 0; cursor: pointer;
   transition: background 0.12s ease;
 }
-.layer-group-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.18); }
+.layer-group-add:hover:not(:disabled) { background-color: rgba(56, 189, 248, 0.18); }
 .layer-group-add:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Colour voice stack section (VOLUMETRIC-4.md §1) — sits below the layer
@@ -463,10 +468,17 @@
 .voice-color::-webkit-color-swatch { border: none; }
 .voice-remove {
   font: inherit; line-height: 1; font-size: 14px; width: 18px; height: 18px;
-  border: 1px solid rgba(255, 232, 184, 0.2); background: transparent;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.2);
+  --gx-bracket: rgba(255, 232, 184, 0.2);
+  background-color: transparent;
   color: rgba(255, 160, 160, 0.85); border-radius: 0; cursor: pointer; padding: 0;
 }
-.voice-remove:hover { background: rgba(255, 90, 90, 0.16); border-color: rgba(255, 120, 120, 0.5); }
+.voice-remove:hover {
+  background-color: rgba(255, 90, 90, 0.16);
+  border-color: rgba(255, 120, 120, 0.5);
+  --gx-bracket: rgba(255, 120, 120, 0.5);
+}
 .voice-row { display: flex; gap: 6px; }
 
 /* Basic/Advanced display-mode toggle (crowding fix) — same `.gx-toggle`
@@ -639,12 +651,13 @@
   gap: 6px;
 }
 .synth-export-bar .gw-code-panel__action {
-  background: #0d1018;
+  background-color: #0d1018;
 }
 .synth-export-bar .gw-code-panel__action.is-active {
   color: #03050a;
-  background: rgba(56, 189, 248, 0.85);
+  background-color: rgba(56, 189, 248, 0.85);
   border-color: rgba(56, 189, 248, 0.85);
+  --gx-bracket: rgba(56, 189, 248, 0.85);
 }
 
 /* Compound with `.gw-code-panel` (0,2,0) rather than `.synth-code-panel`
@@ -786,11 +799,18 @@
 .dock-ramp-density-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   flex: 0 0 auto; width: 40px; padding: 3px 2px 4px;
-  background: rgba(2, 4, 10, 0.85); border: 1px solid rgba(255, 232, 184, 0.16);
+  background-color: rgba(2, 4, 10, 0.85);
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.16);
+  --gx-bracket: rgba(255, 232, 184, 0.16);
   cursor: pointer; color: inherit; font: inherit;
 }
-.dock-ramp-density-item:hover { border-color: rgba(255, 232, 184, 0.4); }
-.dock-ramp-density-item.is-active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.12); }
+.dock-ramp-density-item:hover { border-color: rgba(255, 232, 184, 0.4); --gx-bracket: rgba(255, 232, 184, 0.4); }
+.dock-ramp-density-item.is-active {
+  border-color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.12);
+  --gx-bracket: #38bdf8;
+}
 .dock-ramp-density-bars {
   display: flex; align-items: flex-end; gap: 1px; width: 100%; height: 20px;
 }
@@ -824,11 +844,18 @@
 }
 .synth-tile {
   flex: 0 0 auto; width: 104px; display: flex; flex-direction: column; padding: 0;
-  border: 1px solid rgba(255, 232, 184, 0.18); background: #04060b;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.18);
+  --gx-bracket: rgba(255, 232, 184, 0.18);
+  background-color: #04060b;
   color: rgba(255, 232, 184, 0.7); cursor: pointer; overflow: hidden; font: inherit;
   transition: border-color 0.12s ease, transform 0.12s ease;
 }
-.synth-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); }
+.synth-tile:hover {
+  border-color: rgba(56, 189, 248, 0.9);
+  transform: translateY(-2px);
+  --gx-bracket: rgba(56, 189, 248, 0.9);
+}
 /* The preview is decorative — let every click (glyph or gap) fall through to the tile button. */
 .synth-tile-scene { display: block; width: 100%; aspect-ratio: 1; overflow: hidden; background: #02040a; pointer-events: none; }
 .synth-tile-scene .glyph-output { color: rgba(255, 232, 184, 0.92); }
