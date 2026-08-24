@@ -141,7 +141,7 @@ export type {
 // Static effect export — bake an effect-only, static-camera scene into a
 // self-contained pen (inlined vanilla-JS evaluator, zero glyphcss at runtime).
 // Field-synth only for now; see the module doc for what generalizing needs.
-export { buildGlyphFieldSynthStaticExport, isGlyphFieldSynthStaticExportSupported } from "./staticExport";
+export { buildGlyphFieldSynthStaticExport, isGlyphFieldSynthStaticExportSupported, glyphFieldSynthStaticExportUnsupportedReason } from "./staticExport";
 export type {
   GlyphFieldSynthStaticExportEffect,
   GlyphFieldSynthStaticExportOptions,

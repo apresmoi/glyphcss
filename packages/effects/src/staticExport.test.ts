@@ -868,6 +868,87 @@ describe("buildGlyphFieldSynthStaticExport", () => {
   });
 
   // ---------------------------------------------------------------------
+  // `cellWidthPx`/`cellHeightPx` — real measured-metrics contract.
+  //
+  // Every other test in this file fits its `zoom` (e.g. `zoom: 150` above)
+  // against the SAME BASE_TILE-derived cell size `bake()` falls back to
+  // when these options are omitted (`projectionMetricsForGrid`'s
+  // `fallbackCellW = 50 / cellAspect`, `fallbackCellH = 50`,
+  // packages/glyphcss/src/render/rasterize.ts) — so none of them exercise
+  // what actually happens on the live `/synth` page, where `frameObject`
+  // (website/src/components/SynthWorkbench/synthKit.tsx) always fits `zoom`
+  // against the REAL measured `pre.getBoundingClientRect()` cell size, which
+  // is essentially never 50×(50/cellAspect) CSS px for a real monospace
+  // font. Reported bug: "Cube tiles" (a fullscreen, `cover`-fit plane)
+  // exported a CodePen whose baked silhouette covered only ~4.7% of the
+  // requested grid (a 35×22 window inside a 202×78 grid) — reprojecting a
+  // zoom fit against real ~8×16px cells onto `bake()`'s BASE_TILE fallback
+  // (25×50px at `cellAspect: 2`) shrinks the covered region by roughly the
+  // ratio of those cell sizes. Fixed by threading `cellWidthPx`/
+  // `cellHeightPx` through to `bake()`'s own `grid.cellWidth`/`cellHeight`.
+  describe("cellWidthPx/cellHeightPx (frameObject parity — reported bug: baked silhouette covering the wrong fraction of the grid)", () => {
+    // Mirrors `frameObject`'s own algorithm (synthKit.tsx): project at
+    // zoom 1 with the given real cell metrics, measure the bbox in CELLS,
+    // then set zoom so the SMALLER axis fills `fill` and the larger
+    // OVERSCANS (`cover`) — exactly what the flat "plane" stage uses
+    // (`fill: 1.02, cover: true`).
+    function fitZoomCover(
+      polygons: Polygon[], rotX: number, rotY: number, cols: number, rows: number,
+      cellAspect: number, cellWidthPx: number, cellHeightPx: number, fill: number,
+    ): number {
+      const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom: 1 });
+      const metrics = { cellWidth: cellWidthPx, cellHeight: cellHeightPx };
+      let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
+      for (const p of polygons) for (const v of p.vertices) {
+        const pr = camera.project(v, cols, rows, cellAspect, metrics);
+        if (pr[0]! < minc) minc = pr[0]!; if (pr[0]! > maxc) maxc = pr[0]!;
+        if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
+      }
+      const w = maxc - minc, h = maxr - minr;
+      const zc = (fill * cols) / w, zr = (fill * rows) / h;
+      return Math.max(zc, zr);
+    }
+
+    it("passing the real measured cell metrics reproduces full coverage for a cover-fit plane", () => {
+      const cols = 60, rows = 30, cellAspect = 2;
+      // Realistic monospace metrics (~13px font) — deliberately far from the
+      // BASE_TILE fallback (25×50 at cellAspect 2) so a wrong fallback would
+      // visibly under-cover, not coincidentally match.
+      const cellWidthPx = 8, cellHeightPx = 16;
+      const zoom = fitZoomCover(planeMesh(), 0, 0, cols, rows, cellAspect, cellWidthPx, cellHeightPx, 1.02);
+      const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+        rotX: 0, rotY: 0, zoom, cols, rows, cellAspect, cellWidthPx, cellHeightPx,
+      }));
+      const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+      const cfg = JSON.parse(cfgMatch![1]!) as { full: boolean; cols: number; rows: number };
+      expect(cfg.full).toBe(true);
+      expect(cfg.cols).toBe(cols);
+      expect(cfg.rows).toBe(rows);
+    });
+
+    it("regression pin: omitting cellWidthPx/cellHeightPx reprojects the SAME real-metric zoom onto the BASE_TILE fallback and covers only a small fraction of the grid", () => {
+      const cols = 60, rows = 30, cellAspect = 2;
+      const cellWidthPx = 8, cellHeightPx = 16;
+      // Same zoom as above — fit against the REAL metrics — but the exporter
+      // call below does NOT pass cellWidthPx/cellHeightPx, reproducing the
+      // pre-fix code path exactly.
+      const zoom = fitZoomCover(planeMesh(), 0, 0, cols, rows, cellAspect, cellWidthPx, cellHeightPx, 1.02);
+      const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+        rotX: 0, rotY: 0, zoom, cols, rows, cellAspect,
+      }));
+      const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+      const cfg = JSON.parse(cfgMatch![1]!) as { full: boolean; cols: number; rows: number };
+      // Not full — the baked silhouette is cropped to a small covered window,
+      // not the requested cols×rows grid (the reported defect).
+      expect(cfg.full).toBe(false);
+      const html = runBakedFrame(result.js, 0);
+      const cells = parseHtmlGrid(html, cols, rows);
+      const coveredFraction = cells.filter((c) => c.glyph !== " ").length / cells.length;
+      expect(coveredFraction).toBeLessThan(0.3);
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Parity (Acceptance 6, strong form): the baked runtime's grid output
   // must match the live `fieldSynth.program.evaluate()` render, cell for
   // cell, at matching time values. Each case below targets exactly what

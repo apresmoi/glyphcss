@@ -19,7 +19,7 @@ import {
   combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
-  isGlyphFieldSynthStaticExportSupported,
+  glyphFieldSynthStaticExportUnsupportedReason,
   measureGlyphInkCoverage,
   synthWave,
 } from "@glyphcss/effects";
@@ -501,20 +501,24 @@ export default function SynthWorkbench() {
   // `buildGlyphFieldSynthStaticExport` explicitly REJECTS several patch
   // shapes it can't bake: volumetric/carve (a march per cell per frame is a
   // different export design — see AGENTS.md's "Static export"), an active
-  // `linearZ` voice, and a nonzero `originW` on an active voice (both
-  // 3D-only semantics with no meaning in the 2D branch this exporter ports).
-  // `isGlyphFieldSynthStaticExportSupported` is the exporter's OWN predicate (from
-  // `@glyphcss/effects`, mirroring `assertStaticExportSupported` exactly) —
-  // reading it here instead of duplicating the condition list means this
-  // button can never drift out of sync with what the exporter actually
-  // rejects (a URL-loaded patch can carry either of the latter two without
-  // being volumetric/carve, and used to slip past a narrower local check).
-  // The static "Open in CodePen" button below is disabled whenever this is
-  // false, instead of letting the exporter's throw reach the user; the
-  // "Export" code window's OWN CodePen action (`handleExportCodepenDynamic`)
-  // is unaffected — it mounts a LIVE effect at runtime from the CDN, which
-  // handles every one of these cases fine.
-  const staticExportSupported = useMemo(() => isGlyphFieldSynthStaticExportSupported(params), [params]);
+  // `linearZ` voice, a nonzero `originW` on an active voice (both 3D-only
+  // semantics with no meaning in the 2D branch this exporter ports), and
+  // `colorStackOn: true` (the colour voice stack has no inlined-runtime
+  // port). `glyphFieldSynthStaticExportUnsupportedReason` is the exporter's
+  // OWN predicate (from `@glyphcss/effects`, mirroring
+  // `assertStaticExportSupported`'s real throw sites, not a hand-mirrored
+  // condition list next to this button — reported bug: the disabled tooltip
+  // used to hard-code only the volumetric/linearZ/originW wording, so
+  // toggling the colour stack disabled the button but the tooltip kept
+  // naming reasons that didn't apply) — reading it here means this button
+  // (and its tooltip) can never drift out of sync with what the exporter
+  // actually rejects. The static "Open in CodePen" button below is disabled
+  // whenever this is non-null, instead of letting the exporter's throw reach
+  // the user; the "Export" code window's OWN CodePen action
+  // (`handleExportCodepenDynamic`) is unaffected — it mounts a LIVE effect
+  // at runtime from the CDN, which handles every one of these cases fine.
+  const staticExportUnsupportedReason = useMemo(() => glyphFieldSynthStaticExportUnsupportedReason(params), [params]);
+  const staticExportSupported = staticExportUnsupportedReason === null;
 
   // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
   // bakes for the standalone "Open in CodePen" button — reads the mesh, the
@@ -554,12 +558,19 @@ export default function SynthWorkbench() {
       projection: "orthographic",
       fontSizePx,
       lineHeightPx: rect.height > 0 && rows > 0 ? rect.height / rows : lineHeightPx,
+      // The SAME measured cell metrics `frameObject` (synthKit.tsx) used to
+      // fit `camera.zoom` against this exact `cols`/`rows` — without these,
+      // `bake()` reprojects that zoom onto its own headless BASE_TILE-derived
+      // cell size instead, baking a silhouette that covers the wrong
+      // fraction of the grid (see `GlyphFieldSynthStaticExportOptions`'s
+      // `cellWidthPx`/`cellHeightPx` doc).
+      cellWidthPx: rect.width > 0 && cols > 0 ? rect.width / cols : undefined,
+      cellHeightPx: rect.height > 0 && rows > 0 ? rect.height / rows : undefined,
       directionalLight: buildLighting(lighting).directionalLight,
       ambientLight: buildLighting(lighting).ambientLight,
       title: `glyphcss field synth — ${shape}`,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shape, params, lighting, timeScale]);
+  }, [shape, params, lighting, timeScale, staticExportSupported]);
 
   // Standalone, always-visible "Open in CodePen" button (bottom-left): ships
   // the static, zero-lib baked pen (the ASCII the page currently renders +
@@ -670,9 +681,9 @@ export default function SynthWorkbench() {
               className="gw-code-panel__action gw-code-panel__action--codepen"
               onClick={handleExportCodepenStatic}
               disabled={exporting || !staticExportSupported}
-              title={staticExportSupported
+              title={staticExportUnsupportedReason === null
                 ? "Open the current rendered patch as a static, zero-runtime CodePen"
-                : "This patch can't bake to a static, zero-runtime CodePen — volumetric/carve (a march can't be prebaked per cell per frame), an active linearZ voice, or a nonzero origin W on an active voice all have no meaning in the baked 2D evaluator. Use \"Export\" instead, which ships a live effect from the CDN."}
+                : `Can't export a static, zero-runtime CodePen: ${staticExportUnsupportedReason} Use "Export" instead, which ships a live effect from the CDN.`}
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
             </button>
