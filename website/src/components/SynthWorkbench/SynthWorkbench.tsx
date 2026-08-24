@@ -482,12 +482,40 @@ export default function SynthWorkbench() {
     camera: cameraSnapshot,
   }), [shape, params, timeScale, paused, density, lighting, cameraSnapshot]);
 
-  /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
-  function postCodepenForm(action: string, data: string): void {
+  /**
+   * Open a blank, NAMED tab synchronously, inside the click gesture itself —
+   * before either export handler below does its (potentially multi-second,
+   * see `buildSynthExport`'s doc) synchronous bake. Chrome's transient user
+   * activation for a `target="_blank"` form POST expires a few seconds after
+   * the click; claiming the window up front sidesteps that entirely, since
+   * navigating an ALREADY-open window by name isn't a new-popup request and
+   * isn't subject to that limit — the standard pattern for slow popup work.
+   * Returns `null` only when the browser blocks even a same-gesture
+   * `window.open` (popups fully disabled for this origin); callers must tell
+   * the user, not fail silently the way a blocked `target="_blank"` POST did.
+   */
+  function openCodepenTab(name: string): Window | null {
+    const tab = window.open("", name);
+    if (tab) {
+      try {
+        tab.document.title = "Preparing CodePen…";
+        tab.document.body.textContent = "Building your pen…";
+        tab.document.body.style.cssText = "font:14px system-ui,sans-serif;color:#666;padding:2rem;";
+      } catch {
+        // Same-origin `about:blank` write can't actually throw here, but a
+        // future browser restriction on scripting a freshly opened window
+        // shouldn't take the tab (already open and about to navigate) down.
+      }
+    }
+    return tab;
+  }
+
+  /** POST a raw CodePen prefill `data` JSON payload into the tab `openCodepenTab` already opened. */
+  function postCodepenForm(action: string, data: string, targetName: string): void {
     const form = document.createElement("form");
     form.method = "POST";
     form.action = action;
-    form.target = "_blank";
+    form.target = targetName;
     const input = document.createElement("input");
     input.type = "hidden";
     input.name = "data";
@@ -575,47 +603,82 @@ export default function SynthWorkbench() {
   // Standalone, always-visible "Open in CodePen" button (bottom-left): ships
   // the static, zero-lib baked pen (the ASCII the page currently renders +
   // a pure-CSS loop) — no glyphcss/effects runtime.
+  //
+  // `buildSynthExport` (via `buildGlyphFieldSynthStaticExport`) bakes every
+  // covered cell's field-synth coordinate and can run into the seconds on a
+  // dense stage (measured ~4.2s at the live 202x78 default, worse at higher
+  // Density) — a plain synchronous call here would both freeze the page with
+  // no feedback AND risk losing Chrome's transient user activation before
+  // `postCodepenForm`'s POST fires, which is exactly "the button cannot be
+  // clicked" (the window silently never opens). `openCodepenTab` claims the
+  // destination tab FIRST, synchronously in the gesture, so the eventual POST
+  // is a same-window navigation, not a new-popup request, and can't be
+  // blocked by how long the bake takes. The `requestAnimationFrame` yield
+  // lets the "Exporting…" label actually paint before that synchronous bake
+  // begins, so the freeze that follows isn't silent.
   const handleExportCodepenStatic = useCallback(() => {
-    const result = buildSynthExport();
-    if (!result) return;
-    setExporting(true);
-    try {
-      postCodepenForm("https://codepen.io/pen/define", JSON.stringify({ title: `glyphcss field synth — ${shape}`, ...result.pen, editors: "110" }));
-    } finally {
-      setExporting(false);
+    const tab = openCodepenTab("glyphcss-codepen-static");
+    if (!tab) {
+      window.alert("Your browser blocked the new tab for this export. Allow popups for this site and try again.");
+      return;
     }
+    setExporting(true);
+    requestAnimationFrame(() => {
+      try {
+        const result = buildSynthExport();
+        if (!result) { tab.close(); return; }
+        postCodepenForm(
+          "https://codepen.io/pen/define",
+          JSON.stringify({ title: `glyphcss field synth — ${shape}`, ...result.pen, editors: "110" }),
+          "glyphcss-codepen-static",
+        );
+      } finally {
+        setExporting(false);
+      }
+    });
   }, [buildSynthExport, shape]);
 
   // "Export" code window's own CodePen action (and each framework tab):
   // compiles the current shape + camera + field-synth patch into a
   // self-contained, lib-based (glyphcss + @glyphcss/effects from the CDN)
-  // CodePen — mirrors the gallery's `handleCodepen`.
+  // CodePen — mirrors the gallery's `handleCodepen`. `buildGlyphInteractiveExport`
+  // is far cheaper than the static bake above (it decimates a polygon list,
+  // it doesn't march a cell grid), but it shares the same `postCodepenForm`
+  // popup-timing hazard, so it gets the same open-tab-first treatment for
+  // the same reason, not because it's independently been measured slow.
   const handleExportCodepenDynamic = useCallback(() => {
     const camera = cameraRef.current;
     if (!camera) return;
-    setExporting(true);
-    try {
-      const flat = isFlat(shape);
-      const result = buildGlyphInteractiveExport(shapePolys(shape), {
-        interactions: flat ? [] : ["orbit"],
-        rotX: camera.rotX,
-        rotY: camera.rotY,
-        zoom: camera.zoom,
-        projection: "orthographic",
-        mode: "solid",
-        useColors: true,
-        effect: {
-          id: fieldSynth.id,
-          params: params as Record<string, number | string | boolean>,
-          blend: SYNTH_EFFECT_BLEND,
-          timeScale: paused ? 0 : timeScale,
-        },
-      });
-      const prefill = glyphCodepenPrefill(result, `glyphcss field synth — ${shape}`);
-      postCodepenForm(prefill.action, prefill.data);
-    } finally {
-      setExporting(false);
+    const tab = openCodepenTab("glyphcss-codepen-dynamic");
+    if (!tab) {
+      window.alert("Your browser blocked the new tab for this export. Allow popups for this site and try again.");
+      return;
     }
+    setExporting(true);
+    requestAnimationFrame(() => {
+      try {
+        const flat = isFlat(shape);
+        const result = buildGlyphInteractiveExport(shapePolys(shape), {
+          interactions: flat ? [] : ["orbit"],
+          rotX: camera.rotX,
+          rotY: camera.rotY,
+          zoom: camera.zoom,
+          projection: "orthographic",
+          mode: "solid",
+          useColors: true,
+          effect: {
+            id: fieldSynth.id,
+            params: params as Record<string, number | string | boolean>,
+            blend: SYNTH_EFFECT_BLEND,
+            timeScale: paused ? 0 : timeScale,
+          },
+        });
+        const prefill = glyphCodepenPrefill(result, `glyphcss field synth — ${shape}`);
+        postCodepenForm(prefill.action, prefill.data, "glyphcss-codepen-dynamic");
+      } finally {
+        setExporting(false);
+      }
+    });
   }, [shape, params, paused, timeScale]);
 
   return (
