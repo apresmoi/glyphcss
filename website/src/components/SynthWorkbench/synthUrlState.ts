@@ -18,6 +18,7 @@ import {
 import {
   createUrlCodec,
   decodeEffectParamsPacked,
+  decodeEffectParamsPackedLegacy,
   encodeEffectParamsPacked,
   readUrlParam,
   scheduleCompactedUrlWrite,
@@ -186,11 +187,14 @@ function buildLegacyV3FieldSynthSchema(): EffectParamSchemaLike {
 }
 export const LEGACY_V3_FIELD_SYNTH_SCHEMA: EffectParamSchemaLike = buildLegacyV3FieldSynthSchema();
 
-// Bumped 3 -> 4 for the colorQuantize removal above (an inner-schema
-// key-shrink, not the 1 -> 2 escape-format fix or the 2 -> 3 slab removal
-// below): the OUTER `?s=` version tag is what routes a link's `paramsPacked`
-// to the right key order at decode time (see `decodeSynthUrlState`).
-const SYNTH_SCHEMA_VERSION = "4";
+// Bumped 4 -> 5 for the shared codec's compact-index/run/list rewrite of
+// `encodeEffectParamsPacked`/`decodeEffectParamsPacked` (website/src/lib/
+// urlState.ts) — a wire-format change to `paramsPacked` itself (not a
+// schema key reshuffle like the 2->3/3->4 bumps below), so a v4 link's
+// `paramsPacked` must decode through the LEGACY pair
+// (`decodeEffectParamsPackedLegacy`) against the CURRENT schema — v4 never
+// changed which keys exist, only v5 changes how they're packed.
+const SYNTH_SCHEMA_VERSION = "5";
 export const synthCodec = createUrlCodec<SynthUrlState>(SYNTH_SCHEMA_VERSION, synthFields);
 // Decodes a URL shared before the version bump (`raw[1] === "1"`). Same field
 // list — only `paramsPacked`'s internal token format changed, and that change
@@ -211,6 +215,12 @@ const synthCodecLegacyV2 = createUrlCodec<SynthUrlState>("2", synthFields);
 // default, exactly as intended), but `paramsPacked` must be decoded against
 // `LEGACY_V3_FIELD_SYNTH_SCHEMA`'s old key order.
 const synthCodecLegacyV3 = createUrlCodec<SynthUrlState>("3", synthFields);
+// Decodes a "4"-tagged link (the version live from the colorQuantize removal
+// through the v5 compact-codec rewrite) — same outer field list AND the same
+// (current) `paramsPacked` key order as v5, but `paramsPacked` itself must be
+// decoded with the LEGACY escape-based decoder (see `decodeParamsPacked`
+// below), since v5 is the first version to write the compact grammar.
+const synthCodecLegacyV4 = createUrlCodec<SynthUrlState>("4", synthFields);
 export const SYNTH_PARAM = "s";
 
 // Shared with `resolveSpaceChange` in synthKit.tsx (the live Mapping-dropdown
@@ -445,23 +455,43 @@ export function encodeSynthUrlState(state: SynthPatch): string {
   });
 }
 
-/** Dispatches to the legacy (pre-bump) codec for a "1"/"2"/"3"-tagged link,
- *  else the live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
+/** Dispatches to the legacy (pre-bump) codec for a "1"/"2"/"3"/"4"-tagged
+ *  link, else the live codec — see `SYNTH_SCHEMA_VERSION`'s doc. */
 function decodeOuterState(raw: string | null | undefined): Partial<SynthUrlState> {
   if (raw && raw[1] === "1") return synthCodecLegacyV1.decode(raw);
   if (raw && raw[1] === "2") return synthCodecLegacyV2.decode(raw);
   if (raw && raw[1] === "3") return synthCodecLegacyV3.decode(raw);
+  if (raw && raw[1] === "4") return synthCodecLegacyV4.decode(raw);
   return synthCodec.decode(raw);
 }
 
-/** "1"/"2"-tagged links predate the slab removal, and "3"-tagged links
+/** "1"/"2"-tagged links predate the slab removal, and "3"/"4"-tagged links
  *  predate the colorQuantize removal — each must decode `paramsPacked`
  *  against its OWN old key order (`LEGACY_V2_FIELD_SYNTH_SCHEMA` /
- *  `LEGACY_V3_FIELD_SYNTH_SCHEMA`'s docs). */
+ *  `LEGACY_V3_FIELD_SYNTH_SCHEMA`'s docs). A "4"-tagged link's key order is
+ *  identical to the live schema (only the wire FORMAT changed for v5, see
+ *  `decodeParamsPacked` below), so it shares the same branch as the current
+ *  (v5) schema here. */
 function paramsSchemaFor(raw: string | null | undefined): EffectParamSchemaLike {
   if (raw && (raw[1] === "1" || raw[1] === "2")) return LEGACY_V2_FIELD_SYNTH_SCHEMA;
   if (raw && raw[1] === "3") return LEGACY_V3_FIELD_SYNTH_SCHEMA;
   return fieldSynth.parameterSchema as unknown as EffectParamSchemaLike;
+}
+
+/** Every version below the current one wrote `paramsPacked` with the LEGACY
+ *  escape-based grammar (`encodeEffectParamsPackedLegacy`); only
+ *  `SYNTH_SCHEMA_VERSION` ("5") writes/reads the compact run/list grammar
+ *  (`encodeEffectParamsPacked`). This is a wire-format dispatch, orthogonal
+ *  to `paramsSchemaFor`'s key-ORDER dispatch above — a "4"-tagged link uses
+ *  the CURRENT key order but the LEGACY format, which is exactly why this
+ *  needs its own check rather than folding into `paramsSchemaFor`. */
+function decodeParamsPacked(
+  raw: string | null | undefined,
+  schema: EffectParamSchemaLike,
+  packed: string | undefined,
+): Record<string, unknown> {
+  if (raw && raw[1] === SYNTH_SCHEMA_VERSION) return decodeEffectParamsPacked(schema, packed);
+  return decodeEffectParamsPackedLegacy(schema, packed);
 }
 
 /** Shared post-processing for BOTH the synchronous ('p') and async ('z')
@@ -474,7 +504,7 @@ function paramsSchemaFor(raw: string | null | undefined): EffectParamSchemaLike 
  *  `codec.decode`, async via `codec.decodeAsync`). */
 function buildSynthInitialState(raw: string | null | undefined, outer: Partial<SynthUrlState>): SynthInitialState {
   const decoded = { ...SYNTH_URL_DEFAULTS, ...outer };
-  const overrides = decodeEffectParamsPacked(paramsSchemaFor(raw), decoded.paramsPacked);
+  const overrides = decodeParamsPacked(raw, paramsSchemaFor(raw), decoded.paramsPacked);
   // The retired slab keys only ever appear when `overrides` was decoded
   // against `LEGACY_V2_FIELD_SYNTH_SCHEMA` (a "1"/"2"-tagged link), and
   // `colorQuantize` only when decoded against `LEGACY_V3_FIELD_SYNTH_SCHEMA`
@@ -521,6 +551,7 @@ function outerCodecFor(raw: string | null | undefined) {
   if (raw && raw[1] === "1") return synthCodecLegacyV1;
   if (raw && raw[1] === "2") return synthCodecLegacyV2;
   if (raw && raw[1] === "3") return synthCodecLegacyV3;
+  if (raw && raw[1] === "4") return synthCodecLegacyV4;
   return synthCodec;
 }
 

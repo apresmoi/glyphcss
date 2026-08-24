@@ -124,6 +124,54 @@ function handBuiltPatch(): SynthPatch {
   };
 }
 
+// The v5 compact codec (website/src/lib/urlState.ts's run/list token
+// grammar) shrinks every REAL shipped preset well under the 400-char
+// compaction threshold (max measured: "Menger (cssGraphics)" at 239 chars,
+// down from 429 pre-v5 — that preset used to be the one that crossed the
+// threshold and is the whole reason this file's P0 regression test exists).
+// The compaction/`'z'`-link path is a real feature that still needs
+// coverage even though no shipped preset alone triggers it anymore — this
+// patch deliberately gives every per-voice-family key (angle/originU/
+// originV/duty/phase/originW × 9 voices, all layer/colour-stack keys) a
+// DISTINCT value so no run/list grouping applies, reliably landing over 400
+// chars (measured ~700) while staying schema-valid.
+function maximallyDistinctPatch(): SynthPatch {
+  const params: Params = {
+    ...handBuiltPatch().params,
+    field4: "angular", wave4: "sin", freq4: 2.2, speed4: 0.7, amp4: 0.25, color4: "#123456",
+    field5: "radial", wave5: "triangle", freq5: 4.4, speed5: -0.9, amp5: 0.45, color5: "#654321",
+    field6: "linearY", wave6: "saw", freq6: 1.7, speed6: 0.3, amp6: 0.55, color6: "#abcdef",
+    angle1: 5, angle2: 15, angle3: 25, angle4: 35, angle5: 45, angle6: 55, angle7: 65, angle8: 75, angle9: 85,
+    originU1: 0.01, originU2: 0.02, originU3: 0.03, originU4: 0.04, originU5: 0.05, originU6: 0.06, originU7: 0.07, originU8: 0.08, originU9: 0.09,
+    originV1: 0.11, originV2: 0.12, originV3: 0.13, originV4: 0.14, originV5: 0.15, originV6: 0.16, originV7: 0.17, originV8: 0.18, originV9: 0.19,
+    duty1: 0.21, duty2: 0.22, duty3: 0.23, duty4: 0.24, duty5: 0.25, duty6: 0.26, duty7: 0.27, duty8: 0.28, duty9: 0.29,
+    phase1: 0.31, phase2: 0.32, phase3: 0.33, phase4: 0.34, phase5: 0.35, phase6: 0.36, phase7: 0.37, phase8: 0.38, phase9: 0.39,
+    originW1: 0.41, originW2: 0.42, originW3: 0.43, originW4: 0.44, originW5: 0.45, originW6: 0.46, originW7: 0.47, originW8: 0.48, originW9: 0.49,
+    layer1: 1, layer2: 2, layer3: 3, layer4: 1, layer5: 2, layer6: 3, layer7: 1, layer8: 2, layer9: 3,
+    layerCombine1: "add", layerCombine2: "max", layerCombine3: "min",
+    layerThresholdOn1: true, layerThresholdOn2: false, layerThresholdOn3: true,
+    layerThreshold1: 0.5, layerThreshold2: -0.5, layerThreshold3: 1.2,
+    layerInvert1: true, layerInvert2: false, layerInvert3: false,
+    layerBlend1: "add", layerBlend2: "min", layerBlend3: "difference",
+    layerAmp1: 0.3, layerAmp2: 0.6, layerAmp3: 0.9,
+    cphase1: 0.11, cangle1: 11, coriginU1: 0.11, coriginV1: 0.12, coriginW1: 0.13, cduty1: 0.31, citer1: 1,
+    cphase2: 0.21, cangle2: 21, coriginU2: 0.21, coriginV2: 0.22, coriginW2: 0.23, cduty2: 0.32, citer2: 2,
+    cphase3: 0.31, cangle3: 31, coriginU3: 0.31, coriginV3: 0.32, coriginW3: 0.33, cduty3: 0.33, citer3: 3,
+    inkSpacing: 0.11,
+    inkLevels: 3,
+    subcellRes: "1x1",
+  };
+  return {
+    shape: "sphere",
+    params,
+    timeScale: 2.1,
+    density: 1.8,
+    colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+    lighting: REPRESENTATIVE_LIGHTING,
+    voiceSlots: voiceSlotsFromParams(params),
+  };
+}
+
 function stepFor(key: string): number {
   const spec = (fieldSynth.parameterSchema as unknown as Record<string, { step?: number }>)[key];
   return spec?.step && spec.step > 0 ? spec.step : 0.0001;
@@ -199,17 +247,17 @@ beforeEach(() => {
 
 describe("synth URL codec — real entry-point round trip (P0 regression)", () => {
   it("demonstrates the bug mechanism: sync-only read loses a compacted link the async catch-up recovers", async () => {
-    // The exact reported repro: click "Menger (cssGraphics)", read the URL,
-    // reload. Not hand-built — pulled from the real shipped preset list so
-    // this test tracks the actual patch, not a stand-in guessed to be big
-    // enough.
-    const mengerCssGraphics = (fieldSynth.presets ?? []).find((p) => p.name.includes("cssGraphics"));
-    if (!mengerCssGraphics) throw new Error('expected a shipped "Menger (cssGraphics)" preset');
-    const patch = presetPatch(mengerCssGraphics, "cube");
+    // Originally reproduced with the shipped "Menger (cssGraphics)" preset
+    // (colour stack + several geometry/colour voices used to pack to 429
+    // chars, crossing the compaction threshold in real use — that's WHY the
+    // reported link broke on this preset and not a small one). The v5
+    // compact codec shrinks that SAME preset to 239 chars — well under the
+    // threshold now (see synthUrlState.test.ts's real-preset-length
+    // regression coverage) — so the mechanism this test exists to guard is
+    // exercised instead with `maximallyDistinctPatch()`, a patch built to
+    // reliably still cross 400 chars post-shrink (see that helper's doc).
+    const patch = maximallyDistinctPatch();
     const expectedPacked = encodeSynthUrlState(patch);
-    // This preset (colour stack + several geometry/colour voices) is exactly
-    // the shape that crosses the compaction threshold in real use — that's
-    // WHY the reported link broke on this preset and not a small one.
     expect(expectedPacked.length).toBeGreaterThan(400);
 
     writeSynthUrlState(patch);
@@ -236,6 +284,12 @@ describe("synth URL codec — real entry-point round trip (P0 regression)", () =
     expectPatchesMatch(restored, patch);
   });
 
+  it("round-trips the maximally-distinct (>400 char, 'z'-compacted) patch through the real write/read path", async () => {
+    const patch = maximallyDistinctPatch();
+    const restored = await roundTripThroughRealUrl(patch);
+    expectPatchesMatch(restored, patch);
+  });
+
   for (const preset of fieldSynth.presets ?? []) {
     it(`round-trips the "${preset.name}" preset through the real write/read path`, async () => {
       const patch = presetPatch(preset, "cube");
@@ -244,8 +298,15 @@ describe("synth URL codec — real entry-point round trip (P0 regression)", () =
     });
   }
 
-  it("covers both packed forms across the shipped presets (not just always-'p' or always-'z')", () => {
-    const lengths = (fieldSynth.presets ?? []).map((preset) => encodeSynthUrlState(presetPatch(preset, "cube")).length);
+  it("covers both packed forms (not just always-'p' or always-'z')", () => {
+    // Every shipped preset now packs to <= 400 chars post-v5 (the whole
+    // point of the shrink — see `maximallyDistinctPatch()`'s doc above), so
+    // "both forms reachable" is no longer provable from the shipped preset
+    // set alone; `maximallyDistinctPatch()` stands in for the >400 case.
+    const lengths = [
+      ...(fieldSynth.presets ?? []).map((preset) => encodeSynthUrlState(presetPatch(preset, "cube")).length),
+      encodeSynthUrlState(maximallyDistinctPatch()).length,
+    ];
     expect(lengths.some((n) => n <= 400)).toBe(true);
     expect(lengths.some((n) => n > 400)).toBe(true);
   });
