@@ -162,10 +162,16 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   gap: 6px;
 }
 .wa-view-bar .gw-code-panel__action { background: #0d1018; }
+/* Active state matches `.gx-toggle-btn.is-active` (the segmented toggles used
+   for bsc/adv and layer 1|2|3), NOT the export bar's filled treatment: a 20%
+   cyan tint with cyan text and a thin inset ring, rather than an 85% fill with
+   inverted dark text. These sit inline beside the stage, so a solid fill reads
+   as a foreign widget next to every other control on the page. */
 .wa-view-bar .gw-code-panel__action.is-active {
-  color: #03050a;
-  background: rgba(56, 189, 248, 0.85);
-  border-color: rgba(56, 189, 248, 0.85);
+  color: rgba(56, 189, 248, 1);
+  background: rgba(56, 189, 248, 0.2);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.85);
 }
 .wa-stage .glyph-output { color: rgba(255, 232, 184, 0.92); margin: 0; }
 
