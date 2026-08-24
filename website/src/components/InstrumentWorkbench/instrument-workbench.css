@@ -666,8 +666,11 @@
 }
 
 @media (max-width: 760px) {
-  /* The bar duplicates the mobile tab bar's "Export" tab — hide it and rely
-     on that tab (same drawer, opened via `mobilePanel === "export"`). */
+  /* "Open in CodePen" and "Export" duplicate the mobile tab bar's "Export"
+     tab, so hide the whole bar and rely on that tab (same drawer, opened via
+     `mobilePanel === "export"`). "Copy ASCII" has no such duplicate on its
+     own — `SynthCodePanel` mounts its own "Copy ASCII" action (next to its
+     code-snippet "Copy") specifically so this hide doesn't strand it. */
   :is(.dn-root--synth, .dn-root--generative) .synth-export-bar { display: none; }
 
   /* Export becomes a full bottom-drawer reachable via the Export tab —

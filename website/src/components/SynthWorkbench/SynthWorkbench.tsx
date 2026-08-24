@@ -803,6 +803,8 @@ export default function SynthWorkbench() {
               onCodepen={handleExportCodepenDynamic}
               exporting={exporting}
               onClose={closeCodePanel}
+              onCopyAscii={handleCopyAscii}
+              copyAsciiState={copyState}
             />
           )}
         </InstrumentMain>

@@ -1110,6 +1110,8 @@ export function WordArtWorkbench() {
               onCodepen={handleExportCodepenDynamic}
               exporting={exporting}
               onClose={closeCodePanel}
+              onCopyAscii={handleCopyAscii}
+              copyAsciiState={copyState}
             />
           )}
         </main>

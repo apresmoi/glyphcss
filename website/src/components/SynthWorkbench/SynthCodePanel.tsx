@@ -11,6 +11,12 @@ interface SynthCodePanelProps {
   onCodepen: () => void;
   exporting: boolean;
   onClose: () => void;
+  /** Copies the rendered ASCII art itself (distinct from `handleCopy` below,
+   *  which copies the generated CODE snippet). Mounted here too so the
+   *  action stays reachable once `.synth-export-bar` hides under 760px —
+   *  see instrument-workbench.css's mobile export rule. */
+  onCopyAscii: () => void;
+  copyAsciiState: "idle" | "copied" | "error";
 }
 
 /**
@@ -23,7 +29,7 @@ interface SynthCodePanelProps {
  * this component only mounts while shown, unlike the gallery's panel which
  * stays mounted and merely collapses its body.
  */
-export function SynthCodePanel({ id, className, input, onCodepen, exporting, onClose }: SynthCodePanelProps) {
+export function SynthCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState }: SynthCodePanelProps) {
   const [tab, setTab] = useState<SynthTab>("react");
   const [copied, setCopied] = useState(false);
   const snippets = useMemo(() => generateSynthSnippets(input), [input]);
@@ -66,6 +72,14 @@ export function SynthCodePanel({ id, className, input, onCodepen, exporting, onC
           </button>
           <button type="button" className="gw-code-panel__action" onClick={handleCopy} title="Copy current snippet">
             {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={onCopyAscii}
+            title="Copy the rendered ASCII art to the clipboard"
+          >
+            {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
           </button>
           <button
             type="button"
