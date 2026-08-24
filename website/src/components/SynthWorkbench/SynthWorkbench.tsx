@@ -28,6 +28,7 @@ import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
+import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
 import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
@@ -453,6 +454,33 @@ export default function SynthWorkbench() {
   const [exporting, setExporting] = useState(false);
   const [cameraSnapshot, setCameraSnapshot] = useState({ rotX: 0, rotY: 0, zoom: 46 });
 
+  // "Copy ASCII" (bottom-left export bar, next to "Open in CodePen"/"Export")
+  // copies the rendered ART ITSELF as plain text — distinct from
+  // `SynthCodePanel`'s own "Copy" button, which copies a generated CODE
+  // snippet. `extractAsciiFromPre` reads `textContent` (colored output's
+  // `<span>`s carry no markup through that) and trims each line's trailing
+  // grid-padding while preserving the art's own leading offset. A transient
+  // `copyState` mirrors `WordArtCodePanel`'s `copied` idiom, plus an explicit
+  // "error" state so a denied clipboard permission fails visibly instead of
+  // silently no-op-ing.
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const handleCopyAscii = useCallback(async () => {
+    const pre = hostRef.current?.querySelector("pre.glyph-output") as HTMLElement | null;
+    const text = extractAsciiFromPre(pre);
+    if (text === null) {
+      setCopyState("error");
+      setTimeout(() => setCopyState("idle"), 1500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    setTimeout(() => setCopyState("idle"), 1500);
+  }, []);
+
   const snapshotCamera = useCallback(() => {
     const camera = cameraRef.current;
     if (camera) setCameraSnapshot({ rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom });
@@ -749,6 +777,14 @@ export default function SynthWorkbench() {
                 : `Can't export a static, zero-runtime CodePen: ${staticExportUnsupportedReason} Use "Export" instead, which ships a live effect from the CDN.`}
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
+            </button>
+            <button
+              type="button"
+              className="gw-code-panel__action"
+              onClick={handleCopyAscii}
+              title="Copy the rendered ASCII art to the clipboard"
+            >
+              {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
             </button>
             <button
               type="button"

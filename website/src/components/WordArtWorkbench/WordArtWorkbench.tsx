@@ -52,6 +52,7 @@ import {
 } from "../GalleryWorkbench/effects";
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
+import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
   readInitialWordArtState,
@@ -399,6 +400,35 @@ export function WordArtWorkbench() {
   const [exporting, setExporting] = useState(false);
   const stageSnapshotRef = useRef<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
   const [stageSnapshot, setStageSnapshot] = useState<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
+
+  // "Copy ASCII" (bottom-left export bar, next to "Open in CodePen"/"Export")
+  // copies the rendered ART ITSELF as plain text — distinct from
+  // `WordArtCodePanel`'s own "Copy" button, which copies a generated CODE
+  // snippet. Same `.wa-stage pre.glyph-output` scoping
+  // `handleExportCodepenStatic` already uses below (the preset tiles render
+  // their own `pre.glyph-output` outside `.wa-stage`, so this selector can't
+  // pick one of those up). `extractAsciiFromPre` reads `textContent` (no
+  // `<span>` markup) and trims each line's trailing grid-padding while
+  // preserving the art's own leading offset. Mirrors `SynthWorkbench`'s
+  // `copyState` idiom, including the explicit "error" state for a denied
+  // clipboard permission.
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const handleCopyAscii = useCallback(async () => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    const text = extractAsciiFromPre(pre);
+    if (text === null) {
+      setCopyState("error");
+      setTimeout(() => setCopyState("idle"), 1500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    setTimeout(() => setCopyState("idle"), 1500);
+  }, []);
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -1034,6 +1064,14 @@ export function WordArtWorkbench() {
               title="Open the current rendered word art as a static, zero-runtime CodePen"
             >
               {exporting ? "Exporting…" : "Open in CodePen"}
+            </button>
+            <button
+              type="button"
+              className="gw-code-panel__action"
+              onClick={handleCopyAscii}
+              title="Copy the rendered ASCII art to the clipboard"
+            >
+              {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
             </button>
             <button
               type="button"
