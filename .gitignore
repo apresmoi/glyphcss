@@ -49,3 +49,9 @@ packages/compile/.glyph-cli-build-*
 
 # AI-texture experiment assets — local exploration, not shipped with the site.
 website/public/examples/textured-house/
+
+# Internal planning/design scratch — never publish
+VOLUMETRIC*.md
+SHAPES.md
+COLOR-TOLERANCE.md
+convo.md
