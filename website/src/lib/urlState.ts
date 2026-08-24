@@ -508,13 +508,21 @@ function sameSpecValue(spec: EffectParamSpecLike, a: unknown, b: unknown): boole
   return a === b;
 }
 
-/** Diff `values` against `defaults` and pack the overrides against `schema`,
- *  keyed by each param's position in `Object.keys(schema)` — a single base62
- *  char for indices 0..61, an `INDEX_ESCAPE`-prefixed 2-char form beyond that
- *  (see `encodeTokenIndex`; `fieldSynthSchema` is already past 120 keys, so
- *  this isn't a theoretical case). Returns "" for no overrides. `time`/
- *  `skipKeys` are excluded (animated/derived, not part of a shareable link). */
-export function encodeEffectParamsPacked(
+/** Legacy (pre-compaction) pack: diff `values` against `defaults` and pack
+ *  the overrides against `schema`, keyed by each param's position in
+ *  `Object.keys(schema)` — a single base62 char for indices 0..61, an
+ *  `INDEX_ESCAPE`-prefixed 2-char form beyond that (see `encodeTokenIndex`;
+ *  `fieldSynthSchema` is already past 120 keys, so this isn't a theoretical
+ *  case). Returns "" for no overrides. `time`/`skipKeys` are excluded
+ *  (animated/derived, not part of a shareable link).
+ *
+ *  Kept ONLY for each consumer's own legacy-version decode branch (see
+ *  synthUrlState.ts/wordartUrlState.ts/useEffectRouteSync.ts's own version
+ *  bumps) — every new link is written with `encodeEffectParamsPacked`
+ *  below instead, which packs the identical override set to noticeably
+ *  fewer characters. Never call this for a NEW write; it exists so an
+ *  already-shared old link keeps decoding to the exact state it always did. */
+export function encodeEffectParamsPackedLegacy(
   schema: EffectParamSchemaLike,
   defaults: Record<string, unknown>,
   values: Record<string, unknown>,
@@ -536,9 +544,10 @@ export function encodeEffectParamsPacked(
   return out;
 }
 
-/** Inverse of `encodeEffectParamsPacked`. Never throws: an unknown token or
- *  malformed value stops decoding and returns whatever parsed so far. */
-export function decodeEffectParamsPacked(
+/** Inverse of `encodeEffectParamsPackedLegacy`. Never throws: an unknown
+ *  token or malformed value stops decoding and returns whatever parsed so
+ *  far. Legacy-decode-only — see that function's doc. */
+export function decodeEffectParamsPackedLegacy(
   schema: EffectParamSchemaLike,
   packed: string | undefined,
 ): Record<string, unknown> {
@@ -558,6 +567,313 @@ export function decodeEffectParamsPacked(
       if (!decoded) break;
       out[name] = decoded.value;
       index = decoded.next;
+    }
+  } catch {
+    return out;
+  }
+  return out;
+}
+
+// ── Compact effect-params codec (v2 token grammar) ──────────────────────────
+// Supersedes the legacy pair above for every NEW write. Two independent
+// savings over the legacy format, both measured on a real /synth link (see
+// this repo's history for the numbers):
+//
+// 1. Cheaper index escape. A single BASE62 char still covers values 0..58
+//    directly, but the escape for values beyond that is 2 chars instead of
+//    the legacy `INDEX_ESCAPE`'s 3 (`<hiChar><loChar>` using BASE62's own
+//    top 3 characters — index 59/60/61, i.e. 'X'/'Y'/'Z' — as the hi digit,
+//    instead of a 4th out-of-alphabet sentinel char). This sacrifices
+//    schema keys 59-61 from 1 char to 2 (there's no way to add a 2-char
+//    escape range without giving up SOME direct-range chars — see
+//    `COMPACT_DIRECT_LIMIT`'s doc) but nets a strict win the moment more
+//    than 3 keys sit past the direct range, true of every schema this codec
+//    packs today (`fieldSynthSchema` alone is 208 keys).
+// 2. Run/list tokens for repeated values. A schema built from repeated
+//    per-voice/per-layer key FAMILIES (field1..field9, phase1..phase9, ...)
+//    routinely gets the SAME override value on several of those keys at
+//    once (e.g. the same custom phase on every voice, or a boolean flag
+//    turned on for layers 1 and 2) — both as CONSECUTIVE schema indices
+//    (`RUN_MARKER`) and as a scattered set sharing one value
+//    (`LIST_MARKER`). Emitting the value once instead of once per key saves
+//    real characters on exactly the patches a modular-synth-style UI
+//    produces.
+//
+// Both new marker characters (`_` run, `*` list) are OUTSIDE the BASE62
+// alphabet, so — like `INDEX_ESCAPE` before them — they can only ever be
+// read as a marker at a fresh token-start position and never misread as
+// mid-value content; both also survive `URLSearchParams` unescaped (a `~`
+// or `^` sentinel would silently cost 3 chars of percent-encoding per
+// occurrence — verified empirically before picking these two). This is a
+// SEPARATE, incompatible grammar from the legacy pair above (a legacy `_`
+// 2-digit index escape and this format's `_` run marker are never decoded
+// by the same function), so reusing `_` here is safe: nothing ever feeds a
+// legacy-format string into this decoder or vice versa — each consumer's
+// own outer version tag routes a packed `paramsPacked`/`effectParams`/
+// `params` string to exactly one of the two paired functions, never both.
+
+// A single direct BASE62 char covers values 0..58; values 59+ use a 2-char
+// escape whose first char is one of BASE62's own top 3 characters (indices
+// 59/60/61 — 'X'/'Y'/'Z'), so there is no separate out-of-alphabet sentinel
+// (that's what makes this 2 chars instead of the legacy escape's 3). Any
+// self-delimiting scheme that keeps ALL 62 characters in the direct range
+// needs an extra out-of-band sentinel to signal "2 chars follow" — the
+// tradeoff here is sacrificing a FEW of the highest direct values (59-61)
+// as escape-start selectors instead. 3 selector chars × 62 second-char
+// values covers escaped values 59..244, comfortably past `fieldSynthSchema`
+// today (max index 207); a schema that outgrows 244 keys needs another
+// escape tier and, since that changes the wire format, another version
+// bump the same way this one did.
+const COMPACT_DIRECT_LIMIT = 59;
+const COMPACT_ESCAPE_CHARS = "XYZ";
+const RUN_MARKER = "_";
+const LIST_MARKER = "*";
+const COMPACT_MAX_GROUP = BASE62.length - 1; // count is a single BASE62 char, so 1..61
+
+function encodeCompactIndex(index: number): string {
+  if (index < COMPACT_DIRECT_LIMIT) return BASE62[index]!;
+  const rel = index - COMPACT_DIRECT_LIMIT;
+  const hi = Math.floor(rel / BASE62.length);
+  const lo = rel % BASE62.length;
+  if (hi >= COMPACT_ESCAPE_CHARS.length) {
+    throw new Error(`urlState: schema index ${index} exceeds the compact codec's representable range — widen COMPACT_ESCAPE_CHARS (needs a new version bump for every consumer).`);
+  }
+  return `${COMPACT_ESCAPE_CHARS[hi]}${BASE62[lo]}`;
+}
+
+function decodeCompactIndex(raw: string, index: number): { value: number; next: number } | undefined {
+  const char = raw[index];
+  if (char === undefined) return undefined;
+  const hi = COMPACT_ESCAPE_CHARS.indexOf(char);
+  if (hi >= 0) {
+    const lo = fromBase62Char(raw[index + 1]);
+    if (lo === undefined) return undefined;
+    return { value: COMPACT_DIRECT_LIMIT + hi * BASE62.length + lo, next: index + 2 };
+  }
+  const i = fromBase62Char(char);
+  return i === undefined ? undefined : { value: i, next: index + 1 };
+}
+
+/** Two schema keys can safely share ONE encoded value token only when
+ *  decoding that token means the same thing for both — same `kind`, and for
+ *  `"number"` the same rounding `step`, for enum-like `"string"` the same
+ *  `values` list. `kind` alone is NOT enough: e.g. `freq*` (step 0.1) and
+ *  `amp*` (step 0.05) are both `"number"` and can coincidentally encode the
+ *  same digit string for two DIFFERENT real values (caught in design — see
+ *  commit message) — grouping them by raw encoded string alone would have
+ *  silently swapped a decoded value's real magnitude between keys. */
+function specGroupKey(spec: EffectParamSpecLike): string {
+  if (spec.kind === "number") return `n:${specStep(spec)}`;
+  if (spec.kind === "string" && spec.values) return `e:${spec.values.join(" ")}`;
+  return spec.kind;
+}
+
+interface CompactCandidate {
+  readonly index: number;
+  readonly name: string;
+  readonly spec: EffectParamSpecLike;
+  readonly encoded: string;
+}
+
+function collectCompactCandidates(
+  schema: EffectParamSchemaLike,
+  defaults: Record<string, unknown>,
+  values: Record<string, unknown>,
+  skipKeys: readonly string[],
+): CompactCandidate[] {
+  const keys = Object.keys(schema);
+  const candidates: CompactCandidate[] = [];
+  for (let index = 0; index < keys.length; index++) {
+    const name = keys[index]!;
+    if (skipKeys.includes(name) || !(name in values)) continue;
+    const spec = schema[name];
+    if (!spec) continue;
+    const value = values[name];
+    if (sameSpecValue(spec, value, defaults[name])) continue;
+    const encoded = encodeSpecValue(spec, value);
+    if (encoded === undefined) continue;
+    candidates.push({ index, name, spec, encoded });
+  }
+  return candidates;
+}
+
+/** Diff `values` against `defaults` and pack the overrides against `schema`
+ *  using the compact v2 token grammar (see the file section doc above):
+ *  plain `<index><value>` tokens, `RUN_MARKER`-prefixed runs for identical
+ *  values at CONSECUTIVE schema indices, and `LIST_MARKER`-prefixed lists
+ *  for identical values at scattered indices (only when that's actually
+ *  cheaper than repeating the value — see the per-group cost check below;
+ *  unlike a run, a list still has to spell out every member's index, so
+ *  grouping isn't a free win for a 2-member, 1-char-value group). Returns
+ *  "" for no overrides. `time`/`skipKeys` are excluded (animated/derived,
+ *  not part of a shareable link). Output order is by schema index, not
+ *  insertion order, so it's stable across calls with the same overrides. */
+export function encodeEffectParamsPacked(
+  schema: EffectParamSchemaLike,
+  defaults: Record<string, unknown>,
+  values: Record<string, unknown>,
+  skipKeys: readonly string[] = ["time"],
+): string {
+  const candidates = collectCompactCandidates(schema, defaults, values, skipKeys);
+  const consumed = new Set<number>(); // positions in `candidates`
+  const tokens: { sortKey: number; text: string }[] = [];
+
+  // Pass 1: maximal consecutive-schema-index runs sharing an identical
+  // (groupable-spec, encoded-value) pair, chunked to `COMPACT_MAX_GROUP` so
+  // the single-char count field never overflows. A run of length >= 2 is
+  // ALWAYS at least as cheap as emitting its members individually: the run
+  // token only pays its (smallest-index) start member's index width once,
+  // while individually-encoded members each pay their own index width,
+  // whose per-member minimum is that same start width (index-encoded width
+  // is monotonic non-decreasing in the index) — so run cost
+  // (2 + startIdxLen + valLen) <= individual lower bound
+  // (2 * (startIdxLen + valLen)) whenever startIdxLen + valLen >= 2, which
+  // always holds (both widths are >= 1 char). No per-group cost check
+  // needed here, unlike the list pass below.
+  let ci = 0;
+  while (ci < candidates.length) {
+    let end = ci;
+    while (
+      end + 1 < candidates.length &&
+      end - ci + 1 < COMPACT_MAX_GROUP &&
+      candidates[end + 1]!.index === candidates[end]!.index + 1 &&
+      candidates[end + 1]!.encoded === candidates[ci]!.encoded &&
+      specGroupKey(candidates[end + 1]!.spec) === specGroupKey(candidates[ci]!.spec)
+    ) {
+      end++;
+    }
+    const runLength = end - ci + 1;
+    if (runLength >= 2) {
+      const start = candidates[ci]!;
+      const text = `${RUN_MARKER}${encodeCompactIndex(start.index)}${BASE62[runLength]}${start.encoded}`;
+      tokens.push({ sortKey: start.index, text });
+      for (let k = ci; k <= end; k++) consumed.add(k);
+      ci = end + 1;
+    } else {
+      ci++;
+    }
+  }
+
+  // Pass 2: among remaining (non-run) singletons, group by identical
+  // (groupable-spec, encoded-value) regardless of adjacency, chunked to
+  // `COMPACT_MAX_GROUP`. A list token is worth it only when
+  // `(count - 1) * valueLength > 2` (the list's own marker + count-char
+  // overhead) — every member's index has to be spelled out either way, so
+  // the only real saving is not repeating the value `count - 1` extra
+  // times; a 2-member group sharing a 1-char value (e.g. two enum picks
+  // both landing on index "3") is NOT worth listing and is measurably
+  // worse to (this was checked against a real link during design, not
+  // assumed).
+  const groups = new Map<string, number[]>();
+  for (let k = 0; k < candidates.length; k++) {
+    if (consumed.has(k)) continue;
+    const c = candidates[k]!;
+    const key = `${specGroupKey(c.spec)}|${c.encoded}`;
+    const list = groups.get(key);
+    if (list) list.push(k);
+    else groups.set(key, [k]);
+  }
+  for (const positions of groups.values()) {
+    for (let start = 0; start < positions.length; start += COMPACT_MAX_GROUP) {
+      const chunk = positions.slice(start, start + COMPACT_MAX_GROUP);
+      if (chunk.length < 2) continue;
+      const first = candidates[chunk[0]!]!;
+      const saving = (chunk.length - 1) * first.encoded.length - 2;
+      if (saving <= 0) continue;
+      for (const p of chunk) consumed.add(p);
+      const indexChars = chunk.map((p) => encodeCompactIndex(candidates[p]!.index)).join("");
+      const text = `${LIST_MARKER}${BASE62[chunk.length]}${indexChars}${first.encoded}`;
+      tokens.push({ sortKey: first.index, text });
+    }
+  }
+
+  // Pass 3: whatever's left is an ordinary single index+value token.
+  for (let k = 0; k < candidates.length; k++) {
+    if (consumed.has(k)) continue;
+    const c = candidates[k]!;
+    tokens.push({ sortKey: c.index, text: `${encodeCompactIndex(c.index)}${c.encoded}` });
+  }
+
+  tokens.sort((a, b) => a.sortKey - b.sortKey);
+  return tokens.map((t) => t.text).join("");
+}
+
+/** Inverse of `encodeEffectParamsPacked`. Never throws: an unknown marker,
+ *  out-of-range index, spec mismatch within a run/list group, or malformed
+ *  value stops decoding and returns whatever parsed so far — same contract
+ *  as the legacy decoder. A run/list group's every member index must
+ *  resolve to a schema key sharing `specGroupKey` with the group's anchor
+ *  spec (the same equality the encoder enforces before grouping); a
+ *  hand-crafted payload that violates this is treated as malformed rather
+ *  than silently writing a value of the wrong shape into an unrelated key. */
+export function decodeEffectParamsPacked(
+  schema: EffectParamSchemaLike,
+  packed: string | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!packed) return out;
+  const keys = Object.keys(schema);
+  let index = 0;
+  try {
+    while (index < packed.length) {
+      const marker = packed[index];
+      if (marker === RUN_MARKER) {
+        const startTok = decodeCompactIndex(packed, index + 1);
+        if (!startTok) break;
+        const count = fromBase62Char(packed[startTok.next]);
+        if (count === undefined || count < 2) break;
+        const startName = keys[startTok.value];
+        const startSpec = startName ? schema[startName] : undefined;
+        if (!startName || !startSpec) break;
+        const members: string[] = [];
+        let ok = true;
+        for (let k = 0; k < count; k++) {
+          const memberName = keys[startTok.value + k];
+          const memberSpec = memberName ? schema[memberName] : undefined;
+          if (!memberName || !memberSpec || specGroupKey(memberSpec) !== specGroupKey(startSpec)) { ok = false; break; }
+          members.push(memberName);
+        }
+        if (!ok) break;
+        const decodedValue = decodeSpecValue(startSpec, packed, startTok.next + 1);
+        if (!decodedValue) break;
+        for (const name of members) out[name] = decodedValue.value;
+        index = decodedValue.next;
+        continue;
+      }
+      if (marker === LIST_MARKER) {
+        const count = fromBase62Char(packed[index + 1]);
+        if (count === undefined || count < 2) break;
+        let cursor = index + 2;
+        const members: string[] = [];
+        let firstSpec: EffectParamSpecLike | undefined;
+        let ok = true;
+        for (let k = 0; k < count; k++) {
+          const tok = decodeCompactIndex(packed, cursor);
+          if (!tok) { ok = false; break; }
+          const name = keys[tok.value];
+          const spec = name ? schema[name] : undefined;
+          if (!name || !spec) { ok = false; break; }
+          if (firstSpec === undefined) firstSpec = spec;
+          else if (specGroupKey(spec) !== specGroupKey(firstSpec)) { ok = false; break; }
+          members.push(name);
+          cursor = tok.next;
+        }
+        if (!ok || !firstSpec) break;
+        const decodedValue = decodeSpecValue(firstSpec, packed, cursor);
+        if (!decodedValue) break;
+        for (const name of members) out[name] = decodedValue.value;
+        index = decodedValue.next;
+        continue;
+      }
+      const tok = decodeCompactIndex(packed, index);
+      if (!tok) break;
+      const name = keys[tok.value];
+      const spec = name ? schema[name] : undefined;
+      if (!name || !spec) break;
+      const decodedValue = decodeSpecValue(spec, packed, tok.next);
+      if (!decodedValue) break;
+      out[name] = decodedValue.value;
+      index = decodedValue.next;
     }
   } catch {
     return out;

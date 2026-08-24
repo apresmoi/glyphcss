@@ -3,6 +3,7 @@ import type { GlyphEffectId } from "@glyphcss/effects";
 import {
   createUrlCodec,
   decodeEffectParamsPacked,
+  decodeEffectParamsPackedLegacy,
   encodeEffectParamsPacked,
   readUrlParam,
   writeUrlParam,
@@ -18,7 +19,13 @@ import {
 import type { GalleryEffectParamValue, GalleryEffectState } from "../types";
 
 const EFFECT_PARAM = "fx";
-const EFFECT_SCHEMA_VERSION = "1";
+// Bumped 1 -> 2 for the shared codec's compact-index/run/list rewrite of
+// `encodeEffectParamsPacked`/`decodeEffectParamsPacked` (website/src/lib/
+// urlState.ts) — the outer field list here is unchanged; only the nested
+// `params` field's wire format changed, so a "1"-tagged link's `params` must
+// decode through the LEGACY pair (`decodeEffectParamsPackedLegacy`) — see
+// `decodeEffectState` below.
+const EFFECT_SCHEMA_VERSION = "2";
 const EFFECT_ID_VALUES = GALLERY_EFFECT_CATALOG.map((d) => d.id);
 
 // Shape carried in the packed `fx` param. `params` is pre-packed against the
@@ -54,6 +61,12 @@ const effectFields: readonly UrlField<EffectRouteState>[] = [
 ];
 
 export const effectCodec = createUrlCodec<EffectRouteState>(EFFECT_SCHEMA_VERSION, effectFields);
+const effectCodecLegacyV1 = createUrlCodec<EffectRouteState>("1", effectFields);
+
+function decodeEffectOuter(raw: string | null): Partial<EffectRouteState> {
+  if (raw && raw[1] === "1") return effectCodecLegacyV1.decode(raw);
+  return effectCodec.decode(raw);
+}
 
 function serializeEffectState(state: GalleryEffectState): string | null {
   if (!state.effectId) return null;
@@ -73,13 +86,14 @@ function serializeEffectState(state: GalleryEffectState): string | null {
 }
 
 function decodeEffectState(raw: string | null): GalleryEffectState {
-  const route = { ...EMPTY_ROUTE_STATE, ...effectCodec.decode(raw) };
+  const route = { ...EMPTY_ROUTE_STATE, ...decodeEffectOuter(raw) };
   if (!route.effectId) return DEFAULT_GALLERY_EFFECT_STATE;
   const definition = galleryEffectDefinition(route.effectId as GlyphEffectId);
   if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
   if (route.effectVersion !== definition.version) return DEFAULT_GALLERY_EFFECT_STATE;
   const timeScale = Number.isFinite(route.timeScale) ? Math.min(Math.max(route.timeScale, 0.05), 3) : 1;
-  const overrides = decodeEffectParamsPacked(definition.parameterSchema, route.params) as Record<string, GalleryEffectParamValue>;
+  const decodeParams = raw && raw[1] === "1" ? decodeEffectParamsPackedLegacy : decodeEffectParamsPacked;
+  const overrides = decodeParams(definition.parameterSchema, route.params) as Record<string, GalleryEffectParamValue>;
   return {
     effectId: definition.id,
     effectVersion: definition.version,

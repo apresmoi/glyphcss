@@ -114,6 +114,27 @@ export interface GlyphFieldSynthStaticExportOptions {
   perspectivePx?: number;
   fontSizePx?: number;
   lineHeightPx?: number;
+  /**
+   * Measured live cell size in CSS px (`GridSize.cellWidth`/`cellHeight` —
+   * `packages/core/src/types.ts`), the SAME quantity `frameObject` (website's
+   * synthKit.tsx) measures via `pre.getBoundingClientRect()` to fit `zoom`.
+   * `zoom` is CSS px per world unit; the projection converts that to CELLS by
+   * dividing by the cell's own CSS px size, and `bake()`'s headless
+   * rasterizer has no DOM layout of its own to measure that from. Omitting
+   * these falls back to the internal BASE_TILE-derived cell size (50 /
+   * `cellAspect` × 50), which is almost never the caller's REAL font-driven
+   * cell size — passing a `zoom` fit against real layout without also
+   * passing the metrics it was fit against reprojects the SAME zoom onto a
+   * differently-sized virtual cell, producing a silhouette that covers the
+   * wrong fraction of `cols`×`rows` (measured: a live 202×78 grid's `zoom`
+   * baked down to a 35×22 covered region without these — same class of
+   * hazard `frameObject`'s own doc warns about, one level deeper). Only
+   * `fontSizePx`/`lineHeightPx` above (CSS text styling for the exported
+   * pen's own `<pre>`) were previously threaded through; neither reaches the
+   * projection.
+   */
+  cellWidthPx?: number;
+  cellHeightPx?: number;
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
   title?: string;
@@ -250,7 +271,13 @@ function bake(
   let retained: RetainedGlyphEffectOutput | null = null;
   const ctx = buildRasterizeContext({
     camera,
-    grid: { cols: options.cols, rows: options.rows, cellAspect: options.cellAspect ?? 2 },
+    grid: {
+      cols: options.cols,
+      rows: options.rows,
+      cellAspect: options.cellAspect ?? 2,
+      ...(options.cellWidthPx !== undefined ? { cellWidth: options.cellWidthPx } : {}),
+      ...(options.cellHeightPx !== undefined ? { cellHeight: options.cellHeightPx } : {}),
+    },
     polygons,
     mode,
     directionalLight: options.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
@@ -1128,13 +1155,30 @@ function assertStaticExportSupported(params: GlyphEffectParamsOf<typeof fieldSyn
  * is the reference caller.
  */
 export function isGlyphFieldSynthStaticExportSupported(params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>): boolean {
+  return glyphFieldSynthStaticExportUnsupportedReason(params) === null;
+}
+
+/**
+ * Same predicate as {@link isGlyphFieldSynthStaticExportSupported}, but
+ * returns WHY a patch is rejected instead of collapsing every reject into a
+ * bare `false` — `assertStaticExportSupported`'s own thrown message names the
+ * exact reason (`render: "carve"/"xray"`, `space: "object"`, an active
+ * `linearZ` voice, a nonzero `originW`, or `colorStackOn: true`), and a UI
+ * surfacing a generic hand-written explanation next to it can drift out of
+ * sync with what actually fired — the same class of bug
+ * `GLYPH_FIELD_SYNTH_VALIDATION_RULES` exists to prevent for
+ * `validateParams`'s own throw sites (see AGENTS.md). Returns `null` when
+ * `params` is supported. The website's `/synth` page's "Open in CodePen"
+ * button tooltip is the reference caller.
+ */
+export function glyphFieldSynthStaticExportUnsupportedReason(params: Partial<GlyphEffectParamsOf<typeof fieldSynth>>): string | null {
   const merged = { ...defaultGlyphEffectParams(fieldSynth), ...params, time: 0 } as GlyphEffectParamsOf<typeof fieldSynth>;
   try {
     fieldSynth.program.validateParams?.(merged);
     assertStaticExportSupported(merged);
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
   }
 }
 

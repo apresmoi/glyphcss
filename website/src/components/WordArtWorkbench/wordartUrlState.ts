@@ -6,6 +6,7 @@
 import {
   createUrlCodec,
   decodeEffectParamsPacked,
+  decodeEffectParamsPackedLegacy,
   encodeEffectParamsPacked,
   readUrlParam,
   scheduleCompactedUrlWrite,
@@ -215,25 +216,43 @@ const wordArtFields: readonly UrlField<WordArtUrlState>[] = [
   { key: "effectParams", token: "R", type: { kind: "string" }, default: "" },
 ];
 
-const WORD_ART_SCHEMA_VERSION = "1";
+// Bumped 1 -> 2 for the shared codec's compact-index/run/list rewrite of
+// `encodeEffectParamsPacked`/`decodeEffectParamsPacked` (website/src/lib/
+// urlState.ts) — every OTHER field here is unchanged; only `effectParams`'s
+// internal wire format changed, so a "1"-tagged link's nested payload must
+// decode through the LEGACY pair (`decodeEffectParamsPackedLegacy`) — see
+// `readInitialWordArtState`/`wordArtEffectStateFromUrlState` below.
+const WORD_ART_SCHEMA_VERSION = "2";
 export const wordArtCodec = createUrlCodec<WordArtUrlState>(WORD_ART_SCHEMA_VERSION, wordArtFields);
+const wordArtCodecLegacyV1 = createUrlCodec<WordArtUrlState>("1", wordArtFields);
 
 const WORD_ART_PARAM = "w";
+
+function decodeWordArtOuter(raw: string | null | undefined): Partial<WordArtUrlState> {
+  if (raw && raw[1] === "1") return wordArtCodecLegacyV1.decode(raw);
+  return wordArtCodec.decode(raw);
+}
 
 /** Read the initial state from the URL (defaults for anything absent/garbage
  *  — `decode` never throws, see urlState.ts). */
 export function readInitialWordArtState(): WordArtUrlState {
-  return { ...WORD_ART_DEFAULTS, ...wordArtCodec.decode(readUrlParam(WORD_ART_PARAM)) };
+  return { ...WORD_ART_DEFAULTS, ...decodeWordArtOuter(readUrlParam(WORD_ART_PARAM)) };
 }
 
 /** Restore the Effects folder's selection (mirrors the gallery's `fx` shape,
- *  folded into this page's single packed param instead of a second key). */
+ *  folded into this page's single packed param instead of a second key).
+ *  Re-reads the raw `?w=` param (cheap, same page load `readInitialWordArtState`
+ *  already read it on) purely to resolve which `effectParams` wire format a
+ *  "1"-tagged link used — everything else about `state` is already correctly
+ *  decoded by the OUTER dispatch above. */
 export function wordArtEffectStateFromUrlState(state: WordArtUrlState): GalleryEffectState {
   if (!state.effectId) return DEFAULT_GALLERY_EFFECT_STATE;
   const definition = galleryEffectDefinition(state.effectId as GlyphEffectId);
   if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
   const defaults = galleryEffectDefaultParams(definition);
-  const overrides = decodeEffectParamsPacked(definition.parameterSchema, state.effectParams) as Record<string, GalleryEffectParamValue>;
+  const raw = readUrlParam(WORD_ART_PARAM);
+  const decodeParams = raw && raw[1] === "1" ? decodeEffectParamsPackedLegacy : decodeEffectParamsPacked;
+  const overrides = decodeParams(definition.parameterSchema, state.effectParams) as Record<string, GalleryEffectParamValue>;
   return {
     effectId: definition.id,
     effectVersion: definition.version,

@@ -445,8 +445,10 @@
   gap: 2px;
 }
 .gw-code-panel__tab {
-  background: none;
-  border: 1px solid rgba(255, 232, 184, 0.15);
+  background-color: transparent;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.15);
+  --gx-bracket: rgba(255, 232, 184, 0.15);
   color: rgba(255, 232, 184, 0.6);
   padding: 3px 10px;
   font: 11px/1 inherit;
@@ -458,11 +460,13 @@
 .gw-code-panel__tab:hover {
   color: rgba(255, 232, 184, 0.95);
   border-color: rgba(56, 189, 248, 0.5);
+  --gx-bracket: rgba(56, 189, 248, 0.5);
 }
 .gw-code-panel__tab.is-active {
   color: #03050a;
-  background: rgba(56, 189, 248, 0.85);
+  background-color: rgba(56, 189, 248, 0.85);
   border-color: rgba(56, 189, 248, 0.85);
+  --gx-bracket: rgba(56, 189, 248, 0.85);
 }
 .gw-code-panel__actions {
   margin-left: auto;
@@ -472,8 +476,10 @@
 }
 .gw-code-panel__action {
   white-space: nowrap;
-  background: none;
-  border: 1px solid rgba(255, 232, 184, 0.15);
+  background-color: transparent;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.15);
+  --gx-bracket: rgba(255, 232, 184, 0.15);
   color: rgba(255, 232, 184, 0.7);
   padding: 3px 8px;
   font: 11px/1 inherit;
@@ -483,6 +489,7 @@
 .gw-code-panel__action:hover {
   color: rgba(255, 232, 184, 0.98);
   border-color: rgba(56, 189, 248, 0.5);
+  --gx-bracket: rgba(56, 189, 248, 0.5);
 }
 .gw-code-panel__code {
   flex: 1 1 auto;
@@ -520,6 +527,78 @@
 
 .dark-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 232, 184, 0.32);
+}
+
+/* ── ASCII bracket buttons ────────────────────────────────────────────────
+   Site-wide button restyle: a full rectangle reads as a UI "box"; the rest of
+   the site's controls read as bracket glyphs instead (sliders `[▮▮▮▮]`,
+   checkboxes bare `[x]`/`[ ]`). This makes buttons match — full left/right
+   border, a short tick at each of the four corners, no continuous top/bottom
+   rule — via ONE shared treatment instead of hand-editing every button's own
+   border declaration.
+
+   Each target selector below still edits its OWN `border`/`background` rule
+   in place (shorthand `border: 1px solid X` → `border-inline: 1px solid X`,
+   `background: X` → `background-color: X`) rather than relying on this rule
+   to override them — `background: X` implicitly resets `background-image` to
+   `none`, and with equal-specificity single-class selectors split across
+   three separately bundled stylesheets, whichever rule's chunk loads last
+   would silently win (the exact hazard `.synth-code-panel.gw-code-panel`'s
+   own doc comment describes). Converting the shorthand to `background-color`
+   at each site means `background-image` is set in exactly one place — this
+   rule — so there is nothing left for load order to fight over. Each site
+   also sets `--gx-bracket` (the tick/border color) itself, including in its
+   own `:hover`/`:disabled`/`.is-active` states, so the corner ticks always
+   track whatever color that state already draws its border in.
+
+   Excluded, deliberately: `.gx-toggle-btn` (segmented — adjacent buttons
+   share an edge and already use a box-shadow ring for "active" specifically
+   because a border-color change there paints only 3 sides; per-segment
+   corner ticks would fight the same shared-edge problem) and anything that
+   already renders literal `[ ]` text (`.dn-copy-scene`, the Models sidebar's
+   `.control-btn` via `ModelsSidebar.css`, the `[x]`/`[ ]` checkbox glyphs) —
+   those already read as brackets and a drawn border on top would double up.
+   Small color-swatch buttons (`.dn-swatch`, `.voice-color`, `.wa-texgrid__sw`)
+   are excluded too: the whole square IS the swatch, and ticks would just draw
+   over the color/texture preview. */
+:is(
+  .gw-code-panel__tab,
+  .gw-code-panel__action,
+  .dn-mobile-tabs__button,
+  .voice-add,
+  .layer-group-add,
+  .voice-remove,
+  .synth-tile,
+  .dock-ramp-density-item,
+  .wa-imgbtn,
+  .wa-seg button,
+  .wa-tile
+) {
+  background-repeat: no-repeat;
+  background-origin: border-box;
+  background-image:
+    linear-gradient(var(--gx-bracket, rgba(255, 232, 184, 0.22)), var(--gx-bracket, rgba(255, 232, 184, 0.22))),
+    linear-gradient(var(--gx-bracket, rgba(255, 232, 184, 0.22)), var(--gx-bracket, rgba(255, 232, 184, 0.22))),
+    linear-gradient(var(--gx-bracket, rgba(255, 232, 184, 0.22)), var(--gx-bracket, rgba(255, 232, 184, 0.22))),
+    linear-gradient(var(--gx-bracket, rgba(255, 232, 184, 0.22)), var(--gx-bracket, rgba(255, 232, 184, 0.22)));
+  background-size: 4px 1px;
+  background-position: left top, right top, left bottom, right bottom;
+}
+:is(
+  .gw-code-panel__tab,
+  .gw-code-panel__action,
+  .dn-mobile-tabs__button,
+  .voice-add,
+  .layer-group-add,
+  .voice-remove,
+  .synth-tile,
+  .dock-ramp-density-item,
+  .wa-imgbtn,
+  .wa-seg button,
+  .wa-tile
+):focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.75);
+  outline-offset: 2px;
 }
 
 .control-btn {
@@ -1502,9 +1581,11 @@
     min-width: 0;
     min-height: 44px;
     padding: 0 6px;
-    border: 1px solid rgba(255, 232, 184, 0.22);
+    border-block: 0;
+    border-inline: 1px solid rgba(255, 232, 184, 0.22);
+    --gx-bracket: rgba(255, 232, 184, 0.22);
     border-radius: 0;
-    background: rgba(15, 17, 21, 0.92);
+    background-color: rgba(15, 17, 21, 0.92);
     color: rgba(255, 232, 184, 0.9);
     font: 600 12px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
     letter-spacing: 0.01em;
@@ -1518,10 +1599,12 @@
   .dn-mobile-tabs__button.is-active {
     border-color: rgba(56, 189, 248, 0.6);
     color: #ecfeff;
+    --gx-bracket: rgba(56, 189, 248, 0.6);
   }
   .dn-mobile-tabs__button--random {
     border-color: rgba(74, 222, 128, 0.5);
     color: #dcfce7;
+    --gx-bracket: rgba(74, 222, 128, 0.5);
   }
 }
 
@@ -1579,6 +1662,7 @@
 .gw-code-panel__action--codepen {
   color: #b7f7c0;
   border-color: rgba(120, 220, 150, 0.4);
+  --gx-bracket: rgba(120, 220, 150, 0.4);
 }
 .gw-code-panel__action--codepen:disabled { opacity: 0.5; cursor: default; }
 

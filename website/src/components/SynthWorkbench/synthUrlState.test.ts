@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   GLYPH_FIELD_SYNTH_VALIDATION_RULES,
   GlyphFieldSynthEffect as fieldSynth,
+  GlyphCubeTilesPreset,
+  GlyphSierpinskiPyramidPreset,
+  GlyphBreathingGyroidPreset,
+  GlyphCssGraphicsMengerPreset,
+  defaultGlyphEffectParams,
 } from "@glyphcss/effects";
-import { createUrlCodec, encodeEffectParamsPacked } from "../../lib/urlState";
+import { createUrlCodec, encodeEffectParamsPackedLegacy } from "../../lib/urlState";
 import {
   COERCION_HANDLED_RULES,
   LEGACY_V2_FIELD_SYNTH_SCHEMA,
@@ -59,7 +64,7 @@ describe("synth url state", () => {
       lighting: { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 },
       voiceSlots: [1, 2],
     });
-    expect(packed).toBe("p4");
+    expect(packed).toBe("p5");
   });
 
   it("round-trips a representative multi-voice patch", () => {
@@ -205,13 +210,13 @@ describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces color
 });
 
 // ── Acceptance 7 (VOLUMETRIC.md): the URL codec's schema-index cap ─────────
-// `encodeEffectParamsPacked` keyed params by a single base62 char, capping at
-// index 61. `fieldSynthSchema` is well past 120 keys, so every param below —
-// `lit`/`voiceColors`/`color1..6` (pre-existing, silently dropped before this
+// `encodeEffectParamsPacked` keys params by position in `fieldSynthSchema`
+// (well past 200 keys). A single direct char only reaches index 58 (index 61
+// under the legacy pre-v5 codec); every param below — `lit`/`voiceColors`/
+// `color1..6` (pre-existing, silently dropped before the original escape
 // fix) and every VOLUMETRIC.md param (layers, duty, phase, originW, render,
 // marchSteps, marchFade) — lands past that cap and needs the multi-char index
-// escape (`encodeTokenIndex`/`decodeTokenIndex` in `../../lib/urlState`) to
-// round-trip at all.
+// escape in `../../lib/urlState` to round-trip at all.
 function everyNewParamPatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
   const base = representativePatch();
   return {
@@ -317,7 +322,7 @@ function maskFromSlots(slots: readonly number[]): number {
 const LEGACY_V2_DEFAULTS: Params = { ...SYNTH_PARAM_DEFAULTS, slabAxis: "none", slabStart: -1, slabEnd: 1 };
 const legacyV2OuterCodec = createUrlCodec<SynthUrlState>("2", synthCodec.fields);
 function encodeLegacyV2(state: ReturnType<typeof representativePatch>, legacyParams: Params): string {
-  const paramsPacked = encodeEffectParamsPacked(LEGACY_V2_FIELD_SYNTH_SCHEMA, LEGACY_V2_DEFAULTS, legacyParams);
+  const paramsPacked = encodeEffectParamsPackedLegacy(LEGACY_V2_FIELD_SYNTH_SCHEMA, LEGACY_V2_DEFAULTS, legacyParams);
   return legacyV2OuterCodec.encode({
     shape: state.shape,
     timeScale: state.timeScale,
@@ -371,10 +376,10 @@ describe("synth url state — v2 legacy decode (post-slab-removal)", () => {
     }
   });
 
-  it("v4 (current) links round-trip and are tagged \"p4\"", () => {
+  it("v5 (current) links round-trip and are tagged \"p5\"", () => {
     const patch = representativePatch();
     const packed = encodeSynthUrlState(patch);
-    expect(packed[1]).toBe("4");
+    expect(packed[1]).toBe("5");
     const restored = decodeSynthUrlState(packed);
     expect("slabAxis" in restored.params).toBe(false);
     expect("colorQuantize" in restored.params).toBe(false);
@@ -409,7 +414,7 @@ describe("synth url state — v2 legacy decode (post-slab-removal)", () => {
 const LEGACY_V3_DEFAULTS: Params = { ...SYNTH_PARAM_DEFAULTS, colorQuantize: 0 };
 const legacyV3OuterCodec = createUrlCodec<SynthUrlState>("3", synthCodec.fields);
 function encodeLegacyV3(state: ReturnType<typeof representativePatch>, legacyParams: Params): string {
-  const paramsPacked = encodeEffectParamsPacked(LEGACY_V3_FIELD_SYNTH_SCHEMA, LEGACY_V3_DEFAULTS, legacyParams);
+  const paramsPacked = encodeEffectParamsPackedLegacy(LEGACY_V3_FIELD_SYNTH_SCHEMA, LEGACY_V3_DEFAULTS, legacyParams);
   return legacyV3OuterCodec.encode({
     shape: state.shape,
     timeScale: state.timeScale,
@@ -446,7 +451,7 @@ describe("synth url state — v3 legacy decode (post-colorQuantize-removal, COLO
     expect(() => fieldSynth.program.validateParams?.({ ...restored.params, time: 0 } as never)).not.toThrow();
   });
 
-  it("a v3 URL without any colorQuantize override decodes identically to the equivalent v4 link", () => {
+  it("a v3 URL without any colorQuantize override decodes identically to the equivalent current link", () => {
     const patch = representativePatch();
     const packedLegacy = encodeLegacyV3(patch, patch.params);
     const packedCurrent = encodeSynthUrlState(patch);
@@ -463,6 +468,133 @@ describe("synth url state — v3 legacy decode (post-colorQuantize-removal, COLO
       }
     }
   });
+});
+
+// ── Compact codec rewrite: SYNTH_SCHEMA_VERSION 4 -> 5 (website/src/lib/
+//    urlState.ts's run/list token grammar) ─────────────────────────────────
+// Unlike every bump above, v5 does NOT change which schema keys exist or
+// their order — `paramsSchemaFor` in synthUrlState.ts routes a "4"-tagged
+// link to the SAME (current) schema a "5"-tagged link uses. What changed is
+// the WIRE FORMAT of `paramsPacked` itself: a v4 link was packed with the
+// legacy per-key escaped-index grammar (`encodeEffectParamsPackedLegacy`),
+// while v5 packs with the compact run/list grammar
+// (`encodeEffectParamsPacked`). A "4"-tagged link must therefore decode
+// `paramsPacked` through the LEGACY decoder even though it reads the CURRENT
+// key order — see `decodeParamsPacked` in synthUrlState.ts, which is exactly
+// why that dispatch is separate from `paramsSchemaFor`'s key-order dispatch.
+const legacyV4OuterCodec = createUrlCodec<SynthUrlState>("4", synthCodec.fields);
+function encodeLegacyV4(state: ReturnType<typeof representativePatch>, legacyParams: Params): string {
+  const paramsPacked = encodeEffectParamsPackedLegacy(fieldSynth.parameterSchema as never, SYNTH_PARAM_DEFAULTS, legacyParams);
+  return legacyV4OuterCodec.encode({
+    shape: state.shape,
+    timeScale: state.timeScale,
+    density: state.density,
+    voiceSlotMask: maskFromSlots(state.voiceSlots),
+    lightAzimuth: state.lighting.azimuth,
+    lightElevation: state.lighting.elevation,
+    lightKeyIntensity: state.lighting.keyIntensity,
+    lightKeyColor: state.lighting.keyColor,
+    lightAmbient: state.lighting.ambient,
+    colorTolerance: state.colorTolerance,
+    paramsPacked,
+  });
+}
+
+describe("synth url state — v4 legacy decode (pre-compact-codec, wire format only)", () => {
+  it("a genuinely v4-tagged link (legacy escape grammar) decodes identically to the equivalent v5 link", () => {
+    const patch = representativePatch();
+    const packedLegacy = encodeLegacyV4(patch, patch.params);
+    expect(packedLegacy[1]).toBe("4"); // sanity: genuinely v4-tagged
+    const packedCurrent = encodeSynthUrlState(patch);
+    expect(packedCurrent[1]).toBe("5");
+    const restoredLegacy = decodeSynthUrlState(packedLegacy);
+    const restoredCurrent = decodeSynthUrlState(packedCurrent);
+    for (const [key, value] of Object.entries(patch.params)) {
+      if (key === "time") continue;
+      if (typeof value === "number") {
+        expect(restoredLegacy.params[key], key).toBeCloseTo(value, 3);
+        expect(restoredLegacy.params[key], key).toBeCloseTo(restoredCurrent.params[key] as number, 3);
+      } else {
+        expect(restoredLegacy.params[key], key).toBe(value);
+        expect(restoredLegacy.params[key], key).toBe(restoredCurrent.params[key]);
+      }
+    }
+  });
+
+  // Real v4 links, captured from THIS repo's code BEFORE the v5 compact-codec
+  // change landed (encoded with the then-current `encodeSynthUrlState`, not
+  // hand-built) — the strongest proof available that an already-shared link
+  // keeps decoding to exactly the state it always did. `expectedPatch`
+  // reconstructs the same patch `SynthWorkbench.tsx`'s `applyPreset` builds
+  // (preset params merged over the live schema defaults), independent of any
+  // codec, so this isn't a tautological encode-then-decode check.
+  function synthSchemaDefaults(): Params {
+    const { time: _time, ...rest } = defaultGlyphEffectParams(fieldSynth) as Params;
+    return rest;
+  }
+  function voiceSlotsFromParams(params: Params): number[] {
+    return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(params[`amp${k}`] ?? 0) > 0);
+  }
+  const FIXTURE_LIGHTING: Lighting = { azimuth: 120, elevation: 60, keyIntensity: 1.5, keyColor: "#ffddaa", ambient: 0.3 };
+  function expectedPatch(preset: { params: Partial<Params> }): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
+    const params = { ...synthSchemaDefaults(), ...(preset.params as Params) };
+    return {
+      shape: "cube",
+      params,
+      timeScale: SYNTH_URL_DEFAULTS.timeScale,
+      density: 1,
+      colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+      lighting: FIXTURE_LIGHTING,
+      voiceSlots: voiceSlotsFromParams(params),
+    };
+  }
+
+  const REAL_V4_FIXTURES: readonly { name: string; preset: { params: Partial<Params> }; packed: string }[] = [
+    { name: "GlyphCubeTilesPreset", preset: GlyphCubeTilesPreset, packed: "p4s1v17a23ce21ok1uK9zelmm16p2b.223c516171a81cd1e1f1ag16i21om1n1ao2-6p1kq23cR5S21oT1kU3.░▒█_129k2yc_1385bdc_1446vzf" },
+    { name: "GlyphSierpinskiPyramidPreset", preset: GlyphSierpinskiPyramidPreset, packed: "p4s1v21ra23ce21ok1uK9zelmm16p5c.13516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1kw10x1kB2C3D1kE10F1kJ7K3L1kM10N1kX9z6foY9ypb6Z18_110_1e3-1e_1f3-1e_1g3-1e_1h3-1e_1i3-1e_1j3-1e_1t12_1u12_1v12_1w0_1x0_1z1_1A1_1F1_1G1_1I3_1J3_1O1_1Q214" },
+    { name: "GlyphBreathingGyroidPreset", preset: GlyphBreathingGyroidPreset, packed: "p4s1v11a23ce21ok1uK9zelmm16p1d.132145871f813h10X5m22nY7v94vZ1c_110_1z1_1O2_1R21o" },
+    { name: "GlyphCssGraphicsMengerPreset", preset: GlyphCssGraphicsMengerPreset, packed: "p4s1v2e7a23ce21ok1uK9zelmm16pb1.13217516371a810d2e3f1ag10l7m3n1ao10p1kt1u3v1uw10x1kB2C3D1uE10F1kJ7K3L1uM10N1kX5f8w1Y2a2nkZ18_110_181x_191x_1a1x_1b1x_1c1x_1d1x_1e2-x_1f2-x_1g2-x_1h2-x_1i2-x_1j2-x_1t12_1u12_1v12_1w0_1x0_1y0_1z1_1A1_1B1_1F1_1G1_1H1_1I3_1J3_1K3_1O1_1P11_1Q1r_1Z1_202_217_223_233_243_2522i_2622i_2722i_2810_2910_2a10_2b1k_2c1k_2d1k_2q1x_2r1x_2s1x_2t2-x_2u2-x_2v2-x_2z13_2A13_2B13_2F1_2H1_2K219_2L21o_2Me_2P2_2S1a_2V10" },
+  ];
+
+  for (const fixture of REAL_V4_FIXTURES) {
+    it(`decodes the real captured v4 link for "${fixture.name}" to exactly its pre-change state`, () => {
+      expect(fixture.packed[1]).toBe("4");
+      const restored = decodeSynthUrlState(fixture.packed);
+      const expected = expectedPatch(fixture.preset);
+      expect(restored.shape).toBe(expected.shape);
+      expect(restored.timeScale).toBeCloseTo(expected.timeScale, 5);
+      expect(restored.density).toBeCloseTo(expected.density, 5);
+      expect(restored.colorTolerance).toBeCloseTo(expected.colorTolerance, 5);
+      expect(restored.lighting).toEqual(expected.lighting);
+      expect(restored.voiceSlots).toEqual(expected.voiceSlots);
+      for (const [key, value] of Object.entries(expected.params)) {
+        if (key === "time") continue;
+        if (typeof value === "number") {
+          // Quantized to the field's own step (e.g. `duty: 1/3` legitimately
+          // rounds to 0.33 at duty's step-0.01 precision, on BOTH the real
+          // v4 link and any fresh encode) — compare against that quantized
+          // value, not the raw preset literal, or a repeating-decimal
+          // default (exactly this Menger recipe's `duty1: 1/3`) reads as a
+          // false mismatch.
+          const spec = (fieldSynth.parameterSchema as Record<string, { step?: number }>)[key];
+          const step = spec?.step && spec.step > 0 ? spec.step : 0.0001;
+          const quantized = Math.round(value / step) * step;
+          expect(restored.params[key], key).toBeCloseTo(quantized, 3);
+        } else {
+          expect(restored.params[key], key).toBe(value);
+        }
+      }
+    });
+
+    it(`re-encodes "${fixture.name}" shorter than its captured v4 length`, () => {
+      const expected = expectedPatch(fixture.preset);
+      const reencoded = encodeSynthUrlState(expected);
+      expect(reencoded[1]).toBe("5");
+      expect(reencoded.length).toBeLessThan(fixture.packed.length);
+      // eslint-disable-next-line no-console
+      console.log(`${fixture.name}: v4 ${fixture.packed.length} chars -> v5 ${reencoded.length} chars`);
+    });
+  }
 });
 
 // ── Final-gate fix: cross-field-invalid {space, render} hydration ──────────

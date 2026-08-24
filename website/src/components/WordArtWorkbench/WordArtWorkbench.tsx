@@ -52,6 +52,7 @@ import {
 } from "../GalleryWorkbench/effects";
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
+import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
   readInitialWordArtState,
@@ -312,7 +313,6 @@ export function WordArtWorkbench() {
   const [familyInput, setFamilyInput] = useState(() => qs("font"));
   const [weight, setWeight] = useState(() => qs("weight"));
   const [italic, setItalic] = useState(() => qs("italic"));
-  const [status, setStatus] = useState("");
 
   const [text, setText] = useState(() => qs("text"));
   const [textCase, setTextCase] = useState<"as-typed" | "upper" | "lower" | "title">(() => qs("textCase"));
@@ -399,6 +399,35 @@ export function WordArtWorkbench() {
   const [exporting, setExporting] = useState(false);
   const stageSnapshotRef = useRef<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
   const [stageSnapshot, setStageSnapshot] = useState<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
+
+  // "Copy ASCII" (bottom-left export bar, next to "Open in CodePen"/"Export")
+  // copies the rendered ART ITSELF as plain text — distinct from
+  // `WordArtCodePanel`'s own "Copy" button, which copies a generated CODE
+  // snippet. Same `.wa-stage pre.glyph-output` scoping
+  // `handleExportCodepenStatic` already uses below (the preset tiles render
+  // their own `pre.glyph-output` outside `.wa-stage`, so this selector can't
+  // pick one of those up). `extractAsciiFromPre` reads `textContent` (no
+  // `<span>` markup) and trims each line's trailing grid-padding while
+  // preserving the art's own leading offset. Mirrors `SynthWorkbench`'s
+  // `copyState` idiom, including the explicit "error" state for a denied
+  // clipboard permission.
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const handleCopyAscii = useCallback(async () => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    const text = extractAsciiFromPre(pre);
+    if (text === null) {
+      setCopyState("error");
+      setTimeout(() => setCopyState("idle"), 1500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+    setTimeout(() => setCopyState("idle"), 1500);
+  }, []);
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -505,18 +534,15 @@ export function WordArtWorkbench() {
   // preset tiles' static single-letter renders.
   useEffect(() => {
     let alive = true;
-    setStatus(`loading ${entry.family}…`);
     loadGoogleFont(entry, weight, italic ? "italic" : "normal")
       .then((f) => {
         if (!alive) return;
         setFont(f);
         setPreviewFont((prev) => prev ?? f);
-        setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
       })
       .catch((e) => {
         if (!alive) return;
         console.error(`WordArt: failed to load ${entry.family} ${weight}${italic ? " italic" : ""}`, e);
-        setStatus(`couldn't load ${entry.family}: ${e instanceof Error ? e.message : e}`);
       });
     return () => {
       alive = false;
@@ -1017,7 +1043,6 @@ export function WordArtWorkbench() {
             lightColor={lightColor}
             ambient={ambient}
             spin={spin}
-            status={status}
             effectDefinition={effectDefinition}
             effectParams={effectState.params}
             effectBlend={effectState.blend}
@@ -1037,12 +1062,45 @@ export function WordArtWorkbench() {
             </button>
             <button
               type="button"
+              className="gw-code-panel__action"
+              onClick={handleCopyAscii}
+              title="Copy the rendered ASCII art to the clipboard"
+            >
+              {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
+            </button>
+            <button
+              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
               title={codeOpen ? "Close export code window" : "Open export code window"}
             >
               Export
+            </button>
+          </div>
+          {/* Viewing-angle shortcuts over the existing `spin`/`turn`/`tilt`
+              URL state (no new rotation machinery) — sits next to
+              `.wa-export-bar` in the same bottom overlay row, where
+              `.wa-stage-foot`'s polygon-count/status readout used to render.
+              "Still · front face" is both a state (spin off, angle reset) and
+              a one-shot reset, so its `is-active` reflects the exact resting
+              angle rather than treating the pair as a plain toggle. */}
+          <div className="wa-view-bar">
+            <button
+              type="button"
+              className={`gw-code-panel__action${!spin && turn === 0 && tilt === 0 ? " is-active" : ""}`}
+              onClick={() => { setSpin(false); setTurn(0); setTilt(0); }}
+              title="Stop auto-rotate and reset to a flat, front-facing view"
+            >
+              Still · front face
+            </button>
+            <button
+              type="button"
+              className={`gw-code-panel__action${spin ? " is-active" : ""}`}
+              onClick={() => setSpin(true)}
+              title="Auto-rotate the mesh"
+            >
+              Auto rotate
             </button>
           </div>
           {(codeOpen || mobilePanel === "export") && (
@@ -1052,6 +1110,8 @@ export function WordArtWorkbench() {
               onCodepen={handleExportCodepenDynamic}
               exporting={exporting}
               onClose={closeCodePanel}
+              onCopyAscii={handleCopyAscii}
+              copyAsciiState={copyState}
             />
           )}
         </main>
@@ -1201,7 +1261,6 @@ interface StageProps {
   lightColor: string;
   ambient: number;
   spin: boolean;
-  status: string;
   effectDefinition: GalleryEffectDefinition | null;
   effectParams: Record<string, GalleryEffectParamValue>;
   effectBlend: GalleryEffectBlend;
@@ -1245,7 +1304,7 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const draggingRef = useRef(false);
@@ -1350,9 +1409,6 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
           )}
         </GlyphScene>
       </Cam>
-      <div className="wa-stage-foot">
-        {polygons.length.toLocaleString()} polygons{status ? ` · ${status}` : ""}
-      </div>
     </div>
   );
 }

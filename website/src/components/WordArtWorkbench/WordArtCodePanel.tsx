@@ -11,6 +11,12 @@ interface WordArtCodePanelProps {
   onCodepen: () => void;
   exporting: boolean;
   onClose: () => void;
+  /** Copies the rendered ASCII art itself (distinct from `handleCopy` below,
+   *  which copies the generated CODE snippet). Mounted here too so the
+   *  action stays reachable once `.wa-export-bar` hides under 760px — see
+   *  wordart.css's mobile export rule. */
+  onCopyAscii: () => void;
+  copyAsciiState: "idle" | "copied" | "error";
 }
 
 /**
@@ -22,7 +28,7 @@ interface WordArtCodePanelProps {
  * Visibility is owned by the parent (`WordArtWorkbench`'s `codeOpen` / mobile
  * "Export" tab) — this component only mounts while shown.
  */
-export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose }: WordArtCodePanelProps) {
+export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState }: WordArtCodePanelProps) {
   const [tab, setTab] = useState<WordArtTab>("react");
   const [copied, setCopied] = useState(false);
   const snippets = useMemo(() => generateWordArtSnippets(input), [input]);
@@ -65,6 +71,14 @@ export function WordArtCodePanel({ id, className, input, onCodepen, exporting, o
           </button>
           <button type="button" className="gw-code-panel__action" onClick={handleCopy} title="Copy current snippet">
             {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={onCopyAscii}
+            title="Copy the rendered ASCII art to the clipboard"
+          >
+            {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
           </button>
           <button
             type="button"

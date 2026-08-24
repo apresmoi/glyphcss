@@ -148,17 +148,36 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   inset: 0;
   background: radial-gradient(circle at 50% 38%, #10141c 0%, #07090d 72%);
 }
-.wa-stage-foot {
+/* Viewing-angle shortcuts ("Still · front face" / "Auto rotate") over the
+   `spin`/`turn`/`tilt` URL state — sits centered in the same bottom overlay
+   row as `.wa-export-bar` (left-aligned), so visually to its right. Replaces
+   the old `.wa-stage-foot` polygon-count/status readout. */
+.wa-view-bar {
   position: absolute;
   bottom: var(--overlay-bottom, 12px);
   left: 50%;
   transform: translateX(-50%);
-  font-size: 11px;
-  color: rgba(255, 232, 184, 0.55);
-  pointer-events: none;
-  background: rgba(6, 8, 13, 0.75);
-  padding: 3px 10px;
-  border: 1px solid rgba(255, 232, 184, 0.14);
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+}
+.wa-view-bar .gw-code-panel__action { background-color: #0d1018; }
+/* Active state matches `.gx-toggle-btn.is-active` (the segmented toggles used
+   for bsc/adv and layer 1|2|3), NOT the export bar's filled treatment: a 20%
+   cyan tint with cyan text and a thin inset ring, rather than an 85% fill with
+   inverted dark text. These sit inline beside the stage, so a solid fill reads
+   as a foreign widget next to every other control on the page. Since this is
+   deliberately the segmented-toggle ring look (excluded from the corner-tick
+   treatment for the same shared-edge reason `.gx-toggle-btn` is, even though
+   this particular button isn't itself segmented), `--gx-bracket` is cleared to
+   `transparent` here so the ring reads on its own instead of fighting a
+   bracket border-color already forced transparent below. */
+.wa-view-bar .gw-code-panel__action.is-active {
+  color: rgba(56, 189, 248, 1);
+  background-color: rgba(56, 189, 248, 0.2);
+  border-color: transparent;
+  --gx-bracket: transparent;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.85);
 }
 .wa-stage .glyph-output { color: rgba(255, 232, 184, 0.92); margin: 0; }
 
@@ -182,12 +201,13 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   gap: 6px;
 }
 .wa-export-bar .gw-code-panel__action {
-  background: #0d1018;
+  background-color: #0d1018;
 }
 .wa-export-bar .gw-code-panel__action.is-active {
   color: #03050a;
-  background: rgba(56, 189, 248, 0.85);
+  background-color: rgba(56, 189, 248, 0.85);
   border-color: rgba(56, 189, 248, 0.85);
+  --gx-bracket: rgba(56, 189, 248, 0.85);
 }
 
 /* Compound with `.gw-code-panel` (0,2,0) rather than `.wa-code-panel` alone
@@ -201,8 +221,11 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
 }
 
 @media (max-width: 760px) {
-  /* The bar duplicates the mobile tab bar's "Export" tab — hide it and rely
-     on that tab (same drawer, opened via `mobilePanel === "export"`). */
+  /* "Open in CodePen" and "Export" duplicate the mobile tab bar's "Export"
+     tab, so hide the whole bar and rely on that tab (same drawer, opened via
+     `mobilePanel === "export"`). "Copy ASCII" has no such duplicate on its
+     own — `WordArtCodePanel` mounts its own "Copy ASCII" action (next to its
+     code-snippet "Copy") specifically so this hide doesn't strand it. */
   .dn-root--wordart .wa-export-bar { display: none; }
 
   /* Export becomes a full bottom-drawer reachable via the Export tab —
@@ -222,12 +245,8 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
 
 /* glyphcss render chain must fill the stage so autoSize gets the full grid.
    The camera + scene host are plain divs that otherwise collapse to content
-   height. `:not(.wa-stage-foot)` excludes the status pill below — it's ALSO
-   a direct child div of `.wa-stage`, and without the exclusion this stretched
-   it to 100% × 100% of the stage (full width/height, its 1px border then
-   reading as a giant outline over most of the viewport, right up against the
-   left rail's edge). */
-.wa-stage > div:not(.wa-stage-foot),
+   height. */
+.wa-stage > div,
 .wa-stage .glyph-host,
 .wa-stage .glyph-scene {
   width: 100%;
@@ -255,8 +274,10 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   height: 24px;
   min-width: 0;
   padding: 0;
-  background: #080a0e;
-  border: 1px solid rgba(255, 232, 184, 0.22);
+  background-color: #080a0e;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.22);
+  --gx-bracket: rgba(255, 232, 184, 0.22);
   color: rgba(255, 232, 184, 0.65);
   border-radius: 0;
   cursor: pointer;
@@ -264,10 +285,11 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   font-size: 12px;
   font-weight: 600;
 }
-.wa-seg button:hover { border-color: rgba(56, 189, 248, 0.5); }
+.wa-seg button:hover { border-color: rgba(56, 189, 248, 0.5); --gx-bracket: rgba(56, 189, 248, 0.5); }
 .wa-seg button.is-on {
-  background: rgba(56, 189, 248, 0.18);
+  background-color: rgba(56, 189, 248, 0.18);
   border-color: rgba(56, 189, 248, 0.85);
+  --gx-bracket: rgba(56, 189, 248, 0.85);
   color: #ecfeff;
 }
 
@@ -276,8 +298,10 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   width: 100%;
   height: 24px;
   padding: 0 8px;
-  background: #080a0e;
-  border: 1px solid rgba(255, 232, 184, 0.22);
+  background-color: #080a0e;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.22);
+  --gx-bracket: rgba(255, 232, 184, 0.22);
   color: rgba(255, 232, 184, 0.75);
   border-radius: 0;
   cursor: pointer;
@@ -285,7 +309,7 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   font-size: 12px;
   font-weight: 600;
 }
-.wa-imgbtn:hover { border-color: rgba(56, 189, 248, 0.6); color: #ecfeff; }
+.wa-imgbtn:hover { border-color: rgba(56, 189, 248, 0.6); color: #ecfeff; --gx-bracket: rgba(56, 189, 248, 0.6); }
 
 .wa-texrow { padding-top: 2px; }
 .wa-texgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
@@ -361,16 +385,22 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   display: flex;
   flex-direction: column;
   padding: 0;
-  border: 1px solid rgba(255, 232, 184, 0.18);
-  background: #04060b;
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.18);
+  --gx-bracket: rgba(255, 232, 184, 0.18);
+  background-color: #04060b;
   color: rgba(255, 232, 184, 0.7);
   cursor: pointer;
   overflow: hidden;
   font: inherit;
   transition: border-color 0.12s ease, transform 0.12s ease;
 }
-.wa-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); }
-.wa-tile.is-active { border-color: #38bdf8; box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.5); }
+.wa-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); --gx-bracket: rgba(56, 189, 248, 0.9); }
+.wa-tile.is-active {
+  border-color: #38bdf8;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.5);
+  --gx-bracket: #38bdf8;
+}
 /* Each tile's preview is a static glyphcss render of a single letter styled
    with that preset (see `renderPresetTile` — `compileScene`, no rAF, no live
    scene), not a CSS gradient swatch. `.glyph-output` is `display:inline-block`
@@ -530,7 +560,7 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   }
   .dn-root--wordart .wa-presets.is-mobile-open { display: flex; }
 
-  .wa-stage-foot { bottom: calc(var(--overlay-bottom, 12px) + var(--mobile-tabs-height, 52px) + 8px); }
+  .wa-view-bar { bottom: calc(var(--overlay-bottom, 12px) + var(--mobile-tabs-height, 52px) + 8px); }
 }
 
 /* ── Right Dock: run to the bottom of the body like the left rail ──────────

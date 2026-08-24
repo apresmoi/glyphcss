@@ -53,6 +53,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Must precede `pnpm test`, matching ci.yml's own order. `packages/compile`
+      # spawns the real built CLI as a SUBPROCESS (labelParity.test.ts), so that
+      # child resolves `glyphcss` through node_modules on disk — vitest aliases
+      # can't reach it. On a clean CI checkout `packages/glyphcss/dist` does not
+      # exist yet, so the child dies with ERR_MODULE_NOT_FOUND. It passed locally
+      # only because a previous build had left dist/ behind.
+      - name: Build packages (needed by packages/compile's CLI-subprocess tests)
+        run: pnpm build:packages
+
       - name: Run tests
         run: pnpm test
 
@@ -60,6 +69,12 @@ jobs:
         id: bump
         run: node .github/scripts/bump-versions.mjs "${{ inputs.bump }}"
 
+      # Rebuild after the bump. Today `dist` does not embed the package version
+      # (the CDN version in the interactive export is a RUNTIME option,
+      # `cdnVersion`, not a build-time constant), so this is currently
+      # redundant with the pre-test build — kept deliberately so that if any
+      # build step ever does bake the version in, the published artifact still
+      # carries the bumped one rather than the pre-bump value.
       - name: Build packages
         run: pnpm build:packages
 

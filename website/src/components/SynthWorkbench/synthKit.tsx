@@ -2338,21 +2338,39 @@ export interface SynthStageHint {
 
 export const STAGE_HINTS: ReadonlyMap<GlyphEffectPreset<never>, SynthStageHint> = new Map([
   [GlyphCubeTilesPreset as GlyphEffectPreset<never>, { density: 1.5 }],
-  // Re-checked after the pyramid stage's upright reorientation
-  // (`shapeTransform`/`alignCornerTetraApexEuler` above): the old hint
-  // (rotX 35, rotY 40) was tuned to keep the origin corner in view alongside
-  // the far hypotenuse face on the PREVIOUS lying-on-a-face orientation —
-  // meaningless now that the mesh itself stands apex-up. The corner tetra's
-  // apex isn't always the single topmost screen pixel at every camera
-  // angle/roll (it's a lopsided "cube corner" shape, not a regular pyramid,
-  // and its recursive fractal detail — not a clean flat base — is what
-  // actually reads as "the interesting part"), so rather than chase a
-  // pixel-exact top vertex, this omits a custom angle entirely and falls
-  // back to the same default isometric-ish camera (rotX 58, rotY 32) every
-  // other non-special-cased volumetric shape already uses — visually
-  // verified centered and well-framed on the reoriented stage, and the
-  // Stage folder's auto-orbit (VOLUMETRIC-2.md §4) cycles the azimuth anyway.
-  [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid" }],
+  // The reoriented corner tetra (`shapeTransform`/`alignCornerTetraApexEuler`
+  // above) has exact 3-fold rotational symmetry about world Z, so its
+  // rendered silhouette cycles every 120° of yaw (rotY) — confirmed by
+  // measurement, not assumption: a full-circle sweep at the shared default
+  // pitch (rotX 58) reproduces the identical taper at every yaw 120° apart.
+  // Within one 120° period only part of the range reads as a pyramid (apex
+  // narrow, widening monotonically to a wide base); the rest reads as a
+  // rhombus/diamond (narrow at both ends, wide in the middle) because the
+  // camera is looking at the tetra corner-on rather than down one of its
+  // sloped faces. The PREVIOUS entry omitted a custom angle and fell back to
+  // the default isometric camera (rotX 58, rotY 32) on the reasoning that it
+  // was "visually verified centered and well-framed" — it is centered, but
+  // rotY 32 lands squarely in the corner-on part of the cycle: measured
+  // per-row filled-span width is pointed at both ends and widest in the
+  // middle (rows 11-41, topAvg 56, botAvg 28, max 94, taper 0.51 — taper < 1
+  // means WIDENING toward the top-middle then narrowing again, the diamond
+  // the user reported, not a pyramid).
+  //
+  // rotY 225 (pitch unchanged at 58, so the module-level vertical-centering
+  // solve — calibrated at this exact pitch, see `solveVerticalCenteringZ`'s
+  // doc above — stays exact) lands on the sweet spot: per-row filled-span
+  // width grows by a constant 4 cells every single row from the apex down
+  // (rows 11-34: 2, 6, 10, ... 94 — perfectly monotonic, topAvg 16, botAvg
+  // 80, taper 5), col bbox exactly centered (0.0% offset), row bbox off by
+  // -6.7% (smaller than changing pitch away from 58 produces, and smaller
+  // than the ~4.4-4.8% col residual this table's own doc already accepts
+  // for this shape), and not clipped. The Stage folder's auto-orbit
+  // (VOLUMETRIC-2.md §4) still cycles the azimuth through the diamond part
+  // of the cycle too — inherent to a 3-fold-symmetric solid rotating in
+  // place, the same way a spinning cube shows different face combinations —
+  // but the preset now LOADS on a clean pyramid read instead of the
+  // corner-on one.
+  [GlyphSierpinskiPyramidPreset as GlyphEffectPreset<never>, { shape: "pyramid", rotX: 58, rotY: 225 }],
   // Time-animation preset (VOLUMETRIC-3.md, "we don't have any animation for
   // the volumetric ones") — the gyroid xray recipe with `speedN` turned on
   // (stock.ts). `paused` is deliberately left unset (default `false`): it
