@@ -85,8 +85,9 @@ export interface GlyphSceneProps {
    * Requires {@link atlasPalette}; falls back to `"spans"` for a render with
    * no palette or whose glyphs/colors aren't fully covered by the atlas +
    * palette. `GlyphScene` does NOT auto-inject the atlas's `@font-face`/
-   * `@font-palette-values` CSS — inject `buildGlyphAtlasFontFaceCss()`/
-   * `buildGlyphAtlasFontPaletteValuesCss()` (exported from `glyphcss`)
+   * `@font-palette-values` CSS — `await loadGlyphAtlasFontFaceCss()` (the
+   * WOFF2 payload is a lazily imported chunk) plus
+   * `buildGlyphAtlasFontPaletteValuesCss()` (both exported from `glyphcss`)
    * yourself and set the rendered `<pre>`'s `font-family`/`font-palette` to
    * match.
    */

@@ -61,7 +61,7 @@ import {
   type RetainedGlyphEffectOutput,
   type RuntimeGlyphEffectLayer,
 } from "../render/effectCompositor";
-import { injectGlyphBaseStyles, injectGlyphAtlasFontFaceStyles } from "../styles/styles";
+import { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
 import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss } from "../render/fontAtlas";
 import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type GlyphAtlasPaletteQuantizer } from "../render/paletteQuantize";
 import { projectHotspots } from "./projectHotspots";
@@ -563,15 +563,33 @@ export function createGlyphScene(
   // and pooling it would silently override their choice.
   let atlasQuantizer: GlyphAtlasPaletteQuantizer | null = null;
   let atlasPaletteCssGeneration = -1;
+  // The atlas WOFF2 is lazily imported (see `render/fontAtlas.ts`), so a scene
+  // constructed with `colorEncoding: "atlas"` cannot encode PUA on its first
+  // frame — the family does not exist yet and PUA would paint as tofu in the
+  // fallback monospace face. This flips to `true` once the payload has loaded
+  // AND the document reports the face decoded; until then the scene renders
+  // through the ordinary span encoder, which is the correct fallback the
+  // encoder already uses for any cell the atlas can't carry.
+  let atlasFontReady = false;
+
+  /**
+   * Encoding this frame may actually use. Diverges from `options.colorEncoding`
+   * exactly during the lazy-font window (and permanently, if the payload
+   * failed to load) — see {@link atlasFontReady}.
+   */
+  function effectiveColorEncoding(): GlyphColorEncoding {
+    return options.colorEncoding === "atlas" && atlasFontReady ? "atlas" : "spans";
+  }
 
   /**
    * Palette input for this render: the caller's fixed array if they pinned
    * one, otherwise the scene's own pooled quantizer. Only ever called from
    * the `colorEncoding: "atlas"` path, so the lazy allocation below cannot
-   * fire for a `"spans"` scene.
+   * fire for a `"spans"` scene — nor for an `"atlas"` scene whose font hasn't
+   * arrived yet, which would pool a palette no `<pre>` is encoded against.
    */
   function activeAtlasPalette(): GlyphAtlasPaletteInput | undefined {
-    if (options.colorEncoding !== "atlas") return undefined;
+    if (effectiveColorEncoding() !== "atlas") return undefined;
     if (options.atlasPalette) return options.atlasPalette;
     return (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer());
   }
@@ -653,7 +671,7 @@ export function createGlyphScene(
     for (const output of retainedEffectOutputs.values()) {
       testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, options.colorEncoding, activeAtlasPalette()) });
+      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, effectiveColorEncoding(), activeAtlasPalette()) });
     }
     commitRender({
       writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
@@ -961,7 +979,7 @@ export function createGlyphScene(
       hiddenLines: options.hiddenLines,
       solidWeightRamp: options.solidWeightRamp,
       colorTolerance: options.colorTolerance,
-      colorEncoding: options.colorEncoding,
+      colorEncoding: effectiveColorEncoding(),
       atlasPalette: activeAtlasPalette(),
       useColors: options.useColors,
       smoothShading: options.smoothShading,
@@ -1201,27 +1219,48 @@ export function createGlyphScene(
   // Called once at construction and again from `setOptions` whenever
   // `colorEncoding`/`atlasPalette` are touched — never on every render, since
   // both only change through those two paths. A "spans" scene (the default)
-  // never calls `injectGlyphAtlasFontFaceStyles` and never creates
-  // `atlasPaletteStyleEl`, so it stays byte-identical and DOM-injection-free.
+  // never calls `ensureGlyphAtlasFontFaceStyles` — so it never imports the
+  // lazy WOFF2 chunk at all — and never creates `atlasPaletteStyleEl`, so it
+  // stays byte-identical and DOM-injection-free.
   function syncGlyphAtlasStyles(): void {
     if (options.colorEncoding === "atlas") {
-      injectGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined);
-      // The pooled quantizer's palette when the caller didn't pin one — the
-      // block must always declare the palette the `<pre>` was actually
-      // ENCODED against, since a slot is meaningless without it.
-      const palette = options.atlasPalette ?? atlasQuantizer?.palette;
-      if (palette && palette.length > 0) {
-        // Stable for the scene's lifetime once allocated (see the field doc)
-        // — only the block's CONTENT is refreshed on a later palette edit.
-        if (!atlasPaletteName) atlasPaletteName = `--glyph-atlas-palette-${nextAtlasStyleId++}`;
-        if (!atlasPaletteStyleEl) {
-          atlasPaletteStyleEl = host.ownerDocument!.createElement("style");
-          host.ownerDocument!.head.appendChild(atlasPaletteStyleEl);
-        }
-        atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
-        atlasPaletteCssGeneration = atlasQuantizer?.generation ?? -1;
-      }
+      // Kick the shared lazy load. The first resolution flips this scene into
+      // real atlas encoding and schedules the re-render that replaces its
+      // spans-fallback frames; a scene created after the payload is already
+      // cached still goes through this promise, so the "first frame is spans"
+      // rule holds uniformly instead of depending on load order.
+      void ensureGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined).then((ready) => {
+        if (destroyed || !ready || atlasFontReady) return;
+        atlasFontReady = true;
+        // Nothing wrote palette CSS while the font was missing — no quantizer
+        // was allocated (see `activeAtlasPalette`) — so publish it alongside
+        // the re-render that will finally encode against it.
+        writeGlyphAtlasPaletteCss();
+        scheduleRender();
+      });
+      writeGlyphAtlasPaletteCss();
     }
+    applyGlyphAtlasFont(pre);
+    for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
+  }
+
+  // The `@font-palette-values` half of the wiring, split out so the async
+  // font-ready callback above can refresh it without re-entering the loader.
+  function writeGlyphAtlasPaletteCss(): void {
+    // The pooled quantizer's palette when the caller didn't pin one — the
+    // block must always declare the palette the `<pre>` was actually
+    // ENCODED against, since a slot is meaningless without it.
+    const palette = options.atlasPalette ?? atlasQuantizer?.palette;
+    if (!palette || palette.length === 0) return;
+    // Stable for the scene's lifetime once allocated (see the field doc)
+    // — only the block's CONTENT is refreshed on a later palette edit.
+    if (!atlasPaletteName) atlasPaletteName = `--glyph-atlas-palette-${nextAtlasStyleId++}`;
+    if (!atlasPaletteStyleEl) {
+      atlasPaletteStyleEl = host.ownerDocument!.createElement("style");
+      host.ownerDocument!.head.appendChild(atlasPaletteStyleEl);
+    }
+    atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
+    atlasPaletteCssGeneration = atlasQuantizer?.generation ?? -1;
     applyGlyphAtlasFont(pre);
     for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
   }
@@ -1239,7 +1278,7 @@ export function createGlyphScene(
   function syncGlyphAtlasPaletteCss(): void {
     if (options.colorEncoding !== "atlas" || options.atlasPalette) return;
     if (!atlasQuantizer || atlasQuantizer.generation === atlasPaletteCssGeneration) return;
-    syncGlyphAtlasStyles();
+    writeGlyphAtlasPaletteCss();
   }
 
   function commitRender(plan: RenderCommit): void {
@@ -1483,7 +1522,7 @@ export function createGlyphScene(
           hiddenLines: options.hiddenLines,
           solidWeightRamp: options.solidWeightRamp,
           colorTolerance: options.colorTolerance,
-          colorEncoding: options.colorEncoding,
+          colorEncoding: effectiveColorEncoding(),
           atlasPalette: activeAtlasPalette(),
           useColors: options.useColors,
           smoothShading: options.smoothShading,

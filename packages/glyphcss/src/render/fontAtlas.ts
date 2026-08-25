@@ -65,17 +65,42 @@
  * see `isGlyphAtlasEncodable` in `cells.ts` for the mandatory whole-grid
  * fallback this forces.
  *
- * ── Font artifact: checked-in, not runtime-compiled ────────────────────
+ * ── Font artifact: checked-in, not runtime-compiled, LAZILY loaded ──────
  *
  * The font is generated ONCE by `../../assets/glyph-atlas/build-atlas.py`
- * (Python + fontTools — the same toolchain the spike used) and checked into
- * `../../assets/glyph-atlas/atlas.json` as base64 WOFF2 (~29KB binary, ~39KB
- * base64). This module imports that JSON as a plain data module
- * (`resolveJsonModule`) — no font compilation happens in this package's
- * build (`tsup` only bundles the already-built JSON) or in the browser.
- * Regenerate the artifact by re-running the Python script whenever the
- * universal glyph set changes; nothing in `pnpm build` does this
- * automatically (Python/fontTools is not a JS toolchain dependency).
+ * (Python + fontTools — the same toolchain the spike used) and checked in as
+ * TWO artifacts, which is load-bearing:
+ *
+ *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.6KB), imported
+ *      STATICALLY below because the PUA encode/decode formula needs `glyphs`,
+ *      `puaStart`, `glyphCount` and `maxPaletteSize` synchronously on every
+ *      frame (and `decodeGlyphAtlasText` runs on plain "spans" output too).
+ *   `../../assets/glyph-atlas/atlas-font.json` — base64 WOFF2 (~44KB), reached
+ *      ONLY through `import("./fontAtlasPayload")` in {@link loadGlyphAtlasFontPayload}.
+ *
+ * The payload was previously a field of the one manifest, which put 44KB of
+ * base64 — 18% of `dist/index.js` — into every consumer's bundle whether or
+ * not they ever set `colorEncoding: "atlas"`. Splitting the artifact is what
+ * makes the payload a separate chunk (`tsup`'s `splitting: true`), so a
+ * "spans" consumer never downloads or parses it. Do not add a static import
+ * of `./fontAtlasPayload` anywhere — one would silently re-merge the chunk.
+ *
+ * No font compilation happens in this package's build (`tsup` only bundles
+ * the already-built JSON) or in the browser. Regenerate both artifacts by
+ * re-running the Python script whenever the universal glyph set changes;
+ * nothing in `pnpm build` does this automatically (Python/fontTools is not a
+ * JS toolchain dependency).
+ *
+ * ── The async transition ────────────────────────────────────────────────
+ *
+ * Because the payload arrives a microtask-or-more after a scene asks for
+ * `colorEncoding: "atlas"`, there is a window where the encoder MUST NOT emit
+ * PUA: the atlas family does not exist yet, so PUA code points would render
+ * as tofu boxes in the fallback monospace face. `createGlyphScene` therefore
+ * renders SPANS (the already-correct fallback the encoder falls back to for
+ * an out-of-atlas glyph) until {@link glyphAtlasFontPayload} is non-undefined,
+ * and re-renders once it is. A load failure resolves `null` and warns once,
+ * pinning that session to spans — never a broken render.
  */
 
 import atlasManifest from "../../assets/glyph-atlas/atlas.json";
@@ -91,11 +116,13 @@ export interface GlyphFontAtlas {
   readonly glyphCount: number;
   /** Maximum palette slots the atlas supports without leaving the BMP PUA. */
   readonly maxPaletteSize: number;
-  /** Base64-encoded WOFF2 payload — embedded inline so the atlas is self-contained (no separate font request). */
-  readonly woff2Base64: string;
 }
 
-/** The one checked-in universal atlas. `fontAtlas` functions default to this. */
+/**
+ * The one checked-in universal atlas's METADATA. `fontAtlas` functions default
+ * to this. It deliberately carries no font bytes — see the module doc; the
+ * WOFF2 payload arrives separately through {@link loadGlyphAtlasFontPayload}.
+ */
 export const GLYPH_FONT_ATLAS: GlyphFontAtlas = Object.freeze({ ...atlasManifest });
 
 const glyphIndexByChar: ReadonlyMap<string, number> = new Map(
@@ -186,13 +213,113 @@ function assertPaletteColors(colors: readonly string[], atlas: GlyphFontAtlas): 
   }
 }
 
+// ── Lazy WOFF2 payload ───────────────────────────────────────────────────
+
+/** Lifecycle of the process-wide atlas WOFF2 payload. See {@link glyphAtlasFontLoadState}. */
+export type GlyphAtlasFontLoadState = "idle" | "loading" | "ready" | "failed";
+
+type GlyphAtlasFontPayloadModule = { readonly GLYPH_FONT_ATLAS_WOFF2_BASE64: string };
+
+// This indirection exists so a test can drive the failure and the
+// slow-arrival branches, which are otherwise unreachable: the real payload is
+// a bundled local module that cannot fail to resolve in a passing test run,
+// and "spans until the font is ready" is the branch most likely to rot.
+let payloadImport: () => Promise<GlyphAtlasFontPayloadModule> = () => import("./fontAtlasPayload");
+
+let payloadState: GlyphAtlasFontLoadState = "idle";
+let payload: string | undefined;
+let payloadPromise: Promise<string | null> | null = null;
+
 /**
- * `@font-face` CSS text for the checked-in atlas, with the WOFF2 payload
- * inlined as a `data:` URI — self-contained, no separate font request.
- * Idempotent to inject repeatedly (same text every call for the same atlas).
+ * Load the atlas's base64 WOFF2 on demand. Idempotent and SHARED: every caller
+ * after the first awaits the same promise, so ten scenes on one page trigger
+ * one import, not ten. Resolves `null` — never rejects — when the payload
+ * cannot be loaded, having warned once; the caller's contract is to degrade to
+ * `colorEncoding: "spans"` for the rest of the session.
  */
-export function buildGlyphAtlasFontFaceCss(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): string {
-  return `@font-face{font-family:"${atlas.family}";src:url(data:font/woff2;base64,${atlas.woff2Base64}) format("woff2");font-display:block;}`;
+export function loadGlyphAtlasFontPayload(): Promise<string | null> {
+  if (payloadPromise) return payloadPromise;
+  payloadState = "loading";
+  payloadPromise = payloadImport().then(
+    (mod) => {
+      payload = mod.GLYPH_FONT_ATLAS_WOFF2_BASE64;
+      payloadState = "ready";
+      return payload;
+    },
+    (error: unknown) => {
+      payloadState = "failed";
+      console.warn(
+        "glyphcss: could not load the colour-font atlas payload; colorEncoding \"atlas\" will render as \"spans\" for the rest of this session.",
+        error,
+      );
+      return null;
+    },
+  );
+  return payloadPromise;
+}
+
+/**
+ * The loaded payload, or `undefined` while it is still loading / after it
+ * failed. Synchronous by design: the render path needs a non-blocking answer
+ * to "may I emit PUA this frame?" (see the module doc's async-transition
+ * section), and `undefined` means "no — encode spans".
+ */
+export function glyphAtlasFontPayload(): string | undefined {
+  return payload;
+}
+
+/** Current lifecycle of the shared payload load. `"failed"` is terminal for the session. */
+export function glyphAtlasFontLoadState(): GlyphAtlasFontLoadState {
+  return payloadState;
+}
+
+/**
+ * Swap the payload importer and reset the shared load state. Test-only seam —
+ * not exported from the package index. See {@link payloadImport}.
+ */
+export function setGlyphAtlasFontPayloadImportForTests(
+  next: (() => Promise<GlyphAtlasFontPayloadModule>) | null,
+): void {
+  payloadImport = next ?? (() => import("./fontAtlasPayload"));
+  payloadState = "idle";
+  payload = undefined;
+  payloadPromise = null;
+}
+
+/**
+ * `@font-face` CSS text for the checked-in atlas, with `woff2Base64` inlined
+ * as a `data:` URI — self-contained, no separate font request. Idempotent to
+ * inject repeatedly (same text every call for the same payload + atlas).
+ *
+ * Takes the payload as an argument rather than reading it off `atlas`: the
+ * atlas metadata is statically bundled but the payload is not (module doc), so
+ * a caller has to have obtained it — from {@link loadGlyphAtlasFontFaceCss},
+ * {@link loadGlyphAtlasFontPayload}, or its own build step — before it can
+ * emit a `@font-face` that actually carries a font. That is deliberate: the
+ * failure mode this signature rules out is a static/CodePen export silently
+ * shipping a `@font-face` with an empty `src`.
+ */
+export function buildGlyphAtlasFontFaceCss(woff2Base64: string, atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): string {
+  if (typeof woff2Base64 !== "string" || woff2Base64.length === 0) {
+    throw new TypeError("glyphcss: buildGlyphAtlasFontFaceCss needs the atlas WOFF2 payload — await loadGlyphAtlasFontPayload() (or loadGlyphAtlasFontFaceCss()) first.");
+  }
+  return `@font-face{font-family:"${atlas.family}";src:url(data:font/woff2;base64,${woff2Base64}) format("woff2");font-display:block;}`;
+}
+
+/**
+ * `@font-face` CSS text, loading the payload on demand. This is the awaited
+ * path a static / CodePen / SSR export uses to inline the font into a
+ * self-contained artifact. Unlike {@link loadGlyphAtlasFontPayload} it REJECTS
+ * when the payload is unavailable — an export that quietly emitted a pen with
+ * no font would look correct in code review and render tofu in the browser,
+ * so the loud failure is the right one for a build-time caller.
+ */
+export async function loadGlyphAtlasFontFaceCss(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): Promise<string> {
+  const base64 = await loadGlyphAtlasFontPayload();
+  if (base64 === null) {
+    throw new Error("glyphcss: the colour-font atlas payload could not be loaded, so no @font-face can be emitted for it.");
+  }
+  return buildGlyphAtlasFontFaceCss(base64, atlas);
 }
 
 /**

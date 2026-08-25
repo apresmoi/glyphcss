@@ -8,7 +8,13 @@ export default defineConfig({
   },
   format: ["esm", "cjs"],
   dts: true,
-  splitting: false,
+  // Load-bearing, not a preference: the ~44KB base64 atlas WOFF2 is reached
+  // only through `import("./render/fontAtlasPayload")`. With splitting off,
+  // esbuild INLINES a dynamic import back into its importing bundle, which
+  // would put the payload straight back into `dist/index.js` for every
+  // consumer. Splitting is what makes it a real, separately-fetched chunk.
+  // `bundle.atlas.test.ts` asserts that boundary against the built output.
+  splitting: true,
   sourcemap: false,
   clean: true,
   minify: true,

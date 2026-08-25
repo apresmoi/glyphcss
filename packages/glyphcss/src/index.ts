@@ -208,8 +208,15 @@ export {
   decodeGlyphAtlasText,
   buildGlyphAtlasFontFaceCss,
   buildGlyphAtlasFontPaletteValuesCss,
+  // The WOFF2 payload is lazily imported so it never lands in a "spans"
+  // consumer's main chunk (see `render/fontAtlas.ts`). `loadGlyphAtlasFontFaceCss`
+  // is the awaited path a static/CodePen/SSR export uses to inline the font.
+  loadGlyphAtlasFontPayload,
+  loadGlyphAtlasFontFaceCss,
+  glyphAtlasFontPayload,
+  glyphAtlasFontLoadState,
 } from "./render/fontAtlas";
-export type { GlyphFontAtlas } from "./render/fontAtlas";
+export type { GlyphFontAtlas, GlyphAtlasFontLoadState } from "./render/fontAtlas";
 // ── Atlas palette quantization (the ≤31-slot reduction the atlas needs) ──
 export {
   medianCutPalette,
@@ -246,7 +253,7 @@ export type {
 } from "./api/rasterizeContext";
 
 // ── Style injection ───────────────────────────────────────────────
-export { injectGlyphBaseStyles } from "./styles/styles";
+export { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "./styles/styles";
 
 // ── Custom element classes (without auto-registering) ─────────────
 export { GlyphSceneElement } from "./elements/GlyphSceneElement";

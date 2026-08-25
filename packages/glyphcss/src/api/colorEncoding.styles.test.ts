@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { GLYPH_FONT_ATLAS } from "../render/fontAtlas";
+import { ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
 
 // Task: close the CSS-injection gap. `colorEncoding: "atlas"` used to render
 // PUA garbage unless a consumer manually injected `buildGlyphAtlasFontFaceCss`/
@@ -21,6 +22,18 @@ function makeDiv(): HTMLElement {
 async function flushRenders(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/**
+ * The `@font-face` can only be injected once the lazily imported WOFF2 chunk
+ * (`render/fontAtlasPayload.ts`) resolves, so every assertion here has to
+ * settle that load first. This awaits the same shared, per-document promise
+ * `createGlyphScene` awaits.
+ */
+async function flushAtlasRenders(): Promise<void> {
+  await ensureGlyphAtlasFontFaceStyles(document);
+  await flushRenders();
+  await flushRenders();
 }
 
 afterEach(() => {
@@ -52,7 +65,7 @@ describe("createGlyphScene — colorEncoding: \"atlas\" CSS injection", () => {
       colorEncoding: "atlas",
       atlasPalette: palette,
     });
-    await flushRenders();
+    await flushAtlasRenders();
 
     const fontFaceStyle = document.getElementById(FONT_FACE_STYLE_ID);
     expect(fontFaceStyle).not.toBeNull();
@@ -87,7 +100,7 @@ describe("createGlyphScene — colorEncoding: \"atlas\" CSS injection", () => {
       colorEncoding: "atlas",
       atlasPalette: ["#222222"],
     });
-    await flushRenders();
+    await flushAtlasRenders();
 
     expect(document.querySelectorAll(`#${FONT_FACE_STYLE_ID}`).length).toBe(1);
     const nameA = sceneA.output.style.getPropertyValue("font-palette").trim();
@@ -107,11 +120,11 @@ describe("createGlyphScene — colorEncoding: \"atlas\" CSS injection", () => {
       colorEncoding: "atlas",
       atlasPalette: ["#336699"],
     });
-    await flushRenders();
+    await flushAtlasRenders();
     expect(scene.output.style.fontFamily).toContain(GLYPH_FONT_ATLAS.family);
 
     scene.setOptions({ colorEncoding: "spans" });
-    await flushRenders();
+    await flushAtlasRenders();
     expect(scene.output.style.fontFamily).toBe("");
     expect(scene.output.style.getPropertyValue("font-palette")).toBe("");
     // The shared @font-face stays (other scenes/documents may still need it) —
@@ -129,7 +142,7 @@ describe("createGlyphScene — colorEncoding: \"atlas\" CSS injection", () => {
       colorEncoding: "atlas",
       atlasPalette: ["#336699"],
     });
-    await flushRenders();
+    await flushAtlasRenders();
     const paletteName = scene.output.style.getPropertyValue("font-palette").trim();
     expect(document.head.querySelector(`style:not(#${FONT_FACE_STYLE_ID})`)).not.toBeNull();
 
@@ -149,7 +162,7 @@ describe("createGlyphScene — colorEncoding: \"atlas\" CSS injection", () => {
       camera: createGlyphOrthographicCamera(),
       colorEncoding: "atlas",
     });
-    await flushRenders();
+    await flushAtlasRenders();
     expect(document.getElementById(FONT_FACE_STYLE_ID)).not.toBeNull();
     // No palette to encode against yet, so no font-palette name is assigned.
     expect(scene.output.style.getPropertyValue("font-palette")).toBe("");

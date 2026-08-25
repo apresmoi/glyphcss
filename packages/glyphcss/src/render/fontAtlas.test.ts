@@ -7,6 +7,8 @@ import {
   decodeGlyphAtlasText,
   glyphAtlasCodePoint,
   isGlyphInFontAtlas,
+  loadGlyphAtlasFontFaceCss,
+  loadGlyphAtlasFontPayload,
 } from "./fontAtlas";
 
 describe("fontAtlas — checked-in manifest", () => {
@@ -108,12 +110,29 @@ describe("fontAtlas — PUA round-trip", () => {
 });
 
 describe("fontAtlas — @font-face / @font-palette-values CSS emission", () => {
-  it("builds a self-contained @font-face with an inlined data: URI (no external request)", () => {
-    const css = buildGlyphAtlasFontFaceCss();
+  it("builds a self-contained @font-face with an inlined data: URI (no external request)", async () => {
+    // The payload is no longer a field of the statically-imported manifest —
+    // it arrives through the lazy chunk, which is exactly what keeps it out of
+    // `dist/index.js` (see `bundle.atlas.test.ts`).
+    const base64 = await loadGlyphAtlasFontPayload();
+    expect(base64).not.toBeNull();
+    const css = buildGlyphAtlasFontFaceCss(base64!);
     expect(css).toContain("@font-face");
     expect(css).toContain(GLYPH_FONT_ATLAS.family);
     expect(css).toContain("data:font/woff2;base64,");
-    expect(css).toContain(GLYPH_FONT_ATLAS.woff2Base64);
+    expect(css).toContain(base64!);
+  });
+
+  it("refuses to emit a @font-face with no payload rather than shipping an empty src", () => {
+    // The failure this rules out is a static/CodePen export that looks right
+    // in review and renders tofu: `@font-face{...src:url(data:font/woff2;base64,)}`.
+    expect(() => buildGlyphAtlasFontFaceCss("")).toThrow(/needs the atlas WOFF2 payload/);
+  });
+
+  it("loadGlyphAtlasFontFaceCss is the awaited export path and inlines the real payload", async () => {
+    const css = await loadGlyphAtlasFontFaceCss();
+    expect(css).toContain(`font-family:"${GLYPH_FONT_ATLAS.family}"`);
+    expect(css).toMatch(/src:url\(data:font\/woff2;base64,[A-Za-z0-9+/=]{1000,}\) format\("woff2"\)/);
   });
 
   it("builds an override-colors block keyed by palette POSITION", () => {

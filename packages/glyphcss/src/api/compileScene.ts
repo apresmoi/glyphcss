@@ -77,7 +77,8 @@ export interface CompileSceneOptions {
    * byte-identical to before this option existed. `compileScene` is DOM-less
    * and does NOT inject the atlas's `@font-face`/`@font-palette-values` CSS —
    * a caller embedding `"atlas"` output must include those itself (see
-   * `render/fontAtlas.ts`'s `buildGlyphAtlasFontFaceCss`/
+   * `render/fontAtlas.ts`'s `loadGlyphAtlasFontFaceCss` — the awaited path,
+   * since the WOFF2 payload is a lazily imported chunk — and
    * `buildGlyphAtlasFontPaletteValuesCss`), the same way it must already
    * supply `.glyph-output`'s own styling — `compileScene`/`GlyphSceneStatic`
    * inject no CSS at all today.

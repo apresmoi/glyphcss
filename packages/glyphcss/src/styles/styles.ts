@@ -3,7 +3,7 @@
  * Provides minimal positioning and monospace rendering for the ASCII output.
  * Full terminal aesthetic CSS lands in Phase 5.
  */
-import { buildGlyphAtlasFontFaceCss } from "../render/fontAtlas";
+import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontFaceCss, glyphAtlasFontPayload, loadGlyphAtlasFontPayload } from "../render/fontAtlas";
 
 const GLYPH_STYLE_ID = "glyph-styles";
 
@@ -27,13 +27,79 @@ export function injectGlyphBaseStyles(doc?: Document): void {
  */
 const GLYPH_ATLAS_FONT_FACE_STYLE_ID = "glyph-atlas-font-face";
 
-export function injectGlyphAtlasFontFaceStyles(doc?: Document): void {
-  const target = doc ?? (typeof document !== "undefined" ? document : undefined);
-  if (!target || target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
+let atlasFontReady = new WeakMap<Document, Promise<boolean>>();
+
+/**
+ * Drop the per-document readiness cache. Test-only seam — not exported from
+ * the package index — and the counterpart to `fontAtlas.ts`'s
+ * `setGlyphAtlasFontPayloadImportForTests`: swapping the payload importer
+ * without clearing this would leave a document pinned to the PREVIOUS test's
+ * outcome (most damagingly, a cached `false` from a simulated load failure).
+ */
+export function resetGlyphAtlasFontFaceStylesForTests(): void {
+  atlasFontReady = new WeakMap();
+}
+
+function injectAtlasFontFace(target: Document, woff2Base64: string): void {
+  if (target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
   const style = target.createElement("style");
   style.id = GLYPH_ATLAS_FONT_FACE_STYLE_ID;
-  style.textContent = buildGlyphAtlasFontFaceCss();
+  style.textContent = buildGlyphAtlasFontFaceCss(woff2Base64);
   target.head.appendChild(style);
+}
+
+/**
+ * Make the atlas `@font-face` available in `doc`, lazily fetching the WOFF2
+ * payload (`render/fontAtlas.ts`) the first time any scene asks. Idempotent
+ * and shared PER DOCUMENT — ten scenes on one page await one promise and
+ * inject one `<style>`; the underlying payload import is shared process-wide
+ * on top of that.
+ *
+ * Resolves `true` only when a scene may safely emit PUA code points, which is
+ * strictly stronger than "the `<style>` exists": it also waits on
+ * `document.fonts.load` for a real atlas code point, so the caller can't paint
+ * a frame of PUA into a fallback monospace face (tofu boxes) while the browser
+ * is still decoding the WOFF2. Resolves `false` — never rejects — when the
+ * payload or the font itself fails to load; the caller stays on spans.
+ */
+export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean> {
+  const target = doc ?? (typeof document !== "undefined" ? document : undefined);
+  if (!target) return Promise.resolve(false);
+  const cached = atlasFontReady.get(target);
+  if (cached) {
+    // The READINESS is cached per document; the `<style>` is not, because it is
+    // ordinary DOM that a consumer (or a test's cleanup) can remove after the
+    // fact. Re-asserting it on the cached path keeps "idempotent" meaning
+    // "always present afterwards", not "injected at most once ever".
+    return cached.then((ready) => {
+      const base64 = glyphAtlasFontPayload();
+      if (ready && base64) injectAtlasFontFace(target, base64);
+      return ready;
+    });
+  }
+
+  const ready = loadGlyphAtlasFontPayload().then(async (base64) => {
+    if (base64 === null) return false;
+    injectAtlasFontFace(target, base64);
+    // `FontFaceSet.load` is the only way to know the face has actually been
+    // decoded. Probe with a real atlas code point rather than the default
+    // test string: the atlas cmap covers U+0020 and its own PUA range only,
+    // and a PUA glyph is what the encoder will actually emit.
+    const fonts = (target as Document & { fonts?: FontFaceSet }).fonts;
+    if (typeof fonts?.load !== "function") return true;
+    try {
+      const faces = await fonts.load(`16px "${GLYPH_FONT_ATLAS.family}"`, String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart));
+      return faces.length > 0;
+    } catch {
+      // A decode failure here is the same outcome as a missing payload: this
+      // document stays on spans. `loadGlyphAtlasFontPayload` already warned if
+      // the payload itself was the problem; warn for the font-decode case too.
+      console.warn(`glyphcss: the colour-font atlas "${GLYPH_FONT_ATLAS.family}" failed to load in this document; colorEncoding "atlas" will render as "spans".`);
+      return false;
+    }
+  });
+  atlasFontReady.set(target, ready);
+  return ready;
 }
 
 const CORE_BASE_STYLES = `

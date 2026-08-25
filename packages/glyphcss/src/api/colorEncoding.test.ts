@@ -7,6 +7,7 @@ import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { GlyphEffectOutputChannel, defineGlyphEffect } from "./effects";
 import { GLYPH_FONT_ATLAS } from "../render/fontAtlas";
+import { ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
 
 function makeDiv(): HTMLElement {
   const div = document.createElement("div");
@@ -17,6 +18,20 @@ function makeDiv(): HTMLElement {
 async function flushRenders(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+/**
+ * The atlas WOFF2 is now a lazily imported chunk (`render/fontAtlasPayload.ts`),
+ * so a freshly created `colorEncoding: "atlas"` scene deliberately renders
+ * SPANS until it arrives — see `render/fontAtlas.ts`'s async-transition note.
+ * Every assertion about real PUA output has to settle that load first. This
+ * awaits the same shared, per-document promise `createGlyphScene` awaits, then
+ * flushes the re-render it schedules.
+ */
+async function flushAtlasRenders(): Promise<void> {
+  await ensureGlyphAtlasFontFaceStyles(document);
+  await flushRenders();
+  await flushRenders();
 }
 
 function countSpans(html: string): number {
@@ -199,7 +214,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     const color = "#336699";
     const scene = createGlyphScene(host, { ...sceneOptions, colorEncoding: "atlas", atlasPalette: [color] });
     scene.add(flatQuad(color));
-    await flushRenders();
+    await flushAtlasRenders();
     const html = scene.output.innerHTML;
     expect(html).not.toContain("<span");
     // Actually rendered something (not a degenerate blank compare) and used
@@ -221,7 +236,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
       atlasPalette: ["#000000"], // does not match the quad's authored color
     });
     scene.add(flatQuad("#336699"));
-    await flushRenders();
+    await flushAtlasRenders();
     const html = scene.output.innerHTML;
     // A pinned palette bounds the render's colour resolution; it never decides
     // whether the render can be encoded at all.
@@ -236,7 +251,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     const host = makeDiv();
     const scene = createGlyphScene(host, { ...sceneOptions, colorEncoding: "atlas" });
     scene.add(flatQuad("#336699"));
-    await flushRenders();
+    await flushAtlasRenders();
     expect(countSpans(scene.output.innerHTML)).toBe(0);
     // The derived palette reached CSS: a slot is meaningless without the
     // `@font-palette-values` block that gives it a colour.
@@ -279,7 +294,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
       ...FLAT_LIGHTING,
     });
     scene.add(facets);
-    await flushRenders();
+    await flushAtlasRenders();
     const html = scene.output.innerHTML;
     expect(countSpans(html)).toBe(0);
     const codePoints = Array.from(html, (ch) => ch.codePointAt(0)!);
@@ -301,7 +316,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     expect(palette.length).toBeGreaterThan(1);
     const packedPalette = palette.map((c) => packHexColor(c)!);
     scene.setOptions({ colorEncoding: "spans" });
-    await flushRenders();
+    await flushAtlasRenders();
     const truth = spansGrid(scene.output);
     const encoded = decodeAtlasSlots(html);
     expect(encoded.length).toBe(truth.length);
@@ -401,9 +416,9 @@ describe("createGlyphScene — colorEncoding reaches the retained-effect recompo
       target: "viewport",
       blend: "replace",
     });
-    await flushRenders(); // initial full render — retains the base CellGrid.
+    await flushAtlasRenders(); // initial full render — retains the base CellGrid.
     layer.params.phase = 1; // params-only write — takes the recompose path, not rasterize().
-    await flushRenders();
+    await flushAtlasRenders();
     const html = scene.output.innerHTML;
     expect(html).not.toContain("<span");
     expect(html.trim().length).toBeGreaterThan(0);
@@ -430,7 +445,7 @@ describe("createGlyphScene — colorEncoding reaches a per-mesh detail layer's b
     // `density` (any value != 1) pops this mesh into its own detail `<pre>`,
     // rendered through the detail-layer `buildRasterizeContext` call.
     scene.add(flatQuad(color), { density: 2 });
-    await flushRenders();
+    await flushAtlasRenders();
     const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement | null;
     expect(detail).not.toBeNull();
     expect(detail!.innerHTML).not.toContain("<span");

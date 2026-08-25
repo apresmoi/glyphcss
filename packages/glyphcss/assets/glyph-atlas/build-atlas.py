@@ -44,7 +44,10 @@ fallback renders silent blanks instead of masquerading as correct output
 (the base outline is deliberately empty).
 
 Usage: python3 build-atlas.py
-Writes: atlas.json (checked in; consumed by ../../src/render/fontAtlas.ts)
+Writes (both checked in):
+  atlas.json      -- metadata only; imported STATICALLY by ../../src/render/fontAtlas.ts
+  atlas-font.json -- base64 WOFF2 only; imported LAZILY via ../../src/render/fontAtlasPayload.ts
+See `main()` for why the payload is a separate file.
 """
 import base64
 import json
@@ -229,6 +232,13 @@ def main():
         woff2_bytes = fh.read()
     woff2_b64 = base64.b64encode(woff2_bytes).decode("ascii")
 
+    # TWO artifacts, deliberately: the metadata (small, ~1.6KB) is imported
+    # statically by `fontAtlas.ts` because the PUA encode/decode path needs it
+    # synchronously on every frame; the base64 WOFF2 (~44KB) is imported only
+    # through a dynamic `import()` so it never enters a consumer's main chunk
+    # unless a scene actually turns `colorEncoding: "atlas"` on. Merging them
+    # back into one file would put the payload back in every bundle -- the
+    # split IS the lazy-load mechanism, not a cosmetic file layout.
     manifest = {
         "family": FAMILY,
         "glyphs": glyphs,
@@ -236,11 +246,15 @@ def main():
         "glyphCount": glyph_count,
         "maxPaletteSize": max_palette_size,
         "codepointRange": [min(codepoints), max(codepoints)],
-        "woff2Base64": woff2_b64,
     }
     manifest_path = os.path.join(out_dir, "atlas.json")
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=1, ensure_ascii=False)
+        fh.write("\n")
+
+    font_path = os.path.join(out_dir, "atlas-font.json")
+    with open(font_path, "w") as fh:
+        json.dump({"woff2Base64": woff2_b64}, fh, indent=1, ensure_ascii=False)
         fh.write("\n")
 
     os.remove(ttf_path)
@@ -249,7 +263,7 @@ def main():
     print(f"glyphs: {glyph_count}, maxPaletteSize: {max_palette_size}, "
           f"codepoints: {min(codepoints):#x}..{max(codepoints):#x}, "
           f"woff2: {len(woff2_bytes)} bytes, base64: {len(woff2_b64)} chars")
-    print(f"wrote {manifest_path}")
+    print(f"wrote {manifest_path} and {font_path}")
 
 
 if __name__ == "__main__":
