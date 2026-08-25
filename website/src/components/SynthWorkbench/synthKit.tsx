@@ -557,6 +557,32 @@ export function resolveSpaceChange(nextSpace: string): { shape?: string; render?
   return nextSpace === "object" ? { shape: "cube" } : { render: sanitizeCarveRenderForSpace(nextSpace, "carve") };
 }
 
+// ── Render-change validity guard ──────────────────────────────────────────
+// Sibling to `resolveSpaceChange` above, same convention: a pure function the
+// live "Render" dropdown (Volume folder) routes every `render` write through,
+// so a direct write can't leave the patch outside `validateParams`.
+//
+// Of the two `validateFieldSynthRender` rejections in packages/effects/src/
+// stock.ts, only `"xray-subcell-unsupported"` (render: "xray" +
+// subcellRes: "2x4"/"ink") is actually reachable by a Render-only change: the
+// Volume folder that hosts this dropdown is hidden whenever `space !==
+// "object"` (see `volume.hide()` below), so by the time this callback can
+// fire at all, `space` is already `"object"` and `"carve-requires-object-
+// space"` can never newly trigger from here — that rule stays owned entirely
+// by `resolveSpaceChange`/`sanitizeCarveRenderForSpace` on the Mapping side.
+// `"empty-glyphs"`, `"non-positive-scale"`, `"multi-layer-argmax"`, and
+// `"normal-field-requires-color-stack"` don't depend on `render` at all, so
+// no render value can trigger or clear them.
+//
+// Falling back to `subcellRes: "1x1"` (not e.g. disabling the "xray" option)
+// mirrors `resolveSpaceChange`'s own preference for resetting the dependent
+// key over blocking the pick — the user can always reach xray and simply
+// loses the incompatible subcell mode, matching `SYNTH_REPAIR_TABLE`'s
+// `"xray-subcell-unsupported"` row, which resets to the same default.
+export function resolveRenderChange(nextRender: string, subcellRes: string): { subcellRes?: string } {
+  return nextRender === "xray" && (subcellRes === "2x4" || subcellRes === "ink") ? { subcellRes: "1x1" } : {};
+}
+
 // The Output folder's two ink-mode-only rows are mutually exclusive, not
 // simultaneously relevant: `inkLevels` is 2D field-synth ink's own knob (how
 // many cuts through the field's OWN OBSERVED VALUE RANGE to contour) and is
@@ -2649,7 +2675,13 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   useEffect(() => { if (volume) (volumetric ? volume.show() : volume.hide()); }, [volume, volumetric]);
   const renderMode = s("render");
   const showMarchSteps = renderMode === "carve" || renderMode === "xray";
-  useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => onParam("render", v));
+  // The one guard the Render dropdown routes every `render` write through
+  // (see `resolveRenderChange`'s doc above).
+  useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => {
+    const change = resolveRenderChange(v, s("subcellRes"));
+    if (change.subcellRes) onParam("subcellRes", change.subcellRes);
+    onParam("render", v);
+  });
   const marchStepsCtrl = useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
   const marchFadeCtrl = useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
   const xrayGainCtrl = useSlider(volume, "Xray gain", { min: 0, max: 16, step: 0.05 }, n("xrayGain"), (v) => onParam("xrayGain", v));
