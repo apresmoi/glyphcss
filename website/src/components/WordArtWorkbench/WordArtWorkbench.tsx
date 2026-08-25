@@ -54,7 +54,6 @@ import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } 
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
-import { downloadGlyphAnsi, glyphAnsiFromPre } from "../../lib/glyphAnsiExport";
 import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
@@ -455,37 +454,6 @@ export function WordArtWorkbench() {
     setTimeout(() => setSvgState("idle"), 1500);
   }, [text]);
 
-  // "Copy ANSI" / "Download .ans" (bottom-left export bar, next to "Download
-  // SVG") ship the currently rendered glyph output as ANSI truecolour escape
-  // text — see `SynthWorkbench`'s own identical pair for the "why this
-  // format" rationale. Same scoping/idiom as `handleDownloadSvg` above.
-  const [copyAnsiState, setCopyAnsiState] = useState<"idle" | "copied" | "error">("idle");
-  const handleCopyAnsi = useCallback(async () => {
-    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
-    const ansi = glyphAnsiFromPre(pre);
-    if (ansi === null) {
-      setCopyAnsiState("error");
-      setTimeout(() => setCopyAnsiState("idle"), 1500);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(ansi);
-      setCopyAnsiState("copied");
-    } catch {
-      setCopyAnsiState("error");
-    }
-    setTimeout(() => setCopyAnsiState("idle"), 1500);
-  }, []);
-
-  const [downloadAnsiState, setDownloadAnsiState] = useState<"idle" | "downloaded" | "error">("idle");
-  const handleDownloadAnsi = useCallback(() => {
-    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
-    const slug = text.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "untitled";
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const ok = downloadGlyphAnsi(pre, `glyphcss-wordart-${slug}-${stamp}.ans`);
-    setDownloadAnsiState(ok ? "downloaded" : "error");
-    setTimeout(() => setDownloadAnsiState("idle"), 1500);
-  }, [text]);
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -1140,22 +1108,6 @@ export function WordArtWorkbench() {
             </button>
             <button
               type="button"
-              className="gw-code-panel__action"
-              onClick={handleCopyAnsi}
-              title="Copy the rendered glyph output as ANSI truecolour escape text — paste straight into a terminal"
-            >
-              {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
-            </button>
-            <button
-              type="button"
-              className="gw-code-panel__action"
-              onClick={handleDownloadAnsi}
-              title="Download the rendered glyph output as an ANSI (.ans) truecolour text file"
-            >
-              {downloadAnsiState === "downloaded" ? "Downloaded" : downloadAnsiState === "error" ? "Download failed" : "Download .ans"}
-            </button>
-            <button
-              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
@@ -1200,10 +1152,6 @@ export function WordArtWorkbench() {
               copyAsciiState={copyState}
               onDownloadSvg={handleDownloadSvg}
               downloadSvgState={svgState}
-              onCopyAnsi={handleCopyAnsi}
-              copyAnsiState={copyAnsiState}
-              onDownloadAnsi={handleDownloadAnsi}
-              downloadAnsiState={downloadAnsiState}
             />
           )}
         </main>

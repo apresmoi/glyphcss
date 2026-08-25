@@ -1,12 +1,11 @@
 /**
  * Shared "decode a rendered stage `<pre>` into a per-cell grid, then merge
- * adjacent same-color runs" support — the substrate both `glyphSvgExport.ts`
- * ("Download SVG") and `glyphAnsiExport.ts` ("Copy ANSI" / "Download .ans")
- * build on. Factored out of `glyphSvgExport.ts` (which introduced this grid)
- * once a second exporter needed the exact same decode: SVG turns a run into
- * a `<text>`/`<rect>` pair, ANSI turns it into an escape sequence, but "walk
- * the `<pre>` into `(glyph, color, background)` cells, then merge adjacent
- * same-`(color,background)` cells within a row" is identical either way.
+ * adjacent same-color runs" support — the substrate `glyphSvgExport.ts`
+ * ("Download SVG") builds on. Factored out of `glyphSvgExport.ts` (which
+ * introduced this grid) so a future exporter needing the same decode can
+ * reuse it without re-deriving "walk the `<pre>` into `(glyph, color,
+ * background)` cells, then merge adjacent same-`(color,background)` cells
+ * within a row" from scratch.
  *
  * ── Per-cell representation, not per-encoding ────────────────────────────
  *

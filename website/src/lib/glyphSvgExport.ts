@@ -1,16 +1,14 @@
 /**
  * Shared "export the rendered glyph output as SVG" support — the sibling of
- * `asciiClipboard.ts`'s "Copy ASCII" and `glyphAnsiExport.ts`'s "Copy ANSI" /
- * "Download .ans". `/synth` and `/wordart` both mount a "Download SVG"
- * button next to those; this file is the one implementation both call into,
- * so a future page with the same export bar doesn't need its own.
+ * `asciiClipboard.ts`'s "Copy ASCII". `/synth` and `/wordart` both mount a
+ * "Download SVG" button next to that; this file is the one implementation
+ * both call into, so a future page with the same export bar doesn't need its
+ * own.
  *
  * The per-cell grid + row-run merge this builds on
  * ({@link GlyphExportCell}/{@link GlyphExportGrid}/{@link GlyphExportRun})
- * lives in `glyphExportGrid.ts`, shared with `glyphAnsiExport.ts` — both
- * exporters turn the SAME merged run into a different output (a
- * `<text>`/`<rect>` pair here, an escape sequence there), so decoding the
- * `<pre>` and merging adjacent same-`(color,background)` cells only happens
+ * lives in `glyphExportGrid.ts`, factored out so decoding the `<pre>` and
+ * merging adjacent same-`(color,background)` cells into a run only happens
  * once. `SvgCell`/`SvgGrid`/`SvgRun` below are this file's own names for
  * those shared types, kept so this module's public surface (and the
  * existing test file) didn't need to change shape when the grid moved out.

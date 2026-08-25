@@ -22,14 +22,6 @@ interface WordArtCodePanelProps {
    *  mounted here for the same mobile-drawer reachability reason. */
   onDownloadSvg: () => void;
   downloadSvgState: "idle" | "downloaded" | "error";
-  /** Copies the rendered glyph output as ANSI truecolour escape text — the
-   *  native colour format for text, next to "Copy ASCII"/"Download SVG".
-   *  Same mobile-drawer reachability reason for staying mounted here. */
-  onCopyAnsi: () => void;
-  copyAnsiState: "idle" | "copied" | "error";
-  /** Downloads the rendered glyph output as a standalone `.ans` file. */
-  onDownloadAnsi: () => void;
-  downloadAnsiState: "idle" | "downloaded" | "error";
 }
 
 /**
@@ -41,7 +33,7 @@ interface WordArtCodePanelProps {
  * Visibility is owned by the parent (`WordArtWorkbench`'s `codeOpen` / mobile
  * "Export" tab) — this component only mounts while shown.
  */
-export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState, onDownloadSvg, downloadSvgState, onCopyAnsi, copyAnsiState, onDownloadAnsi, downloadAnsiState }: WordArtCodePanelProps) {
+export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState, onDownloadSvg, downloadSvgState }: WordArtCodePanelProps) {
   const [tab, setTab] = useState<WordArtTab>("react");
   const [copied, setCopied] = useState(false);
   const snippets = useMemo(() => generateWordArtSnippets(input), [input]);
@@ -100,22 +92,6 @@ export function WordArtCodePanel({ id, className, input, onCodepen, exporting, o
             title="Download the rendered glyph output as an SVG file"
           >
             {downloadSvgState === "downloaded" ? "Downloaded" : downloadSvgState === "error" ? "Download failed" : "Download SVG"}
-          </button>
-          <button
-            type="button"
-            className="gw-code-panel__action"
-            onClick={onCopyAnsi}
-            title="Copy the rendered glyph output as ANSI truecolour escape text — paste straight into a terminal"
-          >
-            {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
-          </button>
-          <button
-            type="button"
-            className="gw-code-panel__action"
-            onClick={onDownloadAnsi}
-            title="Download the rendered glyph output as an ANSI (.ans) truecolour text file"
-          >
-            {downloadAnsiState === "downloaded" ? "Downloaded" : downloadAnsiState === "error" ? "Download failed" : "Download .ans"}
           </button>
           <button
             type="button"
