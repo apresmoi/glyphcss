@@ -17,6 +17,11 @@ interface WordArtCodePanelProps {
    *  wordart.css's mobile export rule. */
   onCopyAscii: () => void;
   copyAsciiState: "idle" | "copied" | "error";
+  /** Downloads the rendered glyph output as a standalone SVG file. Mirrors
+   *  `onCopyAscii`/`copyAsciiState` in every respect, including staying
+   *  mounted here for the same mobile-drawer reachability reason. */
+  onDownloadSvg: () => void;
+  downloadSvgState: "idle" | "downloaded" | "error";
 }
 
 /**
@@ -28,7 +33,7 @@ interface WordArtCodePanelProps {
  * Visibility is owned by the parent (`WordArtWorkbench`'s `codeOpen` / mobile
  * "Export" tab) — this component only mounts while shown.
  */
-export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState }: WordArtCodePanelProps) {
+export function WordArtCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState, onDownloadSvg, downloadSvgState }: WordArtCodePanelProps) {
   const [tab, setTab] = useState<WordArtTab>("react");
   const [copied, setCopied] = useState(false);
   const snippets = useMemo(() => generateWordArtSnippets(input), [input]);
@@ -79,6 +84,14 @@ export function WordArtCodePanel({ id, className, input, onCodepen, exporting, o
             title="Copy the rendered ASCII art to the clipboard"
           >
             {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
+          </button>
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={onDownloadSvg}
+            title="Download the rendered glyph output as an SVG file"
+          >
+            {downloadSvgState === "downloaded" ? "Downloaded" : downloadSvgState === "error" ? "Download failed" : "Download SVG"}
           </button>
           <button
             type="button"

@@ -53,6 +53,7 @@ import {
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
+import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
@@ -436,6 +437,21 @@ export function WordArtWorkbench() {
     }
     setTimeout(() => setCopyState("idle"), 1500);
   }, []);
+
+  // "Download SVG" (bottom-left export bar, next to "Copy ASCII") ships the
+  // currently rendered glyph output as a standalone SVG file — one <text>
+  // element per colour run (via `glyphSvgExport.ts`, shared with /synth),
+  // not a screenshot. Same scoping/idiom as `handleCopyAscii` above,
+  // including the explicit "error" state.
+  const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
+  const handleDownloadSvg = useCallback(() => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    const slug = text.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "untitled";
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ok = downloadGlyphSvg(pre, `glyphcss-wordart-${slug}-${stamp}.svg`);
+    setSvgState(ok ? "downloaded" : "error");
+    setTimeout(() => setSvgState("idle"), 1500);
+  }, [text]);
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -1082,6 +1098,14 @@ export function WordArtWorkbench() {
             </button>
             <button
               type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadSvg}
+              title="Download the rendered glyph output as an SVG file"
+            >
+              {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
+            </button>
+            <button
+              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
@@ -1124,6 +1148,8 @@ export function WordArtWorkbench() {
               onClose={closeCodePanel}
               onCopyAscii={handleCopyAscii}
               copyAsciiState={copyState}
+              onDownloadSvg={handleDownloadSvg}
+              downloadSvgState={svgState}
             />
           )}
         </main>

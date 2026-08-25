@@ -29,6 +29,7 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
+import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
 import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
@@ -518,6 +519,20 @@ export default function SynthWorkbench() {
     setTimeout(() => setCopyState("idle"), 1500);
   }, []);
 
+  // "Download SVG" (bottom-left export bar, next to "Copy ASCII") ships the
+  // currently rendered glyph output as a standalone SVG file — one <text>
+  // element per colour run (via `glyphSvgExport.ts`, shared with /wordart),
+  // not a screenshot. Same `copyState`/`handleCopyAscii` idiom, including the
+  // explicit "error" state.
+  const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
+  const handleDownloadSvg = useCallback(() => {
+    const pre = hostRef.current?.querySelector("pre.glyph-output") as HTMLElement | null;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ok = downloadGlyphSvg(pre, `glyphcss-synth-${shape}-${stamp}.svg`);
+    setSvgState(ok ? "downloaded" : "error");
+    setTimeout(() => setSvgState("idle"), 1500);
+  }, [shape]);
+
   const snapshotCamera = useCallback(() => {
     const camera = cameraRef.current;
     if (camera) setCameraSnapshot({ rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom });
@@ -825,6 +840,14 @@ export default function SynthWorkbench() {
             </button>
             <button
               type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadSvg}
+              title="Download the rendered glyph output as an SVG file"
+            >
+              {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
+            </button>
+            <button
+              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
@@ -842,6 +865,8 @@ export default function SynthWorkbench() {
               onClose={closeCodePanel}
               onCopyAscii={handleCopyAscii}
               copyAsciiState={copyState}
+              onDownloadSvg={handleDownloadSvg}
+              downloadSvgState={svgState}
             />
           )}
         </InstrumentMain>

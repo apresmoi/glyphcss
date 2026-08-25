@@ -17,6 +17,11 @@ interface SynthCodePanelProps {
    *  see instrument-workbench.css's mobile export rule. */
   onCopyAscii: () => void;
   copyAsciiState: "idle" | "copied" | "error";
+  /** Downloads the rendered glyph output as a standalone SVG file. Mirrors
+   *  `onCopyAscii`/`copyAsciiState` in every respect, including staying
+   *  mounted here for the same mobile-drawer reachability reason. */
+  onDownloadSvg: () => void;
+  downloadSvgState: "idle" | "downloaded" | "error";
 }
 
 /**
@@ -29,7 +34,7 @@ interface SynthCodePanelProps {
  * this component only mounts while shown, unlike the gallery's panel which
  * stays mounted and merely collapses its body.
  */
-export function SynthCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState }: SynthCodePanelProps) {
+export function SynthCodePanel({ id, className, input, onCodepen, exporting, onClose, onCopyAscii, copyAsciiState, onDownloadSvg, downloadSvgState }: SynthCodePanelProps) {
   const [tab, setTab] = useState<SynthTab>("react");
   const [copied, setCopied] = useState(false);
   const snippets = useMemo(() => generateSynthSnippets(input), [input]);
@@ -80,6 +85,14 @@ export function SynthCodePanel({ id, className, input, onCodepen, exporting, onC
             title="Copy the rendered ASCII art to the clipboard"
           >
             {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
+          </button>
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={onDownloadSvg}
+            title="Download the rendered glyph output as an SVG file"
+          >
+            {downloadSvgState === "downloaded" ? "Downloaded" : downloadSvgState === "error" ? "Download failed" : "Download SVG"}
           </button>
           <button
             type="button"
