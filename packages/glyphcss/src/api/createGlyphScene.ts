@@ -61,7 +61,8 @@ import {
   type RetainedGlyphEffectOutput,
   type RuntimeGlyphEffectLayer,
 } from "../render/effectCompositor";
-import { injectGlyphBaseStyles } from "../styles/styles";
+import { injectGlyphBaseStyles, injectGlyphAtlasFontFaceStyles } from "../styles/styles";
+import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss } from "../render/fontAtlas";
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
@@ -381,6 +382,13 @@ type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCe
 
 let nextMeshId = 1;
 
+// Module-level monotonic counter, never aliasing across scenes — same
+// convention `nextMeshId` uses. Each scene that actually renders
+// `colorEncoding: "atlas"` gets its own `@font-palette-values` custom ident,
+// so two concurrent scenes with different palettes on the same document
+// never fight over one shared name.
+let nextAtlasStyleId = 1;
+
 // Convention aligned to voxcss/three.js: rotation is XYZ Euler in DEGREES,
 // world frame. Matches voxcss core/src/math/rotation.ts `rotateVec3` (angles
 // in degrees, composition M = Rx·Ry·Rz, Rz acts first on the point).
@@ -529,6 +537,14 @@ export function createGlyphScene(
   let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string }> | null = null;
   let stagedDetailCommit: DetailCommit | null = null;
   let semanticCellFrame: GlyphSemanticCellFrame | null = null;
+  // `colorEncoding: "atlas"` CSS wiring — see `syncGlyphAtlasStyles` below.
+  // `atlasPaletteStyleEl` is this scene's OWN `@font-palette-values` block
+  // (never shared across scenes, unlike the document-global `@font-face`);
+  // `atlasPaletteName` is its custom ident, stable for the scene's lifetime
+  // once allocated so a live palette-color edit updates the block in place
+  // instead of re-pointing every already-styled `<pre>` at a new name.
+  let atlasPaletteStyleEl: HTMLStyleElement | null = null;
+  let atlasPaletteName: string | null = null;
 
   function hasEffectLayers(): boolean {
     return effectLayers.length > 0;
@@ -1129,6 +1145,53 @@ export function createGlyphScene(
   }
   const detailLayers = new Map<number, DetailLayerState>();
 
+  // Apply (or clear) the atlas font stack on one output `<pre>`. Cheap
+  // per-node property writes, safe to call for every output node on every
+  // `colorEncoding`/`atlasPalette` change and for every newly created detail
+  // `<pre>`. Prepending the atlas family (rather than replacing the CSS-class
+  // `font-family: monospace`) is safe for BOTH outcomes of a frame: the atlas
+  // font's cmap only covers `U+0020` and its own PUA range (see
+  // `fontAtlas.ts`'s `build-atlas.py` — regular code points are never in its
+  // cmap), so a "spans" fallback frame's plain, non-PUA text falls through to
+  // the trailing `monospace` per character exactly as if this were never set.
+  function applyGlyphAtlasFont(preEl: HTMLPreElement): void {
+    if (options.colorEncoding === "atlas") {
+      preEl.style.fontFamily = `"${GLYPH_FONT_ATLAS.family}", monospace`;
+      if (atlasPaletteName) preEl.style.setProperty("font-palette", atlasPaletteName);
+      else preEl.style.removeProperty("font-palette");
+    } else {
+      preEl.style.removeProperty("font-family");
+      preEl.style.removeProperty("font-palette");
+    }
+  }
+
+  // Closes the CSS-injection gap: `colorEncoding: "atlas"` used to require a
+  // consumer to call `buildGlyphAtlasFontFaceCss`/`buildGlyphAtlasFontPaletteValuesCss`
+  // by hand and wire the `<pre>`'s `font-family`/`font-palette` themselves.
+  // Called once at construction and again from `setOptions` whenever
+  // `colorEncoding`/`atlasPalette` are touched — never on every render, since
+  // both only change through those two paths. A "spans" scene (the default)
+  // never calls `injectGlyphAtlasFontFaceStyles` and never creates
+  // `atlasPaletteStyleEl`, so it stays byte-identical and DOM-injection-free.
+  function syncGlyphAtlasStyles(): void {
+    if (options.colorEncoding === "atlas") {
+      injectGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined);
+      const palette = options.atlasPalette;
+      if (palette && palette.length > 0) {
+        // Stable for the scene's lifetime once allocated (see the field doc)
+        // — only the block's CONTENT is refreshed on a later palette edit.
+        if (!atlasPaletteName) atlasPaletteName = `--glyph-atlas-palette-${nextAtlasStyleId++}`;
+        if (!atlasPaletteStyleEl) {
+          atlasPaletteStyleEl = host.ownerDocument!.createElement("style");
+          host.ownerDocument!.head.appendChild(atlasPaletteStyleEl);
+        }
+        atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
+      }
+    }
+    applyGlyphAtlasFont(pre);
+    for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
+  }
+
   function commitRender(plan: RenderCommit): void {
     testRenderStage("commit-write");
     const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
@@ -1245,6 +1308,7 @@ export function createGlyphScene(
           el.className = "glyph-output glyph-output--detail";
           el.style.cssText =
             "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
+          applyGlyphAtlasFont(el);
           layer = { pre: el, key: "", cw: 0, ch: 0, fontSize: "", lineHeight: "", transform: "" };
         }
         const dpre = layer.pre;
@@ -1682,6 +1746,7 @@ export function createGlyphScene(
     // "key present" check `solidWeightRamp` uses above, so clearing the
     // palette (falling back to spans) is reachable through `setOptions`.
     if ("atlasPalette" in partial) options.atlasPalette = partial.atlasPalette;
+    if (partial.colorEncoding !== undefined || "atlasPalette" in partial) syncGlyphAtlasStyles();
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;
@@ -1794,9 +1859,14 @@ export function createGlyphScene(
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
     meshes.clear();
+    // This scene's own `@font-palette-values` block (never the shared,
+    // document-global `@font-face` — that outlives every individual scene).
+    if (atlasPaletteStyleEl?.parentNode) atlasPaletteStyleEl.parentNode.removeChild(atlasPaletteStyleEl);
+    atlasPaletteStyleEl = null;
     if (host.contains(sceneEl)) host.removeChild(sceneEl);
   }
 
+  syncGlyphAtlasStyles();
   scheduleRender();
 
   return {

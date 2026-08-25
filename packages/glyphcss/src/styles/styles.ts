@@ -3,6 +3,8 @@
  * Provides minimal positioning and monospace rendering for the ASCII output.
  * Full terminal aesthetic CSS lands in Phase 5.
  */
+import { buildGlyphAtlasFontFaceCss } from "../render/fontAtlas";
+
 const GLYPH_STYLE_ID = "glyph-styles";
 
 export function injectGlyphBaseStyles(doc?: Document): void {
@@ -11,6 +13,26 @@ export function injectGlyphBaseStyles(doc?: Document): void {
   const style = target.createElement("style");
   style.id = GLYPH_STYLE_ID;
   style.textContent = CORE_BASE_STYLES;
+  target.head.appendChild(style);
+}
+
+/**
+ * `colorEncoding: "atlas"` colour-font `@font-face` — injected once per
+ * Document, same idempotent-by-id shape as {@link injectGlyphBaseStyles}.
+ * Static and content-independent (the atlas font itself never changes), so
+ * unlike the per-scene `@font-palette-values` block (created directly in
+ * `createGlyphScene.ts`, since palette colours are per-scene data this
+ * module has no business owning), this is the one piece of atlas CSS that
+ * really is shared, injected-once, document-global state.
+ */
+const GLYPH_ATLAS_FONT_FACE_STYLE_ID = "glyph-atlas-font-face";
+
+export function injectGlyphAtlasFontFaceStyles(doc?: Document): void {
+  const target = doc ?? (typeof document !== "undefined" ? document : undefined);
+  if (!target || target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
+  const style = target.createElement("style");
+  style.id = GLYPH_ATLAS_FONT_FACE_STYLE_ID;
+  style.textContent = buildGlyphAtlasFontFaceCss();
   target.head.appendChild(style);
 }
 
