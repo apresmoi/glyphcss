@@ -112,6 +112,7 @@ const title = "glyphcss · render bench";
       resolveGeometry,
     } from "glyphcss";
     import type { Polygon, Vec3, GlyphGeometryName } from "glyphcss";
+    import { defaultGlyphColorEncoding } from "../lib/glyphColorEncodingDefault";
 
     const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
     const host = document.getElementById("host") as HTMLElement;
@@ -125,6 +126,10 @@ const title = "glyphcss · render bench";
       mode: "solid",
       useColors: true,
       glyphPalette: "default",
+      // Feature-detected site default; no UI control on this bench page, so
+      // this is the only place it's decided. Degrades to spans on its own
+      // (colour/palette budget, unsupported engine) via isGlyphAtlasEncodable.
+      colorEncoding: defaultGlyphColorEncoding(),
       directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
       ambientLight: { intensity: 0.45 },
     });

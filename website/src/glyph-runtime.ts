@@ -58,6 +58,7 @@ import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPerson
 import { resolveGeometry } from '@glyphcss/core';
 import { getSolidWeightRamp } from './components/GalleryWorkbench/weightedRamp';
 import { computeGlyphAtlasAvailability } from './lib/glyphAtlasAvailability';
+import { defaultGlyphColorEncoding } from './lib/glyphColorEncodingDefault';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
 
@@ -791,7 +792,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       wireframeJunctions: tunables.wireframeJunctions ?? false,
       hiddenLines: tunables.hiddenLines ?? 'show',
       solidWeightRamp: tunables.solidWeightRamp ? getSolidWeightRamp() ?? undefined : undefined,
-      colorEncoding: tunables.colorEncoding ?? 'spans',
+      // Feature-detected site default (see glyphColorEncodingDefault.ts).
+      // GlyphDemo instances have no colorEncoding UI control ("never
+      // user-tunable" — see `atlasReason` below), so this is the only
+      // place a demo picks up the site default; an explicit
+      // `defaults='{"colorEncoding":...}'` prop still wins via `tunables`.
+      colorEncoding: tunables.colorEncoding ?? defaultGlyphColorEncoding(),
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,

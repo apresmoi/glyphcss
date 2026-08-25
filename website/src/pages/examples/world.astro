@@ -65,6 +65,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       createExampleQuerySync,
       readQueryNumber,
     } from "../../lib/example-query-state";
+    import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
     type Polygon = { vertices: [number, number, number][]; color?: string };
     type MeshHandle = { dispose(): void; setTransform(t: unknown): void };
@@ -137,6 +138,10 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         mode: "solid",
         useColors: true,
         glyphPalette: "default",
+        // Feature-detected site default; no UI control on this fixed demo, so
+        // this is the only place it's decided. Degrades to spans on its own
+        // (colour/palette budget, unsupported engine) via isGlyphAtlasEncodable.
+        colorEncoding: defaultGlyphColorEncoding(),
         directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
         ambientLight: { intensity: 0.45 },
       });
