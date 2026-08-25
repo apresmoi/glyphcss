@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { GLYPH_FONT_ATLAS } from "glyphcss";
+import { GLYPH_FONT_ATLAS, glyphAtlasCodePoint } from "glyphcss";
 import { computeGlyphAtlasAvailability, type GlyphAtlasGateInputs } from "./glyphAtlasAvailability";
 
 const BASE_GATE: GlyphAtlasGateInputs = { useColors: true, charMode: "ascii" };
@@ -16,7 +16,6 @@ describe("computeGlyphAtlasAvailability — structural (config-level) gates", ()
     const result = computeGlyphAtlasAvailability(preOf("##"), { ...BASE_GATE, useColors: false });
     expect(result.reason).not.toBeNull();
     expect(result.reason).toContain("colors");
-    expect(result.atlasPalette).toBeUndefined();
   });
 
   it("is unavailable for a non-ascii charMode", () => {
@@ -37,7 +36,6 @@ describe("computeGlyphAtlasAvailability — structural (config-level) gates", ()
   it("is unavailable (not thrown) for a null pre", () => {
     const result = computeGlyphAtlasAvailability(null, BASE_GATE);
     expect(result.reason).not.toBeNull();
-    expect(result.atlasPalette).toBeUndefined();
   });
 
   it("is unavailable for an empty pre", () => {
@@ -46,19 +44,15 @@ describe("computeGlyphAtlasAvailability — structural (config-level) gates", ()
   });
 });
 
-describe("computeGlyphAtlasAvailability — content-level gate (real isGlyphAtlasEncodable check)", () => {
-  it("is available for a small, uniform-glyph, single-color render and returns the exact rendered palette", () => {
+describe("computeGlyphAtlasAvailability — content-level gate (real isGlyphInFontAtlas check)", () => {
+  it("is available for a small, uniform-glyph, single-color render", () => {
     const pre = preOf('<span style="color:#336699">####</span>\n<span style="color:#336699">####</span>');
-    const result = computeGlyphAtlasAvailability(pre, BASE_GATE);
-    expect(result.reason).toBeNull();
-    expect(result.atlasPalette).toEqual(["#336699"]);
+    expect(computeGlyphAtlasAvailability(pre, BASE_GATE).reason).toBeNull();
   });
 
-  it("is available with multiple distinct colors, all captured in the derived palette (first-seen order)", () => {
+  it("is available with multiple distinct colors", () => {
     const pre = preOf('<span style="color:#111111">##</span><span style="color:#222222">@@</span>');
-    const result = computeGlyphAtlasAvailability(pre, BASE_GATE);
-    expect(result.reason).toBeNull();
-    expect(result.atlasPalette).toEqual(["#111111", "#222222"]);
+    expect(computeGlyphAtlasAvailability(pre, BASE_GATE).reason).toBeNull();
   });
 
   it("is unavailable when a rendered glyph is outside the universal atlas set", () => {
@@ -67,30 +61,38 @@ describe("computeGlyphAtlasAvailability — content-level gate (real isGlyphAtla
     const result = computeGlyphAtlasAvailability(pre, BASE_GATE);
     expect(result.reason).not.toBeNull();
     expect(result.reason).toContain("glyph");
-    expect(result.atlasPalette).toBeUndefined();
   });
 
-  it("is unavailable when the render exceeds the atlas's maxPaletteSize distinct colors", () => {
+  it("stays available far past the atlas's maxPaletteSize distinct colors — glyphcss quantizes", () => {
     let html = "";
-    for (let i = 0; i < GLYPH_FONT_ATLAS.maxPaletteSize + 1; i++) {
+    for (let i = 0; i < GLYPH_FONT_ATLAS.maxPaletteSize * 4; i++) {
       const hex = `#${i.toString(16).padStart(6, "0")}`;
       html += `<span style="color:${hex}">#</span>`;
     }
-    const result = computeGlyphAtlasAvailability(preOf(html), BASE_GATE);
-    expect(result.reason).not.toBeNull();
-    expect(result.reason).toContain("palette budget");
-    expect(result.atlasPalette).toBeUndefined();
+    expect(computeGlyphAtlasAvailability(preOf(html), BASE_GATE).reason).toBeNull();
   });
 
-  it("is unavailable when there is no color to encode (plain text, no spans)", () => {
-    const result = computeGlyphAtlasAvailability(preOf("####"), BASE_GATE);
-    expect(result.reason).toContain("no color");
+  it("is available for plain text with no spans — the check never looks at color", () => {
+    expect(computeGlyphAtlasAvailability(preOf("####"), BASE_GATE).reason).toBeNull();
   });
 
-  it("blank cells never force unavailability and never enter the derived palette", () => {
+  it("is available for an already-atlas-encoded pre (zero spans, PUA code points)", () => {
+    // Regression guard for the removed "freeze once atlas-encoded" hack: the
+    // predicate decodes PUA back to plain glyphs, so an atlas render must not
+    // read as "not covered by the atlas" and flap the control back to spans.
+    const encoded = ([["#", 0], ["@", 3], [".", 7]] as const).map(([glyph, slot]) => {
+      const codePoint = glyphAtlasCodePoint(glyph, slot);
+      expect(codePoint).toBeDefined();
+      return String.fromCodePoint(codePoint!);
+    }).join("");
+    const pre = document.createElement("pre");
+    pre.textContent = encoded;
+    expect(pre.querySelector("span")).toBeNull();
+    expect(computeGlyphAtlasAvailability(pre, BASE_GATE).reason).toBeNull();
+  });
+
+  it("blank cells never force unavailability", () => {
     const pre = preOf('<span style="color:#336699">#  #</span>');
-    const result = computeGlyphAtlasAvailability(pre, BASE_GATE);
-    expect(result.reason).toBeNull();
-    expect(result.atlasPalette).toEqual(["#336699"]);
+    expect(computeGlyphAtlasAvailability(pre, BASE_GATE).reason).toBeNull();
   });
 });

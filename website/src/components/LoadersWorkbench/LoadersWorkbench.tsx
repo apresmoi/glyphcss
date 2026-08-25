@@ -184,13 +184,11 @@ interface LiveEdits {
   highlight: { current: { slot: number | null; params: Params } };
   /** `colorEncoding: "atlas"` (zero-`<span>` colour-font output) — shared
    *  across every live size tile (they all render the SAME patch, just at
-   *  different grid sizes, so one atlas palette serves all of them). Not
-   *  URL-persisted, matching every other Dock control on this page except
-   *  which loader is selected (`?l=`). `atlasPalette` and the reported
-   *  reason are derived at runtime — see `useLoaderScene`'s own recompute
-   *  logic and `../../lib/glyphAtlasAvailability.ts`'s module doc. */
+   *  different grid sizes). Not URL-persisted, matching every other Dock
+   *  control on this page except which loader is selected (`?l=`). The
+   *  reported reason is derived at runtime — see `useLoaderScene`'s own
+   *  recompute logic and `../../lib/glyphAtlasAvailability.ts`'s module doc. */
   colorEncoding: { current: "spans" | "atlas" };
-  atlasPalette: { current: string[] | undefined };
   onAtlasAvailability: (reason: string | null) => void;
 }
 
@@ -224,7 +222,6 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
       colorEncoding: live?.colorEncoding.current,
-      atlasPalette: live?.atlasPalette.current,
     });
     sceneRef.current = scene;
     const polys = flatQuad(3, "#243244");
@@ -272,27 +269,18 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
 
     scene.rerender();
 
-    // Keeps `atlasPalette`/the Dock's "Color encoding" disabled state
-    // current by watching the stage `<pre>` directly (a `MutationObserver`,
-    // not a dependency list) — same pattern /synth, /wordart, the gallery,
-    // and the vanilla examples use. Only for LIVE tiles (the footer/catalog
-    // thumbnails stay canonical, untouched, per `LiveEdits`'s own doc);
-    // every live size tile shares one `colorEncoding`/`atlasPalette` ref
-    // (they render the same patch at different grid sizes) and reports
-    // through the same callback — last-writer-wins is fine since they
-    // converge to the same value almost immediately. Skips recompute
-    // whenever the `<pre>` is CURRENTLY zero-span with real content —
-    // genuinely atlas-encoded PUA text has no per-cell colour left to parse
-    // back out (see `../../lib/glyphAtlasAvailability.ts`'s module doc).
+    // Keeps the Dock's "Color encoding" disabled state current by watching
+    // the stage `<pre>` directly (a `MutationObserver`, not a dependency
+    // list) — same pattern /synth, /wordart, the gallery, and the vanilla
+    // examples use. Only for LIVE tiles (the footer/catalog thumbnails stay
+    // canonical, untouched, per `LiveEdits`'s own doc); every live size tile
+    // shares one `colorEncoding` ref (they render the same patch at different
+    // grid sizes) and reports through the same callback — last-writer-wins is
+    // fine since they converge to the same value almost immediately.
     let atlasObserver: MutationObserver | null = null;
     if (live) {
       const recomputeAtlasAvailability = (): void => {
-        const pre = scene.output;
-        const hasContent = (pre.textContent ?? "").trim().length > 0;
-        const hasSpans = pre.querySelector("span") !== null;
-        if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-        const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode: "ascii" });
-        live.atlasPalette.current = result.atlasPalette;
+        const result = computeGlyphAtlasAvailability(scene.output, { useColors: true, charMode: "ascii" });
         live.onAtlasAvailability(result.reason);
       };
       recomputeAtlasAvailability();
@@ -351,7 +339,7 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene || !live) return;
-    scene.setOptions({ colorEncoding, atlasPalette: live.atlasPalette.current });
+    scene.setOptions({ colorEncoding });
     scene.rerender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorEncoding]);
@@ -514,7 +502,6 @@ export default function LoadersWorkbench() {
   const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">("spans");
   const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const colorEncodingRef = useRef(colorEncoding); colorEncodingRef.current = colorEncoding;
-  const atlasPaletteRef = useRef<string[] | undefined>(undefined);
   const [fontSize, setFontSize] = useState(11);
   const [openSize, setOpenSize] = useState<{ cols: number; rows: number } | null>(null);
   const [lang, setLang] = useState<LoaderTab>("html");
@@ -580,7 +567,6 @@ export default function LoadersWorkbench() {
   const live = useMemo<LiveEdits>(() => ({
     layerParams, drive, highlight,
     colorEncoding: colorEncodingRef,
-    atlasPalette: atlasPaletteRef,
     onAtlasAvailability: setAtlasReason,
   }), [layerParams]);
 

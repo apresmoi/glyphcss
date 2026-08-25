@@ -459,8 +459,8 @@ interface Tunables {
   /** Solid-mode-only font-weight-calibrated ramp toggle — see `weightedRamp.ts`. */
   solidWeightRamp?: boolean;
   /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
-   *  colour-font encoding). `atlasPalette` is NOT a tunable — it's derived at
-   *  runtime, see `recomputeAtlasAvailability` below. */
+   *  colour-font encoding). The atlas palette is not a tunable: `createGlyphScene`
+   *  derives and pools it internally from the real cell buffers. */
   colorEncoding?: 'spans' | 'atlas';
   useColors?: boolean;
   smoothShading?: boolean;
@@ -760,12 +760,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     camera.target = [tunables.targetX ?? 0, tunables.targetY ?? 0, tunables.targetZ ?? 0];
   }
 
-  // `colorEncoding: "atlas"` — derived (never user-tunable) palette/reason
-  // state, kept current by `recomputeAtlasAvailability` below (a
+  // `colorEncoding: "atlas"` — derived (never user-tunable) disabled-state
+  // reason, kept current by `recomputeAtlasAvailability` below (a
   // `MutationObserver` on the real stage `<pre>`, set up right after `scene`
-  // is constructed). See `./lib/glyphAtlasAvailability.ts`'s module doc for
-  // why this can only recompute while genuinely spans-encoded.
-  let atlasPalette: string[] | undefined;
+  // is constructed).
   let atlasReason: string | null = 'Nothing rendered yet.';
 
   // Derive render options from current state
@@ -794,7 +792,6 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       hiddenLines: tunables.hiddenLines ?? 'show',
       solidWeightRamp: tunables.solidWeightRamp ? getSolidWeightRamp() ?? undefined : undefined,
       colorEncoding: tunables.colorEncoding ?? 'spans',
-      atlasPalette,
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -829,31 +826,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     ...buildSceneOptions(),
   });
 
-  // Keeps `atlasReason`/`atlasPalette` current by watching the stage `<pre>`
-  // directly (a `MutationObserver`, not a dependency list) — mirrors
-  // /synth's and /wordart's own watchers. Skips recompute whenever the
-  // `<pre>` is CURRENTLY zero-span with real content — genuinely
-  // atlas-encoded PUA text has no per-cell colour left to parse back out
-  // (see `./lib/glyphAtlasAvailability.ts`'s module doc) — so a working
-  // atlas render freezes its own last-known-good palette instead of
-  // misreading its own PUA glyphs as "not covered" and flapping back to spans.
+  // Keeps `atlasReason` current by watching the stage `<pre>` directly (a
+  // `MutationObserver`, not a dependency list) — mirrors /synth's and
+  // /wordart's own watchers.
   function recomputeAtlasAvailability(): void {
-    const pre = scene.output;
-    const hasContent = (pre.textContent ?? '').trim().length > 0;
-    const hasSpans = pre.querySelector('span') !== null;
-    if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-    const result = computeGlyphAtlasAvailability(pre, {
+    const result = computeGlyphAtlasAvailability(scene.output, {
       useColors: tunables.useColors ?? true,
       charMode: tunables.charMode ?? 'ascii',
     });
     atlasReason = result.reason;
-    const palette = result.atlasPalette;
-    const changed = (palette ?? []).join(',') !== (atlasPalette ?? []).join(',');
-    atlasPalette = palette;
-    if (changed && (tunables.colorEncoding ?? 'spans') === 'atlas') {
-      scene.setOptions({ atlasPalette });
-      scene.rerender();
-    }
   }
   recomputeAtlasAvailability();
   const atlasObserver = new MutationObserver(recomputeAtlasAvailability);
@@ -1752,12 +1733,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
     if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
-    // `atlasPalette` is never set here — it's derived at runtime by
-    // `recomputeAtlasAvailability` (see the `MutationObserver` set up right
-    // after `scene` is constructed), never a user-tunable value.
     if ('colorEncoding' in partial && partial.colorEncoding !== undefined) {
       sceneOpts.colorEncoding = partial.colorEncoding;
-      sceneOpts.atlasPalette = atlasPalette;
     }
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 

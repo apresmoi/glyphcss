@@ -1101,7 +1101,6 @@ const description = "A procedural endless city rendered as colored ASCII with a 
     let density = initialState.density;
     let useColors = initialState.useColors;
     let colorEncoding = initialState.colorEncoding;
-    let atlasPalette: string[] | undefined;
     let monoColor = initialState.monoColor;
     const scene = createGlyphScene(host, {
       camera,
@@ -1109,7 +1108,6 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       mode: "solid",
       useColors,
       colorEncoding,
-      atlasPalette,
       supersample: 1,
       smoothShading: false,
       doubleSided: false,
@@ -1127,24 +1125,13 @@ const description = "A procedural endless city rendered as colored ASCII with a 
     if (!useColors) scene.output.style.color = monoColor;
     scene.fit();
 
-    // Keeps `atlasPalette`/the "color encoding" select's disabled state
-    // current by watching the stage `<pre>` directly (a `MutationObserver`,
-    // not a dependency list) — same pattern /synth, /wordart, and the
-    // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
-    // zero-span with real content — genuinely atlas-encoded PUA text has no
-    // per-cell colour left to parse back out (see
-    // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
-    // atlas render freezes its own last-known-good palette instead of
-    // misreading its own PUA glyphs as "not covered" and flapping back.
+    // Keeps the "color encoding" select's disabled state current by watching
+    // the stage `<pre>` directly (a `MutationObserver`, not a dependency
+    // list) — same pattern /synth, /wordart, and the gallery use.
     const colorEncodingSel = document.getElementById("colorEncoding") as HTMLSelectElement | null;
     if (colorEncodingSel) colorEncodingSel.value = colorEncoding;
     function recomputeAtlasAvailability(): void {
-      const pre = scene.output;
-      const hasContent = (pre.textContent ?? "").trim().length > 0;
-      const hasSpans = pre.querySelector("span") !== null;
-      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-      const result = computeGlyphAtlasAvailability(pre, { useColors, charMode: "ascii" });
-      atlasPalette = result.atlasPalette;
+      const result = computeGlyphAtlasAvailability(scene.output, { useColors, charMode: "ascii" });
       if (colorEncodingSel) {
         colorEncodingSel.disabled = result.reason !== null;
         colorEncodingSel.title = result.reason === null
@@ -1156,7 +1143,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
     new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
     colorEncodingSel?.addEventListener("change", () => {
       colorEncoding = colorEncodingSel.value as "spans" | "atlas";
-      scene.setOptions({ colorEncoding, atlasPalette });
+      scene.setOptions({ colorEncoding });
       cityQuerySync.schedule();
     });
 

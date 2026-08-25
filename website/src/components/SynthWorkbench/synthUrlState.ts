@@ -95,10 +95,10 @@ export interface SynthUrlState {
    *  bump doc below, which is about `colorQuantize`'s removal, not this). */
   colorTolerance: number;
   /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
-   *  colour-font encoding). `atlasPalette` itself is never persisted: it's
-   *  derived at runtime from the live rendered output (see
-   *  `website/src/lib/glyphAtlasAvailability.ts`), so there's nothing stable
-   *  to encode here — only the user's on/off preference. A fresh token
+   *  colour-font encoding). The atlas palette itself is never persisted:
+   *  `glyphcss` derives and pools it internally from the real cell buffers,
+   *  so there's nothing stable to encode here — only the user's on/off
+   *  preference. A fresh token
    *  (outer fields are keyed by TOKEN, not position — see
    *  `colorTolerance`'s own doc above), so this is safe to add for every
    *  existing link regardless of `SYNTH_SCHEMA_VERSION`. */

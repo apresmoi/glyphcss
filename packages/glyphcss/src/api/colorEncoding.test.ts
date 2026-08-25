@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Polygon } from "@glyphcss/core";
 import { buildRasterizeContext } from "./rasterizeContext";
+import { rasterize } from "../render/rasterize";
+import { nearestPaletteIndex, packHexColor } from "../render/paletteQuantize";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { GlyphEffectOutputChannel, defineGlyphEffect } from "./effects";
@@ -66,6 +68,57 @@ describe("buildRasterizeContext — colorEncoding validation", () => {
 
   it("leaves atlasPalette undefined when omitted", () => {
     expect(buildRasterizeContext(baseOpts).atlasPalette).toBeUndefined();
+  });
+});
+
+describe("rasterize — the spans/atlas gate inside the hot-path coalescers", () => {
+  // `createGlyphScene` guards this a second time (it never hands a palette
+  // down unless `colorEncoding` is "atlas"), which masks a broken gate here
+  // from every scene-level test. These call `rasterize` directly, with a
+  // palette supplied ALONGSIDE `colorEncoding: "spans"`, so the coalescers'
+  // own short-circuit is the only thing standing between the two encodings —
+  // the byte-identity constraint has to hold on its own at this level too.
+  const rig = (colorEncoding: "spans" | "atlas") => buildRasterizeContext({
+    camera: createGlyphOrthographicCamera({ zoom: 50 }),
+    grid: { cols: 30, rows: 12, cellAspect: 2.0 },
+    mode: "solid",
+    doubleSided: true,
+    polygons: flatQuad("#336699"),
+    colorEncoding,
+    atlasPalette: ["#336699"],
+    ...FLAT_LIGHTING,
+  });
+
+  it("solid mode ignores a supplied palette under \"spans\" and emits identical HTML", () => {
+    const spans = rasterize(rig("spans"));
+    expect(countSpans(spans)).toBeGreaterThan(0);
+    // Same scene, same palette, only the encoding differs — proving the
+    // palette was genuinely usable and the "spans" run declined it.
+    const atlas = rasterize(rig("atlas"));
+    expect(countSpans(atlas)).toBe(0);
+    expect(spans).not.toBe(atlas);
+  });
+
+  it("wireframe mode's separate coalescer holds the same gate", () => {
+    // `glyphPalette: "ascii"` is pinned deliberately: the DEFAULT wireframe
+    // palette's tiers include glyphs the checked-in atlas doesn't carry
+    // (verified: `⬢`, `⬡`, `∴`, `∵`), and a wireframe cell's glyph is a RANDOM
+    // draw from its tier — so a default-palette wireframe scene's atlas
+    // encodability is genuinely non-deterministic frame to frame, which is not
+    // a property to build a gate test on.
+    const wire = (colorEncoding: "spans" | "atlas") => buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+      grid: { cols: 30, rows: 12, cellAspect: 2.0 },
+      mode: "wireframe",
+      glyphPalette: "ascii",
+      polygons: flatQuad("#336699"),
+      colorEncoding,
+      atlasPalette: ["#336699"],
+      ...FLAT_LIGHTING,
+    });
+    const spans = rasterize(wire("spans"));
+    expect(countSpans(spans)).toBeGreaterThan(0);
+    expect(countSpans(rasterize(wire("atlas")))).toBe(0);
   });
 });
 
@@ -160,7 +213,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     host.remove();
   });
 
-  it("falls back to spans (whole-scene) when the palette does not cover the scene's actual color", async () => {
+  it("quantizes to the pinned palette (no span fallback) when it does not cover the scene's actual color", async () => {
     const host = makeDiv();
     const scene = createGlyphScene(host, {
       ...sceneOptions,
@@ -170,21 +223,146 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     scene.add(flatQuad("#336699"));
     await flushRenders();
     const html = scene.output.innerHTML;
-    expect(countSpans(html)).toBeGreaterThan(0);
+    // A pinned palette bounds the render's colour resolution; it never decides
+    // whether the render can be encoded at all.
+    expect(countSpans(html)).toBe(0);
+    const codePoints = Array.from(html, (ch) => ch.codePointAt(0)!);
+    expect(codePoints.some((cp) => cp >= GLYPH_FONT_ATLAS.puaStart)).toBe(true);
     scene.destroy();
     host.remove();
   });
 
-  it("falls back to spans when colorEncoding is \"atlas\" but no atlasPalette is supplied", async () => {
+  it("derives and pools its own palette when colorEncoding is \"atlas\" with no atlasPalette", async () => {
     const host = makeDiv();
     const scene = createGlyphScene(host, { ...sceneOptions, colorEncoding: "atlas" });
     scene.add(flatQuad("#336699"));
     await flushRenders();
-    expect(countSpans(scene.output.innerHTML)).toBeGreaterThan(0);
+    expect(countSpans(scene.output.innerHTML)).toBe(0);
+    // The derived palette reached CSS: a slot is meaningless without the
+    // `@font-palette-values` block that gives it a colour.
+    const blocks = Array.from(document.head.querySelectorAll("style"), (el) => el.textContent ?? "");
+    const paletteName = scene.output.style.getPropertyValue("font-palette");
+    expect(paletteName).toMatch(/^--glyph-atlas-palette-/);
+    expect(blocks.some((css) => css.includes(paletteName) && css.includes("#336699"))).toBe(true);
+    scene.destroy();
+    host.remove();
+  });
+
+  it("quantizes a many-colour Lambert render into the atlas's slot budget instead of falling back", async () => {
+    const host = makeDiv();
+    // 240 coplanar strips, each authored a distinct colour: far more distinct
+    // colours than the atlas has slots, covering the whole grid, and — unlike a
+    // lit curved mesh — deterministic, so the assignment check below compares
+    // against a stable ground truth rather than a shading accident.
+    const STRIPS = 240;
+    const facets: Polygon[] = [];
+    for (let i = 0; i < STRIPS; i++) {
+      const x0 = -6 + (12 * i) / STRIPS;
+      const x1 = -6 + (12 * (i + 1)) / STRIPS;
+      const t = i / (STRIPS - 1);
+      const r = Math.round(40 + t * 200);
+      const g = Math.round(200 - t * 150);
+      const b = Math.round(90 + Math.sin(t * 7) * 80);
+      facets.push({
+        vertices: [[x0, -3, 0], [x0, 3, 0], [x1, 3, 0], [x1, -3, 0]],
+        color: `#${((r << 16) | (g << 8) | Math.max(0, Math.min(255, b))).toString(16).padStart(6, "0")}`,
+      });
+    }
+    const scene = createGlyphScene(host, {
+      cols: 60,
+      rows: 24,
+      useColors: true,
+      mode: "solid",
+      doubleSided: true,
+      colorEncoding: "atlas",
+      camera: createGlyphOrthographicCamera({ zoom: 400 }),
+      ...FLAT_LIGHTING,
+    });
+    scene.add(facets);
+    await flushRenders();
+    const html = scene.output.innerHTML;
+    expect(countSpans(html)).toBe(0);
+    const codePoints = Array.from(html, (ch) => ch.codePointAt(0)!);
+    expect(codePoints.some((cp) => cp >= GLYPH_FONT_ATLAS.puaStart)).toBe(true);
+    // Every code point stays inside the atlas's slot budget — the encoding is
+    // only valid if quantization actually bounded the palette.
+    const slots = codePoints
+      .filter((cp) => cp >= GLYPH_FONT_ATLAS.puaStart)
+      .map((cp) => Math.floor((cp - GLYPH_FONT_ATLAS.puaStart) / GLYPH_FONT_ATLAS.glyphCount));
+    expect(Math.max(...slots)).toBeLessThan(GLYPH_FONT_ATLAS.maxPaletteSize);
+    expect(new Set(slots).size).toBeGreaterThan(1); // genuinely multi-colour
+
+    // Every cell landed on the NEAREST slot to the colour the span render
+    // would have emitted there — the assignment, end to end, against ground
+    // truth read out of the same scene rendered as spans. A cell that is off
+    // by a slot is a visible wrong colour, and nothing else in this file
+    // catches it: bounds and slot-count assertions pass for any assignment.
+    const palette = paletteFromCss(scene.output);
+    expect(palette.length).toBeGreaterThan(1);
+    const packedPalette = palette.map((c) => packHexColor(c)!);
+    scene.setOptions({ colorEncoding: "spans" });
+    await flushRenders();
+    const truth = spansGrid(scene.output);
+    const encoded = decodeAtlasSlots(html);
+    expect(encoded.length).toBe(truth.length);
+    let checked = 0;
+    for (let i = 0; i < truth.length; i++) {
+      const c = truth[i];
+      if (c === null || encoded[i] === null) continue;
+      expect(encoded[i]).toBe(nearestPaletteIndex(packedPalette, packHexColor(c)!));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(1000);
+    expect(new Set(truth.filter(Boolean)).size).toBeGreaterThan(GLYPH_FONT_ATLAS.maxPaletteSize * 3);
     scene.destroy();
     host.remove();
   });
 });
+
+/** Palette colours this scene's own `@font-palette-values` block declares, in slot order. */
+function paletteFromCss(pre: HTMLElement): string[] {
+  const name = pre.style.getPropertyValue("font-palette");
+  const block = Array.from(document.head.querySelectorAll("style"), (el) => el.textContent ?? "")
+    .find((css) => css.includes(`@font-palette-values ${name}`));
+  const overrides = /override-colors:([^;}]+)/.exec(block ?? "")?.[1] ?? "";
+  const out: string[] = [];
+  for (const entry of overrides.split(",")) {
+    const m = /(\d+)\s+(#[0-9a-f]{6})/i.exec(entry);
+    if (m) out[Number(m[1])] = m[2]!.toLowerCase();
+  }
+  return out;
+}
+
+/** Per-cell palette slot of an atlas-encoded `<pre>` string, `null` for blanks/newlines. */
+function decodeAtlasSlots(html: string): (number | null)[] {
+  const out: (number | null)[] = [];
+  for (const ch of html) {
+    if (ch === "\n") continue;
+    const cp = ch.codePointAt(0)!;
+    out.push(cp >= GLYPH_FONT_ATLAS.puaStart ? Math.floor((cp - GLYPH_FONT_ATLAS.puaStart) / GLYPH_FONT_ATLAS.glyphCount) : null);
+  }
+  return out;
+}
+
+/** Per-cell true colour of a spans-encoded `<pre>`, in the same cell order. */
+function spansGrid(pre: HTMLElement): (string | null)[] {
+  const out: (string | null)[] = [];
+  const visit = (node: ChildNode, color: string | null): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      for (const ch of node.nodeValue ?? "") {
+        if (ch !== "\n") out.push(ch === " " ? null : color);
+      }
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const next = el.style?.color || color;
+      el.childNodes.forEach((c) => visit(c, next ? String(next).toLowerCase() : null));
+    }
+  };
+  pre.childNodes.forEach((c) => visit(c, null));
+  return out;
+}
 
 // Mirrors `createGlyphScene.colorTolerance.test.ts`'s two dedicated coverage
 // suites for the two `createGlyphScene` call sites that bypass the main

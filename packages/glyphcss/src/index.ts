@@ -210,6 +210,25 @@ export {
   buildGlyphAtlasFontPaletteValuesCss,
 } from "./render/fontAtlas";
 export type { GlyphFontAtlas } from "./render/fontAtlas";
+// ── Atlas palette quantization (the ≤31-slot reduction the atlas needs) ──
+export {
+  medianCutPalette,
+  quantizeGlyphAtlasPalette,
+  createGlyphAtlasPaletteQuantizer,
+  histogramGridColors,
+  nearestPaletteIndex,
+  redmeanDistanceSq,
+  packHexColor,
+  unpackHexColor,
+  isQuantizableColor,
+  resolveGlyphAtlasPaletteInput,
+} from "./render/paletteQuantize";
+export type {
+  GlyphAtlasPaletteInput,
+  GlyphAtlasPaletteSource,
+  GlyphAtlasPaletteQuantizer,
+  GlyphAtlasPaletteQuantizerOptions,
+} from "./render/paletteQuantize";
 export {
   DEFAULT_RAMP,
   SOLID_RAMP,

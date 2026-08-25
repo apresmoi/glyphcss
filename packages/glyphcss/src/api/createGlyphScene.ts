@@ -63,6 +63,7 @@ import {
 } from "../render/effectCompositor";
 import { injectGlyphBaseStyles, injectGlyphAtlasFontFaceStyles } from "../styles/styles";
 import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss } from "../render/fontAtlas";
+import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type GlyphAtlasPaletteQuantizer } from "../render/paletteQuantize";
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
@@ -144,24 +145,34 @@ export interface GlyphSceneOptions {
    * `"atlas"` encodes `(glyph, colour)` as Private Use Area code points
    * against a checked-in COLR/CPAL colour font (see `render/fontAtlas.ts`),
    * producing ONE text node with zero `<span>`s — see AGENTS.md's
-   * `colorEncoding` section for the measurement this follows. Requires
-   * {@link atlasPalette}; falls back to `"spans"` for a render with no
-   * palette, or whose glyphs/colors aren't fully covered by the atlas +
-   * palette (see `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene
-   * decision, never a per-cell mix. Documented no-op under `charMode:
+   * `colorEncoding` section for the measurement this follows.
+   *
+   * Does NOT require {@link atlasPalette}: with none supplied, the scene
+   * derives and pools one itself (median-cut quantization over the frames it
+   * renders — see `render/paletteQuantize.ts`), so a render with hundreds of
+   * distinct Lambert-shaded colours encodes into 31 slots instead of falling
+   * back. It falls back to `"spans"` for a frame whose glyphs aren't covered
+   * by the atlas, or whose cells carry no usable colour (see
+   * `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene decision,
+   * never a per-cell mix. Documented no-op under `charMode:
    * "halfblock"`/`"quadrant"`, an active `solidWeightRamp` selection,
-   * `glyphOutput: "semantic"`, and `useColors: false`. This scene does NOT
-   * auto-inject the atlas's `@font-face`/`@font-palette-values` CSS —
-   * inject `buildGlyphAtlasFontFaceCss()`/`buildGlyphAtlasFontPaletteValuesCss()`
-   * (`render/fontAtlas.ts`) yourself and set the `<pre>`'s `font-family`/
-   * `font-palette` to match. See {@link RasterizeContextOptions.colorEncoding}.
+   * `glyphOutput: "semantic"`, and `useColors: false`. The atlas's
+   * `@font-face`/`@font-palette-values` CSS and the `<pre>`'s
+   * `font-family`/`font-palette` are wired automatically.
+   * See {@link RasterizeContextOptions.colorEncoding}.
    */
   colorEncoding?: GlyphColorEncoding;
   /**
-   * Palette `colorEncoding: "atlas"` cells encode against — an ordered
+   * Fixed palette `colorEncoding: "atlas"` cells encode against — an ordered
    * `#rrggbb` array whose entries' POSITIONS (never their values) become the
-   * PUA mapping's palette-slot axis. Deriving this palette is explicitly out
-   * of scope for this option — see {@link RasterizeContextOptions.atlasPalette}.
+   * PUA mapping's palette-slot axis. Cells whose colour isn't an exact entry
+   * encode to their nearest one.
+   *
+   * `undefined` (the default) does NOT disable the atlas: it hands palette
+   * derivation to the scene's own pooled quantizer, which is what a live
+   * render normally wants. Supply an array only to pin the palette (a fixed
+   * brand ramp, a reproducible bake) — see
+   * {@link RasterizeContextOptions.atlasPalette}.
    */
   atlasPalette?: readonly string[];
   /** Whether to emit color spans. Default true. */
@@ -545,6 +556,25 @@ export function createGlyphScene(
   // instead of re-pointing every already-styled `<pre>` at a new name.
   let atlasPaletteStyleEl: HTMLStyleElement | null = null;
   let atlasPaletteName: string | null = null;
+  // Pooled palette quantizer, allocated lazily the first time a render
+  // actually needs one — a `"spans"` scene (the default) never creates it and
+  // never runs a line of quantization code. `options.atlasPalette`, when
+  // supplied, wins outright: an explicitly pinned palette is the caller's,
+  // and pooling it would silently override their choice.
+  let atlasQuantizer: GlyphAtlasPaletteQuantizer | null = null;
+  let atlasPaletteCssGeneration = -1;
+
+  /**
+   * Palette input for this render: the caller's fixed array if they pinned
+   * one, otherwise the scene's own pooled quantizer. Only ever called from
+   * the `colorEncoding: "atlas"` path, so the lazy allocation below cannot
+   * fire for a `"spans"` scene.
+   */
+  function activeAtlasPalette(): GlyphAtlasPaletteInput | undefined {
+    if (options.colorEncoding !== "atlas") return undefined;
+    if (options.atlasPalette) return options.atlasPalette;
+    return (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer());
+  }
 
   function hasEffectLayers(): boolean {
     return effectLayers.length > 0;
@@ -623,7 +653,7 @@ export function createGlyphScene(
     for (const output of retainedEffectOutputs.values()) {
       testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, options.colorEncoding, options.atlasPalette) });
+      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, options.colorEncoding, activeAtlasPalette()) });
     }
     commitRender({
       writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
@@ -932,7 +962,7 @@ export function createGlyphScene(
       solidWeightRamp: options.solidWeightRamp,
       colorTolerance: options.colorTolerance,
       colorEncoding: options.colorEncoding,
-      atlasPalette: options.atlasPalette,
+      atlasPalette: activeAtlasPalette(),
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1176,7 +1206,10 @@ export function createGlyphScene(
   function syncGlyphAtlasStyles(): void {
     if (options.colorEncoding === "atlas") {
       injectGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined);
-      const palette = options.atlasPalette;
+      // The pooled quantizer's palette when the caller didn't pin one — the
+      // block must always declare the palette the `<pre>` was actually
+      // ENCODED against, since a slot is meaningless without it.
+      const palette = options.atlasPalette ?? atlasQuantizer?.palette;
       if (palette && palette.length > 0) {
         // Stable for the scene's lifetime once allocated (see the field doc)
         // — only the block's CONTENT is refreshed on a later palette edit.
@@ -1186,10 +1219,27 @@ export function createGlyphScene(
           host.ownerDocument!.head.appendChild(atlasPaletteStyleEl);
         }
         atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
+        atlasPaletteCssGeneration = atlasQuantizer?.generation ?? -1;
       }
     }
     applyGlyphAtlasFont(pre);
     for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
+  }
+
+  /**
+   * Publish a repooled palette to CSS. The `<pre>`s of this frame were already
+   * encoded against it — the quantizer decides a repool DURING rasterization,
+   * before any encoding — so this only catches the stylesheet up, and it runs
+   * after a successful commit so a rolled-back render can't leave the CSS
+   * describing a palette no `<pre>` uses. A repool is gated to at most one per
+   * `refreshMs` (default 250 ms), so this is a `<style>` textContent write a
+   * few times a second at most, never per frame, and never a `<pre>` write —
+   * the one-write-per-`<pre>`-per-cycle invariant is untouched.
+   */
+  function syncGlyphAtlasPaletteCss(): void {
+    if (options.colorEncoding !== "atlas" || options.atlasPalette) return;
+    if (!atlasQuantizer || atlasQuantizer.generation === atlasPaletteCssGeneration) return;
+    syncGlyphAtlasStyles();
   }
 
   function commitRender(plan: RenderCommit): void {
@@ -1250,6 +1300,7 @@ export function createGlyphScene(
       retainedEffectOutputs = oldRetained;
       throw error;
     }
+    syncGlyphAtlasPaletteCss();
   }
 
   /**
@@ -1433,7 +1484,7 @@ export function createGlyphScene(
           solidWeightRamp: options.solidWeightRamp,
           colorTolerance: options.colorTolerance,
           colorEncoding: options.colorEncoding,
-          atlasPalette: options.atlasPalette,
+          atlasPalette: activeAtlasPalette(),
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,

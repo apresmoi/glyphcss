@@ -26,10 +26,30 @@ describe("isGlyphAtlasEncodable", () => {
     expect(isGlyphAtlasEncodable(char, color, 2, 1, PALETTE)).toBe(false);
   });
 
-  it("rejects a grid with a color outside the supplied palette", () => {
+  it("ACCEPTS a color outside the supplied palette — the encoder quantizes it to the nearest slot", () => {
     const char = [GLYPH_A, GLYPH_B];
     const color: (string | null)[] = ["#ff0000", "#123456"]; // not in PALETTE
-    expect(isGlyphAtlasEncodable(char, color, 2, 1, PALETTE)).toBe(false);
+    expect(isGlyphAtlasEncodable(char, color, 2, 1, PALETTE)).toBe(true);
+  });
+
+  it("accepts a grid with far more distinct colors than the atlas has palette slots", () => {
+    // The whole point of the quantizer: colour COUNT is never a rejection.
+    const n = GLYPH_FONT_ATLAS.maxPaletteSize * 4;
+    const char = Array.from({ length: n }, () => GLYPH_A);
+    const color = Array.from({ length: n }, (_, i) => `#${(i * 997).toString(16).padStart(6, "0").slice(-6)}`);
+    expect(isGlyphAtlasEncodable(char, color, n, 1, PALETTE)).toBe(true);
+  });
+
+  it("rejects a non-blank cell whose color isn't a canonical #rrggbb (no slot, exact or nearest)", () => {
+    const char = [GLYPH_A];
+    const color: (string | null)[] = ["rebeccapurple"];
+    expect(isGlyphAtlasEncodable(char, color, 1, 1, PALETTE)).toBe(false);
+  });
+
+  it("answers the structural question alone when no palette is supplied", () => {
+    expect(isGlyphAtlasEncodable([GLYPH_A], ["#123456"], 1, 1)).toBe(true);
+    expect(isGlyphAtlasEncodable(["ᚠ"], ["#123456"], 1, 1)).toBe(false);
+    expect(isGlyphAtlasEncodable([GLYPH_A], [null], 1, 1)).toBe(false);
   });
 
   it("rejects a non-blank cell with a null color", () => {
@@ -93,10 +113,30 @@ describe("encodeGlyphAtlas", () => {
     expect(() => encodeGlyphAtlas(char, color, 1, 1, PALETTE)).toThrow(TypeError);
   });
 
-  it("throws when a cell's color is outside the supplied palette", () => {
-    const char = [GLYPH_A];
-    const color: (string | null)[] = ["#123456"];
-    expect(() => encodeGlyphAtlas(char, color, 1, 1, PALETTE)).toThrow(TypeError);
+  it("encodes a color outside the palette to its NEAREST slot rather than throwing", () => {
+    // Each near-primary must reach its OWN slot. If nearest-slot assignment
+    // were broken (always slot 0, or reading the wrong channel) these are the
+    // assertions that catch it.
+    const red = encodeGlyphAtlas([GLYPH_A], ["#e01010"], 1, 1, PALETTE);
+    expect(red.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 0));
+    const green = encodeGlyphAtlas([GLYPH_A], ["#10e010"], 1, 1, PALETTE);
+    expect(green.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 1));
+    const blue = encodeGlyphAtlas([GLYPH_A], ["#1010e0"], 1, 1, PALETTE);
+    expect(blue.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 2));
+  });
+
+  it("still throws when a cell's color is not #rrggbb at all", () => {
+    expect(() => encodeGlyphAtlas([GLYPH_A], ["rebeccapurple"], 1, 1, PALETTE)).toThrow(TypeError);
+  });
+
+  it("keeps an exact palette color on its OWN slot, never a nearest-match substitute", () => {
+    // Two palette entries a redmean hair apart: an exact match must win its own
+    // slot outright, so a lossless render stays byte-identical under the
+    // quantizing encoder.
+    const palette = ["#800000", "#810000"];
+    const out = encodeGlyphAtlas([GLYPH_A, GLYPH_B], ["#810000", "#800000"], 2, 1, palette);
+    expect(out.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 1));
+    expect(out.codePointAt(1)).toBe(glyphAtlasCodePoint(GLYPH_B, 0));
   });
 });
 

@@ -68,10 +68,9 @@ export interface WordArtUrlState {
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
   /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
-   *  colour-font encoding). `atlasPalette` is never persisted here: it's
-   *  derived at runtime from the live rendered output (see
-   *  `website/src/lib/glyphAtlasAvailability.ts`) — only the on/off
-   *  preference is stable data. */
+   *  colour-font encoding). The atlas palette is never persisted here:
+   *  `glyphcss` derives and pools it internally from the real cell buffers —
+   *  only the on/off preference is stable data. */
   colorEncoding: "spans" | "atlas";
   lightIntensity: number;
   ambient: number;

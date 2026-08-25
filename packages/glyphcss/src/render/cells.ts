@@ -15,6 +15,13 @@
  */
 
 import { GLYPH_FONT_ATLAS, glyphAtlasCodePoint, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
+import {
+  isQuantizableColor,
+  nearestPaletteIndex,
+  packHexColor,
+  resolveGlyphAtlasPaletteInput,
+  type GlyphAtlasPaletteInput,
+} from "./paletteQuantize";
 
 /**
  * A rasterized glyph grid. Row-major, `idx = row * cols + col`. Buffers passed
@@ -697,42 +704,63 @@ export function encodeGlyphBuffersDual(
 
 /**
  * Whether every non-blank cell in this grid can be encoded through the
- * colour-font atlas: its glyph has an outline in `atlas` AND its colour is
- * one of `palette`'s entries (exact string match — see `fontAtlas.ts`'s PUA
- * mapping doc for why the code point only ever encodes the colour's POSITION
- * in `palette`, never its value).
+ * colour-font atlas: its glyph has an outline in `atlas`, and it carries a
+ * canonical `#rrggbb` colour that {@link encodeGlyphAtlas} can place in a
+ * palette slot.
+ *
+ * **This does NOT require the cell's colour to already be in `palette`.** The
+ * atlas encoder quantizes: a colour with no exact slot is written to its
+ * nearest one by redmean distance (`paletteQuantize.ts`), so the number of
+ * distinct colours a render emits is not a reason to reject it — reducing
+ * hundreds of Lambert-shaded colours to ≤31 slots is the palette step's whole
+ * job, and refusing instead would leave the atlas usable only on already-flat
+ * renders. `palette`'s SIZE is still checked, because a palette larger than
+ * the atlas's slot budget has no valid PUA encoding at all.
+ *
+ * What it still rejects, all genuinely unencodable:
+ *   - a glyph with no outline in the atlas (field-synth's `glyphs` is a
+ *     free-form user string, so a ramp character outside the checked-in
+ *     universal set is expected, not a bug);
+ *   - a non-blank cell with no colour, or a colour that isn't `#rrggbb` —
+ *     neither can be assigned to a slot, exactly or by nearest;
+ *   - an empty palette, or one over `atlas.maxPaletteSize`.
  *
  * This is a WHOLE-GRID decision, not per-cell, and that is deliberate: a
  * mixed encoding would still need `<span>`s for whatever fell outside the
  * atlas, which defeats the zero-span point of the atlas path entirely. So
  * `colorEncoding: "atlas"` either encodes the ENTIRE render as one PUA text
  * node, or the entire render falls back to {@link encodeGlyphBuffers}'s span
- * encoding for that frame — never both in the same `<pre>`. The two failure
- * modes this guards are structurally different but both real: field-synth's
- * `glyphs` is a free-form user string (AGENTS.md), so a ramp character
- * outside the checked-in universal set is expected, not a bug; a colour
- * outside `palette` happens whenever the palette-derivation step (out of
- * scope here — see AGENTS.md's `colorEncoding` section) hasn't actually
- * quantized every emitted colour into its own bucket.
+ * encoding for that frame — never both in the same `<pre>`.
+ *
+ * `palette` is optional: omitting it asks the structural question alone —
+ * "could this grid be atlas-encoded against SOME palette?" — which is what a
+ * UI availability gate wants, since the palette is derived downstream and the
+ * gate must not pretend to know it (`website/src/lib/glyphAtlasAvailability.ts`).
  */
 export function isGlyphAtlasEncodable(
   char: readonly string[],
   color: readonly (string | null)[],
   cols: number,
   rows: number,
-  palette: readonly string[],
+  palette?: readonly string[],
   atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
 ): boolean {
   const n = cols * rows;
   if (char.length < n || color.length < n) return false;
-  if (palette.length === 0 || palette.length > atlas.maxPaletteSize) return false;
-  const paletteSlots = new Set(palette);
+  if (palette !== undefined && (palette.length === 0 || palette.length > atlas.maxPaletteSize)) return false;
+  // Bounded by the number of DISTINCT colour strings, not by cell count — the
+  // same memo discipline `colorTolerance`'s `packColorCached` uses.
+  const validated = new Set<string>();
   for (let i = 0; i < n; i++) {
     const glyph = char[i];
     if (glyph === undefined || glyph === " ") continue;
     if (!isGlyphInFontAtlas(glyph, atlas)) return false;
     const c = color[i];
-    if (c === null || c === undefined || !paletteSlots.has(c)) return false;
+    if (c === null || c === undefined) return false;
+    if (!validated.has(c)) {
+      if (!isQuantizableColor(c)) return false;
+      validated.add(c);
+    }
   }
   return true;
 }
@@ -750,6 +778,15 @@ export function isGlyphAtlasEncodable(
  * that isn't (an internal-invariant failure, not a recoverable per-cell
  * fallback: see {@link isGlyphAtlasEncodable}'s doc for why the fallback
  * decision is whole-grid).
+ *
+ * A cell colour that is NOT an exact `palette` entry is not an error: it is
+ * assigned the nearest slot by redmean distance
+ * ({@link nearestPaletteIndex}), which is what lets a render with hundreds of
+ * distinct Lambert-shaded colours encode against 31 slots at all. Exact
+ * matches keep their own slot, so a render whose colours already fit the
+ * palette is encoded losslessly and this behaves exactly as it did before
+ * quantization existed. The slot lookup memoizes per distinct colour STRING,
+ * so the nearest-slot scan runs once per colour, never once per cell.
  */
 export function encodeGlyphAtlas(
   char: readonly string[],
@@ -768,6 +805,9 @@ export function encodeGlyphAtlas(
 
   const paletteSlot = new Map<string, number>();
   for (let i = 0; i < palette.length; i++) paletteSlot.set(palette[i]!, i);
+  // Packed palette, built lazily — only a grid that actually contains a
+  // non-exact colour ever pays for it.
+  let packedPalette: number[] | null = null;
 
   const lines: string[] = [];
   for (let row = 0; row < rows; row++) {
@@ -785,9 +825,25 @@ export function encodeGlyphAtlas(
       if (c === null) {
         throw new TypeError(`glyphcss: atlas cell ${index} has glyph ${JSON.stringify(glyph)} but no color — call isGlyphAtlasEncodable first.`);
       }
-      const slot = paletteSlot.get(c);
+      let slot = paletteSlot.get(c);
       if (slot === undefined) {
-        throw new TypeError(`glyphcss: atlas cell ${index} color ${c} is not in the supplied palette — call isGlyphAtlasEncodable first.`);
+        const packed = packHexColor(c);
+        if (packed === undefined) {
+          throw new TypeError(`glyphcss: atlas cell ${index} color ${c} is not a #rrggbb color — call isGlyphAtlasEncodable first.`);
+        }
+        packedPalette ??= palette.map((entry) => {
+          const p = packHexColor(entry);
+          if (p === undefined) {
+            throw new TypeError(`glyphcss: font-atlas palette entry ${JSON.stringify(entry)} is not a #rrggbb color.`);
+          }
+          return p;
+        });
+        const nearest = nearestPaletteIndex(packedPalette, packed);
+        if (nearest < 0) {
+          throw new TypeError(`glyphcss: atlas cell ${index} color ${c} has no palette slot — the palette is empty.`);
+        }
+        slot = nearest;
+        paletteSlot.set(c, slot);
       }
       const codePoint = glyphAtlasCodePoint(glyph, slot, atlas);
       if (codePoint === undefined) {
@@ -823,31 +879,34 @@ export function encodeCellGridAtlas(
  * three, which each inline this same guard directly against their raw
  * buffers instead of going through a CellGrid). Tries
  * {@link encodeCellGridAtlas} only when `colorEncoding === "atlas"` AND
- * `atlasPalette` is non-empty AND no `weight` buffer is active (COLR/CPAL
- * carries colour, not `font-weight`) AND {@link isGlyphAtlasEncodable}
- * confirms the whole grid fits; falls back to {@link encodeCellGrid}
- * otherwise — including the default (`colorEncoding` unset/`"spans"`), which
- * short-circuits on the very first condition and never evaluates
- * {@link isGlyphAtlasEncodable}, keeping that default path's cost and output
- * byte-identical to before this option existed.
+ * `atlasPalette` resolves to a non-empty palette AND no `weight` buffer is
+ * active (COLR/CPAL carries colour, not `font-weight`) AND
+ * {@link isGlyphAtlasEncodable} confirms the whole grid fits; falls back to
+ * {@link encodeCellGrid} otherwise — including the default (`colorEncoding`
+ * unset/`"spans"`), which short-circuits on the very first condition and
+ * never resolves a palette or evaluates {@link isGlyphAtlasEncodable},
+ * keeping that default path's cost and output byte-identical to before this
+ * option existed. No quantization work runs for a `"spans"` scene at all:
+ * the palette source is never consulted.
+ *
+ * `atlasPalette` is either a fixed `readonly string[]` or a
+ * {@link GlyphAtlasPaletteSource} — the pooled quantizer a live scene uses,
+ * which derives this grid's palette (and pools its colours across frames) on
+ * the way through.
  */
 export function encodeCellGridOutput(
   grid: CellGrid,
   useColors: boolean,
   colorTolerance = 0,
   colorEncoding: GlyphColorEncoding = "spans",
-  atlasPalette?: readonly string[],
+  atlasPalette?: GlyphAtlasPaletteInput,
   atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
 ): string {
-  if (
-    colorEncoding === "atlas" &&
-    useColors &&
-    !grid.weight &&
-    atlasPalette &&
-    atlasPalette.length > 0 &&
-    isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, atlasPalette, atlas)
-  ) {
-    return encodeCellGridAtlas(grid, atlasPalette, atlas);
+  if (colorEncoding === "atlas" && useColors && !grid.weight && atlasPalette) {
+    const palette = resolveGlyphAtlasPaletteInput(atlasPalette, grid.char, grid.color, grid.cols * grid.rows);
+    if (palette && palette.length > 0 && isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, palette, atlas)) {
+      return encodeCellGridAtlas(grid, palette, atlas);
+    }
   }
   return encodeCellGrid(grid, useColors, colorTolerance);
 }

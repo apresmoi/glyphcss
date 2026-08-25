@@ -5,30 +5,36 @@
  * the disabled-state tooltip's reason can never drift into a wrong guess the
  * way the static-export button's did (see `packages/effects/src/staticExport.ts`'s
  * `glyphFieldSynthStaticExportUnsupportedReason` for that precedent) — the
- * structural checks below quote AGENTS.md's documented `colorEncoding`
- * no-op list verbatim, and the residual, content-dependent check calls
- * `glyphcss`'s own exported `isGlyphAtlasEncodable` predicate directly
- * against the actually-rendered stage `<pre>`, never a hand-maintained
- * mirror of its rules.
+ * structural checks below quote AGENTS.md's documented `colorEncoding` no-op
+ * list verbatim, and the residual, content-dependent check uses `glyphcss`'s
+ * own exported `isGlyphInFontAtlas` against the actually-rendered glyphs,
+ * never a hand-maintained mirror of its rules.
  *
- * Chicken-and-egg note: once a `<pre>` is ACTUALLY rendering
- * `colorEncoding: "atlas"` output, its DOM is zero-span PUA text — there is
- * no per-cell color left to read back out of it (see `fontAtlas.ts`'s PUA
- * mapping: a code point encodes a palette SLOT, not a color value, and the
- * DOM carries no per-character span to recover which slot). So this can only
- * be recomputed from a `"spans"` render. Every caller here follows the same
- * rule: recompute while the scene is rendering `"spans"`, and freeze the
- * last computed result once the caller switches to `"atlas"` — matching how
- * every other Dock `setEnabled` gate here already reads stable config state,
- * not a live per-frame simulation.
+ * ── The palette is no longer this file's problem ────────────────────────
+ *
+ * This used to derive a palette by scraping the `<pre>`'s per-cell colours,
+ * and to report "more than 31 distinct colors" as an unavailability reason.
+ * Both are gone. glyphcss quantizes: `createGlyphScene` derives and pools its
+ * own ≤31-slot palette (`render/paletteQuantize.ts`) from the real cell
+ * buffers, which it can see and this cannot. Colour COUNT is therefore no
+ * longer a reason for anything, and reporting it as one was the single thing
+ * keeping the control disabled on almost every page that ships.
+ *
+ * What is left is a purely structural question plus one content check —
+ * whether every rendered GLYPH has an outline in the checked-in atlas — and
+ * that check needs no colours at all. It reads `pre.textContent` through
+ * `decodeGlyphAtlasText`, which round-trips already-atlas-encoded PUA back to
+ * plain glyphs and passes anything else through untouched. So it gives the
+ * same answer whether the scene is currently rendering spans or atlas output,
+ * and the old "freeze the last known-good result once atlas is on" dance —
+ * forced by the fact that PUA text carries no readable per-cell colour — is
+ * no longer needed either.
  */
-import { GLYPH_FONT_ATLAS, isGlyphAtlasEncodable, isGlyphInFontAtlas } from "glyphcss";
+import { decodeGlyphAtlasText, isGlyphInFontAtlas } from "glyphcss";
 
 export interface GlyphAtlasAvailability {
   /** `null` when available; otherwise the real, user-facing reason it's not. */
   reason: string | null;
-  /** The palette to pass as `atlasPalette` when available; `undefined` otherwise. */
-  atlasPalette: string[] | undefined;
 }
 
 export interface GlyphAtlasGateInputs {
@@ -42,15 +48,13 @@ export interface GlyphAtlasGateInputs {
   solidWeightRampActive?: boolean;
 }
 
-const UNAVAILABLE = (reason: string): GlyphAtlasAvailability => ({ reason, atlasPalette: undefined });
+const UNAVAILABLE = (reason: string): GlyphAtlasAvailability => ({ reason });
 
 /**
- * Real availability check, run against the CURRENTLY rendered stage `<pre>`
- * (which must be in `"spans"` output — see the module doc). Structural gates
- * short-circuit first (cheap, and they're the same reasons
- * `isGlyphAtlasEncodable` would fail for internally); the residual
- * content-dependent gate parses the `<pre>`'s own rendered cells back into
- * `(char, color)` buffers and hands them straight to `isGlyphAtlasEncodable`.
+ * Real availability check, run against the currently rendered stage `<pre>`.
+ * Structural gates short-circuit first (cheap, and they're the same reasons
+ * the encoder would refuse internally); the residual content gate asks only
+ * whether the render's glyphs are in the atlas.
  */
 export function computeGlyphAtlasAvailability(
   pre: HTMLElement | null,
@@ -68,104 +72,14 @@ export function computeGlyphAtlasAvailability(
   }
   if (!pre) return UNAVAILABLE("Nothing rendered yet.");
 
-  const parsed = parsePreGrid(pre);
-  if (!parsed) return UNAVAILABLE("Nothing rendered yet.");
-  const { chars, colors, cols, rows } = parsed;
+  const text = decodeGlyphAtlasText(pre.textContent ?? "");
+  if (text.trim().length === 0) return UNAVAILABLE("Nothing rendered yet.");
 
-  for (const ch of chars) {
-    if (ch !== " " && !isGlyphInFontAtlas(ch)) {
+  for (const ch of text) {
+    if (ch === " " || ch === "\n") continue;
+    if (!isGlyphInFontAtlas(ch)) {
       return UNAVAILABLE(`Atlas color encoding doesn't cover this render's "${ch}" glyph.`);
     }
   }
-
-  const palette: string[] = [];
-  const seen = new Set<string>();
-  for (let i = 0; i < chars.length; i++) {
-    const c = colors[i];
-    if (chars[i] === " " || c === null) continue;
-    if (!seen.has(c)) {
-      seen.add(c);
-      palette.push(c);
-      if (palette.length > GLYPH_FONT_ATLAS.maxPaletteSize) {
-        return UNAVAILABLE(
-          `This render uses more than ${GLYPH_FONT_ATLAS.maxPaletteSize} distinct colors — over the atlas's palette budget.`,
-        );
-      }
-    }
-  }
-  if (palette.length === 0) return UNAVAILABLE("This render has no color to encode.");
-
-  if (!isGlyphAtlasEncodable(chars, colors, cols, rows, palette)) {
-    return UNAVAILABLE("This render's glyphs or colors aren't fully covered by the color-font atlas.");
-  }
-  return { reason: null, atlasPalette: palette };
-}
-
-interface ParsedPreGrid {
-  chars: string[];
-  colors: (string | null)[];
-  cols: number;
-  rows: number;
-}
-
-/**
- * Parse a `"spans"`-mode stage `<pre>`'s rendered cells back into the
- * `(char, color)` buffers `isGlyphAtlasEncodable` expects — same recursive
- * span-walk shape as the gallery's own `parseStripCells`
- * (`GalleryWorkbench/GalleryWorkbench.tsx`), generalized to the WHOLE grid
- * (no trim) since this needs real `cols`/`rows` to match cell indices.
- */
-function parsePreGrid(pre: HTMLElement): ParsedPreGrid | null {
-  const lines: { ch: string; color: string | null }[][] = [[]];
-  let row = lines[0]!;
-  const visit = (node: ChildNode, color: string | null): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.nodeValue ?? "";
-      for (const ch of text) {
-        if (ch === "\n") {
-          row = [];
-          lines.push(row);
-        } else {
-          row.push({ ch, color });
-        }
-      }
-      return;
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      const next = el.style?.color ? rgbToHex(el.style.color) : color;
-      el.childNodes.forEach((child) => visit(child, next));
-    }
-  };
-  pre.childNodes.forEach((child) => visit(child, null));
-
-  const rows = lines.length;
-  let cols = 0;
-  for (const r of lines) if (r.length > cols) cols = r.length;
-  if (cols === 0 || rows === 0) return null;
-
-  const chars: string[] = [];
-  const colors: (string | null)[] = [];
-  for (const r of lines) {
-    for (let c = 0; c < cols; c++) {
-      const cell = r[c];
-      const ch = cell?.ch ?? " ";
-      chars.push(ch);
-      colors.push(ch === " " ? null : cell!.color);
-    }
-  }
-  return { chars, colors, cols, rows };
-}
-
-/**
- * `el.style.color` normalizes an authored `#rrggbb` to `rgb(r, g, b)` when
- * read back from the DOM — convert back so it matches the `#rrggbb` strings
- * glyphcss's own color pipeline uses everywhere (`isGlyphAtlasEncodable` does
- * an exact string match, and `atlasPalette` entries must be `#rrggbb`).
- */
-function rgbToHex(color: string): string | null {
-  const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(color);
-  if (!m) return color.startsWith("#") ? color.toLowerCase() : null;
-  const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
-  return `#${hex(m[1]!)}${hex(m[2]!)}${hex(m[3]!)}`;
+  return { reason: null };
 }

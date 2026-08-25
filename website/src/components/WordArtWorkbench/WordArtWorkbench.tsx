@@ -375,13 +375,11 @@ export function WordArtWorkbench() {
   const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charMode"));
   const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hiddenLines"));
   // `colorEncoding: "atlas"` (zero-`<span>` colour-font output). The user's
-  // on/off preference is persisted; `atlasPalette`/`atlasReason` are NOT —
-  // they're derived at runtime from the live rendered output (see
-  // `AtlasAvailabilityWatcher` below and `../../lib/glyphAtlasAvailability.ts`'s
-  // module doc for the "recompute only while genuinely spans-encoded, freeze
-  // otherwise" rule).
+  // on/off preference is persisted; `atlasReason` is NOT — it's derived at
+  // runtime from the live rendered output (see `AtlasAvailabilityWatcher`
+  // below). The palette itself is never page state: `createGlyphScene`
+  // derives and pools it internally.
   const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">(() => qs("colorEncoding"));
-  const [atlasPalette, setAtlasPalette] = useState<string[] | undefined>(undefined);
   const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [lightIntensity, setLightIntensity] = useState(() => qs("lightIntensity"));
   const [ambient, setAmbient] = useState(() => qs("ambient"));
@@ -1050,9 +1048,7 @@ export function WordArtWorkbench() {
             charMode={charMode}
             hiddenLines={hiddenLines}
             colorEncoding={colorEncoding}
-            atlasPalette={atlasPalette}
             onAtlasAvailability={setAtlasReason}
-            onAtlasPalette={setAtlasPalette}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -1273,11 +1269,9 @@ interface StageProps {
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
   colorEncoding: "spans" | "atlas";
-  atlasPalette: string[] | undefined;
   /** Reports the real reason `colorEncoding: "atlas"` isn't available right
    *  now (`null` when it is) — see `AtlasAvailabilityWatcher` below. */
   onAtlasAvailability: (reason: string | null) => void;
-  onAtlasPalette: (palette: string[] | undefined) => void;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1328,22 +1322,16 @@ function DensityFit({ density }: { density: number }) {
 }
 
 /**
- * Keeps the "atlas available?" reason (and, when available, the palette to
- * render with) current by watching the stage `<pre>` directly — a
- * `MutationObserver`, not a dependency list — mirroring `SynthWorkbench`'s
- * own watcher. Mounted as a scene child (same `useGlyphSceneContext` seam
- * `DensityFit` uses) so it has imperative access to the real `<pre>` DOM
- * `@glyphcss/react`'s declarative `<GlyphScene>` doesn't otherwise expose.
- * Skips recompute whenever the `<pre>` is CURRENTLY zero-span with real
- * content — genuinely atlas-encoded PUA text has no per-cell colour left to
- * parse back out (see `glyphAtlasAvailability.ts`'s module doc) — so a
- * working atlas render freezes its own last-known-good palette instead of
- * misreading its own PUA glyphs as "not covered" and flapping back to spans.
+ * Keeps the "atlas available?" reason current by watching the stage `<pre>`
+ * directly — a `MutationObserver`, not a dependency list — mirroring
+ * `SynthWorkbench`'s own watcher. Mounted as a scene child (same
+ * `useGlyphSceneContext` seam `DensityFit` uses) so it has imperative access
+ * to the real `<pre>` DOM `@glyphcss/react`'s declarative `<GlyphScene>`
+ * doesn't otherwise expose.
  */
-function AtlasAvailabilityWatcher({ charMode, onAvailability, onPalette }: {
+function AtlasAvailabilityWatcher({ charMode, onAvailability }: {
   charMode: WordArtCharMode;
   onAvailability: (reason: string | null) => void;
-  onPalette: (palette: string[] | undefined) => void;
 }) {
   const { sceneRef } = useGlyphSceneContext();
   useEffect(() => {
@@ -1351,22 +1339,17 @@ function AtlasAvailabilityWatcher({ charMode, onAvailability, onPalette }: {
     if (!scene) return;
     const pre = scene.output;
     const recompute = (): void => {
-      const hasContent = (pre.textContent ?? "").trim().length > 0;
-      const hasSpans = pre.querySelector("span") !== null;
-      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-      const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode });
-      onAvailability(result.reason);
-      onPalette(result.atlasPalette);
+      onAvailability(computeGlyphAtlasAvailability(pre, { useColors: true, charMode }).reason);
     };
     recompute();
     const observer = new MutationObserver(recompute);
     observer.observe(pre, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
-  }, [sceneRef, charMode, onAvailability, onPalette]);
+  }, [sceneRef, charMode, onAvailability]);
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, colorEncoding, atlasPalette, onAtlasAvailability, onAtlasPalette, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, colorEncoding, onAtlasAvailability, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const draggingRef = useRef(false);
@@ -1445,13 +1428,12 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
           charMode={charMode}
           hiddenLines={hiddenLines}
           colorEncoding={colorEncoding}
-          atlasPalette={atlasPalette}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
           <DensityFit density={density} />
-          <AtlasAvailabilityWatcher charMode={charMode} onAvailability={onAtlasAvailability} onPalette={onAtlasPalette} />
+          <AtlasAvailabilityWatcher charMode={charMode} onAvailability={onAtlasAvailability} />
           {/* Font mesh is Z-up: local Z = text height, local Y = text width,
               local X = extrusion depth (see extrude.ts). The camera is tilted
               `rotX={90}` (instead of the flat `rotX={0}` a screen-plane-authored

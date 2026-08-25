@@ -198,6 +198,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     import type { GlyphEffectLayerHandle } from "glyphcss";
     import { GlyphEffectCatalog } from "@glyphcss/effects";
     import { buildFlatQuad, buildShapePlates, sampleImageToGrid } from "../../lib/image-relief";
+    import { extractAsciiFromPre, glyphAtlasCellsFromPre } from "../../lib/asciiClipboard";
     import {
       createExampleQuerySync,
       readQueryBoolean,
@@ -299,13 +300,11 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     // Head-on orthographic camera — the plates are depth-staged for shadows
     // and effects, not for orbiting. The view stays flat like the image.
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
-    let atlasPalette: string[] | undefined;
     const scene = createGlyphScene(host, {
       mode: "solid",
       useColors: ctl.color.checked,
       glyphPalette: paletteSel.value,
       colorEncoding: colorEncodingSel.value as "spans" | "atlas",
-      atlasPalette,
       autoSize: true,
       doubleSided: true,
       camera,
@@ -332,22 +331,11 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     }));
     querySync.write();
 
-    // Keeps `atlasPalette`/the "color encoding" select's disabled state
-    // current by watching the stage `<pre>` directly (a `MutationObserver`,
-    // not a dependency list) — same pattern /synth, /wordart, and the
-    // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
-    // zero-span with real content — genuinely atlas-encoded PUA text has no
-    // per-cell colour left to parse back out (see
-    // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
-    // atlas render freezes its own last-known-good palette instead of
-    // misreading its own PUA glyphs as "not covered" and flapping back.
+    // Keeps the "color encoding" select's disabled state current by watching
+    // the stage `<pre>` directly (a `MutationObserver`, not a dependency
+    // list) — same pattern /synth, /wordart, and the gallery use.
     function recomputeAtlasAvailability(): void {
-      const pre = scene.output;
-      const hasContent = (pre.textContent ?? "").trim().length > 0;
-      const hasSpans = pre.querySelector("span") !== null;
-      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-      const result = computeGlyphAtlasAvailability(pre, { useColors: ctl.color.checked, charMode: "ascii" });
-      atlasPalette = result.atlasPalette;
+      const result = computeGlyphAtlasAvailability(scene.output, { useColors: ctl.color.checked, charMode: "ascii" });
       colorEncodingSel.disabled = result.reason !== null;
       colorEncodingSel.title = result.reason === null
         ? "Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
@@ -356,7 +344,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     recomputeAtlasAvailability();
     new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
     colorEncodingSel.addEventListener("change", () => {
-      scene.setOptions({ colorEncoding: colorEncodingSel.value as "spans" | "atlas", atlasPalette });
+      scene.setOptions({ colorEncoding: colorEncodingSel.value as "spans" | "atlas" });
       querySync.schedule();
     });
 
@@ -635,13 +623,40 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     window.addEventListener("resize", () => { if (meshHandle) requestAnimationFrame(fit); });
 
     // Copy both plain text and rich HTML (color survives a paste).
+    // Under `colorEncoding: "atlas"` the `<pre>` is PUA code points naming
+    // palette slots, so neither `textContent` nor `innerHTML` is copyable as
+    // is: the text pastes as unreadable private-use characters and the markup
+    // carries no per-cell colour at all. Both flavours are rebuilt from the
+    // decoded cells instead — `glyphAtlasCellsFromPre` resolves each slot
+    // through the scene's own `@font-palette-values` block, so the coloured
+    // paste survives the atlas rather than degrading to plain text.
     copyBtn.addEventListener("click", async () => {
       const pre = scene.output;
-      const text = pre.textContent ?? "";
+      const atlasRows = glyphAtlasCellsFromPre(pre);
+      const text = extractAsciiFromPre(pre) ?? "";
       const cs = getComputedStyle(pre);
+      const escapeHtml = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const body = atlasRows
+        ? atlasRows.map((row) => {
+            let out = "";
+            let runColor: string | undefined;
+            let runText = "";
+            const flush = () => {
+              if (!runText) return;
+              out += runColor ? `<span style="color:${runColor}">${escapeHtml(runText)}</span>` : escapeHtml(runText);
+              runText = "";
+            };
+            for (const cell of row) {
+              if (cell.color !== runColor) { flush(); runColor = cell.color; }
+              runText += cell.ch;
+            }
+            flush();
+            return out;
+          }).join("\n")
+        : pre.innerHTML;
       const html =
         `<pre style="font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace;` +
-        `white-space:pre;font-size:${cs.fontSize};line-height:${cs.lineHeight};background:#04060b;color:#e8edf2;margin:0;padding:10px">${pre.innerHTML}</pre>`;
+        `white-space:pre;font-size:${cs.fontSize};line-height:${cs.lineHeight};background:#04060b;color:#e8edf2;margin:0;padding:10px">${body}</pre>`;
       const done = () => { copyBtn.textContent = "copied!"; setTimeout(() => (copyBtn.textContent = "copy"), 1200); };
       try {
         const CI = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;

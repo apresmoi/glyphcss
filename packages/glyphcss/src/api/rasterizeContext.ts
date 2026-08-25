@@ -6,6 +6,7 @@ import type {
   TextureSampler,
 } from "@glyphcss/core";
 import type { TransformCells, GlyphColorEncoding } from "../render/cells";
+import type { GlyphAtlasPaletteInput, GlyphAtlasPaletteSource } from "../render/paletteQuantize";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
@@ -191,13 +192,14 @@ export interface RasterizeContextOptions {
    *
    * Requires {@link atlasPalette}: without one, `"atlas"` degrades to
    * `"spans"` for that render (no palette to encode against — a
-   * configuration gap, not an error, since the palette-derivation strategy
-   * is a separate, later concern). When a palette IS supplied but a cell's
-   * glyph or colour isn't representable in the atlas (an out-of-atlas
-   * `glyphs` ramp character, or a colour the palette doesn't cover), the
-   * WHOLE render falls back to `"spans"` for that frame — see
-   * `isGlyphAtlasEncodable` (`render/cells.ts`) for why this is a per-scene,
-   * not per-cell, decision.
+   * configuration gap, not an error). A render with MORE distinct colours
+   * than the palette has slots is not a fallback case: the encoder quantizes,
+   * assigning each colour its nearest slot by redmean distance
+   * (`render/paletteQuantize.ts`). What still forces the WHOLE render back to
+   * `"spans"` for that frame is a cell the atlas structurally cannot carry —
+   * an out-of-atlas `glyphs` ramp character, or a non-`#rrggbb`/absent colour
+   * on a non-blank cell. See `isGlyphAtlasEncodable` (`render/cells.ts`) for
+   * why this is a per-scene, not per-cell, decision.
    *
    * Documented no-op (`"spans"` behavior regardless of this option) in every
    * case a `<span>`-per-cell representation is structurally required:
@@ -213,14 +215,20 @@ export interface RasterizeContextOptions {
    * Palette this render's `colorEncoding: "atlas"` cells are encoded
    * against — an ordered list of `#rrggbb` colors, each entry's POSITION
    * (never its value) becoming the PUA mapping's palette-slot axis (see
-   * `render/fontAtlas.ts`). Deriving this palette (global quantization, a
-   * pooled orbit palette, periodic refresh, a precomputed hue-rotation bank
-   * — anything beyond "here is the array") is explicitly out of scope for
-   * this option: it is an injected input, not a policy this layer
-   * implements. `undefined` (default) means `colorEncoding: "atlas"` has
+   * `render/fontAtlas.ts`). Cells whose colour is not an exact entry are
+   * encoded to their NEAREST entry, so this bounds the render's colour
+   * resolution rather than gating whether it can be encoded at all.
+   *
+   * May instead be a {@link GlyphAtlasPaletteSource} — a stateful derivation
+   * that sees each grid and returns the palette to encode it against. That is
+   * how a live scene gets a pooled, periodically refreshed palette without
+   * this layer owning the policy (`render/paletteQuantize.ts`'s
+   * `createGlyphAtlasPaletteQuantizer`; `createGlyphScene` supplies one
+   * automatically when `colorEncoding: "atlas"` is set with no explicit
+   * palette). `undefined` (default) means `colorEncoding: "atlas"` has
    * nothing to encode against and degrades to `"spans"`.
    */
-  atlasPalette?: readonly string[];
+  atlasPalette?: GlyphAtlasPaletteInput;
   /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
@@ -418,8 +426,8 @@ export interface RasterizeContext {
   colorTolerance: number;
   /** Final-string encode strategy — see {@link RasterizeContextOptions.colorEncoding}. Always `"spans"` or `"atlas"`, never `undefined`. */
   colorEncoding: GlyphColorEncoding;
-  /** Palette `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
-  atlasPalette?: readonly string[];
+  /** Palette (or palette source) `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
+  atlasPalette?: GlyphAtlasPaletteInput;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;

@@ -213,9 +213,9 @@ describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces color
 });
 
 // `colorEncoding` (glyphcss's `"spans" | "atlas"` scene option) — the "E"
-// token, appended after `colorTolerance`/`paramsPacked`. `atlasPalette`
-// itself is never persisted (derived at runtime — see
-// website/src/lib/glyphAtlasAvailability.ts), only this on/off preference.
+// token, appended after `colorTolerance`/`paramsPacked`. The atlas palette
+// itself is never persisted (glyphcss derives and pools it internally), only
+// this on/off preference.
 describe("colorEncoding round-trips", () => {
   it("round-trips \"atlas\"", () => {
     const patch = { ...representativePatch(), colorEncoding: "atlas" as const };

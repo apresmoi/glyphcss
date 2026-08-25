@@ -13,6 +13,7 @@ import {
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid, GlyphColorEncoding } from "./cells";
+import { resolveGlyphAtlasPaletteInput, type GlyphAtlasPaletteInput } from "./paletteQuantize";
 
 /**
  * Render the scene to a string.
@@ -3323,12 +3324,13 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
  *
  * `colorEncoding`/`atlasPalette` (see `RasterizeContextOptions.colorEncoding`)
  * add a THIRD possible output ahead of both branches: when `"atlas"` is
- * requested, a palette is supplied, and every cell's glyph+colour is in the
- * atlas ({@link isGlyphAtlasEncodable}), this returns
- * {@link encodeGlyphAtlas}'s zero-span PUA text instead. The default
+ * requested, a palette resolves (either a fixed array or the scene's pooled
+ * quantizer, which derives one from these very buffers), and every cell's
+ * glyph+colour is atlas-encodable ({@link isGlyphAtlasEncodable}), this
+ * returns {@link encodeGlyphAtlas}'s zero-span PUA text instead. The default
  * (`colorEncoding` unset/`"spans"`) short-circuits on the very first
- * condition, so both existing branches below are completely unaffected —
- * byte-identical cost and output.
+ * condition — no palette resolution, no quantization — so both existing
+ * branches below are completely unaffected: byte-identical cost and output.
  */
 function solidBufToString(
   glyphBuf: string[],
@@ -3338,16 +3340,13 @@ function solidBufToString(
   safe = false,
   colorTolerance = 0,
   colorEncoding: GlyphColorEncoding = "spans",
-  atlasPalette?: readonly string[],
+  atlasPalette?: GlyphAtlasPaletteInput,
 ): string {
-  if (
-    colorEncoding === "atlas" &&
-    colorBuf &&
-    atlasPalette &&
-    atlasPalette.length > 0 &&
-    isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, atlasPalette)
-  ) {
-    return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, atlasPalette);
+  if (colorEncoding === "atlas" && colorBuf && atlasPalette) {
+    const palette = resolveGlyphAtlasPaletteInput(atlasPalette, glyphBuf, colorBuf, cols * rows);
+    if (palette && palette.length > 0 && isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, palette)) {
+      return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette);
+    }
   }
   if (safe) {
     return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null, null, colorTolerance);
@@ -3881,9 +3880,9 @@ function stampToGlyphs(
   junctionMask: Uint8Array | null = null,
   colorTolerance = 0,
   colorEncoding: GlyphColorEncoding = "spans",
-  atlasPalette?: readonly string[],
+  atlasPalette?: GlyphAtlasPaletteInput,
 ): string {
-  if (colorEncoding === "atlas" && colorBuf && atlasPalette && atlasPalette.length > 0) {
+  if (colorEncoding === "atlas" && colorBuf && atlasPalette) {
     const n = cols * rows;
     const atlasChar = new Array<string>(n);
     const atlasColor = new Array<string | null>(n);
@@ -3900,8 +3899,9 @@ function stampToGlyphs(
         }
       }
     }
-    if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows, atlasPalette)) {
-      return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, atlasPalette);
+    const palette = resolveGlyphAtlasPaletteInput(atlasPalette, atlasChar, atlasColor, n);
+    if (palette && palette.length > 0 && isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows, palette)) {
+      return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette);
     }
   }
   // Coalesce same-color consecutive non-empty cells into one <span> per run.

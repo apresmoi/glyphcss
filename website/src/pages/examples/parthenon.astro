@@ -764,7 +764,6 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // only URL state — so this control follows that same existing
       // pattern rather than introducing the first persisted control here.
       let colorEncoding: "spans" | "atlas" = "spans";
-      let atlasPalette: string[] | undefined;
       const scene = createGlyphScene(host, {
         camera,
         autoSize: true,
@@ -772,7 +771,6 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         useColors: true,
         glyphPalette: "default",
         colorEncoding,
-        atlasPalette,
         doubleSided: true,
         directionalLight: { direction: [0.65, -0.25, 0.55], intensity: 1.3, color: "#eafff0" },
         ambientLight: { intensity: 0.62, color: "#bdeccb" },
@@ -1163,23 +1161,12 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
       });
 
-      // Keeps `atlasPalette`/the "color encoding" select's disabled state
-      // current by watching the stage `<pre>` directly (a `MutationObserver`,
-      // not a dependency list) — same pattern /synth, /wordart, and the
-      // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
-      // zero-span with real content — genuinely atlas-encoded PUA text has no
-      // per-cell colour left to parse back out (see
-      // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
-      // atlas render freezes its own last-known-good palette instead of
-      // misreading its own PUA glyphs as "not covered" and flapping back.
+      // Keeps the "color encoding" select's disabled state current by watching
+      // the stage `<pre>` directly (a `MutationObserver`, not a dependency
+      // list) — same pattern /synth, /wordart, and the gallery use.
       const colorEncodingSel = $("colorEncoding") as HTMLSelectElement | null;
       function recomputeAtlasAvailability(): void {
-        const pre = scene.output;
-        const hasContent = (pre.textContent ?? "").trim().length > 0;
-        const hasSpans = pre.querySelector("span") !== null;
-        if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
-        const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode: "ascii" });
-        atlasPalette = result.atlasPalette;
+        const result = computeGlyphAtlasAvailability(scene.output, { useColors: true, charMode: "ascii" });
         if (colorEncodingSel) {
           colorEncodingSel.disabled = result.reason !== null;
           colorEncodingSel.title = result.reason === null
@@ -1191,7 +1178,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
       colorEncodingSel?.addEventListener("change", () => {
         colorEncoding = colorEncodingSel.value as "spans" | "atlas";
-        scene.setOptions({ colorEncoding, atlasPalette });
+        scene.setOptions({ colorEncoding });
       });
 
       // Style: "matrix" (green mesh + rain) vs "marble" (plain solid stone
