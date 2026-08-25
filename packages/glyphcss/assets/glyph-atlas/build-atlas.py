@@ -12,6 +12,13 @@ measurement this follows):
 
   - full printable ASCII (0x20..0x7E) -- covers any free-form field-synth
     `glyphs` ramp typed in ASCII, plus every ASCII-only named palette.
+  - the 24 Greek capital letters (U+0391..U+03A9, excluding the unassigned
+    U+03A2 slot between Rho and Sigma) -- not just the 8 an individual scene
+    happens to use (e.g. `/examples/parthenon`'s "ΠΑΡΘΕΝΩΝΑΘΗΝΑ" ramp): the
+    full alphabet is the useful general unit, and per the BMP PUA headroom
+    check in this module's own `main()` output it's free (166 -> 190 glyphs
+    still leaves `maxPaletteSize` capped by `MAX_PALETTE_SIZE_CAP`, not by
+    the BMP PUA budget).
   - the SOLID ramp of every named `WIREFRAME_PALETTES` entry (solid mode's
     `glyphPalette` can select any of them).
   - the wireframe THIN/NORMAL/CORE tiers of only the "default" and "ascii"
@@ -57,6 +64,12 @@ FAMILY = "GlyphCssAtlas"
 
 ASCII_PRINTABLE = "".join(chr(c) for c in range(0x20, 0x7F))
 
+# Greek capital alphabet, U+0391 (Alpha) .. U+03A9 (Omega). U+03A2 is an
+# unassigned Unicode code point (there is no separate capital final-sigma --
+# only lowercase sigma has the medial/final sigma/varsigma distinction), so
+# it's skipped rather than probed against the source face.
+GREEK_CAPITALS = "".join(chr(c) for c in range(0x0391, 0x03AA) if c != 0x03A2)
+
 DEFAULT_RAMP = " .:-=+*#%@"
 
 QUAKE_DETAIL_SOLID = list(reversed(
@@ -88,6 +101,7 @@ WIREFRAME_TIER_PALETTES = ("default", "ascii")
 def universal_glyph_set(src_cmap):
     chars = set(ASCII_PRINTABLE)
     chars.add(" ")  # kept in the set logically; handled specially at encode time
+    chars.update(GREEK_CAPITALS)
     for palette in WIREFRAME_PALETTES.values():
         chars.update(palette["solid"])
     for name in WIREFRAME_TIER_PALETTES:
