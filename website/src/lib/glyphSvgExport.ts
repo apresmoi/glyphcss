@@ -1,24 +1,19 @@
 /**
  * Shared "export the rendered glyph output as SVG" support — the sibling of
- * `asciiClipboard.ts`'s "Copy ASCII". `/synth` and `/wordart` both mount a
- * "Download SVG" button next to "Copy ASCII"; this file is the one
- * implementation both call into, so a future page with the same export bar
- * doesn't need its own.
+ * `asciiClipboard.ts`'s "Copy ASCII" and `glyphAnsiExport.ts`'s "Copy ANSI" /
+ * "Download .ans". `/synth` and `/wordart` both mount a "Download SVG"
+ * button next to those; this file is the one implementation both call into,
+ * so a future page with the same export bar doesn't need its own.
  *
- * ── Per-cell representation, not per-encoding ────────────────────────────
- *
- * `colorEncoding: "atlas"` output carries no `<span>`s at all (PUA code
- * points naming palette slots — see `asciiClipboard.ts`'s own doc comment),
- * so a naive implementation that walks `<span>` elements would silently
- * produce an EMPTY svg under atlas. Every function here instead goes
- * through one shared per-cell grid ({@link SvgGrid}):
- * {@link glyphSvgGridFromPre} decodes atlas output through
- * `glyphAtlasCellsFromPre` when a palette is present, and otherwise walks
- * the `<pre>`'s DOM directly (a bare text node is an uncolored cell, a
- * `<span style="color:…;background-color:…">` supplies both to every
- * character inside it — the same `(fg, bg)` pair `encodeGlyphBuffersDual`
- * (halfblock/quadrant) produces, so those two-tone cells round-trip through
- * this file too, as a `<rect>` layer beneath the `<text>`).
+ * The per-cell grid + row-run merge this builds on
+ * ({@link GlyphExportCell}/{@link GlyphExportGrid}/{@link GlyphExportRun})
+ * lives in `glyphExportGrid.ts`, shared with `glyphAnsiExport.ts` — both
+ * exporters turn the SAME merged run into a different output (a
+ * `<text>`/`<rect>` pair here, an escape sequence there), so decoding the
+ * `<pre>` and merging adjacent same-`(color,background)` cells only happens
+ * once. `SvgCell`/`SvgGrid`/`SvgRun` below are this file's own names for
+ * those shared types, kept so this module's public surface (and the
+ * existing test file) didn't need to change shape when the grid moved out.
  *
  * ── Why `textLength` ──────────────────────────────────────────────────────
  *
@@ -47,27 +42,23 @@
  * `metrics.defaultColor` as its fill, so a legitimately uncolored glyph
  * (e.g. a `useColors:false` render) is never silently dropped.
  */
-import { glyphAtlasCellsFromPre, trimTrailingWhitespacePerLine } from "./asciiClipboard";
+import { trimTrailingWhitespacePerLine } from "./asciiClipboard";
+import {
+  glyphExportGridFromPre,
+  glyphExportRuns,
+  type GlyphExportCell,
+  type GlyphExportGrid,
+  type GlyphExportRun,
+} from "./glyphExportGrid";
 
 /** One decoded cell of the shared grid: glyph, foreground fill, background fill. */
-export interface SvgCell {
-  ch: string;
-  color: string | null;
-  background: string | null;
-}
+export type SvgCell = GlyphExportCell;
 
 /** Row-major per-cell grid — the shared substrate for both `colorEncoding`s. */
-export type SvgGrid = SvgCell[][];
+export type SvgGrid = GlyphExportGrid;
 
 /** A merged run of adjacent same-color, same-background cells within one row. */
-export interface SvgRun {
-  row: number;
-  col: number;
-  text: string;
-  charCount: number;
-  color: string | null;
-  background: string | null;
-}
+export type SvgRun = GlyphExportRun;
 
 export interface GlyphSvgMetrics {
   cellWidthPx: number;
@@ -102,42 +93,7 @@ function round(n: number): number {
  * so no special-casing is needed for a run that happens to span more than
  * one text node.
  */
-export function glyphSvgGridFromPre(pre: HTMLElement | null): SvgGrid | null {
-  if (!pre) return null;
-  const atlasRows = glyphAtlasCellsFromPre(pre);
-  if (atlasRows) {
-    return atlasRows.map((row) => row.map((c) => ({ ch: c.ch, color: c.color ?? null, background: null })));
-  }
-  if (!(pre.textContent ?? "").trim()) return null;
-
-  const rows: SvgCell[][] = [[]];
-  let row = rows[0]!;
-  const pushRun = (text: string, color: string | null, background: string | null) => {
-    const lines = text.split("\n");
-    lines.forEach((line, i) => {
-      for (const ch of line) row.push({ ch, color, background });
-      if (i < lines.length - 1) {
-        row = [];
-        rows.push(row);
-      }
-    });
-  };
-  pre.childNodes.forEach((node) => {
-    if (node.nodeType === 3 /* Node.TEXT_NODE */) {
-      pushRun(node.nodeValue ?? "", null, null);
-    } else if (node.nodeType === 1 /* Node.ELEMENT_NODE */) {
-      const el = node as HTMLElement;
-      pushRun(el.textContent ?? "", el.style.color || null, el.style.backgroundColor || null);
-    }
-  });
-  return rows;
-}
-
-function trimRowTrailingWhitespace(row: SvgCell[]): SvgCell[] {
-  let end = row.length;
-  while (end > 0 && (row[end - 1]!.ch === " " || row[end - 1]!.ch === "\t")) end--;
-  return row.slice(0, end);
-}
+export const glyphSvgGridFromPre = glyphExportGridFromPre;
 
 /**
  * Merge each row's adjacent same-`(color, background)` cells into runs.
@@ -145,24 +101,7 @@ function trimRowTrailingWhitespace(row: SvgCell[]): SvgCell[] {
  * `trimTrailingWhitespacePerLine`); leading whitespace survives as the
  * first run's own `col` offset, exactly as the art's own left offset.
  */
-export function glyphSvgRuns(grid: SvgGrid): SvgRun[][] {
-  return grid.map((rawRow, row) => {
-    const cells = trimRowTrailingWhitespace(rawRow);
-    const runs: SvgRun[] = [];
-    let current: SvgRun | null = null;
-    for (let col = 0; col < cells.length; col++) {
-      const cell = cells[col]!;
-      if (current && current.color === cell.color && current.background === cell.background) {
-        current.text += cell.ch;
-        current.charCount++;
-      } else {
-        current = { row, col, text: cell.ch, charCount: 1, color: cell.color, background: cell.background };
-        runs.push(current);
-      }
-    }
-    return runs;
-  });
-}
+export const glyphSvgRuns = glyphExportRuns;
 
 const isBlankRun = (run: SvgRun): boolean =>
   run.color === null && run.background === null && /^[ \t]*$/.test(run.text);

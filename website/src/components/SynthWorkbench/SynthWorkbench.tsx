@@ -30,6 +30,7 @@ import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useTog
 import { SynthCodePanel } from "./SynthCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { downloadGlyphAnsi, glyphAnsiFromPre } from "../../lib/glyphAnsiExport";
 import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
 import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
@@ -533,6 +534,41 @@ export default function SynthWorkbench() {
     setTimeout(() => setSvgState("idle"), 1500);
   }, [shape]);
 
+  // "Copy ANSI" / "Download .ans" (bottom-left export bar, next to "Download
+  // SVG") ship the currently rendered glyph output as ANSI truecolour escape
+  // text — glyphcss's render IS text, and coloured text already has a
+  // native colour format (ANSI), so this is a more direct export than SVG's
+  // graphics-container wrapping. Both a clipboard and a file action are
+  // offered, same as Copy-ASCII/Download-SVG: a terminal artifact is most
+  // useful as a file you `cat`, but copy is one click for pasting into a
+  // terminal directly. Same `copyState`/`handleCopyAscii` idiom throughout.
+  const [copyAnsiState, setCopyAnsiState] = useState<"idle" | "copied" | "error">("idle");
+  const handleCopyAnsi = useCallback(async () => {
+    const pre = hostRef.current?.querySelector("pre.glyph-output") as HTMLElement | null;
+    const ansi = glyphAnsiFromPre(pre);
+    if (ansi === null) {
+      setCopyAnsiState("error");
+      setTimeout(() => setCopyAnsiState("idle"), 1500);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(ansi);
+      setCopyAnsiState("copied");
+    } catch {
+      setCopyAnsiState("error");
+    }
+    setTimeout(() => setCopyAnsiState("idle"), 1500);
+  }, []);
+
+  const [downloadAnsiState, setDownloadAnsiState] = useState<"idle" | "downloaded" | "error">("idle");
+  const handleDownloadAnsi = useCallback(() => {
+    const pre = hostRef.current?.querySelector("pre.glyph-output") as HTMLElement | null;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ok = downloadGlyphAnsi(pre, `glyphcss-synth-${shape}-${stamp}.ans`);
+    setDownloadAnsiState(ok ? "downloaded" : "error");
+    setTimeout(() => setDownloadAnsiState("idle"), 1500);
+  }, [shape]);
+
   const snapshotCamera = useCallback(() => {
     const camera = cameraRef.current;
     if (camera) setCameraSnapshot({ rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom });
@@ -848,6 +884,22 @@ export default function SynthWorkbench() {
             </button>
             <button
               type="button"
+              className="gw-code-panel__action"
+              onClick={handleCopyAnsi}
+              title="Copy the rendered glyph output as ANSI truecolour escape text — paste straight into a terminal"
+            >
+              {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
+            </button>
+            <button
+              type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadAnsi}
+              title="Download the rendered glyph output as an ANSI (.ans) truecolour text file"
+            >
+              {downloadAnsiState === "downloaded" ? "Downloaded" : downloadAnsiState === "error" ? "Download failed" : "Download .ans"}
+            </button>
+            <button
+              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
@@ -867,6 +919,10 @@ export default function SynthWorkbench() {
               copyAsciiState={copyState}
               onDownloadSvg={handleDownloadSvg}
               downloadSvgState={svgState}
+              onCopyAnsi={handleCopyAnsi}
+              copyAnsiState={copyAnsiState}
+              onDownloadAnsi={handleDownloadAnsi}
+              downloadAnsiState={downloadAnsiState}
             />
           )}
         </InstrumentMain>
