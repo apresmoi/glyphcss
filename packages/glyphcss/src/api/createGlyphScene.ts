@@ -32,10 +32,10 @@ import type {
 import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
-import { buildRasterizeContext, normalizeGlyphColorTolerance } from "./rasterizeContext";
+import { buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
-import { encodeCellGrid, encodeGlyphBuffers, type CellGrid, type TransformCells } from "../render/cells";
+import { encodeCellGridOutput, encodeGlyphBuffers, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
 import {
   resolveGlyphControlLineage,
   validateGlyphControlMetadata,
@@ -137,6 +137,32 @@ export interface GlyphSceneOptions {
    * the lineage. See {@link RasterizeContextOptions.colorTolerance}.
    */
   colorTolerance?: number;
+  /**
+   * `"spans"` (default) is today's HTML-span run-coalescing encode path —
+   * unset or `"spans"` is byte-identical to before this option existed.
+   * `"atlas"` encodes `(glyph, colour)` as Private Use Area code points
+   * against a checked-in COLR/CPAL colour font (see `render/fontAtlas.ts`),
+   * producing ONE text node with zero `<span>`s — see AGENTS.md's
+   * `colorEncoding` section for the measurement this follows. Requires
+   * {@link atlasPalette}; falls back to `"spans"` for a render with no
+   * palette, or whose glyphs/colors aren't fully covered by the atlas +
+   * palette (see `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene
+   * decision, never a per-cell mix. Documented no-op under `charMode:
+   * "halfblock"`/`"quadrant"`, an active `solidWeightRamp` selection,
+   * `glyphOutput: "semantic"`, and `useColors: false`. This scene does NOT
+   * auto-inject the atlas's `@font-face`/`@font-palette-values` CSS —
+   * inject `buildGlyphAtlasFontFaceCss()`/`buildGlyphAtlasFontPaletteValuesCss()`
+   * (`render/fontAtlas.ts`) yourself and set the `<pre>`'s `font-family`/
+   * `font-palette` to match. See {@link RasterizeContextOptions.colorEncoding}.
+   */
+  colorEncoding?: GlyphColorEncoding;
+  /**
+   * Palette `colorEncoding: "atlas"` cells encode against — an ordered
+   * `#rrggbb` array whose entries' POSITIONS (never their values) become the
+   * PUA mapping's palette-slot axis. Deriving this palette is explicitly out
+   * of scope for this option — see {@link RasterizeContextOptions.atlasPalette}.
+   */
+  atlasPalette?: readonly string[];
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -344,12 +370,13 @@ interface RenderCommit {
   retained: Map<string, RetainedGlyphEffectOutput> | null;
 }
 
-type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp"> & {
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp" | "atlasPalette"> & {
   shadow: GlyphShadowOptions | undefined;
   transformCells: TransformCells | undefined;
   sceneManifest: GlyphControlSceneManifest | undefined;
   dictionary: GlyphObjectDictionary | undefined;
   solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
+  atlasPalette: readonly string[] | undefined;
 };
 
 let nextMeshId = 1;
@@ -438,6 +465,8 @@ export function createGlyphScene(
     hiddenLines: opts.hiddenLines ?? "show",
     solidWeightRamp: opts.solidWeightRamp,
     colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
+    colorEncoding: normalizeGlyphColorEncoding(opts.colorEncoding),
+    atlasPalette: opts.atlasPalette,
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -578,7 +607,7 @@ export function createGlyphScene(
     for (const output of retainedEffectOutputs.values()) {
       testRenderStage("effect-compose");
       const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors, options.colorTolerance) });
+      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, options.colorEncoding, options.atlasPalette) });
     }
     commitRender({
       writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
@@ -886,6 +915,8 @@ export function createGlyphScene(
       hiddenLines: options.hiddenLines,
       solidWeightRamp: options.solidWeightRamp,
       colorTolerance: options.colorTolerance,
+      colorEncoding: options.colorEncoding,
+      atlasPalette: options.atlasPalette,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1337,6 +1368,8 @@ export function createGlyphScene(
           hiddenLines: options.hiddenLines,
           solidWeightRamp: options.solidWeightRamp,
           colorTolerance: options.colorTolerance,
+          colorEncoding: options.colorEncoding,
+          atlasPalette: options.atlasPalette,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1643,6 +1676,12 @@ export function createGlyphScene(
     // `sceneManifest`/`dictionary` use below, not a `!== undefined` guard.
     if ("solidWeightRamp" in partial) options.solidWeightRamp = partial.solidWeightRamp;
     if (partial.colorTolerance !== undefined) options.colorTolerance = normalizeGlyphColorTolerance(partial.colorTolerance);
+    if (partial.colorEncoding !== undefined) options.colorEncoding = normalizeGlyphColorEncoding(partial.colorEncoding);
+    // Unlike `colorTolerance` (whose "off" state is the numeric default `0`),
+    // `atlasPalette`'s "off" state IS `undefined` — same explicit
+    // "key present" check `solidWeightRamp` uses above, so clearing the
+    // palette (falling back to spans) is reachable through `setOptions`.
+    if ("atlasPalette" in partial) options.atlasPalette = partial.atlasPalette;
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

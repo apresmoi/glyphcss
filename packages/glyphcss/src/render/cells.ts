@@ -14,6 +14,8 @@
  * `<pre>`-written-once invariant (the hook runs pre-innerHTML).
  */
 
+import { GLYPH_FONT_ATLAS, glyphAtlasCodePoint, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
+
 /**
  * A rasterized glyph grid. Row-major, `idx = row * cols + col`. Buffers passed
  * to `transformCells` are callback-scoped; `rasterizeToCells` returns copies.
@@ -138,6 +140,20 @@ export interface CellGrid {
  * transform.
  */
 export type TransformCells = (grid: CellGrid) => CellGrid | void;
+
+/**
+ * `colorEncoding` — the two encode strategies a rasterized grid can become a
+ * `<pre>` string through. `"spans"` (default) is today's
+ * {@link encodeGlyphBuffers}/{@link encodeGlyphBuffersDual} run-coalescing
+ * path — unchanged, byte-identical. `"atlas"` is {@link encodeGlyphAtlas}: a
+ * PUA-code-point colour-font encoding that produces ONE text node with zero
+ * `<span>`s (see `fontAtlas.ts` for the mapping scheme and
+ * `bench/color-font-atlas.md` for the measurement this follows). Both
+ * encoders are permanent siblings — atlas does not replace spans, and every
+ * call site that reaches one of the four run-coalescers below picks between
+ * them per render, never mutating which one exists.
+ */
+export type GlyphColorEncoding = "spans" | "atlas";
 
 const cellIndexCache: {
   cols: number;
@@ -677,6 +693,163 @@ export function encodeGlyphBuffersDual(
     if (row < rows - 1) parts.push("\n");
   }
   return parts.join("");
+}
+
+/**
+ * Whether every non-blank cell in this grid can be encoded through the
+ * colour-font atlas: its glyph has an outline in `atlas` AND its colour is
+ * one of `palette`'s entries (exact string match — see `fontAtlas.ts`'s PUA
+ * mapping doc for why the code point only ever encodes the colour's POSITION
+ * in `palette`, never its value).
+ *
+ * This is a WHOLE-GRID decision, not per-cell, and that is deliberate: a
+ * mixed encoding would still need `<span>`s for whatever fell outside the
+ * atlas, which defeats the zero-span point of the atlas path entirely. So
+ * `colorEncoding: "atlas"` either encodes the ENTIRE render as one PUA text
+ * node, or the entire render falls back to {@link encodeGlyphBuffers}'s span
+ * encoding for that frame — never both in the same `<pre>`. The two failure
+ * modes this guards are structurally different but both real: field-synth's
+ * `glyphs` is a free-form user string (AGENTS.md), so a ramp character
+ * outside the checked-in universal set is expected, not a bug; a colour
+ * outside `palette` happens whenever the palette-derivation step (out of
+ * scope here — see AGENTS.md's `colorEncoding` section) hasn't actually
+ * quantized every emitted colour into its own bucket.
+ */
+export function isGlyphAtlasEncodable(
+  char: readonly string[],
+  color: readonly (string | null)[],
+  cols: number,
+  rows: number,
+  palette: readonly string[],
+  atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
+): boolean {
+  const n = cols * rows;
+  if (char.length < n || color.length < n) return false;
+  if (palette.length === 0 || palette.length > atlas.maxPaletteSize) return false;
+  const paletteSlots = new Set(palette);
+  for (let i = 0; i < n; i++) {
+    const glyph = char[i];
+    if (glyph === undefined || glyph === " ") continue;
+    if (!isGlyphInFontAtlas(glyph, atlas)) return false;
+    const c = color[i];
+    if (c === null || c === undefined || !paletteSlots.has(c)) return false;
+  }
+  return true;
+}
+
+/**
+ * Encode final cell buffers as colour-font-atlas PUA text — a sibling to
+ * {@link encodeGlyphBuffers} and {@link encodeGlyphBuffersDual}, but the
+ * output is always plain text (`textContent`), never HTML: the whole point
+ * of the atlas path is zero `<span>`s, so there is no `useColors` parameter
+ * and no HTML-escaping branch. Rows join on `"\n"`, matching the other two
+ * encoders' line convention.
+ *
+ * Callers MUST confirm {@link isGlyphAtlasEncodable} first — this function
+ * assumes every cell is already known encodable and THROWS on the first cell
+ * that isn't (an internal-invariant failure, not a recoverable per-cell
+ * fallback: see {@link isGlyphAtlasEncodable}'s doc for why the fallback
+ * decision is whole-grid).
+ */
+export function encodeGlyphAtlas(
+  char: readonly string[],
+  color: readonly (string | null)[],
+  cols: number,
+  rows: number,
+  palette: readonly string[],
+  atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
+): string {
+  if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
+    throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
+  }
+  const n = cols * rows;
+  assertCellBufferLength(char, n, "cell char buffer");
+  assertCellBufferLength(color, n, "cell color buffer");
+
+  const paletteSlot = new Map<string, number>();
+  for (let i = 0; i < palette.length; i++) paletteSlot.set(palette[i]!, i);
+
+  const lines: string[] = [];
+  for (let row = 0; row < rows; row++) {
+    let line = "";
+    for (let col = 0; col < cols; col++) {
+      const index = row * cols + col;
+      const glyph = char[index];
+      assertGlyph(glyph, index);
+      if (glyph === " ") {
+        line += " ";
+        continue;
+      }
+      const c = color[index] ?? null;
+      assertColor(c, index);
+      if (c === null) {
+        throw new TypeError(`glyphcss: atlas cell ${index} has glyph ${JSON.stringify(glyph)} but no color — call isGlyphAtlasEncodable first.`);
+      }
+      const slot = paletteSlot.get(c);
+      if (slot === undefined) {
+        throw new TypeError(`glyphcss: atlas cell ${index} color ${c} is not in the supplied palette — call isGlyphAtlasEncodable first.`);
+      }
+      const codePoint = glyphAtlasCodePoint(glyph, slot, atlas);
+      if (codePoint === undefined) {
+        throw new TypeError(`glyphcss: atlas cell ${index} glyph ${JSON.stringify(glyph)} is not in the font atlas — call isGlyphAtlasEncodable first.`);
+      }
+      line += String.fromCodePoint(codePoint);
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Encode a validated cell grid through the colour-font atlas — the
+ * {@link encodeCellGrid} sibling for {@link encodeGlyphAtlas}, used by the
+ * retained Glyph Effect layer's composited output. Callers still need
+ * {@link isGlyphAtlasEncodable} first (this performs no fallback of its own).
+ */
+export function encodeCellGridAtlas(
+  grid: CellGrid,
+  palette: readonly string[],
+  atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
+): string {
+  assertCellGridShape(grid);
+  return encodeGlyphAtlas(grid.char, grid.color, grid.cols, grid.rows, palette, atlas);
+}
+
+/**
+ * Shared "spans vs atlas" decision for a validated {@link CellGrid} — used by
+ * the retained Glyph Effect layer path in `createGlyphScene.ts` (the one
+ * CellGrid-shaped encode call site outside `rasterize.ts`'s own four
+ * run-coalescers — see AGENTS.md's "four run-coalescers" note for the other
+ * three, which each inline this same guard directly against their raw
+ * buffers instead of going through a CellGrid). Tries
+ * {@link encodeCellGridAtlas} only when `colorEncoding === "atlas"` AND
+ * `atlasPalette` is non-empty AND no `weight` buffer is active (COLR/CPAL
+ * carries colour, not `font-weight`) AND {@link isGlyphAtlasEncodable}
+ * confirms the whole grid fits; falls back to {@link encodeCellGrid}
+ * otherwise — including the default (`colorEncoding` unset/`"spans"`), which
+ * short-circuits on the very first condition and never evaluates
+ * {@link isGlyphAtlasEncodable}, keeping that default path's cost and output
+ * byte-identical to before this option existed.
+ */
+export function encodeCellGridOutput(
+  grid: CellGrid,
+  useColors: boolean,
+  colorTolerance = 0,
+  colorEncoding: GlyphColorEncoding = "spans",
+  atlasPalette?: readonly string[],
+  atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
+): string {
+  if (
+    colorEncoding === "atlas" &&
+    useColors &&
+    !grid.weight &&
+    atlasPalette &&
+    atlasPalette.length > 0 &&
+    isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, atlasPalette, atlas)
+  ) {
+    return encodeCellGridAtlas(grid, atlasPalette, atlas);
+  }
+  return encodeCellGrid(grid, useColors, colorTolerance);
 }
 
 /**

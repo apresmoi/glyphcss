@@ -33,6 +33,7 @@ const OBSERVED_ATTRS = [
   "wireframe-junctions",
   "hidden-lines",
   "color-tolerance",
+  "color-encoding",
   "use-colors",
   "cols",
   "rows",
@@ -93,6 +94,10 @@ function parseHiddenLines(value: string | null): "show" | "hide" | undefined {
   return value === "show" || value === "hide" ? value : undefined;
 }
 
+function parseColorEncoding(value: string | null): "spans" | "atlas" | undefined {
+  return value === "spans" || value === "atlas" ? value : undefined;
+}
+
 function parseBool(value: string | null): boolean | undefined {
   if (value === null) return undefined;
   if (value === "false") return false;
@@ -109,6 +114,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   private _sceneManifest: GlyphControlSceneManifest | undefined;
   private _dictionary: GlyphObjectDictionary | undefined;
   private _solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
+  private _atlasPalette: readonly string[] | undefined;
 
   /**
    * Solid-mode font-weight density ramp (see
@@ -123,6 +129,19 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   set solidWeightRamp(value: GlyphSolidWeightRampStep[] | undefined) {
     this._solidWeightRamp = value;
     this._scene?.setOptions({ solidWeightRamp: value });
+  }
+
+  /**
+   * Palette `color-encoding="atlas"` cells encode against (see
+   * {@link RasterizeContextOptions.atlasPalette}). A JS property, not an
+   * attribute — same "complex data through a property" convention as
+   * `solidWeightRamp` above (an ordered color array doesn't round-trip
+   * through a single string attribute the way a scalar option does).
+   */
+  get atlasPalette(): readonly string[] | undefined { return this._atlasPalette; }
+  set atlasPalette(value: readonly string[] | undefined) {
+    this._atlasPalette = value;
+    this._scene?.setOptions({ atlasPalette: value });
   }
 
   get sceneManifest(): GlyphControlSceneManifest | undefined { return this._sceneManifest; }
@@ -166,6 +185,9 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (this._solidWeightRamp !== undefined) opts.solidWeightRamp = this._solidWeightRamp;
     const colorTolerance = parseColorTolerance(this.getAttribute("color-tolerance"));
     if (colorTolerance !== undefined) opts.colorTolerance = colorTolerance;
+    const colorEncoding = parseColorEncoding(this.getAttribute("color-encoding"));
+    if (colorEncoding !== undefined) opts.colorEncoding = colorEncoding;
+    if (this._atlasPalette !== undefined) opts.atlasPalette = this._atlasPalette;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));

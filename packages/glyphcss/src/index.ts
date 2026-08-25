@@ -190,10 +190,26 @@ export {
   buildCellGrid,
   cloneCellGrid,
   encodeGlyphBuffers,
+  encodeGlyphBuffersDual,
   encodeCellGrid,
+  encodeCellGridOutput,
+  encodeGlyphAtlas,
+  encodeCellGridAtlas,
+  isGlyphAtlasEncodable,
   applyCellHook,
 } from "./render/cells";
-export type { CellGrid, TransformCells } from "./render/cells";
+export type { CellGrid, TransformCells, GlyphColorEncoding } from "./render/cells";
+// ── Colour-font atlas (`colorEncoding: "atlas"` foundation) ──────────────
+export {
+  GLYPH_FONT_ATLAS,
+  isGlyphInFontAtlas,
+  glyphAtlasCodePoint,
+  decodeGlyphAtlasCodePoint,
+  decodeGlyphAtlasText,
+  buildGlyphAtlasFontFaceCss,
+  buildGlyphAtlasFontPaletteValuesCss,
+} from "./render/fontAtlas";
+export type { GlyphFontAtlas } from "./render/fontAtlas";
 export {
   DEFAULT_RAMP,
   SOLID_RAMP,

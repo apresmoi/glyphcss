@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
+import { GLYPH_FONT_ATLAS, glyphAtlasCodePoint } from "glyphcss";
 import { extractAsciiFromPre, trimTrailingWhitespacePerLine } from "./asciiClipboard";
 
 describe("trimTrailingWhitespacePerLine", () => {
@@ -45,5 +46,23 @@ describe("extractAsciiFromPre", () => {
     const pre = document.createElement("pre");
     pre.textContent = "  /\\  \n /  \\ \n/____\\";
     expect(extractAsciiFromPre(pre)).toBe("  /\\\n /  \\\n/____\\");
+  });
+
+  it("decodes colorEncoding: \"atlas\" PUA output back to the original glyphs, so Copy ASCII stays readable", () => {
+    const glyphA = GLYPH_FONT_ATLAS.glyphs[0]!;
+    const glyphB = GLYPH_FONT_ATLAS.glyphs[1]!;
+    const cpA = glyphAtlasCodePoint(glyphA, 0)!;
+    const cpB = glyphAtlasCodePoint(glyphB, 1)!;
+    const pre = document.createElement("pre");
+    pre.textContent = `${String.fromCodePoint(cpA)} ${String.fromCodePoint(cpB)}`;
+    expect(extractAsciiFromPre(pre)).toBe(`${glyphA} ${glyphB}`);
+  });
+
+  it("is a no-op reverse-map on ordinary colorEncoding: \"spans\" output (no PUA code points present)", () => {
+    const pre = document.createElement("pre");
+    pre.textContent = "  .:-=+*#%@  \n  hello  ";
+    // Byte-identical to the pre-atlas behavior: nothing here is in the
+    // atlas's PUA range, so decoding must not alter a single character.
+    expect(extractAsciiFromPre(pre)).toBe("  .:-=+*#%@\n  hello");
   });
 });

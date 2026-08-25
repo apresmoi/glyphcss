@@ -5,7 +5,7 @@ import type {
   Polygon,
   TextureSampler,
 } from "@glyphcss/core";
-import type { TransformCells } from "../render/cells";
+import type { TransformCells, GlyphColorEncoding } from "../render/cells";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
@@ -180,6 +180,47 @@ export interface RasterizeContextOptions {
    * lineage — see {@link GlyphSceneOptions.colorTolerance}.
    */
   colorTolerance?: number;
+  /**
+   * Encode strategy for the final `<pre>` string. `"spans"` (default) is
+   * today's HTML-span run-coalescing path — unset or `"spans"` is byte-
+   * identical to before this option existed. `"atlas"` encodes `(glyph,
+   * colour)` as Private Use Area code points against a checked-in COLR/CPAL
+   * colour font, producing ONE text node with zero `<span>`s (see
+   * `render/fontAtlas.ts` for the mapping scheme and `AGENTS.md`'s
+   * `colorEncoding` section for the measurement this follows).
+   *
+   * Requires {@link atlasPalette}: without one, `"atlas"` degrades to
+   * `"spans"` for that render (no palette to encode against — a
+   * configuration gap, not an error, since the palette-derivation strategy
+   * is a separate, later concern). When a palette IS supplied but a cell's
+   * glyph or colour isn't representable in the atlas (an out-of-atlas
+   * `glyphs` ramp character, or a colour the palette doesn't cover), the
+   * WHOLE render falls back to `"spans"` for that frame — see
+   * `isGlyphAtlasEncodable` (`render/cells.ts`) for why this is a per-scene,
+   * not per-cell, decision.
+   *
+   * Documented no-op (`"spans"` behavior regardless of this option) in every
+   * case a `<span>`-per-cell representation is structurally required:
+   * `charMode: "halfblock"`/`"quadrant"` (two colours per cell — the atlas
+   * only encodes one), `solidWeightRamp` actually selecting a `font-weight`
+   * override (COLR/CPAL carries colour, not weight), `glyphOutput:
+   * "semantic"` (already documented to ignore every presentation option,
+   * `colorTolerance` included), and `useColors: false` (nothing to encode a
+   * colour axis for).
+   */
+  colorEncoding?: GlyphColorEncoding;
+  /**
+   * Palette this render's `colorEncoding: "atlas"` cells are encoded
+   * against — an ordered list of `#rrggbb` colors, each entry's POSITION
+   * (never its value) becoming the PUA mapping's palette-slot axis (see
+   * `render/fontAtlas.ts`). Deriving this palette (global quantization, a
+   * pooled orbit palette, periodic refresh, a precomputed hue-rotation bank
+   * — anything beyond "here is the array") is explicitly out of scope for
+   * this option: it is an injected input, not a policy this layer
+   * implements. `undefined` (default) means `colorEncoding: "atlas"` has
+   * nothing to encode against and degrades to `"spans"`.
+   */
+  atlasPalette?: readonly string[];
   /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
@@ -375,6 +416,10 @@ export interface RasterizeContext {
   solidWeightRamp?: GlyphSolidWeightRampStep[];
   /** Run-extension color merge tolerance — see {@link RasterizeContextOptions.colorTolerance}. Always a validated, non-negative number (or `+Infinity`); never `NaN`. */
   colorTolerance: number;
+  /** Final-string encode strategy — see {@link RasterizeContextOptions.colorEncoding}. Always `"spans"` or `"atlas"`, never `undefined`. */
+  colorEncoding: GlyphColorEncoding;
+  /** Palette `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
+  atlasPalette?: readonly string[];
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -479,6 +524,23 @@ export function normalizeGlyphColorTolerance(value: number | undefined): number 
   return value > 0 ? value : 0;
 }
 
+/**
+ * Public-layer validation for `colorEncoding`, mirroring
+ * {@link normalizeGlyphColorTolerance}'s "validate once here, never in the
+ * hot encoder" discipline. `undefined` degrades to `"spans"` — the byte-
+ * identical default. Unlike `colorTolerance`'s numeric degrade-don't-throw
+ * rule, an actually-supplied-but-invalid string is a caller mistake (same
+ * category as an invalid `mode`/`glyphOutput`/`charMode` string elsewhere in
+ * this file), so it throws rather than silently degrading.
+ */
+export function normalizeGlyphColorEncoding(value: GlyphColorEncoding | undefined): GlyphColorEncoding {
+  if (value === undefined) return "spans";
+  if (value !== "spans" && value !== "atlas") {
+    throw new TypeError(`glyphcss: colorEncoding must be "spans" or "atlas" (got ${JSON.stringify(value)}).`);
+  }
+  return value;
+}
+
 export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeContext {
   const polygons = opts.polygons ?? [];
   const mode = opts.mode ?? (polygons.length ? "solid" : "wireframe");
@@ -496,6 +558,8 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
     colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
+    colorEncoding: normalizeGlyphColorEncoding(opts.colorEncoding),
+    atlasPalette: opts.atlasPalette,
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

@@ -72,6 +72,28 @@ export interface GlyphSceneProps {
    */
   colorTolerance?: number;
   /**
+   * Encode strategy for the rendered `<pre>` text. `"spans"` (default) is
+   * today's HTML-span run-coalescing path — unset is byte-identical.
+   * `"atlas"` encodes `(glyph, colour)` as Private Use Area code points
+   * against a checked-in COLR/CPAL colour font (`glyphcss`'s
+   * `render/fontAtlas.ts`), producing ONE text node with zero `<span>`s.
+   * Requires `atlasPalette`; falls back to `"spans"` for a render with no
+   * palette or whose glyphs/colors aren't fully covered by the atlas +
+   * palette. `GlyphScene` does NOT auto-inject the atlas's `@font-face`/
+   * `@font-palette-values` CSS — inject `buildGlyphAtlasFontFaceCss()`/
+   * `buildGlyphAtlasFontPaletteValuesCss()` (exported from `glyphcss`)
+   * yourself and set the rendered `<pre>`'s `font-family`/`font-palette` to
+   * match.
+   */
+  colorEncoding?: "spans" | "atlas";
+  /**
+   * Palette `colorEncoding: "atlas"` cells encode against — an ordered
+   * `#rrggbb` array whose entries' POSITIONS (never their values) become the
+   * PUA mapping's palette-slot axis. Deriving this palette is out of scope
+   * for this prop — it is an injected input.
+   */
+  atlasPalette?: readonly string[];
+  /**
    * Smooth (Gouraud) shading: per-cell Lambert intensity interpolated from
    * per-vertex normals averaged across adjacent polygons within `creaseAngle`.
    * Default `false` — the faceted look is part of glyph's identity.
@@ -121,6 +143,8 @@ export const GlyphScene = defineComponent({
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
     colorTolerance: { type: Number, default: undefined },
+    colorEncoding: { type: String as PropType<"spans" | "atlas">, default: undefined },
+    atlasPalette: { type: Array as PropType<readonly string[]>, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
     useColors: { type: Boolean, default: undefined },
@@ -158,6 +182,8 @@ export const GlyphScene = defineComponent({
       if (props.hiddenLines !== undefined) opts.hiddenLines = props.hiddenLines;
       if (props.solidWeightRamp !== undefined) opts.solidWeightRamp = props.solidWeightRamp;
       if (props.colorTolerance !== undefined) opts.colorTolerance = props.colorTolerance;
+      if (props.colorEncoding !== undefined) opts.colorEncoding = props.colorEncoding;
+      if (props.atlasPalette !== undefined) opts.atlasPalette = props.atlasPalette;
       if (props.smoothShading !== undefined) opts.smoothShading = props.smoothShading;
       if (props.creaseAngle !== undefined) opts.creaseAngle = props.creaseAngle;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
@@ -196,6 +222,8 @@ export const GlyphScene = defineComponent({
         hiddenLines: props.hiddenLines,
         solidWeightRamp: props.solidWeightRamp,
         colorTolerance: props.colorTolerance,
+        colorEncoding: props.colorEncoding,
+        atlasPalette: props.atlasPalette,
         smoothShading: props.smoothShading,
         creaseAngle: props.creaseAngle,
         useColors: props.useColors,
@@ -225,6 +253,10 @@ export const GlyphScene = defineComponent({
         // (like `shadow` below) so removing the prop actually clears the ramp.
         partial.solidWeightRamp = next.solidWeightRamp;
         if (next.colorTolerance !== undefined) partial.colorTolerance = next.colorTolerance;
+        if (next.colorEncoding !== undefined) partial.colorEncoding = next.colorEncoding;
+        // `atlasPalette`'s "off" state IS `undefined` — always forward it, same
+        // as `solidWeightRamp` above, so removing the prop clears the palette.
+        partial.atlasPalette = next.atlasPalette;
         if (next.smoothShading !== undefined) partial.smoothShading = next.smoothShading;
         if (next.creaseAngle !== undefined) partial.creaseAngle = next.creaseAngle;
         if (next.useColors !== undefined) partial.useColors = next.useColors;

@@ -3,8 +3,16 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type Glyph
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
-import { applyCellHook, buildCellGrid, colorRunExtends, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
-import type { CellGrid } from "./cells";
+import {
+  applyCellHook,
+  buildCellGrid,
+  colorRunExtends,
+  encodeGlyphAtlas,
+  encodeGlyphBuffers,
+  encodeGlyphBuffersDual,
+  isGlyphAtlasEncodable,
+} from "./cells";
+import type { CellGrid, GlyphColorEncoding } from "./cells";
 
 /**
  * Render the scene to a string.
@@ -462,10 +470,10 @@ export function rasterize(scene: RasterizeContext): string {
       }
     }
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
   }
 
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene.colorTolerance);
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
 }
 
 /** N/E/S/W side bits for the box-drawing junction resolve pass. */
@@ -1101,9 +1109,9 @@ function rasterizeInk(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
   }
-  return solidBufToString(charBuf, colorBuf, cols, rows, false, scene.colorTolerance);
+  return solidBufToString(charBuf, colorBuf, cols, rows, false, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
@@ -1969,7 +1977,7 @@ function rasterizeSolid(
   // (`finalWeight === null`) keeps using the original unweighted encoder.
   const out = finalWeight
     ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight, scene.colorTolerance)
-    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells, scene.colorTolerance);
+    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
   return out;
 }
@@ -3312,6 +3320,15 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
  * cost. `colorTolerance` is a public scene option (see
  * `RasterizeContextOptions.colorTolerance`) and ten call sites in this file
  * pass `scene.colorTolerance` through to one of these two branches.
+ *
+ * `colorEncoding`/`atlasPalette` (see `RasterizeContextOptions.colorEncoding`)
+ * add a THIRD possible output ahead of both branches: when `"atlas"` is
+ * requested, a palette is supplied, and every cell's glyph+colour is in the
+ * atlas ({@link isGlyphAtlasEncodable}), this returns
+ * {@link encodeGlyphAtlas}'s zero-span PUA text instead. The default
+ * (`colorEncoding` unset/`"spans"`) short-circuits on the very first
+ * condition, so both existing branches below are completely unaffected —
+ * byte-identical cost and output.
  */
 function solidBufToString(
   glyphBuf: string[],
@@ -3320,7 +3337,18 @@ function solidBufToString(
   rows: number,
   safe = false,
   colorTolerance = 0,
+  colorEncoding: GlyphColorEncoding = "spans",
+  atlasPalette?: readonly string[],
 ): string {
+  if (
+    colorEncoding === "atlas" &&
+    colorBuf &&
+    atlasPalette &&
+    atlasPalette.length > 0 &&
+    isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, atlasPalette)
+  ) {
+    return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, atlasPalette);
+  }
   if (safe) {
     return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null, null, colorTolerance);
   }
@@ -3588,10 +3616,10 @@ function rasterizeWireframeBraille(
 
   if (scene.transformCells) {
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance);
+    return solidBufToString(applied.char, applied.color, cols, rows, true, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
   }
 
-  return solidBufToString(cChar, cColor, cols, rows, false, scene.colorTolerance);
+  return solidBufToString(cChar, cColor, cols, rows, false, scene.colorTolerance, scene.colorEncoding, scene.atlasPalette);
 }
 
 /**
@@ -3829,6 +3857,20 @@ function foldBrailleSubStampToCells(
  * explicitly but missed this sibling coalescer — closed here so `colorTolerance`
  * actually reaches the single most common render path instead of silently
  * no-op'ing there).
+ *
+ * `colorEncoding`/`atlasPalette` add the same third "try atlas first" branch
+ * `solidBufToString` gets: when requested, this builds the `char`/`color`
+ * buffers this loop would otherwise build inline (a wireframe glyph pick per
+ * covered cell, including its `Math.random()` tier draw — already documented
+ * non-deterministic frame to frame), and returns {@link encodeGlyphAtlas}'s
+ * output if the whole grid is encodable. On the rare fallback case (atlas
+ * requested but the grid doesn't fit), the coalescing loop below re-derives
+ * its own `char`/`color` per cell rather than reusing this pass's — for a
+ * wireframe tier cell that means a SECOND independent random glyph draw, not
+ * the one the atlas check saw; both are equally valid per-tier picks, so
+ * this is a documented inefficiency, not a correctness gap. The default
+ * (`colorEncoding` unset/`"spans"`) short-circuits before any of this and
+ * never allocates the extra buffers.
  */
 function stampToGlyphs(
   stamp: Uint8Array,
@@ -3838,7 +3880,30 @@ function stampToGlyphs(
   glyphs: { thin: string[]; normal: string[]; core: string[] },
   junctionMask: Uint8Array | null = null,
   colorTolerance = 0,
+  colorEncoding: GlyphColorEncoding = "spans",
+  atlasPalette?: readonly string[],
 ): string {
+  if (colorEncoding === "atlas" && colorBuf && atlasPalette && atlasPalette.length > 0) {
+    const n = cols * rows;
+    const atlasChar = new Array<string>(n);
+    const atlasColor = new Array<string | null>(n);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const idx = y * cols + x;
+        const v = stamp[idx];
+        if (v === 0) {
+          atlasChar[idx] = " ";
+          atlasColor[idx] = null;
+        } else {
+          atlasChar[idx] = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
+          atlasColor[idx] = colorBuf[idx] ?? null;
+        }
+      }
+    }
+    if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows, atlasPalette)) {
+      return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, atlasPalette);
+    }
+  }
   // Coalesce same-color consecutive non-empty cells into one <span> per run.
   // When colors are disabled (colorBuf=null) we emit plain text — one text node.
   const tolerance2 = colorTolerance > 0 ? colorTolerance * colorTolerance : 0;
