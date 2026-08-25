@@ -161,6 +161,13 @@ const description = "The whole planet flattened into a tiled isometric glyph map
         </select>
       </div>
       <div class="iso-ctl">
+        <div class="iso-ctl-row"><span>color encoding</span></div>
+        <select id="colorEncoding" title="Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget.">
+          <option value="spans">spans</option>
+          <option value="atlas">atlas</option>
+        </select>
+      </div>
+      <div class="iso-ctl">
         <div class="iso-ctl-row"><span>sun azimuth °</span><span class="val" id="az-val">50</span></div>
         <input type="range" id="az" min="0" max="360" step="1" value="50" />
       </div>
@@ -194,6 +201,7 @@ const description = "The whole planet flattened into a tiled isometric glyph map
       readQueryEnum,
       readQueryNumber,
     } from "../../lib/example-query-state";
+    import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 
     type Polygon = { vertices: [number, number, number][]; color?: string };
     type MeshHandle = { dispose(): void; setTransform(t: unknown): void };
@@ -210,6 +218,7 @@ const description = "The whole planet flattened into a tiled isometric glyph map
     const BASE_FONT_SIZE = 13;
     const RENDER_MODES = ["solid", "coast", "wire"] as const;
     const PALETTE_NAMES = ["terrain", "viridis", "heat", "ocean", "grayscale", "mono"] as const;
+    const COLOR_ENCODING_VALUES = ["spans", "atlas"] as const;
     type RenderMode = typeof RENDER_MODES[number];
     type PaletteName = typeof PALETTE_NAMES[number];
 
@@ -253,6 +262,8 @@ const description = "The whole planet flattened into a tiled isometric glyph map
       let density = readQueryNumber(params, "density", 2, { min: 0.75, max: 4, step: 0.05 });
       let renderMode = readQueryEnum(params, "mode", "solid", RENDER_MODES);
       let palette = readQueryEnum(params, "palette", "terrain", PALETTE_NAMES);
+      let colorEncoding = readQueryEnum(params, "colorEncoding", "spans", COLOR_ENCODING_VALUES);
+      let atlasPalette: string[] | undefined;
       let sunAz = readQueryNumber(params, "lightAz", 50, { min: 0, max: 360, step: 1 });
       let sunEl = readQueryNumber(params, "lightEl", 50, { min: 5, max: 90, step: 1 });
       let keyI = readQueryNumber(params, "lightI", 1.15, { min: 0, max: 2, step: 0.05 });
@@ -283,8 +294,43 @@ const description = "The whole planet flattened into a tiled isometric glyph map
         mode: renderMode === "solid" ? "solid" : "wireframe",
         useColors: true,
         glyphPalette: "default",
+        colorEncoding,
+        atlasPalette,
         directionalLight: { direction: sunDirection(sunAz, sunEl), intensity: keyI },
         ambientLight: { intensity: ambI },
+      });
+
+      // Keeps `atlasPalette`/the "color encoding" select's disabled state
+      // current by watching the stage `<pre>` directly (a `MutationObserver`,
+      // not a dependency list) — same pattern /synth, /wordart, and the
+      // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
+      // zero-span with real content — genuinely atlas-encoded PUA text has no
+      // per-cell colour left to parse back out (see
+      // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
+      // atlas render freezes its own last-known-good palette instead of
+      // misreading its own PUA glyphs as "not covered" and flapping back.
+      const colorEncodingSelect = $("colorEncoding") as HTMLSelectElement | null;
+      if (colorEncodingSelect) colorEncodingSelect.value = colorEncoding;
+      function recomputeAtlasAvailability(): void {
+        const pre = scene.output;
+        const hasContent = (pre.textContent ?? "").trim().length > 0;
+        const hasSpans = pre.querySelector("span") !== null;
+        if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
+        const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode: "ascii" });
+        atlasPalette = result.atlasPalette;
+        if (colorEncodingSelect) {
+          colorEncodingSelect.disabled = result.reason !== null;
+          colorEncodingSelect.title = result.reason === null
+            ? "Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+            : `Atlas color encoding isn't available right now: ${result.reason}`;
+        }
+      }
+      recomputeAtlasAvailability();
+      new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
+      colorEncodingSelect?.addEventListener("change", () => {
+        colorEncoding = colorEncodingSelect.value as typeof colorEncoding;
+        scene.setOptions({ colorEncoding, atlasPalette });
+        querySync.schedule();
       });
 
       function setDensity(density: number): void {
@@ -324,6 +370,7 @@ const description = "The whole planet flattened into a tiled isometric glyph map
         rotY: camera.rotY,
         mode: renderMode,
         palette,
+        colorEncoding,
         lightAz: sunAz,
         lightEl: sunEl,
         lightI: keyI,

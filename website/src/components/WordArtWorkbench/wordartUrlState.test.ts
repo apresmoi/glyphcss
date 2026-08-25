@@ -77,6 +77,15 @@ describe("wordArtCodec", () => {
     expect(wordArtCodec.decode(wordArtCodec.encode(state)).charMode).toBe("quadrant");
   });
 
+  it("round-trips colorEncoding \"atlas\"", () => {
+    const state = { ...WORD_ART_DEFAULTS, colorEncoding: "atlas" as const };
+    expect(wordArtCodec.decode(wordArtCodec.encode(state)).colorEncoding).toBe("atlas");
+  });
+
+  it("omits colorEncoding from the packed string when it's the default (\"spans\")", () => {
+    expect(wordArtCodec.encode({ ...WORD_ART_DEFAULTS, colorEncoding: "spans" })).toBe(wordArtCodec.encode(WORD_ART_DEFAULTS));
+  });
+
   it("round-trips unicode text", () => {
     const state = { ...WORD_ART_DEFAULTS, text: "héllo\n世界 🎉" };
     expect(wordArtCodec.decode(wordArtCodec.encode(state)).text).toBe(state.text);

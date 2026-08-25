@@ -94,6 +94,15 @@ export interface SynthUrlState {
    *  nested `paramsPacked` payload decodes positionally (see the version-
    *  bump doc below, which is about `colorQuantize`'s removal, not this). */
   colorTolerance: number;
+  /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   *  colour-font encoding). `atlasPalette` itself is never persisted: it's
+   *  derived at runtime from the live rendered output (see
+   *  `website/src/lib/glyphAtlasAvailability.ts`), so there's nothing stable
+   *  to encode here — only the user's on/off preference. A fresh token
+   *  (outer fields are keyed by TOKEN, not position — see
+   *  `colorTolerance`'s own doc above), so this is safe to add for every
+   *  existing link regardless of `SYNTH_SCHEMA_VERSION`. */
+  colorEncoding: "spans" | "atlas";
   /** The whole field-synth patch, packed against `fieldSynth.parameterSchema`
    *  via the shared generic effect-params codec (see file header). */
   paramsPacked: string;
@@ -115,6 +124,7 @@ export const SYNTH_URL_DEFAULTS: SynthUrlState = {
   lightKeyColor: DEFAULT_LIGHTING.keyColor,
   lightAmbient: DEFAULT_LIGHTING.ambient,
   colorTolerance: 32,
+  colorEncoding: "spans",
   paramsPacked: "",
 };
 
@@ -130,6 +140,10 @@ const synthFields: readonly UrlField<SynthUrlState>[] = [
   { key: "lightAmbient", token: "m", type: { kind: "float", step: 0.05 }, default: SYNTH_URL_DEFAULTS.lightAmbient },
   { key: "colorTolerance", token: "c", type: { kind: "float", step: 1 }, default: SYNTH_URL_DEFAULTS.colorTolerance },
   { key: "paramsPacked", token: "p", type: { kind: "string" }, default: SYNTH_URL_DEFAULTS.paramsPacked },
+  // Appended (not inserted) — token-keyed outer fields decode independent of
+  // position, but new fields still go at the tail by convention (matches
+  // `colorTolerance`'s own addition).
+  { key: "colorEncoding", token: "E", type: { kind: "enum", values: ["spans", "atlas"] }, default: SYNTH_URL_DEFAULTS.colorEncoding },
 ];
 
 // `decodeEffectParamsPacked`/`encodeEffectParamsPacked` key `paramsPacked`'s
@@ -422,6 +436,7 @@ export interface SynthInitialState {
   timeScale: number;
   density: number;
   colorTolerance: number;
+  colorEncoding: "spans" | "atlas";
   lighting: Lighting;
   voiceSlots: number[];
 }
@@ -432,6 +447,7 @@ export interface SynthPatch {
   timeScale: number;
   density: number;
   colorTolerance: number;
+  colorEncoding: "spans" | "atlas";
   lighting: Lighting;
   voiceSlots: readonly number[];
 }
@@ -451,6 +467,7 @@ export function encodeSynthUrlState(state: SynthPatch): string {
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
     colorTolerance: state.colorTolerance,
+    colorEncoding: state.colorEncoding,
     paramsPacked,
   });
 }
@@ -524,6 +541,7 @@ function buildSynthInitialState(raw: string | null | undefined, outer: Partial<S
     timeScale: decoded.timeScale,
     density: decoded.density,
     colorTolerance: decoded.colorTolerance,
+    colorEncoding: decoded.colorEncoding,
     lighting: {
       azimuth: decoded.lightAzimuth,
       elevation: decoded.lightElevation,
@@ -604,6 +622,7 @@ export function writeSynthUrlState(state: SynthPatch): void {
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
     colorTolerance: state.colorTolerance,
+    colorEncoding: state.colorEncoding,
     paramsPacked,
   };
   scheduleCompactedUrlWrite(synthCodec, SYNTH_PARAM, full);

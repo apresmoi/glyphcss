@@ -53,6 +53,7 @@ import {
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
+import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
   readInitialWordArtState,
@@ -373,6 +374,15 @@ export function WordArtWorkbench() {
   const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("renderMode"));
   const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charMode"));
   const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hiddenLines"));
+  // `colorEncoding: "atlas"` (zero-`<span>` colour-font output). The user's
+  // on/off preference is persisted; `atlasPalette`/`atlasReason` are NOT —
+  // they're derived at runtime from the live rendered output (see
+  // `AtlasAvailabilityWatcher` below and `../../lib/glyphAtlasAvailability.ts`'s
+  // module doc for the "recompute only while genuinely spans-encoded, freeze
+  // otherwise" rule).
+  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">(() => qs("colorEncoding"));
+  const [atlasPalette, setAtlasPalette] = useState<string[] | undefined>(undefined);
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [lightIntensity, setLightIntensity] = useState(() => qs("lightIntensity"));
   const [ambient, setAmbient] = useState(() => qs("ambient"));
   const [lightColor, setLightColor] = useState(() => qs("lightColor"));
@@ -500,6 +510,7 @@ export function WordArtWorkbench() {
       renderMode,
       charMode,
       hiddenLines,
+      colorEncoding,
       lightIntensity,
       ambient,
       lightColor,
@@ -527,7 +538,7 @@ export function WordArtWorkbench() {
       effectParams: "",
     };
     writeWordArtUrlState(state, effectState);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, colorEncoding, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
   // / style changes. The first font to resolve also pins `previewFont` — the
@@ -891,7 +902,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
-    density, renderMode, charMode, hiddenLines,
+    density, renderMode, charMode, hiddenLines, colorEncoding,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -917,6 +928,7 @@ export function WordArtWorkbench() {
       case "renderMode": setRenderMode(v as WordArtRenderMode); break;
       case "charMode": setCharMode(v as WordArtCharMode); break;
       case "hiddenLines": setHiddenLines(v as WordArtHiddenLines); break;
+      case "colorEncoding": setColorEncoding(v as "spans" | "atlas"); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -1037,6 +1049,10 @@ export function WordArtWorkbench() {
             renderMode={renderMode}
             charMode={charMode}
             hiddenLines={hiddenLines}
+            colorEncoding={colorEncoding}
+            atlasPalette={atlasPalette}
+            onAtlasAvailability={setAtlasReason}
+            onAtlasPalette={setAtlasPalette}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -1120,6 +1136,7 @@ export function WordArtWorkbench() {
           <WordArtDock
             gui={guiValues}
             setGui={guiSet}
+            atlasReason={atlasReason}
             bezier={bezier}
             onBezier={setBezier}
             effectState={effectState}
@@ -1255,6 +1272,12 @@ interface StageProps {
   renderMode: WordArtRenderMode;
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
+  colorEncoding: "spans" | "atlas";
+  atlasPalette: string[] | undefined;
+  /** Reports the real reason `colorEncoding: "atlas"` isn't available right
+   *  now (`null` when it is) — see `AtlasAvailabilityWatcher` below. */
+  onAtlasAvailability: (reason: string | null) => void;
+  onAtlasPalette: (palette: string[] | undefined) => void;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1304,7 +1327,46 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+/**
+ * Keeps the "atlas available?" reason (and, when available, the palette to
+ * render with) current by watching the stage `<pre>` directly — a
+ * `MutationObserver`, not a dependency list — mirroring `SynthWorkbench`'s
+ * own watcher. Mounted as a scene child (same `useGlyphSceneContext` seam
+ * `DensityFit` uses) so it has imperative access to the real `<pre>` DOM
+ * `@glyphcss/react`'s declarative `<GlyphScene>` doesn't otherwise expose.
+ * Skips recompute whenever the `<pre>` is CURRENTLY zero-span with real
+ * content — genuinely atlas-encoded PUA text has no per-cell colour left to
+ * parse back out (see `glyphAtlasAvailability.ts`'s module doc) — so a
+ * working atlas render freezes its own last-known-good palette instead of
+ * misreading its own PUA glyphs as "not covered" and flapping back to spans.
+ */
+function AtlasAvailabilityWatcher({ charMode, onAvailability, onPalette }: {
+  charMode: WordArtCharMode;
+  onAvailability: (reason: string | null) => void;
+  onPalette: (palette: string[] | undefined) => void;
+}) {
+  const { sceneRef } = useGlyphSceneContext();
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const pre = scene.output;
+    const recompute = (): void => {
+      const hasContent = (pre.textContent ?? "").trim().length > 0;
+      const hasSpans = pre.querySelector("span") !== null;
+      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
+      const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode });
+      onAvailability(result.reason);
+      onPalette(result.atlasPalette);
+    };
+    recompute();
+    const observer = new MutationObserver(recompute);
+    observer.observe(pre, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [sceneRef, charMode, onAvailability, onPalette]);
+  return null;
+}
+
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, colorEncoding, atlasPalette, onAtlasAvailability, onAtlasPalette, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const draggingRef = useRef(false);
@@ -1382,11 +1444,14 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
           mode={renderMode}
           charMode={charMode}
           hiddenLines={hiddenLines}
+          colorEncoding={colorEncoding}
+          atlasPalette={atlasPalette}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
           <DensityFit density={density} />
+          <AtlasAvailabilityWatcher charMode={charMode} onAvailability={onAtlasAvailability} onPalette={onAtlasPalette} />
           {/* Font mesh is Z-up: local Z = text height, local Y = text width,
               local X = extrusion depth (see extrude.ts). The camera is tilted
               `rotX={90}` (instead of the flat `rotX={0}` a screen-plane-authored
@@ -1495,6 +1560,7 @@ interface GuiValues {
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
   density: number;
   renderMode: WordArtRenderMode; charMode: WordArtCharMode; hiddenLines: WordArtHiddenLines;
+  colorEncoding: "spans" | "atlas";
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -2047,10 +2113,13 @@ function useBezierEditorSlot(folder: GUI | null, visible: boolean, bezier: Bezie
  * `useToggle`/`useText` primitives `/synth`'s `SynthDock` uses.
  */
 function WordArtDock({
-  gui, setGui, bezier, onBezier,
+  gui, setGui, atlasReason, bezier, onBezier,
   effectState, effectDefinition, onEffectChange, onUpdateEffectSettings, onUpdateEffectParams,
 }: {
   gui: GuiValues; setGui: (k: keyof GuiValues, v: number | string | boolean) => void;
+  /** Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+   *  when it is) — see `../../lib/glyphAtlasAvailability.ts`. */
+  atlasReason: string | null;
   bezier: Bezier4; onBezier: (b: Bezier4) => void;
   effectState: GalleryEffectState;
   effectDefinition: GalleryEffectDefinition | null;
@@ -2103,6 +2172,21 @@ function WordArtDock({
     hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "ink", { dim: true });
   }, [hiddenLinesControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
+  // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
+  // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
+  // hand-maintained guess — see that module's doc) whenever the currently
+  // rendered word art can't fit the atlas, same `setEnabled(bool, {dim:true})`
+  // gating idiom `charModeControl`/`hiddenLinesControl` above use.
+  const colorEncodingControl = useOption<"spans" | "atlas">(
+    renderFolder, "Color encoding", { Spans: "spans", Atlas: "atlas" }, gui.colorEncoding, (v) => setGui("colorEncoding", v),
+  );
+  useEffect(() => {
+    if (!colorEncodingControl) return;
+    colorEncodingControl.setEnabled(atlasReason === null, { dim: true });
+    colorEncodingControl.raw.$name.title = atlasReason === null
+      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+  }, [colorEncodingControl, atlasReason]);
 
   // ── Effects ───────────────────────────────────────────────────────────
   // Reuses the gallery's own Effects folder hook (`useEffectsFolder` +

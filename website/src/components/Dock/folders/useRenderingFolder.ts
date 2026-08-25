@@ -24,13 +24,17 @@ export interface RenderingFolderInputs {
   wireframeJunctions: boolean;
   hiddenLines: SceneOptionsState["hiddenLines"];
   solidWeightRamp: boolean;
+  colorEncoding: SceneOptionsState["colorEncoding"];
+  /** Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+   *  when it is) — see `../../../lib/glyphAtlasAvailability.ts`. */
+  atlasReason: string | null;
   density: number;
   dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
   onRenderModeChange: (mode: GalleryRenderPresentation) => void;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "solidWeightRamp" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "solidWeightRamp" | "colorEncoding" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
@@ -66,9 +70,13 @@ const HIDDEN_LINES_OPTIONS: Record<string, SceneOptionsState["hiddenLines"]> = {
   Show: "show",
   Hide: "hide",
 };
+const COLOR_ENCODING_OPTIONS: Record<string, SceneOptionsState["colorEncoding"]> = {
+  Spans: "spans",
+  Atlas: "atlas",
+};
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
-  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
+  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorEncoding, atlasReason, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
@@ -147,6 +155,23 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
       { dim: true },
     );
   }, [weightRampControl, renderMode, charMode]);
+  // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
+  // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
+  // hand-maintained guess — see that module's doc) whenever the currently
+  // rendered scene can't fit the atlas, same `setEnabled(bool, {dim:true})`
+  // gating idiom every other conditionally-available row above uses.
+  // `raw.$name.title` sets the native tooltip — same mechanism `/synth` and
+  // `/wordart` use; lil-gui's `DockController` has no built-in tooltip prop.
+  const colorEncodingControl = useOption<SceneOptionsState["colorEncoding"]>(
+    folder, "Color encoding", COLOR_ENCODING_OPTIONS, colorEncoding, (value) => onUpdateScene({ colorEncoding: value }),
+  );
+  useEffect(() => {
+    if (!colorEncodingControl) return;
+    colorEncodingControl.setEnabled(atlasReason === null, { dim: true });
+    colorEncodingControl.raw.$name.title = atlasReason === null
+      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+  }, [colorEncodingControl, atlasReason]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),
   );

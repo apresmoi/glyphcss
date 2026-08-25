@@ -67,6 +67,12 @@ export interface WordArtUrlState {
   renderMode: WordArtRenderMode;
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
+  /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   *  colour-font encoding). `atlasPalette` is never persisted here: it's
+   *  derived at runtime from the live rendered output (see
+   *  `website/src/lib/glyphAtlasAvailability.ts`) — only the on/off
+   *  preference is stable data. */
+  colorEncoding: "spans" | "atlas";
   lightIntensity: number;
   ambient: number;
   lightColor: string;
@@ -127,6 +133,7 @@ export const WORD_ART_DEFAULTS: WordArtUrlState = {
   renderMode: "solid",
   charMode: "ascii",
   hiddenLines: "show",
+  colorEncoding: "spans",
   lightIntensity: 0.95,
   ambient: 0.5,
   lightColor: "#ffffff",
@@ -191,6 +198,7 @@ const wordArtFields: readonly UrlField<WordArtUrlState>[] = [
   // decoding to the same enum index for every earlier value.
   { key: "charMode", token: "M", type: { kind: "enum", values: ["ascii", "braille", "halfblock", "quadrant"] }, default: WORD_ART_DEFAULTS.charMode },
   { key: "hiddenLines", token: "h", type: { kind: "enum", values: ["show", "hide"] }, default: WORD_ART_DEFAULTS.hiddenLines },
+  { key: "colorEncoding", token: "U", type: { kind: "enum", values: ["spans", "atlas"] }, default: WORD_ART_DEFAULTS.colorEncoding },
   { key: "lightIntensity", token: "g", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.lightIntensity },
   { key: "ambient", token: "B", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.ambient },
   { key: "lightColor", token: "N", type: { kind: "color" }, default: WORD_ART_DEFAULTS.lightColor },

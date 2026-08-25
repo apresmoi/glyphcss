@@ -117,6 +117,13 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
           <div class="iso-ctl">
             <label class="iso-check"><input type="checkbox" id="color" checked /> color</label>
           </div>
+          <div class="iso-ctl">
+            <div class="iso-ctl-row"><span>color encoding</span></div>
+            <select id="colorEncoding" title="Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget.">
+              <option value="spans">spans</option>
+              <option value="atlas">atlas</option>
+            </select>
+          </div>
           <div class="iso-sep"></div>
           <div class="iso-ctl">
             <div class="iso-ctl-row"><span>mode</span></div>
@@ -194,9 +201,11 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     import {
       createExampleQuerySync,
       readQueryBoolean,
+      readQueryEnum,
       readQueryNumber,
       readQueryString,
     } from "../../lib/example-query-state";
+    import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 
     const stage = document.getElementById("stage") as HTMLElement;
     const host = document.getElementById("host") as HTMLElement;
@@ -207,6 +216,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     const effectSel = document.getElementById("effect") as HTMLSelectElement;
     const blendSel = document.getElementById("blend") as HTMLSelectElement;
     const paramsPanel = document.getElementById("effect-params") as HTMLElement;
+    const colorEncodingSel = document.getElementById("colorEncoding") as HTMLSelectElement;
     const copyBtn = document.getElementById("copy") as HTMLButtonElement;
     const dims = document.getElementById("dims") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
@@ -250,6 +260,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     ctl.density.value = String(readQueryNumber(query, "density", 1.6, { min: 0.75, max: 4, step: 0.05 }));
     paletteSel.value = readQueryString(query, "palette", "default", (value) => paletteNames.includes(value));
     ctl.color.checked = readQueryBoolean(query, "color", true);
+    colorEncodingSel.value = readQueryEnum(query, "colorEncoding", "spans", ["spans", "atlas"] as const);
     modeSel.value = readQueryString(query, "mode", "flat", (v) => v === "flat" || v === "shapes");
     ctl.groups.value = String(readQueryNumber(query, "groups", 5, { min: 2, max: 10, step: 1 }));
     ctl.depth.value = String(readQueryNumber(query, "depth", 0.3, { min: 0, max: 0.6, step: 0.01 }));
@@ -288,10 +299,13 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     // Head-on orthographic camera — the plates are depth-staged for shadows
     // and effects, not for orbiting. The view stays flat like the image.
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
+    let atlasPalette: string[] | undefined;
     const scene = createGlyphScene(host, {
       mode: "solid",
       useColors: ctl.color.checked,
       glyphPalette: paletteSel.value,
+      colorEncoding: colorEncodingSel.value as "spans" | "atlas",
+      atlasPalette,
       autoSize: true,
       doubleSided: true,
       camera,
@@ -303,6 +317,7 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       density: Number(ctl.density.value),
       palette: paletteSel.value,
       color: ctl.color.checked,
+      colorEncoding: colorEncodingSel.value,
       mode: modeSel.value,
       groups: Number(ctl.groups.value),
       depth: Number(ctl.depth.value),
@@ -316,6 +331,34 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
       speed: Number(ctl.speed.value),
     }));
     querySync.write();
+
+    // Keeps `atlasPalette`/the "color encoding" select's disabled state
+    // current by watching the stage `<pre>` directly (a `MutationObserver`,
+    // not a dependency list) — same pattern /synth, /wordart, and the
+    // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
+    // zero-span with real content — genuinely atlas-encoded PUA text has no
+    // per-cell colour left to parse back out (see
+    // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
+    // atlas render freezes its own last-known-good palette instead of
+    // misreading its own PUA glyphs as "not covered" and flapping back.
+    function recomputeAtlasAvailability(): void {
+      const pre = scene.output;
+      const hasContent = (pre.textContent ?? "").trim().length > 0;
+      const hasSpans = pre.querySelector("span") !== null;
+      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
+      const result = computeGlyphAtlasAvailability(pre, { useColors: ctl.color.checked, charMode: "ascii" });
+      atlasPalette = result.atlasPalette;
+      colorEncodingSel.disabled = result.reason !== null;
+      colorEncodingSel.title = result.reason === null
+        ? "Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+        : `Atlas color encoding isn't available right now: ${result.reason}`;
+    }
+    recomputeAtlasAvailability();
+    new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
+    colorEncodingSel.addEventListener("change", () => {
+      scene.setOptions({ colorEncoding: colorEncodingSel.value as "spans" | "atlas", atlasPalette });
+      querySync.schedule();
+    });
 
     let meshHandle: ReturnType<typeof scene.add> | null = null;
     let sourceImg: HTMLImageElement | null = null;

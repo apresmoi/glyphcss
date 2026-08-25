@@ -10,6 +10,7 @@ import {
 } from "glyphcss";
 import { getGlyphEffect } from "@glyphcss/effects";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
+import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { MAX_VOICES, VoiceCard, soloParams, synthDefaults, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import { Dock } from "../Dock";
 import {
@@ -181,6 +182,16 @@ interface LiveEdits {
   drive: { current: { timeScale: number; paused: boolean } };
   /** Which voice the pointer is on, if any — drives the solo overlay below. */
   highlight: { current: { slot: number | null; params: Params } };
+  /** `colorEncoding: "atlas"` (zero-`<span>` colour-font output) — shared
+   *  across every live size tile (they all render the SAME patch, just at
+   *  different grid sizes, so one atlas palette serves all of them). Not
+   *  URL-persisted, matching every other Dock control on this page except
+   *  which loader is selected (`?l=`). `atlasPalette` and the reported
+   *  reason are derived at runtime — see `useLoaderScene`'s own recompute
+   *  logic and `../../lib/glyphAtlasAvailability.ts`'s module doc. */
+  colorEncoding: { current: "spans" | "atlas" };
+  atlasPalette: { current: string[] | undefined };
+  onAtlasAvailability: (reason: string | null) => void;
 }
 
 
@@ -188,6 +199,7 @@ interface LiveEdits {
  *  the whole point — the box shape is the variable under test. */
 function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: number, rows: number, live?: LiveEdits): void {
   const mountedRef = useRef<{ layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[]>([]);
+  const sceneRef = useRef<GlyphSceneHandle | null>(null);
   const liveRef = useRef(live);
   liveRef.current = live;
   // Switching Subcell live changes which ramp the BASE must use, and the ramp is
@@ -211,7 +223,10 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       doubleSided: true,
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
+      colorEncoding: live?.colorEncoding.current,
+      atlasPalette: live?.atlasPalette.current,
     });
+    sceneRef.current = scene;
     const polys = flatQuad(3, "#243244");
     scene.add(polys);
     scene.rerender();
@@ -257,6 +272,34 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
 
     scene.rerender();
 
+    // Keeps `atlasPalette`/the Dock's "Color encoding" disabled state
+    // current by watching the stage `<pre>` directly (a `MutationObserver`,
+    // not a dependency list) — same pattern /synth, /wordart, the gallery,
+    // and the vanilla examples use. Only for LIVE tiles (the footer/catalog
+    // thumbnails stay canonical, untouched, per `LiveEdits`'s own doc);
+    // every live size tile shares one `colorEncoding`/`atlasPalette` ref
+    // (they render the same patch at different grid sizes) and reports
+    // through the same callback — last-writer-wins is fine since they
+    // converge to the same value almost immediately. Skips recompute
+    // whenever the `<pre>` is CURRENTLY zero-span with real content —
+    // genuinely atlas-encoded PUA text has no per-cell colour left to parse
+    // back out (see `../../lib/glyphAtlasAvailability.ts`'s module doc).
+    let atlasObserver: MutationObserver | null = null;
+    if (live) {
+      const recomputeAtlasAvailability = (): void => {
+        const pre = scene.output;
+        const hasContent = (pre.textContent ?? "").trim().length > 0;
+        const hasSpans = pre.querySelector("span") !== null;
+        if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
+        const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode: "ascii" });
+        live.atlasPalette.current = result.atlasPalette;
+        live.onAtlasAvailability(result.reason);
+      };
+      recomputeAtlasAvailability();
+      atlasObserver = new MutationObserver(recomputeAtlasAvailability);
+      atlasObserver.observe(scene.output, { childList: true, subtree: true, characterData: true });
+    }
+
     let clock = 0;
     let previous: number | null = null;
     const stop = registerTick((t) => {
@@ -283,7 +326,9 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     });
     return () => {
       stop();
+      atlasObserver?.disconnect();
       mountedRef.current = [];
+      sceneRef.current = null;
       for (const { layer } of mounted) layer.dispose();
       scene.destroy();
     };
@@ -299,6 +344,17 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       if (patch) layer.setParams(patch);
     });
   }, [edits]);
+
+  // React to the "Color encoding" Dock toggle — pushed into the running
+  // scene without remounting, same rationale as the effect-params push above.
+  const colorEncoding = live?.colorEncoding.current;
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !live) return;
+    scene.setOptions({ colorEncoding, atlasPalette: live.atlasPalette.current });
+    scene.rerender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorEncoding]);
 }
 
 
@@ -450,6 +506,15 @@ export default function LoadersWorkbench() {
   const [voiceSlots, setVoiceSlots] = useState<number[]>(() => slotsOf(synthPatchOf(loader)));
   const [timeScale, setTimeScale] = useState(1);
   const [paused, setPaused] = useState(false);
+  // `colorEncoding: "atlas"` — not URL-persisted, matching every other Dock
+  // control here except `loaderId` (`?l=`). `atlasReason` is the real reason
+  // it isn't available right now (`null` when it is), reported by whichever
+  // live size tile's `MutationObserver` last recomputed it — see
+  // `useLoaderScene`'s own recompute logic.
+  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">("spans");
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
+  const colorEncodingRef = useRef(colorEncoding); colorEncodingRef.current = colorEncoding;
+  const atlasPaletteRef = useRef<string[] | undefined>(undefined);
   const [fontSize, setFontSize] = useState(11);
   const [openSize, setOpenSize] = useState<{ cols: number; rows: number } | null>(null);
   const [lang, setLang] = useState<LoaderTab>("html");
@@ -512,7 +577,12 @@ export default function LoadersWorkbench() {
     loader.layers.forEach((l, i) => { out[i] = l.effectId === "field-synth" ? params : (stockParams[i] ?? ({} as Params)); });
     return out;
   }, [loader, params, stockParams]);
-  const live = useMemo<LiveEdits>(() => ({ layerParams, drive, highlight }), [layerParams]);
+  const live = useMemo<LiveEdits>(() => ({
+    layerParams, drive, highlight,
+    colorEncoding: colorEncodingRef,
+    atlasPalette: atlasPaletteRef,
+    onAtlasAvailability: setAtlasReason,
+  }), [layerParams]);
 
   const hasSynthLayer = loader.layers.some((l) => l.effectId === "field-synth");
   const spinners = LOADERS.filter((l) => l.kind === "spinner");
@@ -590,6 +660,9 @@ export default function LoadersWorkbench() {
             onPaused={setPaused}
             density={fontSize}
             onDensity={setFontSize}
+            colorEncoding={colorEncoding}
+            onColorEncoding={setColorEncoding}
+            atlasReason={atlasReason}
             paramsRef={paramsRef}
             tsRef={tsRef}
             pausedRef={pausedRef}

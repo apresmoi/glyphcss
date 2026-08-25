@@ -78,6 +78,8 @@ function presetPatch(preset: { params: Partial<Params> }, shape: string): SynthP
     params,
     timeScale: SYNTH_URL_DEFAULTS.timeScale,
     density: 1,
+    colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+    colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
     lighting: REPRESENTATIVE_LIGHTING,
     voiceSlots: voiceSlotsFromParams(params),
   };
@@ -119,6 +121,8 @@ function handBuiltPatch(): SynthPatch {
     params,
     timeScale: 2.1,
     density: 1.8,
+    colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+    colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
     lighting: REPRESENTATIVE_LIGHTING,
     voiceSlots: voiceSlotsFromParams(params),
   };
@@ -167,6 +171,7 @@ function maximallyDistinctPatch(): SynthPatch {
     timeScale: 2.1,
     density: 1.8,
     colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+    colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
     lighting: REPRESENTATIVE_LIGHTING,
     voiceSlots: voiceSlotsFromParams(params),
   };

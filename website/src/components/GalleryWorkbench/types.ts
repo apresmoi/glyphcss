@@ -152,6 +152,15 @@ export interface SceneOptionsState {
    * span).
    */
   solidWeightRamp: boolean;
+  /**
+   * `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   * colour-font encoding, one PUA text node instead of one `<span>` per color
+   * run). `atlasPalette` itself is never part of this state — it's derived
+   * at runtime from the live rendered output (see
+   * `../../lib/glyphAtlasAvailability.ts` and `glyph-runtime.ts`'s
+   * `recomputeAtlasAvailability`), never stable, user-authored data.
+   */
+  colorEncoding: "spans" | "atlas";
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;

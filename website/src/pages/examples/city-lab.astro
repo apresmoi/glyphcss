@@ -325,6 +325,13 @@ const description = "A procedural endless city rendered as colored ASCII with a 
                 <div class="city-ctl-row"><span>mono color</span><span class="val" id="mono-color-val">#FFE8B8</span></div>
                 <input class="city-color" type="color" id="mono-color" value="#ffe8b8" aria-label="Monochrome output color" />
               </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>color encoding</span></div>
+                <select id="colorEncoding" title="Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget.">
+                  <option value="spans">spans</option>
+                  <option value="atlas">atlas</option>
+                </select>
+              </div>
             </div>
           </details>
 
@@ -465,6 +472,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       readQueryNumber,
       readQueryString,
     } from "../../lib/example-query-state";
+    import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 
     type BuildingSpec = {
       x: number;
@@ -608,6 +616,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       density: readQueryNumber(query, "density", CITY.density, { min: 0.75, max: 5, step: 0.05 }),
       lod: readQueryNumber(query, "lod", 1, { min: 1, max: 3, step: 0.25 }),
       useColors: readQueryBoolean(query, "colors", true),
+      colorEncoding: readQueryEnum<"spans" | "atlas">(query, "colorEncoding", "spans", ["spans", "atlas"]),
       monoColor: `#${initialMonoHex}`,
       speed: readQueryNumber(query, "speed", CITY.speed, { min: 0, max: 2.5, step: 0.05 }),
       playing: readQueryBoolean(query, "play", true),
@@ -1091,12 +1100,16 @@ const description = "A procedural endless city rendered as colored ASCII with a 
     let motionLod = initialState.lod;
     let density = initialState.density;
     let useColors = initialState.useColors;
+    let colorEncoding = initialState.colorEncoding;
+    let atlasPalette: string[] | undefined;
     let monoColor = initialState.monoColor;
     const scene = createGlyphScene(host, {
       camera,
       autoSize: true,
       mode: "solid",
       useColors,
+      colorEncoding,
+      atlasPalette,
       supersample: 1,
       smoothShading: false,
       doubleSided: false,
@@ -1113,6 +1126,39 @@ const description = "A procedural endless city rendered as colored ASCII with a 
     scene.output.style.lineHeight = "1";
     if (!useColors) scene.output.style.color = monoColor;
     scene.fit();
+
+    // Keeps `atlasPalette`/the "color encoding" select's disabled state
+    // current by watching the stage `<pre>` directly (a `MutationObserver`,
+    // not a dependency list) — same pattern /synth, /wordart, and the
+    // gallery use. Skips recompute whenever the `<pre>` is CURRENTLY
+    // zero-span with real content — genuinely atlas-encoded PUA text has no
+    // per-cell colour left to parse back out (see
+    // `../../lib/glyphAtlasAvailability.ts`'s module doc) — so a working
+    // atlas render freezes its own last-known-good palette instead of
+    // misreading its own PUA glyphs as "not covered" and flapping back.
+    const colorEncodingSel = document.getElementById("colorEncoding") as HTMLSelectElement | null;
+    if (colorEncodingSel) colorEncodingSel.value = colorEncoding;
+    function recomputeAtlasAvailability(): void {
+      const pre = scene.output;
+      const hasContent = (pre.textContent ?? "").trim().length > 0;
+      const hasSpans = pre.querySelector("span") !== null;
+      if (hasContent && !hasSpans) return; // genuinely atlas-encoded — freeze.
+      const result = computeGlyphAtlasAvailability(pre, { useColors, charMode: "ascii" });
+      atlasPalette = result.atlasPalette;
+      if (colorEncodingSel) {
+        colorEncodingSel.disabled = result.reason !== null;
+        colorEncodingSel.title = result.reason === null
+          ? "Atlas color encoding — a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+          : `Atlas color encoding isn't available right now: ${result.reason}`;
+      }
+    }
+    recomputeAtlasAvailability();
+    new MutationObserver(recomputeAtlasAvailability).observe(scene.output, { childList: true, subtree: true, characterData: true });
+    colorEncodingSel?.addEventListener("change", () => {
+      colorEncoding = colorEncodingSel.value as "spans" | "atlas";
+      scene.setOptions({ colorEncoding, atlasPalette });
+      cityQuerySync.schedule();
+    });
 
     let faceOptimization = true;
 
@@ -1314,6 +1360,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       density,
       lod: motionLod,
       colors: useColors,
+      colorEncoding,
       mono: monoColor.slice(1).toLowerCase(),
       depth: cityConfig.depthBlocks,
       run: cityConfig.runBlocks,

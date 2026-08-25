@@ -25,6 +25,8 @@ const DEFAULTS: SceneOptionsState = {
   charMode: "ascii",
   wireframeJunctions: false,
   hiddenLines: "show",
+  solidWeightRamp: false,
+  colorEncoding: "spans",
   lineHeight: 1,
   density: 1,
   dragDensity: 1,
@@ -58,6 +60,7 @@ const REPRESENTATIVE: SceneOptionsState = {
   charMode: "halfblock",
   glyphPalette: "calibrated",
   hiddenLines: "hide",
+  colorEncoding: "atlas",
   dragMode: "fpv",
   rotX: 65.4321,
   rotY: -142.1,
@@ -103,6 +106,15 @@ describe("gallery scene codec", () => {
   it("round-trips charMode \"quadrant\" (appended enum value)", () => {
     const decoded = sceneCodec.decode(sceneCodec.encode({ ...DEFAULTS, charMode: "quadrant" }));
     expect(decoded.charMode).toBe("quadrant");
+  });
+
+  it("round-trips colorEncoding \"atlas\"", () => {
+    const decoded = sceneCodec.decode(sceneCodec.encode({ ...DEFAULTS, colorEncoding: "atlas" }));
+    expect(decoded.colorEncoding).toBe("atlas");
+  });
+
+  it("omits colorEncoding from the packed string when it's the default (\"spans\")", () => {
+    expect(sceneCodec.encode({ ...DEFAULTS, colorEncoding: "spans" })).toBe(sceneCodec.encode(DEFAULTS));
   });
 
   it("round-trips perspective=false and a numeric perspective", () => {

@@ -248,6 +248,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   wireframeJunctions: false,
   hiddenLines: "show",
   solidWeightRamp: false,
+  colorEncoding: "spans",
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,
@@ -401,6 +402,11 @@ export default function GalleryWorkbench() {
   const [presetId, setPresetId] = useState(initialPreset.id);
   const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
   const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
+  // Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+  // when it is) — polled from the live runtime alongside stats (see
+  // `<GlyphScene onAtlasAvailability>` below and `glyph-runtime.ts`'s
+  // `getAtlasAvailability`). Never a hand-maintained guess.
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [selectedAnimation, setSelectedAnimation] = useState("");
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
@@ -750,6 +756,7 @@ export default function GalleryWorkbench() {
             onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
             onCameraChange={handleCameraChange}
             onStatsChange={setMetrics}
+            onAtlasAvailability={setAtlasReason}
             onAnimationInfoChange={({ clips }) => {
               setAnimationClips(clips);
             }}
@@ -790,6 +797,8 @@ export default function GalleryWorkbench() {
           wireframeJunctions={sceneOptions.wireframeJunctions}
           hiddenLines={sceneOptions.hiddenLines}
           solidWeightRamp={sceneOptions.solidWeightRamp}
+          colorEncoding={sceneOptions.colorEncoding}
+          atlasReason={atlasReason}
           density={sceneOptions.density}
           dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}
