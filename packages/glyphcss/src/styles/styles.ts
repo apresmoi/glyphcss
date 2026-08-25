@@ -40,6 +40,67 @@ export function resetGlyphAtlasFontFaceStylesForTests(): void {
   atlasFontReady = new WeakMap();
 }
 
+// A dense glyph, so the probe below has plenty of covered pixels to read.
+const ATLAS_PROBE_GLYPH = "@";
+const ATLAS_PROBE_PX = 24;
+// Palette slot 0's baked CPAL colour is a saturated hue (see `build-atlas.py`'s
+// `hue_palette`), so "the painted pixels are CHROMATIC" cleanly separates a
+// real COLR paint from both failure modes below. 24 is far above antialiasing
+// noise and far below the ~216 spread slot 0 actually produces.
+const ATLAS_PROBE_CHROMA = 24;
+
+/**
+ * Does this engine actually PAINT the atlas's COLR layers?
+ *
+ * `CSS.supports("font-palette", "--x")` — the cheap check a caller might reach
+ * for — tests the wrong capability: it asks whether `font-palette` PARSES, not
+ * whether COLR/CPAL renders. The two failure modes it cannot see are both
+ * silent and both catastrophic, because every atlas base glyph has a
+ * deliberately EMPTY outline (`build-atlas.py`) and all the ink lives in its
+ * COLR layer:
+ *
+ *   - COLR-blind engine, font applied  -> every cell renders BLANK.
+ *   - font never applied at all        -> every cell renders tofu boxes.
+ *
+ * So this rasterizes one atlas code point and asks whether the result is
+ * chromatic. A blank canvas isn't (nothing painted); tofu isn't (it paints in
+ * `fillStyle`, which the probe pins to black); a real COLR paint is, because
+ * the colour comes from the font's own CPAL table rather than `fillStyle`.
+ *
+ * Returns `true` when it cannot conclude — no 2D context, no `getImageData`
+ * (a headless or locked-down environment) — rather than demoting a browser it
+ * simply failed to measure. Being wrong in that direction costs nothing here:
+ * the website's own synchronous `CSS.supports` gate decides the DEFAULT, and
+ * this is the safety net under it.
+ */
+function atlasColrPaints(target: Document): boolean {
+  const canvas = target.createElement("canvas");
+  canvas.width = ATLAS_PROBE_PX;
+  canvas.height = ATLAS_PROBE_PX;
+  const ctx = typeof canvas.getContext === "function" ? canvas.getContext("2d") : null;
+  if (!ctx || typeof ctx.fillText !== "function" || typeof ctx.getImageData !== "function") return true;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, ATLAS_PROBE_PX, ATLAS_PROBE_PX);
+  ctx.fillStyle = "#000000";
+  ctx.font = `${ATLAS_PROBE_PX}px "${GLYPH_FONT_ATLAS.family}"`;
+  ctx.textBaseline = "alphabetic";
+  const glyphIndex = Math.max(0, GLYPH_FONT_ATLAS.glyphs.indexOf(ATLAS_PROBE_GLYPH));
+  ctx.fillText(String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart + glyphIndex), 0, ATLAS_PROBE_PX * 0.8);
+
+  let pixels: Uint8ClampedArray;
+  try {
+    pixels = ctx.getImageData(0, 0, ATLAS_PROBE_PX, ATLAS_PROBE_PX).data;
+  } catch {
+    return true;
+  }
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i]!, g = pixels[i + 1]!, b = pixels[i + 2]!;
+    if (Math.max(r, g, b) - Math.min(r, g, b) > ATLAS_PROBE_CHROMA) return true;
+  }
+  return false;
+}
+
 function injectAtlasFontFace(target: Document, woff2Base64: string): void {
   if (target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
   const style = target.createElement("style");
@@ -59,8 +120,10 @@ function injectAtlasFontFace(target: Document, woff2Base64: string): void {
  * strictly stronger than "the `<style>` exists": it also waits on
  * `document.fonts.load` for a real atlas code point, so the caller can't paint
  * a frame of PUA into a fallback monospace face (tofu boxes) while the browser
- * is still decoding the WOFF2. Resolves `false` — never rejects — when the
- * payload or the font itself fails to load; the caller stays on spans.
+ * is still decoding the WOFF2, and then checks that the engine really PAINTS
+ * the atlas's COLR layers ({@link atlasColrPaints}). Resolves `false` — never
+ * rejects — when the payload, the font, or COLR painting fails; the caller
+ * stays on spans.
  */
 export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean> {
   const target = doc ?? (typeof document !== "undefined" ? document : undefined);
@@ -86,17 +149,22 @@ export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean>
     // test string: the atlas cmap covers U+0020 and its own PUA range only,
     // and a PUA glyph is what the encoder will actually emit.
     const fonts = (target as Document & { fonts?: FontFaceSet }).fonts;
-    if (typeof fonts?.load !== "function") return true;
-    try {
-      const faces = await fonts.load(`16px "${GLYPH_FONT_ATLAS.family}"`, String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart));
-      return faces.length > 0;
-    } catch {
-      // A decode failure here is the same outcome as a missing payload: this
-      // document stays on spans. `loadGlyphAtlasFontPayload` already warned if
-      // the payload itself was the problem; warn for the font-decode case too.
-      console.warn(`glyphcss: the colour-font atlas "${GLYPH_FONT_ATLAS.family}" failed to load in this document; colorEncoding "atlas" will render as "spans".`);
-      return false;
+    if (typeof fonts?.load === "function") {
+      try {
+        const faces = await fonts.load(`16px "${GLYPH_FONT_ATLAS.family}"`, String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart));
+        if (faces.length === 0) return false;
+      } catch {
+        // A decode failure here is the same outcome as a missing payload: this
+        // document stays on spans. `loadGlyphAtlasFontPayload` already warned if
+        // the payload itself was the problem; warn for the font-decode case too.
+        console.warn(`glyphcss: the colour-font atlas "${GLYPH_FONT_ATLAS.family}" failed to load in this document; colorEncoding "atlas" will render as "spans".`);
+        return false;
+      }
     }
+    // The face decoded — but decoding is not painting. See `atlasColrPaints`.
+    if (atlasColrPaints(target)) return true;
+    console.warn(`glyphcss: this engine does not paint the colour-font atlas's COLR layers; colorEncoding "atlas" will render as "spans".`);
+    return false;
   });
   atlasFontReady.set(target, ready);
   return ready;

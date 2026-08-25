@@ -25,6 +25,7 @@ import {
   type EffectParamSchemaLike,
   type UrlField,
 } from "../../lib/urlState";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 export interface Lighting {
   azimuth: number;
@@ -541,7 +542,14 @@ function buildSynthInitialState(raw: string | null | undefined, outer: Partial<S
     timeScale: decoded.timeScale,
     density: decoded.density,
     colorTolerance: decoded.colorTolerance,
-    colorEncoding: decoded.colorEncoding,
+    // Feature-detected site default, applied only when the LINK carries no
+    // choice. `SYNTH_URL_DEFAULTS.colorEncoding` deliberately stays "spans":
+    // it is the codec's omission sentinel, and a browser-dependent sentinel
+    // would make the same patch encode differently on different engines, so a
+    // link shared from a supporting browser would decode to the wrong value on
+    // one that isn't. Reading `outer` (the decoded partial) instead of the
+    // merged object is what keeps an explicit `?e=…E…` value winning.
+    colorEncoding: outer.colorEncoding ?? defaultGlyphColorEncoding(),
     lighting: {
       azimuth: decoded.lightAzimuth,
       elevation: decoded.lightElevation,

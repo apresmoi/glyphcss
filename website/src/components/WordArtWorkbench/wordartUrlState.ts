@@ -17,6 +17,7 @@ import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } 
 import { DEFAULT_GALLERY_EFFECT_STATE } from "../GalleryWorkbench/effects";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { ExtrudeProfile, WarpShape } from "@glyphcss/fonts";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 export type WordArtAlign = "left" | "center" | "right";
 export type WordArtFillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
@@ -243,7 +244,15 @@ function decodeWordArtOuter(raw: string | null | undefined): Partial<WordArtUrlS
 /** Read the initial state from the URL (defaults for anything absent/garbage
  *  — `decode` never throws, see urlState.ts). */
 export function readInitialWordArtState(): WordArtUrlState {
-  return { ...WORD_ART_DEFAULTS, ...decodeWordArtOuter(readUrlParam(WORD_ART_PARAM)) };
+  const decoded = decodeWordArtOuter(readUrlParam(WORD_ART_PARAM));
+  return {
+    ...WORD_ART_DEFAULTS,
+    // See `synthUrlState.ts` for why the codec's own default stays "spans"
+    // while the hydrated default is feature-detected: a browser-dependent
+    // omission sentinel would make shared links decode differently per engine.
+    colorEncoding: decoded.colorEncoding ?? defaultGlyphColorEncoding(),
+    ...decoded,
+  };
 }
 
 /** Restore the Effects folder's selection (mirrors the gallery's `fx` shape,

@@ -45,6 +45,7 @@ import {
   InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import "../GalleryWorkbench/gallery-workbench.css";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 // Re-exported so existing consumers of `synthKit.tsx`'s own `MAX_VOICES`
 // (SynthWorkbench.tsx et al.) keep importing it from here — the value
 // itself now comes from `@glyphcss/effects`'s `SYNTH_VOICES` via
@@ -1062,7 +1063,14 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const camera = createGlyphOrthographicCamera(volumetric ? { rotX: 58, rotY: 32, zoom: 16 } : { rotX: 0, rotY: 0, zoom: 20 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
+    // Same site default the stage takes (`glyphColorEncodingDefault.ts`) — these
+    // voice-card previews are their own `<pre>`s on /synth and /wordart, and
+    // leaving them on spans would make the page half one encoding, half the
+    // other. Deliberately NOT wired to the Dock's "Color encoding" toggle:
+    // that control is a DOM-cost lever over the stage, and the two encodings
+    // are visually identical, so a preview following it would buy nothing and
+    // cost a scene remount per voice.
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT, colorEncoding: defaultGlyphColorEncoding() });
     host.style.fontSize = "6px";
     const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
     const meshTransform = volumetric ? shapeTransform(previewShape) : {};

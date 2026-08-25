@@ -60,6 +60,7 @@ import type { GlyphEffectId } from "@glyphcss/effects";
 import type { GlyphSemanticCellLineage } from "glyphcss";
 import { gallerySemanticSceneFor } from "./semanticScene";
 import { glyphAtlasCellsFromPre } from "../../lib/asciiClipboard";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 type AsciiCell = { ch: string; color?: string };
 type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
@@ -258,7 +259,12 @@ const DEFAULT_SCENE: SceneOptionsState = {
   wireframeJunctions: false,
   hiddenLines: "show",
   solidWeightRamp: false,
-  colorEncoding: "spans",
+  // Feature-detected site default. `useRouteSync`'s codec keeps `default:
+  // "spans"` on purpose — that is the URL omission sentinel, and it must not
+  // vary by browser or a link shared from one engine would decode differently
+  // on another. DEFAULT_SCENE is spread BEFORE the decoded route options, so
+  // an explicit `?scene=…b…` value still wins.
+  colorEncoding: defaultGlyphColorEncoding(),
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,

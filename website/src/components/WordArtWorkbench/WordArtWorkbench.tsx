@@ -73,6 +73,7 @@ import type {
 } from "./wordartSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./wordart.css";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 type Align = "left" | "center" | "right";
 type FillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
@@ -1839,6 +1840,11 @@ function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; pr
         mode={mode}
         charMode={charMode}
         useColors
+        // Same site default the stage takes. The neighbouring STATIC preset
+        // tiles stay on spans: they are `compileScene` output, and the static
+        // path deliberately injects no atlas CSS (AGENTS.md), so making them
+        // atlas would mean hand-wiring `font-family`/`font-palette` per tile.
+        colorEncoding={defaultGlyphColorEncoding()}
         className="wa-tile__glyph"
         directionalLight={{ direction: TILE_LIGHT_DIR, intensity: 0.95 }}
         ambientLight={{ intensity: 0.7 }}

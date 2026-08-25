@@ -261,6 +261,18 @@ const description = "Drop or paste any image and watch it rasterise into shaded,
     ctl.density.value = String(readQueryNumber(query, "density", 1.6, { min: 0.75, max: 4, step: 0.05 }));
     paletteSel.value = readQueryString(query, "palette", "default", (value) => paletteNames.includes(value));
     ctl.color.checked = readQueryBoolean(query, "color", true);
+    // DELIBERATELY still "spans" while /synth, /gallery, /wordart and the other
+    // wired examples default to the feature-detected atlas. This page is a
+    // PHOTOGRAPH — 2,495 distinct colours against the atlas's 31 slots, 80x the
+    // budget — and it ships `colorTolerance` at glyphcss's own default of 0, so
+    // it currently guarantees exact per-cell colour. `bench/color-font-atlas-quantize.md`
+    // measures what atlas would cost it: mean redmean 9.2, p95 25.4, and 2.9%
+    // of cells past redmean 32, the only scene in that table to cross the bar
+    // /synth itself ships. Every other page either already merges colour runs
+    // or has fewer distinct colours than the atlas has slots (parthenon 291 ->
+    // mean 1.2; the flat-shaded renders skip quantization entirely and encode
+    // exactly), so none of them trades away anything it was promising. The
+    // control stays one click away, so the zero-<span> win is still on show.
     colorEncodingSel.value = readQueryEnum(query, "colorEncoding", "spans", ["spans", "atlas"] as const);
     modeSel.value = readQueryString(query, "mode", "flat", (v) => v === "flat" || v === "shapes");
     ctl.groups.value = String(readQueryNumber(query, "groups", 5, { min: 2, max: 10, step: 1 }));

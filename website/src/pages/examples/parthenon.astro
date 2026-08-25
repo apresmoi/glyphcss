@@ -345,6 +345,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     import type { Polygon } from "glyphcss";
     import { GlyphEffects } from "@glyphcss/effects";
     import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
+    import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
     // ── Procedural Parthenon (Z-up, ~meters) ─────────────────────────────
     // Real proportions: 69.5 m × 30.9 m stylobate, 8 × 17 Doric peristyle
@@ -763,7 +764,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // persisted to the URL — the "goto" camera-view hash is this page's
       // only URL state — so this control follows that same existing
       // pattern rather than introducing the first persisted control here.
-      let colorEncoding: "spans" | "atlas" = "spans";
+      let colorEncoding: "spans" | "atlas" = defaultGlyphColorEncoding();
       const scene = createGlyphScene(host, {
         camera,
         autoSize: true,
@@ -1165,6 +1166,11 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // the stage `<pre>` directly (a `MutationObserver`, not a dependency
       // list) — same pattern /synth, /wordart, and the gallery use.
       const colorEncodingSel = $("colorEncoding") as HTMLSelectElement | null;
+      // The markup lists "spans" first, so option order alone used to pick the
+      // right initial value. Now that the default is feature-detected, the
+      // control has to be told, or it would read "spans" while the scene
+      // renders atlas.
+      if (colorEncodingSel) colorEncodingSel.value = colorEncoding;
       function recomputeAtlasAvailability(): void {
         const result = computeGlyphAtlasAvailability(scene.output, { useColors: true, charMode: "ascii" });
         if (colorEncodingSel) {

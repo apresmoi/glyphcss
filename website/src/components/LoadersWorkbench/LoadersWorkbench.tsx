@@ -27,6 +27,7 @@ import { LoaderCodePanel } from "./LoaderCodePanel";
 import { generateLoaderSnippets, type LoaderTab } from "./loaderSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./loaders.css";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 type Polys = Parameters<GlyphSceneHandle["add"]>[0];
 
@@ -221,7 +222,11 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       doubleSided: true,
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
-      colorEncoding: live?.colorEncoding.current,
+      // A catalog/footer thumbnail has no `live` edits object, so this used to
+      // resolve to `undefined` -> glyphcss's own "spans". Fall through to the
+      // site default instead, or the tiles would silently disagree with the
+      // live size tiles the Dock control drives.
+      colorEncoding: live?.colorEncoding.current ?? defaultGlyphColorEncoding(),
     });
     sceneRef.current = scene;
     const polys = flatQuad(3, "#243244");
@@ -355,6 +360,7 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
 function useGhostScene(host: HTMLElement | null, cols: number, rows: number, live: LiveEdits): void {
   const liveRef = useRef(live);
   liveRef.current = live;
+  const ghostSceneRef = useRef<GlyphSceneHandle | null>(null);
 
   useEffect(() => {
     if (!host) return;
@@ -365,6 +371,10 @@ function useGhostScene(host: HTMLElement | null, cols: number, rows: number, liv
       glyphPalette: GHOST_BLANK_PALETTE, doubleSided: true,
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
+      // The overlay is its own `<pre>` stacked over the tile, so it needs the
+      // same encoding as the tile underneath or the page ends up half atlas,
+      // half spans for no reason a reader could see.
+      colorEncoding: liveRef.current.colorEncoding.current ?? defaultGlyphColorEncoding(),
     });
     const polys = flatQuad(3, "#000000");
     scene.add(polys);
@@ -411,8 +421,20 @@ function useGhostScene(host: HTMLElement | null, cols: number, rows: number, liv
       }
       if (slot !== null) layer.setParams({ time: clock });
     });
-    return () => { stop(); layer.dispose(); scene.destroy(); };
+    ghostSceneRef.current = scene;
+    return () => { stop(); layer.dispose(); scene.destroy(); ghostSceneRef.current = null; };
   }, [host, cols, rows]);
+
+  // Mirror `useLoaderScene`'s own Dock push: toggling "Color encoding" has to
+  // move the overlay too, and remounting it would restart its clock.
+  const colorEncoding = live.colorEncoding.current;
+  useEffect(() => {
+    const scene = ghostSceneRef.current;
+    if (!scene) return;
+    scene.setOptions({ colorEncoding });
+    scene.rerender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorEncoding]);
 }
 
 function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }: {
@@ -499,7 +521,7 @@ export default function LoadersWorkbench() {
   // it isn't available right now (`null` when it is), reported by whichever
   // live size tile's `MutationObserver` last recomputed it — see
   // `useLoaderScene`'s own recompute logic.
-  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">("spans");
+  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">(defaultGlyphColorEncoding);
   const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const colorEncodingRef = useRef(colorEncoding); colorEncodingRef.current = colorEncoding;
   const [fontSize, setFontSize] = useState(11);

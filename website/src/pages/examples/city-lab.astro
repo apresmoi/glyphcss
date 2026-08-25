@@ -473,6 +473,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       readQueryString,
     } from "../../lib/example-query-state";
     import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
+    import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
     type BuildingSpec = {
       x: number;
@@ -616,7 +617,9 @@ const description = "A procedural endless city rendered as colored ASCII with a 
       density: readQueryNumber(query, "density", CITY.density, { min: 0.75, max: 5, step: 0.05 }),
       lod: readQueryNumber(query, "lod", 1, { min: 1, max: 3, step: 0.25 }),
       useColors: readQueryBoolean(query, "colors", true),
-      colorEncoding: readQueryEnum<"spans" | "atlas">(query, "colorEncoding", "spans", ["spans", "atlas"]),
+      // Feature-detected site default; an explicit `?colorEncoding=` still wins
+      // (`readQueryEnum` only falls back on an absent/unrecognised value).
+      colorEncoding: readQueryEnum<"spans" | "atlas">(query, "colorEncoding", defaultGlyphColorEncoding(), ["spans", "atlas"]),
       monoColor: `#${initialMonoHex}`,
       speed: readQueryNumber(query, "speed", CITY.speed, { min: 0, max: 2.5, step: 0.05 }),
       playing: readQueryBoolean(query, "play", true),
