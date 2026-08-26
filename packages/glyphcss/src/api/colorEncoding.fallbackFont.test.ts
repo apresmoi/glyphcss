@@ -396,3 +396,107 @@ describe("colorEncoding: \"atlas\" — the cell probe measures the font that pai
     host.remove();
   });
 });
+
+/**
+ * P1-A: a detail layer's own font-pin flip.
+ *
+ * `commitRender`'s settling-render check only ever looked at the BASE
+ * `<pre>`'s pin. A detail layer's own grid can fall back to spans (or arrive
+ * at the atlas) independently of the base — a mesh-targeted effect, or a raw
+ * non-`#rrggbb` color a mesh's wireframe edges carry through unchecked
+ * (`rasterize.ts`'s `drawLineToStamp(..., e.color ?? null, ...)`) — and that
+ * flip triggered neither cache invalidation nor a corrective render. The
+ * density path additionally derives its cell straight from the base's own
+ * cell (`cw = cwB / density`), which is only valid while this layer paints
+ * in the SAME font as the base.
+ */
+describe("colorEncoding: \"atlas\" — a detail layer's own pin flip", () => {
+  const detailQuad = (color: string) => [
+    { vertices: [[6, -2, 0], [6, 2, 0], [9, 2, 0], [9, -2, 0]] as [number, number, number][], color },
+  ];
+
+  /**
+   * Base AND detail meshes both start atlas-encodable and are left to reach a
+   * fully-settled atlas state — no pending flip anywhere. ONLY THEN does the
+   * detail mesh's color change to a raw CSS name (not `#rrggbb`), which
+   * `isGlyphAtlasEncodable` structurally rejects — wireframe forwards
+   * `e.color` unchecked (`rasterize.ts`'s
+   * `drawLineToStamp(..., e.color ?? null, ...)`). This isolates a
+   * detail-ONLY pin flip: the base never flips again, so there is no base
+   * settling render for this flip to ride along on for free — only the
+   * detail layer's OWN flip can trigger the correction. Returns the detail
+   * `<pre>`'s own column count after several more render cycles.
+   */
+  async function detailLayerGeometry(
+    atlasAdvance: number,
+    fallbackAdvance: number,
+  ): Promise<{ atlasPinned: boolean; detailPinned: boolean; detailCols: number }> {
+    stubTextLayout(atlasAdvance, fallbackAdvance);
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      camera: createGlyphOrthographicCamera({ zoom: 20 }),
+      cols: 40,
+      rows: 16,
+      mode: "wireframe",
+      // The DEFAULT wireframe palette's tiers include glyphs the checked-in
+      // atlas doesn't carry, and a wireframe cell's glyph is a random draw
+      // from its tier — so a default-palette wireframe scene's own atlas
+      // encodability is non-deterministic frame to frame (see
+      // `colorEncoding.test.ts`'s "wireframe mode's separate coalescer holds
+      // the same gate"). `"ascii"` is fully atlas-covered and deterministic.
+      glyphPalette: "ascii",
+      useColors: true,
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#336699"));
+    const detailMesh = scene.add(detailQuad("#336699"), { density: 2 });
+    await flushAtlasRenders();
+    await flushAtlasRenders(); // reach a fully-settled atlas state on both grids.
+
+    const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement | null;
+    if (!detail) throw new Error("glyphcss: detail layer did not render in this fixture.");
+    if (!atlasIsFirstInStack(scene.output) || !atlasIsFirstInStack(detail)) {
+      throw new Error("glyphcss: fixture did not reach a fully-settled atlas state.");
+    }
+
+    detailMesh.setPolygons(detailQuad("red"));
+    await flushAtlasRenders();
+    await flushAtlasRenders(); // let the (missing, pre-fix) settling render land.
+    await flushAtlasRenders(); // and once more, to catch any further drift.
+
+    const result = {
+      atlasPinned: atlasIsFirstInStack(scene.output),
+      detailPinned: atlasIsFirstInStack(detail),
+      detailCols: (detail.textContent ?? "").split("\n")[0]!.length,
+    };
+    scene.destroy();
+    host.remove();
+    vi.restoreAllMocks();
+    return result;
+  }
+
+  it("measures a divergent detail layer's own cell in the font it actually paints, not the base's atlas advance", async () => {
+    const real = await detailLayerGeometry(ATLAS_ADVANCE, FALLBACK_ADVANCE);
+    // The base never flips again here — only the detail mesh's own
+    // encodability changed — so this can only have corrected if the detail
+    // layer's OWN pin flip triggered its own cache invalidation + render.
+    expect(real.atlasPinned).toBe(true);
+    expect(real.detailPinned).toBe(false);
+    expect(real.detailCols).toBeGreaterThan(0);
+
+    // Sensitivity: change ONLY the fallback advance, keep the atlas advance
+    // fixed. A correct derivation measures this layer in the fallback font,
+    // so its column count must move with it. The bug derives `cw` from the
+    // BASE's atlas-measured cell regardless of density, so it stays fixed
+    // no matter what the fallback font's own metrics are — and with no
+    // settling render ever scheduled, it never gets a chance to correct
+    // itself even given unlimited further render cycles.
+    const differentFallback = await detailLayerGeometry(ATLAS_ADVANCE, FALLBACK_ADVANCE * 2);
+    expect(differentFallback.atlasPinned).toBe(true);
+    expect(differentFallback.detailPinned).toBe(false);
+
+    expect(differentFallback.detailCols).not.toBe(real.detailCols);
+  });
+});

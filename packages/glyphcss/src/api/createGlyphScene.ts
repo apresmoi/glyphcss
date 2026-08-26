@@ -1362,6 +1362,13 @@ export function createGlyphScene(
   function commitRender(plan: RenderCommit): void {
     testRenderStage("commit-write");
     const basePinnedBefore = isGlyphAtlasPinned(pre);
+    // Pin state of every node THIS commit is about to (re)write, captured
+    // before `setGlyphAtlasFontOn` runs below — the per-node counterpart to
+    // `basePinnedBefore`, needed because a detail layer's own pin can flip
+    // independently of the base's (a mesh-targeted effect or a raw color can
+    // make just that one grid unencodable while the base stays atlas).
+    const writesPinnedBefore = new Map<HTMLPreElement, boolean>();
+    for (const entry of plan.writes) writesPinnedBefore.set(entry.pre, isGlyphAtlasPinned(entry.pre));
     const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
     const outputs = Array.from(outputNodes, (node) => ({ node, html: node.innerHTML, text: node.textContent ?? "", style: node.getAttribute("style") }));
     const oldDetails = new Map(detailLayers);
@@ -1429,11 +1436,30 @@ export function createGlyphScene(
     // every detail-layer transform are derived from — is stale. This settles
     // in one extra render: the re-render re-measures in the new font and the
     // pinning does not flip again unless the encoding does.
+    let needsSettlingRender = false;
     if (isGlyphAtlasPinned(pre) !== basePinnedBefore) {
       baseCellCache = null;
       if (options.autoSize) fitToHost();
-      scheduleRender();
+      needsSettlingRender = true;
     }
+    // Same settling logic per detail layer: `plan.writes` carries what the
+    // encoder actually PRODUCED for every output node this cycle, base and
+    // detail alike, so a detail layer's own pin can flip on its own (its
+    // grid stopped/started being atlas-encodable while the base's didn't).
+    // Without this, that layer's cached cell metrics stay keyed to the font
+    // it was measured in before the flip and nothing ever re-measures it —
+    // the density path derives them straight from the base's cell, and the
+    // explicit fontSize/lineHeight path measures its own but never gets a
+    // render to do it in.
+    for (const entry of plan.writes) {
+      if (entry.pre === pre) continue;
+      if (writesPinnedBefore.get(entry.pre) === entry.atlas) continue;
+      for (const layer of detailLayers.values()) {
+        if (layer.pre === entry.pre) { layer.key = ""; break; }
+      }
+      needsSettlingRender = true;
+    }
+    if (needsSettlingRender) scheduleRender();
   }
 
   /**
@@ -1508,16 +1534,36 @@ export function createGlyphScene(
         if (!hasExplicit && density != null && density > 0) {
           // density path: cell = base cell ÷ density, derived exactly from the base
           // font (no per-frame layout measurement). fontSize scales linearly, so
-          // setting the <pre> font to base/density yields exactly base cell/density.
-          // The base cell is part of the key: a density layer derives its own
-          // cell from it, so a base-cell change (a fit, an option change, or
-          // the atlas font arriving and changing the measured advance) has to
+          // setting the <pre> font to base/density yields exactly base cell/density
+          // — but ONLY while this layer paints in the SAME font as the base right
+          // now: the linear scaling is a property of ONE face, and stops holding
+          // the moment this layer's own pin diverges from the base's (this mesh's
+          // grid fell back to spans while the base stayed atlas, or vice versa —
+          // a mesh-targeted effect or a raw, non-#rrggbb color can do this to just
+          // one grid). The base cell is part of the key: a density layer derives
+          // its own cell from it, so a base-cell change (a fit, an option change,
+          // or the atlas font arriving and changing the measured advance) has to
           // re-derive it instead of holding a stale multiple of the old one.
-          const key = `d:${density}:${cwB}:${chB}`;
+          // Whether THIS layer currently shares the base's pin also joins the
+          // key, so a layer whose own encoding diverges — or re-converges —
+          // re-derives instead of keeping a metric taken under the other
+          // assumption.
+          const sameFontAsBase = isGlyphAtlasPinned(dpre) === isGlyphAtlasPinned(pre);
+          const key = `d:${density}:${cwB}:${chB}:${sameFontAsBase ? "same" : dpre.style.fontFamily}`;
           if (layer.key !== key) {
-            layer.fontSize = `${baseFontPx() / density}px`;
+            const fontSizePx = baseFontPx() / density;
+            layer.fontSize = `${fontSizePx}px`;
             layer.lineHeight = "";
-            layer.key = key; layer.cw = cwB / density; layer.ch = chB / density;
+            if (sameFontAsBase) {
+              layer.cw = cwB / density; layer.ch = chB / density;
+            } else {
+              // Divergent font: the base cell's advance doesn't transfer, so
+              // measure this layer's own painted font stack directly instead
+              // of scaling a measurement taken in a different face.
+              const m = measureDetailCell(layer.fontSize, "", dpre.style.fontFamily);
+              layer.cw = m.w; layer.ch = m.h;
+            }
+            layer.key = key;
           }
         } else {
           // legacy escape hatch: explicit fontSize / lineHeight (CSS-measured).
