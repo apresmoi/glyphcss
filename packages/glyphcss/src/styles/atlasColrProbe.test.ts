@@ -76,3 +76,70 @@ describe("ensureGlyphAtlasFontFaceStyles — COLR paint probe", () => {
     expect(await ensureGlyphAtlasFontFaceStyles(document)).toBe(true);
   });
 });
+
+/**
+ * The capability the COLR probe structurally CANNOT see.
+ *
+ * The atlas's baked CPAL palette is itself chromatic (slot 0 is a saturated
+ * ramp colour), so an engine that renders COLRv0 but ignores `font-palette` —
+ * Chrome 71-100, Firefox 26-106, Safari 12-15.3 — paints a genuinely chromatic
+ * glyph and PASSES the canvas probe, then renders the whole scene in the
+ * checked-in rainbow instead of the scene's own colours. Canvas cannot observe
+ * `font-palette` at all, so no amount of probe tuning closes this; the website
+ * had a `CSS.supports` gate for its own default and a library consumer setting
+ * `colorEncoding: "atlas"` directly had nothing.
+ */
+describe("ensureGlyphAtlasFontFaceStyles — the font-palette support gate", () => {
+  function stubCssSupports(result: boolean | undefined): string[] {
+    const seen: string[] = [];
+    const view = document.defaultView!;
+    const css = result === undefined
+      ? undefined
+      : {
+          supports: (property: string, value: string) => {
+            seen.push(`${property}:${value}`);
+            return result;
+          },
+        };
+    Object.defineProperty(view, "CSS", { value: css, configurable: true, writable: true });
+    return seen;
+  }
+
+  afterEach(() => {
+    Object.defineProperty(document.defaultView!, "CSS", { value: undefined, configurable: true, writable: true });
+  });
+
+  it("refuses — before importing the payload — on an engine without custom-ident font-palette", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let payloadImports = 0;
+    setGlyphAtlasFontPayloadImportForTests(async () => {
+      payloadImports++;
+      return { GLYPH_FONT_ATLAS_WOFF2_BASE64: "AAAA" };
+    });
+    stubCanvas([26, 242, 89]); // a real COLR paint: the COLR probe would pass
+    const queries = stubCssSupports(false);
+
+    expect(await ensureGlyphAtlasFontFaceStyles(document)).toBe(false);
+    expect(document.getElementById(FONT_FACE_STYLE_ID)).toBeNull();
+    // The 44KB chunk is never fetched for a browser that could only render the
+    // atlas in its baked CPAL rainbow.
+    expect(payloadImports).toBe(0);
+    // The DASHED-IDENT form specifically: `font-palette: normal|light|dark`
+    // alone would still leave every cell on the font's own baked ramp.
+    expect(queries).toContain("font-palette:--x");
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/does not support "font-palette" with a custom ident/);
+  });
+
+  it("is ready on an engine that does support it", async () => {
+    stubCanvas([26, 242, 89]);
+    stubCssSupports(true);
+    expect(await ensureGlyphAtlasFontFaceStyles(document)).toBe(true);
+    expect(document.getElementById(FONT_FACE_STYLE_ID)).not.toBeNull();
+  });
+
+  it("stays ready when it cannot conclude (no CSS.supports) rather than demoting an unmeasurable browser", async () => {
+    stubCanvas([26, 242, 89]);
+    stubCssSupports(undefined);
+    expect(await ensureGlyphAtlasFontFaceStyles(document)).toBe(true);
+  });
+});

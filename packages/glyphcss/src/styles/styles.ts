@@ -101,6 +101,41 @@ function atlasColrPaints(target: Document): boolean {
   return false;
 }
 
+/**
+ * Does this engine support `font-palette` with a custom `--ident`?
+ *
+ * This is the capability {@link atlasColrPaints} structurally CANNOT see, and
+ * it is not a redundant second gate. The atlas's baked CPAL palette is itself
+ * chromatic (slot 0 is a saturated ramp colour, see `build-atlas.py`'s
+ * `hue_palette`), so an engine that renders COLRv0 but ignores `font-palette`
+ * — Chrome 71-100, Firefox 26-106, Safari 12-15.3 — paints a real chromatic
+ * glyph and PASSES the canvas probe, then renders the entire scene in the
+ * checked-in rainbow instead of the scene's own colours. Canvas has no way to
+ * observe `font-palette` application at all, so the probe can never close
+ * this; a synchronous `CSS.supports` can, exactly.
+ *
+ * The dashed-ident form specifically: `font-palette: normal|light|dark` alone
+ * would still leave every cell on the font's baked CPAL ramp. This mirrors
+ * the website's own default-selection gate
+ * (`website/src/lib/glyphColorEncodingDefault.ts`), but lives HERE so that a
+ * library consumer setting `colorEncoding: "atlas"` directly is covered too —
+ * the "never a broken render" contract is the library's, not the website's.
+ *
+ * Returns `true` when it cannot conclude (no `CSS`, no `supports`) rather than
+ * demoting a browser it merely failed to measure — the same discipline
+ * {@link atlasColrPaints} follows.
+ */
+function fontPaletteSupported(target: Document): boolean {
+  const view = target.defaultView ?? (typeof window !== "undefined" ? window : undefined);
+  const css = view?.CSS as { supports?: (property: string, value: string) => boolean } | undefined;
+  if (!css || typeof css.supports !== "function") return true;
+  try {
+    return css.supports("font-palette", "--x");
+  } catch {
+    return true;
+  }
+}
+
 function injectAtlasFontFace(target: Document, woff2Base64: string): void {
   if (target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
   const style = target.createElement("style");
@@ -121,9 +156,12 @@ function injectAtlasFontFace(target: Document, woff2Base64: string): void {
  * `document.fonts.load` for a real atlas code point, so the caller can't paint
  * a frame of PUA into a fallback monospace face (tofu boxes) while the browser
  * is still decoding the WOFF2, and then checks that the engine really PAINTS
- * the atlas's COLR layers ({@link atlasColrPaints}). Resolves `false` — never
- * rejects — when the payload, the font, or COLR painting fails; the caller
- * stays on spans.
+ * the atlas's COLR layers ({@link atlasColrPaints}). Ahead of both, and ahead
+ * of the payload import, it requires custom-ident `font-palette` support
+ * ({@link fontPaletteSupported}) — the capability the canvas probe cannot see,
+ * and without which the whole scene renders in the atlas's baked CPAL rainbow.
+ * Resolves `false` — never rejects — when the palette gate, the payload, the
+ * font, or COLR painting fails; the caller stays on spans.
  */
 export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean> {
   const target = doc ?? (typeof document !== "undefined" ? document : undefined);
@@ -139,6 +177,15 @@ export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean>
       if (ready && base64) injectAtlasFontFace(target, base64);
       return ready;
     });
+  }
+
+  // Checked before the payload import, so an engine that could only render the
+  // atlas in its baked CPAL rainbow never pays the 44KB chunk either.
+  if (!fontPaletteSupported(target)) {
+    const unsupported = Promise.resolve(false);
+    atlasFontReady.set(target, unsupported);
+    console.warn(`glyphcss: this engine does not support "font-palette" with a custom ident; colorEncoding "atlas" will render as "spans".`);
+    return unsupported;
   }
 
   const ready = loadGlyphAtlasFontPayload().then(async (base64) => {
