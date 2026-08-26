@@ -69,12 +69,21 @@
  * elapsed — never from the future, so an offline replay and a live render
  * agree. Two gates guard a repool, and both must pass:
  *
- *   - **Time.** At least `refreshMs` since the last repool. This also makes a
- *     mid-frame repool structurally impossible: a scene resolves once per
- *     output `<pre>` (base + one per detail layer) within a single frame, and
- *     the second call is microseconds after the first, so every output of one
- *     frame is guaranteed the same palette — which they must be, since they
- *     share one scene-level `font-palette` custom ident.
+ *   - **Time.** At least `refreshMs` since the last repool.
+ *
+ *     This is NOT what keeps one frame's outputs on one palette. A scene
+ *     resolves once per output `<pre>` — the base at the end of base
+ *     rasterization, each detail layer at the end of its OWN raster pass — so
+ *     those calls are separated by a whole detail-layer render, which in the
+ *     heavy-scene regime this feature targets can easily exceed `refreshMs`.
+ *     A repool landing between them would leave the base `<pre>` encoded
+ *     against generation N while the scene publishes generation N+1 to the
+ *     single `font-palette` custom ident they SHARE, silently recolouring the
+ *     base wholesale — permanently, on a static scene. The clock cannot rule
+ *     that out, so {@link GlyphAtlasPaletteQuantizer.beginTransaction} does:
+ *     within a render transaction the palette is LATCHED at the first resolve
+ *     and every later output of that frame gets the same one. Colours still
+ *     accumulate from every output, so the pool stays complete and causal.
  *   - **Drift.** The window's drifted-cell fraction exceeds what this palette
  *     already scored on the window it was BUILT from. Measuring against that
  *     baseline rather than against zero is what keeps a static render at
@@ -458,6 +467,25 @@ export interface GlyphAtlasPaletteQuantizer extends GlyphAtlasPaletteSource {
   readonly palette: readonly string[] | undefined;
   /** Bumped on every repool — a cheap "has the palette changed?" for CSS sync. */
   readonly generation: number;
+  /**
+   * Open a render transaction: every {@link resolveGlyphAtlasPalette} until
+   * the matching {@link endTransaction} returns the SAME palette, whatever
+   * the clock and drift gates would otherwise decide. The first resolve
+   * inside the transaction still gets to repool — it is only later resolves
+   * that are pinned to its result.
+   *
+   * This exists because a scene's outputs do not resolve microseconds apart:
+   * the base `<pre>` resolves at the end of base rasterization and each
+   * detail `<pre>` at the end of its own pass, and they all reference ONE
+   * `font-palette` custom ident. See the module doc.
+   *
+   * Optional for a caller that resolves one grid at a time (`compileScene`,
+   * a one-shot bake): never opening a transaction keeps the pre-existing
+   * per-resolve behaviour exactly.
+   */
+  beginTransaction(): void;
+  /** Close the transaction opened by {@link beginTransaction} and drop the latch. */
+  endTransaction(): void;
   /** Drop all pooled state (palette, pending window, memos). */
   reset(): void;
 }
@@ -490,6 +518,12 @@ export function createGlyphAtlasPaletteQuantizer(
   // Drifted-cell fraction this palette scores on the window it was BUILT from
   // — its own irreducible floor. See `repool` for why this exists.
   let baselineDrift = 0;
+  // Render-transaction latch. `inTransaction` is false for a caller that never
+  // brackets its resolves, which is what keeps the standalone/one-shot
+  // behaviour unchanged; `latched` holds the palette every output of the
+  // CURRENT transaction must share. See `beginTransaction`.
+  let inTransaction = false;
+  let latched: readonly string[] | undefined;
 
   function repool(): void {
     if (pending.size === 0) return;
@@ -535,6 +569,14 @@ export function createGlyphAtlasPaletteQuantizer(
     get generation(): number {
       return generation;
     },
+    beginTransaction(): void {
+      inTransaction = true;
+      latched = undefined;
+    },
+    endTransaction(): void {
+      inTransaction = false;
+      latched = undefined;
+    },
     reset(): void {
       packedPalette = [];
       hexPalette = undefined;
@@ -543,10 +585,14 @@ export function createGlyphAtlasPaletteQuantizer(
       driftCells = 0;
       windowCells = 0;
       lastRepoolAt = 0;
+      latched = undefined;
     },
     resolveGlyphAtlasPalette(char, color, n) {
       const frame = histogramGridColors(char, color, n);
-      if (frame.size === 0) return hexPalette;
+      // A blank grid contributes nothing and must not close the latch: an
+      // off-screen detail layer would otherwise pin the whole transaction to
+      // whatever palette existed before the frame that actually has colour.
+      if (frame.size === 0) return latched ?? hexPalette;
 
       for (const [packed, count] of frame) {
         pending.set(packed, (pending.get(packed) ?? 0) + count);
@@ -562,6 +608,11 @@ export function createGlyphAtlasPaletteQuantizer(
         }
       }
 
+      // Ingest above always runs — a latched transaction still pools every
+      // output's colours, so the window a later repool trains on is complete.
+      // Only the DECISION is latched.
+      if (latched !== undefined) return latched;
+
       if (hexPalette === undefined) {
         repool();
       } else if (
@@ -571,6 +622,7 @@ export function createGlyphAtlasPaletteQuantizer(
       ) {
         repool();
       }
+      if (inTransaction) latched = hexPalette;
       return hexPalette;
     },
   };

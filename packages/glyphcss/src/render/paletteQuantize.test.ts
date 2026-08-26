@@ -142,8 +142,10 @@ describe("createGlyphAtlasPaletteQuantizer — pooling and refresh", () => {
   });
 
   it("hands every output of the SAME frame one identical palette", () => {
-    // Two outputs (base `<pre>` + a detail layer) resolve microseconds apart.
-    // They share one `font-palette` ident, so they must share one palette.
+    // Two outputs (base `<pre>` + a detail layer) sharing one `font-palette`
+    // ident must share one palette. This case is the EASY one — the clock gate
+    // alone covers it. The hard one (outputs a whole raster pass apart) is the
+    // transaction-latch suite below.
     let t = 0;
     const q = createGlyphAtlasPaletteQuantizer({ now: () => t });
     const a = frame(greyRamp(200));
@@ -255,6 +257,97 @@ describe("createGlyphAtlasPaletteQuantizer — pooling and refresh", () => {
   });
 });
 
+/**
+ * The 250 ms repool floor was documented as making a mid-frame repool
+ * "structurally impossible", on the reasoning that a scene's per-output
+ * resolves are "microseconds apart". They are not: the base `<pre>` resolves at
+ * the end of base rasterization and each detail `<pre>` at the end of its OWN
+ * raster pass, which in the heavy-scene regime this feature exists for can
+ * easily exceed the interval. A repool landing between them leaves the base
+ * `<pre>` encoded against generation N while the scene publishes N+1 to the
+ * single `font-palette` ident they share — the base recolours wholesale, with
+ * no error, permanently on a static scene.
+ */
+describe("createGlyphAtlasPaletteQuantizer — the render-transaction latch", () => {
+  function frame(colors: readonly string[]): { char: string[]; color: (string | null)[] } {
+    return { char: colors.map(() => G), color: [...colors] };
+  }
+
+  const base = frame(greyRamp(200));
+  const drifted = frame(Array.from({ length: 200 }, (_, i) => hsvHex(200 + i * 0.3, 0.9, 0.55)));
+
+  it("the clock gate alone does NOT prevent a mid-frame repool (the defect)", () => {
+    // Not an aspiration — a demonstration that the latch is load-bearing. If
+    // this ever stops repooling, the test below proves nothing.
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    q.resolveGlyphAtlasPalette(base.char, base.color, base.color.length);
+    expect(q.generation).toBe(1);
+    t = 300; // one detail-layer raster pass later
+    q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length);
+    expect(q.generation).toBe(2);
+  });
+
+  it("latches one palette across every output of a transaction, whatever the clock says", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    q.beginTransaction();
+    const forBase = q.resolveGlyphAtlasPalette(base.char, base.color, base.color.length);
+    expect(q.generation).toBe(1);
+    t = 300;
+    const forDetail = q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length);
+    q.endTransaction();
+
+    // Identity, not just equality: the detail `<pre>` encoded its slots against
+    // the very palette the base `<pre>` did.
+    expect(forDetail).toBe(forBase);
+    expect(q.generation).toBe(1);
+    expect(q.palette).toBe(forBase);
+  });
+
+  it("still repools on the NEXT transaction, using the colours the latched one pooled", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    q.beginTransaction();
+    q.resolveGlyphAtlasPalette(base.char, base.color, base.color.length);
+    t = 300;
+    q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length);
+    q.endTransaction();
+    expect(q.generation).toBe(1);
+
+    // The latch defers the DECISION; it does not drop the ingest. The drifted
+    // colours pooled during the latched transaction are what the next repool
+    // trains on, so the refresh is delayed by at most one frame.
+    t = 600;
+    q.beginTransaction();
+    q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length);
+    q.endTransaction();
+    expect(q.generation).toBe(2);
+  });
+
+  it("an all-blank output does not close the latch on the palette that preceded it", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    q.beginTransaction();
+    // An off-screen detail layer resolves an empty grid before the base does.
+    expect(q.resolveGlyphAtlasPalette([" "], [null], 1)).toBeUndefined();
+    const forBase = q.resolveGlyphAtlasPalette(base.char, base.color, base.color.length);
+    expect(forBase).toBeDefined();
+    t = 300;
+    expect(q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length)).toBe(forBase);
+    q.endTransaction();
+  });
+
+  it("a caller that never opens a transaction keeps the pre-existing behaviour", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    q.resolveGlyphAtlasPalette(base.char, base.color, base.color.length);
+    t = 300;
+    q.resolveGlyphAtlasPalette(drifted.char, drifted.color, drifted.color.length);
+    expect(q.generation).toBe(2);
+  });
+});
+
 describe("resolveGlyphAtlasPaletteInput", () => {
   it("passes a fixed array through without consulting any derivation", () => {
     const fixed = ["#ff0000"];
@@ -287,7 +380,8 @@ describe("the encode seam under quantization", () => {
     const source = { resolveGlyphAtlasPalette: () => { consulted = true; return ["#ff0000"]; } };
     const grid = buildCellGrid(char, many, null, many.length, 1);
     const out = encodeCellGridOutput(grid, true, 0, "spans", source);
-    expect(out).toBe(encodeGlyphBuffers(char, many, many.length, 1, true));
+    expect(out.text).toBe(encodeGlyphBuffers(char, many, many.length, 1, true));
+    expect(out.encoding).toBe("spans");
     expect(consulted).toBe(false);
   });
 
@@ -296,17 +390,24 @@ describe("the encode seam under quantization", () => {
     const q = createGlyphAtlasPaletteQuantizer({ now: () => t });
     const grid = buildCellGrid(char, many, null, many.length, 1);
     const out = encodeCellGridOutput(grid, true, 0, "atlas", q);
-    expect(out).not.toContain("<span");
-    expect([...out]).toHaveLength(many.length);
+    expect(out.text).not.toContain("<span");
+    expect([...out.text]).toHaveLength(many.length);
     expect(q.palette!.length).toBeLessThanOrEqual(GLYPH_FONT_ATLAS.maxPaletteSize);
-    expect(out).toBe(encodeGlyphAtlas(char, many, many.length, 1, q.palette!));
+    expect(out.text).toBe(encodeGlyphAtlas(char, many, many.length, 1, q.palette!));
+    expect(out.encoding).toBe("atlas");
   });
 
   it("still falls back to spans when a glyph is outside the atlas, quantizer or not", () => {
     const q = createGlyphAtlasPaletteQuantizer({ now: () => 0 });
     const mixed = [...char.slice(0, -1), "ᚠ"];
     const grid = buildCellGrid(mixed, many, null, many.length, 1);
-    expect(encodeCellGridOutput(grid, true, 0, "atlas", q)).toContain("<span");
+    const out = encodeCellGridOutput(grid, true, 0, "atlas", q);
+    expect(out.text).toContain("<span");
+    expect(out.encoding).toBe("spans");
+    // And the unencodable grid never reached the quantizer at all: a grid the
+    // atlas can never carry must not pool, repool, or bump the generation.
+    expect(q.palette).toBeUndefined();
+    expect(q.generation).toBe(0);
   });
 });
 
