@@ -77,6 +77,10 @@ interface DemoHandle {
   configureEffect: (config: GlyphSceneEffectConfig | null) => void;
   setPresentation: (renderMode: SceneOptionsState["renderMode"], semanticOutput: { sceneManifest: GlyphControlSceneManifest; dictionary: GlyphObjectDictionary } | null) => void;
   getSemanticCellFrame: () => { cols: number; rows: number; cells: readonly (GlyphSemanticCellLineage | null)[] } | null;
+  /** Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+   *  when it is) — see `../../lib/glyphAtlasAvailability.ts`. Polled, not
+   *  pushed, same as `getStats`/`getAnimationInfo`. */
+  getAtlasAvailability: () => { reason: string | null };
 }
 
 export interface GlyphSceneProps {
@@ -86,6 +90,9 @@ export interface GlyphSceneProps {
   onBuild: (ms: number) => void;
   onCameraChange?: (cam: { rotX: number; rotY: number; zoom?: number; target?: [number, number, number] }) => void;
   onStatsChange: (stats: GlyphMetrics) => void;
+  /** Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+   *  when it is) — polled alongside stats, see `startPolling` below. */
+  onAtlasAvailability?: (reason: string | null) => void;
   onAnimationInfoChange: (info: { clips: Array<{ index: number; name: string; duration: number }> }) => void;
   selectedAnimation: string;
   animationPaused: boolean;
@@ -136,6 +143,7 @@ export function GlyphScene({
   onBuild,
   onCameraChange,
   onStatsChange,
+  onAtlasAvailability,
   onAnimationInfoChange,
   selectedAnimation,
   animationPaused,
@@ -254,6 +262,7 @@ export function GlyphScene({
           wireframeJunctions: currentOptions.wireframeJunctions,
           hiddenLines: currentOptions.hiddenLines,
           solidWeightRamp: currentOptions.solidWeightRamp,
+          colorEncoding: currentOptions.colorEncoding,
           useColors: currentOptions.useColors,
           smoothShading: currentOptions.smoothShading,
           creaseAngle: currentOptions.creaseAngle,
@@ -334,6 +343,7 @@ export function GlyphScene({
       };
 
       onStatsChange(metrics);
+      onAtlasAvailability?.(handle.getAtlasAvailability().reason);
 
       if (stats.bakeMs !== prevBakeMsRef.current) {
         prevBakeMsRef.current = stats.bakeMs;
@@ -533,6 +543,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ solidWeightRamp: options.solidWeightRamp });
   }, [options.solidWeightRamp]);
+
+  // React to colorEncoding toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ colorEncoding: options.colorEncoding });
+  }, [options.colorEncoding]);
 
   // React to useColors toggle.
   useEffect(() => {

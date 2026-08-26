@@ -15,6 +15,7 @@ import {
   wordArtEffectStateFromUrlState,
   type WordArtUrlState,
 } from "./wordartUrlState";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 import {
   createUrlCodec,
   decodeEffectParamsPacked,
@@ -75,6 +76,15 @@ describe("wordArtCodec", () => {
   it("round-trips charMode \"quadrant\" (appended enum value)", () => {
     const state = { ...WORD_ART_DEFAULTS, charMode: "quadrant" as const };
     expect(wordArtCodec.decode(wordArtCodec.encode(state)).charMode).toBe("quadrant");
+  });
+
+  it("round-trips colorEncoding \"atlas\"", () => {
+    const state = { ...WORD_ART_DEFAULTS, colorEncoding: "atlas" as const };
+    expect(wordArtCodec.decode(wordArtCodec.encode(state)).colorEncoding).toBe("atlas");
+  });
+
+  it("omits colorEncoding from the packed string when it's the default (\"spans\")", () => {
+    expect(wordArtCodec.encode({ ...WORD_ART_DEFAULTS, colorEncoding: "spans" })).toBe(wordArtCodec.encode(WORD_ART_DEFAULTS));
   });
 
   it("round-trips unicode text", () => {
@@ -154,7 +164,14 @@ describe("wordArtCodec — v1 legacy decode (compact codec rewrite)", () => {
     window.history.replaceState(null, "", `/wordart?w=${encodeURIComponent(REAL_V1_LINK)}`);
     const decoded = readInitialWordArtState();
     const expected = representativeState();
-    expect(decoded).toEqual(expected);
+    // `colorEncoding` is the ONE field a pre-v2 link cannot pin: it predates
+    // the "U" token entirely, so the link carries no choice and hydration
+    // fills in the feature-detected site default (`glyphColorEncodingDefault.ts`)
+    // rather than a hardcoded "spans". That is the intended consequence of
+    // flipping the site default and is asserted on its own below; everything
+    // else about the link must still decode exactly as it always did.
+    expect(decoded.colorEncoding).toBe(defaultGlyphColorEncoding());
+    expect({ ...decoded, colorEncoding: expected.colorEncoding }).toEqual(expected);
     const effectState = wordArtEffectStateFromUrlState(decoded);
     expect(effectState.effectId).toBe("matrix-rain");
     expect(effectState.params.glyphs).toBe("GLYPH01");

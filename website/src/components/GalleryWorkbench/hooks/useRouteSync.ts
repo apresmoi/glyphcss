@@ -22,6 +22,7 @@ const GLYPH_PALETTE_VALUES = [
 // to the same enum index for every earlier value.
 const CHAR_MODE_VALUES = ["ascii", "braille", "halfblock", "quadrant"] as const;
 const HIDDEN_LINES_VALUES = ["show", "hide"] as const;
+const COLOR_ENCODING_VALUES = ["spans", "atlas"] as const;
 
 const sceneFields: readonly UrlField<SceneOptionsState>[] = [
   { key: "animationPaused", token: "P", type: { kind: "bool" }, default: false },
@@ -49,6 +50,7 @@ const sceneFields: readonly UrlField<SceneOptionsState>[] = [
   { key: "wireframeJunctions", token: "j", type: { kind: "bool" }, default: false },
   { key: "hiddenLines", token: "h", type: { kind: "enum", values: HIDDEN_LINES_VALUES }, default: "show" },
   { key: "solidWeightRamp", token: "w", type: { kind: "bool" }, default: false },
+  { key: "colorEncoding", token: "b", type: { kind: "enum", values: COLOR_ENCODING_VALUES }, default: "spans" },
   { key: "lineHeight", token: "H", type: { kind: "float", step: 0.0001 }, default: 1 },
   { key: "density", token: "D", type: { kind: "float", step: 0.0001 }, default: 1 },
   { key: "dragDensity", token: "q", type: { kind: "float", step: 0.0001 }, default: 1 },

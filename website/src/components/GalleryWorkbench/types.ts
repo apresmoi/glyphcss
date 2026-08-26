@@ -152,6 +152,13 @@ export interface SceneOptionsState {
    * span).
    */
   solidWeightRamp: boolean;
+  /**
+   * `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   * colour-font encoding, one PUA text node instead of one `<span>` per color
+   * run). The atlas palette itself is never part of this state — `glyphcss`
+   * derives and pools it internally from the real cell buffers.
+   */
+  colorEncoding: "spans" | "atlas";
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;

@@ -45,6 +45,7 @@ import {
   InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import "../GalleryWorkbench/gallery-workbench.css";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 // Re-exported so existing consumers of `synthKit.tsx`'s own `MAX_VOICES`
 // (SynthWorkbench.tsx et al.) keep importing it from here — the value
 // itself now comes from `@glyphcss/effects`'s `SYNTH_VOICES` via
@@ -556,6 +557,32 @@ export function resolveSpaceChange(nextSpace: string): { shape?: string; render?
   return nextSpace === "object" ? { shape: "cube" } : { render: sanitizeCarveRenderForSpace(nextSpace, "carve") };
 }
 
+// ── Render-change validity guard ──────────────────────────────────────────
+// Sibling to `resolveSpaceChange` above, same convention: a pure function the
+// live "Render" dropdown (Volume folder) routes every `render` write through,
+// so a direct write can't leave the patch outside `validateParams`.
+//
+// Of the two `validateFieldSynthRender` rejections in packages/effects/src/
+// stock.ts, only `"xray-subcell-unsupported"` (render: "xray" +
+// subcellRes: "2x4"/"ink") is actually reachable by a Render-only change: the
+// Volume folder that hosts this dropdown is hidden whenever `space !==
+// "object"` (see `volume.hide()` below), so by the time this callback can
+// fire at all, `space` is already `"object"` and `"carve-requires-object-
+// space"` can never newly trigger from here — that rule stays owned entirely
+// by `resolveSpaceChange`/`sanitizeCarveRenderForSpace` on the Mapping side.
+// `"empty-glyphs"`, `"non-positive-scale"`, `"multi-layer-argmax"`, and
+// `"normal-field-requires-color-stack"` don't depend on `render` at all, so
+// no render value can trigger or clear them.
+//
+// Falling back to `subcellRes: "1x1"` (not e.g. disabling the "xray" option)
+// mirrors `resolveSpaceChange`'s own preference for resetting the dependent
+// key over blocking the pick — the user can always reach xray and simply
+// loses the incompatible subcell mode, matching `SYNTH_REPAIR_TABLE`'s
+// `"xray-subcell-unsupported"` row, which resets to the same default.
+export function resolveRenderChange(nextRender: string, subcellRes: string): { subcellRes?: string } {
+  return nextRender === "xray" && (subcellRes === "2x4" || subcellRes === "ink") ? { subcellRes: "1x1" } : {};
+}
+
 // The Output folder's two ink-mode-only rows are mutually exclusive, not
 // simultaneously relevant: `inkLevels` is 2D field-synth ink's own knob (how
 // many cuts through the field's OWN OBSERVED VALUE RANGE to contour) and is
@@ -1062,7 +1089,14 @@ export function useSynthPreview(host: HTMLElement | null, getParams: () => Param
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const camera = createGlyphOrthographicCamera(volumetric ? { rotX: 58, rotY: 32, zoom: 16 } : { rotX: 0, rotY: 0, zoom: 20 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT });
+    // Same site default the stage takes (`glyphColorEncodingDefault.ts`) — these
+    // voice-card previews are their own `<pre>`s on /synth and /wordart, and
+    // leaving them on spans would make the page half one encoding, half the
+    // other. Deliberately NOT wired to the Dock's "Color encoding" toggle:
+    // that control is a DOM-cost lever over the stage, and the two encodings
+    // are visually identical, so a preview following it would buy nothing and
+    // cost a scene remount per voice.
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: !volumetric, directionalLight: LIGHT, ambientLight: AMBIENT, colorEncoding: defaultGlyphColorEncoding() });
     host.style.fontSize = "6px";
     const polys = volumetric ? shapePolys(previewShape) : flatQuad(3);
     const meshTransform = volumetric ? shapeTransform(previewShape) : {};
@@ -2533,7 +2567,7 @@ export function LayerGroup({ layer, params, onParam, onAddVoice, canAddVoice, ch
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, orbitAuto, onOrbitAuto, orbitSpeed, onOrbitSpeed, density, onDensity, colorTolerance, onColorTolerance, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
+export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, orbitAuto, onOrbitAuto, orbitSpeed, onOrbitSpeed, density, onDensity, colorTolerance, onColorTolerance, colorEncoding, onColorEncoding, atlasReason, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   /** Camera auto-orbit (user request) — independent of `paused`/`timeScale`,
@@ -2545,6 +2579,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
    *  SCENE option, not a field-synth param, so it's a sibling of `density`
    *  here rather than living in `params`/`onParam`. */
   colorTolerance: number; onColorTolerance: (n: number) => void;
+  /** `colorEncoding: "atlas"` (zero-`<span>` colour-font output) toggle.
+   *  `atlasReason` is `null` when available; otherwise the real reason it
+   *  isn't — see `../../lib/glyphAtlasAvailability.ts` — surfaced as the
+   *  disabled control's tooltip. */
+  colorEncoding: "spans" | "atlas"; onColorEncoding: (v: "spans" | "atlas") => void;
+  atlasReason: string | null;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
@@ -2635,7 +2675,13 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   useEffect(() => { if (volume) (volumetric ? volume.show() : volume.hide()); }, [volume, volumetric]);
   const renderMode = s("render");
   const showMarchSteps = renderMode === "carve" || renderMode === "xray";
-  useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => onParam("render", v));
+  // The one guard the Render dropdown routes every `render` write through
+  // (see `resolveRenderChange`'s doc above).
+  useOption(volume, "Render", RENDER_OPTS, renderMode, (v) => {
+    const change = resolveRenderChange(v, s("subcellRes"));
+    if (change.subcellRes) onParam("subcellRes", change.subcellRes);
+    onParam("render", v);
+  });
   const marchStepsCtrl = useSlider(volume, "March steps", { min: 1, max: MARCH_STEPS_MAX, step: 1 }, n("marchSteps"), (v) => onParam("marchSteps", v));
   const marchFadeCtrl = useSlider(volume, "March fade", { min: 0, max: 8, step: 0.05 }, n("marchFade"), (v) => onParam("marchFade", v));
   const xrayGainCtrl = useSlider(volume, "Xray gain", { min: 0, max: 16, step: 0.05 }, n("xrayGain"), (v) => onParam("xrayGain", v));
@@ -2792,6 +2838,21 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // set with `setOptions({ colorTolerance: … })` above 96 still works and
   // still round-trips through the URL's "c" token.
   useSlider(out, "Color tolerance", { min: 0, max: 96, step: 1 }, colorTolerance, onColorTolerance);
+  // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
+  // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
+  // hand-maintained guess — see that module's doc) whenever the currently
+  // rendered patch can't fit the atlas, same `setEnabled(bool, {dim:true})`
+  // gating idiom every other conditionally-available Dock row here uses.
+  const colorEncodingCtrl = useOption<"spans" | "atlas">(
+    out, "Color encoding", { Spans: "spans", Atlas: "atlas" }, colorEncoding, onColorEncoding,
+  );
+  useEffect(() => {
+    if (!colorEncodingCtrl) return;
+    colorEncodingCtrl.setEnabled(atlasReason === null, { dim: true });
+    colorEncodingCtrl.raw.$name.title = atlasReason === null
+      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+  }, [colorEncodingCtrl, atlasReason]);
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));

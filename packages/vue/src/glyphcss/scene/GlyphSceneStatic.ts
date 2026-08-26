@@ -25,6 +25,10 @@ export interface GlyphSceneStaticProps {
   hiddenLines?: "show" | "hide";
   solidWeightRamp?: GlyphSolidWeightRampStep[];
   colorTolerance?: number;
+  /** Encode strategy for the compiled `<pre>` text. `"spans"` (default) is byte-identical; `"atlas"` needs `atlasPalette`. See `GlyphScene`'s prop doc. */
+  colorEncoding?: "spans" | "atlas";
+  /** Palette `colorEncoding: "atlas"` encodes against. */
+  atlasPalette?: readonly string[];
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -50,6 +54,8 @@ export const GlyphSceneStatic = defineComponent({
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
     colorTolerance: { type: Number, default: undefined },
+    colorEncoding: { type: String as PropType<"spans" | "atlas">, default: undefined },
+    atlasPalette: { type: Array as PropType<readonly string[]>, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
@@ -73,6 +79,8 @@ export const GlyphSceneStatic = defineComponent({
       hiddenLines: props.hiddenLines,
       solidWeightRamp: props.solidWeightRamp,
       colorTolerance: props.colorTolerance,
+      colorEncoding: props.colorEncoding,
+      atlasPalette: props.atlasPalette,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,

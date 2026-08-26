@@ -17,6 +17,7 @@ import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } 
 import { DEFAULT_GALLERY_EFFECT_STATE } from "../GalleryWorkbench/effects";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { ExtrudeProfile, WarpShape } from "@glyphcss/fonts";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 export type WordArtAlign = "left" | "center" | "right";
 export type WordArtFillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
@@ -67,6 +68,11 @@ export interface WordArtUrlState {
   renderMode: WordArtRenderMode;
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
+  /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   *  colour-font encoding). The atlas palette is never persisted here:
+   *  `glyphcss` derives and pools it internally from the real cell buffers —
+   *  only the on/off preference is stable data. */
+  colorEncoding: "spans" | "atlas";
   lightIntensity: number;
   ambient: number;
   lightColor: string;
@@ -127,6 +133,7 @@ export const WORD_ART_DEFAULTS: WordArtUrlState = {
   renderMode: "solid",
   charMode: "ascii",
   hiddenLines: "show",
+  colorEncoding: "spans",
   lightIntensity: 0.95,
   ambient: 0.5,
   lightColor: "#ffffff",
@@ -191,6 +198,7 @@ const wordArtFields: readonly UrlField<WordArtUrlState>[] = [
   // decoding to the same enum index for every earlier value.
   { key: "charMode", token: "M", type: { kind: "enum", values: ["ascii", "braille", "halfblock", "quadrant"] }, default: WORD_ART_DEFAULTS.charMode },
   { key: "hiddenLines", token: "h", type: { kind: "enum", values: ["show", "hide"] }, default: WORD_ART_DEFAULTS.hiddenLines },
+  { key: "colorEncoding", token: "U", type: { kind: "enum", values: ["spans", "atlas"] }, default: WORD_ART_DEFAULTS.colorEncoding },
   { key: "lightIntensity", token: "g", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.lightIntensity },
   { key: "ambient", token: "B", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.ambient },
   { key: "lightColor", token: "N", type: { kind: "color" }, default: WORD_ART_DEFAULTS.lightColor },
@@ -236,7 +244,15 @@ function decodeWordArtOuter(raw: string | null | undefined): Partial<WordArtUrlS
 /** Read the initial state from the URL (defaults for anything absent/garbage
  *  — `decode` never throws, see urlState.ts). */
 export function readInitialWordArtState(): WordArtUrlState {
-  return { ...WORD_ART_DEFAULTS, ...decodeWordArtOuter(readUrlParam(WORD_ART_PARAM)) };
+  const decoded = decodeWordArtOuter(readUrlParam(WORD_ART_PARAM));
+  return {
+    ...WORD_ART_DEFAULTS,
+    // See `synthUrlState.ts` for why the codec's own default stays "spans"
+    // while the hydrated default is feature-detected: a browser-dependent
+    // omission sentinel would make shared links decode differently per engine.
+    colorEncoding: decoded.colorEncoding ?? defaultGlyphColorEncoding(),
+    ...decoded,
+  };
 }
 
 /** Restore the Effects folder's selection (mirrors the gallery's `fx` shape,

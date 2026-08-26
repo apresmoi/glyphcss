@@ -16,7 +16,7 @@ import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
-import { encodeGlyphBuffers } from "../render/cells";
+import { encodeGlyphBuffers, type GlyphColorEncoding } from "../render/cells";
 import { buildGlyphControlFrame } from "./controlFrame";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "./controlFrame";
 import type {
@@ -71,6 +71,21 @@ export interface CompileSceneOptions {
    * merging them under a tolerance would corrupt the lineage).
    */
   colorTolerance?: number;
+  /**
+   * Encode strategy for the compiled `<pre>` text — see
+   * {@link RasterizeContextOptions.colorEncoding}. `"spans"` (default) is
+   * byte-identical to before this option existed. `compileScene` is DOM-less
+   * and does NOT inject the atlas's `@font-face`/`@font-palette-values` CSS —
+   * a caller embedding `"atlas"` output must include those itself (see
+   * `render/fontAtlas.ts`'s `loadGlyphAtlasFontFaceCss` — the awaited path,
+   * since the WOFF2 payload is a lazily imported chunk — and
+   * `buildGlyphAtlasFontPaletteValuesCss`), the same way it must already
+   * supply `.glyph-output`'s own styling — `compileScene`/`GlyphSceneStatic`
+   * inject no CSS at all today.
+   */
+  colorEncoding?: GlyphColorEncoding;
+  /** Palette `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
+  atlasPalette?: readonly string[];
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -158,6 +173,8 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     hiddenLines: opts.hiddenLines,
     solidWeightRamp: opts.solidWeightRamp,
     colorTolerance: opts.colorTolerance,
+    colorEncoding: opts.colorEncoding,
+    atlasPalette: opts.atlasPalette,
     useColors,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

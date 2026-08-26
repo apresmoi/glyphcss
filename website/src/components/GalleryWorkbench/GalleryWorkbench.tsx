@@ -59,15 +59,26 @@ import {
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { GlyphSemanticCellLineage } from "glyphcss";
 import { gallerySemanticSceneFor } from "./semanticScene";
+import { glyphAtlasCellsFromPre } from "../../lib/asciiClipboard";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 type AsciiCell = { ch: string; color?: string };
 type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
 
 /** Walk the strip's DOM, collect (char, color) cells per row, then compute the
- * trim bounds (leading/trailing empty rows, common left/right padding). */
+ * trim bounds (leading/trailing empty rows, common left/right padding).
+ *
+ * Under `colorEncoding: "atlas"` there are no `<span>`s and no literal glyphs
+ * to walk — the text is PUA code points naming palette slots — so the span
+ * walk below would collect unreadable characters with no colour. The atlas
+ * decoder runs first and returns the same `(ch, color)` rows from the code
+ * points plus the scene's own `@font-palette-values` block, keeping the
+ * COLOURED paste working in both encodings rather than degrading it to plain
+ * text whenever the atlas is on. */
 function parseStripCells(strip: HTMLElement): TrimmedStrip | null {
-  const rows: AsciiCell[][] = [[]];
-  let row = rows[0]!;
+  const rows: AsciiCell[][] = glyphAtlasCellsFromPre(strip) ?? [[]];
+  let row = rows[rows.length - 1]!;
+  const alreadyDecoded = rows.length > 1 || rows[0]!.length > 0;
   const visit = (node: Node, color?: string): void => {
     if (node.nodeType === Node.TEXT_NODE) {
       const t = node.nodeValue ?? "";
@@ -87,7 +98,7 @@ function parseStripCells(strip: HTMLElement): TrimmedStrip | null {
       el.childNodes.forEach((c) => visit(c, next));
     }
   };
-  strip.childNodes.forEach((c) => visit(c));
+  if (!alreadyDecoded) strip.childNodes.forEach((c) => visit(c));
 
   let top = 0;
   let bottom = rows.length - 1;
@@ -248,6 +259,12 @@ const DEFAULT_SCENE: SceneOptionsState = {
   wireframeJunctions: false,
   hiddenLines: "show",
   solidWeightRamp: false,
+  // Feature-detected site default. `useRouteSync`'s codec keeps `default:
+  // "spans"` on purpose — that is the URL omission sentinel, and it must not
+  // vary by browser or a link shared from one engine would decode differently
+  // on another. DEFAULT_SCENE is spread BEFORE the decoded route options, so
+  // an explicit `?scene=…b…` value still wins.
+  colorEncoding: defaultGlyphColorEncoding(),
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,
@@ -401,6 +418,11 @@ export default function GalleryWorkbench() {
   const [presetId, setPresetId] = useState(initialPreset.id);
   const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
   const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
+  // Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+  // when it is) — polled from the live runtime alongside stats (see
+  // `<GlyphScene onAtlasAvailability>` below and `glyph-runtime.ts`'s
+  // `getAtlasAvailability`). Never a hand-maintained guess.
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [selectedAnimation, setSelectedAnimation] = useState("");
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
@@ -750,6 +772,7 @@ export default function GalleryWorkbench() {
             onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
             onCameraChange={handleCameraChange}
             onStatsChange={setMetrics}
+            onAtlasAvailability={setAtlasReason}
             onAnimationInfoChange={({ clips }) => {
               setAnimationClips(clips);
             }}
@@ -790,6 +813,8 @@ export default function GalleryWorkbench() {
           wireframeJunctions={sceneOptions.wireframeJunctions}
           hiddenLines={sceneOptions.hiddenLines}
           solidWeightRamp={sceneOptions.solidWeightRamp}
+          colorEncoding={sceneOptions.colorEncoding}
+          atlasReason={atlasReason}
           density={sceneOptions.density}
           dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}

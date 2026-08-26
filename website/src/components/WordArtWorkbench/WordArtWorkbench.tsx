@@ -53,6 +53,8 @@ import {
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
+import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
 import {
   readInitialWordArtState,
@@ -70,6 +72,7 @@ import type {
 } from "./wordartSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./wordart.css";
+import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 
 type Align = "left" | "center" | "right";
 type FillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
@@ -373,6 +376,13 @@ export function WordArtWorkbench() {
   const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("renderMode"));
   const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charMode"));
   const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hiddenLines"));
+  // `colorEncoding: "atlas"` (zero-`<span>` colour-font output). The user's
+  // on/off preference is persisted; `atlasReason` is NOT — it's derived at
+  // runtime from the live rendered output (see `AtlasAvailabilityWatcher`
+  // below). The palette itself is never page state: `createGlyphScene`
+  // derives and pools it internally.
+  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">(() => qs("colorEncoding"));
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [lightIntensity, setLightIntensity] = useState(() => qs("lightIntensity"));
   const [ambient, setAmbient] = useState(() => qs("ambient"));
   const [lightColor, setLightColor] = useState(() => qs("lightColor"));
@@ -428,6 +438,22 @@ export function WordArtWorkbench() {
     }
     setTimeout(() => setCopyState("idle"), 1500);
   }, []);
+
+  // "Download SVG" (bottom-left export bar, next to "Copy ASCII") ships the
+  // currently rendered glyph output as a standalone SVG file — one <text>
+  // element per colour run (via `glyphSvgExport.ts`, shared with /synth),
+  // not a screenshot. Same scoping/idiom as `handleCopyAscii` above,
+  // including the explicit "error" state.
+  const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
+  const handleDownloadSvg = useCallback(() => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    const slug = text.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 40) || "untitled";
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ok = downloadGlyphSvg(pre, `glyphcss-wordart-${slug}-${stamp}.svg`);
+    setSvgState(ok ? "downloaded" : "error");
+    setTimeout(() => setSvgState("idle"), 1500);
+  }, [text]);
+
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -500,6 +526,7 @@ export function WordArtWorkbench() {
       renderMode,
       charMode,
       hiddenLines,
+      colorEncoding,
       lightIntensity,
       ambient,
       lightColor,
@@ -527,7 +554,7 @@ export function WordArtWorkbench() {
       effectParams: "",
     };
     writeWordArtUrlState(state, effectState);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, colorEncoding, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
   // / style changes. The first font to resolve also pins `previewFont` — the
@@ -891,7 +918,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
-    density, renderMode, charMode, hiddenLines,
+    density, renderMode, charMode, hiddenLines, colorEncoding,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -917,6 +944,7 @@ export function WordArtWorkbench() {
       case "renderMode": setRenderMode(v as WordArtRenderMode); break;
       case "charMode": setCharMode(v as WordArtCharMode); break;
       case "hiddenLines": setHiddenLines(v as WordArtHiddenLines); break;
+      case "colorEncoding": setColorEncoding(v as "spans" | "atlas"); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -1037,6 +1065,8 @@ export function WordArtWorkbench() {
             renderMode={renderMode}
             charMode={charMode}
             hiddenLines={hiddenLines}
+            colorEncoding={colorEncoding}
+            onAtlasAvailability={setAtlasReason}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -1067,6 +1097,14 @@ export function WordArtWorkbench() {
               title="Copy the rendered ASCII art to the clipboard"
             >
               {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
+            </button>
+            <button
+              type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadSvg}
+              title="Download the rendered glyph output as an SVG file"
+            >
+              {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
             </button>
             <button
               type="button"
@@ -1112,6 +1150,8 @@ export function WordArtWorkbench() {
               onClose={closeCodePanel}
               onCopyAscii={handleCopyAscii}
               copyAsciiState={copyState}
+              onDownloadSvg={handleDownloadSvg}
+              downloadSvgState={svgState}
             />
           )}
         </main>
@@ -1120,6 +1160,7 @@ export function WordArtWorkbench() {
           <WordArtDock
             gui={guiValues}
             setGui={guiSet}
+            atlasReason={atlasReason}
             bezier={bezier}
             onBezier={setBezier}
             effectState={effectState}
@@ -1255,6 +1296,10 @@ interface StageProps {
   renderMode: WordArtRenderMode;
   charMode: WordArtCharMode;
   hiddenLines: WordArtHiddenLines;
+  colorEncoding: "spans" | "atlas";
+  /** Reports the real reason `colorEncoding: "atlas"` isn't available right
+   *  now (`null` when it is) — see `AtlasAvailabilityWatcher` below. */
+  onAtlasAvailability: (reason: string | null) => void;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1304,7 +1349,35 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+/**
+ * Keeps the "atlas available?" reason current by watching the stage `<pre>`
+ * directly — a `MutationObserver`, not a dependency list — mirroring
+ * `SynthWorkbench`'s own watcher. Mounted as a scene child (same
+ * `useGlyphSceneContext` seam `DensityFit` uses) so it has imperative access
+ * to the real `<pre>` DOM `@glyphcss/react`'s declarative `<GlyphScene>`
+ * doesn't otherwise expose.
+ */
+function AtlasAvailabilityWatcher({ charMode, onAvailability }: {
+  charMode: WordArtCharMode;
+  onAvailability: (reason: string | null) => void;
+}) {
+  const { sceneRef } = useGlyphSceneContext();
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const pre = scene.output;
+    const recompute = (): void => {
+      onAvailability(computeGlyphAtlasAvailability(pre, { useColors: true, charMode }).reason);
+    };
+    recompute();
+    const observer = new MutationObserver(recompute);
+    observer.observe(pre, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [sceneRef, charMode, onAvailability]);
+  return null;
+}
+
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, colorEncoding, onAtlasAvailability, perspective, lightDir, lightIntensity, lightColor, ambient, spin, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const draggingRef = useRef(false);
@@ -1382,11 +1455,13 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
           mode={renderMode}
           charMode={charMode}
           hiddenLines={hiddenLines}
+          colorEncoding={colorEncoding}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
           <DensityFit density={density} />
+          <AtlasAvailabilityWatcher charMode={charMode} onAvailability={onAtlasAvailability} />
           {/* Font mesh is Z-up: local Z = text height, local Y = text width,
               local X = extrusion depth (see extrude.ts). The camera is tilted
               `rotX={90}` (instead of the flat `rotX={0}` a screen-plane-authored
@@ -1495,6 +1570,7 @@ interface GuiValues {
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
   density: number;
   renderMode: WordArtRenderMode; charMode: WordArtCharMode; hiddenLines: WordArtHiddenLines;
+  colorEncoding: "spans" | "atlas";
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -1712,6 +1788,11 @@ function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; pr
         mode={mode}
         charMode={charMode}
         useColors
+        // Same site default the stage takes. The neighbouring STATIC preset
+        // tiles stay on spans: they are `compileScene` output, and the static
+        // path deliberately injects no atlas CSS (AGENTS.md), so making them
+        // atlas would mean hand-wiring `font-family`/`font-palette` per tile.
+        colorEncoding={defaultGlyphColorEncoding()}
         className="wa-tile__glyph"
         directionalLight={{ direction: TILE_LIGHT_DIR, intensity: 0.95 }}
         ambientLight={{ intensity: 0.7 }}
@@ -2047,10 +2128,13 @@ function useBezierEditorSlot(folder: GUI | null, visible: boolean, bezier: Bezie
  * `useToggle`/`useText` primitives `/synth`'s `SynthDock` uses.
  */
 function WordArtDock({
-  gui, setGui, bezier, onBezier,
+  gui, setGui, atlasReason, bezier, onBezier,
   effectState, effectDefinition, onEffectChange, onUpdateEffectSettings, onUpdateEffectParams,
 }: {
   gui: GuiValues; setGui: (k: keyof GuiValues, v: number | string | boolean) => void;
+  /** Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+   *  when it is) — see `../../lib/glyphAtlasAvailability.ts`. */
+  atlasReason: string | null;
   bezier: Bezier4; onBezier: (b: Bezier4) => void;
   effectState: GalleryEffectState;
   effectDefinition: GalleryEffectDefinition | null;
@@ -2103,6 +2187,21 @@ function WordArtDock({
     hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "ink", { dim: true });
   }, [hiddenLinesControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
+  // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
+  // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
+  // hand-maintained guess — see that module's doc) whenever the currently
+  // rendered word art can't fit the atlas, same `setEnabled(bool, {dim:true})`
+  // gating idiom `charModeControl`/`hiddenLinesControl` above use.
+  const colorEncodingControl = useOption<"spans" | "atlas">(
+    renderFolder, "Color encoding", { Spans: "spans", Atlas: "atlas" }, gui.colorEncoding, (v) => setGui("colorEncoding", v),
+  );
+  useEffect(() => {
+    if (!colorEncodingControl) return;
+    colorEncodingControl.setEnabled(atlasReason === null, { dim: true });
+    colorEncodingControl.raw.$name.title = atlasReason === null
+      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+  }, [colorEncodingControl, atlasReason]);
 
   // ── Effects ───────────────────────────────────────────────────────────
   // Reuses the gallery's own Effects folder hook (`useEffectsFolder` +

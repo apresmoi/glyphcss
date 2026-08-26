@@ -190,10 +190,52 @@ export {
   buildCellGrid,
   cloneCellGrid,
   encodeGlyphBuffers,
+  encodeGlyphBuffersDual,
   encodeCellGrid,
+  encodeCellGridOutput,
+  encodeGlyphAtlas,
+  encodeCellGridAtlas,
+  isGlyphAtlasEncodable,
   applyCellHook,
 } from "./render/cells";
-export type { CellGrid, TransformCells } from "./render/cells";
+export type { CellGrid, TransformCells, GlyphColorEncoding, GlyphEncodedOutput } from "./render/cells";
+// ── Colour-font atlas (`colorEncoding: "atlas"` foundation) ──────────────
+export {
+  GLYPH_FONT_ATLAS,
+  isGlyphInFontAtlas,
+  glyphAtlasCodePoint,
+  decodeGlyphAtlasCodePoint,
+  decodeGlyphAtlasText,
+  buildGlyphAtlasFontFaceCss,
+  buildGlyphAtlasFontPaletteValuesCss,
+  // The WOFF2 payload is lazily imported so it never lands in a "spans"
+  // consumer's main chunk (see `render/fontAtlas.ts`). `loadGlyphAtlasFontFaceCss`
+  // is the awaited path a static/CodePen/SSR export uses to inline the font.
+  loadGlyphAtlasFontPayload,
+  loadGlyphAtlasFontFaceCss,
+  glyphAtlasFontPayload,
+  glyphAtlasFontLoadState,
+} from "./render/fontAtlas";
+export type { GlyphFontAtlas, GlyphAtlasFontLoadState } from "./render/fontAtlas";
+// ── Atlas palette quantization (the ≤31-slot reduction the atlas needs) ──
+export {
+  medianCutPalette,
+  quantizeGlyphAtlasPalette,
+  createGlyphAtlasPaletteQuantizer,
+  histogramGridColors,
+  nearestPaletteIndex,
+  redmeanDistanceSq,
+  packHexColor,
+  unpackHexColor,
+  isQuantizableColor,
+  resolveGlyphAtlasPaletteInput,
+} from "./render/paletteQuantize";
+export type {
+  GlyphAtlasPaletteInput,
+  GlyphAtlasPaletteSource,
+  GlyphAtlasPaletteQuantizer,
+  GlyphAtlasPaletteQuantizerOptions,
+} from "./render/paletteQuantize";
 export {
   DEFAULT_RAMP,
   SOLID_RAMP,
@@ -211,7 +253,7 @@ export type {
 } from "./api/rasterizeContext";
 
 // ── Style injection ───────────────────────────────────────────────
-export { injectGlyphBaseStyles } from "./styles/styles";
+export { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "./styles/styles";
 
 // ── Custom element classes (without auto-registering) ─────────────
 export { GlyphSceneElement } from "./elements/GlyphSceneElement";

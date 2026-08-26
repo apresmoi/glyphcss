@@ -45,6 +45,7 @@ import {
   STAGE_CAMERA_ROT_Y,
   STAGE_CAMERA_ZOOM,
   STAGE_HINTS,
+  SUBCELL_RES,
   VOICE_FIELD_MAP_BASE_ANGLE,
   WAVES,
   buildWavePathD,
@@ -57,6 +58,7 @@ import {
   nextFreeVoiceSlot,
   resolveColorStackVisibility,
   resolveInkControlVisibility,
+  resolveRenderChange,
   resolveSpaceChange,
   shapePolys,
   shapeTransform,
@@ -165,6 +167,90 @@ describe("resolveSpaceChange", () => {
     const params = { ...synthDefaults(), space: "object", render: "carve" };
     const next = { ...params, space: "surface" };
     expect(() => fieldSynth.program.validateParams?.(next as never)).toThrow();
+  });
+});
+
+// Bug repro: "xray breaks if I try to use subcell braille or contour" — the
+// Render dropdown wrote `render` unguarded, so a carve+ink or carve+2x4
+// patch (both legal — carve's own march loop computes them directly) threw
+// `"xray-subcell-unsupported"` the instant Render was switched to "xray".
+// `resolveRenderChange` is the Render-side sibling of `resolveSpaceChange`
+// above: only `"xray-subcell-unsupported"` is reachable by a Render-only
+// change (see the doc above `resolveRenderChange` in synthKit.tsx for why
+// `"carve-requires-object-space"` isn't — the Volume folder that hosts this
+// dropdown is hidden whenever `space !== "object"`).
+describe("resolveRenderChange", () => {
+  it("carve + ink -> xray resets subcellRes to \"1x1\"", () => {
+    expect(resolveRenderChange("xray", "ink")).toEqual({ subcellRes: "1x1" });
+  });
+
+  it("carve + 2x4 -> xray resets subcellRes to \"1x1\"", () => {
+    expect(resolveRenderChange("xray", "2x4")).toEqual({ subcellRes: "1x1" });
+  });
+
+  it("xray -> carve leaves subcellRes alone (carve+ink/2x4 are both legal)", () => {
+    expect(resolveRenderChange("carve", "ink")).toEqual({});
+    expect(resolveRenderChange("carve", "2x4")).toEqual({});
+  });
+
+  it("xray + subcellRes already \"1x1\" is a no-op", () => {
+    expect(resolveRenderChange("xray", "1x1")).toEqual({});
+  });
+
+  it("switching to \"paint\" never resets subcellRes", () => {
+    for (const subcellRes of SUBCELL_RES) {
+      expect(resolveRenderChange("paint", subcellRes)).toEqual({});
+    }
+  });
+
+  // Mutation check: with the reset removed (`resolveRenderChange` returning
+  // `{}` unconditionally, i.e. calling `onParam("render", v)` alone the way
+  // the pre-fix Dock callback did), the repro patch fails validateParams —
+  // proving the assertions below actually exercise the fix rather than
+  // passing regardless of what `resolveRenderChange` does.
+  it("repro: without applying the change (writing render directly), carve+ink -> xray fails validateParams", () => {
+    const params = { ...synthDefaults(), space: "object", render: "carve", subcellRes: "ink" };
+    const next = { ...params, render: "xray" }; // no resolveRenderChange applied
+    expect(() => fieldSynth.program.validateParams?.(next as never)).toThrow();
+  });
+
+  it("repro: applying resolveRenderChange's reset, carve+ink -> xray passes validateParams", () => {
+    const params = { ...synthDefaults(), space: "object", render: "carve", subcellRes: "ink" };
+    const change = resolveRenderChange("xray", params.subcellRes);
+    const next = { ...params, render: "xray", ...(change.subcellRes ? { subcellRes: change.subcellRes } : {}) };
+    expect(next.subcellRes).toBe("1x1");
+    expect(() => fieldSynth.program.validateParams?.(next as never)).not.toThrow();
+  });
+
+  // Exhaustive: no render x current-subcellRes combination, once routed
+  // through `resolveRenderChange`, can ever produce a patch validateParams
+  // rejects. `space: "object"` throughout — the only space in which the
+  // Render dropdown (and therefore this guard) is reachable at all.
+  it("every render x subcellRes combination validates after resolveRenderChange, for every starting render", () => {
+    for (const startRender of RENDER_MODES) {
+      for (const startSubcell of SUBCELL_RES) {
+        // Skip starting combinations that are themselves invalid (e.g.
+        // xray+ink) — resolveRenderChange guards live TRANSITIONS, not
+        // already-broken starting states (that's the URL repair gate's job).
+        const startParams = { ...synthDefaults(), space: "object", render: startRender, subcellRes: startSubcell };
+        if (fieldSynth.program.validateParams) {
+          try {
+            fieldSynth.program.validateParams(startParams as never);
+          } catch {
+            continue;
+          }
+        }
+        for (const nextRender of RENDER_MODES) {
+          const change = resolveRenderChange(nextRender, startSubcell);
+          const next = {
+            ...startParams,
+            render: nextRender,
+            ...(change.subcellRes ? { subcellRes: change.subcellRes } : {}),
+          };
+          expect(() => fieldSynth.program.validateParams?.(next as never)).not.toThrow();
+        }
+      }
+    }
   });
 });
 

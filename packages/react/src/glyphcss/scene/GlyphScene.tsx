@@ -76,6 +76,33 @@ export interface GlyphSceneProps {
    * gated behind `temporalBlend` — tolerance pays off most under active TAA.
    */
   colorTolerance?: number;
+  /**
+   * Encode strategy for the rendered `<pre>` text. `"spans"` (default) is
+   * today's HTML-span run-coalescing path — unset is byte-identical.
+   * `"atlas"` encodes `(glyph, colour)` as Private Use Area code points
+   * against a checked-in COLR/CPAL colour font (`glyphcss`'s
+   * `render/fontAtlas.ts`), producing ONE text node with zero `<span>`s.
+   * {@link atlasPalette} is OPTIONAL: with none supplied the scene derives and
+   * pools its own palette. A render whose glyphs or colours the atlas cannot
+   * carry falls back to `"spans"` for that frame — a whole-scene decision, and
+   * the `<pre>`'s font stack follows it, so a fallback frame is never left
+   * painting in the atlas face.
+   *
+   * `GlyphScene` wraps `createGlyphScene`, so the atlas's `@font-face` (the
+   * WOFF2 payload is a lazily imported chunk) and per-scene
+   * `@font-palette-values` CSS are injected for you and the rendered
+   * `<pre>`'s `font-family`/`font-palette` are managed automatically. Only the
+   * DOM-less static path ({@link GlyphSceneStatic}) needs that wiring by hand.
+   */
+  colorEncoding?: "spans" | "atlas";
+  /**
+   * Palette `colorEncoding: "atlas"` cells encode against — an ordered
+   * `#rrggbb` array whose entries' POSITIONS (never their values) become the
+   * PUA mapping's palette-slot axis. OPTIONAL: omitted, the scene derives and
+   * pools one from its own frames — this prop PINS a palette (a brand ramp, a
+   * reproducible bake) rather than enabling the atlas.
+   */
+  atlasPalette?: readonly string[];
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -127,6 +154,8 @@ function GlyphSceneInner({
   hiddenLines,
   solidWeightRamp,
   colorTolerance,
+  colorEncoding,
+  atlasPalette,
   useColors,
   cols,
   rows,
@@ -159,6 +188,8 @@ function GlyphSceneInner({
     hiddenLines,
     solidWeightRamp,
     colorTolerance,
+    colorEncoding,
+    atlasPalette,
     useColors,
     cols,
     rows,
@@ -212,6 +243,11 @@ function GlyphSceneInner({
     // an `!== undefined` guard.
     partial.solidWeightRamp = solidWeightRamp;
     if (colorTolerance !== undefined) partial.colorTolerance = colorTolerance;
+    if (colorEncoding !== undefined) partial.colorEncoding = colorEncoding;
+    // Unlike `colorEncoding` (a meaningful default `"spans"`), `atlasPalette`'s
+    // "off" state IS `undefined` — always forward it, same as `solidWeightRamp`
+    // above, so removing the prop actually clears the palette in vanilla.
+    partial.atlasPalette = atlasPalette;
     if (useColors !== undefined) partial.useColors = useColors;
     if (cols !== undefined) partial.cols = cols;
     if (rows !== undefined) partial.rows = rows;
@@ -236,7 +272,7 @@ function GlyphSceneInner({
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorTolerance, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorTolerance, colorEncoding, atlasPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

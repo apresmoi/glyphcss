@@ -27,7 +27,7 @@ import {
   type SynthUrlState,
 } from "./synthUrlState";
 
-function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
+function representativePatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; colorEncoding: "spans" | "atlas"; lighting: Lighting; voiceSlots: number[] } {
   const params: Params = {
     ...SYNTH_PARAM_DEFAULTS,
     field1: "spiral", wave1: "square", freq1: 7.5, speed1: -1.2, amp1: 0.8, color1: "#ff0000",
@@ -49,6 +49,7 @@ function representativePatch(): { shape: string; params: Params; timeScale: numb
     timeScale: 2.1,
     density: 1.8,
     colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+    colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
     lighting: { azimuth: 120, elevation: 60, keyIntensity: 1.5, keyColor: "#ffddaa", ambient: 0.3 },
     voiceSlots: [1, 2, 3],
   };
@@ -61,6 +62,8 @@ describe("synth url state", () => {
       params: SYNTH_PARAM_DEFAULTS,
       timeScale: SYNTH_URL_DEFAULTS.timeScale,
       density: SYNTH_URL_DEFAULTS.density,
+      colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+      colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
       lighting: { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 },
       voiceSlots: [1, 2],
     });
@@ -209,6 +212,36 @@ describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces color
   });
 });
 
+// `colorEncoding` (glyphcss's `"spans" | "atlas"` scene option) — the "E"
+// token, appended after `colorTolerance`/`paramsPacked`. The atlas palette
+// itself is never persisted (glyphcss derives and pools it internally), only
+// this on/off preference.
+describe("colorEncoding round-trips", () => {
+  it("round-trips \"atlas\"", () => {
+    const patch = { ...representativePatch(), colorEncoding: "atlas" as const };
+    const restored = decodeSynthUrlState(encodeSynthUrlState(patch));
+    expect(restored.colorEncoding).toBe("atlas");
+  });
+
+  it("stays at the default (\"spans\") — and the packed string is unaffected — when untouched", () => {
+    const withDefault = encodeSynthUrlState({ ...representativePatch(), colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding });
+    const withExplicitSpans = encodeSynthUrlState({ ...representativePatch(), colorEncoding: "spans" });
+    expect(withDefault).toBe(withExplicitSpans);
+    expect(decodeSynthUrlState(withDefault).colorEncoding).toBe("spans");
+  });
+
+  it("a pre-existing v5 link encoded before this field existed still decodes cleanly, defaulting colorEncoding to \"spans\"", () => {
+    // Simulates a link shared before the "E" token was added: strip its
+    // trailing "E1" (token "E" + base36 index 1 = "atlas" in `values`) —
+    // `colorEncoding` is appended LAST in `synthFields`, so a non-default
+    // value always lands at the very end of the packed string.
+    const withAtlas = encodeSynthUrlState({ ...representativePatch(), colorEncoding: "atlas" });
+    expect(withAtlas.endsWith("E1")).toBe(true); // sanity: token really is there, at the tail
+    const withoutEToken = withAtlas.slice(0, -2);
+    expect(decodeSynthUrlState(withoutEToken).colorEncoding).toBe("spans");
+  });
+});
+
 // ── Acceptance 7 (VOLUMETRIC.md): the URL codec's schema-index cap ─────────
 // `encodeEffectParamsPacked` keys params by position in `fieldSynthSchema`
 // (well past 200 keys). A single direct char only reaches index 58 (index 61
@@ -217,7 +250,7 @@ describe("colorTolerance round-trips (COLOR-TOLERANCE.md Phase 4, replaces color
 // fix) and every VOLUMETRIC.md param (layers, duty, phase, originW, render,
 // marchSteps, marchFade) — lands past that cap and needs the multi-char index
 // escape in `../../lib/urlState` to round-trip at all.
-function everyNewParamPatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
+function everyNewParamPatch(): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; colorEncoding: "spans" | "atlas"; lighting: Lighting; voiceSlots: number[] } {
   const base = representativePatch();
   return {
     ...base,
@@ -333,6 +366,8 @@ function encodeLegacyV2(state: ReturnType<typeof representativePatch>, legacyPar
     lightKeyIntensity: state.lighting.keyIntensity,
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
+    colorTolerance: state.colorTolerance,
+    colorEncoding: state.colorEncoding,
     paramsPacked,
   });
 }
@@ -426,6 +461,7 @@ function encodeLegacyV3(state: ReturnType<typeof representativePatch>, legacyPar
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
     colorTolerance: state.colorTolerance,
+    colorEncoding: state.colorEncoding,
     paramsPacked,
   });
 }
@@ -496,6 +532,7 @@ function encodeLegacyV4(state: ReturnType<typeof representativePatch>, legacyPar
     lightKeyColor: state.lighting.keyColor,
     lightAmbient: state.lighting.ambient,
     colorTolerance: state.colorTolerance,
+    colorEncoding: state.colorEncoding,
     paramsPacked,
   });
 }
@@ -536,7 +573,7 @@ describe("synth url state — v4 legacy decode (pre-compact-codec, wire format o
     return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(params[`amp${k}`] ?? 0) > 0);
   }
   const FIXTURE_LIGHTING: Lighting = { azimuth: 120, elevation: 60, keyIntensity: 1.5, keyColor: "#ffddaa", ambient: 0.3 };
-  function expectedPatch(preset: { params: Partial<Params> }): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; lighting: Lighting; voiceSlots: number[] } {
+  function expectedPatch(preset: { params: Partial<Params> }): { shape: string; params: Params; timeScale: number; density: number; colorTolerance: number; colorEncoding: "spans" | "atlas"; lighting: Lighting; voiceSlots: number[] } {
     const params = { ...synthSchemaDefaults(), ...(preset.params as Params) };
     return {
       shape: "cube",
@@ -544,6 +581,7 @@ describe("synth url state — v4 legacy decode (pre-compact-codec, wire format o
       timeScale: SYNTH_URL_DEFAULTS.timeScale,
       density: 1,
       colorTolerance: SYNTH_URL_DEFAULTS.colorTolerance,
+      colorEncoding: SYNTH_URL_DEFAULTS.colorEncoding,
       lighting: FIXTURE_LIGHTING,
       voiceSlots: voiceSlotsFromParams(params),
     };

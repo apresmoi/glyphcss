@@ -57,6 +57,8 @@ import type {
 import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
 import { getSolidWeightRamp } from './components/GalleryWorkbench/weightedRamp';
+import { computeGlyphAtlasAvailability } from './lib/glyphAtlasAvailability';
+import { defaultGlyphColorEncoding } from './lib/glyphColorEncodingDefault';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
 
@@ -457,6 +459,10 @@ interface Tunables {
   hiddenLines?: 'show' | 'hide';
   /** Solid-mode-only font-weight-calibrated ramp toggle — see `weightedRamp.ts`. */
   solidWeightRamp?: boolean;
+  /** `glyphcss` scene option — `"spans"` (default) or `"atlas"` (zero-`<span>`
+   *  colour-font encoding). The atlas palette is not a tunable: `createGlyphScene`
+   *  derives and pools it internally from the real cell buffers. */
+  colorEncoding?: 'spans' | 'atlas';
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -755,6 +761,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     camera.target = [tunables.targetX ?? 0, tunables.targetY ?? 0, tunables.targetZ ?? 0];
   }
 
+  // `colorEncoding: "atlas"` — derived (never user-tunable) disabled-state
+  // reason, kept current by `recomputeAtlasAvailability` below (a
+  // `MutationObserver` on the real stage `<pre>`, set up right after `scene`
+  // is constructed).
+  let atlasReason: string | null = 'Nothing rendered yet.';
+
   // Derive render options from current state
   function buildSceneOptions() {
     const activeMode = semanticOutput ? 'solid' : (tunables.renderMode ?? 'wireframe');
@@ -780,6 +792,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       wireframeJunctions: tunables.wireframeJunctions ?? false,
       hiddenLines: tunables.hiddenLines ?? 'show',
       solidWeightRamp: tunables.solidWeightRamp ? getSolidWeightRamp() ?? undefined : undefined,
+      // Feature-detected site default (see glyphColorEncodingDefault.ts).
+      // GlyphDemo instances have no colorEncoding UI control ("never
+      // user-tunable" — see `atlasReason` below), so this is the only
+      // place a demo picks up the site default; an explicit
+      // `defaults='{"colorEncoding":...}'` prop still wins via `tunables`.
+      colorEncoding: tunables.colorEncoding ?? defaultGlyphColorEncoding(),
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -813,6 +831,20 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     interactiveDownscale,
     ...buildSceneOptions(),
   });
+
+  // Keeps `atlasReason` current by watching the stage `<pre>` directly (a
+  // `MutationObserver`, not a dependency list) — mirrors /synth's and
+  // /wordart's own watchers.
+  function recomputeAtlasAvailability(): void {
+    const result = computeGlyphAtlasAvailability(scene.output, {
+      useColors: tunables.useColors ?? true,
+      charMode: tunables.charMode ?? 'ascii',
+    });
+    atlasReason = result.reason;
+  }
+  recomputeAtlasAvailability();
+  const atlasObserver = new MutationObserver(recomputeAtlasAvailability);
+  atlasObserver.observe(scene.output, { childList: true, subtree: true, characterData: true });
 
   // Apply the initial line-height multiplier directly. setTunables handles
   // later updates, but on first paint we want any non-default lineHeight from
@@ -1707,6 +1739,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
     if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
+    if ('colorEncoding' in partial && partial.colorEncoding !== undefined) {
+      sceneOpts.colorEncoding = partial.colorEncoding;
+    }
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 
     // `lineHeight` changes the measured cell size. createGlyphScene projects in
@@ -1923,6 +1958,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // Current (centered) polygons — used by the "export to CodePen" button.
   function getPolygons(): Polygon[] { return geometry.polygons as Polygon[]; }
 
+  // Real reason `colorEncoding: "atlas"` isn't available right now (`null`
+  // when it is) — kept current by `recomputeAtlasAvailability` above. Polled
+  // by `GlyphScene.tsx`'s existing stats interval (mirrors `getStats`), not
+  // pushed — there is no reactive channel from this imperative runtime back
+  // into React.
+  function getAtlasAvailability(): { reason: string | null } { return { reason: atlasReason }; }
+
   // Expose handle on the demoEl
   (demoEl as unknown as {
     glyphcssDemo: {
@@ -1962,6 +2004,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       getSemanticCellFrame: () => GlyphSemanticCellFrame | null;
       getDragMode: () => DragMode;
       getPolygons: () => Polygon[];
+      getAtlasAvailability: () => { reason: string | null };
     }
   }).glyphcssDemo = {
     setMeshUrl,
@@ -1991,6 +2034,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     getSemanticCellFrame,
     getDragMode,
     getPolygons,
+    getAtlasAvailability,
   };
 
   // ── lil-gui ───────────────────────────────────────────────────────────────

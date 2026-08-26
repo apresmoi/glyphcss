@@ -33,7 +33,7 @@ const matchRamp = (glyphs: string): string =>
  * `parameterSchema`, so every loader is tunable rather than only the ~20
  * field-synth ones.
  */
-export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam, timeScale, onTimeScale, paused, onPaused, density, onDensity, paramsRef, tsRef, pausedRef }: {
+export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam, timeScale, onTimeScale, paused, onPaused, density, onDensity, colorEncoding, onColorEncoding, atlasReason, paramsRef, tsRef, pausedRef }: {
   loader: LoaderPreset;
   params: Params;
   onParam: (key: string, value: ParamValue) => void;
@@ -47,6 +47,12 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
    *  a loader's cols×rows is the example itself — so it scales the glyph box. */
   density: number;
   onDensity: (n: number) => void;
+  /** `colorEncoding: "atlas"` (zero-`<span>` colour-font output) toggle.
+   *  `atlasReason` is `null` when available; otherwise the real reason it
+   *  isn't — see `../../lib/glyphAtlasAvailability.ts` — surfaced as the
+   *  disabled control's tooltip. */
+  colorEncoding: "spans" | "atlas"; onColorEncoding: (v: "spans" | "atlas") => void;
+  atlasReason: string | null;
   /** Live refs the scope reads from inside its own rAF — same contract /synth
    *  uses, so the trace stays in sync with what the tiles render. */
   paramsRef: { current: Params };
@@ -63,6 +69,20 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   useSlider(stage, "Cell size", { min: 6, max: 24, step: 1 }, density, onDensity);
   useSlider(stage, "Speed", { min: 0.05, max: 8, step: 0.05 }, timeScale, onTimeScale);
   useToggle(stage, "Paused", paused, onPaused);
+  // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
+  // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
+  // hand-maintained guess — see that module's doc) whenever the currently
+  // rendered patch can't fit the atlas.
+  const colorEncodingCtrl = useOption<"spans" | "atlas">(
+    stage, "Color encoding", { Spans: "spans", Atlas: "atlas" }, colorEncoding, onColorEncoding,
+  );
+  useEffect(() => {
+    if (!colorEncodingCtrl) return;
+    colorEncodingCtrl.setEnabled(atlasReason === null, { dim: true });
+    colorEncodingCtrl.raw.$name.title = atlasReason === null
+      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
+      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+  }, [colorEncodingCtrl, atlasReason]);
 
   // Mix/Output configure the field-synth patch. A loader built only from stock
   // effects (scan, ripple, matrix-rain) has no patch, so showing them would be

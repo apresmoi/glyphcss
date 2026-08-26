@@ -29,10 +29,12 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
+import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { StatsOverlay } from "../StatsOverlay";
 import type { SynthSnippetInput } from "./synthSnippets";
 import { SYNTH_PARAM, decodeSynthUrlStateAsync, readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
 import { readUrlParam } from "../../lib/urlState";
+import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -140,6 +142,11 @@ export default function SynthWorkbench() {
   // slider doc) and is URL-persisted the same way `density` is — a shared
   // link should reproduce the performance/visual profile the sharer had.
   const [colorTolerance, setColorTolerance] = useState(initial.colorTolerance);
+  // `colorEncoding: "atlas"` (zero-`<span>` colour-font output) — the user's
+  // on/off preference is persisted; the palette itself is never page state,
+  // `createGlyphScene` derives and pools it internally.
+  const [colorEncoding, setColorEncoding] = useState<"spans" | "atlas">(initial.colorEncoding);
+  const [atlasReason, setAtlasReason] = useState<string | null>("Nothing rendered yet.");
   const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
   // Camera auto-orbit (user request, separate from `paused`/mesh-spin): a
@@ -182,6 +189,7 @@ export default function SynthWorkbench() {
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const densityRef = useRef(density); densityRef.current = density;
   const colorToleranceRef = useRef(colorTolerance); colorToleranceRef.current = colorTolerance;
+  const colorEncodingRef = useRef(colorEncoding); colorEncodingRef.current = colorEncoding;
 
   // Build (or rebuild) the whole scene for the current shape. A fresh scene is the
   // reliable way to give the effect layer the new geometry's retained coverage —
@@ -202,7 +210,7 @@ export default function SynthWorkbench() {
     // voice, ~140ms/evaluate at this viewport) re-evaluated the effect at FULL
     // resolution on every drag frame — 2 (÷4 cells) matches the loaders
     // gallery's own default (glyph-runtime.ts's `parseInteractiveDownscale`).
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, colorTolerance: colorToleranceRef.current, ...buildLighting(lightingRef.current) });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 2, colorTolerance: colorToleranceRef.current, colorEncoding: colorEncodingRef.current, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
     // so no orbit controls for it. Every other shape keeps orbit exactly as before.
@@ -304,6 +312,35 @@ export default function SynthWorkbench() {
     scene.rerender();
   }, [colorTolerance]);
 
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({ colorEncoding });
+    scene.rerender();
+  }, [colorEncoding]);
+
+  // Keeps `atlasReason` current by watching the stage `<pre>` directly (a
+  // `MutationObserver`, not a dependency list) rather than re-deriving it
+  // from every prop that could change rendered colors (params, lighting,
+  // shape, colorTolerance, density, camera orbit) — this fires exactly when
+  // the DOM the check needs to read actually changed, including field-synth's
+  // own async coalesced effect-params commits, which land outside React's
+  // render cycle.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const pre = scene.output;
+    const recompute = (): void => {
+      const result = computeGlyphAtlasAvailability(pre, { useColors: true, charMode: "ascii" });
+      setAtlasReason(result.reason);
+    };
+    recompute();
+    const observer = new MutationObserver(recompute);
+    observer.observe(pre, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape]);
+
   // Density → render font-size only. The renderer projects with the MEASURED cell,
   // so on-screen size is ≈ worldSpan × zoom (font-independent): changing the font
   // keeps the object the same size, just finer glyphs. No zoom compensation.
@@ -356,6 +393,7 @@ export default function SynthWorkbench() {
       setTimeScale(state.timeScale);
       setDensity(state.density);
       setColorTolerance(state.colorTolerance);
+      setColorEncoding(state.colorEncoding);
       setLighting(state.lighting);
       setVoiceSlots(state.voiceSlots);
     });
@@ -366,8 +404,8 @@ export default function SynthWorkbench() {
   // Persist everything to the single packed `?s=` param so a reload/share
   // restores the patch (see synthUrlState.ts).
   useEffect(() => {
-    writeSynthUrlState({ shape, params, timeScale, density, colorTolerance, lighting, voiceSlots });
-  }, [params, shape, timeScale, density, colorTolerance, voiceSlots, lighting]);
+    writeSynthUrlState({ shape, params, timeScale, density, colorTolerance, colorEncoding, lighting, voiceSlots });
+  }, [params, shape, timeScale, density, colorTolerance, colorEncoding, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
   // Stage presentation (density, camera angle, shape, paused) is STAGE
@@ -480,6 +518,20 @@ export default function SynthWorkbench() {
     }
     setTimeout(() => setCopyState("idle"), 1500);
   }, []);
+
+  // "Download SVG" (bottom-left export bar, next to "Copy ASCII") ships the
+  // currently rendered glyph output as a standalone SVG file — one <text>
+  // element per colour run (via `glyphSvgExport.ts`, shared with /wordart),
+  // not a screenshot. Same `copyState`/`handleCopyAscii` idiom, including the
+  // explicit "error" state.
+  const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
+  const handleDownloadSvg = useCallback(() => {
+    const pre = hostRef.current?.querySelector("pre.glyph-output") as HTMLElement | null;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const ok = downloadGlyphSvg(pre, `glyphcss-synth-${shape}-${stamp}.svg`);
+    setSvgState(ok ? "downloaded" : "error");
+    setTimeout(() => setSvgState("idle"), 1500);
+  }, [shape]);
 
   const snapshotCamera = useCallback(() => {
     const camera = cameraRef.current;
@@ -788,6 +840,14 @@ export default function SynthWorkbench() {
             </button>
             <button
               type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadSvg}
+              title="Download the rendered glyph output as an SVG file"
+            >
+              {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
+            </button>
+            <button
+              type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
               onClick={toggleCodeOpen}
               aria-expanded={codeOpen}
@@ -805,11 +865,13 @@ export default function SynthWorkbench() {
               onClose={closeCodePanel}
               onCopyAscii={handleCopyAscii}
               copyAsciiState={copyState}
+              onDownloadSvg={handleDownloadSvg}
+              downloadSvgState={svgState}
             />
           )}
         </InstrumentMain>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} orbitAuto={orbitAuto} onOrbitAuto={setOrbitAuto} orbitSpeed={orbitSpeed} onOrbitSpeed={setOrbitSpeed} density={density} onDensity={setDensity} colorTolerance={colorTolerance} onColorTolerance={setColorTolerance} colorEncoding={colorEncoding} onColorEncoding={setColorEncoding} atlasReason={atlasReason} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
         </Dock>
       </InstrumentBody>
       <InstrumentTray id="synth-presets-panel" label="Pattern presets" open={mobilePanel === "presets"}>
