@@ -195,8 +195,11 @@ describe("createGlyphScene — the spans-until-loaded transition", () => {
     expect(html).toContain("<span");
     expect(hasPua(scene.output.textContent ?? "")).toBe(false);
     // The option is unchanged — the scene reports what the caller asked for;
-    // only the ENCODING degrades.
-    expect(scene.output.style.fontFamily).toContain(GLYPH_FONT_ATLAS.family);
+    // only the ENCODING degrades. And because the frame degraded, the atlas
+    // font family must NOT be pinned: the atlas cmap covers U+0020, so a
+    // pinned family on a spans frame resolves this text's SPACES from the
+    // atlas and everything else from `monospace`, at two different advances.
+    expect(scene.output.style.fontFamily).not.toContain(GLYPH_FONT_ATLAS.family);
 
     scene.destroy();
     host.remove();

@@ -198,7 +198,7 @@ export {
   isGlyphAtlasEncodable,
   applyCellHook,
 } from "./render/cells";
-export type { CellGrid, TransformCells, GlyphColorEncoding } from "./render/cells";
+export type { CellGrid, TransformCells, GlyphColorEncoding, GlyphEncodedOutput } from "./render/cells";
 // ── Colour-font atlas (`colorEncoding: "atlas"` foundation) ──────────────
 export {
   GLYPH_FONT_ATLAS,

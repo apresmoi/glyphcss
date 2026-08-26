@@ -376,7 +376,12 @@ interface DetailCommit {
 interface StagedHotspotStyle { el: HTMLElement; display: string; left?: string; top?: string; zIndex?: string }
 
 interface RenderCommit {
-  writes: Array<{ pre: HTMLPreElement; encoded: string }>;
+  /**
+   * `atlas` is what the encoder actually PRODUCED for this node, not what
+   * `colorEncoding` asked for — `commitRender` pins the atlas font family from
+   * it. See `setGlyphAtlasFontOn`.
+   */
+  writes: Array<{ pre: HTMLPreElement; encoded: string; atlas: boolean }>;
   details: DetailCommit;
   hotspots: StagedHotspotStyle[];
   retained: Map<string, RetainedGlyphEffectOutput> | null;
@@ -399,6 +404,12 @@ let nextMeshId = 1;
 // so two concurrent scenes with different palettes on the same document
 // never fight over one shared name.
 let nextAtlasStyleId = 1;
+
+// Cell-metric probe character for an atlas-pinned `<pre>`: slot 0 / glyph 0,
+// always present in the atlas cmap. Every atlas glyph carries the same advance
+// (`build-atlas.py` gives them all the source face's "M" advance), so any code
+// point in the range measures the same cell — see `measureCellOf`.
+const ATLAS_METRIC_PROBE_CHAR = String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart);
 
 // Convention aligned to voxcss/three.js: rotation is XYZ Euler in DEGREES,
 // world frame. Matches voxcss core/src/math/rotation.ts `rotateVec3` (angles
@@ -545,7 +556,7 @@ export function createGlyphScene(
   let activePreparedEffects: readonly PreparedGlyphEffectLayer[] | null = null;
   let collectingEffectOutputs: Map<string, RetainedGlyphEffectOutput> | null = null;
   let currentEffectOutputMetadata: GlyphEffectOutputMetadata | null = null;
-  let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string }> | null = null;
+  let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string; atlas: boolean }> | null = null;
   let stagedDetailCommit: DetailCommit | null = null;
   let semanticCellFrame: GlyphSemanticCellFrame | null = null;
   // `colorEncoding: "atlas"` CSS wiring — see `syncGlyphAtlasStyles` below.
@@ -592,6 +603,28 @@ export function createGlyphScene(
     if (effectiveColorEncoding() !== "atlas") return undefined;
     if (options.atlasPalette) return options.atlasPalette;
     return (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer());
+  }
+
+  /**
+   * Latch the pooled palette for the render transaction about to run. A scene
+   * resolves the palette once per output `<pre>` — the base at the end of base
+   * rasterization, each detail layer at the end of its own pass — so those
+   * calls are separated by a whole raster pass, not "microseconds". Without
+   * this latch a repool landing between them leaves the base `<pre>` encoded
+   * against the OLD slots while the scene publishes the new palette to the
+   * single `font-palette` ident every output shares, recolouring the base
+   * wholesale — permanently, on a static scene.
+   *
+   * Allocates nothing for a `"spans"` scene, or for one with a pinned
+   * `atlasPalette` (which cannot repool at all).
+   */
+  function beginAtlasPaletteTransaction(): void {
+    if (effectiveColorEncoding() !== "atlas" || options.atlasPalette) return;
+    (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer()).beginTransaction();
+  }
+
+  function endAtlasPaletteTransaction(): void {
+    atlasQuantizer?.endTransaction();
   }
 
   function hasEffectLayers(): boolean {
@@ -653,9 +686,9 @@ export function createGlyphScene(
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
   };
 
-  function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string): void {
+  function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string, atlas = false): void {
     if (!stagedFullEffectWrites) throw new Error("glyphcss: output write escaped its render transaction.");
-    stagedFullEffectWrites.push({ pre: outputPre, encoded });
+    stagedFullEffectWrites.push({ pre: outputPre, encoded, atlas });
   }
 
   function renderRetainedEffects(): void {
@@ -667,14 +700,22 @@ export function createGlyphScene(
     }
     assertEffectMode(options.mode);
     const prepared = prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows]);
-    const staged: Array<{ output: RetainedGlyphEffectOutput; encoded: string }> = [];
-    for (const output of retainedEffectOutputs.values()) {
-      testRenderStage("effect-compose");
-      const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-      staged.push({ output, encoded: encodeCellGridOutput(grid, options.useColors, options.colorTolerance, effectiveColorEncoding(), activeAtlasPalette()) });
+    const staged: Array<{ output: RetainedGlyphEffectOutput; encoded: string; atlas: boolean }> = [];
+    // Every output of this transaction must encode against ONE palette — see
+    // `beginAtlasPaletteTransaction`.
+    beginAtlasPaletteTransaction();
+    try {
+      for (const output of retainedEffectOutputs.values()) {
+        testRenderStage("effect-compose");
+        const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
+        const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, effectiveColorEncoding(), activeAtlasPalette());
+        staged.push({ output, encoded: encoded.text, atlas: encoded.encoding === "atlas" });
+      }
+    } finally {
+      endAtlasPaletteTransaction();
     }
     commitRender({
-      writes: staged.map(({ output, encoded }) => ({ pre: output.metadata.pre, encoded })),
+      writes: staged.map(({ output, encoded, atlas }) => ({ pre: output.metadata.pre, encoded, atlas })),
       details: { next: new Map(detailLayers), removed: [] },
       hotspots: [],
       retained: retainedEffectOutputs,
@@ -955,6 +996,9 @@ export function createGlyphScene(
     // This is deliberately not conditional: detail insertion/style and base
     // text are one visible transaction.
     stagedFullEffectWrites = [];
+    // The base `<pre>` and every detail `<pre>` of this frame must encode
+    // against ONE palette — they share one `font-palette` ident.
+    beginAtlasPaletteTransaction();
     // Rasterization is allowed to mutate these working copies freely. They
     // become the next frame's state only after every output/detail/hotspot
     // publication succeeds.
@@ -1046,7 +1090,7 @@ export function createGlyphScene(
     testRenderStage("base-encode");
     const tRaster = perf ? performance.now() : 0;
 
-    writeOrStageFullOutput(pre, output);
+    writeOrStageFullOutput(pre, output, ctx.atlasEncoded);
 
     if (perf) {
       const tDom = performance.now();
@@ -1093,6 +1137,7 @@ export function createGlyphScene(
       // rejects instead of leaving semantic/visible selection ahead of paint.
       throw error;
     } finally {
+      endAtlasPaletteTransaction();
       currentEffectOutputMetadata = null;
       collectingEffectOutputs = null;
       activePreparedEffects = null;
@@ -1137,7 +1182,15 @@ export function createGlyphScene(
     const LINES = 20;
     const probe = host.ownerDocument!.createElement("pre");
     probe.className = el.className;
-    probe.textContent = Array(LINES).fill("M").join("\n");
+    // Probe with a character the ACTIVE font actually resolves. "M" is not in
+    // the atlas cmap, so probing an atlas-pinned `<pre>` with it measured the
+    // fallback `monospace` advance while the node painted at the atlas's —
+    // silently wrong `autoSize` fit, hotspot placement and detail-layer
+    // transforms on every platform whose `monospace` isn't the atlas's own
+    // source face. A PUA code point resolves from the atlas, and every atlas
+    // glyph (space included) carries the same advance.
+    const probeChar = el.style.fontFamily.includes(GLYPH_FONT_ATLAS.family) ? ATLAS_METRIC_PROBE_CHAR : "M";
+    probe.textContent = Array(LINES).fill(probeChar).join("\n");
     // Resolve the actual browser cascade (including calc/var/em/normal) in a
     // permanent hidden sibling instead of parsing a CSS string or touching a
     // published output node during preparation.
@@ -1157,12 +1210,15 @@ export function createGlyphScene(
   function baseCellMetrics(): { w: number; h: number; measured: boolean } {
     return (baseCellCache ??= measureCellOf(pre));
   }
-  function measureDetailCell(fontSize: string, lineHeight: string): { w: number; h: number; measured: boolean } {
+  function measureDetailCell(fontSize: string, lineHeight: string, fontFamily: string): { w: number; h: number; measured: boolean } {
     const candidate = host.ownerDocument!.createElement("pre");
     candidate.className = "glyph-output glyph-output--detail";
     candidate.style.cssText = "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
     candidate.style.fontSize = fontSize;
     candidate.style.lineHeight = lineHeight;
+    // Measure in the same font stack the detail `<pre>` is actually painting
+    // in — see `measureCellOf`'s probe-character note.
+    if (fontFamily) candidate.style.fontFamily = fontFamily;
     return measureCellOf(candidate);
   }
   function baseProjectionGrid(): GridSize {
@@ -1193,17 +1249,25 @@ export function createGlyphScene(
   }
   const detailLayers = new Map<number, DetailLayerState>();
 
-  // Apply (or clear) the atlas font stack on one output `<pre>`. Cheap
-  // per-node property writes, safe to call for every output node on every
-  // `colorEncoding`/`atlasPalette` change and for every newly created detail
-  // `<pre>`. Prepending the atlas family (rather than replacing the CSS-class
-  // `font-family: monospace`) is safe for BOTH outcomes of a frame: the atlas
-  // font's cmap only covers `U+0020` and its own PUA range (see
-  // `fontAtlas.ts`'s `build-atlas.py` — regular code points are never in its
-  // cmap), so a "spans" fallback frame's plain, non-PUA text falls through to
-  // the trailing `monospace` per character exactly as if this were never set.
-  function applyGlyphAtlasFont(preEl: HTMLPreElement): void {
-    if (options.colorEncoding === "atlas") {
+  // Apply (or clear) the atlas font stack on one output `<pre>`, driven by
+  // whether the string being committed to it was REALLY atlas-encoded — not
+  // by whether `colorEncoding: "atlas"` was requested.
+  //
+  // The difference is load-bearing, and the original "safe unconditionally"
+  // reasoning was wrong. The atlas cmap covers `U+0020` as well as its own PUA
+  // range (`build-atlas.py`: `cmap = {0x0020: "space"}`, needed because an
+  // atlas-encoded grid writes blank cells as literal spaces and they must come
+  // from the same face as the PUA cells). So on a frame that fell back to
+  // spans — the pre-ready window, `charMode: "braille"`, an exotic wireframe
+  // palette, an out-of-atlas field-synth ramp glyph — a pinned family resolves
+  // that frame's SPACES from the atlas at the atlas's own advance and every
+  // other character from the platform `monospace`. Two fonts, one grid.
+  // Invisible on macOS (`monospace` IS the atlas's source face there) and
+  // measured broken elsewhere: 40 spaces 394.92px vs 40 "M" 393.67px in
+  // Chromium/WebKit, 389px vs 537px against a proportional fallback, ~9% per
+  // space where `monospace` maps to Consolas.
+  function setGlyphAtlasFontOn(preEl: HTMLPreElement, atlasEncoded: boolean): void {
+    if (atlasEncoded) {
       preEl.style.fontFamily = `"${GLYPH_FONT_ATLAS.family}", monospace`;
       if (atlasPaletteName) preEl.style.setProperty("font-palette", atlasPaletteName);
       else preEl.style.removeProperty("font-palette");
@@ -1211,6 +1275,11 @@ export function createGlyphScene(
       preEl.style.removeProperty("font-family");
       preEl.style.removeProperty("font-palette");
     }
+  }
+
+  /** Is the atlas family currently the first entry of this `<pre>`'s font stack? */
+  function isGlyphAtlasPinned(preEl: HTMLPreElement): boolean {
+    return preEl.style.fontFamily.includes(GLYPH_FONT_ATLAS.family);
   }
 
   // Closes the CSS-injection gap: `colorEncoding: "atlas"` used to require a
@@ -1239,9 +1308,13 @@ export function createGlyphScene(
         scheduleRender();
       });
       writeGlyphAtlasPaletteCss();
+    } else {
+      // Leaving `"atlas"`: unpin every output now. Pinning in the other
+      // direction is NOT symmetric — it happens per output at commit, once a
+      // frame has actually been atlas-encoded (see `setGlyphAtlasFontOn`).
+      setGlyphAtlasFontOn(pre, false);
+      for (const layer of detailLayers.values()) setGlyphAtlasFontOn(layer.pre, false);
     }
-    applyGlyphAtlasFont(pre);
-    for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
   }
 
   // The `@font-palette-values` half of the wiring, split out so the async
@@ -1261,8 +1334,13 @@ export function createGlyphScene(
     }
     atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
     atlasPaletteCssGeneration = atlasQuantizer?.generation ?? -1;
-    applyGlyphAtlasFont(pre);
-    for (const layer of detailLayers.values()) applyGlyphAtlasFont(layer.pre);
+    // Only the `font-palette` half here — an output that is not currently
+    // painting atlas text must not acquire the family as a side effect of a
+    // palette refresh.
+    if (isGlyphAtlasPinned(pre)) pre.style.setProperty("font-palette", atlasPaletteName);
+    for (const layer of detailLayers.values()) {
+      if (isGlyphAtlasPinned(layer.pre)) layer.pre.style.setProperty("font-palette", atlasPaletteName);
+    }
   }
 
   /**
@@ -1283,6 +1361,7 @@ export function createGlyphScene(
 
   function commitRender(plan: RenderCommit): void {
     testRenderStage("commit-write");
+    const basePinnedBefore = isGlyphAtlasPinned(pre);
     const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
     const outputs = Array.from(outputNodes, (node) => ({ node, html: node.innerHTML, text: node.textContent ?? "", style: node.getAttribute("style") }));
     const oldDetails = new Map(detailLayers);
@@ -1292,6 +1371,10 @@ export function createGlyphScene(
       for (const entry of plan.writes) {
         if (options.useColors) entry.pre.innerHTML = entry.encoded;
         else entry.pre.textContent = entry.encoded;
+        // Same transaction as the text it describes: a node never carries the
+        // atlas font stack while holding span-encoded text, or vice versa.
+        // Rolled back with the rest by the style-attribute restore below.
+        setGlyphAtlasFontOn(entry.pre, entry.atlas);
       }
       testRenderStage("commit-style");
       for (const [, layer] of plan.details.next) {
@@ -1340,6 +1423,17 @@ export function createGlyphScene(
       throw error;
     }
     syncGlyphAtlasPaletteCss();
+    // The base grid just changed which font it paints in (the atlas arriving,
+    // or a frame falling back to spans). Its cell advance changed with it, so
+    // the cached measurement — which `autoSize` fit, hotspot placement and
+    // every detail-layer transform are derived from — is stale. This settles
+    // in one extra render: the re-render re-measures in the new font and the
+    // pinning does not flip again unless the encoding does.
+    if (isGlyphAtlasPinned(pre) !== basePinnedBefore) {
+      baseCellCache = null;
+      if (options.autoSize) fitToHost();
+      scheduleRender();
+    }
   }
 
   /**
@@ -1398,7 +1492,11 @@ export function createGlyphScene(
           el.className = "glyph-output glyph-output--detail";
           el.style.cssText =
             "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
-          applyGlyphAtlasFont(el);
+          // Mirror the base grid's current pinning so this layer's very first
+          // cell measurement happens in the font it will most likely paint in;
+          // its own first commit corrects it if this mesh turns out to encode
+          // differently from the base.
+          setGlyphAtlasFontOn(el, isGlyphAtlasPinned(pre));
           layer = { pre: el, key: "", cw: 0, ch: 0, fontSize: "", lineHeight: "", transform: "" };
         }
         const dpre = layer.pre;
@@ -1411,7 +1509,11 @@ export function createGlyphScene(
           // density path: cell = base cell ÷ density, derived exactly from the base
           // font (no per-frame layout measurement). fontSize scales linearly, so
           // setting the <pre> font to base/density yields exactly base cell/density.
-          const key = `d:${density}`;
+          // The base cell is part of the key: a density layer derives its own
+          // cell from it, so a base-cell change (a fit, an option change, or
+          // the atlas font arriving and changing the measured advance) has to
+          // re-derive it instead of holding a stale multiple of the old one.
+          const key = `d:${density}:${cwB}:${chB}`;
           if (layer.key !== key) {
             layer.fontSize = `${baseFontPx() / density}px`;
             layer.lineHeight = "";
@@ -1422,13 +1524,15 @@ export function createGlyphScene(
           const fs = entry.transform.fontSize;
           const fsStr = fs == null ? "" : typeof fs === "number" ? `${fs}px` : fs;
           const lhStr = entry.transform.lineHeight == null ? "" : String(entry.transform.lineHeight);
-          const key = `${fsStr}|${lhStr}`;
+          // The font stack joins the key for the same reason the base cell
+          // joins the density key above: the measured advance depends on it.
+          const key = `${fsStr}|${lhStr}|${dpre.style.fontFamily}`;
           if (layer.key !== key) {
             layer.fontSize = fsStr;
             layer.lineHeight = lhStr;
             // Keep CSS as CSS: this handles px/em/rem/calc/var/normal and
             // inherited declarations with the browser's own layout engine.
-            const m = measureDetailCell(fsStr, lhStr);
+            const m = measureDetailCell(fsStr, lhStr, dpre.style.fontFamily);
             layer.key = key; layer.cw = m.w; layer.ch = m.h;
           }
         }
@@ -1584,7 +1688,7 @@ export function createGlyphScene(
               options.useColors,
             ))
           : (testRenderStage("detail-encode"), rasterize(ctx));
-        writeOrStageFullOutput(dpre, out);
+        writeOrStageFullOutput(dpre, out, ctx.atlasEncoded);
         // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
         testRenderStage("detail-transform");
         layer.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
@@ -1908,7 +2012,11 @@ export function createGlyphScene(
     // recovers the real per-line advance at any line-height.
     const LINES = 20;
     const probe = host.ownerDocument!.createElement("span");
-    probe.textContent = Array(LINES).fill("M").join("\n");
+    // Same probe-character rule as `measureCellOf`: this span inherits the
+    // `<pre>`'s font stack, and "M" is not in the atlas cmap, so probing with
+    // it on an atlas-pinned `<pre>` sizes the grid from the FALLBACK font's
+    // advance while the scene paints at the atlas's.
+    probe.textContent = Array(LINES).fill(isGlyphAtlasPinned(pre) ? ATLAS_METRIC_PROBE_CHAR : "M").join("\n");
     probe.style.cssText =
       "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
     pre.appendChild(probe);

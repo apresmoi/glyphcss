@@ -157,27 +157,33 @@ describe("encodeCellGridOutput — the spans-vs-atlas seam", () => {
     const grid = buildCellGrid(char, color, null, 2, 1);
     const withDefault = encodeCellGridOutput(grid, true, 0);
     const direct = encodeGlyphBuffers(char, color, 2, 1, true);
-    expect(withDefault).toBe(direct);
+    expect(withDefault.text).toBe(direct);
+    expect(withDefault.encoding).toBe("spans");
   });
 
   it("is byte-identical to encodeCellGrid when colorEncoding is explicitly \"spans\"", () => {
     const grid = buildCellGrid(char, color, null, 2, 1);
     const out = encodeCellGridOutput(grid, true, 0, "spans", PALETTE);
     const direct = encodeGlyphBuffers(char, color, 2, 1, true);
-    expect(out).toBe(direct);
+    expect(out.text).toBe(direct);
+    expect(out.encoding).toBe("spans");
   });
 
   it("routes to the atlas encoder when colorEncoding is \"atlas\" and the grid fits the palette", () => {
     const grid = buildCellGrid(char, color, null, 2, 1);
     const out = encodeCellGridOutput(grid, true, 0, "atlas", PALETTE);
-    expect(out).not.toContain("<span");
-    expect(out).toBe(encodeGlyphAtlas(char, color, 2, 1, PALETTE));
+    expect(out.text).not.toContain("<span");
+    expect(out.text).toBe(encodeGlyphAtlas(char, color, 2, 1, PALETTE));
+    // The REPORTED encoding, not the requested one — `createGlyphScene` pins
+    // the atlas font family from this and must never pin it on a spans frame.
+    expect(out.encoding).toBe("atlas");
   });
 
   it("falls back to spans when colorEncoding is \"atlas\" but no atlasPalette is supplied", () => {
     const grid = buildCellGrid(char, color, null, 2, 1);
     const out = encodeCellGridOutput(grid, true, 0, "atlas", undefined);
-    expect(out).toBe(encodeGlyphBuffers(char, color, 2, 1, true));
+    expect(out.text).toBe(encodeGlyphBuffers(char, color, 2, 1, true));
+    expect(out.encoding).toBe("spans");
   });
 
   it("falls back to spans (whole-grid, not partial) when one cell's glyph is outside the atlas", () => {
@@ -187,7 +193,8 @@ describe("encodeCellGridOutput — the spans-vs-atlas seam", () => {
     // Whole-grid fallback: the fully-encodable first cell does NOT get
     // atlas-encoded while the second falls back — the entire render uses
     // spans, verified by the presence of a <span> wrapper.
-    expect(out).toContain("<span");
-    expect(out).toBe(encodeGlyphBuffers(mixedChar, color, 2, 1, true));
+    expect(out.text).toContain("<span");
+    expect(out.text).toBe(encodeGlyphBuffers(mixedChar, color, 2, 1, true));
+    expect(out.encoding).toBe("spans");
   });
 });

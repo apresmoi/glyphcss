@@ -428,6 +428,24 @@ export interface RasterizeContext {
   colorEncoding: GlyphColorEncoding;
   /** Palette (or palette source) `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
   atlasPalette?: GlyphAtlasPaletteInput;
+  /**
+   * **Output, not input.** Set by `rasterize()` to whether THIS pass's final
+   * string was really atlas-encoded — `colorEncoding: "atlas"` is a request,
+   * and any frame whose glyphs, colours or palette the atlas can't carry
+   * falls back to the span encoder (`isGlyphAtlasEncodable`). A caller that
+   * styles the output node needs the ANSWER, not the request: the atlas font
+   * covers `U+0020` as well as its own PUA range, so leaving the family
+   * pinned on a spans frame resolves that frame's SPACES from the atlas and
+   * every other character from the platform `monospace`, desyncing the
+   * character grid on any platform whose `monospace` advance isn't the
+   * atlas's (measured: 40 spaces 394.92px vs 40 "M" 393.67px in Chromium,
+   * 389px vs 537px against a proportional fallback). `createGlyphScene` reads
+   * this per output `<pre>` and pins the family only where it is `true`.
+   *
+   * Reset to `false` at the start of every `rasterize()` call, so one context
+   * reused across frames (the frame-roll export) reports its LAST pass.
+   */
+  atlasEncoded: boolean;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -568,6 +586,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     colorEncoding: normalizeGlyphColorEncoding(opts.colorEncoding),
     atlasPalette: opts.atlasPalette,
+    atlasEncoded: false,
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

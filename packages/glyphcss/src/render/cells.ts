@@ -162,6 +162,18 @@ export type TransformCells = (grid: CellGrid) => CellGrid | void;
  */
 export type GlyphColorEncoding = "spans" | "atlas";
 
+/**
+ * One encoded output `<pre>` string plus the encoder that actually produced
+ * it. `colorEncoding: "atlas"` is a REQUEST — a grid whose glyphs, colours or
+ * palette the atlas cannot carry falls back to `"spans"` for that frame — and
+ * a caller that also styles the node (`createGlyphScene` pins the atlas
+ * `font-family`) has to act on the answer, not the request.
+ */
+export interface GlyphEncodedOutput {
+  readonly text: string;
+  readonly encoding: GlyphColorEncoding;
+}
+
 const cellIndexCache: {
   cols: number;
   rows: number;
@@ -892,7 +904,14 @@ export function encodeCellGridAtlas(
  * `atlasPalette` is either a fixed `readonly string[]` or a
  * {@link GlyphAtlasPaletteSource} — the pooled quantizer a live scene uses,
  * which derives this grid's palette (and pools its colours across frames) on
- * the way through.
+ * the way through. The structural {@link isGlyphAtlasEncodable} test therefore
+ * runs BEFORE the palette resolves: a grid the atlas can never carry must not
+ * feed, repool or republish a palette it will never reference.
+ *
+ * Returns the string AND which encoder produced it, because a caller that
+ * styles the output node needs the answer rather than the request — see
+ * `RasterizeContext.atlasEncoded` for why a spans frame must not be left with
+ * the atlas font family pinned.
  */
 export function encodeCellGridOutput(
   grid: CellGrid,
@@ -901,14 +920,20 @@ export function encodeCellGridOutput(
   colorEncoding: GlyphColorEncoding = "spans",
   atlasPalette?: GlyphAtlasPaletteInput,
   atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
-): string {
-  if (colorEncoding === "atlas" && useColors && !grid.weight && atlasPalette) {
+): GlyphEncodedOutput {
+  if (
+    colorEncoding === "atlas"
+    && useColors
+    && !grid.weight
+    && atlasPalette
+    && isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, undefined, atlas)
+  ) {
     const palette = resolveGlyphAtlasPaletteInput(atlasPalette, grid.char, grid.color, grid.cols * grid.rows);
-    if (palette && palette.length > 0 && isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, palette, atlas)) {
-      return encodeCellGridAtlas(grid, palette, atlas);
+    if (palette && palette.length > 0 && palette.length <= atlas.maxPaletteSize) {
+      return { text: encodeCellGridAtlas(grid, palette, atlas), encoding: "atlas" };
     }
   }
-  return encodeCellGrid(grid, useColors, colorTolerance);
+  return { text: encodeCellGrid(grid, useColors, colorTolerance), encoding: "spans" };
 }
 
 /**
