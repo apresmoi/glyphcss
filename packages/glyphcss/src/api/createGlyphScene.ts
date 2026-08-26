@@ -1251,7 +1251,23 @@ export function createGlyphScene(
   function baseCellMetrics(): { w: number; h: number; measured: boolean } {
     return (baseCellCache ??= measureCellOf(pre));
   }
+  // Memoizes `measureDetailCell` itself, in addition to (not instead of) each
+  // detail layer's own `layer.key` gate above: the MAX_DIM cap below (~1636)
+  // forces that per-layer key to keep re-deriving every frame the cap is
+  // engaged — bbox size is genuinely per-frame, so the key can't just hold —
+  // and for a mesh whose own font diverges from the base's, that re-derive
+  // calls this function again with the EXACT SAME (fontSize, lineHeight,
+  // fontFamily) triple every time (density/cwB/chB/sameFontAsBase are
+  // unchanged; only the cap's downstream arithmetic varies). Without this,
+  // that becomes one real hidden-`<pre>` layout probe (a forced synchronous
+  // flush) per steady-state rerender, indefinitely — this memo turns the
+  // repeat calls into a cache hit, since the same CSS input is a pure
+  // function of layout on a given document. Cleared on `scene.destroy()`.
+  const detailCellMeasureCache = new Map<string, { w: number; h: number; measured: boolean }>();
   function measureDetailCell(fontSize: string, lineHeight: string, fontFamily: string): { w: number; h: number; measured: boolean } {
+    const key = `${fontSize}\n${lineHeight}\n${fontFamily}`;
+    const cached = detailCellMeasureCache.get(key);
+    if (cached) return cached;
     const candidate = host.ownerDocument!.createElement("pre");
     candidate.className = "glyph-output glyph-output--detail";
     candidate.style.cssText = "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
@@ -1260,7 +1276,9 @@ export function createGlyphScene(
     // Measure in the same font stack the detail `<pre>` is actually painting
     // in — see `measureCellOf`'s probe-character note.
     if (fontFamily) candidate.style.fontFamily = fontFamily;
-    return measureCellOf(candidate);
+    const result = measureCellOf(candidate);
+    detailCellMeasureCache.set(key, result);
+    return result;
   }
   function baseProjectionGrid(): GridSize {
     const cell = baseCellMetrics();
@@ -2171,6 +2189,7 @@ export function createGlyphScene(
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
     meshes.clear();
+    detailCellMeasureCache.clear();
     // This scene's own `@font-palette-values` block (never the shared,
     // document-global `@font-face` — that outlives every individual scene).
     if (atlasPaletteStyleEl?.parentNode) atlasPaletteStyleEl.parentNode.removeChild(atlasPaletteStyleEl);
