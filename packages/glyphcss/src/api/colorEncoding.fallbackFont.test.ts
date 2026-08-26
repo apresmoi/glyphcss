@@ -69,6 +69,47 @@ function atlasIsFirstInStack(el: HTMLElement): boolean {
   return el.style.fontFamily.includes(GLYPH_FONT_ATLAS.family);
 }
 
+// Shared by every describe block below that needs the two fonts modelled
+// with DIFFERENT advances — the real case this feature ships into
+// (`monospace` → Consolas on Windows at ~0.55em against the atlas's
+// Menlo-derived 0.60205em) and the one macOS hides, because there
+// `monospace` IS the atlas's source face and every metric agrees by
+// accident.
+const ATLAS_ADVANCE = 12.041;
+const FALLBACK_ADVANCE = 11;
+const LINE_HEIGHT = 16;
+const HOST_WIDTH = 1000;
+const HOST_HEIGHT = 480;
+
+/** Nearest ancestor inline `font-family`, i.e. what `inherit` resolves to. */
+function inheritedFamily(el: Element): string {
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const family = (node as HTMLElement).style?.fontFamily ?? "";
+    if (family && family !== "inherit") return family;
+  }
+  return "";
+}
+
+/**
+ * Model a text layout engine closely enough to catch the defect: a
+ * character's advance comes from the font that RESOLVES it, which for the
+ * atlas means "first in the stack AND in its cmap". Probing an atlas-pinned
+ * node with "M" therefore reports the fallback advance.
+ */
+function stubTextLayout(atlasAdvance: number, fallbackAdvance: number): void {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const lines = (this.textContent ?? "").split("\n");
+    const isCellProbe = lines.length === 20 && lines.every((line) => [...line].length === 1)
+      && new Set(lines).size === 1;
+    const empty = { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    if (!isCellProbe) return empty;
+    const atlasFirst = inheritedFamily(this).includes(GLYPH_FONT_ATLAS.family);
+    const width = atlasFirst && inAtlasCmap(lines[0]!.codePointAt(0)!) ? atlasAdvance : fallbackAdvance;
+    const height = LINE_HEIGHT * 20;
+    return { width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+  });
+}
+
 /**
  * Which fonts actually paint this `<pre>`'s committed text. Font selection is
  * per character by cmap: the atlas serves a character iff it is first in the
@@ -276,42 +317,7 @@ describe("colorEncoding: \"atlas\" — one frame, one font", () => {
  * re-deriving the projection maths here.
  */
 describe("colorEncoding: \"atlas\" — the cell probe measures the font that paints", () => {
-  const ATLAS_ADVANCE = 12.041;
-  const FALLBACK_ADVANCE = 11;
-  const LINE_HEIGHT = 16;
-  const HOST_WIDTH = 1000;
-  const HOST_HEIGHT = 480;
-
   interface Geometry { cols: number; hotspotLeft: number; atlasPinned: boolean }
-
-  /** Nearest ancestor inline `font-family`, i.e. what `inherit` resolves to. */
-  function inheritedFamily(el: Element): string {
-    for (let node: Element | null = el; node; node = node.parentElement) {
-      const family = (node as HTMLElement).style?.fontFamily ?? "";
-      if (family && family !== "inherit") return family;
-    }
-    return "";
-  }
-
-  /**
-   * Model a text layout engine closely enough to catch the defect: a
-   * character's advance comes from the font that RESOLVES it, which for the
-   * atlas means "first in the stack AND in its cmap". Probing an atlas-pinned
-   * node with "M" therefore reports the fallback advance.
-   */
-  function stubTextLayout(atlasAdvance: number, fallbackAdvance: number): void {
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-      const lines = (this.textContent ?? "").split("\n");
-      const isCellProbe = lines.length === 20 && lines.every((line) => [...line].length === 1)
-        && new Set(lines).size === 1;
-      const empty = { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
-      if (!isCellProbe) return empty;
-      const atlasFirst = inheritedFamily(this).includes(GLYPH_FONT_ATLAS.family);
-      const width = atlasFirst && inAtlasCmap(lines[0]!.codePointAt(0)!) ? atlasAdvance : fallbackAdvance;
-      const height = LINE_HEIGHT * 20;
-      return { width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
-    });
-  }
 
   /** Render one atlas-painting scene under a given pair of font metrics. */
   async function atlasSceneGeometry(atlasAdvance: number, fallbackAdvance: number): Promise<Geometry> {
