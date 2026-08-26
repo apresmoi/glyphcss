@@ -446,6 +446,21 @@ export interface RasterizeContext {
    * reused across frames (the frame-roll export) reports its LAST pass.
    */
   atlasEncoded: boolean;
+  /**
+   * **Output, not input.** Set by `rasterize()` when `colorEncoding: "atlas"`
+   * was requested this pass but the pass fell back to spans FOR A GLYPH
+   * REASON — either the active wireframe palette's POTENTIAL glyph set (not
+   * just what this frame happened to draw) has a member outside the atlas
+   * (see `isWireframePaletteAtlasEncodable` in `render/rasterize.ts`), or the
+   * realized grid's glyphs include one outside the atlas
+   * (`hasGlyphOutsideFontAtlas`, `render/cells.ts`). Never set for a
+   * COLOUR-only or palette-only fallback reason (a missing/invalid per-cell
+   * colour, an oversized palette) — those are transient and not a signal
+   * `createGlyphScene`'s per-scene out-of-atlas-glyph stickiness should latch
+   * on. Reset to `false` at the start of every `rasterize()` call, alongside
+   * `atlasEncoded`.
+   */
+  atlasGlyphFallback: boolean;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -587,6 +602,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     colorEncoding: normalizeGlyphColorEncoding(opts.colorEncoding),
     atlasPalette: opts.atlasPalette,
     atlasEncoded: false,
+    atlasGlyphFallback: false,
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

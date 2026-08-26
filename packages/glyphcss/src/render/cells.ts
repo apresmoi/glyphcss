@@ -778,6 +778,32 @@ export function isGlyphAtlasEncodable(
 }
 
 /**
+ * Whether ANY non-blank cell's glyph lacks an outline in `atlas` — the single
+ * "glyph" failure reason {@link isGlyphAtlasEncodable} folds into one boolean
+ * alongside colour/palette structural failures. Used only to diagnose WHY a
+ * grid fell back to spans, so a caller can distinguish "a glyph was out of
+ * the atlas" (the reason `createGlyphScene`'s per-scene out-of-atlas-glyph
+ * stickiness latches on — see AGENTS.md's `colorEncoding` section) from a
+ * transient structural miss (a missing/invalid colour, an oversized palette)
+ * that isn't. Never an atlas-eligibility gate on its own — a grid can still
+ * be unencodable for a reason this doesn't check.
+ */
+export function hasGlyphOutsideFontAtlas(
+  char: readonly string[],
+  cols: number,
+  rows: number,
+  atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
+): boolean {
+  const n = cols * rows;
+  for (let i = 0; i < n; i++) {
+    const glyph = char[i];
+    if (glyph === undefined || glyph === " ") continue;
+    if (!isGlyphInFontAtlas(glyph, atlas)) return true;
+  }
+  return false;
+}
+
+/**
  * Encode final cell buffers as colour-font-atlas PUA text — a sibling to
  * {@link encodeGlyphBuffers} and {@link encodeGlyphBuffersDual}, but the
  * output is always plain text (`textContent`), never HTML: the whole point

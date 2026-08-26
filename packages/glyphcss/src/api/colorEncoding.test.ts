@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import type { Polygon } from "@glyphcss/core";
 import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
@@ -183,6 +183,130 @@ describe("createGlyphScene — default-palette wireframe atlas-encodes determini
     expect(sawInkedCell).toBe(true);
     scene.destroy();
     host.remove();
+  });
+});
+
+describe("createGlyphScene — ascii-palette wireframe atlas-encodes deterministically", () => {
+  // The other FULL wireframe palette (`default`'s own regression is above).
+  // Proof obligation 2 (F1): the potential-set gate must not have simply
+  // disabled the atlas for wireframe wholesale — a fully-covered palette has
+  // to stay atlas-encoded on every render, exactly as before this fix.
+  it("stays atlas-encoded (zero spans) across many independent random glyph draws", async () => {
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 10,
+      rows: 5,
+      useColors: true,
+      mode: "wireframe",
+      glyphPalette: "ascii",
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      camera: createGlyphOrthographicCamera({ zoom: 22 }),
+      ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#336699"));
+    await flushAtlasRenders();
+    let sawInkedCell = false;
+    for (let i = 0; i < 300; i++) {
+      scene.rerender();
+      const html = scene.output.innerHTML;
+      expect(html, `render #${i} fell back to spans`).not.toContain("<span");
+      if (html.replace(/\s/g, "").length > 0) sawInkedCell = true;
+    }
+    expect(sawInkedCell).toBe(true);
+    scene.destroy();
+    host.remove();
+  });
+});
+
+describe("createGlyphScene — partially-covered wireframe palettes stay deterministically spans (no oscillation)", () => {
+  // Proof obligation 1 (F1): `runes`, `braille`, `blocks`, `stars`, `arrows`
+  // and `math` each have at least one tier with a glyph the checked-in atlas
+  // doesn't carry (verified against `assets/glyph-atlas/atlas.json`; see
+  // AGENTS.md's `colorEncoding` section). Before the potential-set gate, a
+  // wireframe cell's glyph is a fresh `Math.random()` draw from its tier every
+  // render, so whether THIS frame happened to roll the missing glyph decided
+  // spans vs atlas independently each time — measured live (`runes`, 10x5,
+  // zoom 4, 300 rerenders): 82 encodability transitions and 82 font-family pin
+  // flips. The fix makes this a config-level decision: every render of a
+  // partially-covered palette must land on spans, and NEVER flip to atlas
+  // partway through — that is the "zero transitions" bar, not merely "mostly
+  // spans".
+  const PARTIAL_PALETTES = ["runes", "braille", "blocks", "stars", "arrows", "math"];
+
+  it.each(PARTIAL_PALETTES)("glyphPalette %s: every render is spans, with zero spans→atlas transitions", async (glyphPalette) => {
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 10,
+      rows: 5,
+      useColors: true,
+      mode: "wireframe",
+      glyphPalette,
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      // Matches the live repro's grid/zoom exactly (10x5, zoom 4) — the
+      // sparser silhouette that made the pre-fix realized-set roll visibly
+      // flip spans↔atlas frame to frame.
+      camera: createGlyphOrthographicCamera({ zoom: 4 }),
+      ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#336699"));
+    await flushAtlasRenders();
+    let transitions = 0;
+    let wasAtlas = scene.output.innerHTML.indexOf("<span") === -1;
+    let sawInkedCell = false;
+    for (let i = 0; i < 300; i++) {
+      scene.rerender();
+      const html = scene.output.innerHTML;
+      const isAtlas = !html.includes("<span");
+      if (isAtlas !== wasAtlas) transitions++;
+      wasAtlas = isAtlas;
+      // The actual requirement: deterministically spans, every single render.
+      expect(isAtlas, `render #${i} was atlas-encoded`).toBe(false);
+      if (html.replace(/\s/g, "").length > 0) sawInkedCell = true;
+    }
+    expect(transitions).toBe(0);
+    expect(sawInkedCell).toBe(true);
+    scene.destroy();
+    host.remove();
+  });
+});
+
+describe("rasterize — partially-covered wireframe palettes gate on the POTENTIAL glyph set, not the realized draw", () => {
+  // Deterministic sibling of the describe block above, with the randomness
+  // that made three of its six palettes only PROBABILISTICALLY exercise the
+  // fix removed entirely: `Math.random()` is stubbed to always return `0`, so
+  // `wireframeGlyphForCell` always draws index 0 of whichever tier this
+  // fixture's flat-quad edges use ("normal", the default edge weight's tier).
+  // Index 0 of every one of these six palettes' `normal` tier IS in the
+  // atlas (verified against `assets/glyph-atlas/atlas.json`) — so a
+  // REALIZED-only check (the pre-fix behavior `isGlyphAtlasEncodable` alone
+  // implements) would find this exact draw encodable on EVERY render, 100%
+  // of the time, not just probabilistically. The gate must still force
+  // spans, because it looks at the palette's whole POTENTIAL set
+  // (`thin ∪ normal ∪ core`), never just what got drawn.
+  const PARTIAL_PALETTES = ["runes", "braille", "blocks", "stars", "arrows", "math"];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(PARTIAL_PALETTES)("glyphPalette %s: spans even when every draw lands on an in-atlas glyph", (glyphPalette) => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const ctx = buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+      grid: { cols: 30, rows: 12, cellAspect: 2.0 },
+      mode: "wireframe",
+      glyphPalette,
+      polygons: flatQuad("#336699"),
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      ...FLAT_LIGHTING,
+    });
+    const html = rasterize(ctx);
+    expect(countSpans(html)).toBeGreaterThan(0);
+    expect(ctx.atlasEncoded).toBe(false);
+    expect(ctx.atlasGlyphFallback).toBe(true);
   });
 });
 
@@ -475,6 +599,109 @@ describe("createGlyphScene — colorEncoding reaches the retained-effect recompo
     host.remove();
   });
 });
+
+/**
+ * An effect program glyphcss cannot know the potential glyph set of in
+ * advance (unlike the wireframe palette tiers `isWireframePaletteAtlasEncodable`
+ * gates on): it emits an in-atlas glyph ("#") when `params.phase` is `0`, and
+ * a glyph the checked-in atlas does NOT carry ("ᚡ", the same out-of-atlas
+ * rune `cells.colorEncoding.test.ts` uses as its fixture) otherwise.
+ */
+function atlasBoundaryProgram(color: number) {
+  return defineGlyphEffect<{ phase: number }>({
+    evaluate({ target, output, params }) {
+      const glyph = params.phase === 0 ? "#" : "ᚡ";
+      const n = output.coverage.length;
+      for (let i = 0; i < n; i++) {
+        if (target.coverage[i]! <= 0) continue;
+        output.glyph[i] = glyph;
+        output.color[i] = color;
+        output.coverage[i] = 1;
+        output.channels[i] = GlyphEffectOutputChannel.Glyph | GlyphEffectOutputChannel.Color;
+      }
+    },
+  });
+}
+
+describe("createGlyphScene — out-of-atlas-glyph fallback is sticky (F1 fix B)", () => {
+  it("latches spans on a glyph-driven fallback and holds it even once the data would re-qualify, clearing only on a relevant setOptions", async () => {
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 20,
+      rows: 1,
+      useColors: true,
+      colorEncoding: "atlas",
+      atlasPalette: ["#802020"],
+      camera: createGlyphOrthographicCamera(),
+    });
+    const layer = scene.addEffectLayer({
+      effect: atlasBoundaryProgram(0x802020),
+      params: { phase: 0 },
+      target: "viewport",
+      blend: "replace",
+    });
+    await flushAtlasRenders(); // phase 0: fully in-atlas — establishes the baseline.
+    expect(scene.output.innerHTML).not.toContain("<span");
+
+    layer.params.phase = 1; // phase 1: every cell now draws the out-of-atlas rune.
+    await flushAtlasRenders();
+    expect(scene.output.innerHTML).toContain("<span");
+
+    layer.params.phase = 0; // Back to fully in-atlas data — NO setOptions call.
+    await flushAtlasRenders();
+    // The sticky latch, not the data, decides: still spans.
+    expect(scene.output.innerHTML).toContain("<span");
+
+    // A setOptions call touching `colorEncoding` clears the latch (same value,
+    // but the field is explicitly touched — see AGENTS.md's `colorEncoding`
+    // section for the exact reset list).
+    scene.setOptions({ colorEncoding: "atlas" });
+    await flushAtlasRenders();
+    expect(scene.output.innerHTML).not.toContain("<span");
+
+    scene.destroy();
+    host.remove();
+  });
+
+  it("does not latch on a colour-only fallback reason", async () => {
+    // `glyphPalette: "ascii"` is fully atlas-covered (see the dedicated
+    // describe block above), so every wireframe glyph this scene can draw is
+    // in-atlas — the ONLY way this falls back to spans is the raw, non-
+    // `#rrggbb` CSS colour name wireframe edges forward unchecked
+    // (`rasterize.ts`'s `drawLineToStamp(..., e.color ?? null, ...)`; the
+    // same mechanism `colorEncoding.fallbackFont.test.ts`'s "P1-A" fixture
+    // uses). That is a structural COLOUR failure, not a glyph one, and must
+    // never engage the sticky latch.
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 20,
+      rows: 10,
+      useColors: true,
+      mode: "wireframe",
+      glyphPalette: "ascii",
+      colorEncoding: "atlas",
+      atlasPalette: ["#802020"],
+      camera: createGlyphOrthographicCamera({ zoom: 20 }),
+    });
+    const mesh = scene.add(flatQuad("red")); // raw CSS name, not #rrggbb -> colour-only fallback.
+    await flushAtlasRenders();
+    expect(scene.output.innerHTML).toContain("<span");
+
+    // No setOptions at all — only the mesh's own colour becomes valid again.
+    mesh.setPolygons(flatQuad("#802020"));
+    await flushAtlasRenders();
+    expect(scene.output.innerHTML).not.toContain("<span");
+
+    scene.destroy();
+    host.remove();
+  });
+});
+
+// Proof obligation 3 (F1) — the font-ready spans→atlas transition itself —
+// lives in `fontAtlas.lazy.test.ts`, which already holds the dedicated
+// `setGlyphAtlasFontPayloadImportForTests` gate infrastructure needed to
+// observe the pre-load window reliably (a real payload import resolves in a
+// single microtask here, too fast to assert against directly).
 
 describe("createGlyphScene — colorEncoding reaches a per-mesh detail layer's buildRasterizeContext", () => {
   it("renders zero-span atlas output on the detail <pre>", async () => {

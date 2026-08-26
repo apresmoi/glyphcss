@@ -10,10 +10,11 @@ import {
   encodeGlyphAtlas,
   encodeGlyphBuffers,
   encodeGlyphBuffersDual,
+  hasGlyphOutsideFontAtlas,
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid } from "./cells";
-import { GLYPH_FONT_ATLAS } from "./fontAtlas";
+import { GLYPH_FONT_ATLAS, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
 import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 
 /**
@@ -388,6 +389,9 @@ export function rasterize(scene: RasterizeContext): string {
   // Output field, not input — see `RasterizeContext.atlasEncoded`. Cleared per
   // pass so a context reused across frames reports THIS one.
   scene.atlasEncoded = false;
+  // Output field, not input — see `RasterizeContext.atlasGlyphFallback`.
+  // Cleared per pass alongside `atlasEncoded`.
+  scene.atlasGlyphFallback = false;
   const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
   const metrics = projectionMetricsForGrid(cols, rows, cellAspect, grid);
@@ -506,6 +510,62 @@ const JUNCTION_GLYPHS: Record<number, string> = {
   [JUNCTION_E | JUNCTION_W | JUNCTION_N]: "┴",
   [JUNCTION_N | JUNCTION_E | JUNCTION_S | JUNCTION_W]: "┼",
 };
+
+/** Memoized per (palette name, junctions) — see {@link isWireframePaletteAtlasEncodable}. */
+const wireframePaletteAtlasEncodableCache = new Map<string, boolean>();
+
+/**
+ * Whether every glyph WIREFRAME MODE COULD POSSIBLY DRAW under this palette
+ * configuration — `thin ∪ normal ∪ core`, plus the 11 box-drawing junction
+ * glyphs when `wireframeJunctions` is on — has an outline in `atlas`.
+ *
+ * This is a function of CONFIGURATION (palette + junctions), never of any one
+ * frame's realized draw: `wireframeGlyphForCell` picks a fresh
+ * `Math.random()` tier glyph per cell on EVERY render, so gating atlas
+ * eligibility on the REALIZED set (what {@link isGlyphAtlasEncodable} checks)
+ * made a partially-covered tier flip spans↔atlas on every render a different
+ * subset of glyphs happened to get rolled — measured live at 82 encodability
+ * transitions (and 82 font-family pin flips) in 300 rerenders on a sparse
+ * `runes`-palette grid. Gating on the POTENTIAL set instead makes a
+ * partially-covered palette deterministically spans (it already spent most
+ * frames there) and leaves a fully-covered palette (`default`, `ascii`)
+ * exactly as atlas-encodable as before — see AGENTS.md's `colorEncoding`
+ * section.
+ *
+ * Memoized per (palette name, junctions) pair against the real
+ * {@link GLYPH_FONT_ATLAS} — both are page-scoped configuration, not
+ * per-frame state, and the checked-in atlas never changes at runtime. A
+ * caller passing a non-default `atlas` (tests only) bypasses the cache so a
+ * fixture atlas can never poison it.
+ */
+function isWireframePaletteAtlasEncodable(
+  glyphs: { thin: string[]; normal: string[]; core: string[] },
+  paletteName: string,
+  wireframeJunctions: boolean,
+  atlas: GlyphFontAtlas,
+): boolean {
+  const cacheable = atlas === GLYPH_FONT_ATLAS;
+  // "\n" can't appear in a `glyphPalette` name (a plain identifier string),
+  // so it's a safe join separator for the (name, junctions) composite key.
+  const cacheKey = cacheable ? `${paletteName}\n${wireframeJunctions ? 1 : 0}` : "";
+  if (cacheable) {
+    const cached = wireframePaletteAtlasEncodableCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+  }
+  let encodable = true;
+  tiers: for (const tier of [glyphs.thin, glyphs.normal, glyphs.core]) {
+    for (const g of tier) {
+      if (!isGlyphInFontAtlas(g, atlas)) { encodable = false; break tiers; }
+    }
+  }
+  if (encodable && wireframeJunctions) {
+    for (const g of Object.values(JUNCTION_GLYPHS)) {
+      if (!isGlyphInFontAtlas(g, atlas)) { encodable = false; break; }
+    }
+  }
+  if (cacheable) wireframePaletteAtlasEncodableCache.set(cacheKey, encodable);
+  return encodable;
+}
 
 /**
  * Accumulate N/E/S/W side bits for a single wireframe edge into `mask`.
@@ -3350,18 +3410,30 @@ function solidBufToString(
   rows: number,
   safe: boolean,
   scene: RasterizeContext,
+  wireframeGlyphs?: { thin: string[]; normal: string[]; core: string[] },
 ): string {
   const colorTolerance = scene.colorTolerance;
-  if (
-    scene.colorEncoding === "atlas"
-    && colorBuf
-    && scene.atlasPalette
-    && isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows)
-  ) {
-    const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
-    if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
-      scene.atlasEncoded = true;
-      return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette);
+  if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
+    // `wireframeGlyphs` is supplied only when `glyphBuf` came straight from
+    // `wireframeGlyphForCell`'s per-tier random draw (no `transformCells` hook
+    // in between) — see `isWireframePaletteAtlasEncodable`. Any other caller
+    // (solid/ink/braille, or a wireframe hook that may have rewritten glyphs
+    // to something outside those tiers) has no config-derived potential set
+    // to gate on, so this is trivially satisfied and the REALIZED check below
+    // decides — with `atlasGlyphFallback` giving that case hysteresis instead
+    // (see `createGlyphScene`'s per-scene out-of-atlas-glyph stickiness).
+    const potentialOk = wireframeGlyphs === undefined
+      || isWireframePaletteAtlasEncodable(wireframeGlyphs, scene.glyphPalette, scene.wireframeJunctions, GLYPH_FONT_ATLAS);
+    if (!potentialOk) {
+      scene.atlasGlyphFallback = true;
+    } else if (isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows)) {
+      const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
+      if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
+        scene.atlasEncoded = true;
+        return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette);
+      }
+    } else if (hasGlyphOutsideFontAtlas(glyphBuf, cols, rows)) {
+      scene.atlasGlyphFallback = true;
     }
   }
   if (safe) {
@@ -3898,29 +3970,41 @@ function stampToGlyphs(
 ): string {
   const colorTolerance = scene.colorTolerance;
   if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
-    const n = cols * rows;
-    const atlasChar = new Array<string>(n);
-    const atlasColor = new Array<string | null>(n);
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        const idx = y * cols + x;
-        const v = stamp[idx];
-        if (v === 0) {
-          atlasChar[idx] = " ";
-          atlasColor[idx] = null;
-        } else {
-          atlasChar[idx] = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
-          atlasColor[idx] = colorBuf[idx] ?? null;
+    // Gate on the palette's POTENTIAL glyph set BEFORE building a single
+    // realized (random-drawn) buffer — see `isWireframePaletteAtlasEncodable`.
+    // A partially-covered tier is deterministically unencodable regardless of
+    // what this frame happens to roll, so there is nothing to build.
+    if (!isWireframePaletteAtlasEncodable(glyphs, scene.glyphPalette, scene.wireframeJunctions, GLYPH_FONT_ATLAS)) {
+      scene.atlasGlyphFallback = true;
+    } else {
+      const n = cols * rows;
+      const atlasChar = new Array<string>(n);
+      const atlasColor = new Array<string | null>(n);
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const idx = y * cols + x;
+          const v = stamp[idx];
+          if (v === 0) {
+            atlasChar[idx] = " ";
+            atlasColor[idx] = null;
+          } else {
+            atlasChar[idx] = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
+            atlasColor[idx] = colorBuf[idx] ?? null;
+          }
         }
       }
-    }
-    // Structural encodability first, palette second — see `solidBufToString`
-    // for why a permanently-unencodable grid must never reach the quantizer.
-    if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows)) {
-      const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
-      if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
-        scene.atlasEncoded = true;
-        return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette);
+      // Structural encodability first, palette second — see `solidBufToString`
+      // for why a permanently-unencodable grid must never reach the quantizer.
+      // A false result here can only be a COLOR reason (missing/invalid
+      // per-cell color) — every glyph this frame could have drawn already
+      // passed the potential-set gate above — so it is never a reason to
+      // latch `atlasGlyphFallback`.
+      if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows)) {
+        const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
+        if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
+          scene.atlasEncoded = true;
+          return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette);
+        }
       }
     }
   }

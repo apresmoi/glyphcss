@@ -5,6 +5,7 @@ import {
   encodeCellGridOutput,
   encodeGlyphAtlas,
   encodeGlyphBuffers,
+  hasGlyphOutsideFontAtlas,
   isGlyphAtlasEncodable,
 } from "./cells";
 import { GLYPH_FONT_ATLAS, glyphAtlasCodePoint } from "./fontAtlas";
@@ -70,6 +71,30 @@ describe("isGlyphAtlasEncodable", () => {
     const char = [" ", " "];
     const color: (string | null)[] = [null, "#not-in-palette"];
     expect(isGlyphAtlasEncodable(char, color, 2, 1, PALETTE)).toBe(true);
+  });
+});
+
+describe("hasGlyphOutsideFontAtlas", () => {
+  // The single "glyph" failure reason `createGlyphScene`'s out-of-atlas-glyph
+  // stickiness (F1 fix B) latches on — distinct from a colour/palette-only
+  // reason, which must never trigger it.
+  it("is false when every non-blank glyph is in the atlas", () => {
+    expect(hasGlyphOutsideFontAtlas([GLYPH_A, GLYPH_B, " "], 3, 1)).toBe(false);
+  });
+
+  it("is true when any non-blank glyph is outside the atlas", () => {
+    expect(hasGlyphOutsideFontAtlas([GLYPH_A, "ᚡ"], 2, 1)).toBe(true);
+  });
+
+  it("blank cells never trigger it", () => {
+    expect(hasGlyphOutsideFontAtlas([" ", " "], 2, 1)).toBe(false);
+  });
+
+  it("is independent of colour — an out-of-atlas glyph is reported regardless of what isGlyphAtlasEncodable would say about colour", () => {
+    // `isGlyphAtlasEncodable` would already reject this grid on the glyph
+    // alone, but the point of this helper is to isolate that ONE reason from
+    // every other rejection reason isGlyphAtlasEncodable folds together.
+    expect(hasGlyphOutsideFontAtlas(["ᚡ"], 1, 1)).toBe(true);
   });
 });
 

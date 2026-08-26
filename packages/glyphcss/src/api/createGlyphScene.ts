@@ -35,7 +35,7 @@ import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
-import { encodeCellGridOutput, encodeGlyphBuffers, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
+import { encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
 import {
   resolveGlyphControlLineage,
   validateGlyphControlMetadata,
@@ -582,14 +582,45 @@ export function createGlyphScene(
   // through the ordinary span encoder, which is the correct fallback the
   // encoder already uses for any cell the atlas can't carry.
   let atlasFontReady = false;
+  // Sticky per-scene latch for the OUT-OF-ATLAS-GLYPH fallback reason only —
+  // distinct from `atlasFontReady`'s "the font hasn't arrived yet" reason,
+  // which must keep flipping spans→atlas the instant the font loads (see the
+  // critical distinction in AGENTS.md's `colorEncoding` section). The
+  // wireframe path's own realized-vs-potential glyph set is already made
+  // deterministic without this (see `isWireframePaletteAtlasEncodable`,
+  // `render/rasterize.ts`) — this latch exists for what that structurally
+  // CAN'T close: an animated effect or custom `transformCells` hook whose
+  // realized glyph set varies frame to frame with data glyphcss cannot see in
+  // advance (the dependency points the other way — `@glyphcss/effects`
+  // depends on `glyphcss`, never the reverse). Once ANY output this scene
+  // renders (base grid, a detail layer, or a retained effect layer) falls
+  // back to spans for a glyph reason (`RasterizeContext.atlasGlyphFallback`,
+  // or the CellGrid-path equivalent `hasGlyphOutsideFontAtlas` check below),
+  // every later render stays spans until a `setOptions` call touching
+  // `colorEncoding`, `atlasPalette`, `mode`, or `charMode` clears it.
+  let atlasGlyphFallbackSticky = false;
 
   /**
    * Encoding this frame may actually use. Diverges from `options.colorEncoding`
-   * exactly during the lazy-font window (and permanently, if the payload
-   * failed to load) — see {@link atlasFontReady}.
+   * during the lazy-font window (and permanently, if the payload failed to
+   * load — see {@link atlasFontReady}), and once this scene has latched the
+   * out-of-atlas-glyph fallback (see {@link atlasGlyphFallbackSticky}).
    */
   function effectiveColorEncoding(): GlyphColorEncoding {
-    return options.colorEncoding === "atlas" && atlasFontReady ? "atlas" : "spans";
+    if (options.colorEncoding !== "atlas" || !atlasFontReady) return "spans";
+    return atlasGlyphFallbackSticky ? "spans" : "atlas";
+  }
+
+  /**
+   * Latch {@link atlasGlyphFallbackSticky} when this frame's atlas attempt
+   * failed specifically because a glyph lacked an atlas outline — never for a
+   * colour/palette-only reason, which is transient and not a configuration
+   * problem. `attempted` must be THIS frame's `effectiveColorEncoding()`
+   * result, captured before the render ran (not re-derived afterward, which
+   * could itself already reflect a sticky flip this very call is deciding).
+   */
+  function noteAtlasGlyphFallback(attempted: GlyphColorEncoding, glyphFellBack: boolean): void {
+    if (attempted === "atlas" && glyphFellBack) atlasGlyphFallbackSticky = true;
   }
 
   /**
@@ -708,7 +739,16 @@ export function createGlyphScene(
       for (const output of retainedEffectOutputs.values()) {
         testRenderStage("effect-compose");
         const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
-        const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, effectiveColorEncoding(), activeAtlasPalette());
+        const attemptedEncoding = effectiveColorEncoding();
+        const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette());
+        // A generic effect program's realized glyph set is data-driven (the
+        // active field value, an arbitrary custom program) — glyphcss cannot
+        // see its potential set in advance, so this can only latch the
+        // sticky fallback from the REALIZED grid, not gate on one up front
+        // the way the wireframe path's own palette tiers can.
+        if (encoded.encoding !== "atlas") {
+          noteAtlasGlyphFallback(attemptedEncoding, hasGlyphOutsideFontAtlas(grid.char, grid.cols, grid.rows));
+        }
         staged.push({ output, encoded: encoded.text, atlas: encoded.encoding === "atlas" });
       }
     } finally {
@@ -1091,6 +1131,7 @@ export function createGlyphScene(
     const tRaster = perf ? performance.now() : 0;
 
     writeOrStageFullOutput(pre, output, ctx.atlasEncoded);
+    noteAtlasGlyphFallback(ctx.colorEncoding, ctx.atlasGlyphFallback);
 
     if (perf) {
       const tDom = performance.now();
@@ -1751,6 +1792,7 @@ export function createGlyphScene(
             ))
           : (testRenderStage("detail-encode"), rasterize(ctx));
         writeOrStageFullOutput(dpre, out, ctx.atlasEncoded);
+        noteAtlasGlyphFallback(ctx.colorEncoding, ctx.atlasGlyphFallback);
         // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
         testRenderStage("detail-transform");
         layer.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
@@ -2003,6 +2045,16 @@ export function createGlyphScene(
     // palette (falling back to spans) is reachable through `setOptions`.
     if ("atlasPalette" in partial) options.atlasPalette = partial.atlasPalette;
     if (partial.colorEncoding !== undefined || "atlasPalette" in partial) syncGlyphAtlasStyles();
+    // Clear the out-of-atlas-glyph sticky latch on a configuration change that
+    // could plausibly change which glyphs get drawn — see
+    // `atlasGlyphFallbackSticky`'s own doc for why `atlasFontReady`'s
+    // "font not ready" reason must NOT go through this same reset path.
+    if (
+      partial.colorEncoding !== undefined || "atlasPalette" in partial ||
+      partial.mode !== undefined || partial.charMode !== undefined
+    ) {
+      atlasGlyphFallbackSticky = false;
+    }
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

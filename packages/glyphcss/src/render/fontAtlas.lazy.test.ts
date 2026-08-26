@@ -205,3 +205,56 @@ describe("createGlyphScene — the spans-until-loaded transition", () => {
     host.remove();
   });
 });
+
+/**
+ * F1 fix B proof obligation 3: `atlasFontReady`'s "font not ready yet"
+ * fallback reason is DISTINCT from `createGlyphScene`'s out-of-atlas-glyph
+ * sticky latch (see `colorEncoding.test.ts`'s "out-of-atlas-glyph fallback is
+ * sticky" describe block for the latch's own tests) — getting this conflated
+ * would permanently disable the atlas the first time ANY scene rendered
+ * before its font arrived, since every fresh atlas scene spends at least one
+ * frame there. A scene that never once hits a glyph-driven fallback (a fully
+ * atlas-covered `"ascii"` wireframe palette — see `colorEncoding.test.ts`'s
+ * dedicated determinism describe block) must still flip spans -> atlas the
+ * instant the payload arrives, exactly as it did before the latch existed.
+ */
+describe("createGlyphScene — the font-ready transition is unaffected by the out-of-atlas-glyph sticky latch", () => {
+  it("flips spans -> atlas on font-ready with no glyph fallback ever involved", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    setGlyphAtlasFontPayloadImportForTests(async () => {
+      await gate;
+      return { GLYPH_FONT_ATLAS_WOFF2_BASE64: "AAAA" };
+    });
+
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 30,
+      rows: 12,
+      useColors: true,
+      mode: "wireframe",
+      glyphPalette: "ascii",
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+    });
+    scene.add(flatQuad("#336699"));
+
+    for (let frame = 0; frame < 3; frame++) {
+      await flushRenders();
+      expect(scene.output.innerHTML).toContain("<span"); // font not ready -> spans
+      scene.rerender();
+    }
+
+    release();
+    await ensureGlyphAtlasFontFaceStyles(document);
+    await flushRenders();
+    await flushRenders();
+
+    expect(scene.output.innerHTML).not.toContain("<span");
+    expect(hasPua(scene.output.textContent ?? "")).toBe(true);
+
+    scene.destroy();
+    host.remove();
+  });
+});
