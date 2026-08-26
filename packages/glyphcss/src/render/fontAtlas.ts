@@ -90,7 +90,7 @@
  * imported glyph can never desync the monospace grid. The build writes TWO
  * checked-in artifacts, which is load-bearing:
  *
- *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.7KB), imported
+ *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.8KB), imported
  *      STATICALLY below because the PUA encode/decode formula needs `glyphs`,
  *      `puaStart`, `glyphCount` and `maxPaletteSize` synchronously on every
  *      frame (and `decodeGlyphAtlasText` runs on plain "spans" output too).
