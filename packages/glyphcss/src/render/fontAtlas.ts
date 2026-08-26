@@ -42,9 +42,12 @@
  * layer, matching the spike's font (a COLR-blind fallback then renders
  * loudly-visible blanks instead of masquerading as a fast correct render).
  *
- * The atlas caps at `atlas.maxPaletteSize` (currently 31) entries: BMP
+ * The atlas caps at `atlas.maxPaletteSize` (currently 30, at 212 glyphs) BMP
  * Private Use Area is U+E000..U+F8FF = 6,400 code points, and the checked-in
- * artifact's glyph count divides that budget across palette slots. Past the
+ * artifact's glyph count divides that budget across palette slots — today
+ * that division (30) is the actual binding constraint, not the 31-slot
+ * ceiling `build-atlas.py`'s own `MAX_PALETTE_SIZE_CAP` still allows; adding
+ * more glyphs to the universal set narrows `maxPaletteSize` further. Past the
  * BMP PUA an atlas would need a plane-15/16 code point, which is a surrogate
  * pair in JS (two UTF-16 units) — that breaks glyphcss's one-char-per-cell
  * invariant everywhere (grid indexing, `ch` CSS units, clipboard), so this
@@ -53,29 +56,45 @@
  * ── Glyph-set scope ─────────────────────────────────────────────────────
  *
  * The universal set (see `build-atlas.py` for the exact enumeration) is the
- * union of: full printable ASCII, the SOLID ramp of every named
- * `WIREFRAME_PALETTES` entry, the wireframe THIN/NORMAL/CORE tiers of only
- * the "default" and "ascii" palettes, ink mode's fixed 10-glyph set, and the
- * 11-glyph wireframe-junctions box-drawing set. It deliberately excludes
- * `charMode: "braille"`/`"quadrant"`/`"halfblock"` glyphs (two-colour-per-
- * cell or 255-glyph encoding needs its own atlas design) and the 11 other
- * named wireframe palettes' line-weight tiers (runes/math/arrows/etc. — a
- * handful of their characters aren't even in the atlas's source face). A
- * cell using a glyph or colour outside this set is NOT partially encoded —
- * see `isGlyphAtlasEncodable` in `cells.ts` for the mandatory whole-grid
- * fallback this forces.
+ * union of: full printable ASCII, the 24 Greek capitals, the SOLID ramp of
+ * EVERY named `WIREFRAME_PALETTES` entry (including "dots"/"braille"/
+ * "runes" — all of it, not just what the primary source face happens to
+ * contain), the wireframe THIN/NORMAL/CORE tiers of only the "default" and
+ * "ascii" palettes, ink mode's fixed 10-glyph set, and the 11-glyph
+ * wireframe-junctions box-drawing set. It deliberately excludes `charMode:
+ * "braille"`/`"quadrant"`/`"halfblock"` glyphs (two-colour-per-cell or
+ * 255-glyph encoding needs its own atlas design) and the 11 other named
+ * wireframe palettes' non-solid line-weight tiers (runes/math/arrows/etc.) —
+ * both are documented scope cuts, not a source-face limitation: every glyph
+ * IN scope resolves from one of the atlas's three source faces (see below),
+ * and `build-atlas.py`'s own glyph-set builder hard-fails the build, naming
+ * the glyph, if an in-scope character resolves from none of them — it used
+ * to drop such a glyph silently instead, which is how a 22-glyph gap (the
+ * "default" palette's `normal` tier and the "dots"/"braille"/"runes"
+ * palettes' `solid` ramps) went unnoticed for a number of revisions. A cell
+ * using a glyph or colour outside this documented scope is NOT partially
+ * encoded — see `isGlyphAtlasEncodable` in `cells.ts` for the mandatory
+ * whole-grid fallback this forces.
  *
  * ── Font artifact: checked-in, not runtime-compiled, LAZILY loaded ──────
  *
  * The font is generated ONCE by `../../assets/glyph-atlas/build-atlas.py`
- * (Python + fontTools — the same toolchain the spike used) and checked in as
- * TWO artifacts, which is load-bearing:
+ * (Python + fontTools — the same toolchain the spike used) from THREE source
+ * faces: Menlo (a macOS system font, not vendored — the primary source for
+ * every glyph it covers, and still why running the script requires a Mac or
+ * a copy of Menlo.ttc) plus two vendored, redistributable fallback faces
+ * under `../../assets/glyph-atlas/sources/` (DejaVu Sans, Bitstream Vera
+ * License; Noto Sans Runic, SIL Open Font License) for the glyphs Menlo
+ * lacks — every fallback outline is scaled into Menlo's em square and
+ * advance box and has its `hmtx` advance forced to Menlo's own, so an
+ * imported glyph can never desync the monospace grid. The build writes TWO
+ * checked-in artifacts, which is load-bearing:
  *
- *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.6KB), imported
+ *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.7KB), imported
  *      STATICALLY below because the PUA encode/decode formula needs `glyphs`,
  *      `puaStart`, `glyphCount` and `maxPaletteSize` synchronously on every
  *      frame (and `decodeGlyphAtlasText` runs on plain "spans" output too).
- *   `../../assets/glyph-atlas/atlas-font.json` — base64 WOFF2 (~44KB), reached
+ *   `../../assets/glyph-atlas/atlas-font.json` — base64 WOFF2 (~49KB), reached
  *      ONLY through `import("./fontAtlasPayload")` in {@link loadGlyphAtlasFontPayload}.
  *
  * The payload was previously a field of the one manifest, which put 44KB of
