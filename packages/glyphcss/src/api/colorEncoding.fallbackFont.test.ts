@@ -500,3 +500,49 @@ describe("colorEncoding: \"atlas\" — a detail layer's own pin flip", () => {
     expect(differentFallback.detailCols).not.toBe(real.detailCols);
   });
 });
+
+/**
+ * P1-B: `setOptions` leaving `"atlas"` unpins eagerly but must invalidate
+ * eagerly too.
+ *
+ * `syncGlyphAtlasStyles` unpins every output SYNCHRONOUSLY inside
+ * `setOptions`, ahead of the render `setOptions` schedules. By the time that
+ * render's `commitRender` asks "was this output pinned before this commit?"
+ * the answer is already `false`, so no flip is ever observed there and the
+ * cached cell metrics — which `autoSize` derives `cols`/`rows` from — never
+ * get invalidated.
+ */
+describe("colorEncoding: \"atlas\" — leaving atlas through setOptions", () => {
+  it("re-measures in the fallback font immediately after setOptions drops colorEncoding to spans", async () => {
+    stubTextLayout(ATLAS_ADVANCE, FALLBACK_ADVANCE);
+    const host = makeDiv();
+    Object.defineProperty(host, "clientWidth", { value: HOST_WIDTH, configurable: true });
+    Object.defineProperty(host, "clientHeight", { value: HOST_HEIGHT, configurable: true });
+    const scene = createGlyphScene(host, {
+      camera: createGlyphOrthographicCamera({ zoom: 20 }),
+      autoSize: true,
+      mode: "solid",
+      doubleSided: true,
+      useColors: true,
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#336699"));
+    await flushAtlasRenders();
+    scene.fit();
+    await flushAtlasRenders();
+
+    expect(atlasIsFirstInStack(scene.output)).toBe(true);
+    expect(scene.getOptions().cols).toBe(Math.floor(HOST_WIDTH / ATLAS_ADVANCE));
+
+    scene.setOptions({ colorEncoding: "spans" });
+    await flushAtlasRenders();
+
+    expect(atlasIsFirstInStack(scene.output)).toBe(false);
+    expect(scene.getOptions().cols).toBe(Math.floor(HOST_WIDTH / FALLBACK_ADVANCE));
+
+    scene.destroy();
+    host.remove();
+  });
+});

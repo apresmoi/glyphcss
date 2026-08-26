@@ -1312,8 +1312,24 @@ export function createGlyphScene(
       // Leaving `"atlas"`: unpin every output now. Pinning in the other
       // direction is NOT symmetric — it happens per output at commit, once a
       // frame has actually been atlas-encoded (see `setGlyphAtlasFontOn`).
+      // This unpin runs SYNCHRONOUSLY, ahead of the render this same
+      // `setOptions` call schedules — so by the time that render's
+      // `commitRender` asks "was this output pinned before this commit?" the
+      // answer is already `false` and no flip is ever observed there. The
+      // invalidation a flip would have triggered has to happen HERE instead,
+      // alongside the eager unpin, not deferred to a `commitRender` that will
+      // never see one.
+      const baseWasPinned = isGlyphAtlasPinned(pre);
       setGlyphAtlasFontOn(pre, false);
-      for (const layer of detailLayers.values()) setGlyphAtlasFontOn(layer.pre, false);
+      if (baseWasPinned) {
+        baseCellCache = null;
+        if (options.autoSize) fitToHost();
+      }
+      for (const layer of detailLayers.values()) {
+        const layerWasPinned = isGlyphAtlasPinned(layer.pre);
+        setGlyphAtlasFontOn(layer.pre, false);
+        if (layerWasPinned) layer.key = "";
+      }
     }
   }
 
