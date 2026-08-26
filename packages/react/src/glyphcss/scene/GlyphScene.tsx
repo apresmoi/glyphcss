@@ -82,21 +82,25 @@ export interface GlyphSceneProps {
    * `"atlas"` encodes `(glyph, colour)` as Private Use Area code points
    * against a checked-in COLR/CPAL colour font (`glyphcss`'s
    * `render/fontAtlas.ts`), producing ONE text node with zero `<span>`s.
-   * Requires {@link atlasPalette}; falls back to `"spans"` for a render with
-   * no palette or whose glyphs/colors aren't fully covered by the atlas +
-   * palette. `GlyphScene` does NOT auto-inject the atlas's `@font-face`/
-   * `@font-palette-values` CSS — `await loadGlyphAtlasFontFaceCss()` (the
-   * WOFF2 payload is a lazily imported chunk) plus
-   * `buildGlyphAtlasFontPaletteValuesCss()` (both exported from `glyphcss`)
-   * yourself and set the rendered `<pre>`'s `font-family`/`font-palette` to
-   * match.
+   * {@link atlasPalette} is OPTIONAL: with none supplied the scene derives and
+   * pools its own palette. A render whose glyphs or colours the atlas cannot
+   * carry falls back to `"spans"` for that frame — a whole-scene decision, and
+   * the `<pre>`'s font stack follows it, so a fallback frame is never left
+   * painting in the atlas face.
+   *
+   * `GlyphScene` wraps `createGlyphScene`, so the atlas's `@font-face` (the
+   * WOFF2 payload is a lazily imported chunk) and per-scene
+   * `@font-palette-values` CSS are injected for you and the rendered
+   * `<pre>`'s `font-family`/`font-palette` are managed automatically. Only the
+   * DOM-less static path ({@link GlyphSceneStatic}) needs that wiring by hand.
    */
   colorEncoding?: "spans" | "atlas";
   /**
    * Palette `colorEncoding: "atlas"` cells encode against — an ordered
    * `#rrggbb` array whose entries' POSITIONS (never their values) become the
-   * PUA mapping's palette-slot axis. Deriving this palette is out of scope
-   * for this prop — it is an injected input.
+   * PUA mapping's palette-slot axis. OPTIONAL: omitted, the scene derives and
+   * pools one from its own frames — this prop PINS a palette (a brand ramp, a
+   * reproducible bake) rather than enabling the atlas.
    */
   atlasPalette?: readonly string[];
   /** Whether to emit color spans. Default true. */
