@@ -399,7 +399,7 @@ describe("the encode seam under quantization", () => {
 
   it("still falls back to spans when a glyph is outside the atlas, quantizer or not", () => {
     const q = createGlyphAtlasPaletteQuantizer({ now: () => 0 });
-    const mixed = [...char.slice(0, -1), "ᚠ"];
+    const mixed = [...char.slice(0, -1), "ᚡ"];
     const grid = buildCellGrid(mixed, many, null, many.length, 1);
     const out = encodeCellGridOutput(grid, true, 0, "atlas", q);
     expect(out.text).toContain("<span");

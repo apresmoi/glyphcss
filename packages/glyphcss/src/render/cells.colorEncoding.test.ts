@@ -20,8 +20,8 @@ describe("isGlyphAtlasEncodable", () => {
     expect(isGlyphAtlasEncodable(char, color, 3, 1, PALETTE)).toBe(true);
   });
 
-  it("rejects a grid with a glyph outside the atlas (a rune, dropped from the universal set — see build-atlas.py)", () => {
-    const char = [GLYPH_A, "ᚠ"];
+  it("rejects a grid with a glyph outside the atlas (a rune outside the runes palette's SOLID ramp — its non-solid tiers are a deliberate scope cut, see build-atlas.py)", () => {
+    const char = [GLYPH_A, "ᚡ"];
     const color: (string | null)[] = ["#ff0000", "#ff0000"];
     expect(isGlyphAtlasEncodable(char, color, 2, 1, PALETTE)).toBe(false);
   });
@@ -48,7 +48,7 @@ describe("isGlyphAtlasEncodable", () => {
 
   it("answers the structural question alone when no palette is supplied", () => {
     expect(isGlyphAtlasEncodable([GLYPH_A], ["#123456"], 1, 1)).toBe(true);
-    expect(isGlyphAtlasEncodable(["ᚠ"], ["#123456"], 1, 1)).toBe(false);
+    expect(isGlyphAtlasEncodable(["ᚡ"], ["#123456"], 1, 1)).toBe(false);
     expect(isGlyphAtlasEncodable([GLYPH_A], [null], 1, 1)).toBe(false);
   });
 
@@ -108,7 +108,7 @@ describe("encodeGlyphAtlas", () => {
   });
 
   it("throws when a cell's glyph is outside the atlas — callers must guard with isGlyphAtlasEncodable first", () => {
-    const char = ["ᚠ"];
+    const char = ["ᚡ"];
     const color: (string | null)[] = ["#ff0000"];
     expect(() => encodeGlyphAtlas(char, color, 1, 1, PALETTE)).toThrow(TypeError);
   });
@@ -187,7 +187,7 @@ describe("encodeCellGridOutput — the spans-vs-atlas seam", () => {
   });
 
   it("falls back to spans (whole-grid, not partial) when one cell's glyph is outside the atlas", () => {
-    const mixedChar = [GLYPH_A, "ᚠ"];
+    const mixedChar = [GLYPH_A, "ᚡ"];
     const grid = buildCellGrid(mixedChar, color, null, 2, 1);
     const out = encodeCellGridOutput(grid, true, 0, "atlas", PALETTE);
     // Whole-grid fallback: the fully-encodable first cell does NOT get

@@ -115,12 +115,16 @@ describe("rasterize — the spans/atlas gate inside the hot-path coalescers", ()
   });
 
   it("wireframe mode's separate coalescer holds the same gate", () => {
-    // `glyphPalette: "ascii"` is pinned deliberately: the DEFAULT wireframe
-    // palette's tiers include glyphs the checked-in atlas doesn't carry
-    // (verified: `⬢`, `⬡`, `∴`, `∵`), and a wireframe cell's glyph is a RANDOM
-    // draw from its tier — so a default-palette wireframe scene's atlas
-    // encodability is genuinely non-deterministic frame to frame, which is not
-    // a property to build a gate test on.
+    // `glyphPalette: "ascii"` is pinned for simplicity (a small, stable
+    // tier set); it is no longer load-bearing for determinism. The DEFAULT
+    // wireframe palette's `normal` tier used to include 5 glyphs the
+    // Menlo-only atlas silently dropped (⬢⬡∴∵⊥), which made a default-palette
+    // wireframe scene's atlas encodability genuinely non-deterministic frame
+    // to frame (a wireframe cell's glyph is a random draw from its tier every
+    // render). That gap is now closed via vendored fallback source faces
+    // (`assets/glyph-atlas/build-atlas.py`) — see the dedicated
+    // "default-palette wireframe atlas-encodes deterministically" describe
+    // block below for the regression test against the default palette itself.
     const wire = (colorEncoding: "spans" | "atlas") => buildRasterizeContext({
       camera: createGlyphOrthographicCamera({ zoom: 50 }),
       grid: { cols: 30, rows: 12, cellAspect: 2.0 },
@@ -134,6 +138,51 @@ describe("rasterize — the spans/atlas gate inside the hot-path coalescers", ()
     const spans = rasterize(wire("spans"));
     expect(countSpans(spans)).toBeGreaterThan(0);
     expect(countSpans(rasterize(wire("atlas")))).toBe(0);
+  });
+});
+
+describe("createGlyphScene — default-palette wireframe atlas-encodes deterministically", () => {
+  // Regression for the 22-glyph coverage gap the checked-in atlas used to
+  // have: the "default" wireframe palette's `normal` tier draws from
+  // "╋╬┼╳◆◇◊▲△▼▽◈⬡⬢∴∵⊥⊕⊗⊙⊚⊛", 5 of which (⬡⬢∴∵⊥) were missing from the
+  // Menlo-only build. A wireframe cell's glyph is a RANDOM draw from its
+  // tier on EVERY render (`rasterize.ts`), so with the gap present this was
+  // genuinely non-deterministic: a render that happened to draw one of the
+  // 5 missing glyphs fell back to spans, `createGlyphScene`'s pin-flip
+  // settling-render logic then scheduled another render (which re-rolled the
+  // glyphs), and a sparse grid could loop indefinitely (measured: 4 inked
+  // cells flipped encodability 946/2000 frames). With the gap closed, every
+  // glyph the default palette can draw is in the atlas, so this must hold on
+  // EVERY render, not just probabilistically -- `rerender()` forces a fresh
+  // random draw each iteration without changing any option.
+  it("stays atlas-encoded (zero spans) across many independent random glyph draws on a sparse grid", async () => {
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 10,
+      rows: 5,
+      useColors: true,
+      mode: "wireframe",
+      // glyphPalette omitted -- "default" is the scene's own default, and is
+      // exactly the palette the gap was in.
+      colorEncoding: "atlas",
+      atlasPalette: ["#336699"],
+      camera: createGlyphOrthographicCamera({ zoom: 22 }),
+      ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#336699"));
+    await flushAtlasRenders();
+    let sawInkedCell = false;
+    for (let i = 0; i < 300; i++) {
+      scene.rerender();
+      const html = scene.output.innerHTML;
+      expect(html, `render #${i} fell back to spans`).not.toContain("<span");
+      if (html.replace(/\s/g, "").length > 0) sawInkedCell = true;
+    }
+    // Sanity: the loop actually exercised inked (non-blank) wireframe cells,
+    // not a degenerate all-blank grid the gap could never have touched.
+    expect(sawInkedCell).toBe(true);
+    scene.destroy();
+    host.remove();
   });
 });
 

@@ -10,6 +10,7 @@ import {
   loadGlyphAtlasFontFaceCss,
   loadGlyphAtlasFontPayload,
 } from "./fontAtlas";
+import { WIREFRAME_PALETTES } from "./ramps";
 
 describe("fontAtlas — checked-in manifest", () => {
   it("loads a non-trivial universal glyph set within the BMP PUA budget", () => {
@@ -24,6 +25,67 @@ describe("fontAtlas — checked-in manifest", () => {
 
   it("includes plain ASCII printable characters (field-synth free-form ramps)", () => {
     for (const ch of "#@*.=+") expect(isGlyphInFontAtlas(ch)).toBe(true);
+  });
+});
+
+// Hand-mirrored from `render/rasterize.ts` -- neither is individually
+// exported, and `build-atlas.py`'s own docstring documents mirroring these
+// TypeScript sources by hand as the ONE place the universal glyph set is
+// enumerated. Kept identical to `INK_GLYPHS`/`JUNCTION_GLYPHS` there.
+const INK_GLYPHS = "·‾▔-_\\▏|▕/".split("");
+const JUNCTION_GLYPHS = "│─└┘┌┐├┤┬┴┼".split("");
+const WIREFRAME_TIER_PALETTES = ["default", "ascii"] as const;
+
+function greekCapitals(): string[] {
+  const out: string[] = [];
+  for (let cp = 0x0391; cp <= 0x03a9; cp++) {
+    if (cp === 0x03a2) continue; // unassigned
+    out.push(String.fromCharCode(cp));
+  }
+  return out;
+}
+
+describe("fontAtlas — documented scope coverage (regression: build-atlas.py used to silently drop in-scope glyphs Menlo lacked)", () => {
+  it("covers full printable ASCII (0x20..0x7E)", () => {
+    for (let cp = 0x20; cp <= 0x7e; cp++) {
+      const ch = String.fromCharCode(cp);
+      expect(isGlyphInFontAtlas(ch), `U+${cp.toString(16)} ${JSON.stringify(ch)}`).toBe(true);
+    }
+  });
+
+  it("covers the 24 Greek capital letters", () => {
+    const capitals = greekCapitals();
+    expect(capitals).toHaveLength(24);
+    for (const ch of capitals) expect(isGlyphInFontAtlas(ch), `Greek ${JSON.stringify(ch)}`).toBe(true);
+  });
+
+  it("covers the SOLID ramp of every named WIREFRAME_PALETTES entry", () => {
+    for (const [name, tiers] of Object.entries(WIREFRAME_PALETTES)) {
+      for (const ch of tiers.solid) {
+        expect(isGlyphInFontAtlas(ch), `palette ${name} solid glyph ${JSON.stringify(ch)}`).toBe(true);
+      }
+    }
+  });
+
+  it("covers the default/ascii wireframe thin/normal/core tiers", () => {
+    for (const name of WIREFRAME_TIER_PALETTES) {
+      const tiers = WIREFRAME_PALETTES[name]!;
+      for (const tier of ["thin", "normal", "core"] as const) {
+        for (const ch of tiers[tier]) {
+          expect(isGlyphInFontAtlas(ch), `palette ${name} ${tier} glyph ${JSON.stringify(ch)}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("covers ink mode's fixed 10-glyph oriented set", () => {
+    expect(INK_GLYPHS).toHaveLength(10);
+    for (const ch of INK_GLYPHS) expect(isGlyphInFontAtlas(ch), `ink glyph ${JSON.stringify(ch)}`).toBe(true);
+  });
+
+  it("covers the wireframe-junctions 11-glyph box-drawing set", () => {
+    expect(JUNCTION_GLYPHS).toHaveLength(11);
+    for (const ch of JUNCTION_GLYPHS) expect(isGlyphInFontAtlas(ch), `junction glyph ${JSON.stringify(ch)}`).toBe(true);
   });
 });
 
