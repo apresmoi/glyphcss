@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/effects",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Reusable spatial glyph effects for glyphcss scenes.",
   "type": "module",
   "main": "dist/index.cjs",
