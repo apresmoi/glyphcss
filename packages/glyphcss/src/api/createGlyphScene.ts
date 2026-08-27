@@ -1292,7 +1292,7 @@ export function createGlyphScene(
       grid.cellHeight = cell.h;
     }
     if (options.autoSize && cell.measured && cell.w > 0 && cell.h > 0) {
-      const r = host.getBoundingClientRect();
+      const r = hostBox();
       if (r.width > 0) {
         grid.centerCol = options.cols * options.camera.center[0] + (r.width - options.cols * cell.w) / (2 * cell.w);
       }
@@ -1301,6 +1301,19 @@ export function createGlyphScene(
       }
     }
     return grid;
+  }
+  // Same forced-layout flush as the cell probes above, and the same lifetime: this
+  // only re-centers the projection when the HOST's box changes, which is exactly
+  // what fitToHost() (the ResizeObserver callback, and the public `fit()`) already
+  // reacts to. Reading it inside baseProjectionGrid() meant a synchronous layout on
+  // every camera frame — in a moving scene at high density that was the single
+  // largest cost in the frame, above the rasteriser itself. Only width/height are
+  // read, so scrolling (which moves x/y but fires no resize) can't stale it.
+  let hostRectCache: { width: number; height: number } | null = null;
+  function hostBox(): { width: number; height: number } {
+    if (hostRectCache) return hostRectCache;
+    const r = host.getBoundingClientRect();
+    return (hostRectCache = { width: r.width, height: r.height });
   }
   let baseFontPxCache: number | null = null;
   function baseFontPx(): number {
@@ -2011,7 +2024,7 @@ export function createGlyphScene(
         savedInteractCols = options.cols; savedInteractRows = options.rows;
         options.cols = Math.max(2, Math.round(options.cols / ds));
         options.rows = Math.max(2, Math.round(options.rows / ds));
-        baseCellCache = null; baseFontPxCache = null;
+        baseCellCache = null; baseFontPxCache = null; hostRectCache = null;
       }
     } else {
       pre.style.fontSize = savedInteractFont ?? "";
@@ -2019,7 +2032,7 @@ export function createGlyphScene(
         fitToHost();
       } else {
         options.cols = savedInteractCols; options.rows = savedInteractRows;
-        baseCellCache = null; baseFontPxCache = null;
+        baseCellCache = null; baseFontPxCache = null; hostRectCache = null;
       }
       savedInteractFont = null;
     }
@@ -2158,7 +2171,7 @@ export function createGlyphScene(
   }
 
   function fitToHost(): void {
-    baseCellCache = null; baseFontPxCache = null; // host/cell size may have changed
+    baseCellCache = null; baseFontPxCache = null; hostRectCache = null; // host/cell size may have changed
     const w = host.clientWidth;
     const h = host.clientHeight;
     if (!w || !h) return;
