@@ -2648,6 +2648,9 @@ interface ScanFillShadowCtx {
 }
 
 /** Per-cell texture sampling context for one triangle (see {@link RasterizeContext.textureSamplers}). */
+/** Below this alpha a texel is treated as not covering its cell at all. */
+const TEXEL_COVERAGE_ALPHA_MIN = 8;
+
 interface ScanFillTexCtx {
   sampler: TextureSampler;
   ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
@@ -2906,6 +2909,26 @@ function scanFillTriangle(
       // stacking, instead of z-fighting per-cell as the camera moves. Only the
       // perspective zbuf (>0) gets the deadband; the empty cell (−Infinity) and
       // ortho (≤0) fall through to the plain `>` test.
+      // A fully TRANSPARENT texel does not cover this cell, so it must not win
+      // the depth test. Sampling after the depth write and then declining to use
+      // the texel leaves the cell claimed and painted with the polygon's flat
+      // base colour — which is why a sprite's transparent margin rendered as a
+      // solid block behind the art instead of showing what was behind it.
+      // Sampling here costs a lookup on cells that go on to lose the depth test;
+      // that is the price of getting coverage right, and it is paid only by
+      // textured polygons.
+      let cellTexel: ReturnType<typeof sampleTexel> = null;
+      if (tex !== null) {
+        const tq = perspectiveAttributes ? 1 / (wA * aq + wB * bq + wC * cq) : invArea2;
+        const tu = perspectiveAttributes
+          ? (wA * aq * tex.ua + wB * bq * tex.ub + wC * cq * tex.uc) * tq
+          : (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
+        const tv = perspectiveAttributes
+          ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * tq
+          : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
+        cellTexel = sampleTexel(tex.sampler, tu, tv);
+        if (cellTexel === null || cellTexel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
+      }
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
         if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
@@ -3001,8 +3024,8 @@ function scanFillTriangle(
           const v = perspectiveAttributes
             ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * invQ
             : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
-          const texel = sampleTexel(tex.sampler, u, v);
-          if (texel !== null && texel.a > 8) {
+          const texel = cellTexel;   // sampled before the depth test, see above
+          if (texel !== null && texel.a > TEXEL_COVERAGE_ALPHA_MIN) {
             const base = hexToRgb(flatBaseColor);
             sourceRgb = [(texel.r * base[0] / 255) | 0, (texel.g * base[1] / 255) | 0, (texel.b * base[2] / 255) | 0];
             let r = (sourceRgb[0] * tex.tintR) | 0; if (r > 255) r = 255;
