@@ -89,12 +89,6 @@ export interface GlyphMeshProps {
    */
   occlusionPriority?: number;
   /**
-   * Grow this opaque detail mesh's id-map claim by N output cells
-   * (8-neighbourhood, clamped to 8) so fine artwork keeps a clean ground
-   * around its ink. Never steals from another detail mesh. Default `0` = off.
-   */
-  occlusionDilate?: number;
-  /**
    * Claim shape for this opaque detail mesh. `"alpha"` (default) claims only
    * cells whose sampled texel is opaque; `"geometry"` claims the full triangle
    * footprint regardless of texel alpha (a solid plate under a sprite).
@@ -103,8 +97,9 @@ export interface GlyphMeshProps {
   /**
    * Coverage-aware contour claim for this opaque detail mesh: the id-map is
    * rastered finer, any output cell holding this mesh's ink claims, and the
-   * value is a screen-px margin stamped around that ink. `0` = the tightest
-   * claim. Omitted = point-sampled claims.
+   * value is a screen-px margin stamped around that ink — the way to keep a
+   * clean ground around fine artwork. Never steals from another detail mesh.
+   * `0` = the tightest claim. Omitted = point-sampled claims.
    */
   occlusionContourPx?: number;
   className?: string;
@@ -142,7 +137,6 @@ function GlyphMeshInner({
   glyphPalette,
   ambientIntensity,
   occlusionPriority,
-  occlusionDilate,
   occlusionClaim,
   occlusionContourPx,
   className,
@@ -194,10 +188,9 @@ function GlyphMeshInner({
     glyphPalette,
     ambientIntensity,
     occlusionPriority,
-    occlusionDilate,
     occlusionClaim,
     occlusionContourPx,
-  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent, glyphPalette, ambientIntensity, occlusionPriority, occlusionDilate, occlusionClaim, occlusionContourPx]);
+  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent, glyphPalette, ambientIntensity, occlusionPriority, occlusionClaim, occlusionContourPx]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {

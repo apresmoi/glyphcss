@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent", "glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-dilate", "occlusion-claim", "occlusion-contour-px"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent", "glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"] as const;
 
 
 function parseVec3(value: string | null): Vec3 | undefined {
@@ -44,7 +44,7 @@ function parsePosFloat(value: string | null): number | undefined {
 }
 
 // `occlusion-priority` is signed (a negative class is a background layer) and
-// `ambient-intensity`/`occlusion-dilate`/`occlusion-contour-px` all accept 0,
+// `ambient-intensity`/`occlusion-contour-px` both accept 0,
 // so none of them can go through `parsePosFloat`'s `> 0` guard.
 function parseFiniteFloat(value: string | null): number | undefined {
   if (value === null || value.trim() === "") return undefined;
@@ -113,7 +113,6 @@ export class GlyphMeshElement extends ELEMENT_BASE {
       glyphPalette: this.getAttribute("glyph-palette") || undefined,
       ambientIntensity: parseFiniteFloat(this.getAttribute("ambient-intensity")),
       occlusionPriority: parseFiniteFloat(this.getAttribute("occlusion-priority")),
-      occlusionDilate: parseFiniteFloat(this.getAttribute("occlusion-dilate")),
       occlusionClaim: parseOcclusionClaim(this.getAttribute("occlusion-claim")),
       occlusionContourPx: parseFiniteFloat(this.getAttribute("occlusion-contour-px")),
     };

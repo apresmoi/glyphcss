@@ -156,7 +156,7 @@ describe("GlyphMeshElement", () => {
   });
 
   it("observes the per-mesh ramp / ambient / occlusion attributes", () => {
-    for (const attr of ["glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-dilate", "occlusion-claim", "occlusion-contour-px"]) {
+    for (const attr of ["glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"]) {
       expect(GlyphMeshElement.observedAttributes).toContain(attr);
     }
   });
@@ -170,7 +170,6 @@ describe("GlyphMeshElement", () => {
     mesh.setAttribute("glyph-palette", "dense");
     mesh.setAttribute("ambient-intensity", "0.75");
     mesh.setAttribute("occlusion-priority", "1");
-    mesh.setAttribute("occlusion-dilate", "2");
     mesh.setAttribute("occlusion-claim", "geometry");
     mesh.setAttribute("occlusion-contour-px", "3");
     scene.appendChild(mesh);
@@ -182,7 +181,6 @@ describe("GlyphMeshElement", () => {
       glyphPalette: "dense",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
-      occlusionDilate: 2,
       occlusionClaim: "geometry",
       occlusionContourPx: 3,
     });
@@ -224,7 +222,6 @@ describe("GlyphMeshElement", () => {
     expect(t.glyphPalette).toBeUndefined();
     expect(t.ambientIntensity).toBeUndefined();
     expect(t.occlusionPriority).toBeUndefined();
-    expect(t.occlusionDilate).toBeUndefined();
     expect(t.occlusionClaim).toBeUndefined();
     expect(t.occlusionContourPx).toBeUndefined();
   });

@@ -66,7 +66,6 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
       glyphPalette: "dense",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
-      occlusionDilate: 2,
       occlusionClaim: "geometry",
       occlusionContourPx: 3,
     });
@@ -74,7 +73,6 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
       glyphPalette: "dense",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
-      occlusionDilate: 2,
       occlusionClaim: "geometry",
       occlusionContourPx: 3,
     });
@@ -87,7 +85,6 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
     expect(t.glyphPalette).toBeUndefined();
     expect(t.ambientIntensity).toBeUndefined();
     expect(t.occlusionPriority).toBeUndefined();
-    expect(t.occlusionDilate).toBeUndefined();
     expect(t.occlusionClaim).toBeUndefined();
     expect(t.occlusionContourPx).toBeUndefined();
     container.remove();

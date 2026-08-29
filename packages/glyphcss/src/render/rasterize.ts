@@ -131,7 +131,7 @@ export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
  * parameter (every caller before it existed) keeps the pure-geometry claims.
  */
 export function computeOcclusionIds(
-  groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionDilate?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
+  groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
   rawCamera: ProjectCamera,
   outCols: number,
   outRows: number,
@@ -299,47 +299,6 @@ export function computeOcclusionIds(
         const cur = outMap[idx]!;
         if (cur === baseId || cur === -1 || contourIds.has(cur)) outMap[idx] = winner;
       }
-    }
-  }
-  // `occlusionDilate` (ADDITIVE, 2026-08): grow each requesting group's claim
-  // by N OUTPUT cells (8-neighbourhood) so a fine textured mesh keeps a small
-  // clean ground around its ink — between the two rejected extremes of a
-  // rectangular plate (pure-geometry claims) and alpha-tight claims that let
-  // the layer beneath paint through every partial-alpha cell. A dilated claim
-  // NEVER steals from another detail group: it converts only cells owned by
-  // the FIRST group (the shared base layer) or unclaimed cells, so adjacent
-  // detail meshes keep their own silhouettes. 0/omitted = byte-identical
-  // claims to before this option existed. The map underneath is at the
-  // SUPERSAMPLED resolution, so one pass grows one SUBCELL — the `* ss` is
-  // what keeps the option's unit one OUTPUT cell as `supersample` changes
-  // (the 8-neighbourhood's diagonal reach differs from a true disc by under
-  // one subcell).
-  for (const g of groups) {
-    const n = Math.min(8, Math.floor(g.occlusionDilate ?? 0));
-    if (n <= 0) continue;
-    const passes = n * ss;
-    for (let pass = 0; pass < passes; pass++) {
-      // Two-phase: mark, then commit — so one pass grows by exactly one cell.
-      const grow: number[] = [];
-      for (let r = 0; r < outRowsEff; r++) {
-        const base = r * outColsEff;
-        for (let c = 0; c < outColsEff; c++) {
-          const idx = base + c;
-          const owner = outMap[idx]!;
-          if (owner !== baseId && owner !== -1) continue;
-          const r0 = r > 0 ? r - 1 : 0, r1 = r < outRowsEff - 1 ? r + 1 : outRowsEff - 1;
-          const c0 = c > 0 ? c - 1 : 0, c1 = c < outColsEff - 1 ? c + 1 : outColsEff - 1;
-          let adjacent = false;
-          for (let rr = r0; rr <= r1 && !adjacent; rr++) {
-            for (let cc = c0; cc <= c1; cc++) {
-              if (outMap[rr * outColsEff + cc] === g.id) { adjacent = true; break; }
-            }
-          }
-          if (adjacent) grow.push(idx);
-        }
-      }
-      if (grow.length === 0) break;
-      for (const idx of grow) outMap[idx] = g.id;
     }
   }
   return outMap;

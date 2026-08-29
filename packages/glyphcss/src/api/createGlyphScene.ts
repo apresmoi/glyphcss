@@ -150,7 +150,7 @@ export interface GlyphSceneOptions {
    * Does NOT require {@link atlasPalette}: with none supplied, the scene
    * derives and pools one itself (median-cut quantization over the frames it
    * renders — see `render/paletteQuantize.ts`), so a render with hundreds of
-   * distinct Lambert-shaded colours encodes into 31 slots instead of falling
+   * distinct Lambert-shaded colours encodes into the atlas's slots instead of falling
    * back. It falls back to `"spans"` for a frame whose glyphs aren't covered
    * by the atlas, or whose cells carry no usable colour (see
    * `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene decision,
@@ -1087,18 +1087,17 @@ export function createGlyphScene(
         // A base-only map has no such seam to match and pays the coarser raster:
         // ss=1, exactly the resolution the mask-only map has always used.
         const ss = opaqueDetails.length > 0 && options.supersample && options.supersample > 1 ? Math.floor(options.supersample) : 1;
-        const groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionDilate?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[] =
+        const groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[] =
           [{ polygons: allPolygons, id: BASE_LAYER }];
         // Per-mesh `occlusionPriority` (default 0): a higher class claims id-map
         // cells regardless of depth — see the transform option's doc.
-        // `occlusionDilate` / `occlusionClaim` (ADDITIVE, 2026-08): per-mesh
+        // `occlusionClaim` / `occlusionContourPx` (ADDITIVE, 2026-08): per-mesh
         // claim shaping — see the transform options' docs.
         for (const e of opaqueDetails) {
           groups.push({
             polygons: applyTransform(e.polygons, e.transform),
             id: e.id,
             occlusionPriority: e.transform.occlusionPriority ?? 0,
-            occlusionDilate: e.transform.occlusionDilate,
             occlusionClaim: e.transform.occlusionClaim,
             occlusionContourPx: e.transform.occlusionContourPx,
           });

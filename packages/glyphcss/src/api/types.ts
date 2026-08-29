@@ -141,17 +141,6 @@ export interface GlyphMeshTransform {
    */
   ambientIntensity?: number;
   /**
-   * PER-MESH occlusion-claim dilation (ADDITIVE, default 0 = off): grow this
-   * OPAQUE detail mesh's id-map claim by N OUTPUT cells (8-neighbourhood) —
-   * the unit is an output cell at every `supersample`, not the id-map's own
-   * internal resolution — so fine textured artwork keeps a small clean ground
-   * around its ink instead of
-   * the layer beneath painting through every partial-alpha cell. The dilated
-   * claim converts only base-layer or unclaimed cells — it never steals from
-   * another detail mesh. Clamped to 8. No effect on `transparent` meshes.
-   */
-  occlusionDilate?: number;
-  /**
    * PER-MESH claim shape (ADDITIVE, default "alpha"): "geometry" makes this
    * mesh claim its full triangle footprint regardless of texel alpha — the
    * pre-alpha-aware "filled plate" behaviour, for a partial-alpha textured
@@ -169,7 +158,11 @@ export interface GlyphMeshTransform {
    * stealing from another detail mesh). `0` = tightest possible: exactly the
    * ink-bearing cells. The reduced map stays at output resolution, so the
    * ground the layer beneath loses is still quantized to output cells — the
-   * map's hard floor. Omitted = pre-existing point-sampled claims.
+   * map's hard floor. This is also the only way to buy fine artwork a small
+   * clean ground around its ink; because the margin is a screen reach rather
+   * than a count of cells it stays visually uniform on an anisotropic cell,
+   * and its reach caps at `6 / supersample` output cells. Omitted =
+   * pre-existing point-sampled claims.
    */
   occlusionContourPx?: number;
   fontSize?: string | number;
