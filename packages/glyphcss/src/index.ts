@@ -222,7 +222,7 @@ export {
   glyphAtlasFontLoadState,
 } from "./render/fontAtlas";
 export type { GlyphFontAtlas, GlyphAtlasFontLoadState } from "./render/fontAtlas";
-// ── Atlas palette quantization (the ≤31-slot reduction the atlas needs) ──
+// ── Atlas palette quantization (the slot reduction the atlas needs) ──
 export {
   medianCutPalette,
   quantizeGlyphAtlasPalette,

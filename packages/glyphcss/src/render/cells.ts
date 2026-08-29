@@ -749,7 +749,7 @@ export function encodeGlyphBuffersDual(
  * atlas encoder quantizes: a colour with no exact slot is written to its
  * nearest one by redmean distance (`paletteQuantize.ts`), so the number of
  * distinct colours a render emits is not a reason to reject it — reducing
- * hundreds of Lambert-shaded colours to ≤31 slots is the palette step's whole
+ * hundreds of Lambert-shaded colours to the atlas's slot budget is the palette step's whole
  * job, and refusing instead would leave the atlas usable only on already-flat
  * renders. `palette`'s SIZE is still checked, because a palette larger than
  * the atlas's slot budget has no valid PUA encoding at all.
@@ -845,7 +845,7 @@ export function hasGlyphOutsideFontAtlas(
  * A cell colour that is NOT an exact `palette` entry is not an error: it is
  * assigned the nearest slot by redmean distance
  * ({@link nearestPaletteIndex}), which is what lets a render with hundreds of
- * distinct Lambert-shaded colours encode against 31 slots at all. Exact
+ * distinct Lambert-shaded colours encode against 30 slots at all. Exact
  * matches keep their own slot, so a render whose colours already fit the
  * palette is encoded losslessly and this behaves exactly as it did before
  * quantization existed. The slot lookup memoizes per distinct colour STRING,
