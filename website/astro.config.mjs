@@ -94,6 +94,7 @@ export default defineConfig({
             { label: 'Creating Shapes', slug: 'guides/creating-shapes' },
             { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
             { label: 'Performance', slug: 'guides/performance' },
+            { label: 'Color Encoding', slug: 'guides/color-encoding' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Density & Detail', slug: 'guides/density' },
             { label: 'Glyph Effects', slug: 'guides/effects' },
