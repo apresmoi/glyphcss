@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/compile",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Compile 3D meshes to static glyphcss ASCII at build time — a Vite plugin, a CLI, and a Node API. Zero-runtime <pre> output for any static pipeline.",
   "type": "module",
   "main": "dist/index.cjs",
