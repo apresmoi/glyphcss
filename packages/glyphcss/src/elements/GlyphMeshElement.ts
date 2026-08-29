@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent", "glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"] as const;
 
 
 function parseVec3(value: string | null): Vec3 | undefined {
@@ -41,6 +41,19 @@ function parsePosFloat(value: string | null): number | undefined {
   if (!value) return undefined;
   const n = parseFloat(value);
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+// `occlusion-priority` is signed (a negative class is a background layer) and
+// `ambient-intensity`/`occlusion-contour-px` both accept 0,
+// so none of them can go through `parsePosFloat`'s `> 0` guard.
+function parseFiniteFloat(value: string | null): number | undefined {
+  if (value === null || value.trim() === "") return undefined;
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function parseOcclusionClaim(value: string | null): "alpha" | "geometry" | undefined {
+  return value === "alpha" || value === "geometry" ? value : undefined;
 }
 
 function findScene(el: HTMLElement): GlyphSceneElement | null {
@@ -95,6 +108,13 @@ export class GlyphMeshElement extends ELEMENT_BASE {
       fontSize: this.getAttribute("font-size") ?? undefined,
       lineHeight: parsePosFloat(this.getAttribute("line-height")),
       transparent: this.hasAttribute("transparent"),
+      // Empty stays `undefined`, not `""`: a present-but-blank attribute would
+      // otherwise pop the mesh into its own `<pre>` for a nameless ramp.
+      glyphPalette: this.getAttribute("glyph-palette") || undefined,
+      ambientIntensity: parseFiniteFloat(this.getAttribute("ambient-intensity")),
+      occlusionPriority: parseFiniteFloat(this.getAttribute("occlusion-priority")),
+      occlusionClaim: parseOcclusionClaim(this.getAttribute("occlusion-claim")),
+      occlusionContourPx: parseFiniteFloat(this.getAttribute("occlusion-contour-px")),
     };
   }
 

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { createApp, h } from "vue";
 import { GlyphSceneStatic } from "./GlyphSceneStatic";
 import { cubePolygons, icosahedronPolygons } from "@glyphcss/core";
-import { compileScene, createGlyphPerspectiveCamera, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
+import { GLYPH_FONT_ATLAS_ASCII, compileScene, createGlyphPerspectiveCamera, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
 import type { Polygon } from "@glyphcss/core";
 
 const semanticPolygon: Polygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" };
@@ -61,5 +61,15 @@ describe("GlyphSceneStatic (Vue)", () => {
       const el = mount({ polygons: [semanticPolygon], cols: 12, rows: 8, useColors, glyphOutput: "semantic", sceneManifest: manifest, dictionary });
       expect(el.querySelector("pre")?.innerHTML).toBe(expected);
     }
+  });
+
+  it("forwards fontAtlas to compileScene (the ASCII variant, not the universal default)", () => {
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 65, rotY: 45, zoom: 0.3 });
+    const shared = { polygons: polys, camera, cols: 60, rows: 24, glyphPalette: "dense", atlasPalette: ["#ff0000", "#00ff00", "#0000ff"], colorEncoding: "atlas" as const };
+    const el = mount({ ...shared, fontAtlas: GLYPH_FONT_ATLAS_ASCII });
+    const inner = el.querySelector("pre.glyph-output")?.innerHTML ?? "";
+    expect(inner).toBe(compileScene({ ...shared, fontAtlas: GLYPH_FONT_ATLAS_ASCII }).inner);
+    expect(inner).not.toBe(compileScene(shared).inner);
   });
 });

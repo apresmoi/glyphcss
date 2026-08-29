@@ -25,7 +25,10 @@ export type {
   GlyphHotspotOptions,
   GlyphHotspotHandle,
   GlyphShadowOptions,
+  GlyphOcclusionCoverage,
 } from "./api/createGlyphScene";
+// Cross-scene occlusion sentinel (see `GlyphSceneHandle.setForeignOcclusion`).
+export { GLYPH_FOREIGN_OCCLUDER_ID } from "./render/rasterize";
 
 // Effect-program protocol + scene-root compositor layers.
 export * from "./api/effects";
@@ -198,10 +201,12 @@ export {
   isGlyphAtlasEncodable,
   applyCellHook,
 } from "./render/cells";
-export type { CellGrid, TransformCells, GlyphColorEncoding, GlyphEncodedOutput } from "./render/cells";
+export type { CellGrid, TransformCells, GlyphTransformCellsLayer, GlyphColorEncoding, GlyphEncodedOutput } from "./render/cells";
 // ── Colour-font atlas (`colorEncoding: "atlas"` foundation) ──────────────
 export {
   GLYPH_FONT_ATLAS,
+  GLYPH_FONT_ATLAS_ASCII,
+  glyphAtlasForFamily,
   isGlyphInFontAtlas,
   glyphAtlasCodePoint,
   decodeGlyphAtlasCodePoint,
@@ -217,7 +222,7 @@ export {
   glyphAtlasFontLoadState,
 } from "./render/fontAtlas";
 export type { GlyphFontAtlas, GlyphAtlasFontLoadState } from "./render/fontAtlas";
-// ── Atlas palette quantization (the ≤31-slot reduction the atlas needs) ──
+// ── Atlas palette quantization (the slot reduction the atlas needs) ──
 export {
   medianCutPalette,
   quantizeGlyphAtlasPalette,

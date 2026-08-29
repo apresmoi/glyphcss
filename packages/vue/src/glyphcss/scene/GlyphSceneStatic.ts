@@ -10,7 +10,7 @@ import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
 import type { Polygon, RenderMode } from "@glyphcss/core";
 import { compileScene } from "glyphcss";
-import type { GlyphCamera, GlyphControlSceneManifest, GlyphObjectDictionary, GlyphSolidWeightRampStep } from "glyphcss";
+import type { GlyphCamera, GlyphControlSceneManifest, GlyphFontAtlas, GlyphObjectDictionary, GlyphSolidWeightRampStep } from "glyphcss";
 
 export interface GlyphSceneStaticProps {
   polygons: Polygon[];
@@ -29,6 +29,8 @@ export interface GlyphSceneStaticProps {
   colorEncoding?: "spans" | "atlas";
   /** Palette `colorEncoding: "atlas"` encodes against. */
   atlasPalette?: readonly string[];
+  /** Font atlas `colorEncoding: "atlas"` encodes against — `GLYPH_FONT_ATLAS` (default) or `GLYPH_FONT_ATLAS_ASCII`. Pass the same variant to the CSS builders. */
+  fontAtlas?: GlyphFontAtlas;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -56,6 +58,7 @@ export const GlyphSceneStatic = defineComponent({
     colorTolerance: { type: Number, default: undefined },
     colorEncoding: { type: String as PropType<"spans" | "atlas">, default: undefined },
     atlasPalette: { type: Array as PropType<readonly string[]>, default: undefined },
+    fontAtlas: { type: Object as PropType<GlyphFontAtlas>, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
@@ -81,6 +84,7 @@ export const GlyphSceneStatic = defineComponent({
       colorTolerance: props.colorTolerance,
       colorEncoding: props.colorEncoding,
       atlasPalette: props.atlasPalette,
+      fontAtlas: props.fontAtlas,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,

@@ -191,6 +191,119 @@ scene.add(icosa,  { density: 3, transparent: true }); // x-ray
   </TabItem>
 </Tabs>
 
+## Per-mesh ramp and lighting
+
+Two more per-mesh options force a mesh into its own layer for the same structural
+reason `density` does — the shared grid is rasterized **in one pass**, so a mesh
+that wants its own ramp or its own ambient needs its own `<pre>`:
+
+- **`glyphPalette`** — this mesh shades from a different named palette than the
+  scene. Solid-mode ramps only; `charMode`, junctions and `solidWeightRamp` stay
+  scene-level. An unknown name falls back to the library default, exactly like
+  the scene-level option.
+- **`ambientIntensity`** — this mesh's layer shades under
+  `{ ...scene.ambientLight, intensity }`, so both its glyph choice and its texel
+  tint follow that value. The ambient **colour** and the key light stay
+  scene-level.
+
+Set either one alone and the mesh renders in its own `<pre>` at the **base** cell
+size — no extra detail, just a separate pass.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphMesh geometry="icosahedron" glyphPalette="dense" ambientIntensity={0.8} />
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<GlyphMesh geometry="icosahedron" glyph-palette="dense" :ambient-intensity="0.8" />
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+scene.add(polys, { glyphPalette: "dense", ambientIntensity: 0.8 });
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-mesh geometry="icosahedron" glyph-palette="dense" ambient-intensity="0.8"></glyph-mesh>
+```
+
+  </TabItem>
+</Tabs>
+
+## Shaping an opaque mesh's occlusion claim
+
+Cross-layer occlusion resolves per cell from a shared id-map, and by default a
+layer claims a cell where its nearest surface point-samples into it. Three
+per-mesh options shape that claim. All three apply to **opaque** detail meshes
+only (a `transparent` mesh opts out of occlusion entirely), and all three default
+to today's behaviour:
+
+| Option | Default | What it does |
+|---|---|---|
+| `occlusionPriority` | `0` | Occlusion class. A higher class claims a cell over every lower one **regardless of depth**; depth only competes within a class. `1` is a foreground layer no scene geometry can occlude, a negative class is a background layer any mesh occludes. An unclaimed cell is claimable by any class |
+| `occlusionClaim` | `"alpha"` | Claim shape. `"alpha"` claims only the cells whose sampled texel is opaque, so a sprite's transparent margin stops blanking the layer beneath. `"geometry"` claims the whole triangle footprint — a solid plate under partial-alpha artwork |
+| `occlusionContourPx` | — | Coverage-aware claim: any output cell containing this mesh's ink claims, plus a margin in **screen px** stamped around that ink — the way to give fine artwork a clean ground. `0` is the tightest possible claim. Only converts base-layer or unclaimed cells — never steals from another detail mesh. The reduced map is still quantized to output cells, so the ground the layer beneath loses is too. Costs a finer id-map raster of the whole scene — see below |
+
+`occlusionContourPx` re-rasters the id-map at 4× per axis, for **every** group in
+the scene, whenever any mesh carries the option — measured at 2.4–3.1× the plain
+id-map pass on a ~2,000-triangle scene, 7.5× at `supersample: 2`, and paid in
+full even while the contour mesh is off-screen. Reach for it when a mesh's
+alpha contour genuinely needs to drive the claim, not by default.
+
+The margin is a **screen** reach, not a count of cells, so it stays visually
+uniform on a cell that is taller than it is wide: at a 8×16px cell,
+`occlusionContourPx={16}` buys one output row and two output cols of clean
+ground on each side. Size it in cell heights — one cell height is a tight, clean
+margin. The reach caps at `6 / supersample` output cells, so margins beyond a
+few cells are out of range once supersampling is on.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+{/* an overlay layer scene geometry can never cover */}
+<GlyphMesh polygons={overlay} density={2} occlusionPriority={1} />
+{/* a sprite that keeps a clean margin of ground around its ink */}
+<GlyphMesh polygons={sprite} density={2} occlusionContourPx={16} />
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<GlyphMesh :polygons="overlay" :density="2" :occlusion-priority="1" />
+<GlyphMesh :polygons="sprite" :density="2" :occlusion-contour-px="16" />
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+scene.add(overlay, { density: 2, occlusionPriority: 1 });
+scene.add(sprite,  { density: 2, occlusionContourPx: 16, occlusionClaim: "alpha" });
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-mesh density="2" occlusion-priority="1"></glyph-mesh>
+<glyph-mesh density="2" occlusion-contour-px="16" occlusion-claim="alpha"></glyph-mesh>
+```
+
+  </TabItem>
+</Tabs>
+
 ## Works in any camera — including first-person
 
 Detail meshes are rendered **in place** at higher resolution (real world
@@ -212,6 +325,11 @@ mesh and it behaves the same whether the scene is orbited, flown, or walked.
 | `fontSize` | `number \| string` | — | Explicit cell size (px or CSS length). **Overrides `density`.** |
 | `lineHeight` | `number` | — | Explicit cell line-height (vertical density / aspect). **Overrides `density`.** |
 | `transparent` | `boolean` | `false` | See-through — doesn't occlude / isn't occluded. Pops the mesh into its own `<pre>`. |
+| `glyphPalette` | `string` | scene's | Per-mesh solid ramp. Pops the mesh into its own `<pre>` (the shared grid shades against one ramp). |
+| `ambientIntensity` | `number` | scene's | Per-mesh ambient intensity. Pops the mesh into its own `<pre>` (the shared grid is lit under one ambient). |
+| `occlusionPriority` | `number` | `0` | Occlusion class — a higher class claims id-map cells regardless of depth. Opaque detail meshes only. |
+| `occlusionClaim` | `"alpha" \| "geometry"` | `"alpha"` | Claim only texel-opaque cells, or the full triangle footprint. Opaque detail meshes only. |
+| `occlusionContourPx` | `number` | — | Coverage-aware claim with a screen-px margin of clean ground around the ink. Never steals from another detail mesh. Costs a 4×-per-axis id-map raster. Opaque detail meshes only. |
 
 Precedence: explicit `fontSize`/`lineHeight` → `density` → shared grid.
 

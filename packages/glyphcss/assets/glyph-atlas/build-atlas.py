@@ -73,15 +73,29 @@ verified in the spike as the cheapest possible COLR case, and a COLR-blind
 fallback renders silent blanks instead of masquerading as correct output
 (the base outline is deliberately empty).
 
-Usage: python3 build-atlas.py
-Writes (both checked in):
-  atlas.json      -- metadata only; imported STATICALLY by ../../src/render/fontAtlas.ts
-  atlas-font.json -- base64 WOFF2 only; imported LAZILY via ../../src/render/fontAtlasPayload.ts
-See `main()` for why the payload is a separate file.
+Usage: python3 build-atlas.py [ascii]
+Writes (all checked in):
+  default (no argument) -- the UNIVERSAL atlas, byte-identical to before the
+  `ascii` variant existed:
+    atlas.json      -- metadata only; imported STATICALLY by ../../src/render/fontAtlas.ts
+    atlas-font.json -- base64 WOFF2 only; imported LAZILY via ../../src/render/fontAtlasPayload.ts
+  `ascii` -- the ASCII-ONLY variant (family "GlyphCssAtlasAscii"): printable
+  ASCII minus space, 94 glyphs, which frees the BMP PUA budget for
+  6400 // 94 = 68 palette slots instead of the universal atlas's 30. The
+  point is COLOUR resolution: a scene whose glyphs are all ASCII (a solid
+  `detail`-ramp render, e.g.) trades the never-used glyph axis for ~2.3x the
+  palette axis, which is where median-cut quantization error actually lives.
+  The 31-slot practical cap documented for the universal atlas is a
+  budget-division consequence (6400 / 212 = 30), not a CPAL or
+  `override-colors` engine limit, so this variant does not carry it.
+    ascii-atlas.json      -- metadata; imported statically alongside atlas.json
+    ascii-atlas-font.json -- base64 WOFF2; imported lazily via fontAtlasAsciiPayload.ts
+See `main()` for why each payload is a separate file.
 """
 import base64
 import json
 import os
+import sys
 
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.boundsPen import BoundsPen
@@ -246,7 +260,7 @@ def _import_fallback_glyph(ch, cp, fallback_faces, target_upem, target_advance, 
     raise SystemExit(f"atlas glyph {ch!r} (U+{cp:04X}) not found in Menlo or any vendored fallback face")
 
 
-def build_font(glyphs, palette_size, out_path):
+def build_font(glyphs, palette_size, out_path, family=FAMILY):
     src = TTFont(SRC, fontNumber=0)
     src_cmap = src.getBestCmap()
     src_glyphs = src.getGlyphSet()
@@ -329,7 +343,7 @@ def build_font(glyphs, palette_size, out_path):
     fb.setupGlyf(glyf_source)
     fb.setupHorizontalMetrics(metrics)
     fb.setupHorizontalHeader(ascent=src["hhea"].ascent, descent=src["hhea"].descent)
-    fb.setupNameTable({"familyName": FAMILY, "styleName": "Regular", "psName": f"{FAMILY}-Regular"})
+    fb.setupNameTable({"familyName": family, "styleName": "Regular", "psName": f"{family}-Regular"})
     fb.setupOS2(
         sTypoAscender=src["hhea"].ascent,
         sTypoDescender=src["hhea"].descent,
@@ -344,20 +358,50 @@ def build_font(glyphs, palette_size, out_path):
     return codepoints
 
 
+def ascii_glyph_set():
+    """The ASCII variant's glyph axis: printable ASCII minus space (94 glyphs).
+
+    A superset of every all-ASCII solid ramp (the `detail` ramp included) AND
+    of any ASCII text a `transformCells` hook stamps into the grid, so an
+    all-ASCII scene never trips the whole-grid span fallback. All 94 resolve
+    from Menlo directly; the fallback faces are never consulted. Space is
+    handled the same way as the universal build: U+0020 direct, no PUA slot.
+    """
+    chars = set(ASCII_PRINTABLE)
+    chars.discard(" ")
+    return sorted(chars, key=ord)
+
+
 def main():
+    variant = sys.argv[1] if len(sys.argv) > 1 else "universal"
+    if variant not in ("universal", "ascii"):
+        raise SystemExit(f"unknown atlas variant {variant!r} (expected nothing or 'ascii')")
+
     probe = TTFont(SRC, fontNumber=0)
     available_cmaps = [("Menlo", probe.getBestCmap())]
     for path in FALLBACK_SRCS:
         available_cmaps.append((os.path.basename(path), TTFont(path).getBestCmap()))
-    glyphs = universal_glyph_set(available_cmaps)
+
+    if variant == "ascii":
+        glyphs = ascii_glyph_set()
+        family = f"{FAMILY}Ascii"
+        prefix = "ascii-"
+        # No 31 cap: it documented the universal atlas's budget division
+        # (6400 / 212 = 30), not an engine limit -- see the module docstring.
+        cap = BMP_PUA_SIZE
+    else:
+        glyphs = universal_glyph_set(available_cmaps)
+        family = FAMILY
+        prefix = ""
+        cap = MAX_PALETTE_SIZE_CAP
     glyph_count = len(glyphs)
-    max_palette_size = min(MAX_PALETTE_SIZE_CAP, BMP_PUA_SIZE // glyph_count)
+    max_palette_size = min(cap, BMP_PUA_SIZE // glyph_count)
     if max_palette_size < 2:
-        raise SystemExit(f"universal glyph set ({glyph_count}) leaves no room for a usable palette")
+        raise SystemExit(f"{variant} glyph set ({glyph_count}) leaves no room for a usable palette")
 
     out_dir = os.path.dirname(os.path.abspath(__file__))
     ttf_path = os.path.join(out_dir, "_atlas.ttf")
-    codepoints = build_font(glyphs, max_palette_size, ttf_path)
+    codepoints = build_font(glyphs, max_palette_size, ttf_path, family=family)
 
     font = TTFont(ttf_path)
     font.flavor = "woff2"
@@ -375,19 +419,19 @@ def main():
     # back into one file would put the payload back in every bundle -- the
     # split IS the lazy-load mechanism, not a cosmetic file layout.
     manifest = {
-        "family": FAMILY,
+        "family": family,
         "glyphs": glyphs,
         "puaStart": PUA_START,
         "glyphCount": glyph_count,
         "maxPaletteSize": max_palette_size,
         "codepointRange": [min(codepoints), max(codepoints)],
     }
-    manifest_path = os.path.join(out_dir, "atlas.json")
+    manifest_path = os.path.join(out_dir, f"{prefix}atlas.json")
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=1, ensure_ascii=False)
         fh.write("\n")
 
-    font_path = os.path.join(out_dir, "atlas-font.json")
+    font_path = os.path.join(out_dir, f"{prefix}atlas-font.json")
     with open(font_path, "w") as fh:
         json.dump({"woff2Base64": woff2_b64}, fh, indent=1, ensure_ascii=False)
         fh.write("\n")

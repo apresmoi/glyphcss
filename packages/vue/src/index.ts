@@ -238,6 +238,19 @@ export type {
 // ── Shadow options ────────────────────────────────────────────────────────────
 export type { GlyphShadowOptions } from "glyphcss";
 
+// ── Colour-font atlas variants (`colorEncoding: "atlas"`) ────────────────────
+// Values, not just types: `<GlyphScene fontAtlas>` / `<GlyphSceneStatic
+// fontAtlas>` take an atlas MANIFEST, and `glyphcss` is this package's own
+// dependency — a consumer of the bindings alone has no other route to one.
+export { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII } from "glyphcss";
+export type { GlyphFontAtlas } from "glyphcss";
+
+// ── Cross-scene occlusion currency ───────────────────────────────────────────
+// The type flowing between two stacked scenes' `getOpaqueCoverage()` and
+// `setForeignOcclusion()` — both reached through the scene handle, so there
+// are no components to mirror, only this type.
+export type { GlyphOcclusionCoverage } from "glyphcss";
+
 // ── Pure control-frame capture ───────────────────────────────────────────────
 export { buildGlyphControlFrame, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, resolveGlyphControlLineage, validateGlyphControlMetadata } from "glyphcss";
 export type {
@@ -256,7 +269,7 @@ export type {
 
 // ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ───────
 export { rasterizeToCells, buildCellGrid, applyCellHook } from "glyphcss";
-export type { CellGrid, TransformCells } from "glyphcss";
+export type { CellGrid, TransformCells, GlyphTransformCellsLayer } from "glyphcss";
 
 // ── Event types ───────────────────────────────────────────────────────────────
 export type {

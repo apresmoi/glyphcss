@@ -169,9 +169,9 @@ describe("createGlyphAtlasPaletteQuantizer — pooling and refresh", () => {
     expect(q.generation).toBe(1); // drift gate never trips — nothing moved.
   });
 
-  it("does NOT repool a static scene whose colour count 31 slots can never cover", () => {
+  it("does NOT repool a static scene whose colour count the slot budget can never cover", () => {
     // A photo: thousands of distinct colours, so a fixed fraction of cells is
-    // always further than the drift threshold from any of 31 slots. That floor
+    // always further than the drift threshold from any of 30 slots. That floor
     // is irreducible, not staleness, and must not drive a repool. (Measured on
     // the real /examples/image render before the baseline gate existed: 10
     // repools over 3 motionless seconds.)
@@ -385,7 +385,7 @@ describe("the encode seam under quantization", () => {
     expect(consulted).toBe(false);
   });
 
-  it("encodes a 120-colour grid through 31 slots with zero spans", () => {
+  it("encodes a 120-colour grid through the atlas's slots with zero spans", () => {
     let t = 0;
     const q = createGlyphAtlasPaletteQuantizer({ now: () => t });
     const grid = buildCellGrid(char, many, null, many.length, 1);

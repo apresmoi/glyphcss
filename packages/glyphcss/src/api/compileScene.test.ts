@@ -4,6 +4,7 @@ import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { compileScene } from "./compileScene";
 import { icosahedronPolygons, cubePolygons } from "@glyphcss/core";
 import type { GlyphSolidWeightRampStep } from "./types";
+import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, decodeGlyphAtlasText } from "../render/fontAtlas";
 
 /**
  * The static compiler must produce byte-identical output to the runtime render
@@ -268,6 +269,37 @@ describe("compileScene — matches the runtime render", () => {
     });
     const spanCount = (s: string) => (s.match(/<span/g) ?? []).length;
     expect(spanCount(compiled.inner)).toBeLessThan(spanCount(compiledOff.inner));
+  });
+
+  // `fontAtlas` chooses which PUA glyph modulus the atlas encoder maps against.
+  // Both shipped variants share the same PUA range, so a compiled bake that
+  // silently used the default would emit code points a caller decoding (or
+  // rendering) against the ASCII atlas reads as different, wrong glyphs.
+  describe("fontAtlas — the compiled bake targets the variant it was given", () => {
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const base = {
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: 65, rotY: 45, zoom: 0.3 }),
+      cols: 60, rows: 24,
+      // Every step of this ramp is printable ASCII, so the scene fits BOTH atlases.
+      glyphPalette: "dense",
+      atlasPalette: ["#ff0000", "#00ff00", "#0000ff"],
+    } as const;
+
+    it("encodes against the ASCII atlas when asked, not the universal default", () => {
+      const universal = compileScene({ ...base, colorEncoding: "atlas" });
+      const ascii = compileScene({ ...base, colorEncoding: "atlas", fontAtlas: GLYPH_FONT_ATLAS_ASCII });
+      expect(universal.inner).not.toContain("<span");
+      expect(ascii.inner).not.toContain("<span");
+      expect(ascii.inner).not.toBe(universal.inner);
+    });
+
+    it("round-trips through its own atlas, and garbles through the other one", () => {
+      const plain = compileScene({ ...base, useColors: false }).inner;
+      const ascii = compileScene({ ...base, colorEncoding: "atlas", fontAtlas: GLYPH_FONT_ATLAS_ASCII });
+      expect(decodeGlyphAtlasText(ascii.inner, GLYPH_FONT_ATLAS_ASCII)).toBe(plain);
+      expect(decodeGlyphAtlasText(ascii.inner, GLYPH_FONT_ATLAS)).not.toBe(plain);
+    });
   });
 
   it("wraps output in a .glyph-output <pre>", () => {

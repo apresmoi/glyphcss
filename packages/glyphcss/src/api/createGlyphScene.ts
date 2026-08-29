@@ -34,8 +34,8 @@ import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
-import { rasterize, rasterizeToCells, computeOcclusionIds } from "../render/rasterize";
-import { encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
+import { rasterize, rasterizeToCells, computeOcclusionIds, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
+import { encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type GlyphTransformCellsLayer, type TransformCells } from "../render/cells";
 import {
   resolveGlyphControlLineage,
   validateGlyphControlMetadata,
@@ -62,7 +62,7 @@ import {
   type RuntimeGlyphEffectLayer,
 } from "../render/effectCompositor";
 import { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
-import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss } from "../render/fontAtlas";
+import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss, type GlyphFontAtlas } from "../render/fontAtlas";
 import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type GlyphAtlasPaletteQuantizer } from "../render/paletteQuantize";
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
@@ -150,7 +150,7 @@ export interface GlyphSceneOptions {
    * Does NOT require {@link atlasPalette}: with none supplied, the scene
    * derives and pools one itself (median-cut quantization over the frames it
    * renders — see `render/paletteQuantize.ts`), so a render with hundreds of
-   * distinct Lambert-shaded colours encodes into 31 slots instead of falling
+   * distinct Lambert-shaded colours encodes into the atlas's slots instead of falling
    * back. It falls back to `"spans"` for a frame whose glyphs aren't covered
    * by the atlas, or whose cells carry no usable colour (see
    * `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene decision,
@@ -175,6 +175,17 @@ export interface GlyphSceneOptions {
    * {@link RasterizeContextOptions.atlasPalette}.
    */
   atlasPalette?: readonly string[];
+  /**
+   * The font atlas `colorEncoding: "atlas"` encodes against. Defaults to the
+   * universal {@link GLYPH_FONT_ATLAS} (212 glyphs, 30 palette slots); pass
+   * {@link GLYPH_FONT_ATLAS_ASCII} to trade the never-used glyph coverage of
+   * an all-ASCII scene for 68 palette slots — see `render/fontAtlas.ts`.
+   * FIXED AT CREATION: `setOptions` does not change it (a scene's `<pre>`s,
+   * readiness probes and palette CSS are all pinned to one family for its
+   * lifetime). A frame needing a glyph outside the chosen atlas falls back to
+   * the span encoder, exactly as with the universal atlas's own scope cuts.
+   */
+  fontAtlas?: GlyphFontAtlas;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -249,6 +260,18 @@ export interface GlyphSceneOptions {
    * heavy high-resolution scenes smooth to drag without a permanent quality hit.
    */
   interactiveDownscale?: number;
+  /**
+   * Publish opaque coverage from a scene that has no occlusion id-map of its
+   * own. `GlyphSceneHandle.getOpaqueCoverage` reads the shared id-map, which a
+   * scene only builds when it has an opaque detail mesh or a foreign mask — so
+   * the most ordinary producer shape, a scene of plain base meshes, would
+   * otherwise never be able to publish anything downward. `true` forces a
+   * base-layer depth raster per render so its ownership is real. Default
+   * `false`: the raster is a real per-render cost and most scenes are pure
+   * consumers. It changes no output — a base-only id-map marks cells the base
+   * layer's own, which no local layer ever blanks on.
+   */
+  trackOpaqueCoverage?: boolean;
   /** Shadow-map configuration. `undefined` (default) = no shadows. */
   shadow?: GlyphShadowOptions;
   /**
@@ -287,6 +310,20 @@ export interface GlyphMeshHandle {
   setPolygons(polygons: Polygon[]): void;
   setTransform(transform: GlyphMeshTransform): void;
   dispose(): void;
+}
+
+/**
+ * Per-cell opaque coverage of a rendered scene at its OUTPUT grid resolution —
+ * the cross-SCENE occlusion currency. Produced by a scene via
+ * `getOpaqueCoverage` (1 = an opaque local layer owns the cell) and consumed
+ * by another scene via `setForeignOcclusion`, which blanks every local layer
+ * under the covered cells. Both scenes are assumed to overlay the same host
+ * rect; grid resolutions may differ (mapped proportionally).
+ */
+export interface GlyphOcclusionCoverage {
+  covered: Uint8Array;
+  cols: number;
+  rows: number;
 }
 
 export interface GlyphSceneHandle {
@@ -332,6 +369,36 @@ export interface GlyphSceneHandle {
    * needed manually for custom interaction sources.
    */
   setInteracting(active: boolean): void;
+  /**
+   * Inject another scene's opaque coverage (its `getOpaqueCoverage()` result)
+   * as a FOREIGN occluder: every layer of THIS scene — base grid, opaque
+   * detail layers, and `transparent` detail layers alike — blanks its cells
+   * where the foreign scene's opaque output covers, exactly as the shared
+   * id-map blanks one local layer under a nearer one. This is how two stacked
+   * scenes over one host (e.g. a screen-space UI scene above a 3D world scene)
+   * join a single occlusion domain: the UI publishes coverage after each of
+   * its renders, the world consumes it here. `null` clears.
+   *
+   * `mode: "solid"` only — the local cross-layer occlusion machinery this
+   * rides on is read by the solid rasterizer alone, so in
+   * `wireframe`/`voxel`/`ink` a foreign mask is a silent no-op.
+   *
+   * Schedules a render only when the coverage actually differs from the held
+   * one (a re-publish of identical bytes costs one comparison, not a render).
+   * Throws `TypeError` when `covered.length !== cols * rows`.
+   */
+  setForeignOcclusion(coverage: GlyphOcclusionCoverage | null): void;
+  /**
+   * The last committed render's opaque per-cell coverage at the output grid
+   * resolution — cells owned by the base grid or any opaque detail layer
+   * (foreign stamps excluded, so a chained consumer never relays an occluder
+   * it merely received). `null` when the last render built no occlusion
+   * id-map. A scene builds one when it has an opaque detail mesh or a foreign
+   * mask; a plain base-only scene needs
+   * {@link GlyphSceneOptions.trackOpaqueCoverage} to publish at all. Feed the
+   * result to another scene's `setForeignOcclusion`.
+   */
+  getOpaqueCoverage(): GlyphOcclusionCoverage | null;
   destroy(): void;
 }
 
@@ -387,7 +454,7 @@ interface RenderCommit {
   retained: Map<string, RetainedGlyphEffectOutput> | null;
 }
 
-type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp" | "atlasPalette"> & {
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp" | "atlasPalette" | "fontAtlas"> & {
   shadow: GlyphShadowOptions | undefined;
   transformCells: TransformCells | undefined;
   sceneManifest: GlyphControlSceneManifest | undefined;
@@ -405,11 +472,12 @@ let nextMeshId = 1;
 // never fight over one shared name.
 let nextAtlasStyleId = 1;
 
-// Cell-metric probe character for an atlas-pinned `<pre>`: slot 0 / glyph 0,
-// always present in the atlas cmap. Every atlas glyph carries the same advance
-// (`build-atlas.py` gives them all the source face's "M" advance), so any code
-// point in the range measures the same cell — see `measureCellOf`.
-const ATLAS_METRIC_PROBE_CHAR = String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart);
+// Cell-metric probe character for an atlas-pinned `<pre>`: slot 0 / glyph 0
+// of the scene's own atlas, always present in its cmap. Every atlas glyph
+// carries the same advance (`build-atlas.py` gives them all the source face's
+// "M" advance), so any code point in the range measures the same cell — see
+// `measureCellOf`. Allocated per scene (`atlasMetricProbeChar`) because the
+// atlas is a per-scene choice since the ASCII variant.
 
 // Convention aligned to voxcss/three.js: rotation is XYZ Euler in DEGREES,
 // world frame. Matches voxcss core/src/math/rotation.ts `rotateVec3` (angles
@@ -487,6 +555,12 @@ export function createGlyphScene(
   }
   injectGlyphBaseStyles(host.ownerDocument ?? undefined);
 
+  // Fixed for the scene's lifetime — see the `fontAtlas` option doc.
+  const fontAtlas = opts.fontAtlas ?? GLYPH_FONT_ATLAS;
+  // Cell-metric probe character for an atlas-pinned `<pre>`: slot 0 / glyph 0
+  // of THIS scene's atlas — see ATLAS_METRIC_PROBE_CHAR.
+  const atlasMetricProbeChar = String.fromCodePoint(fontAtlas.puaStart);
+
   const options: InternalOptions = {
     mode: opts.mode ?? "solid",
     glyphPalette: opts.glyphPalette ?? "default",
@@ -509,6 +583,7 @@ export function createGlyphScene(
     doubleSided: opts.doubleSided ?? false,
     supersample: opts.supersample ?? 1,
     interactiveDownscale: opts.interactiveDownscale ?? 1,
+    trackOpaqueCoverage: opts.trackOpaqueCoverage ?? false,
     depthEpsilon: opts.depthEpsilon ?? 0,
     temporalBlend: opts.temporalBlend ?? 0,
     autoSize: opts.autoSize ?? false,
@@ -559,6 +634,14 @@ export function createGlyphScene(
   let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string; atlas: boolean }> | null = null;
   let stagedDetailCommit: DetailCommit | null = null;
   let semanticCellFrame: GlyphSemanticCellFrame | null = null;
+  // Cross-SCENE occlusion (see `setForeignOcclusion`/`getOpaqueCoverage`):
+  // another scene's opaque per-cell coverage, stamped into this scene's shared
+  // occlusion id-map as `GLYPH_FOREIGN_OCCLUDER_ID` so every local layer —
+  // base, opaque details, and `transparent` details alike — blanks under it.
+  let foreignOcclusion: GlyphOcclusionCoverage | null = null;
+  // Last committed shared occlusion id-map — the producer side of the cross-
+  // scene contract; `getOpaqueCoverage` reads it.
+  let lastOcclusionSnapshot: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number; foreign?: boolean } | null = null;
   // `colorEncoding: "atlas"` CSS wiring — see `syncGlyphAtlasStyles` below.
   // `atlasPaletteStyleEl` is this scene's OWN `@font-palette-values` block
   // (never shared across scenes, unlike the document-global `@font-face`);
@@ -633,7 +716,7 @@ export function createGlyphScene(
   function activeAtlasPalette(): GlyphAtlasPaletteInput | undefined {
     if (effectiveColorEncoding() !== "atlas") return undefined;
     if (options.atlasPalette) return options.atlasPalette;
-    return (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer());
+    return (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer({ atlas: fontAtlas }));
   }
 
   /**
@@ -651,7 +734,7 @@ export function createGlyphScene(
    */
   function beginAtlasPaletteTransaction(): void {
     if (effectiveColorEncoding() !== "atlas" || options.atlasPalette) return;
-    (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer()).beginTransaction();
+    (atlasQuantizer ??= createGlyphAtlasPaletteQuantizer({ atlas: fontAtlas })).beginTransaction();
   }
 
   function endAtlasPaletteTransaction(): void {
@@ -698,6 +781,17 @@ export function createGlyphScene(
     return options.transformCells?.(grid) ?? grid;
   }
 
+  /**
+   * Bind the user's `transformCells` hook to ONE layer's identity — the hook
+   * runs once per layer (base, then each detail mesh) and this closure is what
+   * tells it which grid it was handed. See {@link GlyphTransformCellsLayer}.
+   * The effects pipeline's own cell hook does not thread layer identity.
+   */
+  function withTransformCellsLayer(layer: GlyphTransformCellsLayer): TransformCells | undefined {
+    const hook = options.transformCells;
+    return hook ? (grid) => hook(grid, layer) : undefined;
+  }
+
   const transformEffectCells: TransformCells = (grid) => {
     if (!activePreparedEffects || !collectingEffectOutputs || !currentEffectOutputMetadata) {
       throw new Error("glyphcss: effect compositor ran outside an active render transaction.");
@@ -740,14 +834,14 @@ export function createGlyphScene(
         testRenderStage("effect-compose");
         const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
         const attemptedEncoding = effectiveColorEncoding();
-        const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette());
+        const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette(), fontAtlas);
         // A generic effect program's realized glyph set is data-driven (the
         // active field value, an arbitrary custom program) — glyphcss cannot
         // see its potential set in advance, so this can only latch the
         // sticky fallback from the REALIZED grid, not gate on one up front
         // the way the wireframe path's own palette tiers can.
         if (encoded.encoding !== "atlas") {
-          noteAtlasGlyphFallback(attemptedEncoding, hasGlyphOutsideFontAtlas(grid.char, grid.cols, grid.rows));
+          noteAtlasGlyphFallback(attemptedEncoding, hasGlyphOutsideFontAtlas(grid.char, grid.cols, grid.rows, fontAtlas));
         }
         staged.push({ output, encoded: encoded.text, atlas: encoded.encoding === "atlas" });
       }
@@ -975,20 +1069,69 @@ export function createGlyphScene(
     // Layer ids: base meshes share id 0; each opaque detail mesh uses its own id.
     const BASE_LAYER = 0;
     const baseGrid = baseProjectionGrid();
-    let occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number } | null = null;
+    let occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number; foreign?: boolean } | null = null;
     const opaqueDetails = detailEntries.filter((e) => e.transform.transparent !== true);
-    if (opaqueDetails.length > 0) {
+    // The shared id-map is also the ONLY thing `getOpaqueCoverage` can read, so
+    // it is built for three reasons, not one: a local opaque detail layer needs
+    // it to occlude against, a foreign occluder needs somewhere to stamp, and
+    // `trackOpaqueCoverage` asks for base-grid ownership to publish. The last
+    // two produce a base-only map — every cell either the base layer's or
+    // unclaimed — which no local layer ever blanks on, so the render stays
+    // exactly what it was without them.
+    if (opaqueDetails.length > 0 || foreignOcclusion !== null || options.trackOpaqueCoverage === true) {
       const baseCell = baseCellMetrics();
       const bc = { w: baseGrid.cellWidth ?? baseCell.w, h: baseGrid.cellHeight ?? baseCell.h };
       if (bc.w > 0 && bc.h > 0) {
         // Build the id-map at the scene's supersample so the world's supersampled
         // silhouette and its id-map hole coincide (no world/entity boundary seam).
-        const ss = options.supersample && options.supersample > 1 ? Math.floor(options.supersample) : 1;
-        const groups: { polygons: Polygon[]; id: number }[] = [{ polygons: allPolygons, id: BASE_LAYER }];
-        for (const e of opaqueDetails) groups.push({ polygons: applyTransform(e.polygons, e.transform), id: e.id });
-        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid);
+        // A base-only map has no such seam to match and pays the coarser raster:
+        // ss=1, exactly the resolution the mask-only map has always used.
+        const ss = opaqueDetails.length > 0 && options.supersample && options.supersample > 1 ? Math.floor(options.supersample) : 1;
+        const groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[] =
+          [{ polygons: allPolygons, id: BASE_LAYER }];
+        // Per-mesh `occlusionPriority` (default 0): a higher class claims id-map
+        // cells regardless of depth — see the transform option's doc.
+        // `occlusionClaim` / `occlusionContourPx` (ADDITIVE, 2026-08): per-mesh
+        // claim shaping — see the transform options' docs.
+        for (const e of opaqueDetails) {
+          groups.push({
+            polygons: applyTransform(e.polygons, e.transform),
+            id: e.id,
+            occlusionPriority: e.transform.occlusionPriority ?? 0,
+            occlusionClaim: e.transform.occlusionClaim,
+            occlusionContourPx: e.transform.occlusionContourPx,
+          });
+        }
+        // `textureSamplers` makes the id-map ALPHA-AWARE: a textured sprite
+        // quad claims only the cells where its texel is actually opaque, so
+        // its transparent margin no longer blanks the layer beneath (which
+        // read as a black halo around the artwork). Null until textures
+        // decode — those frames fall back to the pure-geometry claim, exactly
+        // the pre-existing behaviour.
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, textureSamplers);
         occShared = { idMap, cols: options.cols * ss, rows: options.rows * ss, ss, cwB: bc.w, chB: bc.h };
       }
+    }
+    // FOREIGN OCCLUSION (cross-scene): stamp every cell covered by the foreign
+    // scene's opaque output with `GLYPH_FOREIGN_OCCLUDER_ID`. The stamp
+    // overwrites local owners unconditionally — a scene stacked above this one
+    // is nearer by definition, and the base ownership it overwrites was never
+    // this scene's own coverage to relay onward.
+    if (foreignOcclusion && occShared) {
+      const f = foreignOcclusion;
+      const idMap = occShared.idMap, sCols = occShared.cols, sRows = occShared.rows;
+      // Both scenes overlay the same host rect, so cell mapping is a pure
+      // proportional scale, sampled at this map's cell centres.
+      const cScale = f.cols / sCols, rScale = f.rows / sRows;
+      for (let r = 0; r < sRows; r++) {
+        const fr = Math.min(f.rows - 1, Math.floor((r + 0.5) * rScale));
+        const fBase = fr * f.cols, rBase = r * sCols;
+        for (let c = 0; c < sCols; c++) {
+          const fc = Math.min(f.cols - 1, Math.floor((c + 0.5) * cScale));
+          if (f.covered[fBase + fc]) idMap[rBase + c] = GLYPH_FOREIGN_OCCLUDER_ID;
+        }
+      }
+      occShared.foreign = true;
     }
 
     assertEffectMode(options.mode);
@@ -1065,6 +1208,7 @@ export function createGlyphScene(
       colorTolerance: options.colorTolerance,
       colorEncoding: effectiveColorEncoding(),
       atlasPalette: activeAtlasPalette(),
+      fontAtlas,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1105,7 +1249,7 @@ export function createGlyphScene(
     } : null;
     // With no effect layer, preserve the direct legacy/no-hook byte path.
     ctx.transformCells = options.glyphOutput === "visible"
-      ? (effectsActive ? transformEffectCells : options.transformCells)
+      ? (effectsActive ? transformEffectCells : withTransformCellsLayer({ detail: false }))
       : undefined;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -1170,6 +1314,7 @@ export function createGlyphScene(
     });
     publishRendererState(nextShadeCache, nextTemporalHistory);
     semanticCellFrame = nextSemanticCellFrame;
+    lastOcclusionSnapshot = occShared;
     effectDirty = false;
     committedOptions = { ...options };
     } catch (error) {
@@ -1213,7 +1358,12 @@ export function createGlyphScene(
   // asks to be transparent (a shared-pre mesh always occludes — one depth buffer —
   // so non-occlusion requires its own layer).
   function isDetailMesh(t: GlyphMeshTransform): boolean {
-    return (t.density != null && t.density !== 1) || t.fontSize != null || t.lineHeight != null || t.transparent === true;
+    // `glyphPalette` forces separation too: the shared `<pre>` is rasterized in
+    // one pass against ONE ramp, so a mesh with a private ramp needs a private
+    // layer even at the base cell size (see the transform's doc).
+    // `ambientIntensity` forces separation for the same reason: the shared
+    // `<pre>` is lit in one pass under ONE ambient.
+    return (t.density != null && t.density !== 1) || t.fontSize != null || t.lineHeight != null || t.transparent === true || t.glyphPalette != null || t.ambientIntensity != null;
   }
 
   // Measure one monospace cell (px) from a live <pre>, honoring its inherited /
@@ -1230,7 +1380,7 @@ export function createGlyphScene(
     // transforms on every platform whose `monospace` isn't the atlas's own
     // source face. A PUA code point resolves from the atlas, and every atlas
     // glyph (space included) carries the same advance.
-    const probeChar = el.style.fontFamily.includes(GLYPH_FONT_ATLAS.family) ? ATLAS_METRIC_PROBE_CHAR : "M";
+    const probeChar = el.style.fontFamily.includes(fontAtlas.family) ? atlasMetricProbeChar : "M";
     probe.textContent = Array(LINES).fill(probeChar).join("\n");
     // Resolve the actual browser cascade (including calc/var/em/normal) in a
     // permanent hidden sibling instead of parsing a CSS string or touching a
@@ -1340,7 +1490,7 @@ export function createGlyphScene(
   // space where `monospace` maps to Consolas.
   function setGlyphAtlasFontOn(preEl: HTMLPreElement, atlasEncoded: boolean): void {
     if (atlasEncoded) {
-      preEl.style.fontFamily = `"${GLYPH_FONT_ATLAS.family}", monospace`;
+      preEl.style.fontFamily = `"${fontAtlas.family}", monospace`;
       if (atlasPaletteName) preEl.style.setProperty("font-palette", atlasPaletteName);
       else preEl.style.removeProperty("font-palette");
     } else {
@@ -1351,7 +1501,7 @@ export function createGlyphScene(
 
   /** Is the atlas family currently the first entry of this `<pre>`'s font stack? */
   function isGlyphAtlasPinned(preEl: HTMLPreElement): boolean {
-    return preEl.style.fontFamily.includes(GLYPH_FONT_ATLAS.family);
+    return preEl.style.fontFamily.includes(fontAtlas.family);
   }
 
   // Closes the CSS-injection gap: `colorEncoding: "atlas"` used to require a
@@ -1370,7 +1520,7 @@ export function createGlyphScene(
       // spans-fallback frames; a scene created after the payload is already
       // cached still goes through this promise, so the "first frame is spans"
       // rule holds uniformly instead of depending on load order.
-      void ensureGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined).then((ready) => {
+      void ensureGlyphAtlasFontFaceStyles(host.ownerDocument ?? undefined, fontAtlas).then((ready) => {
         if (destroyed || !ready || atlasFontReady) return;
         atlasFontReady = true;
         // Nothing wrote palette CSS while the font was missing — no quantizer
@@ -1420,7 +1570,7 @@ export function createGlyphScene(
       atlasPaletteStyleEl = host.ownerDocument!.createElement("style");
       host.ownerDocument!.head.appendChild(atlasPaletteStyleEl);
     }
-    atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette);
+    atlasPaletteStyleEl.textContent = buildGlyphAtlasFontPaletteValuesCss(atlasPaletteName, palette, fontAtlas);
     atlasPaletteCssGeneration = atlasQuantizer?.generation ?? -1;
     // Only the `font-palette` half here — an output that is not currently
     // painting atlas text must not acquire the family as a side effect of a
@@ -1559,7 +1709,7 @@ export function createGlyphScene(
    */
   function renderDetailLayers(
     entries: MeshEntry[],
-    occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number } | null,
+    occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number; foreign?: boolean } | null,
     baseGrid: GridSize,
     retainBaseShade: boolean,
     retainWorldPosition: boolean,
@@ -1614,6 +1764,14 @@ export function createGlyphScene(
           layer = { pre: el, key: "", cw: 0, ch: 0, fontSize: "", lineHeight: "", transform: "" };
         }
         const dpre = layer.pre;
+        // ADDITIVE: expose the mesh's public name (transform.id) on the layer's
+        // own <pre> so embedders can style one detail layer (e.g. a per-mesh
+        // text-stroke) without guessing by geometry. Unnamed meshes carry no
+        // attribute — markup unchanged for every pre-existing caller. Assigned
+        // per render, not once at creation: `setTransform({ id })` can rename
+        // a mesh, or name one that had no id when its layer was created.
+        if (entry.transform.id != null) dpre.dataset.glyphMeshId = entry.transform.id;
+        else delete dpre.dataset.glyphMeshId;
         testRenderStage("detail-measure");
         const density = entry.transform.density;
         // Explicit fontSize/lineHeight OVERRIDE density (the low-level escape hatch
@@ -1734,7 +1892,17 @@ export function createGlyphScene(
               colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
               rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
             }
-          : null;
+          // A `transparent` detail mesh keeps ignoring every LOCAL layer, but a
+          // foreign occluder (another scene stacked above) still covers it:
+          // same id-map, blanking only on the foreign stamp.
+          : (occShared?.foreign === true
+            ? {
+                idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
+                colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
+                rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
+                foreignOnly: true,
+              }
+            : null);
 
         const detailGrid: GridSize = {
           cols: colsD,
@@ -1753,8 +1921,20 @@ export function createGlyphScene(
           polygons: tp,
           mode: options.mode,
           directionalLight: options.directionalLight,
-          ambientLight: options.ambientLight,
-          glyphPalette: options.glyphPalette,
+          // PER-MESH ambient override (GlyphMeshTransform.ambientIntensity):
+          // this detail layer rasterizes under its OWN ambient intensity —
+          // glyph choice (shade = clamp(light) × texel luma) and the texel
+          // colour tint both follow it, exactly as if the scene's ambient were
+          // that value for this mesh alone. ADDITIVE: omitted = scene light,
+          // behaviour unchanged. Colour, direction and the key light stay
+          // scene-level.
+          ambientLight: entry.transform.ambientIntensity != null
+            ? { ...options.ambientLight, intensity: entry.transform.ambientIntensity }
+            : options.ambientLight,
+          // PER-MESH ramp override (GlyphMeshTransform.glyphPalette): this
+          // detail layer rasterizes against its own solid ramp; every other
+          // knob stays scene-level. Scene palette when the mesh declares none.
+          glyphPalette: entry.transform.glyphPalette ?? options.glyphPalette,
           charMode: options.charMode,
           wireframeJunctions: options.wireframeJunctions,
           hiddenLines: options.hiddenLines,
@@ -1762,6 +1942,7 @@ export function createGlyphScene(
           colorTolerance: options.colorTolerance,
           colorEncoding: effectiveColorEncoding(),
           atlasPalette: activeAtlasPalette(),
+          fontAtlas,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1811,7 +1992,11 @@ export function createGlyphScene(
           ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
         } : null;
         ctx.transformCells = options.glyphOutput === "visible"
-          ? (effectsActive ? transformEffectCells : options.transformCells)
+          ? (effectsActive ? transformEffectCells : withTransformCellsLayer({
+              detail: true,
+              ...(entry.transform.id !== undefined ? { mesh: entry.transform.id } : {}),
+              ...(entry.transform.density !== undefined ? { density: entry.transform.density } : {}),
+            }))
           : undefined;
         testRenderStage("detail-raster");
         const out = options.glyphOutput === "semantic"
@@ -2004,6 +2189,58 @@ export function createGlyphScene(
     doRender();
   }
 
+  function setForeignOcclusion(coverage: GlyphOcclusionCoverage | null): void {
+    if (coverage === null) {
+      if (foreignOcclusion === null) return;
+      foreignOcclusion = null;
+      scheduleRender();
+      return;
+    }
+    if (coverage.covered.length !== coverage.cols * coverage.rows) {
+      throw new TypeError(
+        `setForeignOcclusion: covered.length (${coverage.covered.length}) must equal cols * rows (${coverage.cols} * ${coverage.rows}).`,
+      );
+    }
+    // The documented pattern is "publish after every render", so an unchanged
+    // stack would otherwise re-render this scene at full cost forever. The held
+    // value is a COPY, not the caller's buffer: a producer that reuses one
+    // array across publishes would alias it here, and the comparison would then
+    // report "unchanged" against the very bytes it was handed.
+    const prev = foreignOcclusion;
+    if (prev !== null && prev.cols === coverage.cols && prev.rows === coverage.rows) {
+      let same = true;
+      for (let i = 0; i < prev.covered.length; i++) {
+        if (prev.covered[i] !== coverage.covered[i]) { same = false; break; }
+      }
+      if (same) return;
+    }
+    foreignOcclusion = { covered: Uint8Array.from(coverage.covered), cols: coverage.cols, rows: coverage.rows };
+    scheduleRender();
+  }
+
+  function getOpaqueCoverage(): GlyphOcclusionCoverage | null {
+    const snap = lastOcclusionSnapshot;
+    if (!snap) return null;
+    const outCols = Math.round(snap.cols / snap.ss);
+    const outRows = Math.round(snap.rows / snap.ss);
+    const covered = new Uint8Array(outCols * outRows);
+    // Sample the (possibly supersampled) id-map at each output cell's centre
+    // subcell. Foreign stamps are NOT coverage — only this scene's own opaque
+    // layers are, so chained consumers never relay an occluder they merely
+    // received.
+    const half = snap.ss > 1 ? (snap.ss >> 1) : 0;
+    for (let r = 0; r < outRows; r++) {
+      const srcRow = r * snap.ss + half;
+      const srcBase = srcRow * snap.cols;
+      const outBase = r * outCols;
+      for (let c = 0; c < outCols; c++) {
+        const owner = snap.idMap[srcBase + c * snap.ss + half]!;
+        if (owner !== -1 && owner !== GLYPH_FOREIGN_OCCLUDER_ID) covered[outBase + c] = 1;
+      }
+    }
+    return { covered, cols: outCols, rows: outRows };
+  }
+
   // Interactive level-of-detail: while dragging, render coarser (bigger cell →
   // fewer cells at the SAME on-screen size, since camera.zoom is unchanged), then
   // restore full detail on release. Only the font/cols swap happens per gesture
@@ -2100,6 +2337,7 @@ export function createGlyphScene(
     if (partial.depthEpsilon !== undefined) options.depthEpsilon = partial.depthEpsilon;
     if (partial.temporalBlend !== undefined) options.temporalBlend = partial.temporalBlend;
     if (partial.interactiveDownscale !== undefined) options.interactiveDownscale = partial.interactiveDownscale;
+    if (partial.trackOpaqueCoverage !== undefined) options.trackOpaqueCoverage = partial.trackOpaqueCoverage;
     if ("glyphOutput" in partial) options.glyphOutput = nextGlyphOutput;
     if ("sceneManifest" in partial) options.sceneManifest = partial.sceneManifest;
     if ("dictionary" in partial) options.dictionary = partial.dictionary;
@@ -2161,7 +2399,7 @@ export function createGlyphScene(
     // `<pre>`'s font stack, and "M" is not in the atlas cmap, so probing with
     // it on an atlas-pinned `<pre>` sizes the grid from the FALLBACK font's
     // advance while the scene paints at the atlas's.
-    probe.textContent = Array(LINES).fill(isGlyphAtlasPinned(pre) ? ATLAS_METRIC_PROBE_CHAR : "M").join("\n");
+    probe.textContent = Array(LINES).fill(isGlyphAtlasPinned(pre) ? atlasMetricProbeChar : "M").join("\n");
     probe.style.cssText =
       "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
     pre.appendChild(probe);
@@ -2226,6 +2464,8 @@ export function createGlyphScene(
     getGlyphSemanticCellFrame: () => semanticCellFrame,
     fit: fitToHost,
     setInteracting,
+    setForeignOcclusion,
+    getOpaqueCoverage,
     destroy,
   };
 }

@@ -155,6 +155,91 @@ describe("GlyphMeshElement", () => {
     expect(capturedTransform).toMatchObject({ castShadow: false, receiveShadow: true });
   });
 
+  it("observes the per-mesh ramp / ambient / occlusion attributes", () => {
+    for (const attr of ["glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"]) {
+      expect(GlyphMeshElement.observedAttributes).toContain(attr);
+    }
+  });
+
+  it("reads the per-mesh ramp / ambient / occlusion attributes onto the transform", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    mesh.setAttribute("glyph-palette", "dense");
+    mesh.setAttribute("ambient-intensity", "0.75");
+    mesh.setAttribute("occlusion-priority", "1");
+    mesh.setAttribute("occlusion-claim", "geometry");
+    mesh.setAttribute("occlusion-contour-px", "3");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy).toHaveBeenCalled();
+    expect(addSpy.mock.calls[0]![1]).toMatchObject({
+      glyphPalette: "dense",
+      ambientIntensity: 0.75,
+      occlusionPriority: 1,
+      occlusionClaim: "geometry",
+      occlusionContourPx: 3,
+    });
+  });
+
+  it("accepts zero and negative values the shared positive-float parser would drop", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    // A background occlusion class, a fully unlit mesh, and the tightest
+    // possible contour claim — all legal, all rejected by `parsePosFloat`.
+    mesh.setAttribute("occlusion-priority", "-1");
+    mesh.setAttribute("ambient-intensity", "0");
+    mesh.setAttribute("occlusion-contour-px", "0");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy.mock.calls[0]![1]).toMatchObject({
+      occlusionPriority: -1,
+      ambientIntensity: 0,
+      occlusionContourPx: 0,
+    });
+  });
+
+  it("leaves the per-mesh options undefined when their attributes are absent", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    const t = addSpy.mock.calls[0]![1]!;
+    expect(t.glyphPalette).toBeUndefined();
+    expect(t.ambientIntensity).toBeUndefined();
+    expect(t.occlusionPriority).toBeUndefined();
+    expect(t.occlusionClaim).toBeUndefined();
+    expect(t.occlusionContourPx).toBeUndefined();
+  });
+
+  it("ignores an unparseable occlusion-claim rather than forwarding it", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    mesh.setAttribute("occlusion-claim", "nonsense");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy.mock.calls[0]![1]!.occlusionClaim).toBeUndefined();
+  });
+
   it("absence of cast-shadow and receive-shadow leaves both false", async () => {
     document.body.appendChild(camEl);
     const sceneHandle = scene.getScene()!;

@@ -140,13 +140,38 @@ export interface CellGrid {
 }
 
 /**
+ * Which of a scene's layers a {@link TransformCells} invocation is transforming.
+ *
+ * The hook runs once per layer — the base/shared grid, then each detail mesh's
+ * own grid — and previously gave the callback no way to tell them apart beyond
+ * guessing from the grid's dimensions. `detail` separates the two kinds, and
+ * `mesh` carries the detail mesh's own transform `id` (when the caller named
+ * one), so an app can give ONE mesh its own post-rasterize tone treatment
+ * without heuristics. `density` is the mesh's declared detail multiplier.
+ *
+ * The parameter is optional for compatibility: direct render paths always pass
+ * it, but a hook must tolerate `undefined` (renders routed through the effects
+ * pipeline's own cell hook do not thread layer identity today).
+ */
+export interface GlyphTransformCellsLayer {
+  /** `true` for a detail mesh's own layer, `false` for the base/shared grid. */
+  readonly detail: boolean;
+  /** The detail mesh's transform `id`, when the caller declared one. */
+  readonly mesh?: string;
+  /** The detail mesh's `density`, when set. */
+  readonly density?: number;
+}
+
+/**
  * Post-rasterize cell hook. Receives the final {@link CellGrid} just before the
  * string is built. May mutate the grid in place (return `void`) or return a new
  * grid. Only `char` + `color` are read back for output; `depth`/`screenX`/
  * `screenY`/`surfaceUv` are inputs the effect can read to order/gate its
- * transform.
+ * transform. The second argument identifies WHICH layer's grid this is — see
+ * {@link GlyphTransformCellsLayer}; existing single-argument hooks keep working
+ * unchanged.
  */
-export type TransformCells = (grid: CellGrid) => CellGrid | void;
+export type TransformCells = (grid: CellGrid, layer?: GlyphTransformCellsLayer) => CellGrid | void;
 
 /**
  * `colorEncoding` — the two encode strategies a rasterized grid can become a
@@ -724,7 +749,7 @@ export function encodeGlyphBuffersDual(
  * atlas encoder quantizes: a colour with no exact slot is written to its
  * nearest one by redmean distance (`paletteQuantize.ts`), so the number of
  * distinct colours a render emits is not a reason to reject it — reducing
- * hundreds of Lambert-shaded colours to ≤31 slots is the palette step's whole
+ * hundreds of Lambert-shaded colours to the atlas's slot budget is the palette step's whole
  * job, and refusing instead would leave the atlas usable only on already-flat
  * renders. `palette`'s SIZE is still checked, because a palette larger than
  * the atlas's slot budget has no valid PUA encoding at all.
@@ -820,7 +845,7 @@ export function hasGlyphOutsideFontAtlas(
  * A cell colour that is NOT an exact `palette` entry is not an error: it is
  * assigned the nearest slot by redmean distance
  * ({@link nearestPaletteIndex}), which is what lets a render with hundreds of
- * distinct Lambert-shaded colours encode against 31 slots at all. Exact
+ * distinct Lambert-shaded colours encode against 30 slots at all. Exact
  * matches keep their own slot, so a render whose colours already fit the
  * palette is encoded losslessly and this behaves exactly as it did before
  * quantization existed. The slot lookup memoizes per distinct colour STRING,

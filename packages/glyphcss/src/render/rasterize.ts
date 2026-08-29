@@ -14,7 +14,7 @@ import {
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid } from "./cells";
-import { GLYPH_FONT_ATLAS, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
+import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
 import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 
 /**
@@ -92,52 +92,252 @@ function projectionMetricsForGrid(
 }
 
 /**
+ * Owner id stamped into a shared occlusion id-map for cells covered by a
+ * FOREIGN occluder — another scene's opaque output, injected via the scene
+ * handle's `setForeignOcclusion`. Never a real layer id (layer ids are >= 0),
+ * so the ordinary blank rule (`owner !== -1 && owner !== myId`) hides every
+ * local layer under it, and `OcclusionMap.foreignOnly` consumers can blank on
+ * exactly this id while ignoring local owners.
+ */
+export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
+
+/**
  * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
  * into a `cols × rows` buffer and record, per cell, the id of the layer whose
  * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
  * so far cheaper than a full rasterize. Returned to `rasterize` via
  * {@link OcclusionMap} so layers blank where a DIFFERENT layer is nearest.
+ *
+ * A group may carry an `occlusionPriority` (default 0): a higher-priority
+ * group claims a cell over any lower-priority group REGARDLESS of depth, and
+ * depth only breaks ties within the same priority. It expresses a foreground
+ * layer that must read as being in front of the scene whatever the geometry
+ * says — the higher class punches every lower one out of its silhouette and
+ * can never be punched back. An EMPTY cell is claimable by any class,
+ * negative ones included; the stored priority then arbitrates the cell's
+ * later competition. Omitting the field (or 0 everywhere) leaves behaviour
+ * byte-identical to before.
+ *
+ * ALPHA-AWARE CLAIMS: when `textureSamplers` is supplied, a polygon that
+ * carries a texture + UVs (resolved exactly the way `rasterizeSolid` resolves
+ * its per-cell sampler) claims a cell only where its sampled texel is actually
+ * opaque (`a > TEXEL_COVERAGE_ALPHA_MIN` — the SAME coverage test the paint
+ * rasterizer applies in `scanFillTriangle`, so the id-map's claim set matches
+ * the paint path's covered set instead of the triangle's bounding geometry).
+ * Without this, a sprite quad's transparent margin punched the layer beneath
+ * to blank — a black halo around the artwork. Textures with no transparent
+ * texel at all skip the per-cell sampling outright (checked once per sampler,
+ * cached), so fully opaque textured geometry pays nothing. Omitting the
+ * parameter (every caller before it existed) keeps the pure-geometry claims.
  */
 export function computeOcclusionIds(
-  groups: { polygons: Polygon[]; id: number }[],
+  groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
   rawCamera: ProjectCamera,
   outCols: number,
   outRows: number,
   cellAspect: number,
   supersample = 1,
   metrics: GlyphProjectionMetrics = projectionMetricsForGrid(outCols, outRows, cellAspect, {}),
+  textureSamplers: ReadonlyMap<string, TextureSampler> | null = null,
 ): Int32Array {
   // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
   // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
   // silhouette and its id-map hole coincide subcell-for-subcell (no 1-cell seam at
   // the world/entity boundary). No-op when supersample===1 (id-map = output res).
   const ss = supersample > 1 ? Math.floor(supersample) : 1;
-  const cols = outCols * ss, rows = outRows * ss;
-  const scaledMetrics = ss > 1
-    ? {
-        ...metrics,
-        cellWidth: metrics.cellWidth !== undefined ? metrics.cellWidth / ss : undefined,
-        cellHeight: metrics.cellHeight !== undefined ? metrics.cellHeight / ss : undefined,
-        centerCol: metrics.centerCol !== undefined ? metrics.centerCol * ss : undefined,
-        centerRow: metrics.centerRow !== undefined ? metrics.centerRow * ss : undefined,
+  // CONTOUR CLAIMS (ADDITIVE, 2026-08): when any group carries
+  // `occlusionContourPx`, the map is rastered at a FINER internal resolution
+  // (K subcells per map cell on each axis) and reduced back at the end. Per
+  // fine cell the alpha claim samples its own texel, so a contour group's
+  // reduced claim is COVERAGE-aware — an output cell containing ANY of its
+  // ink claims, which is both the anti-theft guarantee (an opaque layer
+  // beneath can no longer take a fine mesh's partial-alpha boundary cells)
+  // and the tightest ground the map can express. The margin (screen px) is
+  // stamped in the fine map, so it follows the artwork's alpha contour
+  // instead of growing whole output cells. K = 1 (no contour group) is the
+  // exact pre-existing path, byte-identical.
+  const CONTOUR_K = 4;
+  const contourK = groups.some((g) => g.occlusionContourPx !== undefined) ? CONTOUR_K : 1;
+
+  /** Depth-raster every group into an id map at `outCols*scale × outRows*scale`. */
+  const rasterInto = (scale: number): Int32Array => {
+    const cols = outCols * scale, rows = outRows * scale;
+    const scaledMetrics = scale > 1
+      ? {
+          ...metrics,
+          cellWidth: metrics.cellWidth !== undefined ? metrics.cellWidth / scale : undefined,
+          cellHeight: metrics.cellHeight !== undefined ? metrics.cellHeight / scale : undefined,
+          centerCol: metrics.centerCol !== undefined ? metrics.centerCol * scale : undefined,
+          centerRow: metrics.centerRow !== undefined ? metrics.centerRow * scale : undefined,
+        }
+      : metrics;
+    const depth = new Float64Array(cols * rows).fill(-Infinity);
+    const idMap = new Int32Array(cols * rows).fill(-1);
+    // Priority buffer only exists when some group actually asks for one — the
+    // all-zero case (every scene before `occlusionPriority`) takes the exact
+    // pre-existing depth-only path.
+    const anyPriority = groups.some((g) => (g.occlusionPriority ?? 0) !== 0);
+    const priority = anyPriority ? new Int32Array(cols * rows) : null;
+    for (const g of groups) {
+      const pri = g.occlusionPriority ?? 0;
+      for (const poly of g.polygons) {
+        const vs = poly.vertices;
+        if (vs.length < 3) continue;
+        // Alpha-aware claim (see the doc above): resolve this polygon's texture
+        // sampler the same way `rasterizeSolid` does, but only keep it when the
+        // texture actually HAS transparent texels — an all-opaque texture's
+        // geometry claim is already exact, so it skips per-cell sampling.
+        // `occlusionClaim: "geometry"` (ADDITIVE): this group claims its full
+        // triangle footprint regardless of texel alpha — the pre-alpha-aware
+        // behaviour, opted into per mesh (a partial-alpha textured sprite that
+        // WANTS a filled plate under its artwork). Default "alpha" keeps the
+        // sampled claims.
+        const polyUvs = textureSamplers !== null && g.occlusionClaim !== "geometry" && poly.uvs && poly.uvs.length >= vs.length ? poly.uvs : null;
+        let sampler: TextureSampler | null = null;
+        if (polyUvs) {
+          const texUrl = polygonTexture(poly);
+          if (texUrl) {
+            const s = textureSamplers!.get(texUrl);
+            if (s && samplerHasTransparency(s)) sampler = s;
+          }
+        }
+        const p0 = rawCamera.project(vs[0]!, cols, rows, cellAspect, scaledMetrics);
+        let prev = rawCamera.project(vs[1]!, cols, rows, cellAspect, scaledMetrics);
+        for (let k = 2; k < vs.length; k++) {
+          const cur = rawCamera.project(vs[k]!, cols, rows, cellAspect, scaledMetrics);
+          // Fan triangle (v0, v[k-1], v[k]) — mirror the UV assignment
+          // `rasterizeSolid`'s fan uses so both rasterizers sample the same
+          // texel for the same screen cell.
+          const tex: DepthTexCtx | null = sampler !== null && polyUvs !== null
+            ? {
+                sampler,
+                ua: polyUvs[0]![0], va: polyUvs[0]![1],
+                ub: polyUvs[k - 1]![0], vb: polyUvs[k - 1]![1],
+                uc: polyUvs[k]![0], vc: polyUvs[k]![1],
+                qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
+              }
+            : null;
+          fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
+          prev = cur;
+        }
       }
-    : metrics;
-  const depth = new Float64Array(cols * rows).fill(-Infinity);
-  const idMap = new Int32Array(cols * rows).fill(-1);
-  for (const g of groups) {
-    for (const poly of g.polygons) {
-      const vs = poly.vertices;
-      if (vs.length < 3) continue;
-      const p0 = rawCamera.project(vs[0]!, cols, rows, cellAspect, scaledMetrics);
-      let prev = rawCamera.project(vs[1]!, cols, rows, cellAspect, scaledMetrics);
-      for (let k = 2; k < vs.length; k++) {
-        const cur = rawCamera.project(vs[k]!, cols, rows, cellAspect, scaledMetrics);
-        fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows);
-        prev = cur;
+    }
+    return idMap;
+  };
+
+  const baseId = groups.length > 0 ? groups[0]!.id : -1;
+  const outColsEff = outCols * ss, outRowsEff = outRows * ss;
+  // The output-resolution map: the exact pre-existing claim set. Every
+  // non-contour group's claims come from here untouched.
+  const outMap = rasterInto(ss);
+  if (contourK > 1) {
+    // Second raster at the FINE internal resolution — per fine cell the alpha
+    // claim samples its own texel, so a contour group's fine footprint is its
+    // real ink coverage (with depth/priority already resolved per subcell).
+    const sEff = ss * contourK;
+    const cols = outCols * sEff, rows = outRows * sEff;
+    const fine = rasterInto(sEff);
+    // Margin: stamp each contour group's fine claim outward by its
+    // `occlusionContourPx` — an elliptical screen-px reach (fine cells are
+    // anisotropic), converting ONLY base-layer or unclaimed cells, so the
+    // grown ground hugs the alpha contour and never steals from another
+    // detail group. No-op when the metrics carry no measured cell size
+    // (nothing to convert px against).
+    const fineW = metrics.cellWidth !== undefined ? metrics.cellWidth / sEff : undefined;
+    const fineH = metrics.cellHeight !== undefined ? metrics.cellHeight / sEff : undefined;
+    for (const g of groups) {
+      const px = g.occlusionContourPx ?? 0;
+      if (px <= 0 || fineW === undefined || fineH === undefined) continue;
+      const nC = Math.min(24, Math.ceil(px / fineW));
+      const nR = Math.min(24, Math.ceil(px / fineH));
+      if (nC <= 0 && nR <= 0) continue;
+      // Collect the group's cells first, then stamp — no chaining.
+      const owned: number[] = [];
+      for (let i = 0; i < fine.length; i++) if (fine[i] === g.id) owned.push(i);
+      const px2 = px * px;
+      for (const idx of owned) {
+        const r = (idx / cols) | 0, c = idx - r * cols;
+        for (let dr = -nR; dr <= nR; dr++) {
+          const rr = r + dr;
+          if (rr < 0 || rr >= rows) continue;
+          const dy = dr * fineH;
+          for (let dc = -nC; dc <= nC; dc++) {
+            const cc = c + dc;
+            if (cc < 0 || cc >= cols) continue;
+            const dx = dc * fineW;
+            if (dx * dx + dy * dy > px2) continue;
+            const t = rr * cols + cc;
+            const owner = fine[t]!;
+            if (owner === baseId || owner === -1) fine[t] = g.id;
+          }
+        }
+      }
+    }
+    // OVERLAY onto the output map: an output cell whose K×K fine block holds
+    // ANY contour-group subcells goes to the contour group with the most
+    // (coverage-aware claims — the anti-theft guarantee and the tightest
+    // ground the map can express), but only over base-layer/unclaimed/its own
+    // cells — a cell another detail group won point-sampled stays theirs.
+    const contourIds = new Set<number>();
+    for (const g of groups) if (g.occlusionContourPx !== undefined) contourIds.add(g.id);
+    const votes = new Map<number, number>();
+    for (let r = 0; r < outRowsEff; r++) {
+      for (let c = 0; c < outColsEff; c++) {
+        votes.clear();
+        for (let sr = 0; sr < contourK; sr++) {
+          const base = (r * contourK + sr) * cols + c * contourK;
+          for (let sc = 0; sc < contourK; sc++) {
+            const owner = fine[base + sc]!;
+            if (contourIds.has(owner)) votes.set(owner, (votes.get(owner) ?? 0) + 1);
+          }
+        }
+        let winner: number | undefined;
+        let best = 0;
+        for (const [id, n] of votes) if (n > best) { best = n; winner = id; }
+        if (winner === undefined) continue;
+        const idx = r * outColsEff + c;
+        const cur = outMap[idx]!;
+        if (cur === baseId || cur === -1 || contourIds.has(cur)) outMap[idx] = winner;
       }
     }
   }
-  return idMap;
+  return outMap;
+}
+
+/**
+ * Per-triangle texture context for `fillDepthTri`'s alpha-aware occlusion
+ * claim (see `computeOcclusionIds`). `qa/qb/qc` are the projected vertices'
+ * perspective factors (`project()[3]`, 1 under ortho) so UVs interpolate
+ * perspective-correct exactly as `scanFillTriangle` interpolates its own.
+ */
+interface DepthTexCtx {
+  sampler: TextureSampler;
+  ua: number; va: number;
+  ub: number; vb: number;
+  uc: number; vc: number;
+  qa: number; qb: number; qc: number;
+}
+
+/**
+ * Whether a decoded texture contains ANY texel that fails the coverage test
+ * (`a <= TEXEL_COVERAGE_ALPHA_MIN`). Computed once per sampler and cached —
+ * sprite sheets with transparent margins exit on their first margin texel,
+ * fully opaque textures pay one full scan and then never sample per-cell in
+ * the id-map pass at all.
+ */
+const samplerTransparencyCache = new WeakMap<TextureSampler, boolean>();
+function samplerHasTransparency(sampler: TextureSampler): boolean {
+  let has = samplerTransparencyCache.get(sampler);
+  if (has === undefined) {
+    has = false;
+    const data = sampler.data;
+    const n = sampler.width * sampler.height * 4;
+    for (let i = 3; i < n; i += 4) {
+      if ((data[i] ?? 255) <= TEXEL_COVERAGE_ALPHA_MIN) { has = true; break; }
+    }
+    samplerTransparencyCache.set(sampler, has);
+  }
+  return has;
 }
 
 function fillDepthTri(
@@ -145,6 +345,8 @@ function fillDepthTri(
   b: [number, number, number, number?],
   c: [number, number, number, number?],
   depth: Float64Array, idMap: Int32Array, id: number, W: number, H: number,
+  priority: Int32Array | null = null, pri = 0,
+  tex: DepthTexCtx | null = null,
 ): void {
   const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
   if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
@@ -165,7 +367,47 @@ function fillDepthTri(
       if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
       const z = w0 * z0 + w1 * z1 + w2 * z2;
       const idx = y * W + x;
-      if (z > depth[idx]!) { depth[idx] = z; idMap[idx] = id; }
+      // Would this triangle claim the cell? Decide first, sample after — so
+      // the texture is only ever sampled for cells that would actually flip.
+      let wins: boolean;
+      if (priority) {
+        // Priority classes trump depth (see `computeOcclusionIds`): a higher
+        // class claims the cell outright; depth breaks ties within a class.
+        // The empty-cell clause is load-bearing, not a shortcut: the priority
+        // buffer zero-initializes, so an unclaimed cell reads class 0 and a
+        // NEGATIVE class would lose to a competitor that isn't there — the
+        // group would claim nothing at all, even where no other group covers.
+        const cp = priority[idx]!;
+        wins = idMap[idx] === -1 || pri > cp || (pri === cp && z > depth[idx]!);
+      } else {
+        wins = z > depth[idx]!;
+      }
+      if (!wins) continue;
+      if (tex !== null) {
+        // Alpha-aware claim: a transparent texel does not cover this cell, so
+        // it must not occlude the layer beneath (mirrors `scanFillTriangle`'s
+        // pre-depth-write coverage test). Sample at the PAINT rasterizer's
+        // sample point — integer (x, y), not this loop's (x+0.5, y+0.5)
+        // inside-test point — with fresh barycentric weights, so the id-map's
+        // claimed set and the paint path's covered set read the same texel
+        // for the same cell. Perspective-correct via q, affine under ortho.
+        const tw0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) * inv;
+        const tw1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) * inv;
+        const tw2 = 1 - tw0 - tw1;
+        let tu: number, tv: number;
+        if (tex.qa !== 1 || tex.qb !== 1 || tex.qc !== 1) {
+          const invQ = 1 / (tw0 * tex.qa + tw1 * tex.qb + tw2 * tex.qc);
+          tu = (tw0 * tex.qa * tex.ua + tw1 * tex.qb * tex.ub + tw2 * tex.qc * tex.uc) * invQ;
+          tv = (tw0 * tex.qa * tex.va + tw1 * tex.qb * tex.vb + tw2 * tex.qc * tex.vc) * invQ;
+        } else {
+          tu = tw0 * tex.ua + tw1 * tex.ub + tw2 * tex.uc;
+          tv = tw0 * tex.va + tw1 * tex.vb + tw2 * tex.vc;
+        }
+        const texel = sampleTexel(tex.sampler, tu, tv);
+        if (texel === null || texel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
+      }
+      depth[idx] = z; idMap[idx] = id;
+      if (priority) priority[idx] = pri;
     }
   }
 }
@@ -532,10 +774,11 @@ const wireframePaletteAtlasEncodableCache = new Map<string, boolean>();
  * exactly as atlas-encodable as before — see AGENTS.md's `colorEncoding`
  * section.
  *
- * Memoized per (palette name, junctions) pair against the real
- * {@link GLYPH_FONT_ATLAS} — both are page-scoped configuration, not
- * per-frame state, and the checked-in atlas never changes at runtime. A
- * caller passing a non-default `atlas` (tests only) bypasses the cache so a
+ * Memoized per (atlas family, palette name, junctions) against the two
+ * checked-in atlases ({@link GLYPH_FONT_ATLAS} and
+ * {@link GLYPH_FONT_ATLAS_ASCII}) — all page-scoped configuration, not
+ * per-frame state, and neither checked-in atlas changes at runtime. A
+ * caller passing any other `atlas` (tests only) bypasses the cache so a
  * fixture atlas can never poison it.
  */
 function isWireframePaletteAtlasEncodable(
@@ -544,10 +787,11 @@ function isWireframePaletteAtlasEncodable(
   wireframeJunctions: boolean,
   atlas: GlyphFontAtlas,
 ): boolean {
-  const cacheable = atlas === GLYPH_FONT_ATLAS;
-  // "\n" can't appear in a `glyphPalette` name (a plain identifier string),
-  // so it's a safe join separator for the (name, junctions) composite key.
-  const cacheKey = cacheable ? `${paletteName}\n${wireframeJunctions ? 1 : 0}` : "";
+  const cacheable = atlas === GLYPH_FONT_ATLAS || atlas === GLYPH_FONT_ATLAS_ASCII;
+  // "\n" can't appear in a `glyphPalette` name (a plain identifier string) or
+  // a font family, so it's a safe join separator for the (atlas family, name,
+  // junctions) composite key.
+  const cacheKey = cacheable ? `${atlas.family}\n${paletteName}\n${wireframeJunctions ? 1 : 0}` : "";
   if (cacheable) {
     const cached = wireframePaletteAtlasEncodableCache.get(cacheKey);
     if (cached !== undefined) return cached;
@@ -1844,6 +2088,10 @@ function rasterizeSolid(
   const occ = scene.occlusion;
   if (occ) {
     const idm = occ.idMap, ocols = occ.cols, orows = occ.rows, myId = occ.layerId;
+    // `foreignOnly` layers (transparent detail meshes under a foreign occluder)
+    // blank ONLY where the foreign scene's opaque output covers — they keep
+    // ignoring every local layer, exactly as `transparent` promises.
+    const foreignOnly = occ.foreignOnly === true;
     const invSS = supersample > 1 ? 1 / supersample : 1;
     for (let r = 0; r < rows; r++) {
       const refRow = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
@@ -1857,8 +2105,9 @@ function rasterizeSolid(
         if (refCol < 0 || refCol >= ocols) continue;
         const owner = idm[refRowBase + refCol]!;
         // A different layer is nearest here → this cell is occluded. Owner === myId
-        // (or empty) → keep; a layer never occludes itself.
-        if (owner !== -1 && owner !== myId) {
+        // (or empty) → keep; a layer never occludes itself. `foreignOnly` layers
+        // blank solely under the foreign occluder's stamp.
+        if (foreignOnly ? owner === GLYPH_FOREIGN_OCCLUDER_ID : (owner !== -1 && owner !== myId)) {
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
           if (shadeBuf) shadeBuf[idx] = NaN;
@@ -2648,6 +2897,9 @@ interface ScanFillShadowCtx {
 }
 
 /** Per-cell texture sampling context for one triangle (see {@link RasterizeContext.textureSamplers}). */
+/** Below this alpha a texel is treated as not covering its cell at all. */
+const TEXEL_COVERAGE_ALPHA_MIN = 8;
+
 interface ScanFillTexCtx {
   sampler: TextureSampler;
   ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
@@ -2906,6 +3158,26 @@ function scanFillTriangle(
       // stacking, instead of z-fighting per-cell as the camera moves. Only the
       // perspective zbuf (>0) gets the deadband; the empty cell (−Infinity) and
       // ortho (≤0) fall through to the plain `>` test.
+      // A fully TRANSPARENT texel does not cover this cell, so it must not win
+      // the depth test. Sampling after the depth write and then declining to use
+      // the texel leaves the cell claimed and painted with the polygon's flat
+      // base colour — which is why a sprite's transparent margin rendered as a
+      // solid block behind the art instead of showing what was behind it.
+      // Sampling here costs a lookup on cells that go on to lose the depth test;
+      // that is the price of getting coverage right, and it is paid only by
+      // textured polygons.
+      let cellTexel: ReturnType<typeof sampleTexel> = null;
+      if (tex !== null) {
+        const tq = perspectiveAttributes ? 1 / (wA * aq + wB * bq + wC * cq) : invArea2;
+        const tu = perspectiveAttributes
+          ? (wA * aq * tex.ua + wB * bq * tex.ub + wC * cq * tex.uc) * tq
+          : (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
+        const tv = perspectiveAttributes
+          ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * tq
+          : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
+        cellTexel = sampleTexel(tex.sampler, tu, tv);
+        if (cellTexel === null || cellTexel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
+      }
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
         if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
@@ -3001,8 +3273,8 @@ function scanFillTriangle(
           const v = perspectiveAttributes
             ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * invQ
             : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
-          const texel = sampleTexel(tex.sampler, u, v);
-          if (texel !== null && texel.a > 8) {
+          const texel = cellTexel;   // sampled before the depth test, see above
+          if (texel !== null && texel.a > TEXEL_COVERAGE_ALPHA_MIN) {
             const base = hexToRgb(flatBaseColor);
             sourceRgb = [(texel.r * base[0] / 255) | 0, (texel.g * base[1] / 255) | 0, (texel.b * base[2] / 255) | 0];
             let r = (sourceRgb[0] * tex.tintR) | 0; if (r > 255) r = 255;
@@ -3422,17 +3694,18 @@ function solidBufToString(
     // to gate on, so this is trivially satisfied and the REALIZED check below
     // decides — with `atlasGlyphFallback` giving that case hysteresis instead
     // (see `createGlyphScene`'s per-scene out-of-atlas-glyph stickiness).
+    const fontAtlas = scene.fontAtlas;
     const potentialOk = wireframeGlyphs === undefined
-      || isWireframePaletteAtlasEncodable(wireframeGlyphs, scene.glyphPalette, scene.wireframeJunctions, GLYPH_FONT_ATLAS);
+      || isWireframePaletteAtlasEncodable(wireframeGlyphs, scene.glyphPalette, scene.wireframeJunctions, fontAtlas);
     if (!potentialOk) {
       scene.atlasGlyphFallback = true;
-    } else if (isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows)) {
+    } else if (isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, undefined, fontAtlas)) {
       const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
-      if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
+      if (palette && palette.length > 0 && palette.length <= fontAtlas.maxPaletteSize) {
         scene.atlasEncoded = true;
-        return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette);
+        return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette, fontAtlas);
       }
-    } else if (hasGlyphOutsideFontAtlas(glyphBuf, cols, rows)) {
+    } else if (hasGlyphOutsideFontAtlas(glyphBuf, cols, rows, fontAtlas)) {
       scene.atlasGlyphFallback = true;
     }
   }
@@ -3974,7 +4247,7 @@ function stampToGlyphs(
     // realized (random-drawn) buffer — see `isWireframePaletteAtlasEncodable`.
     // A partially-covered tier is deterministically unencodable regardless of
     // what this frame happens to roll, so there is nothing to build.
-    if (!isWireframePaletteAtlasEncodable(glyphs, scene.glyphPalette, scene.wireframeJunctions, GLYPH_FONT_ATLAS)) {
+    if (!isWireframePaletteAtlasEncodable(glyphs, scene.glyphPalette, scene.wireframeJunctions, scene.fontAtlas)) {
       scene.atlasGlyphFallback = true;
     } else {
       const n = cols * rows;
@@ -3999,11 +4272,11 @@ function stampToGlyphs(
       // per-cell color) — every glyph this frame could have drawn already
       // passed the potential-set gate above — so it is never a reason to
       // latch `atlasGlyphFallback`.
-      if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows)) {
+      if (isGlyphAtlasEncodable(atlasChar, atlasColor, cols, rows, undefined, scene.fontAtlas)) {
         const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
-        if (palette && palette.length > 0 && palette.length <= GLYPH_FONT_ATLAS.maxPaletteSize) {
+        if (palette && palette.length > 0 && palette.length <= scene.fontAtlas.maxPaletteSize) {
           scene.atlasEncoded = true;
-          return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette);
+          return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette, scene.fontAtlas);
         }
       }
     }

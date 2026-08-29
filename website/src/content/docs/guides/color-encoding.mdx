@@ -1,0 +1,429 @@
+---
+title: Color Encoding
+description: Render colored output as one text node with zero spans, using glyphcss's checked-in COLR/CPAL glyph atlas.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Colored output is normally emitted as `<span style="color:…">` runs — one span
+per color run, often thousands per frame. Span count, not cell count, is what
+gates frame rate for a busy colored scene: the browser's parse-HTML, style and
+paint work over a large `<pre>` costs more than the render pass that produced
+it. [`colorTolerance`](/guides/performance/#spans-not-just-cells-colortolerance)
+attacks that by *merging* runs.
+
+**`colorEncoding: "atlas"` removes them entirely.** Instead of describing color
+in markup, it encodes each `(glyph, color)` pair as a single character against a
+checked-in COLR/CPAL color font, so the whole render is one plain text node with
+no elements inside it at all. Measured on the original spike: **2.7–9.4× FPS**
+and **20,948 DOM nodes → 9** at equal visual output — and rasterization got
+*cheaper*, not dearer, despite there being more distinct glyphs to draw.
+
+## How the encoding works
+
+The atlas font declares every glyph once per palette slot, in the Basic
+Multilingual Plane's Private Use Area. One code point therefore names both
+things a cell needs:
+
+```
+codePoint = puaStart + paletteSlot × glyphCount + glyphIndex
+```
+
+The load-bearing detail is `paletteSlot`: a code point encodes a color's
+**position** in the palette, never its value. Nothing in the text says
+`#4488ff`. That lives in a `@font-palette-values` block whose `override-colors`
+maps slot → color, so redefining what slot `7` resolves to recolors the entire
+render (~0.4 ms, measured) without re-encoding a single cell. Blank cells stay a
+literal space, and carry no color at all.
+
+Everything else about the render is unchanged — same geometry pass, same depth
+test, same one-write-per-`<pre>` rule. Only the final encode step differs.
+
+## Turning it on
+
+Set `colorEncoding` to `"atlas"`. The `@font-face`, the per-scene
+`@font-palette-values` block, and the `<pre>`'s `font-family` / `font-palette`
+are all wired for you.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphCamera, GlyphScene, GlyphMesh } from "@glyphcss/react";
+
+export function Demo() {
+  return (
+    <GlyphCamera rotX={62} rotY={30}>
+      <GlyphScene mode="solid" autoSize colorEncoding="atlas">
+        <GlyphMesh geometry="icosahedron" color="#4488ff" />
+      </GlyphScene>
+    </GlyphCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphCamera :rot-x="62" :rot-y="30">
+    <GlyphScene mode="solid" auto-size color-encoding="atlas">
+      <GlyphMesh geometry="icosahedron" color="#4488ff" />
+    </GlyphScene>
+  </GlyphCamera>
+</template>
+
+<script setup lang="ts">
+import { GlyphCamera, GlyphScene, GlyphMesh } from "@glyphcss/vue";
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphCamera, createGlyphScene, resolveGeometry } from "glyphcss";
+
+const camera = createGlyphCamera({ rotX: 62, rotY: 30 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  autoSize: true,
+  colorEncoding: "atlas",
+});
+
+scene.add(resolveGeometry("icosahedron", { size: 1, color: "#4488ff" }));
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-camera rot-x="62" rot-y="30">
+  <glyph-scene mode="solid" auto-size color-encoding="atlas">
+    <glyph-mesh geometry="icosahedron" color="#4488ff"></glyph-mesh>
+  </glyph-scene>
+</glyph-camera>
+```
+
+  </TabItem>
+</Tabs>
+
+The default stays `"spans"`, and a scene that never asks for the atlas is
+byte-identical to one written before the option existed — it injects no CSS,
+allocates no palette, and never downloads the font.
+
+## The palette: `atlasPalette`
+
+A palette has far fewer slots than a shaded render has colors, so something has
+to reduce one to the other. **`atlasPalette` is optional, and omitting it is the
+normal case:** the scene then derives its own palette by median-cut
+quantization, pooling the colors of the frames it has actually rendered and
+refreshing when both a time gate (250 ms) and a drift gate pass. Cells whose
+color has no exact slot encode to the nearest one by redmean distance, so a
+render with hundreds of Lambert-shaded colors is reduced to fit rather than
+refused.
+
+That reduction is measured, not assumed (`bench/color-font-atlas-quantize.md`).
+A Lambert ramp is close to one-dimensional in color space and quantizes better
+than the `colorTolerance: 32` merge the site already ships; a photograph
+sampled onto a quad is the genuinely hard case, where a small fraction of cells
+land visibly off. If your scene is a photo, measure before switching.
+
+Supply an array only to **pin** the palette — a fixed brand ramp, or a
+reproducible build-time bake. It must be ordered `#rrggbb` strings, at least one
+and at most the atlas's slot count; positions are what the encoding references,
+so reordering it changes every code point.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+const brand = ["#0b0e14", "#1d2433", "#3d5a80", "#98c1d9", "#e0fbfc"];
+
+<GlyphScene mode="solid" colorEncoding="atlas" atlasPalette={brand} />
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<GlyphScene mode="solid" color-encoding="atlas" :atlas-palette="brand" />
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+scene.setOptions({ colorEncoding: "atlas", atlasPalette: brand });
+scene.setOptions({ atlasPalette: undefined }); // back to the pooled palette
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<!-- A JS property, not an attribute — a color array doesn't round-trip
+     through a string attribute. Assigning it applies to the live scene. -->
+<glyph-camera rot-x="62" rot-y="30">
+  <glyph-scene id="s" mode="solid" color-encoding="atlas"></glyph-scene>
+</glyph-camera>
+<script type="module">
+  document.querySelector("#s").atlasPalette = brand;
+</script>
+```
+
+  </TabItem>
+</Tabs>
+
+## Choosing an atlas: `fontAtlas`
+
+The Private Use Area is 6,400 code points, and every glyph in the atlas costs
+one of them *per palette slot*. Glyph coverage and color resolution therefore
+trade directly against each other, and glyphcss ships two atlases at two points
+on that curve:
+
+| Atlas | Glyphs | Palette slots | Covers |
+|---|---|---|---|
+| `GLYPH_FONT_ATLAS` (default) | 212 | 30 | Printable ASCII, the 24 Greek capitals, the solid ramp of **every** named `glyphPalette`, the `default` / `ascii` wireframe line tiers, `ink` mode's 10 oriented glyphs, and the 11 `wireframeJunctions` box-drawing glyphs |
+| `GLYPH_FONT_ATLAS_ASCII` | 94 | 68 | Printable ASCII, and nothing else |
+
+`6400 ÷ 212 = 30` against `6400 ÷ 94 = 68`. A scene that only ever draws ASCII
+— a `detail`, `dense`, `default`, `ascii` or `hex` solid ramp, say — never
+touches the universal set's Greek/braille/box-drawing axis, and 2.3× the slots
+is where quantization error actually goes down. A scene using `ink` mode,
+`wireframeJunctions`, or a non-ASCII solid ramp needs the universal atlas.
+
+Neither atlas lists the space character, and neither needs to: a blank cell is
+written as a literal `U+0020`, carrying no color and costing no slot.
+
+Both are plain manifest objects re-exported from `glyphcss`, `@glyphcss/react`
+and `@glyphcss/vue`. **`fontAtlas` is fixed at scene creation** — the scene's
+`<pre>` elements, its font-readiness probe and its palette CSS are all pinned to
+one family for its lifetime, so `setOptions` is inert for it and a later prop
+change is deliberately not forwarded. Remount the scene to switch atlases.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphScene, GLYPH_FONT_ATLAS_ASCII } from "@glyphcss/react";
+
+{/* read at mount only — remount to change it */}
+<GlyphScene mode="solid" colorEncoding="atlas" fontAtlas={GLYPH_FONT_ATLAS_ASCII} />
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphScene mode="solid" color-encoding="atlas" :font-atlas="asciiAtlas" />
+</template>
+
+<script setup lang="ts">
+import { GlyphScene, GLYPH_FONT_ATLAS_ASCII as asciiAtlas } from "@glyphcss/vue";
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphScene, GLYPH_FONT_ATLAS_ASCII } from "glyphcss";
+
+const scene = createGlyphScene(host, {
+  camera,
+  mode: "solid",
+  colorEncoding: "atlas",
+  fontAtlas: GLYPH_FONT_ATLAS_ASCII,
+});
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-camera id="cam" rot-x="62" rot-y="30"></glyph-camera>
+
+<script type="module">
+  import "https://esm.sh/glyphcss/elements";
+  import { GLYPH_FONT_ATLAS_ASCII } from "https://esm.sh/glyphcss";
+
+  // A JS property, not an attribute — and it is read when the element
+  // connects, so build the element and set it before inserting it.
+  const scene = document.createElement("glyph-scene");
+  scene.setAttribute("mode", "solid");
+  scene.setAttribute("color-encoding", "atlas");
+  scene.fontAtlas = GLYPH_FONT_ATLAS_ASCII;
+  document.querySelector("#cam").appendChild(scene);
+</script>
+```
+
+  </TabItem>
+</Tabs>
+
+## When it falls back to spans
+
+The atlas either encodes the **entire** render or none of it. A mixed encoding
+would still need spans for whatever fell outside the atlas, which defeats the
+point — so this is always a whole-scene decision, never a per-cell one, and the
+`<pre>`'s font stack follows the encoding that frame actually produced rather
+than the option you set. A fallback frame is never left painting in the atlas
+face.
+
+**Transient — it re-enables itself:**
+
+- **The font hasn't arrived yet.** The ~49 KB WOFF2 is a lazily imported chunk,
+  so a scene created with `colorEncoding: "atlas"` renders spans for its first
+  frame or two and re-renders itself once the face is decoded. This is why a
+  `"spans"` consumer never pays for the payload at all.
+- **A non-blank cell with no usable `#rrggbb` color.** Nothing to assign a slot
+  to. Not a configuration problem, so it doesn't stick.
+
+**Sticky for the session or the scene:**
+
+- **The engine can't do it.** glyphcss requires `CSS.supports("font-palette",
+  "--x")` — the custom-ident form specifically, since `font-palette: normal |
+  light | dark` would leave every cell in the font's baked hue ramp — and then
+  rasterizes one atlas code point to a canvas and requires a *chromatic* pixel,
+  because an engine that decodes the face but ignores COLR would otherwise paint
+  a blank grid. Either check failing warns once and pins that document to spans.
+- **A glyph outside the chosen atlas.** Once any output of a scene falls back
+  for a glyph reason, that scene stays on spans until a `setOptions` call touches
+  `colorEncoding`, `atlasPalette`, `mode` or `charMode`. The latch exists for
+  content glyphcss cannot see in advance — an animated effect layer's data-driven
+  ramp, or a `transformCells` hook — whose realized glyph set varies frame to
+  frame and would otherwise make the encoding flicker. `charMode: "braille"`
+  lands here too: its 256 dot patterns are outside both atlases by design.
+
+**Permanent no-ops** — cases where a span-per-cell representation is
+structurally required, and the option is simply ignored:
+
+| Setting | Why |
+|---|---|
+| `charMode: "halfblock"` / `"quadrant"` | Two colors per cell; the atlas encodes one |
+| `solidWeightRamp` actively selecting a weight | COLR/CPAL carries color, not `font-weight` |
+| `glyphOutput: "semantic"` | Semantic output ignores every presentation option |
+| `useColors: false` | No color axis to encode |
+
+One wrinkle worth knowing in **wireframe** mode: each cell draws a random glyph
+from its line-weight tier, so gating on the frame's realized glyphs would make
+eligibility flip frame to frame. The decision is made instead from the palette's
+*potential* glyph set, derived from configuration alone. Under the universal
+atlas that means the `blocks`, `stars`, `arrows`, `braille`, `runes` and `math`
+palettes render spans deterministically in wireframe — every one of them has a
+line-tier glyph outside the atlas — while their **solid** ramps encode fine.
+
+## Copy, paste, and find-in-page
+
+**Find-in-page does not work under `"atlas"`.** The text in the DOM is Private
+Use Area code points, not the glyphs on screen, so the browser's own search has
+nothing to match. This is an accepted trade, not something worked around.
+
+Copy and paste do work, but only through a decode step, and the decoder has to
+know which atlas produced the text: both variants start at `U+E000` with
+different glyph counts, so the same code point means different things in each.
+The `font-family` glyphcss pins on each `<pre>` is that key — per element, so a
+selection spanning two scenes on different atlases still decodes correctly.
+
+```ts
+import { decodeGlyphAtlasText, glyphAtlasForFamily, GLYPH_FONT_ATLAS } from "glyphcss";
+
+function readAscii(pre: HTMLPreElement): string {
+  const atlas = glyphAtlasForFamily(pre.style.fontFamily) ?? GLYPH_FONT_ATLAS;
+  return decodeGlyphAtlasText(pre.textContent ?? "", atlas);
+}
+```
+
+`decodeGlyphAtlasText` passes non-atlas characters through untouched, so it is
+safe to run unconditionally over any `<pre>` — it is a no-op on ordinary
+`"spans"` output. Colors are dropped; recovering them means resolving each
+cell's slot through the scene's own `@font-palette-values` block.
+
+## Static and compiled output
+
+`compileScene` and `GlyphSceneStatic` accept all three options — they are pure
+functions of geometry and camera, so a build-time bake reproduces the runtime
+render exactly. Two differences matter:
+
+1. **`atlasPalette` is required there.** The pooled quantizer belongs to a live
+   scene; with no palette to encode against, a compiled `"atlas"` render quietly
+   degrades to spans.
+2. **They inject no CSS.** Being DOM-less, they have no document to inject into,
+   so the embedder supplies the `@font-face` and `@font-palette-values` itself —
+   with the *same* atlas passed to all three calls, or the output resolves its
+   code points against the wrong glyph modulus.
+
+```ts
+import {
+  compileScene,
+  loadGlyphAtlasFontFaceCss,
+  buildGlyphAtlasFontPaletteValuesCss,
+  GLYPH_FONT_ATLAS_ASCII as atlas,
+} from "glyphcss";
+
+const palette = ["#0b0e14", "#3d5a80", "#98c1d9", "#e0fbfc"];
+
+const { html } = compileScene({
+  polygons,
+  camera,
+  mode: "solid",
+  cols: 120,
+  rows: 40,
+  colorEncoding: "atlas",
+  atlasPalette: palette,
+  fontAtlas: atlas,
+});
+
+const css = [
+  await loadGlyphAtlasFontFaceCss(atlas),
+  buildGlyphAtlasFontPaletteValuesCss("--brand", palette, atlas),
+  `.glyph-output{font-family:"${atlas.family}",monospace;font-palette:--brand}`,
+].join("\n");
+```
+
+`loadGlyphAtlasFontFaceCss` inlines the WOFF2 as a `data:` URI, so the result is
+self-contained with no extra font request. Unlike the runtime path it **rejects**
+when the payload is unavailable: an export that shipped a `@font-face` with an
+empty `src` would look correct in review and render tofu in the browser.
+
+The frame-roll, interactive/CodePen and static-effect exporters do not carry
+these options yet.
+
+## Reference
+
+| Option | Type | Default | Effect |
+|---|---|---|---|
+| `colorEncoding` | `"spans" \| "atlas"` | `"spans"` | `"atlas"` encodes `(glyph, color)` as PUA code points against the color font — one text node, zero `<span>`s. `"spans"` is the byte-identical default. |
+| `atlasPalette` | `readonly string[]` | — | Pin the ordered `#rrggbb` palette slots encode against. Omitted, the scene derives and pools one itself. Max = the atlas's slot count. |
+| `fontAtlas` | `GlyphFontAtlas` | `GLYPH_FONT_ATLAS` | Which atlas to encode against. **Fixed at scene creation.** |
+
+Supporting exports from `glyphcss`:
+
+| Export | Purpose |
+|---|---|
+| `GLYPH_FONT_ATLAS` / `GLYPH_FONT_ATLAS_ASCII` | The two shipped atlas manifests (also re-exported from `@glyphcss/react` and `@glyphcss/vue`) |
+| `glyphAtlasForFamily(fontFamily)` | Which atlas a `<pre>`'s font stack names — the decoder's key |
+| `decodeGlyphAtlasText(text, atlas?)` | PUA text → plain glyphs; passes anything else through |
+| `decodeGlyphAtlasCodePoint(cp, atlas?)` | One code point → `{ glyph, paletteSlot }` |
+| `glyphAtlasCodePoint(glyph, slot, atlas?)` | The forward mapping |
+| `loadGlyphAtlasFontFaceCss(atlas?)` | `@font-face` text with the WOFF2 inlined; rejects if unavailable |
+| `buildGlyphAtlasFontPaletteValuesCss(name, colors, atlas?)` | `@font-palette-values` text for a slot → color mapping |
+| `glyphAtlasFontLoadState(atlas?)` | `"idle" \| "loading" \| "ready" \| "failed"` for the lazy payload |
+
+## Notes & limits
+
+- **Browser-only for the automatic wiring.** `createGlyphScene` (and therefore
+  React, Vue and `<glyph-scene>`) injects and manages the CSS; the static path
+  does not — see above.
+- **The `@font-face` is document-global; the palette block is per scene.** Ten
+  atlas scenes on one page share one font injection and one payload download,
+  each with its own `@font-palette-values` ident. `scene.destroy()` removes the
+  scene's own block.
+- **Composes with `colorTolerance`, but there is nothing to gain.** Merging runs
+  only matters for markup the atlas has already eliminated.
+- **It does not reduce cell count.** Everything in
+  [Performance](/guides/performance) about grid cells still applies — the atlas
+  removes the DOM cost of color, not the cost of shading a big grid.

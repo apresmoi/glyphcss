@@ -43,7 +43,7 @@
  *      A box's representative is its weighted mean, and once every box has
  *      one, a colour near a box boundary is frequently closer to the
  *      NEIGHBOURING representative than to its own. Nearest assignment is
- *      never worse than box membership and is cheap (≤31 candidates,
+ *      never worse than box membership and is cheap (one pass over the palette,
  *      memoized per distinct colour string).
  *
  * When a frame has no more distinct colours than the atlas has slots, the
@@ -88,7 +88,7 @@
  *     already scored on the window it was BUILT from. Measuring against that
  *     baseline rather than against zero is what keeps a static render at
  *     exactly one repool (the bootstrap) however long it runs, INCLUDING a
- *     scene whose colour count 31 slots can never fully cover — a photo always
+ *     scene whose colour count the slot budget can never fully cover — a photo always
  *     leaves some cells far from every slot, and reading that irreducible
  *     floor as staleness repooled a motionless `/examples/image` ten times in
  *     three seconds before this was measured. Skipping the repool is then safe
@@ -431,6 +431,13 @@ export function resolveGlyphAtlasPaletteInput(
 }
 
 export interface GlyphAtlasPaletteQuantizerOptions {
+  /**
+   * The font atlas whose `maxPaletteSize` bounds this quantizer. Defaults to
+   * the universal {@link GLYPH_FONT_ATLAS}; a scene rendering against another
+   * variant (e.g. the ASCII atlas with its larger slot budget) passes its own
+   * so the pooled palette can actually use those slots.
+   */
+  atlas?: GlyphFontAtlas;
   /** Slot budget. Defaults to the atlas's own `maxPaletteSize`. */
   maxSize?: number;
   /**
@@ -454,7 +461,7 @@ export interface GlyphAtlasPaletteQuantizerOptions {
    * even consulted. Default `0.002` — the 0.2% over-tolerance rate
    * `bench/color-font-atlas.md` §3 measured for a pooled N=32 palette and
    * judged acceptable. Measured against the baseline rather than against zero
-   * so a palette that is already as good as 31 slots allows is not repooled
+   * so a palette that is already as good as the slot budget allows is not repooled
    * forever — see `repool`.
    */
   driftFraction?: number;
@@ -498,7 +505,7 @@ export interface GlyphAtlasPaletteQuantizer extends GlyphAtlasPaletteSource {
 export function createGlyphAtlasPaletteQuantizer(
   options: GlyphAtlasPaletteQuantizerOptions = {},
 ): GlyphAtlasPaletteQuantizer {
-  const atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS;
+  const atlas: GlyphFontAtlas = options.atlas ?? GLYPH_FONT_ATLAS;
   const maxSize = Math.max(1, Math.min(options.maxSize ?? atlas.maxPaletteSize, atlas.maxPaletteSize));
   const refreshMs = Math.max(250, options.refreshMs ?? 250);
   const driftThreshold = options.driftThreshold ?? 32;
@@ -532,7 +539,7 @@ export function createGlyphAtlasPaletteQuantizer(
     hexPalette = packedPalette.map(unpackHexColor);
 
     // Measure the new palette against its own training window. A render with
-    // thousands of distinct colours (a photo) cannot be covered by 31 slots at
+    // thousands of distinct colours (a photo) cannot be covered by 30 slots at
     // ANY threshold — some fixed fraction of its cells is always further than
     // `driftThreshold` from the nearest slot, no matter how good the palette
     // is. Comparing live drift against zero would therefore read that
