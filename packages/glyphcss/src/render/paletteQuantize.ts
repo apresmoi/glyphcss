@@ -431,6 +431,13 @@ export function resolveGlyphAtlasPaletteInput(
 }
 
 export interface GlyphAtlasPaletteQuantizerOptions {
+  /**
+   * The font atlas whose `maxPaletteSize` bounds this quantizer. Defaults to
+   * the universal {@link GLYPH_FONT_ATLAS}; a scene rendering against another
+   * variant (e.g. the ASCII atlas with its larger slot budget) passes its own
+   * so the pooled palette can actually use those slots.
+   */
+  atlas?: GlyphFontAtlas;
   /** Slot budget. Defaults to the atlas's own `maxPaletteSize`. */
   maxSize?: number;
   /**
@@ -498,7 +505,7 @@ export interface GlyphAtlasPaletteQuantizer extends GlyphAtlasPaletteSource {
 export function createGlyphAtlasPaletteQuantizer(
   options: GlyphAtlasPaletteQuantizerOptions = {},
 ): GlyphAtlasPaletteQuantizer {
-  const atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS;
+  const atlas: GlyphFontAtlas = options.atlas ?? GLYPH_FONT_ATLAS;
   const maxSize = Math.max(1, Math.min(options.maxSize ?? atlas.maxPaletteSize, atlas.maxPaletteSize));
   const refreshMs = Math.max(250, options.refreshMs ?? 250);
   const driftThreshold = options.driftThreshold ?? 32;

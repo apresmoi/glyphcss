@@ -3,7 +3,7 @@
  * Provides minimal positioning and monospace rendering for the ASCII output.
  * Full terminal aesthetic CSS lands in Phase 5.
  */
-import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontFaceCss, glyphAtlasFontPayload, loadGlyphAtlasFontPayload } from "../render/fontAtlas";
+import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontFaceCss, glyphAtlasFontPayload, loadGlyphAtlasFontPayload, type GlyphFontAtlas } from "../render/fontAtlas";
 
 const GLYPH_STYLE_ID = "glyph-styles";
 
@@ -27,7 +27,21 @@ export function injectGlyphBaseStyles(doc?: Document): void {
  */
 const GLYPH_ATLAS_FONT_FACE_STYLE_ID = "glyph-atlas-font-face";
 
-let atlasFontReady = new WeakMap<Document, Promise<boolean>>();
+/**
+ * `<style>` id for one atlas variant's `@font-face` in a document. The
+ * universal atlas keeps the historical id verbatim (tests and tooling key on
+ * it); any other variant appends its own family, so two variants coexisting
+ * in one document inject two independent styles.
+ */
+function atlasFontFaceStyleId(atlas: GlyphFontAtlas): string {
+  return atlas.family === GLYPH_FONT_ATLAS.family
+    ? GLYPH_ATLAS_FONT_FACE_STYLE_ID
+    : `${GLYPH_ATLAS_FONT_FACE_STYLE_ID}--${atlas.family}`;
+}
+
+// Readiness promise per (document, atlas family) — each variant loads its own
+// payload and probes its own family, so their outcomes are independent.
+let atlasFontReady = new WeakMap<Document, Map<string, Promise<boolean>>>();
 
 /**
  * Drop the per-document readiness cache. Test-only seam — not exported from
@@ -73,7 +87,7 @@ const ATLAS_PROBE_CHROMA = 24;
  * the website's own synchronous `CSS.supports` gate decides the DEFAULT, and
  * this is the safety net under it.
  */
-function atlasColrPaints(target: Document): boolean {
+function atlasColrPaints(target: Document, atlas: GlyphFontAtlas): boolean {
   const canvas = target.createElement("canvas");
   canvas.width = ATLAS_PROBE_PX;
   canvas.height = ATLAS_PROBE_PX;
@@ -83,10 +97,10 @@ function atlasColrPaints(target: Document): boolean {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, ATLAS_PROBE_PX, ATLAS_PROBE_PX);
   ctx.fillStyle = "#000000";
-  ctx.font = `${ATLAS_PROBE_PX}px "${GLYPH_FONT_ATLAS.family}"`;
+  ctx.font = `${ATLAS_PROBE_PX}px "${atlas.family}"`;
   ctx.textBaseline = "alphabetic";
-  const glyphIndex = Math.max(0, GLYPH_FONT_ATLAS.glyphs.indexOf(ATLAS_PROBE_GLYPH));
-  ctx.fillText(String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart + glyphIndex), 0, ATLAS_PROBE_PX * 0.8);
+  const glyphIndex = Math.max(0, atlas.glyphs.indexOf(ATLAS_PROBE_GLYPH));
+  ctx.fillText(String.fromCodePoint(atlas.puaStart + glyphIndex), 0, ATLAS_PROBE_PX * 0.8);
 
   let pixels: Uint8ClampedArray;
   try {
@@ -136,11 +150,12 @@ function fontPaletteSupported(target: Document): boolean {
   }
 }
 
-function injectAtlasFontFace(target: Document, woff2Base64: string): void {
-  if (target.getElementById(GLYPH_ATLAS_FONT_FACE_STYLE_ID)) return;
+function injectAtlasFontFace(target: Document, woff2Base64: string, atlas: GlyphFontAtlas): void {
+  const id = atlasFontFaceStyleId(atlas);
+  if (target.getElementById(id)) return;
   const style = target.createElement("style");
-  style.id = GLYPH_ATLAS_FONT_FACE_STYLE_ID;
-  style.textContent = buildGlyphAtlasFontFaceCss(woff2Base64);
+  style.id = id;
+  style.textContent = buildGlyphAtlasFontFaceCss(woff2Base64, atlas);
   target.head.appendChild(style);
 }
 
@@ -163,18 +178,23 @@ function injectAtlasFontFace(target: Document, woff2Base64: string): void {
  * Resolves `false` — never rejects — when the palette gate, the payload, the
  * font, or COLR painting fails; the caller stays on spans.
  */
-export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean> {
+export function ensureGlyphAtlasFontFaceStyles(doc?: Document, atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): Promise<boolean> {
   const target = doc ?? (typeof document !== "undefined" ? document : undefined);
   if (!target) return Promise.resolve(false);
-  const cached = atlasFontReady.get(target);
+  let perDoc = atlasFontReady.get(target);
+  if (!perDoc) {
+    perDoc = new Map();
+    atlasFontReady.set(target, perDoc);
+  }
+  const cached = perDoc.get(atlas.family);
   if (cached) {
     // The READINESS is cached per document; the `<style>` is not, because it is
     // ordinary DOM that a consumer (or a test's cleanup) can remove after the
     // fact. Re-asserting it on the cached path keeps "idempotent" meaning
     // "always present afterwards", not "injected at most once ever".
     return cached.then((ready) => {
-      const base64 = glyphAtlasFontPayload();
-      if (ready && base64) injectAtlasFontFace(target, base64);
+      const base64 = glyphAtlasFontPayload(atlas);
+      if (ready && base64) injectAtlasFontFace(target, base64, atlas);
       return ready;
     });
   }
@@ -183,14 +203,14 @@ export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean>
   // atlas in its baked CPAL rainbow never pays the 44KB chunk either.
   if (!fontPaletteSupported(target)) {
     const unsupported = Promise.resolve(false);
-    atlasFontReady.set(target, unsupported);
+    perDoc.set(atlas.family, unsupported);
     console.warn(`glyphcss: this engine does not support "font-palette" with a custom ident; colorEncoding "atlas" will render as "spans".`);
     return unsupported;
   }
 
-  const ready = loadGlyphAtlasFontPayload().then(async (base64) => {
+  const ready = loadGlyphAtlasFontPayload(atlas).then(async (base64) => {
     if (base64 === null) return false;
-    injectAtlasFontFace(target, base64);
+    injectAtlasFontFace(target, base64, atlas);
     // `FontFaceSet.load` is the only way to know the face has actually been
     // decoded. Probe with a real atlas code point rather than the default
     // test string: the atlas cmap covers U+0020 and its own PUA range only,
@@ -198,22 +218,22 @@ export function ensureGlyphAtlasFontFaceStyles(doc?: Document): Promise<boolean>
     const fonts = (target as Document & { fonts?: FontFaceSet }).fonts;
     if (typeof fonts?.load === "function") {
       try {
-        const faces = await fonts.load(`16px "${GLYPH_FONT_ATLAS.family}"`, String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart));
+        const faces = await fonts.load(`16px "${atlas.family}"`, String.fromCodePoint(atlas.puaStart));
         if (faces.length === 0) return false;
       } catch {
         // A decode failure here is the same outcome as a missing payload: this
         // document stays on spans. `loadGlyphAtlasFontPayload` already warned if
         // the payload itself was the problem; warn for the font-decode case too.
-        console.warn(`glyphcss: the colour-font atlas "${GLYPH_FONT_ATLAS.family}" failed to load in this document; colorEncoding "atlas" will render as "spans".`);
+        console.warn(`glyphcss: the colour-font atlas "${atlas.family}" failed to load in this document; colorEncoding "atlas" will render as "spans".`);
         return false;
       }
     }
     // The face decoded — but decoding is not painting. See `atlasColrPaints`.
-    if (atlasColrPaints(target)) return true;
+    if (atlasColrPaints(target, atlas)) return true;
     console.warn(`glyphcss: this engine does not paint the colour-font atlas's COLR layers; colorEncoding "atlas" will render as "spans".`);
     return false;
   });
-  atlasFontReady.set(target, ready);
+  perDoc.set(atlas.family, ready);
   return ready;
 }
 

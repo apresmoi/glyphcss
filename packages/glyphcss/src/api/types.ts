@@ -76,6 +76,21 @@ export interface GlyphMeshTransform {
    */
   depthBias?: number;
   /**
+   * Cross-layer occlusion priority for an OPAQUE detail mesh (one with its own
+   * `density`/`fontSize` layer). Groups in the scene's shared occlusion id-map
+   * claim cells by priority FIRST and depth second: a higher-priority mesh
+   * occludes every lower-priority layer (the base world included) wherever its
+   * triangles cover, and cannot be occluded by them — depth only competes
+   * within the same priority. It is the declarative form of a FOREGROUND
+   * layer that must never be occluded by scene geometry: give it
+   * `occlusionPriority: 1` and it punches every priority-0 layer out of its
+   * silhouette no matter how near that geometry gets. Negative classes work
+   * the same way in reverse (a background layer any ordinary mesh occludes);
+   * an unclaimed cell is claimable by any class. Default 0 (plain depth).
+   * No effect on `transparent` meshes (they opt out of occlusion entirely).
+   */
+  occlusionPriority?: number;
+  /**
    * Per-mesh character cell size. Setting `fontSize` and/or `lineHeight` pops
    * this mesh OUT of the scene's shared `<pre>` into its own silhouette-fitted,
    * translated `<pre>` rendered at that cell size — so a "hero" mesh can carry
@@ -94,6 +109,69 @@ export interface GlyphMeshTransform {
    * cells and OVERRIDE `density` when present.
    */
   density?: number;
+  /**
+   * PER-MESH glyph ramp palette (solid mode) — this mesh rasterizes its
+   * intensity→character ramp from the named palette instead of the scene's
+   * `glyphPalette`. LOUD CAVEATS, read before using:
+   *
+   *  - Setting it pops the mesh OUT of the shared base `<pre>` into its own
+   *    detail layer (like `density`/`fontSize`/`transparent` do): the shared
+   *    grid is rasterized in one pass against one ramp, so a private ramp
+   *    NEEDS a private layer. A mesh with only `glyphPalette` set renders at
+   *    the base cell size, in its own `<pre>`.
+   *  - Solid-mode ramps only. Wireframe junctions, `charMode` encodings and
+   *    `solidWeightRamp` stay scene-level.
+   *  - Unknown names resolve to the library default palette, exactly like the
+   *    scene-level option — sanitize upstream if your app restricts ramps.
+   *
+   * Omitted (the default) = the scene's palette; behaviour is unchanged.
+   */
+  glyphPalette?: string;
+  /**
+   * PER-MESH ambient light intensity (solid mode) — this mesh's own detail
+   * layer rasterizes under `{ ...scene.ambientLight, intensity }`, so both its
+   * glyph choice (shade = clamp(light) × texel luma) and its texel colour tint
+   * track this value instead of the scene's. LOUD CAVEATS, same family as
+   * `glyphPalette`:
+   *
+   *  - Setting it pops the mesh OUT of the shared base `<pre>` into its own
+   *    detail layer (the shared grid is lit in one pass under one ambient).
+   *  - The ambient COLOUR and the directional/key light stay scene-level.
+   *  - Omitted (the default) = the scene's ambient; behaviour is unchanged.
+   */
+  ambientIntensity?: number;
+  /**
+   * PER-MESH occlusion-claim dilation (ADDITIVE, default 0 = off): grow this
+   * OPAQUE detail mesh's id-map claim by N OUTPUT cells (8-neighbourhood) —
+   * the unit is an output cell at every `supersample`, not the id-map's own
+   * internal resolution — so fine textured artwork keeps a small clean ground
+   * around its ink instead of
+   * the layer beneath painting through every partial-alpha cell. The dilated
+   * claim converts only base-layer or unclaimed cells — it never steals from
+   * another detail mesh. Clamped to 8. No effect on `transparent` meshes.
+   */
+  occlusionDilate?: number;
+  /**
+   * PER-MESH claim shape (ADDITIVE, default "alpha"): "geometry" makes this
+   * mesh claim its full triangle footprint regardless of texel alpha — the
+   * pre-alpha-aware "filled plate" behaviour, for a partial-alpha textured
+   * sprite that wants a solid ground under its artwork rather than a claim
+   * that hugs its ink. Everything else keeps alpha-aware claims.
+   */
+  occlusionClaim?: "alpha" | "geometry";
+  /**
+   * PER-MESH contour claims (ADDITIVE): give this OPAQUE detail mesh a claim
+   * that follows its artwork's ALPHA CONTOUR instead of point-sampled cells —
+   * the id-map is rastered at a finer internal resolution, the claim becomes
+   * coverage-aware (any output cell containing this mesh's ink claims — the
+   * anti-theft guarantee), and the value is a margin in SCREEN PX stamped
+   * around the ink in the fine map before reducing (elliptical reach, never
+   * stealing from another detail mesh). `0` = tightest possible: exactly the
+   * ink-bearing cells. The reduced map stays at output resolution, so the
+   * ground the layer beneath loses is still quantized to output cells — the
+   * map's hard floor. Omitted = pre-existing point-sampled claims.
+   */
+  occlusionContourPx?: number;
   fontSize?: string | number;
   /** See `fontSize` — line-height for this mesh's own cell (smaller = denser rows). */
   lineHeight?: number;

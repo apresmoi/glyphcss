@@ -172,6 +172,26 @@ describe("GlyphSceneElement", () => {
     expect(host.getScene()?.getOptions().colorTolerance).toBe(Infinity);
   });
 
+  it("reads track-opaque-coverage into the scene options", () => {
+    host.setAttribute("track-opaque-coverage", "");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().trackOpaqueCoverage).toBe(true);
+  });
+
+  it("defaults trackOpaqueCoverage to false when the attribute is absent", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().trackOpaqueCoverage).toBe(false);
+  });
+
+  it("attributeChangedCallback updates trackOpaqueCoverage on a live scene", () => {
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().trackOpaqueCoverage).toBe(false);
+    host.setAttribute("track-opaque-coverage", "true");
+    expect(host.getScene()?.getOptions().trackOpaqueCoverage).toBe(true);
+    host.setAttribute("track-opaque-coverage", "false");
+    expect(host.getScene()?.getOptions().trackOpaqueCoverage).toBe(false);
+  });
+
   it("dispatches glyphcss:scene-ready on connect", () => {
     let fired = false;
     host.addEventListener("glyphcss:scene-ready", () => { fired = true; });

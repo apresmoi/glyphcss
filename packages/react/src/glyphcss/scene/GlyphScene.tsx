@@ -20,6 +20,7 @@ import type {
   GlyphControlSceneManifest,
   GlyphObjectDictionary,
   GlyphSolidWeightRampStep,
+  GlyphFontAtlas,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -103,6 +104,18 @@ export interface GlyphSceneProps {
    * reproducible bake) rather than enabling the atlas.
    */
   atlasPalette?: readonly string[];
+  /**
+   * The font atlas `colorEncoding: "atlas"` encodes against. Defaults to the
+   * universal `GLYPH_FONT_ATLAS` (212 glyphs, 30 palette slots); pass
+   * `GLYPH_FONT_ATLAS_ASCII` to trade the glyph coverage an all-ASCII scene
+   * never uses for 68 palette slots.
+   *
+   * **Read at mount only.** The vanilla option is fixed for the scene's
+   * lifetime (a scene's `<pre>`s, readiness probe and palette CSS are pinned
+   * to one family), so a later prop change is deliberately not forwarded —
+   * remount the scene to switch atlases.
+   */
+  fontAtlas?: GlyphFontAtlas;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -125,6 +138,15 @@ export interface GlyphSceneProps {
    * restore full detail on release. `2` → ¼ cells while dragging. Default `1` (off).
    */
   interactiveDownscale?: number;
+  /**
+   * Publish opaque coverage from a scene that has no occlusion id-map of its
+   * own. `scene.getOpaqueCoverage()` reads the shared id-map, which a scene
+   * only builds when it has an opaque detail mesh or a foreign mask — so a
+   * scene of plain base meshes could otherwise never publish anything to
+   * another scene's `setForeignOcclusion`. `true` forces a base-layer depth
+   * raster per render. Default `false`; changes no output, costs a raster.
+   */
+  trackOpaqueCoverage?: boolean;
   /**
    * Shadow-map configuration. `undefined` (default) means no shadows.
    * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
@@ -156,6 +178,7 @@ function GlyphSceneInner({
   colorTolerance,
   colorEncoding,
   atlasPalette,
+  fontAtlas,
   useColors,
   cols,
   rows,
@@ -166,6 +189,7 @@ function GlyphSceneInner({
   creaseAngle,
   autoSize,
   interactiveDownscale,
+  trackOpaqueCoverage,
   shadow,
   transformCells,
   glyphOutput,
@@ -190,6 +214,7 @@ function GlyphSceneInner({
     colorTolerance,
     colorEncoding,
     atlasPalette,
+    fontAtlas,
     useColors,
     cols,
     rows,
@@ -200,6 +225,7 @@ function GlyphSceneInner({
     creaseAngle,
     autoSize,
     interactiveDownscale,
+    trackOpaqueCoverage,
     shadow,
     transformCells,
     glyphOutput,
@@ -258,6 +284,10 @@ function GlyphSceneInner({
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
     if (autoSize !== undefined) partial.autoSize = autoSize;
     if (interactiveDownscale !== undefined) partial.interactiveDownscale = interactiveDownscale;
+    if (trackOpaqueCoverage !== undefined) partial.trackOpaqueCoverage = trackOpaqueCoverage;
+    // `fontAtlas` is absent here on purpose: the vanilla option is fixed at
+    // scene creation and `setOptions` is inert for it, so forwarding a prop
+    // change would silently promise a switch that never happens.
     // Always forward shadow (including undefined) so setOptions can clear it
     // when the prop is removed. Uses the "in" check in vanilla setOptions.
     partial.shadow = shadow;
@@ -272,7 +302,7 @@ function GlyphSceneInner({
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorTolerance, colorEncoding, atlasPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorTolerance, colorEncoding, atlasPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, trackOpaqueCoverage, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

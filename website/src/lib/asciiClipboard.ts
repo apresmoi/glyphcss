@@ -18,6 +18,13 @@
  * PUA range, so `decodeGlyphAtlasText` returns its input unchanged (verified
  * by the byte-identity test, not assumed).
  *
+ * WHICH atlas decodes is resolved per `<pre>`, not fixed: glyphcss ships two
+ * variants over the same PUA range with different glyph moduli (universal 212,
+ * ASCII 94), so decoding against the wrong one returns real but wrong glyphs.
+ * `glyphAtlasForFamily` reads the answer off the `font-family` the renderer
+ * pins on each output `<pre>`, so a page whose scenes use different variants
+ * copies each correctly.
+ *
  * ── Colour, for the rich-HTML flavour ───────────────────────────────────
  *
  * A copy that also offers `text/html` (the gallery's coloured paste, and
@@ -29,7 +36,17 @@
  * approximating the colour or dropping it. It returns `null` for a `"spans"`
  * render, where the existing span-walk already has the colour.
  */
-import { decodeGlyphAtlasCodePoint, decodeGlyphAtlasText, GLYPH_FONT_ATLAS } from "glyphcss";
+import { decodeGlyphAtlasCodePoint, decodeGlyphAtlasText, glyphAtlasForFamily, GLYPH_FONT_ATLAS } from "glyphcss";
+
+/**
+ * The atlas that painted this `<pre>`. A `<pre>` with no atlas family pinned
+ * carries no atlas encoding to decode, so the universal atlas — whose range
+ * check then passes nothing through — keeps the decode a no-op rather than
+ * making the caller special-case it.
+ */
+function atlasForPre(pre: HTMLElement | null) {
+  return glyphAtlasForFamily(pre?.style.fontFamily) ?? GLYPH_FONT_ATLAS;
+}
 
 /** Trim trailing whitespace from every line, leaving leading whitespace intact. */
 export function trimTrailingWhitespacePerLine(text: string): string {
@@ -43,7 +60,7 @@ export function trimTrailingWhitespacePerLine(text: string): string {
 export function extractAsciiFromPre(pre: HTMLElement | null): string | null {
   const raw = pre?.textContent ?? "";
   if (!raw.trim()) return null;
-  return trimTrailingWhitespacePerLine(decodeGlyphAtlasText(raw));
+  return trimTrailingWhitespacePerLine(decodeGlyphAtlasText(raw, atlasForPre(pre)));
 }
 
 /** One decoded cell of an atlas-encoded `<pre>`: the real glyph, plus its slot's colour. */
@@ -82,6 +99,7 @@ export function glyphAtlasPaletteForPre(pre: HTMLElement | null): string[] | nul
 export function glyphAtlasCellsFromPre(pre: HTMLElement | null): GlyphAtlasCell[][] | null {
   const palette = glyphAtlasPaletteForPre(pre);
   if (!palette) return null;
+  const atlas = atlasForPre(pre);
   const text = pre!.textContent ?? "";
   const rows: GlyphAtlasCell[][] = [[]];
   let row = rows[0]!;
@@ -93,7 +111,7 @@ export function glyphAtlasCellsFromPre(pre: HTMLElement | null): GlyphAtlasCell[
       continue;
     }
     const cp = ch.codePointAt(0)!;
-    const decoded = cp >= GLYPH_FONT_ATLAS.puaStart ? decodeGlyphAtlasCodePoint(cp) : undefined;
+    const decoded = cp >= atlas.puaStart ? decodeGlyphAtlasCodePoint(cp, atlas) : undefined;
     if (decoded && decoded.paletteSlot >= 0) {
       sawAtlas = true;
       const color = palette[decoded.paletteSlot];

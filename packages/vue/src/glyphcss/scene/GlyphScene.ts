@@ -17,6 +17,7 @@ import type {
   GlyphControlSceneManifest,
   GlyphObjectDictionary,
   GlyphSolidWeightRampStep,
+  GlyphFontAtlas,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -99,6 +100,18 @@ export interface GlyphSceneProps {
    */
   atlasPalette?: readonly string[];
   /**
+   * The font atlas `colorEncoding: "atlas"` encodes against. Defaults to the
+   * universal `GLYPH_FONT_ATLAS` (212 glyphs, 30 palette slots); pass
+   * `GLYPH_FONT_ATLAS_ASCII` to trade the glyph coverage an all-ASCII scene
+   * never uses for 68 palette slots.
+   *
+   * **Read at mount only.** The vanilla option is fixed for the scene's
+   * lifetime (a scene's `<pre>`s, readiness probe and palette CSS are pinned
+   * to one family), so a later prop change is deliberately not forwarded —
+   * remount the scene to switch atlases.
+   */
+  fontAtlas?: GlyphFontAtlas;
+  /**
    * Smooth (Gouraud) shading: per-cell Lambert intensity interpolated from
    * per-vertex normals averaged across adjacent polygons within `creaseAngle`.
    * Default `false` — the faceted look is part of glyph's identity.
@@ -120,6 +133,15 @@ export interface GlyphSceneProps {
    * restore full detail on release. `2` → ¼ cells while dragging. Default `1` (off).
    */
   interactiveDownscale?: number;
+  /**
+   * Publish opaque coverage from a scene that has no occlusion id-map of its
+   * own. `scene.getOpaqueCoverage()` reads the shared id-map, which a scene
+   * only builds when it has an opaque detail mesh or a foreign mask — so a
+   * scene of plain base meshes could otherwise never publish anything to
+   * another scene's `setForeignOcclusion`. `true` forces a base-layer depth
+   * raster per render. Default `false`; changes no output, costs a raster.
+   */
+  trackOpaqueCoverage?: boolean;
   /**
    * Shadow-map configuration. `undefined` (default) means no shadows.
    * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
@@ -150,6 +172,7 @@ export const GlyphScene = defineComponent({
     colorTolerance: { type: Number, default: undefined },
     colorEncoding: { type: String as PropType<"spans" | "atlas">, default: undefined },
     atlasPalette: { type: Array as PropType<readonly string[]>, default: undefined },
+    fontAtlas: { type: Object as PropType<GlyphFontAtlas>, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
     useColors: { type: Boolean, default: undefined },
@@ -160,6 +183,7 @@ export const GlyphScene = defineComponent({
     ambientLight: { type: Object as PropType<GlyphAmbientLight>, default: undefined },
     autoSize: { type: Boolean, default: undefined },
     interactiveDownscale: { type: Number, default: undefined },
+    trackOpaqueCoverage: { type: Boolean, default: undefined },
     shadow: { type: Object as PropType<GlyphShadowOptions>, default: undefined },
     transformCells: { type: Function as PropType<TransformCells>, default: undefined },
     glyphOutput: { type: String as PropType<"visible" | "semantic">, default: undefined },
@@ -189,6 +213,7 @@ export const GlyphScene = defineComponent({
       if (props.colorTolerance !== undefined) opts.colorTolerance = props.colorTolerance;
       if (props.colorEncoding !== undefined) opts.colorEncoding = props.colorEncoding;
       if (props.atlasPalette !== undefined) opts.atlasPalette = props.atlasPalette;
+      if (props.fontAtlas !== undefined) opts.fontAtlas = props.fontAtlas;
       if (props.smoothShading !== undefined) opts.smoothShading = props.smoothShading;
       if (props.creaseAngle !== undefined) opts.creaseAngle = props.creaseAngle;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
@@ -199,6 +224,7 @@ export const GlyphScene = defineComponent({
       if (props.ambientLight !== undefined) opts.ambientLight = props.ambientLight;
       if (props.autoSize !== undefined) opts.autoSize = props.autoSize;
       if (props.interactiveDownscale !== undefined) opts.interactiveDownscale = props.interactiveDownscale;
+      if (props.trackOpaqueCoverage !== undefined) opts.trackOpaqueCoverage = props.trackOpaqueCoverage;
       if (props.shadow !== undefined) opts.shadow = props.shadow;
       if (props.transformCells !== undefined) opts.transformCells = props.transformCells;
       if (props.glyphOutput !== undefined) opts.glyphOutput = props.glyphOutput;
@@ -239,6 +265,7 @@ export const GlyphScene = defineComponent({
         ambientLight: props.ambientLight,
         autoSize: props.autoSize,
         interactiveDownscale: props.interactiveDownscale,
+        trackOpaqueCoverage: props.trackOpaqueCoverage,
         shadow: props.shadow,
         transformCells: props.transformCells,
         glyphOutput: props.glyphOutput,
@@ -272,6 +299,10 @@ export const GlyphScene = defineComponent({
         if (next.ambientLight !== undefined) partial.ambientLight = next.ambientLight;
         if (next.autoSize !== undefined) partial.autoSize = next.autoSize;
         if (next.interactiveDownscale !== undefined) partial.interactiveDownscale = next.interactiveDownscale;
+        if (next.trackOpaqueCoverage !== undefined) partial.trackOpaqueCoverage = next.trackOpaqueCoverage;
+        // `fontAtlas` is absent here on purpose: the vanilla option is fixed at
+        // scene creation and `setOptions` is inert for it, so forwarding a prop
+        // change would silently promise a switch that never happens.
         // Always forward shadow (including undefined) so setOptions can clear it
         // when the prop is removed. Uses the "in" check in vanilla setOptions.
         partial.shadow = next.shadow;

@@ -17,6 +17,7 @@ import {
   type GlyphSceneOptions,
 } from "../api/createGlyphScene";
 import type { GlyphShadowOptions, GlyphSolidWeightRampStep } from "../api/types";
+import type { GlyphFontAtlas } from "../render/fontAtlas";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "../api/controlFrame";
 import type { RenderMode } from "@glyphcss/core";
 
@@ -43,6 +44,7 @@ const OBSERVED_ATTRS = [
   "ambient-intensity",
   "auto-size",
   "interactive-downscale",
+  "track-opaque-coverage",
   "shadow",
   "shadow-color",
   "shadow-opacity",
@@ -115,6 +117,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   private _dictionary: GlyphObjectDictionary | undefined;
   private _solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
   private _atlasPalette: readonly string[] | undefined;
+  private _fontAtlas: GlyphFontAtlas | undefined;
 
   /**
    * Solid-mode font-weight density ramp (see
@@ -143,6 +146,21 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     this._atlasPalette = value;
     this._scene?.setOptions({ atlasPalette: value });
   }
+
+  /**
+   * Font atlas `color-encoding="atlas"` encodes against (see
+   * {@link GlyphSceneOptions.fontAtlas}) — `GLYPH_FONT_ATLAS` (the default) or
+   * `GLYPH_FONT_ATLAS_ASCII`. A JS property, not an attribute: an atlas is a
+   * manifest object, the same "complex data through a property" convention
+   * `solidWeightRamp`/`atlasPalette` above use.
+   *
+   * READ AT SCENE CREATION. The vanilla option is fixed for a scene's lifetime
+   * and `setOptions` is inert for it, so set this before the element connects;
+   * assigning afterwards records the value for a later reconnect but leaves the
+   * live scene on the atlas it was created with.
+   */
+  get fontAtlas(): GlyphFontAtlas | undefined { return this._fontAtlas; }
+  set fontAtlas(value: GlyphFontAtlas | undefined) { this._fontAtlas = value; }
 
   get sceneManifest(): GlyphControlSceneManifest | undefined { return this._sceneManifest; }
   set sceneManifest(value: GlyphControlSceneManifest | undefined) {
@@ -188,6 +206,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const colorEncoding = parseColorEncoding(this.getAttribute("color-encoding"));
     if (colorEncoding !== undefined) opts.colorEncoding = colorEncoding;
     if (this._atlasPalette !== undefined) opts.atlasPalette = this._atlasPalette;
+    if (this._fontAtlas !== undefined) opts.fontAtlas = this._fontAtlas;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));
@@ -213,6 +232,8 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (this.hasAttribute("auto-size")) opts.autoSize = true;
     const interactiveDownscale = parseNumber(this.getAttribute("interactive-downscale"));
     if (interactiveDownscale !== undefined) opts.interactiveDownscale = interactiveDownscale;
+    const trackOpaqueCoverage = parseBool(this.getAttribute("track-opaque-coverage"));
+    if (trackOpaqueCoverage !== undefined) opts.trackOpaqueCoverage = trackOpaqueCoverage;
     if (this.hasAttribute("shadow")) {
       const shadowOpts: GlyphShadowOptions = {
         color: "#000000",

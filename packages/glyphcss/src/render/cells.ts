@@ -140,13 +140,38 @@ export interface CellGrid {
 }
 
 /**
+ * Which of a scene's layers a {@link TransformCells} invocation is transforming.
+ *
+ * The hook runs once per layer — the base/shared grid, then each detail mesh's
+ * own grid — and previously gave the callback no way to tell them apart beyond
+ * guessing from the grid's dimensions. `detail` separates the two kinds, and
+ * `mesh` carries the detail mesh's own transform `id` (when the caller named
+ * one), so an app can give ONE mesh its own post-rasterize tone treatment
+ * without heuristics. `density` is the mesh's declared detail multiplier.
+ *
+ * The parameter is optional for compatibility: direct render paths always pass
+ * it, but a hook must tolerate `undefined` (renders routed through the effects
+ * pipeline's own cell hook do not thread layer identity today).
+ */
+export interface GlyphTransformCellsLayer {
+  /** `true` for a detail mesh's own layer, `false` for the base/shared grid. */
+  readonly detail: boolean;
+  /** The detail mesh's transform `id`, when the caller declared one. */
+  readonly mesh?: string;
+  /** The detail mesh's `density`, when set. */
+  readonly density?: number;
+}
+
+/**
  * Post-rasterize cell hook. Receives the final {@link CellGrid} just before the
  * string is built. May mutate the grid in place (return `void`) or return a new
  * grid. Only `char` + `color` are read back for output; `depth`/`screenX`/
  * `screenY`/`surfaceUv` are inputs the effect can read to order/gate its
- * transform.
+ * transform. The second argument identifies WHICH layer's grid this is — see
+ * {@link GlyphTransformCellsLayer}; existing single-argument hooks keep working
+ * unchanged.
  */
-export type TransformCells = (grid: CellGrid) => CellGrid | void;
+export type TransformCells = (grid: CellGrid, layer?: GlyphTransformCellsLayer) => CellGrid | void;
 
 /**
  * `colorEncoding` — the two encode strategies a rasterized grid can become a

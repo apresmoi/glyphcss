@@ -17,6 +17,7 @@ import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { encodeGlyphBuffers, type GlyphColorEncoding } from "../render/cells";
+import type { GlyphFontAtlas } from "../render/fontAtlas";
 import { buildGlyphControlFrame } from "./controlFrame";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "./controlFrame";
 import type {
@@ -86,6 +87,19 @@ export interface CompileSceneOptions {
   colorEncoding?: GlyphColorEncoding;
   /** Palette `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
   atlasPalette?: readonly string[];
+  /**
+   * Font atlas `colorEncoding: "atlas"` encodes against — the universal
+   * `GLYPH_FONT_ATLAS` by default, or `GLYPH_FONT_ATLAS_ASCII` for an
+   * all-ASCII scene that wants the 68-slot palette axis instead of the
+   * 212-glyph one. Pure configuration, exactly like `charMode`, so a build-time
+   * bake can target either variant rather than being pinned to the default.
+   *
+   * The `@font-face` a caller must supply itself (see `colorEncoding` above)
+   * is per-variant: pass the SAME atlas to `loadGlyphAtlasFontFaceCss` and
+   * `buildGlyphAtlasFontPaletteValuesCss` that you pass here, or the embedded
+   * output resolves its PUA code points against the wrong glyph modulus.
+   */
+  fontAtlas?: GlyphFontAtlas;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -175,6 +189,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     colorTolerance: opts.colorTolerance,
     colorEncoding: opts.colorEncoding,
     atlasPalette: opts.atlasPalette,
+    fontAtlas: opts.fontAtlas,
     useColors,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

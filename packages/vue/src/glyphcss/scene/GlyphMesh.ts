@@ -53,6 +53,18 @@ export interface GlyphMeshProps {
   lineHeight?: number;
   /** See-through (doesn't occlude / isn't occluded). Default false. Pops the mesh into its own `<pre>`. */
   transparent?: boolean;
+  /** Per-mesh solid-mode glyph ramp. Pops the mesh into its own `<pre>` (the shared grid shades against one ramp). */
+  glyphPalette?: string;
+  /** Per-mesh ambient intensity (solid mode). Pops the mesh into its own `<pre>` (the shared grid is lit under one ambient). */
+  ambientIntensity?: number;
+  /** Cross-layer occlusion class for an opaque detail mesh — a higher class claims id-map cells regardless of depth. Default 0. */
+  occlusionPriority?: number;
+  /** Grow this opaque detail mesh's id-map claim by N output cells (clamped to 8). Never steals from another detail mesh. Default 0. */
+  occlusionDilate?: number;
+  /** Claim shape: `"alpha"` (default, texel-opaque cells only) or `"geometry"` (full triangle footprint). */
+  occlusionClaim?: "alpha" | "geometry";
+  /** Coverage-aware contour claim with a screen-px margin around this mesh's ink. Omitted = point-sampled claims. */
+  occlusionContourPx?: number;
   class?: string;
   // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
   // TODO(hit-layer): wire these to the hit layer raycasting once the
@@ -85,6 +97,12 @@ export const GlyphMesh = defineComponent({
     fontSize: { type: [String, Number] as unknown as PropType<string | number>, default: undefined },
     lineHeight: { type: Number, default: undefined },
     transparent: { type: Boolean, default: undefined },
+    glyphPalette: { type: String, default: undefined },
+    ambientIntensity: { type: Number, default: undefined },
+    occlusionPriority: { type: Number, default: undefined },
+    occlusionDilate: { type: Number, default: undefined },
+    occlusionClaim: { type: String as PropType<"alpha" | "geometry">, default: undefined },
+    occlusionContourPx: { type: Number, default: undefined },
     class: { type: String, default: undefined },
     // TODO(hit-layer): wire these to the hit layer raycasting once the
     // rasterizer hit-map is wired to the hit-layer dispatch.
@@ -144,6 +162,12 @@ export const GlyphMesh = defineComponent({
       if (props.fontSize !== undefined) t.fontSize = props.fontSize;
       if (props.lineHeight !== undefined) t.lineHeight = props.lineHeight;
       if (props.transparent !== undefined) t.transparent = props.transparent;
+      if (props.glyphPalette !== undefined) t.glyphPalette = props.glyphPalette;
+      if (props.ambientIntensity !== undefined) t.ambientIntensity = props.ambientIntensity;
+      if (props.occlusionPriority !== undefined) t.occlusionPriority = props.occlusionPriority;
+      if (props.occlusionDilate !== undefined) t.occlusionDilate = props.occlusionDilate;
+      if (props.occlusionClaim !== undefined) t.occlusionClaim = props.occlusionClaim;
+      if (props.occlusionContourPx !== undefined) t.occlusionContourPx = props.occlusionContourPx;
       return t;
     }
 
@@ -179,7 +203,7 @@ export const GlyphMesh = defineComponent({
 
     // Update transform on id/position/scale/rotation/castShadow/receiveShadow changes
     watch(
-      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow, density: props.density, fontSize: props.fontSize, lineHeight: props.lineHeight, transparent: props.transparent }),
+      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow, density: props.density, fontSize: props.fontSize, lineHeight: props.lineHeight, transparent: props.transparent, glyphPalette: props.glyphPalette, ambientIntensity: props.ambientIntensity, occlusionPriority: props.occlusionPriority, occlusionDilate: props.occlusionDilate, occlusionClaim: props.occlusionClaim, occlusionContourPx: props.occlusionContourPx }),
       () => {
         const mesh = meshRef.value;
         if (!mesh) return;

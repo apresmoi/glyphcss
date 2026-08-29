@@ -7,6 +7,7 @@ import type {
 } from "@glyphcss/core";
 import type { TransformCells, GlyphColorEncoding } from "../render/cells";
 import type { GlyphAtlasPaletteInput, GlyphAtlasPaletteSource } from "../render/paletteQuantize";
+import { GLYPH_FONT_ATLAS, type GlyphFontAtlas } from "../render/fontAtlas";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
@@ -28,6 +29,14 @@ export interface OcclusionMap {
   colOffset: number;
   rowScale: number;
   rowOffset: number;
+  /**
+   * When true, this layer blanks ONLY under cells stamped with the foreign
+   * occluder id (`GLYPH_FOREIGN_OCCLUDER_ID`, another scene's opaque output
+   * injected via `setForeignOcclusion`) and ignores every local owner —
+   * the occlusion contract a `transparent` mesh keeps toward its own scene
+   * while still yielding to a scene stacked above it. Default false.
+   */
+  foreignOnly?: boolean;
 }
 
 export interface RasterizeContextOptions {
@@ -230,6 +239,14 @@ export interface RasterizeContextOptions {
    */
   atlasPalette?: GlyphAtlasPaletteInput;
   /**
+   * The font atlas `colorEncoding: "atlas"` encodes against. Defaults to the
+   * universal `GLYPH_FONT_ATLAS`; pass `GLYPH_FONT_ATLAS_ASCII` (or another
+   * variant) to trade glyph coverage for palette slots — see
+   * `render/fontAtlas.ts`. Every encodability check, the PUA mapping, and
+   * the palette-size bound follow this atlas.
+   */
+  fontAtlas?: GlyphFontAtlas;
+  /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
    */
@@ -428,6 +445,8 @@ export interface RasterizeContext {
   colorEncoding: GlyphColorEncoding;
   /** Palette (or palette source) `colorEncoding: "atlas"` encodes against — see {@link RasterizeContextOptions.atlasPalette}. */
   atlasPalette?: GlyphAtlasPaletteInput;
+  /** Font atlas the `"atlas"` encoder maps against — see {@link RasterizeContextOptions.fontAtlas}. Always concrete; defaults to the universal atlas. */
+  fontAtlas: GlyphFontAtlas;
   /**
    * **Output, not input.** Set by `rasterize()` to whether THIS pass's final
    * string was really atlas-encoded — `colorEncoding: "atlas"` is a request,
@@ -601,6 +620,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     colorTolerance: normalizeGlyphColorTolerance(opts.colorTolerance),
     colorEncoding: normalizeGlyphColorEncoding(opts.colorEncoding),
     atlasPalette: opts.atlasPalette,
+    fontAtlas: opts.fontAtlas ?? GLYPH_FONT_ATLAS,
     atlasEncoded: false,
     atlasGlyphFallback: false,
     useColors: opts.useColors ?? true,

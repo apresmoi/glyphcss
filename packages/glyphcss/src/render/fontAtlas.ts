@@ -123,6 +123,7 @@
  */
 
 import atlasManifest from "../../assets/glyph-atlas/atlas.json";
+import asciiAtlasManifest from "../../assets/glyph-atlas/ascii-atlas.json";
 
 export interface GlyphFontAtlas {
   /** CSS font-family name the checked-in `@font-face` declares. */
@@ -138,20 +139,86 @@ export interface GlyphFontAtlas {
 }
 
 /**
- * The one checked-in universal atlas's METADATA. `fontAtlas` functions default
+ * The checked-in UNIVERSAL atlas's METADATA. `fontAtlas` functions default
  * to this. It deliberately carries no font bytes — see the module doc; the
  * WOFF2 payload arrives separately through {@link loadGlyphAtlasFontPayload}.
  */
 export const GLYPH_FONT_ATLAS: GlyphFontAtlas = Object.freeze({ ...atlasManifest });
 
-const glyphIndexByChar: ReadonlyMap<string, number> = new Map(
-  GLYPH_FONT_ATLAS.glyphs.map((glyph, index) => [glyph, index]),
-);
+/**
+ * The checked-in ASCII-ONLY atlas variant: printable ASCII minus space, 94
+ * glyphs — which frees the same 6,400-code-point BMP PUA budget for
+ * `6400 // 94 = 68` palette slots instead of the universal atlas's 30. Same
+ * mapping scheme, same PUA range, DIFFERENT font family, so both variants can
+ * coexist in one document.
+ *
+ * This is a COLOUR-resolution trade, opt-in per scene via
+ * `GlyphSceneOptions.fontAtlas`: a scene whose glyphs are all ASCII (a solid
+ * `detail`-ramp render, say) never uses the universal set's Greek/braille/
+ * box-drawing axis, and 2.3x the palette slots is where median-cut
+ * quantization error actually goes down. The universal atlas's 31-slot
+ * practical cap was its own budget division (6400 / 212 = 30), not a CPAL or
+ * `override-colors` engine limit. A scene on this variant whose frame needs
+ * any non-ASCII glyph falls back to the span encoder for that frame — the
+ * same whole-grid fallback the universal atlas applies to ITS out-of-scope
+ * glyphs (braille charMode, exotic wireframe palettes).
+ *
+ * Nothing defaults to this variant; every existing caller stays on
+ * {@link GLYPH_FONT_ATLAS} untouched.
+ */
+export const GLYPH_FONT_ATLAS_ASCII: GlyphFontAtlas = Object.freeze({ ...asciiAtlasManifest });
 
-/** Whether `glyph` has an outline in the universal atlas (space always does, trivially, via the direct `U+0020` path — see {@link glyphAtlasCodePoint}). */
+/** Every atlas variant this package ships, in declaration order. */
+const SHIPPED_ATLASES: readonly GlyphFontAtlas[] = Object.freeze([GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII]);
+
+/**
+ * Which shipped atlas a `<pre>`'s CSS `font-family` names, or `undefined` when
+ * the stack names none of them.
+ *
+ * Both shipped atlases occupy the SAME PUA range from `puaStart` 0xE000 with
+ * different `glyphCount` moduli (universal 212, ASCII 94), so a code point
+ * alone does not identify a glyph — decoding one against the wrong variant
+ * yields a different, silently wrong character. Disjoint ranges cannot fix
+ * that: 94 x 68 = 6392 of the BMP PUA's 6400 code points are already spoken
+ * for. The `font-family` the renderer pins on each output `<pre>` is the one
+ * per-element record of which atlas actually painted it, which makes it the
+ * decoder's key — and per-`<pre>`, so a copy spanning two scenes on different
+ * variants stays correct.
+ *
+ * Parsed as a font stack rather than matched by substring: `"GlyphCssAtlas"`
+ * is a prefix of `"GlyphCssAtlasAscii"`, so a substring test resolves the
+ * ASCII atlas to the universal one.
+ */
+export function glyphAtlasForFamily(fontFamily: string | null | undefined): GlyphFontAtlas | undefined {
+  if (!fontFamily) return undefined;
+  for (const entry of fontFamily.split(",")) {
+    const trimmed = entry.trim();
+    const quoted = /^"(.*)"$|^'(.*)'$/.exec(trimmed);
+    const name = quoted ? (quoted[1] ?? quoted[2]!) : trimmed;
+    const atlas = SHIPPED_ATLASES.find((candidate) => candidate.family === name);
+    if (atlas) return atlas;
+  }
+  return undefined;
+}
+
+// Per-atlas glyph→index memo. The universal atlas had a dedicated module-level
+// map; keying by atlas object keeps that O(1) lookup for BOTH shipped variants
+// (and any caller-supplied atlas) without a linear `indexOf` per cell — the
+// encode path calls this once per non-blank cell.
+const glyphIndexByCharPerAtlas = new WeakMap<GlyphFontAtlas, ReadonlyMap<string, number>>();
+function glyphIndexMap(atlas: GlyphFontAtlas): ReadonlyMap<string, number> {
+  let map = glyphIndexByCharPerAtlas.get(atlas);
+  if (!map) {
+    map = new Map(atlas.glyphs.map((glyph, index) => [glyph, index]));
+    glyphIndexByCharPerAtlas.set(atlas, map);
+  }
+  return map;
+}
+
+/** Whether `glyph` has an outline in the atlas (space always does, trivially, via the direct `U+0020` path — see {@link glyphAtlasCodePoint}). */
 export function isGlyphInFontAtlas(glyph: string, atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): boolean {
   if (glyph === " ") return true;
-  return atlas === GLYPH_FONT_ATLAS ? glyphIndexByChar.has(glyph) : atlas.glyphs.includes(glyph);
+  return glyphIndexMap(atlas).has(glyph);
 }
 
 /**
@@ -167,8 +234,8 @@ export function glyphAtlasCodePoint(
 ): number | undefined {
   if (glyph === " ") return 0x20;
   if (!Number.isInteger(paletteSlot) || paletteSlot < 0 || paletteSlot >= atlas.maxPaletteSize) return undefined;
-  const glyphIndex = atlas === GLYPH_FONT_ATLAS ? glyphIndexByChar.get(glyph) : atlas.glyphs.indexOf(glyph);
-  if (glyphIndex === undefined || glyphIndex < 0) return undefined;
+  const glyphIndex = glyphIndexMap(atlas).get(glyph);
+  if (glyphIndex === undefined) return undefined;
   return atlas.puaStart + paletteSlot * atlas.glyphCount + glyphIndex;
 }
 
@@ -239,34 +306,65 @@ export type GlyphAtlasFontLoadState = "idle" | "loading" | "ready" | "failed";
 
 type GlyphAtlasFontPayloadModule = { readonly GLYPH_FONT_ATLAS_WOFF2_BASE64: string };
 
-// This indirection exists so a test can drive the failure and the
-// slow-arrival branches, which are otherwise unreachable: the real payload is
-// a bundled local module that cannot fail to resolve in a passing test run,
-// and "spans until the font is ready" is the branch most likely to rot.
-let payloadImport: () => Promise<GlyphAtlasFontPayloadModule> = () => import("./fontAtlasPayload");
+/**
+ * Per-atlas payload lifecycle, keyed by atlas IDENTITY, so each shipped
+ * variant loads its own chunk exactly once while the OTHER variant's chunk is
+ * never touched. Keying by `family` instead would hand a caller-built atlas
+ * that happens to reuse a shipped family name the SHIPPED WOFF2, whose glyph
+ * indices are not that atlas's — silently wrong glyphs rather than the loud
+ * "no payload registered" rejection below.
+ */
+interface PayloadEntry {
+  importer: () => Promise<GlyphAtlasFontPayloadModule>;
+  state: GlyphAtlasFontLoadState;
+  payload: string | undefined;
+  promise: Promise<string | null> | null;
+}
 
-let payloadState: GlyphAtlasFontLoadState = "idle";
-let payload: string | undefined;
-let payloadPromise: Promise<string | null> | null = null;
+const DEFAULT_PAYLOAD_IMPORTERS: ReadonlyMap<GlyphFontAtlas, () => Promise<GlyphAtlasFontPayloadModule>> = new Map([
+  // Both dynamic-only: each payload stays its own lazily-split chunk — see the
+  // module doc's warning against static imports of a payload module.
+  [GLYPH_FONT_ATLAS, () => import("./fontAtlasPayload")],
+  [GLYPH_FONT_ATLAS_ASCII, () => import("./fontAtlasAsciiPayload")],
+]);
+
+let payloadEntries = new WeakMap<GlyphFontAtlas, PayloadEntry>();
+
+function payloadEntry(atlas: GlyphFontAtlas): PayloadEntry {
+  let entry = payloadEntries.get(atlas);
+  if (!entry) {
+    const importer = DEFAULT_PAYLOAD_IMPORTERS.get(atlas);
+    entry = {
+      importer: importer
+        ?? (() => Promise.reject(new Error(`glyphcss: no WOFF2 payload is registered for font atlas family ${JSON.stringify(atlas.family)}.`))),
+      state: "idle",
+      payload: undefined,
+      promise: null,
+    };
+    payloadEntries.set(atlas, entry);
+  }
+  return entry;
+}
 
 /**
- * Load the atlas's base64 WOFF2 on demand. Idempotent and SHARED: every caller
- * after the first awaits the same promise, so ten scenes on one page trigger
- * one import, not ten. Resolves `null` — never rejects — when the payload
- * cannot be loaded, having warned once; the caller's contract is to degrade to
- * `colorEncoding: "spans"` for the rest of the session.
+ * Load an atlas's base64 WOFF2 on demand. Idempotent and SHARED per atlas:
+ * every caller after the first awaits the same promise, so ten scenes on one
+ * page trigger one import, not ten. Resolves `null` — never rejects — when the
+ * payload cannot be loaded, having warned once; the caller's contract is to
+ * degrade to `colorEncoding: "spans"` for the rest of the session.
  */
-export function loadGlyphAtlasFontPayload(): Promise<string | null> {
-  if (payloadPromise) return payloadPromise;
-  payloadState = "loading";
-  payloadPromise = payloadImport().then(
+export function loadGlyphAtlasFontPayload(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): Promise<string | null> {
+  const entry = payloadEntry(atlas);
+  if (entry.promise) return entry.promise;
+  entry.state = "loading";
+  entry.promise = entry.importer().then(
     (mod) => {
-      payload = mod.GLYPH_FONT_ATLAS_WOFF2_BASE64;
-      payloadState = "ready";
-      return payload;
+      entry.payload = mod.GLYPH_FONT_ATLAS_WOFF2_BASE64;
+      entry.state = "ready";
+      return entry.payload;
     },
     (error: unknown) => {
-      payloadState = "failed";
+      entry.state = "failed";
       console.warn(
         "glyphcss: could not load the colour-font atlas payload; colorEncoding \"atlas\" will render as \"spans\" for the rest of this session.",
         error,
@@ -274,7 +372,7 @@ export function loadGlyphAtlasFontPayload(): Promise<string | null> {
       return null;
     },
   );
-  return payloadPromise;
+  return entry.promise;
 }
 
 /**
@@ -283,26 +381,30 @@ export function loadGlyphAtlasFontPayload(): Promise<string | null> {
  * to "may I emit PUA this frame?" (see the module doc's async-transition
  * section), and `undefined` means "no — encode spans".
  */
-export function glyphAtlasFontPayload(): string | undefined {
-  return payload;
+export function glyphAtlasFontPayload(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): string | undefined {
+  return payloadEntry(atlas).payload;
 }
 
-/** Current lifecycle of the shared payload load. `"failed"` is terminal for the session. */
-export function glyphAtlasFontLoadState(): GlyphAtlasFontLoadState {
-  return payloadState;
+/** Current lifecycle of an atlas's shared payload load. `"failed"` is terminal for the session. */
+export function glyphAtlasFontLoadState(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): GlyphAtlasFontLoadState {
+  return payloadEntry(atlas).state;
 }
 
 /**
- * Swap the payload importer and reset the shared load state. Test-only seam —
- * not exported from the package index. See {@link payloadImport}.
+ * Swap the UNIVERSAL atlas's payload importer and reset its load state.
+ * Test-only seam — not exported from the package index. Scoped to the
+ * universal atlas, exactly as before the ASCII variant existed; the ASCII
+ * entry is reset alongside so a test that swaps importers starts clean.
  */
 export function setGlyphAtlasFontPayloadImportForTests(
   next: (() => Promise<GlyphAtlasFontPayloadModule>) | null,
 ): void {
-  payloadImport = next ?? (() => import("./fontAtlasPayload"));
-  payloadState = "idle";
-  payload = undefined;
-  payloadPromise = null;
+  payloadEntries = new WeakMap();
+  if (next) {
+    payloadEntries.set(GLYPH_FONT_ATLAS, {
+      importer: next, state: "idle", payload: undefined, promise: null,
+    });
+  }
 }
 
 /**
@@ -334,7 +436,11 @@ export function buildGlyphAtlasFontFaceCss(woff2Base64: string, atlas: GlyphFont
  * so the loud failure is the right one for a build-time caller.
  */
 export async function loadGlyphAtlasFontFaceCss(atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS): Promise<string> {
-  const base64 = await loadGlyphAtlasFontPayload();
+  // Must be THIS atlas's payload: the family below comes from `atlas`, so
+  // loading the default here would emit one variant's family over another's
+  // font bytes, and every PUA code point would resolve against the wrong
+  // glyph indices.
+  const base64 = await loadGlyphAtlasFontPayload(atlas);
   if (base64 === null) {
     throw new Error("glyphcss: the colour-font atlas payload could not be loaded, so no @font-face can be emitted for it.");
   }

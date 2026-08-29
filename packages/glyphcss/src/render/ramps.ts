@@ -33,6 +33,27 @@ export const WIREFRAME_PALETTES: Record<string, WireframeGlyphTiers> = {
     core: "#@".split(""),
     solid: QUAKE_DETAIL_SOLID,
   },
+  // High-floor, printable-ASCII-only density ramp for sub-2-device-px cells:
+  // when a cell is smaller than ~2 device px, glyph SHAPES can't resolve and
+  // only the fraction of the cell that carries ink survives as colour — a
+  // sparse glyph washes the cell to grey/black. Every step here keeps ≥ ~25%
+  // ink so each cell reads as its COLOUR at any size, while the ramp still
+  // shades dark → bright. Steps are ordered by MEASURED alpha-weighted ink
+  // coverage in Menlo (the atlas's primary source face) at the 0.606 cell
+  // aspect — the same measurement `@glyphcss/effects`'s calibrateRamp does:
+  //   %24.8 $26.3 E26.9 U27.6 K28.3 H28.9 #29.4 D29.8 8'31.0 0'32.8
+  //   B33.6 M34.3 @35.1 N37.3   (percent of cell inked)
+  // Every glyph is printable ASCII (< 0x80) BY DESIGN: this is the ramp for a
+  // consumer under a hard ASCII-only output constraint (a terminal, a fixed
+  // 7-bit pipeline, `fontAtlas: GLYPH_FONT_ATLAS_ASCII`), which is also what
+  // keeps every step inside the 94-glyph ASCII atlas. Do not "improve" this
+  // ramp with block/Unicode characters.
+  dense: {
+    thin: "%$".split(""),
+    normal: "KH#".split(""),
+    core: "@N".split(""),
+    solid: "%$EUKH#D80BM@N".split(""),
+  },
   default: {
     thin: "·⋅∙˙·⋅∙".split(""),
     normal: "╋╬┼╳◆◇◊▲△▼▽◈⬡⬢∴∵⊥⊕⊗⊙⊚⊛".split(""),

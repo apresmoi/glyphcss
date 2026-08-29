@@ -32,6 +32,7 @@ hit layer, and the measured cell metrics the projection uses.
 | `smoothShading` | `boolean` | `false` | Gouraud shading from averaged vertex normals. Off by default — the faceted look is part of glyph's identity |
 | `creaseAngle` | `number` | `60` | Max angle (degrees) between adjacent faces still smoothed together when `smoothShading` is on |
 | `interactiveDownscale` | `number` | `1` | Render at `1/n` resolution while a control is dragging, full detail on release. Same on-screen size — this keeps high-density scenes inside the frame budget mid-gesture |
+| `trackOpaqueCoverage` | `boolean` | `false` | Force a base-layer depth raster each render so `scene.getOpaqueCoverage()` can publish it. A scene only builds an occlusion id-map when it has an opaque detail mesh or a foreign mask, so a scene of plain base meshes needs this to feed another scene's `setForeignOcclusion`. Changes no output; costs one raster |
 | `glyphOutput` | `"visible" \| "semantic"` | `"visible"` | `"semantic"` renders authored class labels instead of shaded glyphs and enables `scene.getGlyphSemanticCellFrame()`. Requires the `sceneManifest` + `dictionary` JS properties |
 | `useColors` | `boolean` | `true` | Emit color spans in the output |
 | `directionalLight` | `GlyphDirectionalLight` | — | Directional light for solid mode |
@@ -345,5 +346,7 @@ const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
 | `scene.rerender()` | Force an immediate re-rasterize |
 | `scene.addEffectLayer(opts)` | Mount an ordered appearance program over the retained grid, returns a `GlyphEffectLayerHandle` (see [Glyph Effects](/guides/effects)). Changing the handle's `params` / `opacity` / `blend` / `order` / `enabled` recomposes without re-projecting the mesh |
 | `scene.setInteracting(active)` | Tell the scene a gesture is in progress, so `interactiveDownscale` applies. The bundled controls call this for you — use it for custom interaction sources |
+| `scene.getOpaqueCoverage()` | The last committed render's opaque per-cell coverage at the output grid — cells owned by the base grid or an opaque detail layer, foreign stamps excluded. `null` when that render built no occlusion id-map (see `trackOpaqueCoverage`). `solid` mode only |
+| `scene.setForeignOcclusion(coverage)` | Consume another scene's `getOpaqueCoverage()` result: every layer of this scene blanks under the covered cells, so two scenes stacked over one host share a single occlusion domain. `null` clears. Re-publishing identical bytes costs a comparison, not a render. `solid` mode only |
 | `scene.getGlyphSemanticCellFrame()` | Immutable snapshot of the last committed base grid's polygon → surface → instance → class lineage. `null` unless `glyphOutput: "semantic"` |
 | `scene.destroy()` | Remove the scene DOM and clear all meshes |

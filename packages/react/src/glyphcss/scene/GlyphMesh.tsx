@@ -67,6 +67,46 @@ export interface GlyphMeshProps {
    * its own `<pre>` (a shared-`<pre>` mesh always occludes).
    */
   transparent?: boolean;
+  /**
+   * Per-mesh solid-mode glyph ramp — this mesh shades from the named palette
+   * instead of the scene's. Setting it pops the mesh into its own `<pre>` (the
+   * shared grid is rasterized in one pass against one ramp), at the base cell
+   * size unless `density`/`fontSize` also apply.
+   */
+  glyphPalette?: string;
+  /**
+   * Per-mesh ambient light intensity (solid mode) — this mesh's layer shades
+   * under `{ ...scene.ambientLight, intensity }`. Like `glyphPalette`, setting
+   * it pops the mesh into its own `<pre>` (the shared grid is lit in one pass
+   * under one ambient). Ambient colour and the key light stay scene-level.
+   */
+  ambientIntensity?: number;
+  /**
+   * Cross-layer occlusion priority for an opaque detail mesh. A higher class
+   * claims shared id-map cells over every lower one regardless of depth (depth
+   * only competes within a class), so `1` is a foreground layer scene geometry
+   * can never occlude. Default `0`. No effect on `transparent` meshes.
+   */
+  occlusionPriority?: number;
+  /**
+   * Grow this opaque detail mesh's id-map claim by N output cells
+   * (8-neighbourhood, clamped to 8) so fine artwork keeps a clean ground
+   * around its ink. Never steals from another detail mesh. Default `0` = off.
+   */
+  occlusionDilate?: number;
+  /**
+   * Claim shape for this opaque detail mesh. `"alpha"` (default) claims only
+   * cells whose sampled texel is opaque; `"geometry"` claims the full triangle
+   * footprint regardless of texel alpha (a solid plate under a sprite).
+   */
+  occlusionClaim?: "alpha" | "geometry";
+  /**
+   * Coverage-aware contour claim for this opaque detail mesh: the id-map is
+   * rastered finer, any output cell holding this mesh's ink claims, and the
+   * value is a screen-px margin stamped around that ink. `0` = the tightest
+   * claim. Omitted = point-sampled claims.
+   */
+  occlusionContourPx?: number;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -99,6 +139,12 @@ function GlyphMeshInner({
   fontSize,
   lineHeight,
   transparent,
+  glyphPalette,
+  ambientIntensity,
+  occlusionPriority,
+  occlusionDilate,
+  occlusionClaim,
+  occlusionContourPx,
   className,
   style,
   children,
@@ -145,7 +191,13 @@ function GlyphMeshInner({
     fontSize,
     lineHeight,
     transparent,
-  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent]);
+    glyphPalette,
+    ambientIntensity,
+    occlusionPriority,
+    occlusionDilate,
+    occlusionClaim,
+    occlusionContourPx,
+  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent, glyphPalette, ambientIntensity, occlusionPriority, occlusionDilate, occlusionClaim, occlusionContourPx]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {
