@@ -3,8 +3,9 @@
    with /synth and /loaders); this file only carries what's genuinely unique
    to the map surface: drag cursor/touch handling on the host (same fix
    `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
-   a `<pre>` that rewrites its own contents every frame), marker labels, the
-   Places rail buttons, and the provider-load error banner. */
+   a `<pre>` that rewrites its own contents every frame), the Layers rail
+   cards, marker labels, the Places rail buttons, and the provider-load
+   error banner. */
 
 .maps-viewport {
   touch-action: none;
@@ -82,33 +83,59 @@
   border-radius: 3px;
 }
 
-/* "Layers" panel — one compact row per layer (bracket checkbox + label +
-   density slider inline), rendered above the Places list in the same rail
-   (mapsKit.tsx's `LayersPanel` doc). Reuses the site's own bracket-checkbox
-   (`.layer-group-check`, `[x]`/`[ ]`) and slider (`.voice-slider`/
-   `.voice-slider-track`) idiom from instrument-workbench.css verbatim — this
-   rule set only supplies the row GRID that lines every row's checkbox,
-   label, track and value up in shared columns. */
+/* "Layers" panel — one EXPANDABLE CARD per layer, filling the whole rail
+   (mapsKit.tsx's `LayersPanel` doc — user ask: "some kind of UI like the
+   synth voices, but in this case its map layers"). Reuses SynthWorkbench's
+   own collapsible `LayerGroup` shell verbatim (`.layer-group`/
+   `.layer-group-head`/`.layer-group-toggle`+`.layer-group-caret`/
+   `.layer-group-body`, `.layer-group-check` for the bracket enable
+   checkbox) from instrument-workbench.css — a collapsed card is just the
+   enable checkbox + name; expanding it reveals that layer's own controls
+   (`.voice-slider`/`.voice-slider-track`/`.voice-color` for every
+   slider/swatch inside, same idiom). This file supplies only the new row
+   shapes those existing idioms don't already cover, plus the stack of
+   cards itself. */
 .maps-layers-list {
-  display: grid;
-  grid-template-columns: max-content 1fr max-content;
-  align-items: center;
-  row-gap: 6px;
-  column-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding-bottom: 9px;
   margin-bottom: 9px;
   border-bottom: 1px solid rgba(255, 232, 184, 0.12);
 }
-.maps-layer-row {
-  display: contents;
-}
 .maps-layer-check {
+  flex: 1;
   font-size: 12px;
   letter-spacing: 0.02em;
 }
-.voice-slider.maps-layer-slider {
-  grid-column: 2 / 4;
-  grid-template-columns: subgrid;
+/* The collapse/expand caret button sits at the head row's trailing edge —
+   `.layer-group-head` is a plain flex row with no `justify-content`
+   assumption of its own, so this is the one rule needed to push it there. */
+.maps-layer-expand {
+  margin-left: auto;
+}
+.maps-layer-color-row,
+.maps-layer-select-row,
+.maps-layer-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+.maps-layer-color-row span:first-child,
+.maps-layer-select-row span:first-child,
+.maps-layer-info-row span:first-child {
+  color: rgba(255, 232, 184, 0.70);
+  letter-spacing: 0.02em;
+}
+.maps-layer-select-row .gx-select {
+  flex: 1;
+  max-width: 130px;
+}
+.maps-layer-info-value {
+  color: rgba(226, 232, 240, 0.65);
+  font-size: 10px;
 }
 .maps-layer-slider--off {
   opacity: 0.35;

@@ -43,7 +43,16 @@ async function fetchTile(baseUrl: string, z: number, x: number, y: number): Prom
   return glyphMapDecodeVectorTile(wire);
 }
 
-export async function createVectorTilesProvider(baseUrl = "/data/vector-tiles"): Promise<GlyphMapVectorProvider> {
+/**
+ * The returned provider also carries `simplify` — the manifest's own
+ * Visvalingam-Whyatt threshold provenance string (`bake-vector-tiles.mjs`'s
+ * choice) — as an extra field beyond the plain `GlyphMapVectorProvider`
+ * interface, mirroring `geoTilesProvider.ts`'s `sampler` field, so the
+ * Borders rail card can display it. Informational only: simplification runs
+ * once at bake time over shared arcs (`vector/simplify.ts`'s doc — two
+ * tiles sharing a border must simplify it identically), not per-request.
+ */
+export async function createVectorTilesProvider(baseUrl = "/data/vector-tiles"): Promise<GlyphMapVectorProvider & { readonly simplify: string }> {
   const res = await fetch(`${baseUrl}/manifest.json`);
   if (!res.ok) {
     throw new Error(
@@ -61,12 +70,13 @@ export async function createVectorTilesProvider(baseUrl = "/data/vector-tiles"):
   };
 
   const curatedEntry = manifest.curated?.[0];
-  if (!curatedEntry) return base;
+  if (!curatedEntry) return { ...base, simplify: manifest.simplify };
 
   const curatedTiles = new Map<string, GlyphMapVectorTile>();
   for (const key of curatedEntry.tiles) {
     const [xStr, yStr] = key.split("_");
     curatedTiles.set(key, await fetchTile(`${baseUrl}/curated`, curatedEntry.zoom.z, Number(xStr), Number(yStr)));
   }
-  return glyphMapCuratedVectorProvider(base, { zoom: curatedEntry.zoom, tiles: curatedTiles });
+  const curated = glyphMapCuratedVectorProvider(base, { zoom: curatedEntry.zoom, tiles: curatedTiles });
+  return { ...curated, simplify: manifest.simplify };
 }

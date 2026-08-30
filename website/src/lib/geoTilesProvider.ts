@@ -38,8 +38,15 @@ function tileBounds(level: GlyphMapProviderZoomLevel, x: number, y: number): Gly
  * `zooms` must be known synchronously for `glyphMapTargetLOD` to pick a
  * level before any tile fetch, so this factory is itself async rather than
  * the provider lazily resolving its own manifest.
+ *
+ * The returned object also carries `sampler` — the manifest's own elevation-
+ * sampling provenance string (`bake-geo-tiles.mjs`'s choice, e.g.
+ * `"nearest"`) — as an extra field beyond the plain `GlyphMapProvider`
+ * interface, so the Terrain rail card can display it (MAPS.md §15's layer
+ * cards) without a second manifest fetch. It is informational only: the
+ * live app has no control that re-samples the already-baked tiles.
  */
-export async function createGeoTilesProvider(baseUrl = "/data/geo-tiles"): Promise<GlyphMapProvider> {
+export async function createGeoTilesProvider(baseUrl = "/data/geo-tiles"): Promise<GlyphMapProvider & { readonly sampler: string }> {
   const res = await fetch(`${baseUrl}/manifest.json`);
   if (!res.ok) {
     throw new Error(`glyphcss website: failed to load geo-tiles manifest at ${baseUrl}/manifest.json (${res.status}). Run "node website/scripts/bake-geo-tiles.mjs --tiles" first.`);
@@ -51,6 +58,7 @@ export async function createGeoTilesProvider(baseUrl = "/data/geo-tiles"): Promi
     id: `geo-tiles:${baseUrl}`,
     zooms: manifest.zooms,
     attribution: manifest.attribution,
+    sampler: manifest.sampler,
     bounds(z, x, y) {
       const level = zoomByZ.get(z);
       if (!level) throw new RangeError(`geo-tiles provider: no zoom level ${z}.`);

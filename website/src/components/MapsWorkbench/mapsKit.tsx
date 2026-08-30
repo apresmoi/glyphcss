@@ -14,7 +14,7 @@
  * pattern `SynthWorkbench`'s own `SynthDock` already uses for its own
  * scene/camera, which also isn't Gallery-shaped.
  */
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { GUI } from "lil-gui";
 import {
   glyphMapDecodeVectorTile,
@@ -141,92 +141,202 @@ export async function loadMapPlaces(baseUrl = "/data/vector-tiles"): Promise<rea
   return places;
 }
 
-// ── "Layers" panel — one row per layer (bracket checkbox + label + density
-//    slider, all inline), directly in the LEFT RAIL under the shared
-//    "Layers & places" header, above the Places list (user placement ask:
-//    "the left rail is already where the map's content lives"). A prior
-//    version mounted a SECOND lil-gui root here (`useGui`) and rendered each
-//    layer as two separate lil-gui rows ("Background — visible" / "Background
-//    — density") — lil-gui has no "several controls on one row" layout, so
-//    that read as a foreign control kit dropped into the rail, with every
-//    layer's name repeated twice. This is a plain React component instead
-//    (AGENTS.md's no-BC-shim rule: replaces that mechanism outright, not
-//    alongside it), reusing the SAME bracket-checkbox (`[x]`/`[ ]`,
-//    `.layer-group-check`) and slider (`.voice-slider`/`.voice-slider-track`)
-//    idiom `SynthWorkbench`'s own left-rail `LayerGroup`/`VoiceCard` already
-//    established for exactly this "compact control row" shape — see
+// ── "Layers" panel — expandable per-layer CARDS in the LEFT RAIL, directly
+//    under the shared "Layers & places" header, above the Places list.
+//    Styled after SynthWorkbench's own collapsible `LayerGroup` (user ask:
+//    "some kind of UI like the synth voices, but in this case its map
+//    layers") — see
 //    `../SynthWorkbench/synthKit.tsx`'s `LayerGroup` and
 //    `instrument-workbench.css` for the source of truth these classes are
-//    styled from; this file supplies only the row GRID (maps-workbench.css's
-//    `.maps-layers-list`) that lines every row's checkbox/label/track/value
-//    up in shared columns. Every layer row is the SAME shape (no per-type
-//    exception in the UI) — `raster`'s density slider is enabled (wired
-//    straight through to glyphcss's own per-mesh `density`, see
-//    `GlyphMapRasterLayer.density`'s doc); `background`/`line`/`contour`'s
-//    are visibly dimmed+disabled (`.maps-layer-slider--off`) rather than
-//    present-but-inert, since `createGlyphMap` THROWS if a stroke layer's
-//    `density` is actually set to anything but 1 (see
-//    `GlyphMapLayerDensity`'s doc for why stroke-layer density is real
-//    future work, not wired this slice).
-
-export interface LayerRowInputs {
-  visible: boolean;
-  onVisible: (v: boolean) => void;
-  density: number;
-  onDensity: (v: number) => void;
-  /** Whether THIS layer's density is actually wired through to the renderer this slice. */
-  densityEnabled: boolean;
-}
-
-export interface LayersFolderInputs {
-  background: LayerRowInputs;
-  terrain: LayerRowInputs;
-  borders: LayerRowInputs;
-  contour: LayerRowInputs;
-}
+//    styled from: `.layer-group`/`.layer-group-head`/`.layer-group-toggle`+
+//    `.layer-group-caret`/`.layer-group-body` for the card shell,
+//    `.layer-group-check` for the bracket enable checkbox, `.voice-slider`/
+//    `.voice-slider-track`/`.voice-color` for every slider/swatch row inside
+//    a card. A collapsed card is just the enable checkbox + name; expanding
+//    it reveals that layer's OWN controls, density among them — replacing
+//    the earlier flat-row design, which put density on the collapsed row
+//    itself and had no room for palette/exaggeration/color at all. This
+//    file supplies only the new row shapes those existing idioms don't
+//    already cover (`.maps-layer-color-row`/`.maps-layer-select-row`/
+//    `.maps-layer-info-row`, maps-workbench.css), same "row GRID only"
+//    convention this file has followed since the original flat-row design.
+//
+//    Every card's DENSITY slider stays visibly dimmed+disabled
+//    (`.maps-layer-slider--off`) unless `DensityRow`'s own `enabled` prop is
+//    true — `raster`'s is the only one actually wired through to glyphcss's
+//    own per-mesh `density`
+//    (see `GlyphMapRasterLayer.density`'s doc); `createGlyphMap` THROWS if a
+//    stroke (`line`/`contour`) layer's density is set to anything but 1
+//    (`GlyphMapLayerDensity`'s doc), and `background` has no glyph
+//    resolution to multiply at all — so all three stay dimmed, never
+//    present-but-inert.
+//
+//    Palette and exaggeration used to live in the right-hand Dock even
+//    though both are per-raster-layer properties (`GlyphMapRasterLayer
+//    .colors`, the projection's own `exaggeration` argument) — moved into
+//    the Terrain card so the Dock stays scene-level concerns only (camera,
+//    lighting, render mode), one home per control. `sampler`/`simplify` are
+//    READ-ONLY provenance strings baked into the tile pyramid at build time
+//    (`bake-geo-tiles.mjs`/`bake-vector-tiles.mjs`) — there is no live
+//    control that re-samples or re-simplifies already-baked tiles, so they
+//    render as an info row, not a slider with nothing wired behind it.
 
 function densityFill(v: number, min: number, max: number): CSSProperties {
   return { ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties;
 }
 
-function LayerRow({ label, row }: { label: string; row: LayerRowInputs }) {
+function LayerCard({ label, visible, onVisible, children }: {
+  label: string;
+  visible: boolean;
+  onVisible: (v: boolean) => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="maps-layer-row">
-      <label className="layer-group-check maps-layer-check" title={`${label} — show or hide this layer`}>
-        <input type="checkbox" checked={row.visible} onChange={(e) => row.onVisible(e.target.checked)} />
-        <span>{label}</span>
-      </label>
-      <span
-        className={`voice-slider maps-layer-slider${row.densityEnabled ? "" : " maps-layer-slider--off"}`}
-        title={row.densityEnabled
-          ? `${label} density — glyph resolution multiplier for this layer (1x-4x)`
-          : `${label} density — not wired through to the renderer for this layer type yet`}
-      >
-        <span className="voice-slider-track">
-          <input
-            type="range"
-            min={1}
-            max={4}
-            step={1}
-            disabled={!row.densityEnabled}
-            value={row.density}
-            style={densityFill(row.density, 1, 4)}
-            onChange={(e) => row.onDensity(+e.target.value)}
-          />
-        </span>
-        <span className="voice-slider-readout">{row.density}</span>
-      </span>
+    <div className="layer-group maps-layer-card">
+      <div className="layer-group-head maps-layer-head">
+        <label className="layer-group-check maps-layer-check" title={`${label} — show or hide this layer`}>
+          <input type="checkbox" checked={visible} onChange={(e) => onVisible(e.target.checked)} />
+          <span>{label}</span>
+        </label>
+        <button
+          type="button"
+          className="layer-group-toggle maps-layer-expand"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          title={`${label} — expand/collapse this layer's controls`}
+        >
+          <span className="layer-group-caret">{open ? "▾" : "▸"}</span>
+        </button>
+      </div>
+      {open && <div className="layer-group-body maps-layer-body">{children}</div>}
     </div>
   );
+}
+
+function DensityRow({ label, density, onDensity, enabled }: {
+  label: string;
+  density: number;
+  onDensity: (v: number) => void;
+  enabled: boolean;
+}) {
+  return (
+    <label
+      className={`voice-slider maps-layer-slider${enabled ? "" : " maps-layer-slider--off"}`}
+      title={enabled
+        ? `${label} density — glyph resolution multiplier for this layer (1x-4x)`
+        : `${label} density — not wired through to the renderer for this layer type yet`}
+    >
+      <span>density</span>
+      <span className="voice-slider-track">
+        <input type="range" min={1} max={4} step={1} disabled={!enabled} value={density} style={densityFill(density, 1, 4)} onChange={(e) => onDensity(+e.target.value)} />
+      </span>
+      <span className="voice-slider-readout">{density}</span>
+    </label>
+  );
+}
+
+function ColorRow({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="maps-layer-color-row" title="Color">
+      <span>color</span>
+      <input type="color" className="voice-color" value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="maps-layer-info-row" title={`${label} — provenance baked into the tile pyramid at build time, not a live control`}>
+      <span>{label}</span>
+      <span className="maps-layer-info-value">{value}</span>
+    </div>
+  );
+}
+
+export interface BackgroundLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  color: string; onColor: (v: string) => void;
+  density: number; onDensity: (v: number) => void;
+}
+
+export interface TerrainLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  palette: MapPaletteName; onPalette: (v: MapPaletteName) => void;
+  exaggeration: number; onExaggeration: (v: number) => void;
+  /** ETOPO1 tile pyramid's own sampling provenance (e.g. `"nearest"`) — `null` before the provider loads. */
+  sampler: string | null;
+  density: number; onDensity: (v: number) => void;
+}
+
+export interface BordersLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  color: string; onColor: (v: string) => void;
+  /** Vector tile pyramid's own Visvalingam-Whyatt simplification provenance — `null` before the provider loads. */
+  simplify: string | null;
+  density: number; onDensity: (v: number) => void;
+}
+
+export interface ContourLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  color: string; onColor: (v: string) => void;
+  /** Elevation-unit spacing between contour lines — see `GlyphMapContourLayer.levels`'s `{ interval }` variant. */
+  interval: number; onInterval: (v: number) => void;
+  /** The resulting line count for the CURRENTLY resolved field, read-only — `null` while off or before the first tile resolves. */
+  lineCount: number | null;
+  density: number; onDensity: (v: number) => void;
+}
+
+export interface LayersFolderInputs {
+  background: BackgroundLayerInputs;
+  terrain: TerrainLayerInputs;
+  borders: BordersLayerInputs;
+  contour: ContourLayerInputs;
 }
 
 export function LayersPanel({ background, terrain, borders, contour }: LayersFolderInputs) {
   return (
     <div className="maps-layers-list">
-      <LayerRow label="Background" row={background} />
-      <LayerRow label="Terrain" row={terrain} />
-      <LayerRow label="Borders" row={borders} />
-      <LayerRow label="Contour" row={contour} />
+      <LayerCard label="Background" visible={background.visible} onVisible={background.onVisible}>
+        <ColorRow value={background.color} onChange={background.onColor} />
+        <DensityRow label="Background" density={background.density} onDensity={background.onDensity} enabled={false} />
+      </LayerCard>
+      <LayerCard label="Terrain" visible={terrain.visible} onVisible={terrain.onVisible}>
+        <label className="maps-layer-select-row" title="Palette — elevation-band color ramp">
+          <span>palette</span>
+          <span className="gx-select">
+            <select value={terrain.palette} onChange={(e) => terrain.onPalette(e.target.value as MapPaletteName)}>
+              {Object.entries(PALETTE_OPTIONS).map(([display, value]) => <option key={value} value={value}>{display}</option>)}
+            </select>
+          </span>
+        </label>
+        <label className="voice-slider" title="Exaggeration — vertical relief multiplier. Construction-time only: changing this rebuilds the widget.">
+          <span>exag ×</span>
+          <span className="voice-slider-track">
+            <input type="range" min={1} max={60} step={1} value={terrain.exaggeration} style={densityFill(terrain.exaggeration, 1, 60)} onChange={(e) => terrain.onExaggeration(+e.target.value)} />
+          </span>
+          <span className="voice-slider-readout">{terrain.exaggeration}</span>
+        </label>
+        {terrain.sampler !== null && <InfoRow label="sampler" value={terrain.sampler} />}
+        <DensityRow label="Terrain" density={terrain.density} onDensity={terrain.onDensity} enabled={true} />
+      </LayerCard>
+      <LayerCard label="Borders" visible={borders.visible} onVisible={borders.onVisible}>
+        <ColorRow value={borders.color} onChange={borders.onColor} />
+        {borders.simplify !== null && <InfoRow label="simplify" value={borders.simplify} />}
+        <DensityRow label="Borders" density={borders.density} onDensity={borders.onDensity} enabled={false} />
+      </LayerCard>
+      <LayerCard label="Contour" visible={contour.visible} onVisible={contour.onVisible}>
+        <ColorRow value={contour.color} onChange={contour.onColor} />
+        <label className="voice-slider" title="Interval — fixed elevation spacing between contour lines (e.g. every 500m). Stays stable while panning, unlike a fixed LINE COUNT which would re-space every line whenever the visible elevation range changes.">
+          <span>interval</span>
+          <span className="voice-slider-track">
+            <input type="range" min={100} max={2000} step={100} value={contour.interval} style={densityFill(contour.interval, 100, 2000)} onChange={(e) => contour.onInterval(+e.target.value)} />
+          </span>
+          <span className="voice-slider-readout">{contour.interval}m</span>
+        </label>
+        <InfoRow label="lines" value={contour.lineCount === null ? "—" : String(contour.lineCount)} />
+        <DensityRow label="Contour" density={contour.density} onDensity={contour.onDensity} enabled={false} />
+      </LayerCard>
     </div>
   );
 }
@@ -269,19 +379,19 @@ export function buildMapLighting(l: MapLighting): {
 }
 
 // ── "Projection" folder ─────────────────────────────────────────────────────
+//    `Exaggeration` moved into the rail's Terrain card (mapsKit.tsx's
+//    `LayersPanel` doc) — it's a per-raster-layer property (the projection's
+//    own vertical-relief argument), not a scene-level concern.
 
 export interface ProjectionFolderInputs {
   projectionId: MapProjectionId;
-  exaggeration: number;
   onProjectionId: (id: MapProjectionId) => void;
-  onExaggeration: (value: number) => void;
 }
 
 export function useProjectionFolder(parent: GUI | null, inputs: ProjectionFolderInputs): void {
-  const { projectionId, exaggeration, onProjectionId, onExaggeration } = inputs;
+  const { projectionId, onProjectionId } = inputs;
   const folder = useFolder(parent, "Projection", { open: true });
   useOption<MapProjectionId>(folder, "Projection", PROJECTION_OPTIONS, projectionId, onProjectionId);
-  useSlider(folder, "Exaggeration ×", { min: 1, max: 60, step: 1 }, exaggeration, onExaggeration);
 }
 
 // ── "View" folder — center/span/tilt (replaces DockCamera; see file doc) ──
@@ -318,20 +428,6 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 
-// ── "Terrain" folder — palette only (recolors via remove+re-addLayer, since
-//    a mounted raster layer's `colors` has no live setter — see
-//    `MapsWorkbench`'s `handlePalette`). ────────────────────────────────────
-
-export interface TerrainFolderInputs {
-  palette: MapPaletteName;
-  onPalette: (name: MapPaletteName) => void;
-}
-
-export function useTerrainFolder(parent: GUI | null, inputs: TerrainFolderInputs): void {
-  const folder = useFolder(parent, "Terrain", { open: true });
-  useOption<MapPaletteName>(folder, "Palette", PALETTE_OPTIONS, inputs.palette, inputs.onPalette);
-}
-
 // ── Code panel — reuses `GalleryWorkbench/CodePanel`'s shell (tabs, copy,
 //    collapse) via its `override` prop (MAPS.md §13 slice 5's "same
 //    component, same interaction, do not write a second one"). `@glyphcss/
@@ -349,8 +445,12 @@ export interface MapsSnippetState {
   readonly tilt: number;
   readonly palette: MapPaletteName;
   readonly renderMode: string;
+  readonly backgroundColor: string;
   readonly showBorders: boolean;
+  readonly borderColor: string;
   readonly showContour: boolean;
+  readonly contourInterval: number;
+  readonly contourColor: string;
 }
 
 const PROJECTION_FACTORY: Record<MapProjectionId, string> = {
@@ -370,10 +470,10 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
     ? `{ lon0: ${fmt(state.centerLon)}, lat0: ${fmt(state.centerLat)}, exaggeration: ${fmt(state.exaggeration)} }`
     : `{ exaggeration: ${fmt(state.exaggeration)} }`;
   const layerLines = [
-    `    { type: "background", color: "#05070c" },`,
+    `    { type: "background", color: ${JSON.stringify(state.backgroundColor)} },`,
     `    { type: "raster", source: terrainProvider, classifier: GlyphMapClassifiers.etopo1V1, colors: ${JSON.stringify(MAP_PALETTES[state.palette])} },`,
-    ...(state.showBorders ? [`    { type: "line", source: borderProvider, color: "#e8c988" },`] : []),
-    ...(state.showContour ? [`    { type: "contour", source: terrainProvider, levels: 6, color: "#7fe8c9" },`] : []),
+    ...(state.showBorders ? [`    { type: "line", source: borderProvider, color: ${JSON.stringify(state.borderColor)} },`] : []),
+    ...(state.showContour ? [`    { type: "contour", source: terrainProvider, levels: { interval: ${fmt(state.contourInterval)} }, color: ${JSON.stringify(state.contourColor)} },`] : []),
   ].join("\n");
 
   return `import {

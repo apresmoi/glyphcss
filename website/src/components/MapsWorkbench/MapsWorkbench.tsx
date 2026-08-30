@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGlyphMap,
+  glyphMapContourIntervalLevels,
   GlyphMapClassifiers,
   type GlyphMapAttribution,
+  type GlyphMapBounds,
   type GlyphMapHandle,
   type GlyphMapProvider,
   type GlyphMapVectorProvider,
@@ -38,7 +40,6 @@ import {
   LayersPanel,
   paletteColorsFor,
   useProjectionFolder,
-  useTerrainFolder,
   useViewFolder,
   type MapLighting,
   type MapPaletteName,
@@ -62,19 +63,17 @@ export default function MapsWorkbench() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
   const mapRef = useRef<GlyphMapHandle | null>(null);
-  const [provider, setProvider] = useState<GlyphMapProvider | null>(null);
+  const [provider, setProvider] = useState<(GlyphMapProvider & { readonly sampler?: string }) | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [places, setPlaces] = useState<readonly MapPlace[]>([]);
-  const [vectorProvider, setVectorProvider] = useState<GlyphMapVectorProvider | null>(null);
+  const [vectorProvider, setVectorProvider] = useState<(GlyphMapVectorProvider & { readonly simplify?: string }) | null>(null);
   const [attributions, setAttributions] = useState<readonly GlyphMapAttribution[]>([]);
 
-  // ── Per-layer visibility + density (left-rail "Layers" panel — user
-  //    placement/uniformity ask: every layer, same shape, in the rail
-  //    above Places, not the right Dock). Only `terrainDensity` is
-  //    actually wired to the renderer this slice (raster's density passes
-  //    straight through to glyphcss's own per-mesh detail layer); the
-  //    other density sliders render disabled+dimmed — see mapsKit.tsx's
-  //    `LayersPanel` doc for why stroke-layer density isn't wired yet. ──
+  // ── Per-layer visibility + density + own controls (left-rail "Layers"
+  //    panel, expandable cards — mapsKit.tsx's `LayersPanel` doc). Only
+  //    `terrainDensity` is actually wired to the renderer this slice
+  //    (raster's density passes straight through to glyphcss's own per-mesh
+  //    detail layer); the other density sliders render disabled+dimmed. ──
   const [showBackground, setShowBackground] = useState(true);
   const [showTerrain, setShowTerrain] = useState(true);
   const [showBorders, setShowBorders] = useState(true);
@@ -83,6 +82,11 @@ export default function MapsWorkbench() {
   const [terrainDensity, setTerrainDensity] = useState(1);
   const [borderDensity, setBorderDensity] = useState(1);
   const [contourDensity, setContourDensity] = useState(1);
+  const [backgroundColor, setBackgroundColor] = useState("#05070c");
+  const [borderColor, setBorderColor] = useState("#e8c988");
+  const [contourColor, setContourColor] = useState("#7fe8c9");
+  const [contourInterval, setContourInterval] = useState(500);
+  const [contourFieldRange, setContourFieldRange] = useState<{ readonly min: number; readonly max: number } | null>(null);
   const showBordersRef = useRef(showBorders);
   showBordersRef.current = showBorders;
   const showBackgroundRef = useRef(showBackground);
@@ -91,13 +95,10 @@ export default function MapsWorkbench() {
   showTerrainRef.current = showTerrain;
   const terrainDensityRef = useRef(terrainDensity);
   terrainDensityRef.current = terrainDensity;
-
-  const layersFolderInputs = {
-    background: { visible: showBackground, onVisible: setShowBackground, density: backgroundDensity, onDensity: setBackgroundDensity, densityEnabled: false },
-    terrain: { visible: showTerrain, onVisible: setShowTerrain, density: terrainDensity, onDensity: setTerrainDensity, densityEnabled: true },
-    borders: { visible: showBorders, onVisible: setShowBorders, density: borderDensity, onDensity: setBorderDensity, densityEnabled: false },
-    contour: { visible: showContour, onVisible: setShowContour, density: contourDensity, onDensity: setContourDensity, densityEnabled: false },
-  };
+  const backgroundColorRef = useRef(backgroundColor);
+  backgroundColorRef.current = backgroundColor;
+  const borderColorRef = useRef(borderColor);
+  borderColorRef.current = borderColor;
 
   // ── Projection (construction-time — a projection swap tears down and
   //    rebuilds the whole widget; there is no `setProjection`/`transitionTo`
@@ -117,6 +118,34 @@ export default function MapsWorkbench() {
   const [degPerCell, setDegPerCell] = useState(0);
 
   const [palette, setPalette] = useState<MapPaletteName>(initial.palette);
+
+  const contourLineCount = contourFieldRange
+    ? glyphMapContourIntervalLevels(contourInterval, contourFieldRange.min, contourFieldRange.max).length
+    : null;
+
+  const layersFolderInputs = {
+    background: { visible: showBackground, onVisible: setShowBackground, color: backgroundColor, onColor: setBackgroundColor, density: backgroundDensity, onDensity: setBackgroundDensity },
+    terrain: {
+      visible: showTerrain, onVisible: setShowTerrain,
+      palette, onPalette: setPalette,
+      exaggeration, onExaggeration: setExaggeration,
+      sampler: provider?.sampler ?? null,
+      density: terrainDensity, onDensity: setTerrainDensity,
+    },
+    borders: {
+      visible: showBorders, onVisible: setShowBorders,
+      color: borderColor, onColor: setBorderColor,
+      simplify: vectorProvider?.simplify ?? null,
+      density: borderDensity, onDensity: setBorderDensity,
+    },
+    contour: {
+      visible: showContour, onVisible: setShowContour,
+      color: contourColor, onColor: setContourColor,
+      interval: contourInterval, onInterval: setContourInterval,
+      lineCount: contourLineCount,
+      density: contourDensity, onDensity: setContourDensity,
+    },
+  };
 
   const [renderMode, setRenderMode] = useState<MapRenderMode>(initial.renderMode);
   const [glyphPalette, setGlyphPalette] = useState<MapGlyphPalette>(initial.glyphPalette);
@@ -212,7 +241,7 @@ export default function MapsWorkbench() {
       tilt,
       controls: { drag: true, wheel: true },
       layers: [
-        ...(showBackgroundRef.current ? [{ type: "background" as const, id: BACKGROUND_LAYER_ID, color: "#05070c" }] : []),
+        ...(showBackgroundRef.current ? [{ type: "background" as const, id: BACKGROUND_LAYER_ID, color: backgroundColorRef.current }] : []),
         ...(showTerrainRef.current
           ? [{
               type: "raster" as const,
@@ -224,7 +253,7 @@ export default function MapsWorkbench() {
             }]
           : []),
         ...(vectorProvider && showBordersRef.current
-          ? [{ type: "line" as const, id: BORDER_LAYER_ID, source: vectorProvider, color: "#e8c988" }]
+          ? [{ type: "line" as const, id: BORDER_LAYER_ID, source: vectorProvider, color: borderColorRef.current }]
           : []),
       ],
       scene: {
@@ -351,11 +380,11 @@ export default function MapsWorkbench() {
       // participates in depth-tested rendering, so layer ORDER relative to
       // terrain has no visual effect and threading a `beforeId` here would
       // throw whenever terrain happens to be hidden (its id isn't mounted).
-      map.addLayer({ type: "background", id: BACKGROUND_LAYER_ID, color: "#05070c", density: backgroundDensity });
+      map.addLayer({ type: "background", id: BACKGROUND_LAYER_ID, color: backgroundColor, density: backgroundDensity });
     }
     map.scene.rerender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showBackground, backgroundDensity]);
+  }, [showBackground, backgroundColor, backgroundDensity]);
 
   // ── Borders toggle -> addLayer/removeLayer on the ALREADY-mounted map
   //    (no recreation — mirrors the palette-recolor pattern above). ───────
@@ -364,12 +393,12 @@ export default function MapsWorkbench() {
     if (!map || !vectorProvider) return;
     map.removeLayer(BORDER_LAYER_ID);
     if (showBorders) {
-      map.addLayer({ type: "line", id: BORDER_LAYER_ID, source: vectorProvider, color: "#e8c988" });
+      map.addLayer({ type: "line", id: BORDER_LAYER_ID, source: vectorProvider, color: borderColor });
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showBorders, vectorProvider]);
+  }, [showBorders, borderColor, vectorProvider]);
 
   // ── Contour toggle -> mount/unmount a contour layer pointed straight at
   //    the SAME ETOPO1 provider `terrain` already uses. `createGlyphMap`
@@ -377,17 +406,37 @@ export default function MapsWorkbench() {
   //    (`widget.ts`'s `scheduleTileUpdate`) — panning/zooming into a new
   //    tile now loads that tile's contour data instead of staying pinned to
   //    a snapshot from whichever view was current when the layer toggled on.
+  //    `levels: { interval }` (not a count) keeps the lines at FIXED
+  //    absolute elevations as the view pans — see `LayersPanel`'s "interval"
+  //    control doc (mapsKit.tsx) for why a count would re-space on every move.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !provider) return;
     map.removeLayer(CONTOUR_LAYER_ID);
     if (showContour) {
-      map.addLayer({ type: "contour", id: CONTOUR_LAYER_ID, source: provider, levels: 6, color: "#7fe8c9" });
+      map.addLayer({ type: "contour", id: CONTOUR_LAYER_ID, source: provider, levels: { interval: contourInterval }, color: contourColor });
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
+    setContourFieldRange(showContour ? map.getContourFieldRange(CONTOUR_LAYER_ID) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showContour, provider]);
+  }, [showContour, contourInterval, contourColor, provider]);
+
+  // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
+  //    the layer's CURRENTLY resolved field range while contour is visible,
+  //    since a provider-backed contour re-derives its field asynchronously
+  //    on its own schedule (widget.ts's `scheduleTileUpdate`/`updateProvider`)
+  //    with no "field updated" event this page can subscribe to instead. ──
+  useEffect(() => {
+    if (!showContour) return;
+    const id = window.setInterval(() => {
+      const map = mapRef.current;
+      if (!map) return;
+      const range = map.getContourFieldRange(CONTOUR_LAYER_ID);
+      setContourFieldRange((prev) => (prev?.min === range?.min && prev?.max === range?.max ? prev : range));
+    }, 300);
+    return () => window.clearInterval(id);
+  }, [showContour]);
 
   // ── Rendering options -> `scene.setOptions()`. ─────────────────────────
   useEffect(() => {
@@ -445,7 +494,7 @@ export default function MapsWorkbench() {
     mapRef.current?.setView({ span: value });
   }, []);
 
-  const handlePlace = useCallback((bounds: { west: number; east: number; south: number; north: number }) => {
+  const handlePlace = useCallback((bounds: GlyphMapBounds) => {
     mapRef.current?.fitBounds(bounds);
   }, []);
 
@@ -539,9 +588,12 @@ export default function MapsWorkbench() {
   const mapsSnippet = useMemo(
     () => buildMapsSnippet({
       projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, renderMode,
-      showBorders, showContour,
+      backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
     }),
-    [projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, renderMode, showBorders, showContour],
+    [
+      projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, renderMode,
+      backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
+    ],
   );
   const mapsSnippets = useMemo(
     () => ({ html: mapsSnippet, vanilla: mapsSnippet, react: mapsSnippet, vue: mapsSnippet }),
@@ -603,12 +655,11 @@ export default function MapsWorkbench() {
         </InstrumentMain>
         <Dock id="maps-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <MapsDockFolders
-            projectionId={projectionId} exaggeration={exaggeration}
-            onProjectionId={setProjectionId} onExaggeration={setExaggeration}
+            projectionId={projectionId}
+            onProjectionId={setProjectionId}
             centerLon={centerLon} centerLat={centerLat} span={span} tilt={tilt}
             lod={lod} degPerCell={degPerCell}
             onCenter={onCenter} onSpan={onSpanChange} onTilt={onTilt}
-            palette={palette} onPalette={setPalette}
             renderMode={renderMode} glyphPalette={glyphPalette} charMode={charMode}
             wireframeJunctions={wireframeJunctions} hiddenLines={hiddenLines}
             solidWeightRamp={solidWeightRamp} colorEncoding={colorEncoding} atlasReason={atlasReason}
@@ -661,11 +712,10 @@ interface RenderingPartial {
 }
 
 function MapsDockFolders(props: {
-  projectionId: MapProjectionId; exaggeration: number;
-  onProjectionId: (id: MapProjectionId) => void; onExaggeration: (v: number) => void;
+  projectionId: MapProjectionId;
+  onProjectionId: (id: MapProjectionId) => void;
   centerLon: number; centerLat: number; span: number; tilt: number; lod: number; degPerCell: number;
   onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void;
-  palette: MapPaletteName; onPalette: (name: MapPaletteName) => void;
   renderMode: MapRenderMode; glyphPalette: MapGlyphPalette; charMode: MapCharMode;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
   colorEncoding: MapColorEncoding; atlasReason: string | null;
@@ -682,15 +732,14 @@ function MapsDockFolders(props: {
   const maxSpan = props.projectionId === "mercator" ? 170 : 360;
 
   useProjectionFolder(gui, {
-    projectionId: props.projectionId, exaggeration: props.exaggeration,
-    onProjectionId: props.onProjectionId, onExaggeration: props.onExaggeration,
+    projectionId: props.projectionId,
+    onProjectionId: props.onProjectionId,
   });
   useViewFolder(gui, {
     centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan, tilt: props.tilt,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
     onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt,
   });
-  useTerrainFolder(gui, { palette: props.palette, onPalette: props.onPalette });
 
   return (
     <>
