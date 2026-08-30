@@ -28,6 +28,12 @@ gadm_410.gdb/
 # Legacy single-tile globe (superseded by the LOD tiles). Regenerable.
 website/public/data/earth.json
 
+# Geographic (lon/lat/elev) tile pyramid baked by bake-geo-tiles.mjs.
+# Regenerable from etopo/; not small enough to vendor (see MAPS.md §13
+# slice 2 / packages/maps README). Only the small parity fixture at
+# packages/maps/fixtures/geo-tile-parity.json is committed.
+website/public/data/geo-tiles/
+
 # Generated from packages/compile/SKILL.md by website build (scripts/copy-skill.mjs)
 website/public/skill.md
 
