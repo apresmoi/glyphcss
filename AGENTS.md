@@ -18,6 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
+| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII. Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
 | `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
@@ -185,6 +186,85 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 **Volumetric field-synth (`space: "object"`) and `render: "carve"`/`"xray"` reject explicitly** from `buildGlyphFieldSynthStaticExport`, each checked before the generic `space` reject so the thrown error names the actual mistake — a per-cell-per-frame march (carve/xray) is a different export design than this bake's affine-fit/coordinate-table strategy, not planned. An active voice (`ampN > 0`) with `fieldN: "linearZ"` or a nonzero `originWN` also rejects explicitly, worded separately from the generic `space` reject — both are otherwise 3D-only semantics with no meaning in the 2D branch this exporter ports, and a precise per-field error beats folding that into the `space` reject when the likely mistake is forgetting to also flip `space` to `"object"`. That `originWN` reject is EXEMPTED for an active SDF voice (`gyroid`/`menger`/`sierpinski`): the SDF family genuinely reads `originW` even in the 2D branch (its translation contract, see above), so a nonzero `originWN` on one of those fields is ported and exported normally, not rejected; every other field still ignores `originW` in 2D and the reject stands for them. `gyroid`/`menger`/`sierpinski` and the `step` wave otherwise export normally in the 2D branch, at real-renderer exact parity, like every other field/wave. `isGlyphFieldSynthStaticExportSupported(params)` is the pure predicate mirroring the exporter's own reject rules — merges `params` over defaults and returns whether `buildGlyphFieldSynthStaticExport` would accept them, so a UI gates its export button on this instead of duplicating the reject list; the `/synth` page's CodePen-export gate is the reference caller. The **interactive/CodePen exporter is the export path for a volumetric or carve/xray patch** — it mounts the live effect runtime from the CDN, so it evaluates the real 3D branch/march every frame instead of baking a static approximation.
 
 Dynamic Glyph Effect layers are otherwise runtime-only: `compileScene`/`GlyphSceneStatic` and the frame-roll export do not serialize or evaluate a mounted effect. Two paths do carry a live effect: the **interactive/CodePen exporter** mounts a **stock** effect by id from the `@glyphcss/effects` CDN (a custom `defineGlyphEffect` can't cross the CDN boundary), and **`buildGlyphFieldSynthStaticExport`** bakes an effect-only, static-camera field-synth scene into a self-contained inlined-JS pen. Neither generalizes to a moving camera plus effect, arbitrary effects in a static bake, or geometry animation.
+
+## Maps (raster slice 1)
+
+`@glyphcss/maps` bakes a georeferenced scalar field (elevation, land cover,
+any raster) to a static ASCII `<pre>`, through a deterministic pipeline:
+
+    source → sample → FIELD → classify → bands → compile
+
+Two entry points: the root (`@glyphcss/maps`) is pure and browser-safe;
+`@glyphcss/maps/node` adds `fs`-backed source readers and is never imported
+by the root. **`gdal-async` is not a dependency of this package** — the
+shipped reader (`parseGlyphMapAsciiGrid`/`loadGlyphMapSource`) is a pure-JS
+Esri/Arc-Info ASCII Grid parser; a GDAL-backed reader is future work behind
+the same `/node` subpath, kept out of installs the way
+`website/scripts/bake-labels.mjs` keeps GDAL out of the website's own
+install.
+
+Everything public speaks lat/lng, never grid coordinates: `GlyphMapView` is
+`{ center: [lon, lat], span, cols, rows }`, with height derived from `span *
+(rows/cols)` (the aspect lock) so a pan/zoom view never shears terrain.
+`glyphMapBounds({ west, east, south, north, cols, rows })` is a convenience
+constructor for the static-bake case — it carries the EXACT requested box on
+`.bounds` rather than re-deriving one through the aspect lock, since a
+one-shot bake wants the precise window it asked for even when that window's
+aspect doesn't match `cols/rows`.
+
+`sampleGlyphMapField(source, view, opts)` is async (forward-compatible with
+a future COG/range-read source) and implements the sampler footprint exactly
+as frozen: a source pixel belongs to the output cell whose geographic box
+contains that pixel's CENTRE, half-open on the north/west edges so no pixel
+is counted twice. `GlyphMapSampler` is `"mean" | "max" | "min" | "nearest" |
+"majority" | ((samples: Float32Array, cell: GlyphMapCellContext) => number)`
+— every named aggregation is undefined on an empty sample set, so a cell
+with ZERO landing pixels (the view outresolves the source) falls back to a
+separate `upsample: "bilinear" | "nearest"` rule (`"bilinear"` default for
+continuous, `"nearest"` default and only legal choice for categorical).
+`noData` aggregates over valid samples only; a cell is `noData` only when
+ALL its samples are, unless `noData: "strict"` (any invalid sample marks the
+cell). A callback sampler opts out of the byte-identity guarantee — a
+function has no id, so `glyphMapSamplerId` resolves it to `"custom"`.
+
+`classifyGlyphMapField(field, classifier)` turns a field's continuous values
+into a small integer band per cell. A classifier is a value with an id, not
+a flag — two quantile-classified fields are never comparable to each other,
+even under the same id, because their fitted breaks differ. `GlyphMapField.kind`
+(`"continuous" | "categorical"`) gates which classifiers are legal:
+`glyphMapQuantile`/`glyphMapLog` (order-statistic classifiers) throw on a
+categorical field rather than coercing; `glyphMapBreaks`/`glyphMapEqualInterval`
+do not. `GlyphMapClassifiers.etopo1V1` freezes `website/scripts/bake-globe.mjs`'s
+former `elevToBand` thresholds as a `glyphMapBreaks` value — that script
+imports `GlyphMapClassifiers.etopo1V1.classifyValue` instead of keeping its
+own copy, so the thresholds exist exactly once. `GlyphMapBands` retains its
+source `field` (not just band indices), because a later slice's relief mesh
+builds `z` from elevation values.
+
+`compileGlyphMap(bands, presentation)` returns `{ html: string; css?: string
+}`, not a bare string, because the underlying `encodeStaticGlyphHtml`
+separates them in its smallest (class-based) mode. The pure path is
+`encodeGlyphBuffers` → `encodeStaticGlyphHtml` (both exported by
+`glyphcss`), **not** `compileScene` — this slice has no polygons or camera
+to project. `GlyphMapPresentation.hillshade` is a flat-path-only raster-space
+slope-difference shade (Horn's algorithm over grid-relative central
+differences, `zFactor` absorbing the degree-vs-real-distance mismatch a
+geographic grid has no fixed conversion for) — under a relief mesh (a later
+slice) glyphcss's own Lambert shading IS the hillshade, and running both
+would double-light the map.
+
+`buildGlyphMapArtifact(bands, { source, sampler })` is the single-artifact
+bake format a geographic tile (a later slice) is an instance of: bounds,
+grid, bands, and the `source`/`classifier`/`sampler` ids a re-bake needs, so
+a legitimate source upgrade (ETOPO1 2009 → ETOPO 2022) never silently reads
+as drift. `source`/`sampler` aren't threaded through `GlyphMapField`/
+`GlyphMapBands` themselves — the caller already knows both (it chose them)
+— so the artifact builder takes them explicitly.
+
+Out of scope for this slice, deliberately: projections, cameras, meshes,
+geographic tiling/LOD/providers, interactivity, and vector data. No React/Vue
+surface yet — nothing in the plan forces one, and none is added
+speculatively.
 
 ## No per-frame DOM mutation
 

@@ -27,6 +27,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
+import { GlyphMapClassifiers } from "@glyphcss/maps";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "../..");
@@ -120,17 +121,12 @@ function parseNcHeader(buf) {
 // Elevation → band index 0..8 (water + 8 land tiers). The flat-map tiles
 // store the band per face; the client maps band→color via a chosen palette,
 // so palettes can be swapped at runtime without re-baking.
-function elevToBand(elev) {
-  if (elev < 0)    return 0;
-  if (elev < 250)  return 1;
-  if (elev < 800)  return 2;
-  if (elev < 1600) return 3;
-  if (elev < 2600) return 4;
-  if (elev < 3600) return 5;
-  if (elev < 4600) return 6;
-  if (elev < 5600) return 7;
-  return 8;
-}
+//
+// Thresholds are frozen as @glyphcss/maps's GlyphMapClassifiers.etopo1V1 —
+// imported rather than redefined here, so they exist exactly once
+// (MAPS.md §13, "the package also needs a scalar `elevToBand`-shaped export
+// so `bake-globe.mjs` can drop its copy").
+const elevToBand = (elev) => GlyphMapClassifiers.etopo1V1.classifyValue(elev);
 
 // ── Terrain → color buckets (ocean depth / land elevation) ───────────────
 function elevToColor(elev) {
