@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Vec3 } from "glyphcss";
 import { glyphMapPolygons } from "./mesh";
-import { glyphMapGlobe, glyphMapMercator } from "./projection";
+import { glyphMapEquirectangular, glyphMapGlobe, glyphMapMercator } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 
 function makeTile(bounds: GlyphMapGeoTile["bounds"], cols: number, rows: number, elevationFn: (lon: number, lat: number) => number): GlyphMapGeoTile {
@@ -65,6 +65,25 @@ describe("glyphMapPolygons", () => {
       // the sphere's center"). Both triangles of the CCW fan must agree.
       expect(dot(cross(sub(v1, v0), sub(v2, v0)), center)).toBeGreaterThan(0);
       expect(dot(cross(sub(v2, v0), sub(v3, v0)), center)).toBeGreaterThan(0);
+    }
+  });
+
+  it("winds toward the camera on a flat sheet too (equirectangular/Mercator) — found live on /maps: the naive [nw,sw,se,ne] order is CW, not CCW, as seen from above (+Z looking down -Z), backface-culling the ENTIRE mesh under a non-orbit camera", () => {
+    // Independent ground truth, not the fix's own probe: every flat
+    // projection in this file returns relief along +Z (`reliefZ`), so the
+    // correct outward normal for ANY quad, anywhere, is dot(normal, +Z) > 0
+    // — a fact about the projections' shared convention, not about how
+    // `glyphMapPolygons` happens to compute it internally.
+    const up: Vec3 = [0, 0, 1];
+    for (const projection of [glyphMapEquirectangular(), glyphMapMercator()]) {
+      const tile = makeTile({ west: 10, east: 12, south: 10, north: 12 }, 2, 2, () => 0);
+      const polygons = glyphMapPolygons(tile, projection);
+      expect(polygons.length).toBeGreaterThan(0);
+      for (const polygon of polygons) {
+        const [v0, v1, v2, v3] = polygon.vertices;
+        expect(dot(cross(sub(v1, v0), sub(v2, v0)), up)).toBeGreaterThan(0);
+        expect(dot(cross(sub(v2, v0), sub(v3, v0)), up)).toBeGreaterThan(0);
+      }
     }
   });
 
