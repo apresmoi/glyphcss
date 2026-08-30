@@ -18,18 +18,13 @@ import type { CSSProperties } from "react";
 import type { GUI } from "lil-gui";
 import {
   glyphMapDecodeVectorTile,
-  glyphMapDegreesPerCell,
   glyphMapEquirectangular,
   glyphMapGlobe,
   glyphMapMercator,
   glyphMapOrthographic,
-  glyphMapTargetLOD,
   type GlyphMapBounds,
   type GlyphMapClassifier,
-  type GlyphMapField,
   type GlyphMapProjection,
-  type GlyphMapProvider,
-  type GlyphMapView,
 } from "@glyphcss/maps";
 import { useFolder, useOption, useReadonlyText, useSlider } from "../Dock/primitives";
 
@@ -144,53 +139,6 @@ export async function loadMapPlaces(baseUrl = "/data/vector-tiles"): Promise<rea
     if (feature) places.push({ label: name, bounds: featureBounds(feature.rings) });
   }
   return places;
-}
-
-// ── Contour layer — a `GlyphMapField` built from the ALREADY-LOADED ETOPO1
-//    geo-tile covering the view center (`GlyphMapContourLayer.source` is a
-//    pre-sampled field, not a live tile/provider — see widget.ts's doc for
-//    why). Vertex-centered tile elevation -> cell-centered field by
-//    averaging each quad's 4 corners. This is a SNAPSHOT: it does not
-//    auto-refine on pan/zoom, matching the contour layer's own documented
-//    scope (a caller-supplied fixed-resolution field). ─────────────────────
-
-export async function loadContourField(
-  provider: GlyphMapProvider,
-  view: GlyphMapView,
-): Promise<GlyphMapField> {
-  const degPerCell = glyphMapDegreesPerCell(view);
-  const z = glyphMapTargetLOD(provider, degPerCell);
-  const level = provider.zooms.find((lvl) => lvl.z === z)!;
-  const x = Math.min(level.cols - 1, Math.max(0, Math.floor(((view.center[0] + 180) / level.tileLonSpan))));
-  const y = Math.min(level.rows - 1, Math.max(0, Math.floor(((90 - view.center[1]) / level.tileLatSpan))));
-  const tile = await provider.loadTile(z, x, y);
-  const cols = tile.cols;
-  const rows = tile.rows;
-  const values = new Float32Array(cols * rows);
-  const vcols = cols + 1;
-  let min = Infinity, max = -Infinity;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const a = tile.elevation[row * vcols + col];
-      const b = tile.elevation[row * vcols + col + 1];
-      const c = tile.elevation[(row + 1) * vcols + col];
-      const d = tile.elevation[(row + 1) * vcols + col + 1];
-      const v = (a + b + c + d) / 4;
-      values[row * cols + col] = v;
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-  }
-  return {
-    bounds: tile.bounds,
-    cols,
-    rows,
-    values,
-    noData: new Uint8Array(cols * rows),
-    kind: "continuous",
-    min,
-    max,
-  };
 }
 
 // ── "Layers" panel — one row per layer (bracket checkbox + label + density
@@ -425,7 +373,7 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
     `    { type: "background", color: "#05070c" },`,
     `    { type: "raster", source: terrainProvider, classifier: GlyphMapClassifiers.etopo1V1, colors: ${JSON.stringify(MAP_PALETTES[state.palette])} },`,
     ...(state.showBorders ? [`    { type: "line", source: borderProvider, color: "#e8c988" },`] : []),
-    ...(state.showContour ? [`    { type: "contour", source: contourField, levels: 6, color: "#7fe8c9" },`] : []),
+    ...(state.showContour ? [`    { type: "contour", source: terrainProvider, levels: 6, color: "#7fe8c9" },`] : []),
   ].join("\n");
 
   return `import {
@@ -437,8 +385,8 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
 // terrainProvider / borderProvider: fetch from your own baked tile
 // pyramids (see website/scripts/bake-geo-tiles.mjs and
 // bake-vector-tiles.mjs for the reference bakers this page uses).
-// contourField: a GlyphMapField from sampleGlyphMapField() or a tile
-// you already loaded.
+// contour reuses the SAME elevation provider as terrain — createGlyphMap
+// re-derives its field per visible LOD/tile as the view changes.
 
 const host = document.querySelector("#map");
 

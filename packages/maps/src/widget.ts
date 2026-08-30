@@ -152,26 +152,99 @@ export interface GlyphMapLineLayer {
 }
 
 /**
+ * A contour layer's `source` (MAPS.md §13 slice 5): either an
+ * ALREADY-SAMPLED `GlyphMapField` (`sample.ts`'s `sampleGlyphMapField`,
+ * slice 1) — a fixed snapshot, mounted once — or a {@link GlyphMapProvider}
+ * tile pyramid (the SAME provider type `raster` already uses), re-derived
+ * into a field per visible LOD/tile exactly like `raster`'s own tiles are.
+ * Reusing `GlyphMapProvider` rather than inventing a field-specific provider
+ * type means a single elevation pyramid (e.g. ETOPO1) backs both the
+ * relief mesh and its contour lines with no second data-access abstraction.
+ */
+export type GlyphMapContourSource = GlyphMapField | GlyphMapProvider;
+
+function isGlyphMapFieldProvider(source: GlyphMapContourSource): source is GlyphMapProvider {
+  return typeof (source as GlyphMapProvider).loadTile === "function";
+}
+
+/**
+ * Converts a provider's elevation tile (vertex-centered, `(cols+1)x(rows+1)`)
+ * into a cell-centered `GlyphMapField` by averaging each quad's 4 corners —
+ * absorbed from the website's own `loadContourField` (MapsWorkbench), moved
+ * here so `scheduleTileUpdate`'s existing provider-refresh mechanism can
+ * drive it directly instead of every consumer re-deriving fields by hand.
+ */
+/** The `z/x/y` a view resolves to — exposed so a caller can skip a re-fetch when panning hasn't actually crossed into a new tile. */
+function glyphMapContourTileKey(provider: GlyphMapProvider, v: GlyphMapView): { readonly z: number; readonly x: number; readonly y: number; readonly key: string } {
+  const degPerCell = glyphMapDegreesPerCell(v);
+  const z = glyphMapTargetLOD(provider, degPerCell);
+  const level = provider.zooms.find((lvl) => lvl.z === z)!;
+  const x = Math.min(level.cols - 1, Math.max(0, Math.floor((v.center[0] + 180) / level.tileLonSpan)));
+  const y = Math.min(level.rows - 1, Math.max(0, Math.floor((90 - v.center[1]) / level.tileLatSpan)));
+  return { z, x, y, key: `${z}/${x}_${y}` };
+}
+
+async function loadGlyphMapContourField(provider: GlyphMapProvider, z: number, x: number, y: number): Promise<GlyphMapField> {
+  const tile = await provider.loadTile(z, x, y);
+  const cols = tile.cols;
+  const rows = tile.rows;
+  const values = new Float32Array(cols * rows);
+  const vcols = cols + 1;
+  let min = Infinity, max = -Infinity;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const a = tile.elevation[row * vcols + col];
+      const b = tile.elevation[row * vcols + col + 1];
+      const c = tile.elevation[(row + 1) * vcols + col];
+      const d = tile.elevation[(row + 1) * vcols + col + 1];
+      const value = (a + b + c + d) / 4;
+      values[row * cols + col] = value;
+      if (value < min) min = value;
+      if (value > max) max = value;
+    }
+  }
+  return { bounds: tile.bounds, cols, rows, values, noData: new Uint8Array(cols * rows), kind: "continuous", min, max };
+}
+
+/**
  * An isoline layer over an elevation field (MAPS.md §13 slice 5): reuses
  * field-synth's `subcellRes: "ink"` contour rule (AGENTS.md), pointed at
  * `source` instead of a synth field — see `stroke.ts`'s `stampGlyphMapContour`.
- * `source` is an ALREADY-SAMPLED `GlyphMapField` (`sample.ts`'s
- * `sampleGlyphMapField`, slice 1) rather than a raw tile/provider: a
- * contour needs one scalar per output cell, which is exactly what a
- * pre-sampled field already is — reusing it here avoids a second elevation
- * data-access abstraction. `levels` is either an explicit list of absolute
- * elevation values, or a count `N` of evenly spaced levels across the
- * field's own `min..max` (excluding both extremes, so neither degenerates
- * to a line along the field's own edge).
+ * `levels` is one of:
+ * - an explicit list of absolute elevation values;
+ * - a count `N` of evenly spaced levels across the field's own `min..max`
+ *   (excluding both extremes, so neither degenerates to a line along the
+ *   field's own edge);
+ * - `{ interval }` — every multiple of `interval` elevation units strictly
+ *   between the field's `min`/`max` (the cartographic convention: contours
+ *   at fixed absolute elevations, e.g. every 500m). Unlike a count, this
+ *   stays visually STABLE as the view pans — a count re-spaces its lines to
+ *   fill whatever elevation range is currently visible, which makes every
+ *   line crawl on every pan; an interval's lines sit at the same fixed
+ *   elevations regardless of what's in view, appearing/disappearing at the
+ *   domain edges instead of re-flowing.
+ *
+ * All three are recomputed against whichever field is CURRENTLY resolved
+ * when `source` is a provider, since a different tile can carry a different
+ * `min`/`max`.
  */
 export interface GlyphMapContourLayer {
   readonly type: "contour";
   readonly id?: string;
-  readonly source: GlyphMapField;
-  readonly levels: number | readonly number[];
+  readonly source: GlyphMapContourSource;
+  readonly levels: number | readonly number[] | { readonly interval: number };
   readonly color?: string;
   /** NOT YET IMPLEMENTED — see {@link GlyphMapLineLayer.density}'s doc; the same stamped-into-the-shared-grid constraint applies here. Throws at `addLayer` time for any value other than `1`/`undefined`. */
   readonly density?: number;
+}
+
+/** Every multiple of `interval` strictly between `min` and `max` (both exclusive, matching the `N`-count variant's own "never a line along the field's own edge" convention). Exported so a caller (e.g. a UI readout) can preview the level COUNT an `{ interval }` value will produce without re-deriving this math. */
+export function glyphMapContourIntervalLevels(interval: number, min: number, max: number): readonly number[] {
+  if (!(interval > 0)) throw new RangeError(`glyphcss/maps: contour "levels.interval" must be > 0 (got ${interval}).`);
+  const first = Math.floor(min / interval) * interval + interval;
+  const out: number[] = [];
+  for (let v = first; v < max; v += interval) out.push(v);
+  return out;
 }
 
 export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer;
@@ -181,6 +254,11 @@ interface StrokeLayerRuntime {
   update(): Promise<void>;
   stamp(grid: CellGrid): void;
   dispose(): void;
+}
+
+/** A contour layer's runtime additionally exposes the elevation range of whichever field is CURRENTLY resolved — read-only introspection for {@link GlyphMapHandle.getContourFieldRange}. */
+interface ContourLayerRuntime extends StrokeLayerRuntime {
+  getFieldRange(): { readonly min: number; readonly max: number } | null;
 }
 
 // ── Markers ────────────────────────────────────────────────────────────
@@ -302,6 +380,15 @@ export interface GlyphMapHandle {
   moveLayer(id: string, beforeId?: string): void;
   /** Provenance of every currently mounted layer's data source, deduplicated — see `attribution.ts`. Recomputed on every call, so it always reflects the live layer set (a toggled layer, a curated tile swap). */
   getAttributions(): readonly GlyphMapAttribution[];
+  /**
+   * The elevation range of a mounted `contour` layer's CURRENTLY resolved
+   * field — `null` if `id` isn't a mounted contour layer, or a
+   * provider-backed one whose first fetch hasn't resolved yet. Read-only
+   * introspection for a caller previewing the level COUNT a `levels: {
+   * interval }` value will produce (`glyphMapContourIntervalLevels`)
+   * without duplicating the field-resolution logic itself.
+   */
+  getContourFieldRange(id: string): { readonly min: number; readonly max: number } | null;
   addMarker(opts: GlyphMapMarkerOptions): GlyphMapMarkerHandle;
   on<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
   off<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
@@ -794,13 +881,47 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
-  function createContourLayerRuntime(layer: GlyphMapContourLayer): StrokeLayerRuntime {
-    const field = layer.source;
-    const levels: readonly number[] = typeof layer.levels === "number"
-      ? Array.from({ length: layer.levels }, (_, i) => field.min + (field.max - field.min) * ((i + 1) / ((layer.levels as number) + 1)))
-      : layer.levels;
+  function createContourLayerRuntime(layer: GlyphMapContourLayer): ContourLayerRuntime {
+    const isProvider = isGlyphMapFieldProvider(layer.source);
+    // A provider-backed contour starts with no resolved field at all —
+    // `stamp` degrades to "draw nothing" (not "draw everywhere") until the
+    // first `update()` resolves, same discipline `line`'s `activeFeatures`
+    // starts empty under.
+    let field: GlyphMapField | null = isProvider ? null : layer.source;
+    let lastTileKey: string | null = null;
+    let updateInFlight = false;
+    let updateQueued = false;
+
+    function levelsFor(f: GlyphMapField): readonly number[] {
+      if (typeof layer.levels === "number") {
+        return Array.from({ length: layer.levels }, (_, i) => f.min + (f.max - f.min) * ((i + 1) / ((layer.levels as number) + 1)));
+      }
+      if (Array.isArray(layer.levels)) return layer.levels;
+      return glyphMapContourIntervalLevels((layer.levels as { readonly interval: number }).interval, f.min, f.max);
+    }
+
+    async function updateProvider(provider: GlyphMapProvider): Promise<void> {
+      if (updateInFlight) { updateQueued = true; return; }
+      updateInFlight = true;
+      try {
+        const { z, x, y, key } = glyphMapContourTileKey(provider, view);
+        if (key !== lastTileKey) {
+          field = await loadGlyphMapContourField(provider, z, x, y);
+          lastTileKey = key;
+          scene.rerender();
+        }
+      } finally {
+        updateInFlight = false;
+        if (updateQueued) {
+          updateQueued = false;
+          await updateProvider(provider);
+        }
+      }
+    }
 
     function stamp(grid: CellGrid): void {
+      const f = field;
+      if (!f) return;
       // With no opaque base layer mounted, every cell reads non-finite
       // depth uniformly — degrade to "draw everywhere the field is
       // defined" rather than reading that as "off the map" (the
@@ -813,18 +934,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         (col, row) => {
           const ll = unproject([col + 0.5, row + 0.5]);
           if (!ll) return NaN;
-          return glyphMapFieldValueAt(field, ll[0], ll[1]);
+          return glyphMapFieldValueAt(f, ll[0], ll[1]);
         },
-        { levels, color: layer.color, requireSurface: hasOpaqueSurface },
+        { levels: levelsFor(f), color: layer.color, requireSurface: hasOpaqueSurface },
       );
     }
 
     return {
       async update(): Promise<void> {
-        scene.rerender();
+        if (isGlyphMapFieldProvider(layer.source)) await updateProvider(layer.source);
+        else scene.rerender();
       },
       stamp,
       dispose(): void {},
+      getFieldRange(): { readonly min: number; readonly max: number } | null {
+        return field ? { min: field.min, max: field.max } : null;
+      },
     };
   }
 
@@ -832,7 +957,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     | { readonly kind: "background"; readonly layer: GlyphMapBackgroundLayer }
     | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime }
     | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: StrokeLayerRuntime }
-    | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: StrokeLayerRuntime };
+    | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: ContourLayerRuntime };
 
   const layerOrder: string[] = [];
   const layerStates = new Map<string, LayerState>();
@@ -978,8 +1103,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const state = layerStates.get(id);
       if (state?.kind === "raster") lists.push(state.layer.source.attribution);
       else if (state?.kind === "line") lists.push(state.layer.source.attribution);
+      else if (state?.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) lists.push(state.layer.source.attribution);
     }
     return glyphMapDedupeAttributions(lists);
+  }
+
+  function getContourFieldRange(id: string): { readonly min: number; readonly max: number } | null {
+    const state = layerStates.get(id);
+    return state?.kind === "contour" ? state.runtime.getFieldRange() : null;
   }
 
   // ── View mutation ────────────────────────────────────────────────────
@@ -992,6 +1123,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       for (const state of layerStates.values()) {
         if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void state.runtime.update();
         else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void state.runtime.update();
+        // A static (non-provider) `line`/`contour` source has nothing to
+        // re-fetch — `stamp()` already re-samples live off the CURRENT
+        // camera on every render (every view-changing gesture already calls
+        // `scene.rerender()` directly, see `applyDrag`/`applyWheel`/`setView`
+        // below), so gating this on the provider check, not the layer kind
+        // alone, is intentional and mirrors `line`'s own gate exactly — not
+        // an oversight to "fix" by dropping the condition.
+        else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void state.runtime.update();
       }
     }, 180);
   }
@@ -1187,6 +1326,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     removeLayer,
     moveLayer,
     getAttributions,
+    getContourFieldRange,
     addMarker,
     on(type, handler) {
       let set = listeners.get(type);

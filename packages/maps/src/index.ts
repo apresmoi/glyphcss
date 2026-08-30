@@ -88,11 +88,12 @@ export type {
 export { stampGlyphMapContour, stampGlyphMapPolyline, GLYPH_MAP_STROKE_DEPTH_BIAS, GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE } from "./stroke";
 export type { GlyphMapContourOptions, GlyphMapStampOptions, GlyphMapStrokeVertex } from "./stroke";
 
-export { createGlyphMap } from "./widget";
+export { createGlyphMap, glyphMapContourIntervalLevels } from "./widget";
 export type {
   GlyphMapBackgroundLayer,
   GlyphMapClickEvent,
   GlyphMapContourLayer,
+  GlyphMapContourSource,
   GlyphMapEvent,
   GlyphMapEventHandler,
   GlyphMapHandle,

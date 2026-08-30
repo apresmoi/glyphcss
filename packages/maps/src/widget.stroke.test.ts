@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGlyphMap } from "./widget";
+import { createGlyphMap, glyphMapContourIntervalLevels } from "./widget";
 import { glyphMapEquirectangular } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapField } from "./types";
@@ -130,6 +130,86 @@ describe("createGlyphMap — contour layer (end-to-end)", () => {
     map.scene.rerender();
     const text = map.scene.output.textContent ?? "";
     expect([...text].some((c) => c !== " " && c !== "\n")).toBe(true);
+    map.destroy();
+    host.remove();
+  });
+
+  it("levels: { interval } picks fixed absolute elevations, not a window-relative count", () => {
+    expect(glyphMapContourIntervalLevels(500, 0, 1900)).toEqual([500, 1000, 1500]);
+    // Panning to a DIFFERENT window over the SAME field keeps the shared
+    // levels at the SAME absolute elevations — the whole point of an
+    // interval over a count (MAPS.md's "stays stable as you pan").
+    expect(glyphMapContourIntervalLevels(500, 300, 1100)).toEqual([500, 1000]);
+    expect(() => glyphMapContourIntervalLevels(0, 0, 1000)).toThrow(RangeError);
+  });
+
+  it("getContourFieldRange reflects the currently resolved field, null before/without one", () => {
+    const { host, map } = mount();
+    expect(map.getContourFieldRange("missing")).toBeNull();
+    const field: GlyphMapField = {
+      bounds: { west: -18, east: 18, south: -18, north: 18 },
+      cols: 4, rows: 4,
+      values: new Float32Array(16),
+      noData: new Uint8Array(16),
+      kind: "continuous",
+      min: 100, max: 900,
+    };
+    map.addLayer({ type: "contour", id: "c", source: field, levels: { interval: 500 } });
+    expect(map.getContourFieldRange("c")).toEqual({ min: 100, max: 900 });
+    map.destroy();
+    host.remove();
+  });
+});
+
+describe("createGlyphMap — contour layer backed by a GlyphMapProvider (re-derives on view change)", () => {
+  function makeContourProvider(): GlyphMapProvider & { loadTile: ReturnType<typeof vi.fn> } {
+    const loadTile = vi.fn(async (z: number, x: number, y: number) => {
+      const west = -180 + x * 90;
+      const north = 90 - y * 90;
+      const cols = 8, rows = 8;
+      const elevation = new Float32Array((cols + 1) * (rows + 1));
+      // Offset by tile so two different tiles produce genuinely different
+      // contour crossings, not a translated copy of the same pattern.
+      const base = (x + 1) * 1000 + (y + 1) * 137;
+      for (let row = 0; row <= rows; row++) {
+        for (let col = 0; col <= cols; col++) {
+          elevation[row * (cols + 1) + col] = base + col * 80 + row * 53;
+        }
+      }
+      return { bounds: { west, east: west + 90, south: north - 90, north }, cols, rows, elevation, source: "test-provider", sampler: "nearest" };
+    });
+    return {
+      id: "contour-test-provider",
+      zooms: [{ z: 0, cols: 4, rows: 2, tileLonSpan: 90, tileLatSpan: 90, tileCols: 8, tileRows: 8 }],
+      bounds(z, x, y) {
+        const west = -180 + x * 90;
+        const north = 90 - y * 90;
+        return { west, east: west + 90, south: north - 90, north };
+      },
+      loadTile,
+    };
+  }
+
+  it("re-derives its field (and the stamped output) after a setView that changes the visible tile", async () => {
+    const { host, map } = mount({ view: { center: [-135, 45], span: 20, cols: 60, rows: 24 } });
+    const provider = makeContourProvider();
+    // A background raster tile covering the whole domain so `requireSurface`
+    // never blanks the contour purely for lack of an opaque base.
+    map.addLayer({ type: "raster", source: makeTile({ west: -180, east: 180, south: -90, north: 90 }, 4, 4, 0) });
+    map.addLayer({ type: "contour", source: provider, levels: 4, color: "#00aaff" });
+    await vi.waitFor(() => expect(provider.loadTile).toHaveBeenCalledTimes(1));
+    map.scene.rerender();
+    const before = map.scene.output.textContent;
+
+    // Pan far enough that the view center now resolves to a DIFFERENT tile
+    // (x: 0 -> 3, y: 0 -> 1 at z=0, tileLonSpan/tileLatSpan 90).
+    map.setView({ center: [135, -45] });
+    await vi.waitFor(() => expect(provider.loadTile).toHaveBeenCalledTimes(2), { timeout: 1000 });
+    expect(provider.loadTile).toHaveBeenLastCalledWith(0, 3, 1);
+    map.scene.rerender();
+    const after = map.scene.output.textContent;
+
+    expect(after).not.toBe(before);
     map.destroy();
     host.remove();
   });

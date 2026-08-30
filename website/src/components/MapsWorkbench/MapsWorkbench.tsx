@@ -34,7 +34,6 @@ import {
   buildMapLighting,
   buildMapProjection,
   buildMapsSnippet,
-  loadContourField,
   loadMapPlaces,
   LayersPanel,
   paletteColorsFor,
@@ -372,27 +371,21 @@ export default function MapsWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showBorders, vectorProvider]);
 
-  // ── Contour toggle -> build a field snapshot from the currently-loaded
-  //    ETOPO1 LOD tile (mapsKit.tsx's `loadContourField` doc — a static
-  //    snapshot, not live-refining on pan/zoom, matching the contour
-  //    layer's own documented scope) and mount/unmount it. ────────────────
+  // ── Contour toggle -> mount/unmount a contour layer pointed straight at
+  //    the SAME ETOPO1 provider `terrain` already uses. `createGlyphMap`
+  //    owns re-deriving the field per visible LOD/tile from here on
+  //    (`widget.ts`'s `scheduleTileUpdate`) — panning/zooming into a new
+  //    tile now loads that tile's contour data instead of staying pinned to
+  //    a snapshot from whichever view was current when the layer toggled on.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !provider) return;
-    let cancelled = false;
     map.removeLayer(CONTOUR_LAYER_ID);
     if (showContour) {
-      loadContourField(provider, map.getView())
-        .then((field) => {
-          if (cancelled || !mapRef.current) return;
-          mapRef.current.addLayer({ type: "contour", id: CONTOUR_LAYER_ID, source: field, levels: 6, color: "#7fe8c9" });
-          mapRef.current.scene.rerender();
-        })
-        .catch((err: unknown) => console.warn("glyphcss/maps: failed to build contour field", err));
-    } else {
-      map.scene.rerender();
+      map.addLayer({ type: "contour", id: CONTOUR_LAYER_ID, source: provider, levels: 6, color: "#7fe8c9" });
     }
-    return () => { cancelled = true; };
+    map.scene.rerender();
+    setAttributions(map.getAttributions());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showContour, provider]);
 
