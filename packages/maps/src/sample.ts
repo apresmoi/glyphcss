@@ -243,3 +243,70 @@ export async function sampleGlyphMapField(source: GlyphMapSource, view: GlyphMap
     max: Number.isFinite(max) ? max : NaN,
   };
 }
+
+function clampInt(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+export interface GlyphMapFieldValueAtOptions {
+  /**
+   * Default: `"bilinear"` for a `kind: "continuous"` field, `"nearest"` for
+   * `"categorical"` — the SAME split `sample.ts`'s own raster `upsample`
+   * rule uses (`"nearest"` is the only legal choice for categorical class
+   * codes; averaging them is meaningless). A `contour` layer's field is
+   * always continuous (elevation), so it gets bilinear by default without
+   * asking — a nearest-only lookup reads a field whose own resolution is
+   * coarser than the output grid (the common case: a wide-span view's LOD
+   * field vs. a much finer glyph grid) as BLOCKY, quantized steps, which
+   * `stampGlyphMapContour`'s per-cell crossing test then renders as thick,
+   * chunky bands instead of a smooth line — bilinear removes that
+   * quantization at the source, the same reason the raster pipeline
+   * defaults continuous sampling to bilinear.
+   */
+  readonly interpolate?: "nearest" | "bilinear";
+}
+
+/**
+ * Look up a sampled field at an arbitrary geographic point — the elevation
+ * source a `contour` layer reads per output cell (`widget.ts`'s
+ * contour-layer runtime). NaN when `(lon, lat)` falls outside the field's
+ * bounds, or (bilinear) every corner needed is noData. The nearest-cell
+ * formula is expressed in the SAME cell-center-relative coordinate the
+ * bilinear branch shares (`Math.round(x - 0.5) === Math.floor(x)` for every
+ * finite `x` — a exact identity, not an approximation), so `"nearest"`
+ * stays byte-identical to this function's pre-bilinear behavior.
+ */
+export function glyphMapFieldValueAt(field: GlyphMapField, lon: number, lat: number, opts: GlyphMapFieldValueAtOptions = {}): number {
+  const { bounds, cols, rows, values, noData, kind } = field;
+  if (lon < bounds.west || lon > bounds.east || lat < bounds.south || lat > bounds.north) return NaN;
+  const interpolate = opts.interpolate ?? (kind === "continuous" ? "bilinear" : "nearest");
+  const fx = ((lon - bounds.west) / (bounds.east - bounds.west)) * cols - 0.5;
+  const fy = ((bounds.north - lat) / (bounds.north - bounds.south)) * rows - 0.5;
+
+  const sampleAt = (c: number, r: number): number => {
+    const idx = clampInt(r, 0, rows - 1) * cols + clampInt(c, 0, cols - 1);
+    return noData[idx] ? NaN : values[idx];
+  };
+
+  if (interpolate === "nearest") {
+    return sampleAt(Math.round(fx), Math.round(fy));
+  }
+
+  const col0 = Math.floor(fx);
+  const row0 = Math.floor(fy);
+  const tx = fx - col0;
+  const ty = fy - row0;
+  let sum = 0;
+  let weight = 0;
+  const accumulate = (v: number, w: number): void => {
+    if (w > 0 && Number.isFinite(v)) {
+      sum += v * w;
+      weight += w;
+    }
+  };
+  accumulate(sampleAt(col0, row0), (1 - tx) * (1 - ty));
+  accumulate(sampleAt(col0 + 1, row0), tx * (1 - ty));
+  accumulate(sampleAt(col0, row0 + 1), (1 - tx) * ty);
+  accumulate(sampleAt(col0 + 1, row0 + 1), tx * ty);
+  return weight > 0 ? sum / weight : NaN;
+}

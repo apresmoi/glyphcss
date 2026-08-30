@@ -1,4 +1,4 @@
-import type { GlyphMapBounds } from "./types";
+import type { GlyphMapAttribution, GlyphMapBounds } from "./types";
 
 /**
  * The geographic tile schema (MAPS.md §13 slice 2's headline decision,
@@ -25,6 +25,8 @@ export interface GlyphMapGeoTile {
   readonly source: string;
   /** Recorded as the `sampler` id (MAPS.md §10) — e.g. `"nearest"`. A callback sampler has no id; the caller records `"custom"` (mirrors `glyphMapSamplerId`, `sample.ts`). */
   readonly sampler: string;
+  /** Provenance for a STATIC (non-provider) tile — a provider-backed layer instead carries this on {@link GlyphMapProvider.attribution}. */
+  readonly attribution?: readonly GlyphMapAttribution[];
 }
 
 /**

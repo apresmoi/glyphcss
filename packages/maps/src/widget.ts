@@ -41,23 +41,29 @@
 
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
 import type {
+  CellGrid,
   GlyphCamera,
   GlyphHotspotHandle,
   GlyphMeshHandle,
   GlyphSceneHandle,
   GlyphSceneOptions,
+  TransformCells,
   Vec3,
 } from "glyphcss";
-import type { GlyphMapBounds, GlyphMapClassifier, GlyphMapView } from "./types";
+import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import { splitGlyphMapGeoTileAtAntimeridian } from "./tile";
 import { glyphMapPolygons } from "./mesh";
 import type { GlyphMapProvider } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapTargetLOD } from "./provider";
+import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
+import { glyphMapFieldValueAt } from "./sample";
+import { stampGlyphMapContour, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { glyphMapDedupeAttributions } from "./attribution";
 
-// ── Layers (MAPS.md §14 — `background`/`raster` only; `fill`/`line`/
-// `contour`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model` are later
+// ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
+// `fill`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model` are later
 // slices' own additions to this union, not typed speculatively ahead of
 // them) ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +84,15 @@ export interface GlyphMapBackgroundLayer {
   readonly id?: string;
   /** CSS color. `undefined` clears any color a lower `background` layer set, leaving the host's own CSS background to show through. */
   readonly color?: string;
+  /**
+   * Every {@link GlyphMapLayer} carries `density` (website UI scope addition
+   * to MAPS.md §13 slice 5: "every layer row in the rail is the same shape")
+   * so a caller can uniformly reach for it, but a flat CSS background colour
+   * has no glyph resolution to multiply — permanently a documented no-op
+   * here, the same "conceptually doesn't apply" category as e.g.
+   * `wireframeJunctions` in `ink` mode (AGENTS.md), never validated against.
+   */
+  readonly density?: number;
 }
 
 export interface GlyphMapRasterLayer {
@@ -90,9 +105,83 @@ export interface GlyphMapRasterLayer {
   readonly colors?: readonly string[];
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted — absorbed from both pages' "pad by a tile diagonal so tiles straddling the edge load before they pop in". Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
+  /**
+   * Passed straight through as this layer's mounted mesh(es)' own
+   * `GlyphMeshTransform.density` (glyphcss's per-mesh detail layer —
+   * AGENTS.md's "Per-mesh detail layers": pops the mesh into its own
+   * silhouette-fitted `<pre>` at `density`× the scene's glyph resolution,
+   * cross-layer-occlusion-correct against the base grid for free). `1`
+   * (default) keeps this layer in the shared base grid, unchanged.
+   */
+  readonly density?: number;
 }
 
-export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer;
+function isGlyphMapVectorProvider(source: GlyphMapVectorSource): source is GlyphMapVectorProvider {
+  return typeof (source as GlyphMapVectorProvider).loadTile === "function";
+}
+
+/**
+ * A stroke layer (MAPS.md §13 slice 5): country/subdivision borders, roads,
+ * rivers, routes. `source` mirrors `GlyphMapRasterLayer.source`'s
+ * static-vs-provider split — a single in-memory `GlyphMapVectorFeatureCollection`
+ * or a tiled `GlyphMapVectorProvider` (`vector/types.ts`), mounted/unmounted
+ * per visible LOD tile exactly like a raster layer's own tile loop.
+ * Rendered by post-raster stamping (`stroke.ts`'s `stampGlyphMapPolyline`)
+ * into the scene's `transformCells` hook — see `stroke.ts`'s doc for why
+ * that mechanism was chosen over `compileScene`.
+ */
+export interface GlyphMapLineLayer {
+  readonly type: "line";
+  readonly id?: string;
+  readonly source: GlyphMapVectorSource;
+  readonly color?: string;
+  /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
+  readonly padCells?: number;
+  /**
+   * NOT YET IMPLEMENTED — reserved so a future implementation is additive,
+   * not a breaking rename (AGENTS.md's no-BC-shims rule cuts the other way
+   * once a name ships). A stroke layer is stamped into the SHARED base
+   * `CellGrid` post-raster (`stroke.ts`'s doc); giving it its own resolution
+   * needs its own detail `<pre>` with its own projected geometry and its
+   * own occlusion sampling against the base grid — real work, not a
+   * passthrough like {@link GlyphMapRasterLayer.density}'s mesh-transform
+   * wiring. `createGlyphMap` THROWS at `addLayer` time for any value other
+   * than `1`/`undefined`, rather than silently ignoring it.
+   */
+  readonly density?: number;
+}
+
+/**
+ * An isoline layer over an elevation field (MAPS.md §13 slice 5): reuses
+ * field-synth's `subcellRes: "ink"` contour rule (AGENTS.md), pointed at
+ * `source` instead of a synth field — see `stroke.ts`'s `stampGlyphMapContour`.
+ * `source` is an ALREADY-SAMPLED `GlyphMapField` (`sample.ts`'s
+ * `sampleGlyphMapField`, slice 1) rather than a raw tile/provider: a
+ * contour needs one scalar per output cell, which is exactly what a
+ * pre-sampled field already is — reusing it here avoids a second elevation
+ * data-access abstraction. `levels` is either an explicit list of absolute
+ * elevation values, or a count `N` of evenly spaced levels across the
+ * field's own `min..max` (excluding both extremes, so neither degenerates
+ * to a line along the field's own edge).
+ */
+export interface GlyphMapContourLayer {
+  readonly type: "contour";
+  readonly id?: string;
+  readonly source: GlyphMapField;
+  readonly levels: number | readonly number[];
+  readonly color?: string;
+  /** NOT YET IMPLEMENTED — see {@link GlyphMapLineLayer.density}'s doc; the same stamped-into-the-shared-grid constraint applies here. Throws at `addLayer` time for any value other than `1`/`undefined`. */
+  readonly density?: number;
+}
+
+export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer;
+
+/** A layer kind whose rendering is post-raster CellGrid stamping rather than mesh mounting — composed into ONE `transformCells` hook (see `createGlyphMap`'s "stroke layers" section). */
+interface StrokeLayerRuntime {
+  update(): Promise<void>;
+  stamp(grid: CellGrid): void;
+  dispose(): void;
+}
 
 // ── Markers ────────────────────────────────────────────────────────────
 
@@ -156,7 +245,20 @@ export interface GlyphMapOptions {
   readonly autoSize?: boolean;
   /** Smallest `view.span` (degrees) reachable by wheel-zoom or `setView`. Default `0.001`. */
   readonly minSpan?: number;
-  /** Initial `camera.rotX` (degrees) for a SHEET projection (one with no `cameraForCenter`) — the iso tilt. Default `40`. No effect on a projection navigated by orbit (the globe), whose orientation comes entirely from `view.center`. */
+  /**
+   * Camera pitch, degrees. Meaning is unified across both navigation modes
+   * as "additional rotation on top of whatever the projection's own base
+   * orientation is" — a SHEET projection (no `cameraForCenter`) has no
+   * view-driven base orientation, so `tilt` there IS the total `camera.rotX`
+   * (default `40`, unchanged from before this option applied to orbit too).
+   * An ORBIT projection (the globe) has a view-driven base orientation —
+   * `cameraForCenter(lon, lat)` — that `tilt` now ADDS to (default `0`,
+   * i.e. head-on, byte-identical to every render before this option applied
+   * here): see {@link GlyphMapHandle.setTilt} for why this is coherent
+   * rather than aliasing `view.center` (drag/pan subtracts `tilt` back out
+   * before calling `centerForCamera`, so the reported center is unaffected
+   * by a nonzero tilt).
+   */
   readonly tilt?: number;
   /** Forwarded to `createGlyphScene`, merged UNDER the widget's own `camera`/`cols`/`rows`/`autoSize` — this is how shading, `colorEncoding`, shadows, etc. compose (MAPS.md §9: "no new scene concepts"). */
   readonly scene?: Partial<GlyphSceneOptions>;
@@ -169,11 +271,37 @@ export interface GlyphMapHandle {
   setView(view: Partial<GlyphMapView>): void;
   getView(): GlyphMapView;
   fitBounds(bounds: GlyphMapBounds): void;
+  /**
+   * Live camera pitch — see {@link GlyphMapOptions.tilt} for the unified
+   * meaning. Works for both sheet and orbit (globe) projections: for a
+   * sheet this sets `camera.rotX` directly (the same escape hatch the
+   * website used before this existed); for the globe it stores an offset
+   * added on top of `cameraForCenter(lon, lat)` every time the camera is
+   * re-synced (`setView`/`fitBounds`/`resize`), and `applyDrag`'s orbit
+   * branch subtracts it back out before calling `centerForCamera` — so
+   * `view.center` (and anything derived from it: markers, `fitBounds`,
+   * tile LOD) is never contaminated by a nonzero tilt. There is no third
+   * rotational degree of freedom being invented here: composing an extra
+   * `rotateX(tilt)` after `cameraForCenter`'s own rotation is mathematically
+   * identical to shifting `rotX` by `tilt` (both rotations share the same
+   * post-`rotY` local X axis, and rotations about one axis commute/add —
+   * `rotateVec3Voxcss` in glyphcss's camera, `packages/glyphcss/src/api/
+   * createGlyphCamera.ts`). What makes this a GENUINE "pitch independent of
+   * `view.center`" rather than just "silently re-centering at a different
+   * latitude" is bookkeeping: the widget keeps `tilt` and the true
+   * view-driven `rotX` separate and only ever composes them at the render
+   * boundary, so every public read of `view.center` stays exactly what the
+   * caller asked for.
+   */
+  setTilt(tilt: number): void;
+  getTilt(): number;
   project(lngLat: readonly [number, number]): GlyphMapProjectResult;
   unproject(cell: readonly [number, number]): readonly [number, number] | null;
   addLayer(layer: GlyphMapLayer, beforeId?: string): string;
   removeLayer(id: string): void;
   moveLayer(id: string, beforeId?: string): void;
+  /** Provenance of every currently mounted layer's data source, deduplicated — see `attribution.ts`. Recomputed on every call, so it always reflects the live layer set (a toggled layer, a curated tile swap). */
+  getAttributions(): readonly GlyphMapAttribution[];
   addMarker(opts: GlyphMapMarkerOptions): GlyphMapMarkerHandle;
   on<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
   off<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
@@ -203,10 +331,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const isOrbitProjection = !!(projection.cameraForCenter && projection.centerForCamera);
 
   let view: GlyphMapView = opts.view;
+  let tilt = opts.tilt ?? (isOrbitProjection ? 0 : 40);
 
   const camera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
   if (!isOrbitProjection) {
-    camera.rotX = opts.tilt ?? 40;
+    camera.rotX = tilt;
     camera.rotY = 0;
   }
 
@@ -315,7 +444,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const [lon, lat] = v.center;
     if (projection.cameraForCenter) {
       const { rotX, rotY } = projection.cameraForCenter(lon, lat);
-      camera.rotX = rotX;
+      camera.rotX = rotX + tilt;
       camera.rotY = rotY;
       camera.target = [0, 0, 0];
     } else {
@@ -487,7 +616,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let updateQueued = false;
 
     function mountTile(tile: GlyphMapGeoTile): GlyphMeshHandle[] {
-      return splitGlyphMapGeoTileAtAntimeridian(tile).map((part) => scene.add(glyphMapPolygons(part, projection, { color })));
+      return splitGlyphMapGeoTileAtAntimeridian(tile).map((part) =>
+        scene.add(glyphMapPolygons(part, projection, { color }), layer.density !== undefined ? { density: layer.density } : {}),
+      );
     }
 
     function disposeMeshes(): void {
@@ -566,9 +697,142 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
+  // ── Stroke layers (`line`/`contour`) — post-raster CellGrid stamping,
+  // composed into ONE `transformCells` hook rather than mesh mounting. See
+  // `stroke.ts`'s doc for the mechanism and the depth contract. ───────────
+
+  /** `GlyphMapLineLayer.density`/`GlyphMapContourLayer.density` are reserved, not implemented — see either type's own doc. Reject explicitly rather than silently ignoring, the same "reject explicitly" precedent AGENTS.md's static exporters use for a genuine, not-yet-built capability gap. */
+  function assertStrokeDensitySupported(layer: GlyphMapLineLayer | GlyphMapContourLayer): void {
+    if (layer.density !== undefined && layer.density !== 1) {
+      throw new RangeError(
+        `glyphcss/maps: createGlyphMap.addLayer — "${layer.type}" layer "density" is not implemented yet (got ${layer.density}). ` +
+          `A stroke layer is stamped into the shared base CellGrid; per-layer resolution needs its own detail <pre> and its own occlusion sampling, which this slice does not build. Omit density or pass 1.`,
+      );
+    }
+  }
+
+  function createLineLayerRuntime(layer: GlyphMapLineLayer): StrokeLayerRuntime {
+    const color = layer.color;
+    const isProvider = isGlyphMapVectorProvider(layer.source);
+    let staticFeatures: readonly GlyphMapVectorFeature[] = isProvider ? [] : layer.source.features;
+    const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
+    let activeFeatures: readonly GlyphMapVectorFeature[] = [];
+    let updateInFlight = false;
+    let updateQueued = false;
+
+    async function updateProvider(provider: GlyphMapVectorProvider): Promise<void> {
+      if (updateInFlight) { updateQueued = true; return; }
+      updateInFlight = true;
+      try {
+        const degPerCell = glyphMapDegreesPerCell(view);
+        const lod = glyphMapTargetLOD(provider, degPerCell);
+        const level = provider.zooms.find((z) => z.z === lod);
+        if (!level) return;
+        const padCells = layer.padCells ?? 2;
+        const desired = new Set<string>();
+        for (let y = 0; y < level.rows; y++) {
+          for (let x = 0; x < level.cols; x++) {
+            if (isBoundsVisible(provider.bounds(lod, x, y), padCells)) desired.add(`${lod}/${x}_${y}`);
+          }
+        }
+        if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(`${lod}/0_0`);
+        const missing = [...desired].filter((key) => !tileCache.has(key));
+        if (missing.length > 0) {
+          await Promise.all(missing.map(async (key) => {
+            const [zStr, xy] = key.split("/");
+            const [xStr, yStr] = xy.split("_");
+            tileCache.set(key, await provider.loadTile(Number(zStr), Number(xStr), Number(yStr)));
+          }));
+        }
+        const feats: GlyphMapVectorFeature[] = [];
+        for (const key of desired) {
+          const tile = tileCache.get(key);
+          if (!tile) continue;
+          for (const list of Object.values(tile.layers)) feats.push(...list);
+        }
+        activeFeatures = feats;
+        scene.rerender();
+      } finally {
+        updateInFlight = false;
+        if (updateQueued) {
+          updateQueued = false;
+          await updateProvider(provider);
+        }
+      }
+    }
+
+    async function update(): Promise<void> {
+      if (isGlyphMapVectorProvider(layer.source)) {
+        await updateProvider(layer.source);
+      } else {
+        staticFeatures = layer.source.features;
+        scene.rerender();
+      }
+    }
+
+    function stamp(grid: CellGrid): void {
+      const gridInfo = projectionGrid();
+      const feats = isGlyphMapVectorProvider(layer.source) ? activeFeatures : staticFeatures;
+      for (const feature of feats) {
+        for (const ring of feature.rings) {
+          const verts: GlyphMapStrokeVertex[] = ring.map(([lon, lat]) => {
+            const world = projection.project(lon, lat, 0);
+            const p = camera.project(world, gridInfo.cols, gridInfo.rows, gridInfo.cellAspect, gridInfo);
+            return { col: p[0], row: p[1], depth: p[3] ?? p[2] };
+          });
+          stampGlyphMapPolyline(grid, verts, { color });
+        }
+      }
+    }
+
+    return {
+      update,
+      stamp,
+      dispose(): void {
+        tileCache.clear();
+      },
+    };
+  }
+
+  function createContourLayerRuntime(layer: GlyphMapContourLayer): StrokeLayerRuntime {
+    const field = layer.source;
+    const levels: readonly number[] = typeof layer.levels === "number"
+      ? Array.from({ length: layer.levels }, (_, i) => field.min + (field.max - field.min) * ((i + 1) / ((layer.levels as number) + 1)))
+      : layer.levels;
+
+    function stamp(grid: CellGrid): void {
+      // With no opaque base layer mounted, every cell reads non-finite
+      // depth uniformly — degrade to "draw everywhere the field is
+      // defined" rather than reading that as "off the map" (the
+      // coordinator's explicit hidden-terrain gate; see stroke.ts's
+      // `GlyphMapContourOptions.requireSurface` doc for why this can't be
+      // decided from inside the per-cell stamping function).
+      const hasOpaqueSurface = [...layerStates.values()].some((s) => s.kind === "raster");
+      stampGlyphMapContour(
+        grid,
+        (col, row) => {
+          const ll = unproject([col + 0.5, row + 0.5]);
+          if (!ll) return NaN;
+          return glyphMapFieldValueAt(field, ll[0], ll[1]);
+        },
+        { levels, color: layer.color, requireSurface: hasOpaqueSurface },
+      );
+    }
+
+    return {
+      async update(): Promise<void> {
+        scene.rerender();
+      },
+      stamp,
+      dispose(): void {},
+    };
+  }
+
   type LayerState =
     | { readonly kind: "background"; readonly layer: GlyphMapBackgroundLayer }
-    | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime };
+    | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime }
+    | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: StrokeLayerRuntime }
+    | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: StrokeLayerRuntime };
 
   const layerOrder: string[] = [];
   const layerStates = new Map<string, LayerState>();
@@ -581,6 +845,39 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (state?.kind === "background") color = state.layer.color;
     }
     scene.output.style.backgroundColor = color ?? "";
+  }
+
+  // ── Stroke layers (`line`/`contour`) composed into ONE `transformCells`
+  // hook (glyphcss allows exactly one). Installed lazily — a map with zero
+  // line/contour layers never touches `transformCells` at all, keeping the
+  // "byte-identical with no hook" default true for the common raster-only
+  // case (AGENTS.md's transformCells doc). Reads `layerOrder`/`layerStates`
+  // live on every invocation, so no rebuild is needed when a stroke layer's
+  // async tile fetch resolves or the layer order changes — only whether the
+  // hook is installed AT ALL needs tracking (`strokeLayerCount`). ─────────
+
+  const baseTransformCells = sceneOverrides.transformCells;
+  let strokeLayerCount = 0;
+
+  function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
+    let g = grid;
+    if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
+    if (layerInfo?.detail) return g; // strokes are base-grid-only (geographic features, not per-mesh detail)
+    for (const id of layerOrder) {
+      const state = layerStates.get(id);
+      if (state?.kind === "line" || state?.kind === "contour") state.runtime.stamp(g);
+    }
+    return g;
+  }
+
+  function syncStrokeHookInstalled(): void {
+    const shouldInstall = strokeLayerCount > 0;
+    const current = scene.getOptions().transformCells;
+    if (shouldInstall && current !== composedTransformCells) {
+      scene.setOptions({ transformCells: composedTransformCells });
+    } else if (!shouldInstall && current === composedTransformCells) {
+      scene.setOptions({ transformCells: baseTransformCells });
+    }
   }
 
   const initialLoadPromises: Promise<unknown>[] = [];
@@ -598,9 +895,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (layer.type === "background") {
       layerStates.set(id, { kind: "background", layer });
       applyBackground();
-    } else {
+    } else if (layer.type === "raster") {
       const runtime = createRasterLayerRuntime(layer);
       layerStates.set(id, { kind: "raster", layer, runtime });
+      const p = runtime.update();
+      if (!mapLoaded) initialLoadPromises.push(p);
+    } else if (layer.type === "line") {
+      assertStrokeDensitySupported(layer);
+      const runtime = createLineLayerRuntime(layer);
+      layerStates.set(id, { kind: "line", layer, runtime });
+      strokeLayerCount++;
+      syncStrokeHookInstalled(); // BEFORE update() so its rerender already carries this layer's stamps
+      const p = runtime.update();
+      if (!mapLoaded) initialLoadPromises.push(p);
+    } else {
+      assertStrokeDensitySupported(layer);
+      const runtime = createContourLayerRuntime(layer);
+      layerStates.set(id, { kind: "contour", layer, runtime });
+      strokeLayerCount++;
+      syncStrokeHookInstalled();
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
     }
@@ -611,10 +924,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const state = layerStates.get(id);
     if (!state) return;
     if (state.kind === "raster") state.runtime.dispose();
+    else if (state.kind === "line" || state.kind === "contour") {
+      state.runtime.dispose();
+      strokeLayerCount--;
+    }
     layerStates.delete(id);
     const idx = layerOrder.indexOf(id);
     if (idx >= 0) layerOrder.splice(idx, 1);
     if (state.kind === "background") applyBackground();
+    if (state.kind === "line" || state.kind === "contour") syncStrokeHookInstalled();
     scene.rerender();
   }
 
@@ -633,6 +951,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       applyBackground();
       return;
     }
+    if (state?.kind === "line" || state?.kind === "contour") {
+      // The composed hook reads `layerOrder` live — no runtime action beyond a repaint.
+      scene.rerender();
+      return;
+    }
     // Best-effort repaint order for raster layers: re-mount every raster
     // layer's ALREADY-CACHED tiles (no refetch) in the new sequence, so a
     // later layer's mesh is added after (paints over, on a depth tie) an
@@ -648,6 +971,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
   }
 
+  /** Provenance of every currently-mounted layer's data source — MAPS.md's "derived from mounted layers" attribution requirement (`attribution.ts`). */
+  function getAttributions(): readonly GlyphMapAttribution[] {
+    const lists: (readonly GlyphMapAttribution[] | undefined)[] = [];
+    for (const id of layerOrder) {
+      const state = layerStates.get(id);
+      if (state?.kind === "raster") lists.push(state.layer.source.attribution);
+      else if (state?.kind === "line") lists.push(state.layer.source.attribution);
+    }
+    return glyphMapDedupeAttributions(lists);
+  }
+
   // ── View mutation ────────────────────────────────────────────────────
 
   let tileUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -657,6 +991,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       tileUpdateTimer = null;
       for (const state of layerStates.values()) {
         if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void state.runtime.update();
+        else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void state.runtime.update();
       }
     }, 180);
   }
@@ -674,6 +1009,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scheduleTileUpdate();
     syncMarkers();
     emitViewChange(spanChanged ? "zoom" : "move");
+  }
+
+  function setTilt(t: number): void {
+    tilt = t;
+    if (!isOrbitProjection) {
+      camera.rotX = tilt;
+      scene.rerender();
+      return;
+    }
+    // Re-derive rotX from the CURRENT view center (not the drag delta path)
+    // so a tilt change composes correctly with wherever the camera already
+    // is, exactly like `syncCameraToView` does on `setView`/`fitBounds`.
+    syncCameraToView(view);
+    scene.rerender();
+    syncMarkers();
+  }
+
+  function getTilt(): number {
+    return tilt;
   }
 
   function fitBounds(bounds: GlyphMapBounds): void {
@@ -717,7 +1071,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const degPerPx = (1 / pixelsPerWorldUnit(grid)) * (180 / Math.PI);
       camera.rotY -= dxPx * degPerPx;
       camera.rotX -= dyPx * degPerPx;
-      view = { ...view, center: projection.centerForCamera(camera.rotX, camera.rotY), bounds: undefined };
+      // Subtract `tilt` back out before inverting — see `setTilt`'s doc:
+      // `camera.rotX` here is `trueRotX + tilt`, and `centerForCamera` must
+      // see `trueRotX` alone or a nonzero tilt would drift `view.center`'s
+      // latitude by `tilt` degrees on every drag.
+      view = { ...view, center: projection.centerForCamera(camera.rotX - tilt, camera.rotY), bounds: undefined };
     } else {
       const delta = screenToWorldDelta(dxPx, dyPx, grid);
       if (!delta) return;
@@ -821,11 +1179,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     setView,
     getView,
     fitBounds,
+    setTilt,
+    getTilt,
     project,
     unproject,
     addLayer,
     removeLayer,
     moveLayer,
+    getAttributions,
     addMarker,
     on(type, handler) {
       let set = listeners.get(type);
@@ -850,7 +1211,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       host.removeEventListener("pointercancel", onPointerUp);
       host.removeEventListener("wheel", onWheel);
       for (const state of layerStates.values()) {
-        if (state.kind === "raster") state.runtime.dispose();
+        if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
       }
       layerStates.clear();
       layerOrder.length = 0;

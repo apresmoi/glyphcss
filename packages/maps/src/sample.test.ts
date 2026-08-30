@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { sampleGlyphMapField, glyphMapSamplerId } from "./sample";
+import { sampleGlyphMapField, glyphMapSamplerId, glyphMapFieldValueAt } from "./sample";
 import { glyphMapBounds } from "./view";
-import type { GlyphMapSource } from "./types";
+import type { GlyphMapField, GlyphMapSource } from "./types";
 
 function ridgeSource(): GlyphMapSource {
   return {
@@ -196,5 +196,121 @@ describe("sampleGlyphMapField — glyphMapBounds view carries the exact box", ()
     expect(view.bounds).toEqual({ west: 0, east: 2, south: 0, north: 1.2 });
     const field = await sampleGlyphMapField(source, view);
     expect(field.bounds).toEqual({ west: 0, east: 2, south: 0, north: 1.2 });
+  });
+});
+
+describe("glyphMapFieldValueAt", () => {
+  function field(): GlyphMapField {
+    return {
+      bounds: { west: 0, east: 4, south: 0, north: 2 },
+      cols: 4,
+      rows: 2,
+      values: Float32Array.from([1, 2, 3, 4, 5, 6, 7, 8]), // row 0 = north
+      noData: Uint8Array.from([0, 0, 0, 0, 0, 1, 0, 0]),
+      kind: "continuous",
+      min: 1,
+      max: 8,
+    };
+  }
+
+  it("looks up the nearest cell", () => {
+    const f = field();
+    expect(glyphMapFieldValueAt(f, 0.5, 1.5)).toBe(1); // row0 col0
+    expect(glyphMapFieldValueAt(f, 3.5, 0.5)).toBe(8); // row1 col3
+  });
+
+  it("returns NaN outside bounds", () => {
+    const f = field();
+    expect(Number.isNaN(glyphMapFieldValueAt(f, -1, 1))).toBe(true);
+    expect(Number.isNaN(glyphMapFieldValueAt(f, 5, 1))).toBe(true);
+  });
+
+  it("returns NaN on a noData cell", () => {
+    const f = field();
+    expect(Number.isNaN(glyphMapFieldValueAt(f, 1.5, 0.5))).toBe(true); // row1 col1 -> noData
+  });
+});
+
+describe("glyphMapFieldValueAt — bilinear (default for continuous fields)", () => {
+  it("interpolates smoothly between cell centers for a linear ramp", () => {
+    // cols=4, west..east=0..4 -> cell centers at lon 0.5,1.5,2.5,3.5, values 0,10,20,30.
+    const f: GlyphMapField = {
+      bounds: { west: 0, east: 4, south: 0, north: 1 },
+      cols: 4,
+      rows: 1,
+      values: Float32Array.from([0, 10, 20, 30]),
+      noData: new Uint8Array(4),
+      kind: "continuous",
+      min: 0,
+      max: 30,
+    };
+    // Exactly at cell centers: exact values.
+    expect(glyphMapFieldValueAt(f, 0.5, 0.5)).toBeCloseTo(0, 5);
+    expect(glyphMapFieldValueAt(f, 1.5, 0.5)).toBeCloseTo(10, 5);
+    // Halfway between two cell centers: the exact linear midpoint.
+    expect(glyphMapFieldValueAt(f, 1.0, 0.5)).toBeCloseTo(5, 5);
+    expect(glyphMapFieldValueAt(f, 2.0, 0.5)).toBeCloseTo(15, 5);
+    // A quarter of the way from cell 0 to cell 1.
+    expect(glyphMapFieldValueAt(f, 0.75, 0.5)).toBeCloseTo(2.5, 5);
+  });
+
+  it("categorical fields default to nearest (no blending of class codes)", () => {
+    const f: GlyphMapField = {
+      bounds: { west: 0, east: 4, south: 0, north: 1 },
+      cols: 4,
+      rows: 1,
+      values: Float32Array.from([1, 2, 3, 4]),
+      noData: new Uint8Array(4),
+      kind: "categorical",
+      min: 1,
+      max: 4,
+    };
+    // Halfway between two cells: bilinear would give 1.5; nearest must not.
+    const v = glyphMapFieldValueAt(f, 1.0, 0.5);
+    expect(Number.isInteger(v)).toBe(true);
+  });
+
+  it("an explicit interpolate option overrides the kind-based default", () => {
+    const f: GlyphMapField = {
+      bounds: { west: 0, east: 4, south: 0, north: 1 },
+      cols: 4,
+      rows: 1,
+      values: Float32Array.from([0, 10, 20, 30]),
+      noData: new Uint8Array(4),
+      kind: "continuous",
+      min: 0,
+      max: 30,
+    };
+    expect(glyphMapFieldValueAt(f, 1.0, 0.5, { interpolate: "nearest" })).not.toBeCloseTo(5, 5);
+  });
+
+  it("skips a noData corner and renormalizes over the remaining weight, rather than propagating NaN", () => {
+    const f: GlyphMapField = {
+      bounds: { west: 0, east: 2, south: 0, north: 2 },
+      cols: 2,
+      rows: 2,
+      values: Float32Array.from([0, 0, 0, 100]), // only bottom-right (row1,col1) is real
+      noData: Uint8Array.from([1, 1, 1, 0]),
+      kind: "continuous",
+      min: 0,
+      max: 100,
+    };
+    // Sample at the shared corner of all 4 cells (col1=1,row1=1 boundary):
+    // only the bottom-right cell (100) is valid, so the result must be exactly 100.
+    expect(glyphMapFieldValueAt(f, 1.0, 1.0)).toBeCloseTo(100, 5);
+  });
+
+  it("returns NaN when every needed corner is noData", () => {
+    const f: GlyphMapField = {
+      bounds: { west: 0, east: 2, south: 0, north: 1 },
+      cols: 2,
+      rows: 1,
+      values: Float32Array.from([0, 0]),
+      noData: Uint8Array.from([1, 1]),
+      kind: "continuous",
+      min: 0,
+      max: 0,
+    };
+    expect(Number.isNaN(glyphMapFieldValueAt(f, 0.5, 0.5))).toBe(true);
   });
 });

@@ -233,6 +233,12 @@ async function bakeTiles(sampler) {
     })),
     source: "etopo1",
     sampler: "nearest",
+    // MAPS.md's attribution requirement (derived from mounted layers, not
+    // hardcoded on the page): ETOPO1's own provenance, attached once here
+    // so `geoTilesProvider.ts` can forward it as `GlyphMapProvider.attribution`.
+    attribution: [
+      { name: "NOAA NCEI (ETOPO1)", url: "https://www.ngdc.noaa.gov/mgg/global/", license: "Public domain", date: "2009" },
+    ],
   };
   await fs.writeFile(path.join(ROOT, "manifest.json"), JSON.stringify(manifest, null, 2));
   console.log(`Wrote ${path.join(ROOT, "manifest.json")}`);

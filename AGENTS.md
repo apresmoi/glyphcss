@@ -18,7 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
-| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter) and `glyphMapPolygons` for a real 3D relief mesh, and `createGlyphMap` — the interactive widget (tile loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`). Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
+| `packages/maps` | `@glyphcss/maps` | Geographic data → glyphcss. Deterministic raster `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter), `glyphMapPolygons` for a real 3D relief mesh, a TopoJSON vector pipeline (shared-arc Visvalingam-Whyatt simplification, quadtree tile clip/quantize, curated-place provider overlay), and `createGlyphMap` — the interactive widget (tile loading with LOD, pan/zoom/orbit, unified sheet/orbit camera tilt, markers, `background`/`raster`/`line`/`contour` layers, per-layer `density`, derived-from-mounted-layers attribution, `project`/`unproject`). Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
 | `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
@@ -187,7 +187,7 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 
 Dynamic Glyph Effect layers are otherwise runtime-only: `compileScene`/`GlyphSceneStatic` and the frame-roll export do not serialize or evaluate a mounted effect. Two paths do carry a live effect: the **interactive/CodePen exporter** mounts a **stock** effect by id from the `@glyphcss/effects` CDN (a custom `defineGlyphEffect` can't cross the CDN boundary), and **`buildGlyphFieldSynthStaticExport`** bakes an effect-only, static-camera field-synth scene into a self-contained inlined-JS pen. Neither generalizes to a moving camera plus effect, arbitrary effects in a static bake, or geometry animation.
 
-## Maps (raster slice 1, projections slice 2, widget slice 3)
+## Maps (raster slice 1, projections slice 2, widget slice 3, vector/tiles slice 5)
 
 `@glyphcss/maps` bakes a georeferenced scalar field (elevation, land cover,
 any raster) to a static ASCII `<pre>`, through a deterministic pipeline:
@@ -434,10 +434,165 @@ sphere-radial for the globe) — so no separate label-anchoring concept was
 needed; default `elevation: 0` places a marker exactly at its geographic
 point (Leaflet's convention).
 
-Out of scope for this slice, deliberately: projection transitions, vector
+Out of scope for slice 3, deliberately: projection transitions, vector
 layers, choropleth/symbols, day/night, motion export, and the website page.
 No React/Vue surface yet — nothing in the plan forces one, and none is
 added speculatively.
+
+**Camera tilt (slice 5) is unified across sheet and orbit projections.**
+`GlyphMapOptions.tilt` / `GlyphMapHandle.setTilt(tilt)`/`getTilt()` mean
+"additional camera pitch on top of whatever the projection's own base
+orientation is": a SHEET projection has no view-driven base orientation, so
+`tilt` there IS the total `camera.rotX` (default `40`, unchanged). An ORBIT
+projection (the globe) has a view-driven base orientation —
+`cameraForCenter(lon, lat)` — that `tilt` now ADDS to (default `0`, i.e.
+head-on, byte-identical to every pre-slice-5 globe render). This is NOT a
+third rotational degree of freedom: composing an extra `rotateX(tilt)`
+after `cameraForCenter`'s own rotation is mathematically identical to
+shifting `rotX` by `tilt` (both rotations share the same post-`rotY` local
+X axis, and rotations about one axis commute/add — `rotateVec3Voxcss`,
+`packages/glyphcss/src/api/createGlyphCamera.ts`). What makes it a genuine
+"pitch independent of `view.center`" rather than silent re-centering at a
+different latitude is bookkeeping: `applyDrag`'s orbit branch subtracts
+`tilt` back out of `camera.rotX` before calling `centerForCamera`, so
+`view.center` (and anything derived from it — markers, `fitBounds`, tile
+LOD) is never contaminated by a nonzero tilt.
+
+### Vector: strokes, contours, tiles (slice 5)
+
+`GlyphMapLayer` gains `line` and `contour` on top of slice 3's
+`background`/`raster`. Both render by **post-raster stamping into the
+scene's `CellGrid`** rather than mesh mounting: `createGlyphMap` composes
+every mounted `line`/`contour` layer's `stamp(grid)` into ONE
+`transformCells` hook (glyphcss allows exactly one), installed lazily —
+zero `line`/`contour` layers means the hook is never touched, keeping the
+raster-only byte-identical default true. `inkGlyphForTangent` (glyphcss's
+tangent→glyph quantizer) is now exported from the `glyphcss` package root
+(`index.ts`) for this — it already existed internally but was never
+re-exported before this slice.
+
+**The depth contract, pinned** (`stroke.ts`): compare `project()[3] ??
+project()[2]` against `CellGrid.depth`, larger = nearer; occlusion uses a
+**slope-scaled** bias (`GLYPH_MAP_STROKE_DEPTH_BIAS = 0.03`,
+`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME constants as
+wireframe `hiddenLines: "hide"`'s own slope-scaled bias above) — a flat
+bias fails across world scales for the identical reason it fails there. A
+`line` layer draws unconditionally through an empty (`-Infinity` depth)
+cell — no base surface there means nothing to be occluded by. A `contour`
+layer's `requireSurface` option (default `true`) instead gates on surface
+coverage — an ANNOTATION of whatever surface won a cell, not an
+independent 3D object — but degrades to `false` (draw wherever the field
+itself is defined, ignoring `grid.depth`) whenever the widget has no
+mounted `raster` layer at all: with no opaque base, every cell reads
+non-finite depth UNIFORMLY, and the surface-gated read would blank the
+whole layer rather than reading as "hidden terrain, draw everything."
+`createGlyphMap`'s contour runtime recomputes this from the live
+`layerStates` on every render, not a cached flag.
+
+**Tangent orientation has no endpoint special case.** `stampGlyphMapPolyline`
+walks each segment computing the local tangent from the segment's own two
+endpoints — never a synthetic "this is where the line starts/ends" glyph.
+This is what keeps a vector-tile-clipped cut end visually indistinguishable
+from an interior point: the clipper (`vector/clip.ts`) never emits a
+synthetic single-point fragment, always keeping real neighboring geometry
+on both sides of a cut.
+
+**The vector pipeline** (`vector/`): `decodeGlyphMapTopoJsonArcs` +
+`glyphMapTopoJsonFeatures` read a TopoJSON topology (delta-encoded,
+optionally quantized arcs; `~i` = arc `i` reversed) into
+`GlyphMapVectorFeature[]`. `glyphMapSimplifyArcs`/`glyphMapSimplifyArc` run
+Visvalingam-Whyatt (heap-based, O(n log n)) — area-based, not
+distance-based, and critically over the SHARED ARC LIST, never over
+resolved per-feature rings: two adjacent countries simplified independently
+would decimate their shared border differently (sliver cells), because
+each ring's neighboring context differs. Arc endpoints are never removed
+(topology junctions). The per-point area threshold is
+`(epsilonEquatorDeg · cos(lat))²` (`glyphMapAreaThresholdDeg`) — a fixed
+equator-derived epsilon over-simplifies high-latitude coasts by up to
+`1/cos(85°) ≈ 11.5×` under Mercator (`dy/dlat = 1/cos(lat)`), so the
+per-point threshold shrinks toward the poles instead.
+`glyphMapCellEpsilonDeg(degPerCell)` is half a glyph cell's geographic
+size — the §6 "epsilon is free" bound, reused as a bake-time-per-level
+constant (the pyramid levels ARE the discretized epsilon schedule), not
+recomputed per live view.
+
+`vector/clip.ts`'s `glyphMapClipPolyline(points, bounds, closed)` clips a
+polyline/ring against a tile's box (Liang-Barsky), returning open
+fragments. **`closed` does NOT add an implicit wraparound edge** — a closed
+ring's `points` must already repeat its first point as its last
+(GeoJSON/TopoJSON convention, and what `resolveRing` actually produces);
+`closed` only gates merging the first/last OUTPUT fragment when the ring
+happens to cross the boundary exactly at that shared vertex. Two adjacent
+tiles clip the SAME segment against the SAME shared boundary constant with
+the SAME formula, so the computed intersection point is bit-identical on
+both sides — the mechanism that keeps a border crossing a tile seam
+visually continuous.
+
+`vector/quantize.ts` quantizes to `GLYPH_MAP_VECTOR_TILE_EXTENT` (4096,
+MVT's own convention) tile-local integers, delta-encoded
+(`glyphMapEncodeQuantizedLine`/`glyphMapDecodeQuantizedLine`) — a point
+exactly ON a tile edge quantizes to EXACTLY `0` or `extent` (no rounding
+noise), which is what keeps the cross-tile bit-identity guarantee intact
+through the wire format, not just the float clip math.
+
+`vector/tile.ts`'s `glyphMapVectorTileBounds(z, x, y)` reuses the EXACT
+same equal-angle lon/lat quadtree addressing `website/src/lib/
+geoTilesProvider.ts`'s raster `tileBounds` already uses (`lonMin = -180 +
+x·360/2^z`, doubling `cols`/`rows` per level) — not a second, Web-Mercator-
+square scheme — so a vector provider's `zooms`/`bounds(z,x,y)` are directly
+comparable to a raster provider's. `glyphMapTargetLOD` (`provider.ts`)
+takes only the `{ zooms }` shape it actually reads, not the full raster
+`GlyphMapProvider` interface, specifically so `GlyphMapVectorProvider` (the
+SAME `GlyphMapProviderZoomLevel` record shape) works with it unmodified —
+one LOD/visible-set codepath for both raster and vector tiles.
+`glyphMapBuildVectorTile`'s bake order is load-bearing: simplify the WHOLE
+level's arcs first, resolve features, THEN clip+quantize per tile — never
+the reverse, for the same shared-border reason arc-level simplification
+matters in the first place.
+
+`vector/curated.ts`'s `glyphMapCuratedVectorProvider(base, { zoom, tiles })`
+wraps a base vector provider with one DEEPER zoom level that only has real
+tiles for a curated place's own bounds; every other tile at that depth
+degrades to the base provider's own deepest ancestor tile covering the same
+quadrant (exact quadtree containment via the shared addressing above) —
+never blank, never a throw. `website/scripts/bake-vector-tiles.mjs` is the
+reference baker: world-atlas's 110m/50m Natural Earth admin_0 TopoJSON for
+a 4-level global pyramid (z0-1 → 110m, z2-3 → 50m — world-atlas ships no
+10m file, so the z4+ → 10m tier from the design sketch is NOT reached for
+the global pyramid) plus one curated place (Switzerland) baked one level
+deeper at near-zero simplification straight from the 50m source.
+
+**Attribution is derived from mounted layers, never hardcoded.**
+`GlyphMapAttribution` (`{ name, url?, license, date? }`) lives on
+`GlyphMapProvider.attribution` / `GlyphMapGeoTile.attribution` (raster) and
+`GlyphMapVectorProvider.attribution` / `GlyphMapVectorFeatureCollection.
+attribution` (vector) — a data source declares its own provenance once, at
+the type level. `GlyphMapHandle.getAttributions()` walks the CURRENTLY
+mounted layer list and deduplicates (`attribution.ts`'s
+`glyphMapDedupeAttributions`, by `name`+`url`) on every call, so the result
+changes as layers toggle and as curated tiles swap in.
+
+**`density` is a uniform field on every `GlyphMapLayer` type**, but only
+`raster` wires it to the renderer this slice: it passes straight through to
+glyphcss's own per-mesh `density` (AGENTS.md's "Per-mesh detail layers" —
+the mounted mesh pops into its own silhouette-fitted `<pre>` at `density`×
+the scene's glyph resolution, cross-layer-occlusion-correct against the
+base grid for free — entirely existing glyphcss machinery, not new work).
+`line`/`contour` accept the field (so a caller iterating layers never needs
+a type-specific branch) but `createGlyphMap.addLayer` THROWS if either is
+given a `density` other than `1`/`undefined` — a stroke layer renders by
+stamping into the scene's single SHARED cell grid, and giving it its own
+resolution needs a separate detail `<pre>`, its own projected geometry at
+that resolution, and its own occlusion sampling against the base grid; a
+real architecture addition, not a passthrough, and explicitly not built
+this slice (reject explicitly, matching this repo's precedent for a
+genuine not-yet-built capability gap, e.g. the field-synth static
+exporter's carve/xray rejects). `background`'s `density` is a documented
+permanent no-op (a flat CSS colour has no glyph resolution to multiply).
+
+Out of scope for slice 5, deliberately: `fill`/`symbol`/`circle`/`heatmap`
+layers, choropleth, day/night, motion export, and per-layer stroke density.
+No React/Vue surface yet.
 
 ## No per-frame DOM mutation
 

@@ -1,4 +1,4 @@
-import type { GlyphMapBounds, GlyphMapView } from "./types";
+import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapView } from "./types";
 import type { GlyphMapGeoTile } from "./tile";
 
 /**
@@ -39,6 +39,14 @@ export interface GlyphMapProviderZoomLevel {
 export interface GlyphMapProvider {
   readonly id: string;
   readonly zooms: readonly GlyphMapProviderZoomLevel[];
+  /**
+   * Provenance for whatever this provider serves (e.g. ETOPO1 → NOAA NCEI,
+   * public domain, 2009) — MAPS.md's attribution requirement: derived from
+   * the layers actually mounted, not a website-side lookup table. See
+   * `attribution.ts`'s `glyphMapCollectAttributions`, which reads this off
+   * every mounted layer's source/provider.
+   */
+  readonly attribution?: readonly GlyphMapAttribution[];
   /** Geographic bounds of tile `(x, y)` at zoom `z`. Pure — no fetch. */
   bounds(z: number, x: number, y: number): GlyphMapBounds;
   /** Fetch (or synchronously build) tile `(x, y)`'s data at zoom `z`. May be called more than once for the same tile — cache it yourself if that matters, or rely on the caller's own cache (`createGlyphMap` never calls this twice for a tile it has already cached). */
@@ -70,7 +78,15 @@ export function glyphMapDegreesPerCell(view: GlyphMapView): number {
  * pyramid) — a provider with a different zoom-level count or coverage still
  * gets a sensible answer with no changes here.
  */
-export function glyphMapTargetLOD(provider: GlyphMapProvider, degPerCell: number): number {
+/**
+ * Takes only the `zooms` shape it actually reads — not the full
+ * {@link GlyphMapProvider} interface — so a {@link
+ * import("./vector/types").GlyphMapVectorProvider} (whose `zooms` is
+ * deliberately the SAME `GlyphMapProviderZoomLevel[]` record shape, see
+ * that type's own doc) works here UNCHANGED: the coordinator's "reuse the
+ * LOD machinery... one visible-set computation serves both providers."
+ */
+export function glyphMapTargetLOD(provider: { readonly zooms: readonly GlyphMapProviderZoomLevel[] }, degPerCell: number): number {
   if (provider.zooms.length === 0) {
     throw new RangeError("glyphcss/maps: glyphMapTargetLOD requires a provider with at least one zoom level.");
   }

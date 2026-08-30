@@ -9,12 +9,13 @@
  * tileLatSpan`) — load-bearing for LOD/culling to agree with what's actually
  * on disk.
  */
-import type { GlyphMapBounds, GlyphMapGeoTile, GlyphMapProvider, GlyphMapProviderZoomLevel } from "@glyphcss/maps";
+import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapGeoTile, GlyphMapProvider, GlyphMapProviderZoomLevel } from "@glyphcss/maps";
 
 interface GeoTilesManifest {
   readonly zooms: readonly GlyphMapProviderZoomLevel[];
   readonly source: string;
   readonly sampler: string;
+  readonly attribution?: readonly GlyphMapAttribution[];
 }
 
 interface RawGeoTile {
@@ -49,6 +50,7 @@ export async function createGeoTilesProvider(baseUrl = "/data/geo-tiles"): Promi
   return {
     id: `geo-tiles:${baseUrl}`,
     zooms: manifest.zooms,
+    attribution: manifest.attribution,
     bounds(z, x, y) {
       const level = zoomByZ.get(z);
       if (!level) throw new RangeError(`geo-tiles provider: no zoom level ${z}.`);

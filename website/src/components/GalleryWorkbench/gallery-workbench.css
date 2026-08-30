@@ -572,7 +572,8 @@
   .dock-ramp-density-item,
   .wa-imgbtn,
   .wa-seg button,
-  .wa-tile
+  .wa-tile,
+  .maps-place
 ) {
   background-repeat: no-repeat;
   background-origin: border-box;
@@ -595,7 +596,8 @@
   .dock-ramp-density-item,
   .wa-imgbtn,
   .wa-seg button,
-  .wa-tile
+  .wa-tile,
+  .maps-place
 ):focus-visible {
   outline: 1px solid rgba(56, 189, 248, 0.75);
   outline-offset: 2px;

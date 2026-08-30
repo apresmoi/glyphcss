@@ -164,3 +164,21 @@ export interface GlyphMapArtifact {
   readonly classifier: string;
   readonly sampler: string;
 }
+
+/**
+ * Provenance for one mounted data source — MAPS.md's attribution
+ * requirement (a legal requirement for ODbL-licensed data, a courtesy
+ * otherwise, so the mechanism has to be reliable rather than best-effort):
+ * attribution is DERIVED from the layers actually mounted, never hardcoded
+ * on a page. Attached to a source/provider/tile at BAKE time (or authored
+ * directly for an in-memory source) so it survives to the widget without a
+ * website-side lookup table that can drift from the data — see
+ * `attribution.ts`'s `glyphMapCollectAttributions`.
+ */
+export interface GlyphMapAttribution {
+  readonly name: string;
+  readonly url?: string;
+  readonly license: string;
+  /** Free-form date/version string — e.g. `"2009"`, `"v5.1.1"`. */
+  readonly date?: string;
+}

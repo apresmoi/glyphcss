@@ -4,12 +4,15 @@ Geographic raster data → glyphcss. A deterministic `source → sample →
 classify → compile` pipeline that bakes a georeferenced grid (elevation,
 land cover, any scalar field) to a static ASCII `<pre>`, with zero runtime.
 
-This is **slice 1 + 2 + 3** of the package: the raster core (sampling,
+This is **slices 1, 2, 3, and 5** of the package: the raster core (sampling,
 classifying, presenting a flat field), projections and geographic tiles (a
-real 3D relief mesh), and the interactive widget (`createGlyphMap` — tile
-loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`).
-Projection transitions, vector layers, and the website `/maps` page are
-later slices (see `.plan/MAPS.md`).
+real 3D relief mesh), the interactive widget (`createGlyphMap` — tile
+loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`),
+and vector `line`/`contour` layers over a TopoJSON/shared-arc pipeline
+(country borders, isolines — see "Vector layers" below). Projection
+transitions, choropleth/symbol/circle/heatmap layers, and day/night are
+later slices (see `.plan/MAPS.md` and `AGENTS.md`'s "Maps" section for the
+full, current API reference).
 
 Two entry points. The root is pure and browser-safe (no `fs`, no native
 modules); `@glyphcss/maps/node` adds filesystem-backed source readers and is

@@ -24,9 +24,11 @@
   text-align: left;
   padding: 7px 10px;
   margin-bottom: 6px;
-  background: transparent;
+  background-color: transparent;
   color: rgba(226, 232, 240, 0.75);
-  border: 1px solid rgba(255, 232, 184, 0.15);
+  border-block: 0;
+  border-inline: 1px solid rgba(255, 232, 184, 0.15);
+  --gx-bracket: rgba(255, 232, 184, 0.15);
   font: inherit;
   font-size: 12px;
   letter-spacing: 0.02em;
@@ -35,6 +37,7 @@
 .maps-place:hover {
   color: rgba(255, 232, 184, 0.98);
   border-color: rgba(56, 189, 248, 0.5);
+  --gx-bracket: rgba(56, 189, 248, 0.5);
 }
 .maps-place:last-child {
   margin-bottom: 0;
@@ -51,4 +54,68 @@
   border: 1px solid rgba(248, 113, 113, 0.4);
   color: rgba(254, 202, 202, 0.95);
   font-size: 12px;
+}
+
+/* Attribution footer — centered along the bottom of the map, Google-Maps-
+   satellite-view style. Derived from mounted layers (MapsWorkbench's
+   `attributions` state, createGlyphMap's `getAttributions()`), never a
+   hardcoded credit line. Positioned above `.synth-export-bar` (bottom-left)
+   so the two never overlap. */
+.maps-attribution {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 14;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+.maps-attribution .model-credit {
+  pointer-events: auto;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 0;
+  border-top: none;
+  background: rgba(5, 7, 12, 0.72);
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+/* "Layers" panel — one compact row per layer (bracket checkbox + label +
+   density slider inline), rendered above the Places list in the same rail
+   (mapsKit.tsx's `LayersPanel` doc). Reuses the site's own bracket-checkbox
+   (`.layer-group-check`, `[x]`/`[ ]`) and slider (`.voice-slider`/
+   `.voice-slider-track`) idiom from instrument-workbench.css verbatim — this
+   rule set only supplies the row GRID that lines every row's checkbox,
+   label, track and value up in shared columns. */
+.maps-layers-list {
+  display: grid;
+  grid-template-columns: max-content 1fr max-content;
+  align-items: center;
+  row-gap: 6px;
+  column-gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.12);
+}
+.maps-layer-row {
+  display: contents;
+}
+.maps-layer-check {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+.voice-slider.maps-layer-slider {
+  grid-column: 2 / 4;
+  grid-template-columns: subgrid;
+}
+.maps-layer-slider--off {
+  opacity: 0.35;
+}
+.maps-layer-slider--off input[type="range"] {
+  cursor: not-allowed;
+}
+.maps-place-list {
+  display: contents;
 }
