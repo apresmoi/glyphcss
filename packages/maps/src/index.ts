@@ -46,3 +46,7 @@ export {
   glyphMapOrthographic,
 } from "./projection";
 export type { GlyphMapD3RawOptions, GlyphMapD3RawProjection, GlyphMapProjection } from "./projection";
+export { glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
+export type { GlyphMapGeoTile } from "./tile";
+export { glyphMapPolygons } from "./mesh";
+export type { GlyphMapPolygonsOptions } from "./mesh";
