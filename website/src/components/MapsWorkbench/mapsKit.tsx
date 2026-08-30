@@ -14,7 +14,7 @@
  * pattern `SynthWorkbench`'s own `SynthDock` already uses for its own
  * scene/camera, which also isn't Gallery-shaped.
  */
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { GUI } from "lil-gui";
 import {
   glyphMapDecodeVectorTile,
@@ -142,10 +142,10 @@ export async function loadMapPlaces(baseUrl = "/data/vector-tiles"): Promise<rea
 }
 
 // ── "Layers" panel — expandable per-layer CARDS in the LEFT RAIL, directly
-//    under the shared "Layers & places" header, above the Places list.
-//    Styled after SynthWorkbench's own collapsible `LayerGroup` (user ask:
-//    "some kind of UI like the synth voices, but in this case its map
-//    layers") — see
+//    under the shared "Layers" header (Places moved out to the Dock's View
+//    folder — see MapsWorkbench's own doc for why). Styled after
+//    SynthWorkbench's own collapsible `LayerGroup` (user ask: "some kind of
+//    UI like the synth voices, but in this case its map layers") — see
 //    `../SynthWorkbench/synthKit.tsx`'s `LayerGroup` and
 //    `instrument-workbench.css` for the source of truth these classes are
 //    styled from: `.layer-group`/`.layer-group-head`/`.layer-group-toggle`+
@@ -394,7 +394,20 @@ export function useProjectionFolder(parent: GUI | null, inputs: ProjectionFolder
   useOption<MapProjectionId>(folder, "Projection", PROJECTION_OPTIONS, projectionId, onProjectionId);
 }
 
-// ── "View" folder — center/span/tilt (replaces DockCamera; see file doc) ──
+// ── "View" folder — center/span/tilt (replaces DockCamera; see file doc),
+//    plus a "Jump to" quick-travel dropdown (moved here from the left
+//    rail's Places list — user ask: "remove the places from the left
+//    sidebar, they shouldn't go there," the rail being layers-only; a place
+//    is view NAVIGATION, setting `view.center`/`span` via `fitBounds`, which
+//    is exactly what this folder already owns). `places` starts empty (the
+//    admin_0 tile is fetched async) and grows once loaded — the dropdown's
+//    OWN option list is a `useEffect`-driven `setOptions` call rather than
+//    read once at mount, since `useOption`'s options are otherwise captured
+//    only at construction (`primitives.tsx`'s own `initialOptionsRef`).
+//    There's no persistent "current place" (the view can be anywhere, not
+//    necessarily one of these bounds), so the dropdown is a fire-once
+//    ACTION trigger, not a controlled field — it keeps showing whichever
+//    label was last picked until picked again. ──────────────────────────────
 
 export interface ViewFolderInputs {
   centerLon: number;
@@ -405,13 +418,15 @@ export interface ViewFolderInputs {
   isOrbitProjection: boolean;
   lod: number;
   degPerCell: number;
+  places: readonly MapPlace[];
   onCenter: (lon: number, lat: number) => void;
   onSpan: (span: number) => void;
   onTilt: (tilt: number) => void;
+  onPlace: (bounds: GlyphMapBounds) => void;
 }
 
 export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): void {
-  const { centerLon, centerLat, span, maxSpan, tilt, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt } = inputs;
+  const { centerLon, centerLat, span, maxSpan, tilt, isOrbitProjection, lod, degPerCell, places, onCenter, onSpan, onTilt, onPlace } = inputs;
   const folder = useFolder(parent, "View", { open: true });
   useSlider(folder, "Center lon", { min: -180, max: 180, step: 0.1 }, centerLon, (v) => onCenter(v, centerLat));
   useSlider(folder, "Center lat", { min: -90, max: 90, step: 0.1 }, centerLat, (v) => onCenter(centerLon, v));
@@ -426,6 +441,15 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
   const tiltRange = isOrbitProjection ? { min: -70, max: 70, step: 1 } : { min: 5, max: 89, step: 1 };
   useSlider(folder, "Tilt °", tiltRange, tilt, onTilt);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
+
+  const placeOptions = useMemo(() => Object.fromEntries(places.map((p) => [p.label, p.label] as const)), [places]);
+  const [selectedPlace, setSelectedPlace] = useState("World");
+  const placeCtrl = useOption<string>(folder, "Jump to", placeOptions, selectedPlace, (label) => {
+    setSelectedPlace(label);
+    const place = places.find((p) => p.label === label);
+    if (place) onPlace(place.bounds);
+  });
+  useEffect(() => { placeCtrl?.setOptions(placeOptions); }, [placeCtrl, placeOptions]);
 }
 
 // ── Code panel — reuses `GalleryWorkbench/CodePanel`'s shell (tabs, copy,

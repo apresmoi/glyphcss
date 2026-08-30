@@ -4,8 +4,10 @@
    to the map surface: drag cursor/touch handling on the host (same fix
    `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
    a `<pre>` that rewrites its own contents every frame), the Layers rail
-   cards, marker labels, the Places rail buttons, and the provider-load
-   error banner. */
+   cards, marker labels, and the provider-load error banner. Places moved
+   out of the rail into the Dock's View folder ("jump to" dropdown) — the
+   rail is layers only now (user ask: "remove the places from the left
+   sidebar, they shouldn't go there"). */
 
 .maps-viewport {
   touch-action: none;
@@ -17,31 +19,6 @@
 }
 .maps-viewport .glyph-output:active {
   cursor: grabbing;
-}
-
-.maps-place {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  margin-bottom: 6px;
-  background-color: transparent;
-  color: rgba(226, 232, 240, 0.75);
-  border-block: 0;
-  border-inline: 1px solid rgba(255, 232, 184, 0.15);
-  --gx-bracket: rgba(255, 232, 184, 0.15);
-  font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-}
-.maps-place:hover {
-  color: rgba(255, 232, 184, 0.98);
-  border-color: rgba(56, 189, 248, 0.5);
-  --gx-bracket: rgba(56, 189, 248, 0.5);
-}
-.maps-place:last-child {
-  margin-bottom: 0;
 }
 
 .maps-error {
@@ -142,7 +119,4 @@
 }
 .maps-layer-slider--off input[type="range"] {
   cursor: not-allowed;
-}
-.maps-place-list {
-  display: contents;
 }

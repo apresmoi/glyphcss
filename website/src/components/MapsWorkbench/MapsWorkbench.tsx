@@ -174,7 +174,7 @@ export default function MapsWorkbench() {
     ambientColor: initial.ambientColor,
   });
 
-  const [mobilePanel, setMobilePanel] = useState<"places" | "controls" | "code" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"layers" | "controls" | "code" | null>(null);
 
   // Refs so imperative callbacks (map event handlers, the resize/interaction
   // observers) always read the latest value without re-subscribing.
@@ -604,18 +604,11 @@ export default function MapsWorkbench() {
     <InstrumentShell kind="synth">
       <InstrumentBody>
         <InstrumentRail
-          id="maps-places-panel"
-          title="Layers & places"
-          open={mobilePanel === "places"}
+          id="maps-layers-panel"
+          title="Layers"
+          open={mobilePanel === "layers"}
         >
           <LayersPanel {...layersFolderInputs} />
-          <div className="maps-place-list">
-            {places.map((place) => (
-              <button key={place.label} type="button" className="maps-place" onClick={() => handlePlace(place.bounds)}>
-                {place.label}
-              </button>
-            ))}
-          </div>
         </InstrumentRail>
         <InstrumentMain elementRef={setStageHost}>
           <InstrumentViewport className="maps-viewport" elementRef={hostRef} />
@@ -660,6 +653,7 @@ export default function MapsWorkbench() {
             centerLon={centerLon} centerLat={centerLat} span={span} tilt={tilt}
             lod={lod} degPerCell={degPerCell}
             onCenter={onCenter} onSpan={onSpanChange} onTilt={onTilt}
+            places={places} onPlace={handlePlace}
             renderMode={renderMode} glyphPalette={glyphPalette} charMode={charMode}
             wireframeJunctions={wireframeJunctions} hiddenLines={hiddenLines}
             solidWeightRamp={solidWeightRamp} colorEncoding={colorEncoding} atlasReason={atlasReason}
@@ -686,7 +680,7 @@ export default function MapsWorkbench() {
         </Dock>
       </InstrumentBody>
       <InstrumentMobileTabs label="Maps panels" items={[
-        { id: "places", label: "Places", controls: "maps-places-panel", expanded: mobilePanel === "places", onClick: () => setMobilePanel((c) => c === "places" ? null : "places") },
+        { id: "layers", label: "Layers", controls: "maps-layers-panel", expanded: mobilePanel === "layers", onClick: () => setMobilePanel((c) => c === "layers" ? null : "layers") },
         { id: "controls", label: "Controls", controls: "maps-controls-panel", expanded: mobilePanel === "controls", onClick: () => setMobilePanel((c) => c === "controls" ? null : "controls") },
         { id: "code", label: "Code", controls: "maps-code-panel", expanded: mobilePanel === "code", onClick: () => setMobilePanel((c) => c === "code" ? null : "code") },
       ]} />
@@ -716,6 +710,7 @@ function MapsDockFolders(props: {
   onProjectionId: (id: MapProjectionId) => void;
   centerLon: number; centerLat: number; span: number; tilt: number; lod: number; degPerCell: number;
   onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void;
+  places: readonly MapPlace[]; onPlace: (bounds: GlyphMapBounds) => void;
   renderMode: MapRenderMode; glyphPalette: MapGlyphPalette; charMode: MapCharMode;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
   colorEncoding: MapColorEncoding; atlasReason: string | null;
@@ -738,7 +733,8 @@ function MapsDockFolders(props: {
   useViewFolder(gui, {
     centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan, tilt: props.tilt,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
-    onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt,
+    places: props.places,
+    onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt, onPlace: props.onPlace,
   });
 
   return (
