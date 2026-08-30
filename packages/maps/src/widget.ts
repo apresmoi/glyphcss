@@ -708,9 +708,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function applyDrag(dxPx: number, dyPx: number): void {
     const grid = projectionGrid();
     if (isOrbitProjection && projection.cameraForCenter && projection.centerForCamera) {
+      // Grab-and-drag semantics (verified against `centerForCamera`): drag
+      // RIGHT must decrease centre longitude and drag DOWN must increase
+      // centre latitude, so the world follows the cursor, matching the
+      // sheet branch below and every other map library. `centerForCamera`
+      // measures `rotY +10 -> lon +10` and `rotX +10 -> lat -10`, so both
+      // increments are negated relative to the raw pixel delta.
       const degPerPx = (1 / pixelsPerWorldUnit(grid)) * (180 / Math.PI);
-      camera.rotY += dxPx * degPerPx;
-      camera.rotX += dyPx * degPerPx;
+      camera.rotY -= dxPx * degPerPx;
+      camera.rotX -= dyPx * degPerPx;
       view = { ...view, center: projection.centerForCamera(camera.rotX, camera.rotY), bounds: undefined };
     } else {
       const delta = screenToWorldDelta(dxPx, dyPx, grid);

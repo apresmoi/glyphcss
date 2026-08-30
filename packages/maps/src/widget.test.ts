@@ -287,3 +287,79 @@ describe("createGlyphMap — orbit vs sheet gesture (capability, not identity, b
     host.remove();
   });
 });
+
+/**
+ * Bug 3 (a live-page report, fixed alongside the chirality bugs above):
+ * `applyDrag`'s orbit branch had `camera.rotY`/`camera.rotX` incrementing in
+ * the WRONG direction relative to the pointer delta — verified via
+ * `centerForCamera`, which measures `rotY +10 -> lon +10` and
+ * `rotX +10 -> lat -10`, so a `+= dxPx`/`+= dyPx` orbit update moves the
+ * centre AWAY from the cursor on both axes. The sheet (non-orbit) branch's
+ * own math turned out to already be correct once bugs 1/2's projection sign
+ * flip landed — `screenToWorldDelta`'s Jacobian is derived from the (now
+ * chirality-correct) projection, so it inherited the fix rather than needing
+ * one of its own; this test pins that empirically rather than assuming it,
+ * per the task's "determine which empirically" instruction.
+ *
+ * Grab-and-drag semantics, matching every map library: the world follows
+ * the cursor. Drag RIGHT (`dx > 0`) must DECREASE centre longitude (content
+ * already under the cursor stays there, i.e. slides right — the pixels to
+ * the LEFT of the old cursor position, which are WEST, scroll into view).
+ * Drag DOWN (`dy > 0`) must INCREASE centre latitude (content scrolls down,
+ * so the NORTHward pixels above the old cursor position scroll into view).
+ */
+describe("createGlyphMap — drag direction (grab-and-drag: the world follows the cursor)", () => {
+  function fire(host: HTMLElement, type: string, x: number, y: number, pointerId = 1): void {
+    host.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, bubbles: true }));
+  }
+
+  it("orbit branch (globe): drag right decreases centre longitude, drag down increases centre latitude", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const map = createGlyphMap(host, {
+      view: { center: [0, 0], span: 40, cols: 60, rows: 30 },
+      projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }),
+    });
+
+    fire(host, "pointerdown", 100, 100, 1);
+    fire(host, "pointermove", 120, 100, 1); // drag right, dx = +20
+    const afterRight = map.getView().center;
+    fire(host, "pointerup", 120, 100, 1);
+    expect(afterRight[0]).toBeLessThan(0);
+    expect(afterRight[1]).toBeCloseTo(0, 6);
+
+    fire(host, "pointerdown", 100, 100, 2);
+    fire(host, "pointermove", 100, 120, 2); // drag down, dy = +20
+    const afterDown = map.getView().center;
+    fire(host, "pointerup", 100, 120, 2);
+    expect(afterDown[1]).toBeGreaterThan(afterRight[1]);
+
+    map.destroy();
+    host.remove();
+  });
+
+  it("sheet branch (equirectangular): drag right decreases centre longitude, drag down increases centre latitude", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const map = createGlyphMap(host, {
+      view: { center: [0, 0], span: 40, cols: 60, rows: 30 },
+      projection: glyphMapEquirectangular(),
+      tilt: 0,
+    });
+
+    fire(host, "pointerdown", 100, 100, 1);
+    fire(host, "pointermove", 120, 100, 1); // drag right, dx = +20
+    const afterRight = map.getView().center;
+    fire(host, "pointerup", 120, 100, 1);
+    expect(afterRight[0]).toBeLessThan(0);
+
+    fire(host, "pointerdown", 100, 100, 2);
+    fire(host, "pointermove", 100, 120, 2); // drag down, dy = +20
+    const afterDown = map.getView().center;
+    fire(host, "pointerup", 100, 120, 2);
+    expect(afterDown[1]).toBeGreaterThan(afterRight[1]);
+
+    map.destroy();
+    host.remove();
+  });
+});
