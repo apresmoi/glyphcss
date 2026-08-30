@@ -252,8 +252,32 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * §13 slice 3: "stop, this reproduces two branches" — no plane-AABB vs
    * great-circle split; one sample-point test that degrades correctly for
    * every projection via `projection.visible`/NaN alone).
+   *
+   * The projected 3x3 corner/edge/centre sample grid below only proves a
+   * tile visible when one of ITS OWN 9 sample points happens to land inside
+   * the (padded) viewport — which misses the opposite containment case: a
+   * SMALL, zoomed-in viewport sitting entirely INSIDE a LARGE tile, where
+   * none of the tile's sparse samples has to be on-screen for the tile to
+   * still cover the visible area. Found live on `/maps`: a provider whose
+   * finest LOD tiles are still much coarser than a close, single-tile zoom
+   * (jumping to a bounded region via `fitBounds`) failed every tile's
+   * sample test, fell through to the "never blank the layer" failsafe below
+   * (which always picks tile `0_0` regardless of where the camera actually
+   * is), and rendered nothing when `0_0` wasn't it. The fix is a cheap,
+   * projection-agnostic complement: the view's own geographic CENTRE always
+   * projects to dead-centre of the viewport by construction, so a tile
+   * containing it is trivially visible with no projection call at all.
+   * `±360` on the longitude covers a view centred just past the
+   * antimeridian against an "unwrapped" tile bounds box (the convention
+   * `splitGlyphMapGeoTileAtAntimeridian` documents).
    */
   function isBoundsVisible(bounds: GlyphMapBounds, padCells: number): boolean {
+    const [centerLon, centerLat] = view.center;
+    if (centerLat >= bounds.south && centerLat <= bounds.north) {
+      for (const lon of [centerLon, centerLon + 360, centerLon - 360]) {
+        if (lon >= bounds.west && lon <= bounds.east) return true;
+      }
+    }
     const grid = projectionGrid();
     const lons = [bounds.west, (bounds.west + bounds.east) / 2, bounds.east];
     const lats = [bounds.south, (bounds.south + bounds.north) / 2, bounds.north];

@@ -158,6 +158,69 @@ describe("createGlyphMap — layers", () => {
     map.destroy();
     host.remove();
   });
+
+  it("stays rendered after fitBounds zooms into ONE tile's interior — found live on /maps (blank render, no error)", async () => {
+    // A 2x2 z1-style pyramid (real quadrant tiles, matching the baked
+    // ETOPO1 provider's own shape) — each tile spans 180x90 degrees, far
+    // larger than the close-up region `fitBounds` below zooms into. None of
+    // the destination tile's own 9 corner/edge/centre sample points has to
+    // land on-screen for the tile to still cover the viewport (the viewport
+    // is nested INSIDE one tile's interior, not straddling a tile edge) —
+    // the bug this regresses is `isBoundsVisible` missing exactly that case,
+    // which fell through to the "never blank the layer" failsafe (always
+    // tile `0_0`, the WRONG tile here) and rendered nothing.
+    const provider: GlyphMapProvider = {
+      id: "quadrants",
+      zooms: [{ z: 1, cols: 2, rows: 2, tileLonSpan: 180, tileLatSpan: 90, tileCols: 4, tileRows: 4 }],
+      bounds: (_z, x, y) => {
+        const lonMin = -180 + x * 180;
+        const latMax = 90 - y * 90;
+        return { west: lonMin, east: lonMin + 180, south: latMax - 90, north: latMax };
+      },
+      loadTile: async (z, x, y) => {
+        const lonMin = -180 + x * 180;
+        const latMax = 90 - y * 90;
+        return makeTile({ west: lonMin, east: lonMin + 180, south: latMax - 90, north: latMax }, 4, 4);
+      },
+    };
+
+    const host = document.createElement("div");
+    // happy-dom's default `getBoundingClientRect()` is all zeros — a real
+    // measured host size is load-bearing here (it's what makes
+    // `computeZoomForSpan`'s cell-pixel metrics match a real browser's,
+    // which is what actually triggers the bug: at a coarse fallback cell
+    // size the projected sample points happen to land closer to center).
+    Object.defineProperty(host, "getBoundingClientRect", {
+      value: () => ({ width: 1056, height: 819, top: 0, left: 0, right: 1056, bottom: 819, x: 0, y: 0, toJSON() {} }),
+    });
+    document.body.appendChild(host);
+    const map = createGlyphMap(host, {
+      view: { center: [0, 20], span: 140, cols: 135, rows: 63 },
+      projection: glyphMapGlobe({ exaggeration: 24 }),
+      layers: [{ type: "raster", source: provider }],
+    });
+
+    function nonSpaceCount(): number {
+      return [...(map.scene.output.textContent ?? "")].filter((c) => c !== " " && c !== "\n").length;
+    }
+
+    await vi.waitFor(() => expect(nonSpaceCount()).toBeGreaterThan(0));
+
+    // Himalaya-ish box, entirely inside the east quadrant tile (x=1, y=0:
+    // lon [0,180] x lat [0,90]) — well away from every corner/edge.
+    map.fitBounds({ west: 78, east: 92, south: 25, north: 32 });
+
+    // `setView`'s own synchronous `scene.rerender()` still shows the OLD
+    // (pre-fitBounds) tile set for a moment — `vi.waitFor` on non-blank text
+    // alone would pass vacuously against that stale frame. The tile SWAP
+    // itself is on `scheduleTileUpdate`'s 180ms debounce, so wait past it
+    // before asserting on the settled render.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(nonSpaceCount()).toBeGreaterThan(0);
+
+    map.destroy();
+    host.remove();
+  });
 });
 
 describe("createGlyphMap — markers and events", () => {
