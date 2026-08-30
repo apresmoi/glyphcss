@@ -18,7 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
-| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII. Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
+| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, plus `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter) and `glyphMapPolygons` for a real 3D relief mesh. Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
 | `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
@@ -187,7 +187,7 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 
 Dynamic Glyph Effect layers are otherwise runtime-only: `compileScene`/`GlyphSceneStatic` and the frame-roll export do not serialize or evaluate a mounted effect. Two paths do carry a live effect: the **interactive/CodePen exporter** mounts a **stock** effect by id from the `@glyphcss/effects` CDN (a custom `defineGlyphEffect` can't cross the CDN boundary), and **`buildGlyphFieldSynthStaticExport`** bakes an effect-only, static-camera field-synth scene into a self-contained inlined-JS pen. Neither generalizes to a moving camera plus effect, arbitrary effects in a static bake, or geometry animation.
 
-## Maps (raster slice 1)
+## Maps (raster slice 1, projections slice 2)
 
 `@glyphcss/maps` bakes a georeferenced scalar field (elevation, land cover,
 any raster) to a static ASCII `<pre>`, through a deterministic pipeline:
@@ -261,10 +261,89 @@ as drift. `source`/`sampler` aren't threaded through `GlyphMapField`/
 `GlyphMapBands` themselves — the caller already knows both (it chose them)
 — so the artifact builder takes them explicitly.
 
-Out of scope for this slice, deliberately: projections, cameras, meshes,
-geographic tiling/LOD/providers, interactivity, and vector data. No React/Vue
-surface yet — nothing in the plan forces one, and none is added
-speculatively.
+**Projections (slice 2).** `GlyphMapProjection` is a vertex transform —
+`{ id, project(lon, lat, elev): Vec3, unproject(p): [lon, lat], domain }` —
+so a flat map and a globe are one geometry under two functions. Units are
+DEGREES in (repo convention — see "Numeric conventions"), not d3's radians;
+`glyphMapFromD3Raw` converts. `project` returns `[NaN, NaN, NaN]` outside a
+projection's valid window (Mercator past `±maxLat`, orthographic on the far
+hemisphere) — "crop, don't clamp": a clamped pole collapses a row of
+vertices onto one point, which a mesh builder would still draw as a
+zero-area boundary edge. `domain` is a coarse lon/lat bounding box for tile
+culling, an over-approximation for orthographic (a spherical cap, not a
+box) — `project()` itself is the authoritative per-point check. Every
+projection treats elevation the same way: `z = (elev /
+GLYPH_MAP_EARTH_RADIUS_M) * exaggeration`, so `exaggeration: 1` is
+true-scale relief everywhere, globe included. `glyphMapEquirectangular`,
+`glyphMapMercator`, and `glyphMapOrthographic` share one world frame — `X` =
+north/south (increasing north), `Y` = east/west (increasing east) — and
+`glyphMapFromD3Raw` swaps a raw `(x, y)` into that same `(Y, X)` order (d3's
+own convention is the opposite: `x` tracks longitude, `y` tracks latitude).
+`glyphMapGlobe({ radius, exaggeration })` is a genuine 3D sphere mesh (every
+`(lon, lat)` is valid, unlike the flat projections): `X = r·cosLat·cos(lon)`,
+`Y = r·cosLat·sin(lon)` (increasing EAST), `Z = r·sinLat` (increasing
+north) — the textbook right-handed spherical-to-Cartesian map, pinned and
+tested by a CHIRALITY gate anchored outside this package's own math
+(`packages/maps/src/chirality.test.ts`, using `glyphcss`'s real
+`createGlyphOrthographicCamera`): camera `rotY: 0` (which, by
+`glyphcss`'s own rotation order, forces screen `col` to depend on world `Y`
+alone, for ANY `rotX`) facing Greenwich with north up ⇒ 30°E must project to
+a GREATER `col` than 0°E, and 30°N to a LESSER `row` than 0°N.
+
+**This chirality gate FAILS for `website/scripts/bake-globe.mjs`'s own
+`latLonToXYZ`, which negates `Y`.** That negation is a pre-existing,
+isolated defect (`bake-globe.mjs`'s own flat-map path, `flatToPlane`, maps
+longitude UN-negated in the same file — only the sphere formula has this
+sign), so `/examples/world`'s globe is mirrored east-west relative to true
+Earth geography. `glyphMapGlobe` ships the chirality-correct (un-negated)
+convention, NOT `bake-globe.mjs`'s; `packages/maps/src/parity.test.ts`
+proves the resulting deviation from `bake-globe.mjs`'s checked-in
+`website/public/data/tiles/` is an EXACT, whole-value `Y` sign flip (`X`/`Z`
+agree to ~5e-6, the reference JSON's own 5-sig-fig truncation; a literal
+(non-negated) `Y` comparison differs by ~1.0) and documents this in place
+rather than silently matching a mirrored reference. Fixing `bake-globe.mjs`
+itself is a separate, not-yet-scheduled change — this package does not
+depend on it, and `glyphMapPolygons`'s own quad winding (`[nw, sw, se, ne]`,
+the reverse of `bake-globe.mjs`'s `[a, b, c, d]`) is correct for the
+convention `glyphMapGlobe` actually ships.
+
+`glyphMapPolygons(tile, projection, opts?)` is the relief mesh: one quad per
+`GlyphMapGeoTile` cell (see below), corners projected through
+`projection`, skipped whole when any corner is outside the projection's
+valid window (never clamped). It takes a `GlyphMapGeoTile`, not slice 1's
+cell-centered `GlyphMapBands` — a relief mesh needs a value at every QUAD
+CORNER for adjacent quads to share an edge with no seam, which a
+cell-centered field cannot provide without inventing an interpolation rule
+`bake-globe.mjs` itself doesn't use.
+
+**Geographic tiles (slice 2's headline decision).** `GlyphMapGeoTile` —
+`{ bounds, cols, rows, elevation, source, sampler }` — carries lon/lat/
+elevation; the elevation grid is VERTEX-centered, `(cols + 1) x (rows + 1)`,
+matching `bake-globe.mjs`'s own per-vertex sampling loop exactly
+(`glyphMapGeoTileVertexLonLat`'s formula is that same loop, load-bearing for
+the parity gate above). Projection is applied CLIENT-SIDE — this is what
+lets one tile pyramid serve every projection, unlike both existing bakers
+(`bake-globe.mjs`, `bakeFlatTile`), which pre-project. A tile whose bounds
+straddle the antimeridian (`bounds.east > 180`, an "unwrapped" authoring
+convention) is split with `splitGlyphMapGeoTileAtAntimeridian` BEFORE
+projecting — a single mesh built across the seam would bridge the whole map
+as garbage strips; the split is a literal grid slice on a whole-column
+boundary, never a resample. `website/scripts/bake-geo-tiles.mjs` bakes this
+schema from ETOPO1 (`--fixture` for the small vendored parity fixture at
+`packages/maps/fixtures/geo-tile-parity.json`; `--tiles` for the full
+z0/z1 pyramid at `website/public/data/geo-tiles/`, gitignored — regenerable,
+and not small enough to vendor, unlike the fixture).
+
+`glyphMapFromD3Raw(raw, opts?)` adapts any `d3-geo-projection` raw
+projection — `(lambda, phi) → [x, y]` in radians, with an optional
+`.invert(x, y) → [lambda, phi]` (two SCALAR args, d3's own convention, not a
+tuple) — into a `GlyphMapProjection`. `d3-geo-projection` is a devDependency
+of `@glyphcss/maps` ONLY; the adapter never imports the module, so it never
+becomes a runtime dependency.
+
+Out of scope for this slice, deliberately: the widget, LOD/providers, pan/
+zoom, transitions, vector layers, and the website page. No React/Vue surface
+yet — nothing in the plan forces one, and none is added speculatively.
 
 ## No per-frame DOM mutation
 
