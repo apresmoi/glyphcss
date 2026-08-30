@@ -38,6 +38,47 @@ export interface GlyphMapProjection {
   /** Inverse of the `(x, y)` plane position. Elevation is not round-tripped — a projection's `z` axis is one-way relief, never re-derived from world space. */
   unproject(p: Vec3): readonly [lon: number, lat: number];
   readonly domain: GlyphMapBounds;
+  /**
+   * Near/far-side visibility (MAPS.md §7, §13 slice 3: "the interface must
+   * carry more than `project`"). Every flat projection (equirectangular,
+   * Mercator, orthographic, a d3 raw adapter) already excludes an invisible
+   * point through `project()` returning `[NaN, NaN, NaN]` — for those,
+   * `visible` is absent, and every point `project()` accepts is on-screen-
+   * eligible. {@link glyphMapGlobe} is different: EVERY `(lon, lat)` is a
+   * geometrically valid point on the sphere, front or back, so `project()`
+   * alone cannot tell a widget which half faces the camera — that needs a
+   * SEPARATE test, which is what this hook is for.
+   *
+   * `depthOf` is the caller's own `camera.project(...)[2]` (larger = nearer,
+   * `rasterize.ts`'s convention — verified directly against `fillDepthTri`
+   * and `createGlyphOrthographicCamera`'s `project()`, not assumed). A point
+   * is on the near side when it is at least as near as the projection's own
+   * reference point (`depthOf(project(anchorLon, anchorLat, 0))` for
+   * whichever anchor the projection is centered on) — comparing against that
+   * reference, not a fixed sign or zero threshold, is what keeps this correct
+   * under ANY camera orientation: depth's zero point is camera/target
+   * dependent, not geometry-dependent, so a hardcoded `depth < 0` check
+   * (the bug this hook exists to fix — see `createGlyphMap`'s docs) silently
+   * resolves the ANTIPODE under some camera states and the correct point
+   * under others.
+   */
+  visible?(world: Vec3, depthOf: (world: Vec3) => number): boolean;
+  /**
+   * Camera rotation (`rotX`/`rotY`, DEGREES, `createGlyphOrthographicCamera`'s
+   * own convention) that centers `[lon, lat]` under this projection's own
+   * geometry. Present ONLY on a projection whose geometry is fixed once in
+   * world space and navigated by ORBITING the camera around it (the globe) —
+   * a flat sheet has no equivalent (there, `createGlyphMap` centers a view by
+   * setting `camera.target = project(lon, lat, 0)` directly, which needs no
+   * projection-specific support). This is the "gesture semantics (target-pan-
+   * with-clamp vs orbit)" MAPS.md §7/§13 slice 3 requires the interface to
+   * carry: a widget checks for this method's PRESENCE (a capability, not a
+   * branch on `id`/kind) to pick orbit-drag over pan-drag, and never needs to
+   * know globe geometry itself.
+   */
+  cameraForCenter?(lon: number, lat: number): { rotX: number; rotY: number };
+  /** Inverse of {@link cameraForCenter} — the `[lon, lat]` this projection's fixed geometry currently centers under camera rotation `rotX`/`rotY`. Present exactly where `cameraForCenter` is. */
+  centerForCamera?(rotX: number, rotY: number): readonly [lon: number, lat: number];
 }
 
 const FULL_DOMAIN: GlyphMapBounds = { west: -180, east: 180, south: -90, north: 90 };
@@ -150,6 +191,43 @@ export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } =
       const lat = Math.asin(Math.max(-1, Math.min(1, p[2] / rho)));
       const lon = Math.atan2(p[1], p[0]);
       return [lon / DEG, lat / DEG];
+    },
+    // The sphere's centre (world origin) is the natural reference point: for
+    // ANY camera rotation, `depthOf([0,0,0])` is the depth of the ORIGIN, and
+    // a point on the sphere is on the near side exactly when it is no
+    // farther than the origin along the camera's own view axis — origin
+    // depth is 0 for an orthographic camera with `target: [0,0,0]` (the
+    // depth functional is linear/homogeneous), but this reads it from
+    // `depthOf` rather than assuming that, so it stays correct even if a
+    // caller ever pans a globe camera's `target` off the sphere's centre.
+    visible(world, depthOf) {
+      return depthOf(world) >= depthOf([0, 0, 0]);
+    },
+    // Exact, closed-form inverse of `createGlyphOrthographicCamera`'s own
+    // rotation math (`rotateVec3Voxcss`), not a search/scan (the bug
+    // `createGlyphMap` fixes — see its docs). The camera's projected DEPTH
+    // of a world point is `rz2 = (Y·sinRotY + X·cosRotY)·sinRotX + Z·cosRotX`
+    // — LINEAR in (X, Y, Z) — so the point on the unit sphere that MAXIMIZES
+    // depth (i.e. the sub-observer / near-pole point the camera is centred
+    // on) is exactly the functional's gradient direction, normalized:
+    // `n = (sinRotX·cosRotY, sinRotX·sinRotY, cosRotX)`. Equating that to
+    // this projection's own `(X, Y, Z) = (cosLat·cosLon, cosLat·sinLon,
+    // sinLat)` and solving gives `rotX = 90 - lat`, `rotY = lon` exactly —
+    // verified against `chirality.test.ts`'s independently-authored camera
+    // fixture (`rotX: 90, rotY: 0` faces Greenwich ⇔ `lat: 0, lon: 0`).
+    cameraForCenter(lon, lat) {
+      return { rotX: 90 - lat, rotY: lon };
+    },
+    centerForCamera(rotX, rotY) {
+      const rx = rotX * DEG;
+      const ry = rotY * DEG;
+      const sinRotX = Math.sin(rx);
+      const nx = sinRotX * Math.cos(ry);
+      const ny = sinRotX * Math.sin(ry);
+      const nz = Math.cos(rx);
+      const lat = Math.asin(Math.max(-1, Math.min(1, nz))) / DEG;
+      const lon = Math.atan2(ny, nx) / DEG;
+      return [lon, lat];
     },
   };
 }
