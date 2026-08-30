@@ -191,7 +191,10 @@ function LayerCard({ label, visible, onVisible, children }: {
   onVisible: (v: boolean) => void;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  // Disclosure IS the enable checkbox — an enabled layer always shows its
+  // controls and cannot be collapsed away from them, and a disabled layer has
+  // nothing worth tuning. That removes the separate caret button entirely
+  // rather than keeping two controls whose states could disagree.
   return (
     <div className="layer-group maps-layer-card">
       <div className="layer-group-head maps-layer-head">
@@ -199,17 +202,8 @@ function LayerCard({ label, visible, onVisible, children }: {
           <input type="checkbox" checked={visible} onChange={(e) => onVisible(e.target.checked)} />
           <span>{label}</span>
         </label>
-        <button
-          type="button"
-          className="layer-group-toggle maps-layer-expand"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          title={`${label} — expand/collapse this layer's controls`}
-        >
-          <span className="layer-group-caret">{open ? "▾" : "▸"}</span>
-        </button>
       </div>
-      {open && <div className="layer-group-body maps-layer-body">{children}</div>}
+      {visible && <div className="layer-group-body maps-layer-body">{children}</div>}
     </div>
   );
 }

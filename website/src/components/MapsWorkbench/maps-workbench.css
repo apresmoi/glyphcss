@@ -88,9 +88,7 @@
 /* The collapse/expand caret button sits at the head row's trailing edge —
    `.layer-group-head` is a plain flex row with no `justify-content`
    assumption of its own, so this is the one rule needed to push it there. */
-.maps-layer-expand {
-  margin-left: auto;
-}
+
 .maps-layer-color-row,
 .maps-layer-select-row,
 .maps-layer-info-row {
