@@ -1,0 +1,259 @@
+import type { Vec3 } from "glyphcss";
+import type { GlyphMapBounds } from "./types";
+
+const DEG = Math.PI / 180;
+
+/**
+ * Mean Earth radius in meters (IUGG). Elevation (meters, from the source
+ * grid) is converted to a fraction of this before being scaled by a
+ * projection's own `exaggeration`, so `exaggeration: 1` means "true-scale
+ * relief" for every projection in this file, globe included — the same
+ * convention `website/scripts/bake-globe.mjs`'s `HEIGHT_EXAGG` uses (there
+ * called `EARTH_RADIUS_M`). Exported so a bake script computing the same
+ * displacement outside `project()` (or comparing against a pre-projected
+ * reference) doesn't need its own copy of the constant (MAPS.md §10 — "the
+ * package must own the resampling math").
+ */
+export const GLYPH_MAP_EARTH_RADIUS_M = 6_371_000;
+
+/**
+ * A projection is a vertex transform (MAPS.md §7): flat and globe are one
+ * geometry under two functions. Units are DEGREES in (repo convention, not
+ * d3's radians — {@link glyphMapFromD3Raw} converts). `domain` is the
+ * projection's valid lon/lat WINDOW: equirectangular is unbounded (the full
+ * range), Mercator crops at `±maxLat`, globe is the whole sphere, and
+ * orthographic/a d3 raw projection show at most a hemisphere. `domain` is a
+ * coarse lon/lat BOUNDING BOX for tile culling — for orthographic (a
+ * spherical cap, not a box) it is a conservative over-approximation; the
+ * authoritative per-point validity check is `project()` itself, which
+ * returns `[NaN, NaN, NaN]` for a point outside its true valid region
+ * (mirroring `GlyphMapField`'s NaN-for-invalid convention). A mesh builder
+ * "crops, not clamps" (§7) by skipping any quad with a NaN corner, never by
+ * clamping the coordinate.
+ */
+export interface GlyphMapProjection {
+  readonly id: string;
+  /** DEGREES in. Returns `[NaN, NaN, NaN]` when `(lon, lat)` is outside this projection's valid window. */
+  project(lon: number, lat: number, elev: number): Vec3;
+  /** Inverse of the `(x, y)` plane position. Elevation is not round-tripped — a projection's `z` axis is one-way relief, never re-derived from world space. */
+  unproject(p: Vec3): readonly [lon: number, lat: number];
+  readonly domain: GlyphMapBounds;
+}
+
+const FULL_DOMAIN: GlyphMapBounds = { west: -180, east: 180, south: -90, north: 90 };
+
+function reliefZ(elev: number, exaggeration: number): number {
+  return (elev / GLYPH_MAP_EARTH_RADIUS_M) * exaggeration;
+}
+
+/**
+ * Unrolled lon/lat plane, no projection math at all — "unbounded" (§7): every
+ * `(lon, lat)` is valid, including past ±180°/±90° (a caller normalizes if it
+ * cares). World frame (documented, not incidental — MAPS.md §7's "the world
+ * frame and handedness are stated explicitly and tested"): `X` = north/south
+ * (increasing north), `Y` = east/west (increasing east — the same "east is
+ * `+Y`" chirality {@link glyphMapGlobe} pins below), `Z` = relief. `X`/`Y` are
+ * plain degrees, not radians — nothing here needs the d3-radian convention,
+ * and keeping this projection's own domain in the same units as its output
+ * keeps `exaggeration`'s meaning (a fraction of Earth's radius) legible next
+ * to a `Y` that reads directly as "degrees east of the prime meridian".
+ */
+export function glyphMapEquirectangular(opts: { exaggeration?: number } = {}): GlyphMapProjection {
+  const exaggeration = opts.exaggeration ?? 1;
+  return {
+    id: "glyph-map-equirectangular",
+    domain: FULL_DOMAIN,
+    project(lon, lat, elev) {
+      return [lat, lon, reliefZ(elev, exaggeration)];
+    },
+    unproject(p) {
+      return [p[1], p[0]];
+    },
+  };
+}
+
+/**
+ * Web Mercator. Conformal, so shape is preserved locally at the cost of
+ * badly distorting area near the poles — cropped at `±maxLat` (default
+ * `85.0511287798...°`, the standard Web Mercator limit where the projected
+ * plane would otherwise reach `±Infinity`) rather than clamped: a clamped
+ * pole collapses a whole row of vertices onto one point, producing
+ * zero-area quads a mesh builder would still draw as boundary edges (§7).
+ * Same `X` = north/south, `Y` = east/west, `Z` = relief frame as
+ * {@link glyphMapEquirectangular}.
+ */
+export function glyphMapMercator(opts: { maxLat?: number; exaggeration?: number } = {}): GlyphMapProjection {
+  const maxLat = opts.maxLat ?? 85.05112877980659;
+  const exaggeration = opts.exaggeration ?? 1;
+  return {
+    id: "glyph-map-mercator",
+    domain: { west: -180, east: 180, south: -maxLat, north: maxLat },
+    project(lon, lat, elev) {
+      if (lat < -maxLat || lat > maxLat) return [NaN, NaN, NaN];
+      const y = Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2));
+      return [y / DEG, lon, reliefZ(elev, exaggeration)];
+    },
+    unproject(p) {
+      const lat = (2 * Math.atan(Math.exp(p[0] * DEG)) - Math.PI / 2) / DEG;
+      return [p[1], lat];
+    },
+  };
+}
+
+/**
+ * A 3D sphere mesh — every `(lon, lat)` is valid (the whole globe), unlike
+ * every other projection here, which flattens to a 2D plane plus one-way
+ * relief. `radius` is the sphere's base (sea-level) radius in world units;
+ * `exaggeration` scales elevation as a FRACTION of Earth's true radius
+ * (`elev / {@link GLYPH_MAP_EARTH_RADIUS_M}`) before it displaces that
+ * radius outward — `exaggeration: 1` is true-scale relief (imperceptible at
+ * globe scale, since Everest is ~0.14% of Earth's radius), matching
+ * `website/scripts/bake-globe.mjs`'s `HEIGHT_EXAGG` (there applied at
+ * `radius: 1`).
+ *
+ * World frame — pinned explicitly and tested (MAPS.md §7's chirality gate),
+ * not derived incidentally from "wherever the math lands":
+ *
+ *     X = radius · cos(lat) · cos(lon)     (toward lon=0°,  lat=0° — Greenwich/equator)
+ *     Y = radius · cos(lat) · sin(lon)     (increasing EAST)
+ *     Z = radius · sin(lat)                (increasing NORTH — the sphere's polar axis)
+ *
+ * This is the textbook right-handed spherical-to-Cartesian map (X toward the
+ * reference meridian, Z the polar axis, Y completing a right-handed frame —
+ * so `+lon` reads as `+Y`, matching what "east" must mean under this
+ * package's own camera convention, see `projection.test.ts`'s chirality
+ * gate). It is DELIBERATELY NOT `website/scripts/bake-globe.mjs`'s
+ * `latLonToXYZ`, which negates `Y`: that negation mirrors every `(lon, lat)`
+ * pair across the prime-meridian plane (a point at 30°E lands where this
+ * formula would put 30°W), and the chirality gate below proves that
+ * mirroring is backwards under `glyphcss`'s own camera axis convention — see
+ * the "known deviation" note in `parity.test.ts` for the full account and
+ * the exact, isolated relationship (`Y` is negated; `X`/`Z` already agree)
+ * between this projection and those checked-in tiles.
+ */
+export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } = {}): GlyphMapProjection {
+  const radius = opts.radius ?? 1;
+  const exaggeration = opts.exaggeration ?? 1;
+  return {
+    id: "glyph-map-globe",
+    domain: FULL_DOMAIN,
+    project(lon, lat, elev) {
+      const latR = lat * DEG;
+      const lonR = lon * DEG;
+      const cosLat = Math.cos(latR);
+      const r = radius * (1 + reliefZ(elev, exaggeration));
+      return [r * cosLat * Math.cos(lonR), r * cosLat * Math.sin(lonR), r * Math.sin(latR)];
+    },
+    unproject(p) {
+      const rho = Math.hypot(p[0], p[1], p[2]);
+      if (rho < 1e-12) return [0, 0];
+      const lat = Math.asin(Math.max(-1, Math.min(1, p[2] / rho)));
+      const lon = Math.atan2(p[1], p[0]);
+      return [lon / DEG, lat / DEG];
+    },
+  };
+}
+
+/**
+ * Orthographic: the sphere as seen from infinitely far away, centered on
+ * `(lon0, lat0)`. Only the near hemisphere is representable — a point on the
+ * far side (`cosC < 0`) projects to `[NaN, NaN, NaN]` (§7's "crop, don't
+ * clamp"; `domain` is a conservative bounding box for the same near
+ * hemisphere, not the exact spherical cap). Same `X` = north/south, `Y` =
+ * east/west chirality as the flat projections above: standard orthographic
+ * `x = cos(lat)·sin(lon−lon0)` (east/west) is returned as this projection's
+ * `Y`, and standard `y = cos(lat0)·sin(lat) − sin(lat0)·cos(lat)·cos(lon−lon0)`
+ * (north/south) as `X`.
+ */
+export function glyphMapOrthographic(opts: { lon0?: number; lat0?: number; exaggeration?: number } = {}): GlyphMapProjection {
+  const lon0 = opts.lon0 ?? 0;
+  const lat0 = opts.lat0 ?? 0;
+  const exaggeration = opts.exaggeration ?? 1;
+  const lat0R = lat0 * DEG;
+  const sinLat0 = Math.sin(lat0R);
+  const cosLat0 = Math.cos(lat0R);
+  const domainWest = ((lon0 - 90 + 540) % 360) - 180;
+  const domainEast = ((lon0 + 90 + 540) % 360) - 180;
+  return {
+    id: "glyph-map-orthographic",
+    domain: {
+      west: domainWest > domainEast ? -180 : domainWest,
+      east: domainWest > domainEast ? 180 : domainEast,
+      south: Math.max(-90, lat0 - 90),
+      north: Math.min(90, lat0 + 90),
+    },
+    project(lon, lat, elev) {
+      const latR = lat * DEG;
+      const dLon = (lon - lon0) * DEG;
+      const cosLat = Math.cos(latR);
+      const sinLat = Math.sin(latR);
+      const cosC = sinLat0 * sinLat + cosLat0 * cosLat * Math.cos(dLon);
+      if (cosC < 0) return [NaN, NaN, NaN];
+      const stdX = cosLat * Math.sin(dLon);
+      const stdY = cosLat0 * sinLat - sinLat0 * cosLat * Math.cos(dLon);
+      return [stdY, stdX, reliefZ(elev, exaggeration)];
+    },
+    unproject(p) {
+      const stdY = p[0];
+      const stdX = p[1];
+      const rho = Math.hypot(stdX, stdY);
+      if (rho < 1e-12) return [lon0, lat0];
+      const c = Math.asin(Math.max(-1, Math.min(1, rho)));
+      const sinC = Math.sin(c);
+      const cosC = Math.cos(c);
+      const lat = Math.asin(Math.max(-1, Math.min(1, cosC * sinLat0 + (stdY * sinC * cosLat0) / rho)));
+      const lon = lon0 * DEG + Math.atan2(stdX * sinC, rho * cosLat0 * cosC - stdY * sinLat0 * sinC);
+      return [lon / DEG, lat / DEG];
+    },
+  };
+}
+
+/**
+ * A d3-geo "raw" projection is `(λ, φ) → [x, y]` in RADIANS with an optional
+ * `.invert` — structurally the shape {@link GlyphMapProjection} needs, so
+ * `d3-geo-projection`'s ~50 raw projections (Mollweide, Winkel Tripel,
+ * Robinson, Albers, Lambert, ...) work through this thin adapter (MAPS.md
+ * §7). This package does not depend on `d3-geo-projection` at runtime — only
+ * the raw function's call SHAPE is required, never the module.
+ */
+export interface GlyphMapD3RawProjection {
+  (lambda: number, phi: number): readonly [number, number];
+  /** d3's own convention: two scalar args in, `[lambda, phi]` out — NOT a single `[x, y]` tuple in. */
+  invert?(x: number, y: number): readonly [number, number];
+}
+
+export interface GlyphMapD3RawOptions {
+  readonly id?: string;
+  /** Defaults to the full lon/lat range — most d3 raw projections (Mollweide, Robinson, ...) are defined everywhere; pass a narrower box for one that isn't (e.g. a conic). */
+  readonly domain?: GlyphMapBounds;
+  readonly exaggeration?: number;
+}
+
+/**
+ * `raw`'s own `(x, y)` output becomes this package's `(Y, X)` — swapped, not
+ * passed through — so a d3-adapted projection shares the same `X` =
+ * north/south, `Y` = east/west world frame every hand-rolled projection in
+ * this file uses (d3's own convention is the opposite: `x` tracks longitude,
+ * `y` tracks latitude).
+ */
+export function glyphMapFromD3Raw(raw: GlyphMapD3RawProjection, opts: GlyphMapD3RawOptions = {}): GlyphMapProjection {
+  const id = opts.id ?? "glyph-map-d3-raw";
+  const domain = opts.domain ?? FULL_DOMAIN;
+  const exaggeration = opts.exaggeration ?? 1;
+  return {
+    id,
+    domain,
+    project(lon, lat, elev) {
+      const [x, y] = raw(lon * DEG, lat * DEG);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return [NaN, NaN, NaN];
+      return [y, x, reliefZ(elev, exaggeration)];
+    },
+    unproject(p) {
+      if (!raw.invert) {
+        throw new TypeError(`glyphcss/maps: d3 raw projection "${id}" has no .invert — unproject is unavailable.`);
+      }
+      const [lambda, phi] = raw.invert(p[1], p[0]);
+      return [lambda / DEG, phi / DEG];
+    },
+  };
+}

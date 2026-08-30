@@ -63,6 +63,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@vitest/coverage-v8": "^3.1.1",
+    "d3-geo-projection": "^4.0.0",
     "happy-dom": "^20.7.0",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",

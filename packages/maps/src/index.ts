@@ -36,3 +36,13 @@ export { compileGlyphMap } from "./compile";
 export { buildGlyphMapArtifact } from "./artifact";
 export { parseGlyphMapAsciiGrid } from "./asciiGrid";
 export type { GlyphMapAsciiGridMeta } from "./asciiGrid";
+
+export {
+  GLYPH_MAP_EARTH_RADIUS_M,
+  glyphMapEquirectangular,
+  glyphMapFromD3Raw,
+  glyphMapGlobe,
+  glyphMapMercator,
+  glyphMapOrthographic,
+} from "./projection";
+export type { GlyphMapD3RawOptions, GlyphMapD3RawProjection, GlyphMapProjection } from "./projection";
