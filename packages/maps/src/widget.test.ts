@@ -1,0 +1,226 @@
+import { describe, expect, it, vi } from "vitest";
+import { createGlyphMap } from "./widget";
+import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
+import { glyphMapBreaks } from "./classify";
+import type { GlyphMapGeoTile } from "./tile";
+import type { GlyphMapProvider } from "./provider";
+
+function makeTile(bounds: GlyphMapGeoTile["bounds"], cols: number, rows: number, elev = 100): GlyphMapGeoTile {
+  const elevation = new Float32Array((cols + 1) * (rows + 1)).fill(elev);
+  return { bounds, cols, rows, elevation, source: "synthetic", sampler: "nearest" };
+}
+
+function mountFlat(overrides: Partial<Parameters<typeof createGlyphMap>[1]> = {}) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const map = createGlyphMap(host, {
+    view: { center: [0, 0], span: 40, cols: 40, rows: 20 },
+    projection: glyphMapEquirectangular(),
+    ...overrides,
+  });
+  return { host, map };
+}
+
+describe("createGlyphMap — view", () => {
+  it("getView reflects the constructor view", () => {
+    const { host, map } = mountFlat();
+    const v = map.getView();
+    expect(v.center).toEqual([0, 0]);
+    expect(v.span).toBe(40);
+    map.destroy();
+    host.remove();
+  });
+
+  it("setView merges partial updates and emits 'move'/'zoom' correctly", () => {
+    const { host, map } = mountFlat();
+    const moveEvents: unknown[] = [];
+    const zoomEvents: unknown[] = [];
+    map.on("move", (e) => moveEvents.push(e));
+    map.on("zoom", (e) => zoomEvents.push(e));
+
+    map.setView({ center: [10, 5] });
+    expect(moveEvents.length).toBe(1);
+    expect(zoomEvents.length).toBe(0);
+    expect(map.getView().center).toEqual([10, 5]);
+    expect(map.getView().span).toBe(40); // untouched
+
+    map.setView({ span: 20 });
+    expect(zoomEvents.length).toBe(1);
+    expect(map.getView().span).toBe(20);
+
+    map.destroy();
+    host.remove();
+  });
+
+  it("fitBounds sets a span covering the full requested box (padding for aspect, never cropping)", () => {
+    const { host, map } = mountFlat();
+    map.fitBounds({ west: -5, east: 5, south: -20, north: 20 });
+    const v = map.getView();
+    expect(v.center[0]).toBeCloseTo(0, 10);
+    expect(v.center[1]).toBeCloseTo(0, 10);
+    // width-derived span is 10; height-derived is 40 * (cols/rows) = 40*2 = 80.
+    expect(v.span).toBeCloseTo(80, 10);
+    map.destroy();
+    host.remove();
+  });
+
+  it("resize() does not throw and keeps the view stable", () => {
+    const { host, map } = mountFlat();
+    const before = map.getView();
+    expect(() => map.resize()).not.toThrow();
+    expect(map.getView().center).toEqual(before.center);
+    host.remove();
+    map.destroy();
+  });
+});
+
+describe("createGlyphMap — layers", () => {
+  it("addLayer mounts a static raster tile and returns a usable id; removeLayer disposes it", () => {
+    const { host, map } = mountFlat();
+    const id = map.addLayer({ type: "raster", source: makeTile({ west: -20, east: 20, south: -20, north: 20 }, 2, 2) });
+    expect(typeof id).toBe("string");
+    expect(() => map.removeLayer(id)).not.toThrow();
+    map.destroy();
+    host.remove();
+  });
+
+  it("addLayer rejects a duplicate explicit id", () => {
+    const { host, map } = mountFlat();
+    map.addLayer({ type: "background", id: "bg", color: "#111" });
+    expect(() => map.addLayer({ type: "background", id: "bg", color: "#222" })).toThrow(RangeError);
+    map.destroy();
+    host.remove();
+  });
+
+  it("background layer sets the scene output's CSS background color; the topmost background wins; removal falls back to the next", () => {
+    const { host, map } = mountFlat();
+    const first = map.addLayer({ type: "background", color: "rgb(1, 2, 3)" });
+    expect(map.scene.output.style.backgroundColor).toBe("rgb(1, 2, 3)");
+    const second = map.addLayer({ type: "background", color: "rgb(4, 5, 6)" });
+    expect(map.scene.output.style.backgroundColor).toBe("rgb(4, 5, 6)");
+    map.removeLayer(second);
+    expect(map.scene.output.style.backgroundColor).toBe("rgb(1, 2, 3)");
+    map.removeLayer(first);
+    expect(map.scene.output.style.backgroundColor).toBe("");
+    map.destroy();
+    host.remove();
+  });
+
+  it("moveLayer rejects an unknown id, and a valid move does not throw", () => {
+    const { host, map } = mountFlat();
+    const a = map.addLayer({ type: "background", color: "#111" });
+    const b = map.addLayer({ type: "background", color: "#222" });
+    expect(() => map.moveLayer("nope")).toThrow(RangeError);
+    expect(() => map.moveLayer(a, b)).not.toThrow();
+    map.destroy();
+    host.remove();
+  });
+
+  it("a raster layer with a classifier + colors colors its mesh by elevation band (no throw, colors resolve)", () => {
+    const { host, map } = mountFlat({
+      layers: [
+        {
+          type: "raster",
+          source: makeTile({ west: -20, east: 20, south: -20, north: 20 }, 2, 2, 900),
+          classifier: glyphMapBreaks([0, 500, 1000]),
+          colors: ["#0000ff", "#00ff00", "#ffff00", "#ff0000"],
+        },
+      ],
+    });
+    // No throw during construction is the main assertion — full pixel
+    // verification would need a real render pass, out of scope here.
+    expect(map.scene.output).toBeTruthy();
+    map.destroy();
+    host.remove();
+  });
+
+  it("a provider-backed raster layer fetches only VISIBLE tiles and mounts them", async () => {
+    const loaded: string[] = [];
+    const provider: GlyphMapProvider = {
+      id: "synthetic",
+      zooms: [{ z: 0, cols: 4, rows: 1, tileLonSpan: 90, tileLatSpan: 180, tileCols: 2, tileRows: 2 }],
+      bounds: (_z, x) => ({ west: -180 + x * 90, east: -180 + (x + 1) * 90, south: -90, north: 90 }),
+      loadTile: async (z, x, y) => {
+        loaded.push(`${z}/${x}_${y}`);
+        return makeTile({ west: -180 + x * 90, east: -180 + (x + 1) * 90, south: -90, north: 90 }, 2, 2);
+      },
+    };
+    // Centred on lon 0, a narrow span — only the tiles straddling lon 0
+    // should be visible (tile x=1: [-90,0), x=2: [0,90)), not the
+    // far-side tiles x=0/x=3.
+    const { host, map } = mountFlat({
+      view: { center: [0, 0], span: 20, cols: 40, rows: 20 },
+      layers: [{ type: "raster", source: provider }],
+    });
+    await vi.waitFor(() => expect(loaded.length).toBeGreaterThan(0));
+    expect(loaded).not.toContain("0/0_0");
+    expect(loaded).not.toContain("0/3_0");
+    map.destroy();
+    host.remove();
+  });
+});
+
+describe("createGlyphMap — markers and events", () => {
+  it("addMarker positions a hotspot and remove() detaches it", () => {
+    const { host, map } = mountFlat();
+    const marker = map.addMarker({ at: [5, 5], label: "Test" });
+    expect(marker.el.isConnected).toBe(true);
+    expect(marker.el.textContent).toContain("Test");
+    marker.remove();
+    expect(marker.el.isConnected).toBe(false);
+    map.destroy();
+    host.remove();
+  });
+
+  it("on()/off() register and unregister handlers", () => {
+    const { host, map } = mountFlat();
+    const handler = vi.fn();
+    map.on("move", handler);
+    map.setView({ center: [1, 1] });
+    expect(handler).toHaveBeenCalledTimes(1);
+    map.off("move", handler);
+    map.setView({ center: [2, 2] });
+    expect(handler).toHaveBeenCalledTimes(1);
+    map.destroy();
+    host.remove();
+  });
+
+  it("fires 'load' once, after construction settles (async even with no layers)", async () => {
+    const { host, map } = mountFlat();
+    const handler = vi.fn();
+    map.on("load", handler);
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
+    map.destroy();
+    host.remove();
+  });
+
+  it("a listener that throws does not break subsequent listeners or the widget", () => {
+    const { host, map } = mountFlat();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const good = vi.fn();
+    map.on("move", () => { throw new Error("boom"); });
+    map.on("move", good);
+    expect(() => map.setView({ center: [3, 3] })).not.toThrow();
+    expect(good).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    map.destroy();
+    host.remove();
+  });
+});
+
+describe("createGlyphMap — orbit vs sheet gesture (capability, not identity, branch)", () => {
+  it("a globe view's centre follows an equivalent camera rotation (cameraForCenter/centerForCamera round-trip via setView)", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const map = createGlyphMap(host, {
+      view: { center: [10, 10], span: 40, cols: 60, rows: 30 },
+      projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }),
+    });
+    map.setView({ center: [50, -20] });
+    const v = map.getView();
+    expect(v.center[0]).toBeCloseTo(50, 6);
+    expect(v.center[1]).toBeCloseTo(-20, 6);
+    map.destroy();
+    host.remove();
+  });
+});

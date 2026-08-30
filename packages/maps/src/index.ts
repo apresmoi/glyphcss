@@ -50,3 +50,24 @@ export { glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from 
 export type { GlyphMapGeoTile } from "./tile";
 export { glyphMapPolygons } from "./mesh";
 export type { GlyphMapPolygonsOptions } from "./mesh";
+
+export { glyphMapDegreesPerCell, glyphMapTargetLOD } from "./provider";
+export type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
+
+export { createGlyphMap } from "./widget";
+export type {
+  GlyphMapBackgroundLayer,
+  GlyphMapClickEvent,
+  GlyphMapEvent,
+  GlyphMapEventHandler,
+  GlyphMapHandle,
+  GlyphMapLayer,
+  GlyphMapLoadEvent,
+  GlyphMapMarkerHandle,
+  GlyphMapMarkerOptions,
+  GlyphMapOptions,
+  GlyphMapProjectResult,
+  GlyphMapRasterLayer,
+  GlyphMapRasterSource,
+  GlyphMapViewEvent,
+} from "./widget";
