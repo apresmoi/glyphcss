@@ -1,12 +1,20 @@
 {
   "name": "@glyphcss/maps",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "description": "Geographic raster data → glyphcss. Deterministic sample/classify/compile pipeline for baking a georeferenced field to static ASCII, with zero runtime.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "keywords": ["glyphcss", "ascii", "maps", "gis", "raster", "static", "ssg"],
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "maps",
+    "gis",
+    "raster",
+    "static",
+    "ssg"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,7 +43,9 @@
   },
   "typesVersions": {
     "*": {
-      "node": ["dist/node.d.ts"]
+      "node": [
+        "dist/node.d.ts"
+      ]
     }
   },
   "scripts": {
