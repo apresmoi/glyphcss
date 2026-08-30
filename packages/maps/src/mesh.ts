@@ -81,7 +81,7 @@ function localUpDirection(projection: GlyphMapProjection, lon: number, lat: numb
  * computationally: the two conventions' winding is each other's reverse for
  * the same tile). It is NOT necessarily correct for every projection: the
  * globe's frame (`X/Y/Z` = a point's own radial direction) and a flat sheet's
- * frame (`X` = lat, `Y` = lon, `Z` = relief — {@link glyphMapEquirectangular}/
+ * frame (`X` = negated lat, `Y` = lon, `Z` = relief — {@link glyphMapEquirectangular}/
  * {@link glyphMapMercator}) are two independently-chosen axis mappings with
  * NO guaranteed shared handedness, and in fact don't share one: a flat
  * sheet's `[nw, sw, se, ne]` order is wound CW, not CCW, as seen from above

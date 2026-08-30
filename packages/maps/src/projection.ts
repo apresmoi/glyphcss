@@ -92,12 +92,18 @@ function reliefZ(elev: number, exaggeration: number): number {
  * `(lon, lat)` is valid, including past ±180°/±90° (a caller normalizes if it
  * cares). World frame (documented, not incidental — MAPS.md §7's "the world
  * frame and handedness are stated explicitly and tested"): `X` = north/south
- * (increasing north), `Y` = east/west (increasing east — the same "east is
- * `+Y`" chirality {@link glyphMapGlobe} pins below), `Z` = relief. `X`/`Y` are
- * plain degrees, not radians — nothing here needs the d3-radian convention,
- * and keeping this projection's own domain in the same units as its output
- * keeps `exaggeration`'s meaning (a fraction of Earth's radius) legible next
- * to a `Y` that reads directly as "degrees east of the prime meridian".
+ * (increasing SOUTH — `X` is NEGATED latitude), `Y` = east/west (increasing
+ * east — the same "east is `+Y`" chirality {@link glyphMapGlobe} pins below),
+ * `Z` = relief. `X` is negated because `glyphcss`'s real camera maps a
+ * GREATER world `X` to a GREATER (i.e. lower-on-screen) row — verified
+ * directly against `chirality.test.ts`'s camera fixture — so un-negated
+ * latitude on `X` renders north at the BOTTOM. `website/scripts/bake-globe.
+ * mjs`'s `flatToPlane` already does this (`-mercY`, "north maps to -X (top)")
+ * for exactly this reason. `X`/`Y` are plain degrees, not radians — nothing
+ * here needs the d3-radian convention, and keeping this projection's own
+ * domain in the same units as its output keeps `exaggeration`'s meaning (a
+ * fraction of Earth's radius) legible next to a `Y` that reads directly as
+ * "degrees east of the prime meridian".
  */
 export function glyphMapEquirectangular(opts: { exaggeration?: number } = {}): GlyphMapProjection {
   const exaggeration = opts.exaggeration ?? 1;
@@ -105,10 +111,10 @@ export function glyphMapEquirectangular(opts: { exaggeration?: number } = {}): G
     id: "glyph-map-equirectangular",
     domain: FULL_DOMAIN,
     project(lon, lat, elev) {
-      return [lat, lon, reliefZ(elev, exaggeration)];
+      return [-lat, lon, reliefZ(elev, exaggeration)];
     },
     unproject(p) {
-      return [p[1], p[0]];
+      return [p[1], -p[0]];
     },
   };
 }
@@ -120,7 +126,9 @@ export function glyphMapEquirectangular(opts: { exaggeration?: number } = {}): G
  * plane would otherwise reach `±Infinity`) rather than clamped: a clamped
  * pole collapses a whole row of vertices onto one point, producing
  * zero-area quads a mesh builder would still draw as boundary edges (§7).
- * Same `X` = north/south, `Y` = east/west, `Z` = relief frame as
+ * Same `X` = negated north/south (`+X` reads south, so north renders at the
+ * TOP under `glyphcss`'s real camera — see {@link glyphMapEquirectangular}'s
+ * doc comment), `Y` = east/west, `Z` = relief frame as
  * {@link glyphMapEquirectangular}.
  */
 export function glyphMapMercator(opts: { maxLat?: number; exaggeration?: number } = {}): GlyphMapProjection {
@@ -132,10 +140,10 @@ export function glyphMapMercator(opts: { maxLat?: number; exaggeration?: number 
     project(lon, lat, elev) {
       if (lat < -maxLat || lat > maxLat) return [NaN, NaN, NaN];
       const y = Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2));
-      return [y / DEG, lon, reliefZ(elev, exaggeration)];
+      return [-(y / DEG), lon, reliefZ(elev, exaggeration)];
     },
     unproject(p) {
-      const lat = (2 * Math.atan(Math.exp(p[0] * DEG)) - Math.PI / 2) / DEG;
+      const lat = (2 * Math.atan(Math.exp(-p[0] * DEG)) - Math.PI / 2) / DEG;
       return [p[1], lat];
     },
   };
@@ -237,11 +245,13 @@ export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } =
  * `(lon0, lat0)`. Only the near hemisphere is representable — a point on the
  * far side (`cosC < 0`) projects to `[NaN, NaN, NaN]` (§7's "crop, don't
  * clamp"; `domain` is a conservative bounding box for the same near
- * hemisphere, not the exact spherical cap). Same `X` = north/south, `Y` =
- * east/west chirality as the flat projections above: standard orthographic
+ * hemisphere, not the exact spherical cap). Same `X` = negated north/south,
+ * `Y` = east/west chirality as the flat projections above (`+X` reads south
+ * so north renders at the TOP under `glyphcss`'s real camera — see
+ * {@link glyphMapEquirectangular}'s doc comment): standard orthographic
  * `x = cos(lat)·sin(lon−lon0)` (east/west) is returned as this projection's
  * `Y`, and standard `y = cos(lat0)·sin(lat) − sin(lat0)·cos(lat)·cos(lon−lon0)`
- * (north/south) as `X`.
+ * (north/south) is NEGATED into this projection's `X`.
  */
 export function glyphMapOrthographic(opts: { lon0?: number; lat0?: number; exaggeration?: number } = {}): GlyphMapProjection {
   const lon0 = opts.lon0 ?? 0;
@@ -269,10 +279,10 @@ export function glyphMapOrthographic(opts: { lon0?: number; lat0?: number; exagg
       if (cosC < 0) return [NaN, NaN, NaN];
       const stdX = cosLat * Math.sin(dLon);
       const stdY = cosLat0 * sinLat - sinLat0 * cosLat * Math.cos(dLon);
-      return [stdY, stdX, reliefZ(elev, exaggeration)];
+      return [-stdY, stdX, reliefZ(elev, exaggeration)];
     },
     unproject(p) {
-      const stdY = p[0];
+      const stdY = -p[0];
       const stdX = p[1];
       const rho = Math.hypot(stdX, stdY);
       if (rho < 1e-12) return [lon0, lat0];
@@ -308,11 +318,13 @@ export interface GlyphMapD3RawOptions {
 }
 
 /**
- * `raw`'s own `(x, y)` output becomes this package's `(Y, X)` — swapped, not
- * passed through — so a d3-adapted projection shares the same `X` =
- * north/south, `Y` = east/west world frame every hand-rolled projection in
- * this file uses (d3's own convention is the opposite: `x` tracks longitude,
- * `y` tracks latitude).
+ * `raw`'s own `(x, y)` output becomes this package's `(-Y, X)` — swapped AND
+ * the latitude axis negated, not passed through — so a d3-adapted projection
+ * shares the same `X` = negated north/south, `Y` = east/west world frame
+ * every hand-rolled projection in this file uses (d3's own convention is the
+ * opposite: `x` tracks longitude, `y` tracks latitude, increasing NORTH,
+ * which reads upside down under `glyphcss`'s real camera — see
+ * {@link glyphMapEquirectangular}'s doc comment).
  */
 export function glyphMapFromD3Raw(raw: GlyphMapD3RawProjection, opts: GlyphMapD3RawOptions = {}): GlyphMapProjection {
   const id = opts.id ?? "glyph-map-d3-raw";
@@ -324,13 +336,13 @@ export function glyphMapFromD3Raw(raw: GlyphMapD3RawProjection, opts: GlyphMapD3
     project(lon, lat, elev) {
       const [x, y] = raw(lon * DEG, lat * DEG);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return [NaN, NaN, NaN];
-      return [y, x, reliefZ(elev, exaggeration)];
+      return [-y, x, reliefZ(elev, exaggeration)];
     },
     unproject(p) {
       if (!raw.invert) {
         throw new TypeError(`glyphcss/maps: d3 raw projection "${id}" has no .invert — unproject is unavailable.`);
       }
-      const [lambda, phi] = raw.invert(p[1], p[0]);
+      const [lambda, phi] = raw.invert(p[1], -p[0]);
       return [lambda / DEG, phi / DEG];
     },
   };
