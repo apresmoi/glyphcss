@@ -1,0 +1,54 @@
+/* /maps — page-specific chrome. Layout/dock/mobile-drawer structure comes
+   entirely from instrument-workbench.css + gallery-workbench.css (shared
+   with /synth and /loaders); this file only carries what's genuinely unique
+   to the map surface: drag cursor/touch handling on the host (same fix
+   `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
+   a `<pre>` that rewrites its own contents every frame), marker labels, the
+   Places rail buttons, and the provider-load error banner. */
+
+.maps-viewport {
+  touch-action: none;
+}
+.maps-viewport .glyph-output {
+  color: rgba(226, 232, 240, 0.94);
+  cursor: grab;
+  touch-action: none;
+}
+.maps-viewport .glyph-output:active {
+  cursor: grabbing;
+}
+
+.maps-place {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  margin-bottom: 6px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.75);
+  border: 1px solid rgba(255, 232, 184, 0.15);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.maps-place:hover {
+  color: rgba(255, 232, 184, 0.98);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.maps-place:last-child {
+  margin-bottom: 0;
+}
+
+.maps-error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  z-index: 20;
+  padding: 10px 14px;
+  background: rgba(30, 8, 8, 0.9);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(254, 202, 202, 0.95);
+  font-size: 12px;
+}

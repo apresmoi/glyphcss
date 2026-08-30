@@ -1,0 +1,34 @@
+---
+import MapsWorkbench from '../components/MapsWorkbench/MapsWorkbench.tsx';
+import DocsHeader from '../components/DocsHeader.astro';
+import BaseHead from '../components/BaseHead.astro';
+
+const title = 'Maps — ASCII terrain renderer | glyphcss';
+const description = 'Real ETOPO1 terrain rendered as colored ASCII — pan and zoom across equirectangular, Mercator, globe and orthographic projections, built on glyphcss.';
+---
+<html lang="en">
+  <head>
+    <BaseHead title={title} description={description} path="/maps/" image="/og/maps.png" />
+  </head>
+  <body>
+    <div class="page">
+      <DocsHeader />
+      <div class="debug-page-shell">
+        <MapsWorkbench client:only="react" />
+      </div>
+    </div>
+  </body>
+  <style>
+    :global(:root) { --sl-nav-height: 72px; }
+    @media (max-width: 38rem) {
+      :global(:root) { --sl-nav-height: 90px; }
+    }
+    :global(html, body) {
+      margin: 0;
+      background: #07090d;
+      color: rgba(255, 232, 184, 0.94);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+    }
+    :global(body) { min-height: 100vh; overflow: hidden; }
+  </style>
+</html>

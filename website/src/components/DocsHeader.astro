@@ -12,6 +12,7 @@ const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
 const fetchLiveStars = import.meta.env.PROD;
 const isSynth = pathname.startsWith('/synth');
+const isMaps = pathname.startsWith('/maps');
 
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
@@ -22,6 +23,7 @@ const topLinks = [
   },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
   { href: '/synth', label: 'Synth', active: pathname.startsWith('/synth') },
+  { href: '/maps', label: 'Maps', active: pathname.startsWith('/maps') },
   { href: '/examples/world', label: 'Examples', active: pathname.startsWith('/examples') },
   { href: '/wordart', label: 'WordArt', active: pathname.startsWith('/wordart') },
 ];
@@ -31,7 +33,7 @@ const topLinks = [
   <div class="title-wrapper sl-flex">
     <SiteTitle />
   </div>
-  {!isLanding && !isGallery && !isSynth && (
+  {!isLanding && !isGallery && !isSynth && !isMaps && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>

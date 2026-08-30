@@ -216,7 +216,24 @@ async function bakeTiles(sampler) {
       }
     }
   }
-  const manifest = { zooms: zooms.map((z) => ({ z: z.z, cols: z.cols, rows: z.rows })), source: "etopo1", sampler: "nearest" };
+  // Carries everything `GlyphMapProviderZoomLevel` (packages/maps/src/
+  // provider.ts) needs to build a `GlyphMapProvider` client-side without a
+  // second hardcoded copy of COLS_PER_TILE/ROWS_PER_TILE — the website's
+  // provider adapter (src/lib/geoTilesProvider.ts) reads this manifest
+  // directly into that shape.
+  const manifest = {
+    zooms: zooms.map((z) => ({
+      z: z.z,
+      cols: z.cols,
+      rows: z.rows,
+      tileLonSpan: 360 / z.cols,
+      tileLatSpan: 180 / z.rows,
+      tileCols: COLS_PER_TILE,
+      tileRows: ROWS_PER_TILE,
+    })),
+    source: "etopo1",
+    sampler: "nearest",
+  };
   await fs.writeFile(path.join(ROOT, "manifest.json"), JSON.stringify(manifest, null, 2));
   console.log(`Wrote ${path.join(ROOT, "manifest.json")}`);
 }
