@@ -4,11 +4,12 @@ Geographic raster data → glyphcss. A deterministic `source → sample →
 classify → compile` pipeline that bakes a georeferenced grid (elevation,
 land cover, any scalar field) to a static ASCII `<pre>`, with zero runtime.
 
-This is **slice 1 + 2** of the package: the raster core (sampling,
-classifying, presenting a flat field) plus projections and geographic tiles
-(a real 3D relief mesh). There is no interactive widget, pan/zoom,
-transitions, or vector data yet — those are later slices (see
-`.plan/MAPS.md`).
+This is **slice 1 + 2 + 3** of the package: the raster core (sampling,
+classifying, presenting a flat field), projections and geographic tiles (a
+real 3D relief mesh), and the interactive widget (`createGlyphMap` — tile
+loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`).
+Projection transitions, vector layers, and the website `/maps` page are
+later slices (see `.plan/MAPS.md`).
 
 Two entry points. The root is pure and browser-safe (no `fs`, no native
 modules); `@glyphcss/maps/node` adds filesystem-backed source readers and is
@@ -209,6 +210,79 @@ the deviation is an exact, understood sign flip, not loosened tolerance
 masking noise. See the chirality gate above for why `glyphMapGlobe` ships the
 un-negated convention regardless.
 
+## The widget
+
+```ts
+import { createGlyphMap, glyphMapGlobe, glyphMapMercator } from "@glyphcss/maps";
+
+const map = createGlyphMap(host, {
+  view: { center: [0, 20], span: 60, cols: 120, rows: 50 },
+  projection: glyphMapGlobe({ exaggeration: 30 }),
+  layers: [
+    { type: "background", color: "#03050a" },
+    { type: "raster", source: reliefProvider, classifier: GlyphMapClassifiers.etopo1V1, colors: [...] },
+  ],
+});
+
+map.addMarker({ at: [-58.38, -34.60], label: "Buenos Aires" });
+map.on("click", ({ lngLat }) => console.log(lngLat));
+map.fitBounds({ west: -74, east: -34, south: -56, north: 13 });
+const { col, row, visible } = map.project([-58.38, -34.60]);
+map.destroy();
+```
+
+`createGlyphMap(host, opts)` owns one `createGlyphScene` under the hood — a
+plain vertex projection (`GlyphMapProjection`) and one real 3D relief mesh
+(`glyphMapPolygons`) under two very different navigation feels, unified
+instead of reimplemented per projection kind. `GlyphMapProjection` carries
+two OPTIONAL capabilities beyond `project`/`unproject`/`domain`, and the
+widget picks its behavior by checking for their PRESENCE, never by branching
+on a projection's `id`:
+
+- `visible?(world, depthOf)` — a near/far-hemisphere test. Absent on every
+  flat projection (which already excludes an invisible point via `project()`
+  returning `NaN`); present only on `glyphMapGlobe`, where every `(lon, lat)`
+  is a geometrically valid point on the sphere, front or back. Drives both
+  tile culling and `map.project(...).visible`/marker hiding through ONE
+  sample-point test, not a plane-AABB test for one projection kind and a
+  great-circle test for another.
+- `cameraForCenter`/`centerForCamera` — present only on a projection
+  navigated by ORBITING the camera around fixed world geometry (the globe).
+  Their presence is what makes the widget's drag gesture orbit instead of
+  pan-with-domain-clamp, with no `if (projection is globe)` anywhere in
+  `widget.ts`.
+
+**Two bugs fixed rather than ported** from `website/src/pages/examples/{world,flatmap}.astro`,
+the two hand-rolled pages this widget replaces:
+
+1. `world.astro`'s focal-point scan picked the MINIMUM projected depth as
+   the near-hemisphere point, and treated `depth < 0` as front-facing — but
+   `glyphcss`'s own convention (`rasterize.ts`, `createGlyphOrthographicCamera`)
+   is **larger depth = nearer**, so that scan resolved the ANTIPODE, masked
+   in practice by hemispheric tile coverage plus a failsafe tile.
+   `glyphMapGlobe`'s `visible()`/`cameraForCenter()`/`centerForCamera()` are
+   closed-form (derived from the camera's own verified depth formula — see
+   `projection.ts`), not a scan.
+2. Both pages keyed LOD on absolute `camera.zoom`, which only worked because
+   their world scale happened to be ≈ 1 unit ≈ hemisphere. `GlyphMapProvider`
+   + `glyphMapTargetLOD` instead key LOD on `glyphMapDegreesPerCell(view)` —
+   ground units per glyph cell, geographic by construction — so two
+   projections with different native scales (a `radius: 1` globe and a
+   `radius: 100` one) select the same LOD for the same view.
+
+A raster layer's `source` is either a single already-loaded
+`GlyphMapGeoTile` (mounted once) or a `GlyphMapProvider` — a tile pyramid
+(`{ id, zooms, bounds(z,x,y), loadTile(z,x,y) }`) the widget fetches,
+caches, culls, and debounces exactly like both example pages did by hand.
+`view.cols`/`view.rows` are the authoritative grid shape (`autoSize: true`
+opts back into host-pixel-driven `cols`/`rows`, both pages' own default).
+`map.addLayer`/`removeLayer`/`moveLayer` mutate an ordered layer list;
+`background` sets the scene output's CSS background color, `raster` is the
+only geometry-producing layer kind this slice implements (MapLibre's
+`fill`/`line`/`contour`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model`
+vocabulary is slices 5/6's own addition to `GlyphMapLayer`, not typed
+speculatively ahead of them).
+
 ## Scope
 
 In slice 1: `GlyphMapField`/`GlyphMapView`/bounds, samplers (named +
@@ -221,6 +295,12 @@ orthographic, a d3-raw adapter), `GlyphMapGeoTile` and antimeridian
 splitting, `glyphMapPolygons` (the relief mesh), and the ETOPO1→geographic-
 tile bake script.
 
-Not yet: the interactive widget, LOD/tile providers, pan/zoom, projection
-transitions, vector layers (fill/line/symbol/circle/heatmap/contour), and
-the website `/maps` page. See `.plan/MAPS.md` for the full plan.
+In slice 3: `createGlyphMap` (the widget), `GlyphMapProvider`/
+`glyphMapTargetLOD`/`glyphMapDegreesPerCell` (LOD), `background`/`raster`
+layers, markers, `project`/`unproject`, and `GlyphMapProjection`'s
+`visible`/`cameraForCenter`/`centerForCamera` capabilities.
+
+Not yet: projection transitions, vector layers (fill/line/symbol/circle/
+heatmap/contour), day/night, motion export, and the website `/maps` page.
+No React/Vue surface — nothing in the plan forces one yet. See
+`.plan/MAPS.md` for the full plan.

@@ -18,7 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
-| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, plus `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter) and `glyphMapPolygons` for a real 3D relief mesh. Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
+| `packages/maps` | `@glyphcss/maps` | Geographic raster data → glyphcss. Deterministic `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter) and `glyphMapPolygons` for a real 3D relief mesh, and `createGlyphMap` — the interactive widget (tile loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`). Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
 | `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
@@ -187,7 +187,7 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 
 Dynamic Glyph Effect layers are otherwise runtime-only: `compileScene`/`GlyphSceneStatic` and the frame-roll export do not serialize or evaluate a mounted effect. Two paths do carry a live effect: the **interactive/CodePen exporter** mounts a **stock** effect by id from the `@glyphcss/effects` CDN (a custom `defineGlyphEffect` can't cross the CDN boundary), and **`buildGlyphFieldSynthStaticExport`** bakes an effect-only, static-camera field-synth scene into a self-contained inlined-JS pen. Neither generalizes to a moving camera plus effect, arbitrary effects in a static bake, or geometry animation.
 
-## Maps (raster slice 1, projections slice 2)
+## Maps (raster slice 1, projections slice 2, widget slice 3)
 
 `@glyphcss/maps` bakes a georeferenced scalar field (elevation, land cover,
 any raster) to a static ASCII `<pre>`, through a deterministic pipeline:
@@ -341,9 +341,103 @@ tuple) — into a `GlyphMapProjection`. `d3-geo-projection` is a devDependency
 of `@glyphcss/maps` ONLY; the adapter never imports the module, so it never
 becomes a runtime dependency.
 
-Out of scope for this slice, deliberately: the widget, LOD/providers, pan/
-zoom, transitions, vector layers, and the website page. No React/Vue surface
-yet — nothing in the plan forces one, and none is added speculatively.
+**The widget (slice 3).** `createGlyphMap(host, opts)` is the interactive
+widget replacing `website/src/pages/examples/world.astro` and
+`flatmap.astro`'s own hand-rolled, near-duplicate scene wiring: tile cache,
+active-handle diff, in-flight guard, fetch debounce, greedy label declutter,
+and the "capture on host, not `e.target`" pointer-capture workaround are
+absorbed once. It owns one `createGlyphScene` (`map.scene` is the escape
+hatch for anything not modeled on the widget surface — effects, shadows,
+`colorEncoding: "atlas"`, hotspots all compose for free) and returns
+`setView`/`getView`/`fitBounds`, `project`/`unproject`, `addLayer`/
+`removeLayer`/`moveLayer`, `addMarker`, `on`/`off` (`"click"`/`"move"`/
+`"zoom"`/`"load"`), `resize`, and `destroy`. `GlyphMapView.cols`/`rows` are
+the authoritative grid shape (`opts.autoSize: true` opts back into
+host-pixel-driven `cols`/`rows`, both pages' own default; the widget default
+is `false`) — `view.span` (degrees), not `camera.zoom`, is the public zoom
+knob, converted internally via the chord length `projection.project`
+reports between the view's centre and its half-span edge.
+
+**Every projection/gesture/culling difference lives on `GlyphMapProjection`
+as a capability, never as an `if (projection is globe)` branch inside the
+widget** (MAPS.md §7's "the interface must carry more than `project`," §13
+slice 3's "stop, this reproduces two branches" instruction). Two OPTIONAL
+members, both present ONLY on `glyphMapGlobe`:
+
+- `visible?(world: Vec3, depthOf: (world: Vec3) => number): boolean` — a
+  near/far-hemisphere test. Every flat projection already excludes an
+  invisible point through `project()` returning `NaN`; the globe is
+  different because EVERY `(lon, lat)` is a geometrically valid point on the
+  sphere, front or back, so `project()` alone can't tell the widget which
+  half faces the camera. `depthOf` is the caller's own
+  `camera.project(...)[2]` (larger = nearer — `rasterize.ts`'s convention,
+  verified directly against `fillDepthTri` and
+  `createGlyphOrthographicCamera`'s own `project()`). A point is near-side
+  when it is at least as near as `depthOf(project(anchor))` for the
+  projection's own centre/anchor — comparing against that reference rather
+  than a fixed sign keeps this correct under ANY camera orientation. ONE
+  sample-point test (`createGlyphMap`'s `isBoundsVisible`, 9 lon/lat samples
+  per bounds box) drives BOTH provider tile culling and
+  `map.project(...).visible`/marker hiding — not a plane-AABB test for one
+  projection and a great-circle test for another.
+- `cameraForCenter(lon, lat): { rotX, rotY }` / `centerForCamera(rotX,
+  rotY): [lon, lat]` — present only on a projection whose geometry is fixed
+  once in world space and navigated by ORBITING the camera around it (a
+  flat sheet centers a view by setting `camera.target = project(lon, lat,
+  0)` directly, which needs no projection-specific support at all). The
+  widget checks for these methods' PRESENCE to pick orbit-drag over
+  pan-with-domain-clamp drag — never a branch on `projection.id`. Both are
+  EXACT closed-form inverses of `createGlyphOrthographicCamera`'s own
+  rotation math, not a search: the camera's depth of a point on the sphere
+  is LINEAR in `(X, Y, Z)`, so the point that maximizes it (the sub-observer
+  point the camera is centered on) is exactly that linear functional's
+  gradient direction — solving `n = (sinRotX·cosRotY, sinRotX·sinRotY,
+  cosRotX) = (cosLat·cosLon, cosLat·sinLon, sinLat)` gives `rotX = 90 -
+  lat`, `rotY = lon` exactly, verified against `chirality.test.ts`'s
+  independently-authored camera fixture.
+
+**Two bugs fixed rather than ported**, both in `world.astro`:
+`findFocalLatLon` (`:182-232`) scans lat/lon for MINIMUM projected depth as
+the near-hemisphere focal point, and `:366` treats `depth < 0` as
+front-facing — but the renderer's convention is **larger depth = nearer**,
+so that scan resolves the ANTIPODE of the true focal point, masked in
+practice by hemispheric z0/z1 tile coverage plus a failsafe tile. Neither
+`glyphMapGlobe`'s closed-form `visible`/`cameraForCenter`/`centerForCamera`
+nor `createGlyphMap` reproduce any scan. Separately, both pages
+(`world.astro:91`, `flatmap.astro:235`) keyed LOD on absolute `camera.zoom`,
+which only worked because both pages' world scale happened to be ≈ 1 unit ≈
+hemisphere — a projection with a different native scale breaks that link.
+`GlyphMapProvider` (`{ id, zooms, bounds(z,x,y), loadTile(z,x,y) }`) +
+`glyphMapTargetLOD(provider, degPerCell)` key LOD on
+`glyphMapDegreesPerCell(view)` (`view.span / view.cols`) instead — ground
+units per glyph cell, geographic by construction, so two projections with
+wildly different native scales (a `radius: 1` globe and a `radius: 100`
+one) select the identical LOD for the identical view.
+
+A raster layer's `source` is either a single already-loaded
+`GlyphMapGeoTile` (mounted once via `glyphMapPolygons`) or a
+`GlyphMapProvider` — the widget owns the tile cache, active-set diff,
+in-flight guard, and ~180ms fetch debounce (absorbed from both pages) so a
+provider implementation stays dumb: manifest + fetch. `GlyphMapLayer` is
+`GlyphMapBackgroundLayer | GlyphMapRasterLayer` — slice-3-scoped
+deliberately; MapLibre's `fill`/`line`/`contour`/`symbol`/`circle`/
+`heatmap`/`fill-extrusion`/`model` vocabulary (MAPS.md §14) is slices 5/6's
+own addition to this union, not typed speculatively ahead of them. A
+`background` layer sets the scene output's CSS `background-color` (the
+topmost mounted `background` layer wins) rather than emitting geometry — the
+ASCII-render equivalent of "the empty-cell page/`<pre>` background shows
+through" already documented under `charMode: "quadrant"` above.
+`addMarker({ at: [lon, lat], label?, elevation? })` lifts along
+`projection.project`'s own `elev` axis — the SAME mechanism
+`glyphMapPolygons` uses to lift relief (world Z for a flat sheet,
+sphere-radial for the globe) — so no separate label-anchoring concept was
+needed; default `elevation: 0` places a marker exactly at its geographic
+point (Leaflet's convention).
+
+Out of scope for this slice, deliberately: projection transitions, vector
+layers, choropleth/symbols, day/night, motion export, and the website page.
+No React/Vue surface yet — nothing in the plan forces one, and none is
+added speculatively.
 
 ## No per-frame DOM mutation
 
