@@ -57,7 +57,12 @@ export function glyphMapDecodeMVT(data: ArrayBuffer | Uint8Array, z: number, x: 
     const features: GlyphMapVectorFeature[] = [];
     for (let i = 0; i < layer.length; i++) {
       const raw = layer.feature(i);
-      const geo = raw.toGeoJSON(x, y, z);
+      let geo: GeoJSON.Feature;
+      try {
+        geo = raw.toGeoJSON(x, y, z);
+      } catch {
+        continue;
+      }
       const converted = coordsOfGeometry(geo.geometry);
       features.push({
         id: raw.id === undefined ? undefined : String(raw.id),
