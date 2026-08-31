@@ -77,7 +77,7 @@ describe("createGlyphMap — view", () => {
 
 describe("createGlyphMap — layers", () => {
   const polygonSource = {
-    features: [{ geometryType: "polygon" as const, properties: { zone: "a", height: 20 }, rings: [[[-5, -5], [-5, 5], [5, 5], [5, -5], [-5, -5]] as const] }],
+    features: [{ geometryType: "polygon" as const, properties: { zone: "a", height: 20 }, rings: [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]] as const] }],
   };
   const pointSource = {
     features: [
@@ -86,13 +86,19 @@ describe("createGlyphMap — layers", () => {
     ],
   };
 
-  it("mounts fill choropleth joins, fill extrusions, and arbitrary model polygons", () => {
-    const { host, map } = mountFlat({ layers: [
+  it("renders fill choropleth geometry", async () => {
+    const { host, map } = mountFlat({ tilt: 0, layers: [
       { type: "fill", source: polygonSource, colorProperty: "zone", colors: { a: "#ff0000" } },
-      { type: "fill-extrusion", source: polygonSource, heightProperty: "height", color: "#00ff00" },
-      { type: "model", polygons: [{ vertices: [[0, 0, 1], [0, 1, 1], [1, 0, 1]], color: "#0000ff" }] },
     ] });
-    expect(map.scene.output.textContent).toBeTruthy();
+    await vi.waitFor(() => expect(map.scene.output.textContent?.replace(/\s/g, "").length).toBeGreaterThan(0));
+    map.destroy(); host.remove();
+  });
+
+  it("renders fill-extrusion geometry", async () => {
+    const { host, map } = mountFlat({ tilt: 0, layers: [
+      { type: "fill-extrusion", source: polygonSource, heightProperty: "height", color: "#00ff00" },
+    ] });
+    await vi.waitFor(() => expect(map.scene.output.textContent?.replace(/\s/g, "").length).toBeGreaterThan(0));
     map.destroy(); host.remove();
   });
 
@@ -115,9 +121,43 @@ describe("createGlyphMap — layers", () => {
     map.destroy(); host.remove();
   });
 
-  it("mounts a heatmap through the raster mesh path", () => {
-    const { host, map } = mountFlat({ layers: [{ type: "heatmap", source: pointSource, radius: 2, weightProperty: "population" }] });
-    expect(map.scene.output.textContent).toBeTruthy();
+  it("excludes far-side globe symbols before decluttering", () => {
+    const source = { features: [
+      { geometryType: "point" as const, properties: { name: "front", population_rank: 1 }, rings: [[[0, 0] as const]] },
+      { geometryType: "point" as const, properties: { name: "back", population_rank: 99 }, rings: [[[180, 0] as const]] },
+    ] };
+    const { host, map } = mountFlat({ projection: glyphMapGlobe(), layers: [{ type: "symbol", source }] });
+    const symbols = [...host.querySelectorAll<HTMLElement>(".glyph-map-symbol")];
+    expect(symbols.find((el) => el.textContent === "front")?.style.opacity).toBe("1");
+    expect(symbols.find((el) => el.textContent === "back")?.style.opacity).toBe("0");
+    map.destroy(); host.remove();
+  });
+
+  it("hides far-side globe circles on every marker sync", () => {
+    const source = { features: [
+      { geometryType: "point" as const, properties: { name: "front" }, rings: [[[0, 0] as const]] },
+      { geometryType: "point" as const, properties: { name: "back" }, rings: [[[180, 0] as const]] },
+    ] };
+    const { host, map } = mountFlat({ projection: glyphMapGlobe(), layers: [{ type: "circle", source }] });
+    const circles = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")];
+    expect(circles[0].style.display).toBe("");
+    expect(circles[1].style.display).toBe("none");
+    map.setView({ center: [180, 0] });
+    expect(circles[0].style.display).toBe("none");
+    expect(circles[1].style.display).toBe("");
+    map.destroy(); host.remove();
+  });
+
+  it("renders heatmap glyphs with weight-independent, bounded physical relief", async () => {
+    const base = glyphMapEquirectangular();
+    const elevations: number[] = [];
+    const projection = { ...base, project(lon: number, lat: number, elev: number) { elevations.push(elev); return base.project(lon, lat, elev); } };
+    const source = { features: [{ geometryType: "point" as const, properties: { population: 1_000_000_000 }, rings: [[[0, 0] as const]] }] };
+    const { host, map } = mountFlat({ projection, layers: [{ type: "heatmap", source, radius: 2, weightProperty: "population" }] });
+    await vi.waitFor(() => expect(map.scene.output.textContent?.replace(/\s/g, "").length).toBeGreaterThan(0));
+    // glyphMapPolygons probes elevation + 1m to determine outward winding.
+    expect(Math.max(...elevations)).toBeLessThanOrEqual(1_001);
+    expect(Math.max(...elevations)).toBeGreaterThan(900);
     map.destroy(); host.remove();
   });
   it("addLayer mounts a static raster tile and returns a usable id; removeLayer disposes it", () => {

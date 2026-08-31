@@ -262,6 +262,9 @@ export interface GlyphMapHeatmapLayer {
   readonly sourceLayer?: string;
   readonly radius?: number; readonly weightProperty?: string; readonly colors?: readonly string[]; readonly density?: number; readonly bounds?: GlyphMapBounds;
 }
+
+/** Heatmap density is unitless after normalization; render it as bounded physical relief. */
+const GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M = 1_000;
 export interface GlyphMapFillExtrusionLayer {
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
@@ -1064,8 +1067,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         records.push({ handle, feature, lon: point[0], lat: point[1], label, priority });
       }
       sync = () => {
-        if (layer.type === "circle") return;
-        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, priority: r.priority }; }).filter((c) => Number.isFinite(c.col) && Number.isFinite(c.row));
+        if (layer.type === "circle") {
+          records.forEach((r) => {
+            const world = projection.project(r.lon, r.lat, 0);
+            const grid = projectionGrid();
+            const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
+              && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)));
+            r.handle.el.style.display = visible ? "" : "none";
+          });
+          return;
+        }
+        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, priority: r.priority, visible: p.visible }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
@@ -1083,10 +1095,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const rows = Math.max(2, Math.round(view.rows * (layer.density ?? 1)));
       const field = glyphMapPointHeatmap(features, bounds, cols, rows, layer.radius ?? 2, layer.weightProperty);
       const elevation = new Float32Array((cols + 1) * (rows + 1));
-      for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) elevation[y * (cols + 1) + x] = field.values[Math.min(rows - 1, y) * cols + Math.min(cols - 1, x)];
+      const densityScale = 1 / Math.max(field.max, Number.EPSILON);
+      for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) elevation[y * (cols + 1) + x] = field.values[Math.min(rows - 1, y) * cols + Math.min(cols - 1, x)] * densityScale * GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M;
       const colors = layer.colors ?? ["#111827", "#2563eb", "#22c55e", "#f59e0b", "#ef4444"];
       const tile: GlyphMapGeoTile = { bounds, cols, rows, elevation, source: "heatmap", sampler: "density" };
-      handle = scene.add(glyphMapPolygons(tile, projection, { color: (v) => colors[Math.min(colors.length - 1, Math.floor((v / Math.max(field.max, Number.EPSILON)) * colors.length))] }));
+      handle = scene.add(glyphMapPolygons(tile, projection, { color: (v) => colors[Math.min(colors.length - 1, Math.floor((v / GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M) * colors.length))] }));
       scene.rerender();
     }, 2, layer.sourceLayer);
     return { update: runtime.update, dispose() { runtime.dispose(); handle?.dispose(); handle = null; } };
