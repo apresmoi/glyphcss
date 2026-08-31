@@ -286,9 +286,24 @@ export interface LayersFolderInputs {
   terrain: TerrainLayerInputs;
   borders: BordersLayerInputs;
   contour: ContourLayerInputs;
+  fill: ExtraLayerInputs; symbol: ExtraLayerInputs; circle: ExtraLayerInputs;
+  heatmap: ExtraLayerInputs; fillExtrusion: ExtraLayerInputs; model: ExtraLayerInputs;
 }
 
-export function LayersPanel({ background, terrain, borders, contour }: LayersFolderInputs) {
+export interface ExtraLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  color: string; onColor: (v: string) => void;
+  amount: number; onAmount: (v: number) => void;
+}
+
+export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model }: LayersFolderInputs) {
+  const extra = (label: string, value: ExtraLayerInputs, control: string) => <LayerCard label={label} visible={value.visible} onVisible={value.onVisible}>
+    <ColorRow value={value.color} onChange={value.onColor} />
+    <label className="voice-slider" title={`${label} ${control}`}>
+      <span>{control}</span><span className="voice-slider-track"><input type="range" min={1} max={40} step={1} value={value.amount} style={densityFill(value.amount, 1, 40)} onChange={(e) => value.onAmount(+e.target.value)} /></span>
+      <span className="voice-slider-readout">{value.amount}</span>
+    </label>
+  </LayerCard>;
   return (
     <div className="maps-layers-list">
       <LayerCard label="Background" visible={background.visible} onVisible={background.onVisible}>
@@ -331,6 +346,12 @@ export function LayersPanel({ background, terrain, borders, contour }: LayersFol
         <InfoRow label="lines" value={contour.lineCount === null ? "—" : String(contour.lineCount)} />
         <DensityRow label="Contour" density={contour.density} onDensity={contour.onDensity} enabled={false} />
       </LayerCard>
+      {extra("Fill", fill, "density")}
+      {extra("Symbol", symbol, "priority")}
+      {extra("Circle", circle, "radius")}
+      {extra("Heatmap", heatmap, "radius")}
+      {extra("Fill extrusion", fillExtrusion, "height")}
+      {extra("Model", model, "scale")}
     </div>
   );
 }

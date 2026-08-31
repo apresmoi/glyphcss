@@ -61,6 +61,8 @@ import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSourc
 import { glyphMapFieldValueAt } from "./sample";
 import { stampGlyphMapContour, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
 import { glyphMapDedupeAttributions } from "./attribution";
+import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons } from "./layers";
+import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
 // `fill`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model` are later
@@ -134,6 +136,8 @@ export interface GlyphMapLineLayer {
   readonly type: "line";
   readonly id?: string;
   readonly source: GlyphMapVectorSource;
+  /** Named vector-tile source layer (for example Protomaps `roads`). Omit to consume every source layer. */
+  readonly sourceLayer?: string;
   readonly color?: string;
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
@@ -238,6 +242,36 @@ export interface GlyphMapContourLayer {
   readonly density?: number;
 }
 
+export interface GlyphMapFillLayer {
+  readonly type: "fill"; readonly id?: string; readonly source: GlyphMapVectorSource;
+  readonly sourceLayer?: string;
+  readonly color?: string; readonly colorProperty?: string; readonly colors?: Readonly<Record<string, string>>; readonly density?: number;
+}
+export interface GlyphMapSymbolLayer {
+  readonly type: "symbol"; readonly id?: string; readonly source: GlyphMapVectorSource;
+  readonly sourceLayer?: string;
+  readonly textProperty?: string; readonly priorityProperty?: string; readonly minPriority?: number; readonly color?: string; readonly density?: number;
+}
+export interface GlyphMapCircleLayer {
+  readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
+  readonly sourceLayer?: string;
+  readonly radius?: number; readonly radiusProperty?: string; readonly color?: string; readonly density?: number;
+}
+export interface GlyphMapHeatmapLayer {
+  readonly type: "heatmap"; readonly id?: string; readonly source: GlyphMapVectorSource;
+  readonly sourceLayer?: string;
+  readonly radius?: number; readonly weightProperty?: string; readonly colors?: readonly string[]; readonly density?: number; readonly bounds?: GlyphMapBounds;
+}
+export interface GlyphMapFillExtrusionLayer {
+  readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
+  readonly sourceLayer?: string;
+  readonly heightProperty?: string; readonly baseProperty?: string; readonly height?: number; readonly color?: string; readonly density?: number;
+}
+export interface GlyphMapModelLayer {
+  readonly type: "model"; readonly id?: string; readonly polygons: readonly Polygon[]; readonly density?: number;
+  readonly attribution?: readonly GlyphMapAttribution[];
+}
+
 /** Every multiple of `interval` strictly between `min` and `max` (both exclusive, matching the `N`-count variant's own "never a line along the field's own edge" convention). Exported so a caller (e.g. a UI readout) can preview the level COUNT an `{ interval }` value will produce without re-deriving this math. */
 export function glyphMapContourIntervalLevels(interval: number, min: number, max: number): readonly number[] {
   if (!(interval > 0)) throw new RangeError(`glyphcss/maps: contour "levels.interval" must be > 0 (got ${interval}).`);
@@ -247,7 +281,7 @@ export function glyphMapContourIntervalLevels(interval: number, min: number, max
   return out;
 }
 
-export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer;
+export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer | GlyphMapFillLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer | GlyphMapFillExtrusionLayer | GlyphMapModelLayer;
 
 /** A layer kind whose rendering is post-raster CellGrid stamping rather than mesh mounting — composed into ONE `transformCells` hook (see `createGlyphMap`'s "stroke layers" section). */
 interface StrokeLayerRuntime {
@@ -835,7 +869,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         for (const key of desired) {
           const tile = tileCache.get(key);
           if (!tile) continue;
-          for (const list of Object.values(tile.layers)) feats.push(...list);
+          for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...list);
         }
         activeFeatures = feats;
         scene.rerender();
@@ -953,11 +987,118 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
+  interface FeatureLayerRuntime { update(): Promise<void>; dispose(): void }
+
+  function createFeatureLayerRuntime(
+    source: GlyphMapVectorSource,
+    rebuild: (features: readonly GlyphMapVectorFeature[]) => void,
+    padCells = 2,
+    sourceLayer?: string,
+  ): FeatureLayerRuntime {
+    const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
+    let disposed = false;
+    async function update(): Promise<void> {
+      if (!isGlyphMapVectorProvider(source)) { rebuild(source.features); return; }
+      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(view));
+      const level = source.zooms.find((z) => z.z === lod);
+      if (!level) return;
+      const desired: string[] = [];
+      for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
+        if (isBoundsVisible(source.bounds(lod, x, y), padCells)) desired.push(`${lod}/${x}_${y}`);
+      }
+      if (!desired.length) desired.push(`${lod}/0_0`);
+      await Promise.all(desired.filter((key) => !cache.has(key)).map(async (key) => {
+        const [z, xy] = key.split("/"), [x, y] = xy.split("_");
+        cache.set(key, await source.loadTile(+z, +x, +y));
+      }));
+      if (disposed) return;
+      rebuild(desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features)));
+    }
+    return { update, dispose() { disposed = true; cache.clear(); rebuild([]); } };
+  }
+
+  function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
+    let handles: GlyphMeshHandle[] = [];
+    const runtime = createFeatureLayerRuntime(layer.source, (features) => {
+      for (const handle of handles) handle.dispose();
+      handles = [];
+      const color = (feature: GlyphMapVectorFeature) => {
+        if (layer.type === "fill" && layer.colorProperty && layer.colors) return layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color;
+        return layer.color;
+      };
+      const polygons = glyphMapVectorPolygons(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
+        color,
+        height: layer.type === "fill-extrusion" ? (f) => Number(f.properties?.[layer.heightProperty ?? "height"] ?? layer.height ?? 0) : undefined,
+        base: layer.type === "fill-extrusion" ? (f) => Number(f.properties?.[layer.baseProperty ?? "min_height"] ?? 0) : undefined,
+      });
+      if (polygons.length) handles.push(scene.add(polygons, layer.density === undefined ? {} : { density: layer.density }));
+      scene.rerender();
+    }, 2, layer.sourceLayer);
+    return { update: runtime.update, dispose() { runtime.dispose(); for (const h of handles) h.dispose(); handles = []; } };
+  }
+
+  function createPointFeatureRuntime(layer: GlyphMapSymbolLayer | GlyphMapCircleLayer): FeatureLayerRuntime {
+    let hotspots: GlyphHotspotHandle[] = [];
+    let sync: (() => void) | null = null;
+    const runtime = createFeatureLayerRuntime(layer.source, (features) => {
+      if (sync) markerSyncs.delete(sync);
+      for (const h of hotspots) h.remove();
+      hotspots = [];
+      const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; priority: number }[] = [];
+      for (const feature of features.filter((f) => f.geometryType === "point" || f.rings.every((r) => r.length === 1))) for (const ring of feature.rings) {
+        const point = ring[0]; if (!point) continue;
+        const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
+        if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
+        const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], 0) });
+        const label = layer.type === "symbol" ? String(feature.properties?.[layer.textProperty ?? "name"] ?? "") : "";
+        handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
+        handle.el.textContent = label;
+        handle.el.style.color = layer.color ?? "";
+        if (layer.type === "circle") {
+          const radius = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty] ?? layer.radius ?? 2) : layer.radius ?? 2;
+          handle.el.style.width = handle.el.style.height = `${Math.max(1, radius) * 2}px`;
+          handle.el.style.borderRadius = "50%";
+          handle.el.style.backgroundColor = layer.color ?? "currentColor";
+        }
+        hotspots.push(handle);
+        records.push({ handle, feature, lon: point[0], lat: point[1], label, priority });
+      }
+      sync = () => {
+        if (layer.type === "circle") return;
+        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, priority: r.priority }; }).filter((c) => Number.isFinite(c.col) && Number.isFinite(c.row));
+        const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
+        records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
+      };
+      markerSyncs.add(sync); sync();
+    }, 2, layer.sourceLayer);
+    return { update: runtime.update, dispose() { runtime.dispose(); if (sync) markerSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
+  }
+
+  function createHeatmapRuntime(layer: GlyphMapHeatmapLayer): FeatureLayerRuntime {
+    let handle: GlyphMeshHandle | null = null;
+    const runtime = createFeatureLayerRuntime(layer.source, (features) => {
+      handle?.dispose(); handle = null;
+      const bounds = layer.bounds ?? projection.domain;
+      const cols = Math.max(4, Math.round(view.cols * (layer.density ?? 1)));
+      const rows = Math.max(2, Math.round(view.rows * (layer.density ?? 1)));
+      const field = glyphMapPointHeatmap(features, bounds, cols, rows, layer.radius ?? 2, layer.weightProperty);
+      const elevation = new Float32Array((cols + 1) * (rows + 1));
+      for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) elevation[y * (cols + 1) + x] = field.values[Math.min(rows - 1, y) * cols + Math.min(cols - 1, x)];
+      const colors = layer.colors ?? ["#111827", "#2563eb", "#22c55e", "#f59e0b", "#ef4444"];
+      const tile: GlyphMapGeoTile = { bounds, cols, rows, elevation, source: "heatmap", sampler: "density" };
+      handle = scene.add(glyphMapPolygons(tile, projection, { color: (v) => colors[Math.min(colors.length - 1, Math.floor((v / Math.max(field.max, Number.EPSILON)) * colors.length))] }));
+      scene.rerender();
+    }, 2, layer.sourceLayer);
+    return { update: runtime.update, dispose() { runtime.dispose(); handle?.dispose(); handle = null; } };
+  }
+
   type LayerState =
     | { readonly kind: "background"; readonly layer: GlyphMapBackgroundLayer }
     | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime }
     | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: StrokeLayerRuntime }
-    | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: ContourLayerRuntime };
+    | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: ContourLayerRuntime }
+    | { readonly kind: "feature"; readonly layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer; readonly runtime: FeatureLayerRuntime }
+    | { readonly kind: "model"; readonly layer: GlyphMapModelLayer; readonly handle: GlyphMeshHandle };
 
   const layerOrder: string[] = [];
   const layerStates = new Map<string, LayerState>();
@@ -1033,12 +1174,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       syncStrokeHookInstalled(); // BEFORE update() so its rerender already carries this layer's stamps
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
-    } else {
+    } else if (layer.type === "contour") {
       assertStrokeDensitySupported(layer);
       const runtime = createContourLayerRuntime(layer);
       layerStates.set(id, { kind: "contour", layer, runtime });
       strokeLayerCount++;
       syncStrokeHookInstalled();
+      const p = runtime.update();
+      if (!mapLoaded) initialLoadPromises.push(p);
+    } else if (layer.type === "model") {
+      const handle = scene.add([...layer.polygons], layer.density === undefined ? {} : { density: layer.density });
+      layerStates.set(id, { kind: "model", layer, handle });
+    } else {
+      const runtime = layer.type === "fill" || layer.type === "fill-extrusion"
+        ? createMeshFeatureRuntime(layer)
+        : layer.type === "heatmap" ? createHeatmapRuntime(layer) : createPointFeatureRuntime(layer);
+      layerStates.set(id, { kind: "feature", layer, runtime });
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
     }
@@ -1049,6 +1200,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const state = layerStates.get(id);
     if (!state) return;
     if (state.kind === "raster") state.runtime.dispose();
+    else if (state.kind === "feature") state.runtime.dispose();
+    else if (state.kind === "model") state.handle.dispose();
     else if (state.kind === "line" || state.kind === "contour") {
       state.runtime.dispose();
       strokeLayerCount--;
@@ -1076,7 +1229,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       applyBackground();
       return;
     }
-    if (state?.kind === "line" || state?.kind === "contour") {
+    if (state?.kind === "line" || state?.kind === "contour" || state?.kind === "feature" || state?.kind === "model") {
       // The composed hook reads `layerOrder` live — no runtime action beyond a repaint.
       scene.rerender();
       return;
@@ -1104,6 +1257,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (state?.kind === "raster") lists.push(state.layer.source.attribution);
       else if (state?.kind === "line") lists.push(state.layer.source.attribution);
       else if (state?.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) lists.push(state.layer.source.attribution);
+      else if (state?.kind === "feature") lists.push(state.layer.source.attribution);
+      else if (state?.kind === "model") lists.push(state.layer.attribution);
     }
     return glyphMapDedupeAttributions(lists);
   }
@@ -1131,6 +1286,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // alone, is intentional and mirrors `line`'s own gate exactly — not
         // an oversight to "fix" by dropping the condition.
         else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void state.runtime.update();
+        else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) void state.runtime.update();
       }
     }, 180);
   }

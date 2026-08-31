@@ -18,8 +18,12 @@ export type { GlyphMapAttribution } from "../types";
 export interface GlyphMapVectorFeature {
   readonly id?: string;
   readonly properties?: Readonly<Record<string, unknown>>;
+  /** Geometry kind when the source format carries it (MVT does). Older baked sources may omit it. */
+  readonly geometryType?: "point" | "line" | "polygon";
   /** One or more rings/lines. A polygon boundary is a CLOSED ring (first point repeats as last, matching GeoJSON); a route/river is an open line. */
   readonly rings: readonly (readonly (readonly [lon: number, lat: number])[])[];
+  /** Polygon groups, each `[outer, ...holes]`; retained because flattening MVT rings loses hole ownership. */
+  readonly polygons?: readonly (readonly (readonly (readonly [lon: number, lat: number])[])[])[];
 }
 
 export interface GlyphMapVectorFeatureCollection {

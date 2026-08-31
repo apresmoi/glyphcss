@@ -4,6 +4,7 @@ import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
 import { glyphMapBreaks } from "./classify";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapProvider } from "./provider";
+import { glyphMapPolygons } from "./mesh";
 
 function makeTile(bounds: GlyphMapGeoTile["bounds"], cols: number, rows: number, elev = 100): GlyphMapGeoTile {
   const elevation = new Float32Array((cols + 1) * (rows + 1)).fill(elev);
@@ -75,6 +76,50 @@ describe("createGlyphMap — view", () => {
 });
 
 describe("createGlyphMap — layers", () => {
+  const polygonSource = {
+    features: [{ geometryType: "polygon" as const, properties: { zone: "a", height: 20 }, rings: [[[-5, -5], [-5, 5], [5, 5], [5, -5], [-5, -5]] as const] }],
+  };
+  const pointSource = {
+    features: [
+      { geometryType: "point" as const, properties: { name: "Alpha", population: 8, population_rank: 9 }, rings: [[[0, 0] as const]] },
+      { geometryType: "point" as const, properties: { name: "Beta", population: 2, population_rank: 1 }, rings: [[[0.1, 0] as const]] },
+    ],
+  };
+
+  it("mounts fill choropleth joins, fill extrusions, and arbitrary model polygons", () => {
+    const { host, map } = mountFlat({ layers: [
+      { type: "fill", source: polygonSource, colorProperty: "zone", colors: { a: "#ff0000" } },
+      { type: "fill-extrusion", source: polygonSource, heightProperty: "height", color: "#00ff00" },
+      { type: "model", polygons: [{ vertices: [[0, 0, 1], [0, 1, 1], [1, 0, 1]], color: "#0000ff" }] },
+    ] });
+    expect(map.scene.output.textContent).toBeTruthy();
+    map.destroy(); host.remove();
+  });
+
+  it("renders a model Polygon[] passthrough without a vector source", async () => {
+    const projection = glyphMapEquirectangular();
+    const polygons = glyphMapPolygons(makeTile({ west: -5, east: 5, south: -5, north: 5 }, 1, 1), projection);
+    const { host, map } = mountFlat({ projection, layers: [{ type: "model", polygons }] });
+    await vi.waitFor(() => expect(map.scene.output.textContent?.replace(/\s/g, "").length).toBeGreaterThan(0));
+    map.destroy(); host.remove();
+  });
+
+  it("mounts symbol labels with greedy declutter and attribute-sized circles", () => {
+    const { host, map } = mountFlat({ layers: [
+      { type: "symbol", source: pointSource, textProperty: "name", priorityProperty: "population_rank" },
+      { type: "circle", source: pointSource, radiusProperty: "population", color: "#ff00ff" },
+    ] });
+    expect(host.querySelectorAll(".glyph-map-symbol")).toHaveLength(2);
+    expect([...host.querySelectorAll<HTMLElement>(".glyph-map-symbol")].filter((el) => el.style.opacity === "1")).toHaveLength(1);
+    expect(host.querySelector<HTMLElement>(".glyph-map-circle")?.style.width).toBe("16px");
+    map.destroy(); host.remove();
+  });
+
+  it("mounts a heatmap through the raster mesh path", () => {
+    const { host, map } = mountFlat({ layers: [{ type: "heatmap", source: pointSource, radius: 2, weightProperty: "population" }] });
+    expect(map.scene.output.textContent).toBeTruthy();
+    map.destroy(); host.remove();
+  });
   it("addLayer mounts a static raster tile and returns a usable id; removeLayer disposes it", () => {
     const { host, map } = mountFlat();
     const id = map.addLayer({ type: "raster", source: makeTile({ west: -20, east: 20, south: -20, north: 20 }, 2, 2) });

@@ -8,9 +8,9 @@ This is **slices 1, 2, 3, and 5** of the package: the raster core (sampling,
 classifying, presenting a flat field), projections and geographic tiles (a
 real 3D relief mesh), the interactive widget (`createGlyphMap` — tile
 loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`),
-and vector `line`/`contour` layers over a TopoJSON/shared-arc pipeline
-(country borders, isolines — see "Vector layers" below). Projection
-transitions, choropleth/symbol/circle/heatmap layers, and day/night are
+and the complete map-layer set over TopoJSON or PMTiles/MVT vector providers
+(`fill`, `line`, `symbol`, `circle`, `heatmap`, `fill-extrusion`, `model`,
+and `contour`). Projection transitions and day/night are
 later slices (see `.plan/MAPS.md` and `AGENTS.md`'s "Maps" section for the
 full, current API reference).
 
@@ -286,6 +286,25 @@ only geometry-producing layer kind this slice implements (MapLibre's
 vocabulary is slices 5/6's own addition to `GlyphMapLayer`, not typed
 speculatively ahead of them).
 
+## PMTiles / MVT vector sources
+
+`glyphMapPMTilesProvider(urlOrSource)` range-reads a self-hosted PMTiles
+archive with `pmtiles` and decodes MVT payloads with
+`@mapbox/vector-tile` + `pbf`. These focused libraries keep archive indexing,
+compression, and protobuf geometry parsing out of this package. The provider
+adds the required OpenStreetMap/Protomaps ODbL attribution automatically.
+
+Generate a small extract without downloading the planet:
+
+```sh
+pmtiles extract https://build.protomaps.com/DATE.pmtiles packages/maps/fixtures/pmtiles/region.pmtiles --bbox=WEST,SOUTH,EAST,NORTH --maxzoom=MAX_ZOOM
+```
+
+Full archives and extracts outside `packages/maps/fixtures/pmtiles/` are
+gitignored. Review fixture size before committing and keep committed extracts
+to a few megabytes total. This uses the downloadable ODbL basemap, not the
+hosted Protomaps API.
+
 ## Scope
 
 In slice 1: `GlyphMapField`/`GlyphMapView`/bounds, samplers (named +
@@ -303,7 +322,9 @@ In slice 3: `createGlyphMap` (the widget), `GlyphMapProvider`/
 layers, markers, `project`/`unproject`, and `GlyphMapProjection`'s
 `visible`/`cameraForCenter`/`centerForCamera` capabilities.
 
-Not yet: projection transitions, vector layers (fill/line/symbol/circle/
-heatmap/contour), day/night, motion export, and the website `/maps` page.
+Current vector layers are `fill`, `line`, `symbol`, `circle`, `heatmap`,
+`fill-extrusion`, `model`, and `contour`, backed by the same vector-provider
+interface for TopoJSON and PMTiles/MVT. Not yet: projection transitions,
+day/night, and motion export.
 No React/Vue surface — nothing in the plan forces one yet. See
 `.plan/MAPS.md` for the full plan.

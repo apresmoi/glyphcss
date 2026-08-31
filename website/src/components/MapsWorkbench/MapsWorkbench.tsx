@@ -55,6 +55,7 @@ const BACKGROUND_LAYER_ID = "background";
 const TERRAIN_LAYER_ID = "terrain";
 const BORDER_LAYER_ID = "borders";
 const CONTOUR_LAYER_ID = "contour";
+const EXTRA_LAYER_IDS = ["fill", "symbol", "circle", "heatmap", "fill-extrusion", "model"] as const;
 const BASE_FONT_PX = 13;
 
 export default function MapsWorkbench() {
@@ -87,6 +88,9 @@ export default function MapsWorkbench() {
   const [contourColor, setContourColor] = useState("#7fe8c9");
   const [contourInterval, setContourInterval] = useState(500);
   const [contourFieldRange, setContourFieldRange] = useState<{ readonly min: number; readonly max: number } | null>(null);
+  const [extraVisible, setExtraVisible] = useState<Record<string, boolean>>({});
+  const [extraColor, setExtraColor] = useState<Record<string, string>>({ fill: "#4f7f52", symbol: "#ffffff", circle: "#f59e0b", heatmap: "#ef4444", "fill-extrusion": "#94a3b8", model: "#38bdf8" });
+  const [extraAmount, setExtraAmount] = useState<Record<string, number>>({ fill: 1, symbol: 1, circle: 4, heatmap: 4, "fill-extrusion": 20, model: 10 });
   const showBordersRef = useRef(showBorders);
   showBordersRef.current = showBorders;
   const showBackgroundRef = useRef(showBackground);
@@ -145,6 +149,11 @@ export default function MapsWorkbench() {
       lineCount: contourLineCount,
       density: contourDensity, onDensity: setContourDensity,
     },
+    ...Object.fromEntries(EXTRA_LAYER_IDS.map((id) => [id === "fill-extrusion" ? "fillExtrusion" : id, {
+      visible: !!extraVisible[id], onVisible: (value: boolean) => setExtraVisible((old) => ({ ...old, [id]: value })),
+      color: extraColor[id], onColor: (value: string) => setExtraColor((old) => ({ ...old, [id]: value })),
+      amount: extraAmount[id], onAmount: (value: number) => setExtraAmount((old) => ({ ...old, [id]: value })),
+    }])),
   };
 
   const [renderMode, setRenderMode] = useState<MapRenderMode>(initial.renderMode);
@@ -421,6 +430,24 @@ export default function MapsWorkbench() {
     setContourFieldRange(showContour ? map.getContourFieldRange(CONTOUR_LAYER_ID) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showContour, contourInterval, contourColor, provider]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    for (const id of EXTRA_LAYER_IDS) map.removeLayer(id);
+    if (vectorProvider) {
+      if (extraVisible.fill) map.addLayer({ type: "fill", id: "fill", source: vectorProvider, color: extraColor.fill, density: Math.min(4, extraAmount.fill) });
+      if (extraVisible.symbol) map.addLayer({ type: "symbol", id: "symbol", source: vectorProvider, textProperty: "name", priorityProperty: "population_rank", minPriority: extraAmount.symbol, color: extraColor.symbol });
+      if (extraVisible.circle) map.addLayer({ type: "circle", id: "circle", source: vectorProvider, radiusProperty: "population", radius: extraAmount.circle, color: extraColor.circle });
+      if (extraVisible.heatmap) map.addLayer({ type: "heatmap", id: "heatmap", source: vectorProvider, radius: extraAmount.heatmap, weightProperty: "population", colors: ["#111827", extraColor.heatmap] });
+      if (extraVisible["fill-extrusion"]) map.addLayer({ type: "fill-extrusion", id: "fill-extrusion", source: vectorProvider, heightProperty: "height", height: extraAmount["fill-extrusion"], color: extraColor["fill-extrusion"] });
+    }
+    if (extraVisible.model) {
+      const s = extraAmount.model / 100;
+      map.addLayer({ type: "model", id: "model", polygons: [{ vertices: [[0, 0, s], [0, s, 0], [s, 0, 0]], color: extraColor.model }] });
+    }
+    setAttributions(map.getAttributions());
+  }, [vectorProvider, extraVisible, extraColor, extraAmount]);
 
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,

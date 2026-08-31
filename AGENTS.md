@@ -18,7 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
-| `packages/maps` | `@glyphcss/maps` | Geographic data → glyphcss. Deterministic raster `source → sample → classify → compile` pipeline baking a georeferenced field to static ASCII, `GlyphMapProjection`s (equirectangular, Mercator, globe, orthographic, a d3-raw adapter), `glyphMapPolygons` for a real 3D relief mesh, a TopoJSON vector pipeline (shared-arc Visvalingam-Whyatt simplification, quadtree tile clip/quantize, curated-place provider overlay), and `createGlyphMap` — the interactive widget (tile loading with LOD, pan/zoom/orbit, unified sheet/orbit camera tilt, markers, `background`/`raster`/`line`/`contour` layers, per-layer `density`, derived-from-mounted-layers attribution, `project`/`unproject`). Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
+| `packages/maps` | `@glyphcss/maps` | Geographic data → glyphcss. Deterministic raster `source → sample → classify → compile` pipeline, projections and relief meshes, TopoJSON plus PMTiles/MVT vector providers, and `createGlyphMap` — the interactive widget with the complete `background`/`raster`/`line`/`contour`/`fill`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model` layer vocabulary, LOD, camera navigation, attribution, and `project`/`unproject`. Two entry points: the root is pure/browser-safe, `@glyphcss/maps/node` carries fs-backed source readers (never `gdal-async` — see "Maps" below). |
 | `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
@@ -460,8 +460,12 @@ LOD) is never contaminated by a nonzero tilt.
 
 ### Vector: strokes, contours, tiles (slice 5)
 
-`GlyphMapLayer` gains `line` and `contour` on top of slice 3's
-`background`/`raster`. Both render by **post-raster stamping into the
+`GlyphMapLayer` includes `background`, `raster`, `line`, `contour`, `fill`,
+`symbol`, `circle`, `heatmap`, `fill-extrusion`, and `model`. `fill` supports
+attribute-to-color joins; symbols use stable greedy decluttering; circles and
+heatmaps read point attributes; extrusions use height/base attributes; model
+passes ordinary `Polygon[]` through. `line` and `contour` render by
+**post-raster stamping into the
 scene's `CellGrid`** rather than mesh mounting: `createGlyphMap` composes
 every mounted `line`/`contour` layer's `stamp(grid)` into ONE
 `transformCells` hook (glyphcss allows exactly one), installed lazily —

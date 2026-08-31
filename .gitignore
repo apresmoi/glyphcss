@@ -34,6 +34,11 @@ website/public/data/earth.json
 # packages/maps/fixtures/geo-tile-parity.json is committed.
 website/public/data/geo-tiles/
 
+# Full/local PMTiles archives are regenerable and can be enormous. Only tiny
+# reviewed extracts under packages/maps/fixtures/pmtiles/ may be committed.
+*.pmtiles
+!packages/maps/fixtures/pmtiles/*.pmtiles
+
 # Generated from packages/compile/SKILL.md by website build (scripts/copy-skill.mjs)
 website/public/skill.md
 

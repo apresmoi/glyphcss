@@ -22,7 +22,7 @@ export type {
   GlyphMapUpsample,
   GlyphMapView,
 } from "./types";
-export { glyphMapDedupeAttributions } from "./attribution";
+export { glyphMapDedupeAttributions, GLYPH_MAP_PROTOMAPS_ATTRIBUTION } from "./attribution";
 
 export { glyphMapBounds, viewBounds } from "./view";
 export { sampleGlyphMapField, glyphMapSamplerId, glyphMapFieldValueAt } from "./sample";
@@ -77,6 +77,8 @@ export {
 export { glyphMapBuildVectorTile, glyphMapDecodeVectorTile, glyphMapVectorTileBounds } from "./vector/tile";
 export type { GlyphMapVectorWireFeature, GlyphMapVectorWireTile } from "./vector/tile";
 export { glyphMapCuratedVectorProvider } from "./vector/curated";
+export { glyphMapDecodeMVT, glyphMapPMTilesProvider } from "./vector/pmtiles";
+export type { GlyphMapPMTilesOptions } from "./vector/pmtiles";
 export type { GlyphMapCuratedVectorTiles } from "./vector/curated";
 export type {
   GlyphMapVectorFeature,
@@ -87,6 +89,8 @@ export type {
 } from "./vector/types";
 export { stampGlyphMapContour, stampGlyphMapPolyline, GLYPH_MAP_STROKE_DEPTH_BIAS, GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE } from "./stroke";
 export type { GlyphMapContourOptions, GlyphMapStampOptions, GlyphMapStrokeVertex } from "./stroke";
+export { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons } from "./layers";
+export type { GlyphMapLabelCandidate } from "./layers";
 
 export { createGlyphMap, glyphMapContourIntervalLevels } from "./widget";
 export type {
@@ -94,17 +98,23 @@ export type {
   GlyphMapClickEvent,
   GlyphMapContourLayer,
   GlyphMapContourSource,
+  GlyphMapCircleLayer,
   GlyphMapEvent,
   GlyphMapEventHandler,
   GlyphMapHandle,
   GlyphMapLayer,
+  GlyphMapFillLayer,
+  GlyphMapFillExtrusionLayer,
+  GlyphMapHeatmapLayer,
   GlyphMapLineLayer,
   GlyphMapLoadEvent,
   GlyphMapMarkerHandle,
   GlyphMapMarkerOptions,
   GlyphMapOptions,
+  GlyphMapModelLayer,
   GlyphMapProjectResult,
   GlyphMapRasterLayer,
   GlyphMapRasterSource,
+  GlyphMapSymbolLayer,
   GlyphMapViewEvent,
 } from "./widget";
