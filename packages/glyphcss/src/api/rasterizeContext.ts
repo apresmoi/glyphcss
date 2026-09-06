@@ -438,7 +438,7 @@ export interface RasterizeContextOptions {
    * explicit input for pure/headless callers; interactive scenes populate the
    * same field after browser decoding.
    */
-  textureSamplers?: Map<string, TextureSampler> | null;
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
   /** Retain the final solid-mode per-cell shading scalar for an effect input. */
   retainShade?: boolean;
   /** Retain depth-winning world positions for an effect input. */
@@ -624,7 +624,7 @@ export interface RasterizeContext {
    * the texture per cell (full image, glyph-resolution) instead of using the
    * flat baked `poly.color`. Built by the scene via `buildTextureSamplers`.
    */
-  textureSamplers?: Map<string, TextureSampler> | null;
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */

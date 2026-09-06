@@ -52,6 +52,7 @@ import type {
   GlyphSceneOptions,
   GlyphShadowOptions,
   RenderMode,
+  TextureSampler,
   TransformCells,
   Vec3,
 } from "glyphcss";
@@ -68,6 +69,7 @@ import { glyphMapFieldValueAt } from "./sample";
 import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
+import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
 import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
 
@@ -797,6 +799,36 @@ export interface GlyphMapFillExtrusionLayer {
    * in glyphcss.
    */
   readonly glyphPalette?: string;
+  /**
+   * Texture this layer's WALLS with a tiling facade — window bays across, floor
+   * bands up — derived from each wall's own real length and the feature's own
+   * `heightProperty` metres.
+   *
+   * `true` uses the built-in generated tile ({@link glyphMapFacadeTexture},
+   * registered by the widget itself, no image fetch); an object supplies the
+   * bay/floor rhythm, or another texture key the caller has already put on the
+   * scene through `scene.setTextureSamplers`. Omitted/`false` (the default)
+   * leaves the walls flat and is byte-identical.
+   *
+   * This is the difference between a block of buildings reading as a street and
+   * reading as two tones and a wedge: at eye height an untextured flat-roofed
+   * box shows one or two faces, each one Lambert value, and glyphcss picks one
+   * glyph for the whole of it. A texel modulates the GLYPH as well as the
+   * colour, so the window rhythm arrives as character variety and does not
+   * depend on `useColors`.
+   */
+  readonly facade?: boolean | GlyphMapFacadeOptions;
+  /**
+   * Deterministic per-feature colour variation around {@link color}, `0`
+   * (the default, and byte-identical) to `1`.
+   *
+   * A crowd of buildings drawn in one colour is one silhouette; giving each its
+   * own tone is the cheapest separation available on this layer, because it is
+   * a colour and not a second rasterizer pass. Seeded from the feature's own
+   * identity ({@link glyphMapFeatureSeed}), so a building keeps its colour
+   * across re-tiles, pans and projection changes.
+   */
+  readonly colorVariation?: number;
 }
 export interface GlyphMapModelLayer {
   readonly type: "model"; readonly id?: string; readonly polygons: readonly Polygon[]; readonly density?: number;
@@ -4362,6 +4394,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return `${camera.rotX},${camera.rotY},${camera.zoom},${camera.target.join(",")},${bearing}`;
   }
 
+  /**
+   * Decoded pixels this map supplies to its own scene, built lazily. A map with
+   * no `facade` layer never generates the tile and never calls
+   * `setTextureSamplers` at all, so it is byte-identical to before this existed.
+   */
+  let ownSamplers: Map<string, TextureSampler> | null = null;
+  function ensureFacadeSampler(): void {
+    if (ownSamplers?.has(GLYPH_MAP_FACADE_TEXTURE)) return;
+    ownSamplers = new Map(ownSamplers ?? []);
+    ownSamplers.set(GLYPH_MAP_FACADE_TEXTURE, glyphMapFacadeTexture());
+    scene.setTextureSamplers(ownSamplers);
+  }
+  /** `facade: true` means "the built-in tile"; an object is taken as authored. */
+  function resolveFacade(option: boolean | GlyphMapFacadeOptions | undefined): GlyphMapFacadeOptions | undefined {
+    if (!option) return undefined;
+    return option === true ? { texture: GLYPH_MAP_FACADE_TEXTURE } : option;
+  }
+
   function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
     let handles: GlyphMeshHandle[] = [];
     let mesh: GlyphMapVectorMesh | null = null;
@@ -4422,10 +4472,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       for (const handle of handles) handle.dispose();
       handles = [];
       culledAt = "";
+      const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
       const color = (feature: GlyphMapVectorFeature) => {
         if (layer.type === "fill" && layer.colorProperty && layer.colors) return layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color;
+        if (variation > 0 && layer.color) return glyphMapVaryColor(layer.color, glyphMapFeatureSeed(feature), variation);
         return layer.color;
       };
+      // Registered on the SCENE, not fetched: the tile is generated in plain JS
+      // (see `glyphMapFacadeTexture`) and handed straight to the rasterizer.
+      const facade = layer.type === "fill-extrusion" ? resolveFacade(layer.facade) : undefined;
+      if (facade?.texture === GLYPH_MAP_FACADE_TEXTURE) ensureFacadeSampler();
       // Resolved ONCE per build, like `line`'s own per-stamp resolution: it
       // walks the mounted layer list. `null` = no `raster` layer mounted, and
       // then no `groundElevation` option is passed at all — the datum, and
@@ -4457,6 +4513,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const raw = Number(f.properties?.[layer.baseOffsetProperty ?? "min_height"] ?? 0);
           return Number.isFinite(raw) ? raw : 0;
         } : undefined,
+        facade,
       });
       const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;
       const polygons = nearSide ? glyphMapVectorCullWalls(mesh, nearSide) : [...mesh.polygons];

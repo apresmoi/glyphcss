@@ -72,7 +72,7 @@ export interface GlyphControlFrameOptions {
   readonly depthBiases?: readonly number[];
   readonly depthEpsilon?: number;
   /** Decoded texture pixels for the existing per-cell texture rasterizer. */
-  readonly textureSamplers?: Map<string, TextureSampler> | null;
+  readonly textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
 }
 
 export interface GlyphControlFrameMetadata {

@@ -139,10 +139,13 @@ export interface Polygon {
   material?: PolyMaterial;
   /**
    * Texture sampler wrap mode for UVs outside [0, 1]. glTF imports and the
-   * fonts extruder preserve sampler.wrapS / wrapT here so a renderer that
-   * tiles textures can repeat the UVs. The ASCII renderer bakes textures to a
-   * flat per-face color and ignores this; unset keeps single-image behavior.
-   * @internal
+   * fonts extruder preserve sampler.wrapS / wrapT here.
+   *
+   * glyphcss's solid rasterizer HONOURS this per cell: with `repeat`, a face's
+   * UVs carry the real tile COUNT (`[[0,0],[bays,0],[bays,floors],[0,floors]]`)
+   * and one small image tiles across it, instead of the caller pre-tiling a
+   * distinct image per count pair. Unset (the default) is `clamp-to-edge` and
+   * keeps single-image behavior.
    */
   textureWrap?: PolyTextureWrap;
   /**

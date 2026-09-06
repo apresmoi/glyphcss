@@ -382,6 +382,22 @@ export interface GlyphSceneHandle {
    */
   setViewportOverlayDensities(densities: readonly number[]): void;
   /**
+   * Supply decoded texture pixels DIRECTLY, keyed by the same string a polygon's
+   * `texture` names, instead of letting the scene fetch and decode that name as
+   * a URL. Merged OVER the decoded map, so a caller-supplied key wins and every
+   * other texture keeps loading normally; `null` (the default) clears them all.
+   *
+   * This is what makes a PROCEDURAL texture usable: `@glyphcss/maps` generates a
+   * facade image in plain JS and registers it under `"glyph-map:facade"`, with
+   * no image fetch, no canvas, and therefore no browser requirement — the same
+   * code path runs under a test DOM and under SSR.
+   *
+   * A scene-handle capability rather than a scene option, for the same reason
+   * {@link setViewportOverlayDensities} is: every wrapper already exposes the
+   * handle, so no second component prop or lifecycle owner is needed.
+   */
+  setTextureSamplers(samplers: ReadonlyMap<string, TextureSampler> | null): void;
+  /**
    * Inject another scene's opaque coverage (its `getOpaqueCoverage()` result)
    * as a FOREIGN occluder: every layer of THIS scene — base grid, opaque
    * detail layers, and `transparent` detail layers alike — blanks its cells
@@ -1152,6 +1168,26 @@ export function createGlyphScene(
   let textureSamplers: Map<string, TextureSampler> | null = null;
   let textureToken = 0;
   let textureSamplerKey = "";
+  /** Caller-supplied decoded pixels — see {@link GlyphSceneHandle.setTextureSamplers}. */
+  let suppliedSamplers: ReadonlyMap<string, TextureSampler> | null = null;
+  /**
+   * The map a render actually samples: whatever decoded from URLs, with the
+   * caller's own entries laid over it. Recomputed per render rather than cached,
+   * because both halves change independently and the merge is a handful of map
+   * writes against a full grid raster.
+   */
+  function resolvedTextureSamplers(): ReadonlyMap<string, TextureSampler> | null {
+    if (suppliedSamplers === null || suppliedSamplers.size === 0) return textureSamplers;
+    const merged = new Map(textureSamplers ?? []);
+    for (const [url, sampler] of suppliedSamplers) merged.set(url, sampler);
+    return merged;
+  }
+  function setTextureSamplers(samplers: ReadonlyMap<string, TextureSampler> | null): void {
+    const next = samplers && samplers.size > 0 ? samplers : null;
+    if (next === suppliedSamplers) return;
+    suppliedSamplers = next;
+    scheduleRender();
+  }
   function refreshTextureSamplers(): void {
     const polys: Polygon[] = [];
     const urls = new Set<string>();
@@ -1398,7 +1434,7 @@ export function createGlyphScene(
         const idClaimOverride = groups.some((g) => (g.occlusionPriority ?? 0) !== 0 || g.occlusionContourPx !== undefined);
         const oCols = options.cols * ss, oRows = options.rows * ss;
         const depth = idClaimOverride || opaqueDetails.length === 0 ? null : new Float64Array(oCols * oRows);
-        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, textureSamplers, depth);
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, resolvedTextureSamplers(), depth);
         occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth ? occlusionDepthSlack(depth, oCols, oRows) : null) };
       }
     }
@@ -1525,7 +1561,7 @@ export function createGlyphScene(
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
-    ctx.textureSamplers = textureSamplers;
+    ctx.textureSamplers = resolvedTextureSamplers();
     if (options.glyphOutput === "visible") ctx.temporalHistory = nextTemporalHistory;
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
@@ -2446,7 +2482,7 @@ export function createGlyphScene(
           retainWinnerMesh,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
-        ctx.textureSamplers = textureSamplers;
+        ctx.textureSamplers = resolvedTextureSamplers();
         ctx.occlusion = occ;
         // Hoisted so the effects metadata and the plain-hook layer tag can
         // never drift apart — both describe the SAME detail-grid affine.
@@ -3111,6 +3147,7 @@ export function createGlyphScene(
     fit: fitToHost,
     setInteracting,
     setViewportOverlayDensities,
+    setTextureSamplers,
     setForeignOcclusion,
     getOpaqueCoverage,
     destroy,

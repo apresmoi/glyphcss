@@ -4,6 +4,7 @@ import type { GlyphMapBounds, GlyphMapField } from "./types";
 import { glyphMapTrueScaleElevation, type GlyphMapProjection } from "./projection";
 import { localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
+import { glyphMapFacadeTiles, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
 
 export interface GlyphMapLabelCandidate { readonly id: string; readonly col: number; readonly row: number; readonly label: string; readonly priority: number }
 
@@ -420,6 +421,26 @@ export interface GlyphMapVectorMeshOptions {
    * `exaggeration: 24`, the identical defect the height exemption fixed.
    */
   readonly baseOffset?: (feature: GlyphMapVectorFeature) => number;
+  /**
+   * Texture the extrusion WALLS with a tiling facade, keyed off each wall's own
+   * real length and the feature's own real height.
+   *
+   * This is the one change that makes a street-level view legible, and it is a
+   * GEOMETRY change rather than a render mode: an untextured flat-roofed box
+   * gives one Lambert value per face, so at eye height a whole block of them is
+   * two tones and a wedge. glyphcss's solid rasterizer folds a texel's luminance
+   * into the GLYPH as well as the colour, so authoring `uvs` here puts window
+   * rows and floor bands into the CHARACTERS — they survive `useColors: false`.
+   *
+   * The UVs carry the wall's real tile COUNT and rely on
+   * `Polygon.textureWrap: "repeat"`; see {@link glyphMapFacadeTiles}. Omitted
+   * (the default) leaves every wall untextured and byte-identical.
+   *
+   * Caps are deliberately untextured: a roof seen from a street is edge-on and
+   * a roof seen from above is the one face that already reads, so a facade tile
+   * on it would only alias.
+   */
+  readonly facade?: GlyphMapFacadeOptions;
 }
 
 /**
@@ -520,7 +541,11 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
     // elevation axis — see {@link GlyphMapVectorMeshOptions.height}. The
     // GROUND below is deliberately NOT converted: it is a terrain elevation
     // and belongs wherever the exaggerated relief under this feature is.
-    const height = glyphMapTrueScaleElevation(options.height?.(feature) ?? 0, projection);
+    // Raw TRUE metres, kept beside the axis height: the facade's floor count is
+    // a statement about the BUILDING, so it must not move with the terrain
+    // exaggeration the axis height is expressed on.
+    const heightMetres = options.height?.(feature) ?? 0;
+    const height = glyphMapTrueScaleElevation(heightMetres, projection);
     const baseOffset = glyphMapTrueScaleElevation(options.baseOffset?.(feature) ?? 0, projection);
     const color = options.color?.(feature);
     for (const group of groups) {
@@ -604,6 +629,15 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
             if (!finite(bi) || !finite(bj) || !finite(ti) || !finite(tj)) continue;
             const wall: Polygon = { vertices: flip ? [bj, bi, ti, tj] : [bi, bj, tj, ti] };
             if (color) wall.color = color;
+            if (options.facade) {
+              // Both vertex orders run base-edge first then top-edge back, so
+              // one UV quad serves either winding — `flip` only mirrors u
+              // across the wall, which a tiling facade is symmetric under.
+              const { bays, floors } = glyphMapFacadeTiles(glyphMapMetresBetween(previous, b), heightMetres, options.facade);
+              wall.texture = options.facade.texture;
+              wall.textureWrap = { s: "repeat", t: "repeat" };
+              wall.uvs = [[0, 0], [bays, 0], [bays, floors], [0, floors]];
+            }
             walls.push({ polygon: out.length, a: previous, b, elev: base, elevTop: capElev });
             out.push(wall);
           }

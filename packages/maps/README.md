@@ -615,6 +615,48 @@ building its own geometry can put a true-metre quantity onto the projection's
 elevation axis. `exaggeration: 0` (relief off) passes metres through, so
 terrain and extrusions are flat together, as before.
 
+### Facades and per-feature colour on `fill-extrusion`
+
+```js
+map.addLayer({
+  type: "fill-extrusion", source: buildings, heightProperty: "render_height",
+  color: "#94a3b8", facade: true, colorVariation: 1,
+});
+```
+
+An untextured flat-roofed box gives ONE Lambert value per face, so at eye level
+a block of them is two tones and a wedge and the solid ramp dithers each face
+into `=+=+=+=`. `facade: true` textures every WALL with window bays across and
+floor bands up, derived from that wall's own length in metres and the feature's
+own height — which is what turns that dither into structure. Measured on the
+real 900 m / 3,005-building Zurich extract at 140x63: **+0.96 ms a frame (3.25
+-> 4.21), mean glyph run length 1.83 -> 2.99.**
+
+It reads in a MONOCHROME render, which is the point: glyphcss folds a texel's
+luminance into the glyph, not only into the colour, so the window rhythm arrives
+as characters and does not depend on `useColors`.
+
+There is exactly ONE image — a generated 12x12 tile, 576 bytes, built in plain
+JS and handed to the scene through `scene.setTextureSamplers` (never fetched, so
+it works under SSR and a test DOM alike). A wall's UVs carry its real
+`(bays, floors)` count and `Polygon.textureWrap: "repeat"` tiles the image
+across it. Pre-tiling one image per count pair instead needed 101 images and
+1.86 MB for the same scene, at the same frame cost.
+
+Pass an object for your own rhythm or your own texture key:
+`facade: { texture, bayMetres, floorMetres }` (defaults 3.6 m and 3.2 m). Caps
+stay untextured: a roof is edge-on from a street and already reads from above.
+
+`colorVariation` (0..1) nudges each feature's colour deterministically around
+`color`, seeded from the feature's own id — or, when the source carries none,
+its own first ring vertex, so a building keeps its colour across re-tiles, pans
+and projection changes. Three independent channel offsets rather than a
+lightness ramp, so neighbours separate across the colour solid instead of
+bunching along one line through it. It is a colour, not a second rasterizer
+pass, so it is the cheapest separation this layer has.
+
+Both default off and are byte-identical when omitted.
+
 ### `fill`/`fill-extrusion` on a curved projection
 
 `glyphMapVectorPolygons` triangulates a polygon in lon/lat with earcut, which

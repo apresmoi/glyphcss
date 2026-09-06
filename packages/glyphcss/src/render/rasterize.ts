@@ -1,6 +1,6 @@
 import type { GlyphPolygonCullChunk, RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
 import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
-import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
+import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
 import {
@@ -239,6 +239,7 @@ export function computeOcclusionIds(
                 ub: polyUvs[k - 1]![0], vb: polyUvs[k - 1]![1],
                 uc: polyUvs[k]![0], vc: polyUvs[k]![1],
                 qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
+                wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
               }
             : null;
           fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
@@ -329,6 +330,36 @@ export function computeOcclusionIds(
 }
 
 /**
+ * `Polygon.textureWrap` as a per-cell integer, so the hot loop branches on a
+ * number instead of a string. `0` (clamp-to-edge) is the default and the exact
+ * pre-existing behaviour — `sampleUv` already clamps — so an unset `textureWrap`
+ * costs one integer compare and changes nothing.
+ */
+const WRAP_CLAMP = 0, WRAP_REPEAT = 1, WRAP_MIRROR = 2;
+
+/**
+ * Fold one UV axis into `[0, 1)` per its wrap mode. Honouring `repeat` is what
+ * lets a wall quad carry its real bay/floor COUNT in its UVs
+ * (`[[0,0],[bays,0],[bays,floors],[0,floors]]`) and tile ONE small facade image
+ * across it, instead of the caller pre-tiling a distinct image per
+ * `(bays, floors)` pair — measured at 101 images / 1.8 MB for 900 m of Zurich,
+ * against a single 12x12 tile here.
+ *
+ * `mirrored-repeat` reflects on odd tiles; `Math.floor(t) & 1` is already the
+ * right parity for negative `t` under two's complement.
+ */
+function wrapUvCoord(t: number, mode: number): number {
+  if (mode === WRAP_CLAMP) return t;
+  const f = t - Math.floor(t);
+  return mode === WRAP_REPEAT || (Math.floor(t) & 1) === 0 ? f : 1 - f;
+}
+
+/** `Polygon.textureWrap` for one axis as a {@link WRAP_CLAMP} code. */
+function wrapCode(mode: PolyTextureWrapMode | undefined): number {
+  return mode === "repeat" ? WRAP_REPEAT : mode === "mirrored-repeat" ? WRAP_MIRROR : WRAP_CLAMP;
+}
+
+/**
  * Per-triangle texture context for `fillDepthTri`'s alpha-aware occlusion
  * claim (see `computeOcclusionIds`). `qa/qb/qc` are the projected vertices'
  * perspective factors (`project()[3]`, 1 under ortho) so UVs interpolate
@@ -340,6 +371,8 @@ interface DepthTexCtx {
   ub: number; vb: number;
   uc: number; vc: number;
   qa: number; qb: number; qc: number;
+  /** {@link wrapCode}s for u and v — see {@link wrapUvCoord}. */
+  wrapS: number; wrapT: number;
 }
 
 /**
@@ -427,7 +460,9 @@ function fillDepthTri(
           tu = tw0 * tex.ua + tw1 * tex.ub + tw2 * tex.uc;
           tv = tw0 * tex.va + tw1 * tex.vb + tw2 * tex.vc;
         }
-        const texel = sampleTexel(tex.sampler, tu, tv);
+        const texel = sampleTexel(
+          tex.sampler, wrapUvCoord(tu, tex.wrapS), wrapUvCoord(tv, tex.wrapT),
+        );
         if (texel === null || texel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
       depth[idx] = z; idMap[idx] = id;
@@ -2272,6 +2307,7 @@ function rasterizeSolid(
           tintR: ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255,
           tintG: ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255,
           tintB: ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255,
+          wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
         };
       }
 
@@ -2378,6 +2414,25 @@ function rasterizeSolid(
                   uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
                 }
               : null;
+            // Same for the BITMAP sampler: the clip already interpolated this
+            // sub-triangle's UVs into `cuv`, so a textured face keeps being
+            // sampled per cell across the crossing. Without it the road you are
+            // standing on — the one quad guaranteed to straddle the eye under a
+            // street-level perspective camera — fell back to its flat colour and
+            // painted the bottom of the frame as a single tone. The tint is a
+            // per-TRIANGLE light multiplier and clipping does not move the face,
+            // so it carries over from `texCtx` unchanged, exactly as `litColor`
+            // does on this same path.
+            const clippedTexCtx: ScanFillTexCtx | null = texCtx !== null && cuv
+              ? {
+                  sampler: texCtx.sampler,
+                  ua: cuv[0]![0], va: cuv[0]![1],
+                  ub: cuv[f]![0], vb: cuv[f]![1],
+                  uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
+                  tintR: texCtx.tintR, tintG: texCtx.tintG, tintB: texCtx.tintB,
+                  wrapS: texCtx.wrapS, wrapT: texCtx.wrapT,
+                }
+              : null;
             scanFillTriangle(
               qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, qa[3] ?? 1, ci[0]!,
               qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, qb[3] ?? 1, ci[f]!,
@@ -2393,10 +2448,7 @@ function rasterizeSolid(
               onxN, onyN, onzN, objectNormalBuf,
               clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
-              // Near-plane-clipped sub-triangles do not yet rebuild the bitmap
-              // texture sampling context; fall back to flat color for that rare
-              // eye-straddling case. Surface-effect UVs remain available above.
-              null,
+              clippedTexCtx,
               polyIdx,
               winnerPolygonBuf,
               albedoRgbBuf,
@@ -3303,6 +3355,8 @@ interface ScanFillTexCtx {
   ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
   // Per-triangle light multiplier (ambient + key·lambert) applied to each texel.
   tintR: number; tintG: number; tintB: number;
+  /** {@link wrapCode}s for u and v — see {@link wrapUvCoord}. */
+  wrapS: number; wrapT: number;
 }
 
 /** Authored face UVs retained for a post-rasterize surface-space cell effect. */
@@ -3589,7 +3643,9 @@ function scanFillTriangle(
         const tv = perspectiveAttributes
           ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * tq
           : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
-        cellTexel = sampleTexel(tex.sampler, tu, tv);
+        cellTexel = sampleTexel(
+          tex.sampler, wrapUvCoord(tu, tex.wrapS), wrapUvCoord(tv, tex.wrapT),
+        );
         if (cellTexel === null || cellTexel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
