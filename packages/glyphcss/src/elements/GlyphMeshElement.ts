@@ -8,7 +8,7 @@
  * On disconnect: disposes the registered mesh handle.
  */
 import { loadMesh, resolveGeometry, recenterPolygons } from "@glyphcss/core";
-import type { Vec3, GlyphGeometryName } from "@glyphcss/core";
+import type { Vec3, GlyphGeometryName, RenderMode } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphSceneHandle } from "../api/createGlyphScene";
 import type { GlyphMeshTransform } from "../api/types";
 import type { GlyphSceneElement } from "./GlyphSceneElement";
@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent", "glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent", "glyph-palette", "mode", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px", "detail-group"] as const;
 
 
 function parseVec3(value: string | null): Vec3 | undefined {
@@ -54,6 +54,12 @@ function parseFiniteFloat(value: string | null): number | undefined {
 
 function parseOcclusionClaim(value: string | null): "alpha" | "geometry" | undefined {
   return value === "alpha" || value === "geometry" ? value : undefined;
+}
+
+// An unrecognized value stays `undefined` (the scene's mode) rather than
+// popping the mesh into its own `<pre>` to render a mode that doesn't exist.
+function parseRenderMode(value: string | null): RenderMode | undefined {
+  return value === "wireframe" || value === "solid" || value === "voxel" || value === "ink" ? value : undefined;
 }
 
 function findScene(el: HTMLElement): GlyphSceneElement | null {
@@ -111,10 +117,14 @@ export class GlyphMeshElement extends ELEMENT_BASE {
       // Empty stays `undefined`, not `""`: a present-but-blank attribute would
       // otherwise pop the mesh into its own `<pre>` for a nameless ramp.
       glyphPalette: this.getAttribute("glyph-palette") || undefined,
+      mode: parseRenderMode(this.getAttribute("mode")),
       ambientIntensity: parseFiniteFloat(this.getAttribute("ambient-intensity")),
       occlusionPriority: parseFiniteFloat(this.getAttribute("occlusion-priority")),
       occlusionClaim: parseOcclusionClaim(this.getAttribute("occlusion-claim")),
       occlusionContourPx: parseFiniteFloat(this.getAttribute("occlusion-contour-px")),
+      // Empty stays `undefined` for the same reason `glyph-palette` does: a
+      // blank name would put every blank-attributed mesh in one group.
+      detailGroup: this.getAttribute("detail-group") || undefined,
     };
   }
 

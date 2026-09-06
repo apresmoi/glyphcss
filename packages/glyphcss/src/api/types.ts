@@ -1,4 +1,4 @@
-import type { Vec3, Polygon } from "@glyphcss/core";
+import type { Vec3, Polygon, RenderMode } from "@glyphcss/core";
 
 /** Directional light — single distant source for the ASCII rasterizer. */
 export interface GlyphDirectionalLight {
@@ -110,6 +110,47 @@ export interface GlyphMeshTransform {
    */
   density?: number;
   /**
+   * SHARED DETAIL OUTPUT (ADDITIVE, default: each detail mesh gets its own).
+   * Every detail mesh declaring the same `detailGroup` name renders into ONE
+   * silhouette-fitted `<pre>` — one grid, one rasterizer pass, one entry in
+   * the shared cross-layer occlusion id-map — instead of one per mesh.
+   *
+   * The reason it exists is not economy, it is CORRECTNESS at a shared edge.
+   * Two abutting meshes in two separate detail outputs each point-sample
+   * coverage on their OWN cell lattice, and those lattices are fitted to two
+   * different silhouettes, so they are differently phased: on a curved,
+   * foreshortened surface a sub-cell sliver along the edge they share can fall
+   * inside neither sample and nothing paints it. That is a seam — a dark line
+   * along every shared edge — and no occlusion refinement can close it,
+   * because neither layer ever claimed the cell in the first place. One grid
+   * has one lattice: the cell is sampled once, and whichever mesh covers it
+   * paints it. Members also cannot occlude each other, since they are one
+   * layer id (within the group, ordinary per-cell depth decides, exactly as it
+   * does for two meshes sharing the base grid).
+   *
+   * `@glyphcss/maps` is the reference consumer: a raster layer mounts one mesh
+   * per TILE, so at `density > 1` its tile boundaries were a visible grid of
+   * dark lines. Grouping the tiles of one layer removes the boundaries rather
+   * than papering over them.
+   *
+   * Names are scoped to the scene and are stable: a group keeps its `<pre>`
+   * and its occlusion id across renders as members come and go, so a tile
+   * pyramid can churn its meshes without recreating DOM.
+   *
+   * Grouping is only meaningful for a mesh that is ALREADY a detail mesh (see
+   * `density`/`fontSize`/`transparent`/`glyphPalette`/`ambientIntensity`/
+   * `mode`) — it never separates a mesh by itself, so a scene that sets it on
+   * meshes at `density: 1` is byte-identical to one that does not.
+   *
+   * Because one output has ONE cell size, ONE render mode and ONE occlusion
+   * claim, every member of a group must agree on `density`, `fontSize`,
+   * `lineHeight`, `transparent`, `glyphPalette`, `ambientIntensity`, `mode`,
+   * `occlusionPriority`, `occlusionClaim` and `occlusionContourPx`. A
+   * disagreement is a caller error and throws a `RangeError` naming the group
+   * and the field, rather than silently picking one member's value.
+   */
+  detailGroup?: string;
+  /**
    * PER-MESH glyph ramp palette (solid mode) — this mesh rasterizes its
    * intensity→character ramp from the named palette instead of the scene's
    * `glyphPalette`. LOUD CAVEATS, read before using:
@@ -127,6 +168,37 @@ export interface GlyphMeshTransform {
    * Omitted (the default) = the scene's palette; behaviour is unchanged.
    */
   glyphPalette?: string;
+  /**
+   * PER-MESH render mode — this mesh rasterizes in `mode` instead of the
+   * scene's own. Same structural reason `glyphPalette`/`ambientIntensity`
+   * force separation: the shared `<pre>` is rasterized in ONE pass under ONE
+   * mode, so a private mode needs a private layer. A mesh declaring only
+   * `mode` renders in its own `<pre>` at the BASE cell size — a separate
+   * pass, no extra detail.
+   *
+   * Unlike `glyphPalette`, separation is conditional on the mode actually
+   * being different: declaring the mode the scene is already rendering in
+   * keeps the mesh in the shared base grid, byte-identical and one pass. A
+   * mode is a small closed enum compared exactly, so "is this genuinely
+   * private?" is answerable here — `glyphPalette` cannot answer it (an
+   * unrecognized name silently resolves to the default ramp, so two
+   * different strings can name the same ramp). The comparison is re-made
+   * every render, so a `setOptions({ mode })` that matches lets the mesh
+   * rejoin the base grid on the next frame.
+   *
+   * Every extra distinct mode in a scene is a full extra rasterizer pass —
+   * reach for this per LAYER, not per mesh, and leave it omitted for
+   * anything that can share the scene's mode.
+   *
+   * Occlusion is unchanged: a mode-separated OPAQUE mesh still claims its
+   * full footprint in the shared id-map, so an outline mode (`wireframe`,
+   * `ink`) blanks the base cells under its silhouette while painting only
+   * edges. Declare `transparent: true` alongside it for the x-ray layering
+   * an outline over other geometry usually wants.
+   *
+   * Omitted (the default) = the scene's mode; behaviour is unchanged.
+   */
+  mode?: RenderMode;
   /**
    * PER-MESH ambient light intensity (solid mode) — this mesh's own detail
    * layer rasterizes under `{ ...scene.ambientLight, intensity }`, so both its

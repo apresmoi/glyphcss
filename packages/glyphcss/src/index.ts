@@ -251,8 +251,14 @@ export {
 export type { WireframeGlyphTiers } from "./render/ramps";
 
 // ── RasterizeContext ──────────────────────────────────────────────
-export { buildRasterizeContext } from "./api/rasterizeContext";
+export {
+  buildRasterizeContext,
+  buildGlyphPolygonCullChunks,
+  GLYPH_CULL_CHUNK_POLYGONS,
+  GLYPH_CULL_CHUNK_MIN_POLYGONS,
+} from "./api/rasterizeContext";
 export type {
+  GlyphPolygonCullChunk,
   RasterizeContext,
   RasterizeContextOptions,
 } from "./api/rasterizeContext";

@@ -306,5 +306,14 @@ const CORE_BASE_STYLES = `
      top-left corner there. Without this, padding / label width visually offset
      the content from the 3D vertex being labelled. */
   transform: translate(-50%, -50%);
+  /* Same reason as .glyph-output above — dragging orbits the camera instead
+     of highlighting a hotspot's label text. Re-enable with the
+     glyph-selectable class, mirroring .glyph-output.glyph-selectable. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.glyph-scene .glyph-hotspot.glyph-selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 `;

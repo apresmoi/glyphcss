@@ -1,4 +1,4 @@
-import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
+import type { GlyphPolygonCullChunk, RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
 import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
@@ -102,6 +102,20 @@ function projectionMetricsForGrid(
 export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
 
 /**
+ * Safety factor on {@link OcclusionMap}'s sub-cell seam allowance. The
+ * allowance is a FIRST-ORDER estimate (`|dx|*gradX + |dy|*gradY`) of how much
+ * the owner's surface may legitimately have changed between where the id-map
+ * was sampled and where the detail cell sits; a curved surface's true change
+ * over that distance can exceed the linear one, so the estimate is scaled
+ * rather than trusted exactly. `1.5` is the smallest value measured to close
+ * `@glyphcss/maps`' globe seam completely at densities 1.4/2/3 while leaving
+ * the "a mesh genuinely behind another is still blanked" case untouched.
+ * Deliberately a RATIO, not an added constant: a flat bias fails across world
+ * scales for the same reason it fails for wireframe `hiddenLines: "hide"`.
+ */
+const OCCLUSION_SEAM_SAFETY = 1.5;
+
+/**
  * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
  * into a `cols × rows` buffer and record, per cell, the id of the layer whose
  * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
@@ -129,6 +143,15 @@ export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
  * texel at all skip the per-cell sampling outright (checked once per sampler,
  * cached), so fully opaque textured geometry pays nothing. Omitting the
  * parameter (every caller before it existed) keeps the pure-geometry claims.
+ *
+ * `depthOut`, when supplied, receives the same nearest-depth buffer this pass
+ * already builds and would otherwise discard (at the id-map's own
+ * `outCols*ss × outRows*ss` resolution; `-Infinity` = empty). It exists for
+ * {@link OcclusionMap.depth}'s sub-cell seam refinement — see the
+ * cross-layer blanking loop in `rasterize` — and costs nothing beyond the
+ * caller's own allocation, since the buffer is computed either way. Only the
+ * OUTPUT-resolution raster fills it; `occlusionContourPx`'s finer internal
+ * raster does not.
  */
 export function computeOcclusionIds(
   groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
@@ -139,6 +162,7 @@ export function computeOcclusionIds(
   supersample = 1,
   metrics: GlyphProjectionMetrics = projectionMetricsForGrid(outCols, outRows, cellAspect, {}),
   textureSamplers: ReadonlyMap<string, TextureSampler> | null = null,
+  depthOut: Float64Array | null = null,
 ): Int32Array {
   // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
   // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
@@ -160,7 +184,7 @@ export function computeOcclusionIds(
   const contourK = groups.some((g) => g.occlusionContourPx !== undefined) ? CONTOUR_K : 1;
 
   /** Depth-raster every group into an id map at `outCols*scale × outRows*scale`. */
-  const rasterInto = (scale: number): Int32Array => {
+  const rasterInto = (scale: number, keepDepth: Float64Array | null = null): Int32Array => {
     const cols = outCols * scale, rows = outRows * scale;
     const scaledMetrics = scale > 1
       ? {
@@ -171,7 +195,7 @@ export function computeOcclusionIds(
           centerRow: metrics.centerRow !== undefined ? metrics.centerRow * scale : undefined,
         }
       : metrics;
-    const depth = new Float64Array(cols * rows).fill(-Infinity);
+    const depth = keepDepth !== null && keepDepth.length === cols * rows ? keepDepth.fill(-Infinity) : new Float64Array(cols * rows).fill(-Infinity);
     const idMap = new Int32Array(cols * rows).fill(-1);
     // Priority buffer only exists when some group actually asks for one — the
     // all-zero case (every scene before `occlusionPriority`) takes the exact
@@ -229,7 +253,7 @@ export function computeOcclusionIds(
   const outColsEff = outCols * ss, outRowsEff = outRows * ss;
   // The output-resolution map: the exact pre-existing claim set. Every
   // non-contour group's claims come from here untouched.
-  const outMap = rasterInto(ss);
+  const outMap = rasterInto(ss, depthOut);
   if (contourK > 1) {
     // Second raster at the FINE internal resolution — per fine cell the alpha
     // claim samples its own texel, so a contour group's fine footprint is its
@@ -425,8 +449,25 @@ function fillDepthTri(
  * depth buffer at SUBCELL resolution with no second projection pass, and
  * `sx=1, sy=1` (the ASCII path, and braille's coarser per-cell option)
  * builds it at cell resolution directly.
+ *
+ * Exported for `createGlyphScene.ts`'s meshless viewport overlay (a
+ * `line`/`contour` stroke layer's own independent-density output grid):
+ * called with `cellCols`/`cellRows`/`metrics` the BASE grid's own UNCHANGED
+ * values and `sx`/`sy` the overlay's exact `colsOverlay/colsBase` ratio —
+ * this SAME subcell-precision mechanism, not `computeOcclusionIds`'s own
+ * independent `cellWidth`/`centerCol` metrics-scaling: when the base grid's
+ * cell size is unmeasured (SSR, or a headless/test environment with no real
+ * layout), the camera falls back to a fixed `BASE_TILE / cellAspect`
+ * constant that isn't itself scaled by `density`, so independently scaling
+ * `cellWidth` while leaving that fallback alone silently desyncs a stroke's
+ * own vertices (projected through the SAME unchanged base grid) from this
+ * depth pass. Multiplying the OUTPUT screen coordinate instead keeps both
+ * in lockstep regardless of which cell-size source the camera actually
+ * used. Reuses this function's existing `fillDepthTri`-based machinery
+ * rather than a second depth rasterizer, the same discipline this doc
+ * already follows for the wireframe HLR prepass.
  */
-function buildSurfaceDepth(
+export function buildSurfaceDepth(
   polygons: Polygon[],
   camera: ProjectCamera,
   cellCols: number, cellRows: number, cellAspect: number,
@@ -1424,6 +1465,127 @@ function rasterizeInk(
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
+/**
+ * Margin keeping a run whose extreme normal is exactly edge-on on the DRAW
+ * side of {@link GlyphPolygonCullChunk}'s back-face test. Small enough that a
+ * genuinely far-side run (whose axis dot approaches 1) still rejects.
+ */
+const CONE_FACING_EPSILON = 1e-6;
+
+/**
+ * Whether EVERY normal in a run's cone is back-facing under the unit facing
+ * gradient `(gx, gy, gz)` from {@link deriveFacingGradient} — the run-level
+ * form of `rasterizeSolid`'s own `area2 > 0` test.
+ *
+ * With `a` the cone axis and `cosHalf` its half-angle cosine, the smallest
+ * `n̂ · Ĝ` over the cone is `cos(angle(a, Ĝ) + halfAngle)`, so all of them are
+ * back-facing (`> 0`) exactly when `a · Ĝ > sin(halfAngle)`. A cone wider than
+ * a hemisphere (`coneCos <= 0`) can never satisfy that, and an unusable cone
+ * is flagged with `coneCos: -1`, so both fall out for free.
+ *
+ * {@link CONE_FACING_EPSILON} keeps the boundary case — a run whose extreme
+ * normal is exactly edge-on — on the DRAW side. Such a triangle projects to
+ * zero area and paints nothing either way, so the margin costs nothing and
+ * buys immunity to the float difference between this world-space test and the
+ * rasterizer's own projected-coordinate one.
+ */
+export function glyphChunkIsBackFacing(
+  chunk: GlyphPolygonCullChunk,
+  gx: number, gy: number, gz: number,
+): boolean {
+  const cosHalf = chunk.coneCos;
+  if (!(cosHalf > 0)) return false;
+  const d = chunk.coneX * gx + chunk.coneY * gy + chunk.coneZ * gz;
+  return d > Math.sqrt(1 - cosHalf * cosHalf) + CONE_FACING_EPSILON;
+}
+
+/**
+ * The UNIT linear functional `Ĝ` with `sign(Ĝ · n) === sign(area2)` for a
+ * triangle with world face normal `n` — the rasterizer's own back-face
+ * criterion expressed in world space, recovered from `camera.project` by
+ * evaluation. Returns `null` when the camera's screen map is not affine (a
+ * perspective camera), when a probe does not project finitely, or when the
+ * functional is degenerate — in every one of those cases the caller must draw
+ * every run.
+ *
+ * The probes are placed at, and scaled by, the geometry the chunks actually
+ * cover, so a scene authored at any world scale is probed at its own scale
+ * rather than at an arbitrary unit one: a probe far smaller than the scene
+ * would lose the perspective divergence this check exists to detect, and one
+ * far larger could fall outside a camera's valid window.
+ */
+export function deriveFacingGradient(
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  chunks: readonly GlyphPolygonCullChunk[],
+): [number, number, number] | null {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const c of chunks) {
+    if (c.minX < minX) minX = c.minX;
+    if (c.minY < minY) minY = c.minY;
+    if (c.minZ < minZ) minZ = c.minZ;
+    if (c.maxX > maxX) maxX = c.maxX;
+    if (c.maxY > maxY) maxY = c.maxY;
+    if (c.maxZ > maxZ) maxZ = c.maxZ;
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY)
+    || !Number.isFinite(maxY) || !Number.isFinite(minZ) || !Number.isFinite(maxZ)) return null;
+  const ex = maxX - minX, ey = maxY - minY, ez = maxZ - minZ;
+  const extent = Math.max(ex, ey, ez);
+  const h = extent > 0 ? extent / 8 : 1;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+
+  const a = facingGradientAt(camera, cols, rows, cellAspect, metrics, cx, cy, cz, h);
+  if (a === null) return null;
+  // Second probe: displaced by a large fraction of the scene's own extent and
+  // at a different scale, so an affine map reproduces `a` exactly while a
+  // perspective one cannot.
+  const b = facingGradientAt(camera, cols, rows, cellAspect, metrics,
+    cx + ex * 0.31 + h, cy - ey * 0.27 - h, cz + ez * 0.23 + h, h / 2);
+  if (b === null) return null;
+  const len = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  if (!(len > 0) || !Number.isFinite(len)) return null;
+  const tol = len * 1e-6;
+  if (Math.abs(a[0] - b[0]) > tol || Math.abs(a[1] - b[1]) > tol || Math.abs(a[2] - b[2]) > tol) return null;
+  return [a[0] / len, a[1] / len, a[2] / len];
+}
+
+/**
+ * One probe of {@link deriveFacingGradient}: the `area2` of three triangles
+ * built at `(px, py, pz)` whose `u x v` face normals are `h^2` along each
+ * world axis, divided back out by `h^2`.
+ */
+function facingGradientAt(
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  px: number, py: number, pz: number, h: number,
+): [number, number, number] | null {
+  const p0: Vec3 = [px, py, pz];
+  const dx: Vec3 = [px + h, py, pz];
+  const dy: Vec3 = [px, py + h, pz];
+  const dz: Vec3 = [px, py, pz + h];
+  const q0 = camera.project(p0, cols, rows, cellAspect, metrics);
+  const qx = camera.project(dx, cols, rows, cellAspect, metrics);
+  const qy = camera.project(dy, cols, rows, cellAspect, metrics);
+  const qz = camera.project(dz, cols, rows, cellAspect, metrics);
+  for (const q of [q0, qx, qy, qz]) if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) return null;
+  // `area2` of (p0, p1, p2) is `(p1-p0) x (p2-p0)` in screen space — the exact
+  // expression `rasterizeSolid`'s own hoisted back-face cull evaluates.
+  const area2 = (u: readonly [number, number, number, (number | undefined)?],
+    v: readonly [number, number, number, (number | undefined)?]): number =>
+    (u[0] - q0[0]) * (v[1] - q0[1]) - (u[1] - q0[1]) * (v[0] - q0[0]);
+  const inv = 1 / (h * h);
+  // (p0, p0+h*ey, p0+h*ez) has `u x v = h^2 * ex`, and cyclically.
+  return [area2(qy, qz) * inv, area2(qz, qx) * inv, area2(qx, qy) * inv];
+}
+
 function rasterizeSolid(
   scene: RasterizeContext,
   outCols: number,
@@ -1689,6 +1851,81 @@ function rasterizeSolid(
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
   const projScratch: [number, number, number, number?][] = [];
+  // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
+  // A contiguous run whose world AABB provably projects entirely off the grid
+  // is skipped without projecting one of its vertices. The two fidelity rules
+  // this must obey, both load-bearing:
+  //   1. A box that is not WHOLLY in front of the near plane is ALWAYS
+  //      accepted. glyphcss's own near-plane clipping stays authoritative;
+  //      behind the eye the projective map stops being one, so the 2D hull of
+  //      the projected corners no longer bounds the projected contents. Both
+  //      shipped cameras signal that by projecting a corner at or past the
+  //      near plane to NaN (orthographic has no eye and never does), so the
+  //      NaN test below IS this rule — pinned by
+  //      `rasterize.cullChunks.test.ts`'s "near-plane NaN contract".
+  //   2. Nothing is ever reordered — a run is skipped or drawn in place —
+  //      because `depthEpsilon` resolves coplanar ties by draw order.
+  // For points strictly in front of the near plane the projection IS a
+  // projective map, so the image of the box's convex hull is the convex hull
+  // of its 8 projected corners, and their 2D bounding box therefore bounds
+  // every projected point inside the run. Rejecting on that is exact.
+  const cullChunks = scene.cullChunks ?? null;
+  let cullCursor = 0;
+  const cullCorner: Vec3 = [0, 0, 0];
+  const chunkIsOffGrid = (chunk: GlyphPolygonCullChunk): boolean => {
+    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
+    for (let c = 0; c < 8; c++) {
+      cullCorner[0] = (c & 1) !== 0 ? chunk.maxX : chunk.minX;
+      cullCorner[1] = (c & 2) !== 0 ? chunk.maxY : chunk.minY;
+      cullCorner[2] = (c & 4) !== 0 ? chunk.maxZ : chunk.minZ;
+      const p = camera.project(cullCorner, cols, rows, cellAspect, scaledMetrics);
+      const px = p[0], py = p[1];
+      if (px !== px || py !== py) return false; // rule 1
+
+      if (px < bMinX) bMinX = px;
+      if (px > bMaxX) bMaxX = px;
+      if (py < bMinY) bMinY = py;
+      if (py > bMaxY) bMaxY = py;
+    }
+    return bMinX >= cols || bMaxX < 0 || bMinY >= rows || bMaxY < 0;
+  };
+  // ── Pre-projection BACK-FACE run rejection ──────────────────────────────
+  // The AABB test above is structurally blind to a globe's far hemisphere: a
+  // far-side run still projects inside the near side's own disc, so its box is
+  // on-grid and it survives to be projected and then thrown away one triangle
+  // at a time. Measured on /maps at 2560x1440, that category is 17.3% of every
+  // triangle submitted.
+  //
+  // The rejection needs the sign convention that decides "back-facing", and
+  // guessing it is how geometry vanishes. It is DERIVED from the camera
+  // instead, per pass, and never assumed:
+  //
+  //   `rasterizeSolid`'s own back-face test is `area2 > 0`, where `area2` is
+  //   the 2D cross product of the two projected edge vectors. When the camera's
+  //   screen map is AFFINE — `s(v) = M v + t` for a 2x3 `M` with rows r1, r2 —
+  //   that cross product is exactly `(r1 x r2) · (u x v)`, i.e. a fixed LINEAR
+  //   functional of the triangle's own world face normal `n = u x v`. Call it
+  //   `G`: `area2 = G · n`, so back-facing is exactly `G · n > 0`.
+  //
+  //   `G` is recovered by EVALUATION, not by algebra over the camera's axis
+  //   convention, rotation order, or handedness (any of which could change
+  //   under this file without anyone noticing here): three probe triangles
+  //   built to have face normals `h^2 * e_x`, `h^2 * e_y`, `h^2 * e_z` under
+  //   the SAME `u x v` the rasterizer uses are projected through the SAME
+  //   `camera.project`, and their `area2` values ARE `G`'s components.
+  //
+  // Affinity is likewise verified rather than assumed: the probe is repeated at
+  // a second, well-separated base point and a different scale, and the whole
+  // mechanism disables itself unless both agree. A perspective camera's screen
+  // map is not affine — its scale varies with depth — so it fails that check
+  // and keeps drawing every run, which is the correct conservative outcome
+  // rather than a `camera.kind` branch.
+  let facingX = 0, facingY = 0, facingZ = 0, facingOk = false;
+  if (cullChunks !== null && !doubleSided && cullChunks.length > 0) {
+    const g = deriveFacingGradient(camera, cols, rows, cellAspect, scaledMetrics, cullChunks);
+    if (g !== null) { facingX = g[0]; facingY = g[1]; facingZ = g[2]; facingOk = true; }
+  }
+
   // Cross-frame shading cache (camera-invariant per-triangle intensities + lit
   // color). `triT` is a positional triangle index — incremented for every fan
   // triangle regardless of culling — so cache slots stay aligned frame to frame.
@@ -1719,6 +1956,21 @@ function rasterizeSolid(
     };
   };
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
+    if (cullChunks !== null) {
+      while (cullCursor < cullChunks.length && cullChunks[cullCursor]!.end <= polyIdx) cullCursor++;
+      const chunk = cullChunks[cullCursor];
+      // Cone first: a handful of multiplies, against `chunkIsOffGrid`'s eight
+      // corner projections.
+      if (chunk !== undefined && chunk.start === polyIdx
+        && ((facingOk && glyphChunkIsBackFacing(chunk, facingX, facingY, facingZ)) || chunkIsOffGrid(chunk))) {
+        // `triT` must advance by the run's whole triangle count so the
+        // positional cross-frame shadeCache stays aligned frame to frame,
+        // exactly as the per-polygon `poly.hidden` skip below does.
+        triT += chunk.triangles;
+        polyIdx = chunk.end - 1;
+        continue;
+      }
+    }
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
@@ -1916,6 +2168,52 @@ function rasterizeSolid(
         }
       }
 
+      // Empty-coverage skip. `scanFillTriangle` clamps the triangle's screen
+      // bbox to whole cells (`ceil(min)` .. `floor(max)`) and returns
+      // immediately when that range is empty — no cell CENTRE can lie inside a
+      // triangle narrower than the gap between two integers. The test below is
+      // that same first test, byte-for-byte the same arithmetic on the same
+      // inputs, hoisted to the call site so the sub-cell triangles it rejects
+      // never pay the shading block, the shadow context, or the 60-argument
+      // call itself.
+      //
+      // This is not a micro-optimization on a rare case: it is the dominant
+      // case for any mesh finer than the glyph grid. Measured on `/maps` at
+      // 2560x1440 (283x105 cells, 212,373 triangles surviving the backface and
+      // off-grid culls), 145,935 of those — 68.7% — clamp to an empty box and
+      // paint nothing, and the mean number of cells scanned per surviving call
+      // is 0.61. A relief mesh is built at roughly one quad per cell at the
+      // sub-observer point, but a sphere's own foreshortening (both from
+      // latitude and from the limb) shrinks most of those quads well below a
+      // cell, so most of the fill budget was argument marshalling for calls
+      // that returned on their first branch.
+      //
+      // Restricted to `nanCount === 0`: a near-plane-straddling triangle is
+      // clipped below and its sub-triangles have their own, different screen
+      // coordinates, so this bbox does not bound what actually gets filled.
+      //
+      // It sits BELOW the shading block rather than above it, and that
+      // placement is load-bearing rather than incidental. `litCache` is keyed
+      // on the base colour plus the triangle's key intensity QUANTIZED to 8
+      // bits, but the colour it stores is computed from that triangle's own
+      // UNQUANTIZED intensity — so which triangle first populates a bucket
+      // decides the colour every later triangle in it receives. Skipping ahead
+      // of the shading block changes that arrival order, and a scene whose
+      // glyph grid was byte-for-byte unchanged still resolved different
+      // colours (measured: 0 of 29,715 glyph cells differing across all eight
+      // fidelity waypoints, yet six of the eight innerHTML digests moved).
+      // Below the block, every cache is populated exactly as before and only
+      // the shadow context, the texture context and the call itself are
+      // skipped.
+      if (nanCount === 0) {
+        const bMinX = Math.min(pa[0], pb[0], pc[0]);
+        const bMaxX = Math.max(pa[0], pb[0], pc[0]);
+        if (Math.max(0, Math.ceil(bMinX)) > Math.min(cols - 1, Math.floor(bMaxX))) continue;
+        const bMinY = Math.min(pa[1], pb[1], pc[1]);
+        const bMaxY = Math.max(pa[1], pb[1], pc[1]);
+        if (Math.max(0, Math.ceil(bMinY)) > Math.min(rows - 1, Math.floor(bMaxY))) continue;
+      }
+
       const receiveShadow = receiveShadowFlags[polyIdx] ?? false;
       // Per-mesh depth bias (z-fight resolution): scale the screen-linear depth so
       // a biased mesh wins coincident/coplanar cells. Larger zbuf = nearer.
@@ -2093,21 +2391,51 @@ function rasterizeSolid(
     // ignoring every local layer, exactly as `transparent` promises.
     const foreignOnly = occ.foreignOnly === true;
     const invSS = supersample > 1 ? 1 / supersample : 1;
+    // Sub-cell seam refinement (see `OcclusionMap.depth`). Never applied to a
+    // `foreignOnly` layer: a foreign stamp carries no local depth to compare
+    // against, and the foreign scene is nearer by definition.
+    const odepth = !foreignOnly ? occ.depth ?? null : null;
+    const ogradX = odepth !== null ? occ.gradX ?? null : null;
+    const ogradY = odepth !== null ? occ.gradY ?? null : null;
+    const seamRefine = odepth !== null && ogradX !== null && ogradY !== null;
     for (let r = 0; r < rows; r++) {
-      const refRow = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
+      const refRowF = occ.rowScale * (r * invSS) + occ.rowOffset;
+      const refRow = Math.floor(refRowF);
       if (refRow < 0 || refRow >= orows) continue;
       const refRowBase = refRow * ocols;
       const rowBase = r * cols;
+      // Offset of this row's cell centres from the id-map cell's own centre,
+      // in id-map cells: exactly how far the sample point is from where the
+      // depth it returns was actually measured.
+      const dy = seamRefine ? Math.abs(refRowF - (refRow + 0.5)) : 0;
       for (let c = 0; c < cols; c++) {
         const idx = rowBase + c;
-        if (depthBuf[idx] === -Infinity) continue;
-        const refCol = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
+        const myDepth = depthBuf[idx]!;
+        if (myDepth === -Infinity) continue;
+        const refColF = occ.colScale * (c * invSS) + occ.colOffset;
+        const refCol = Math.floor(refColF);
         if (refCol < 0 || refCol >= ocols) continue;
-        const owner = idm[refRowBase + refCol]!;
+        const ref = refRowBase + refCol;
+        const owner = idm[ref]!;
         // A different layer is nearest here → this cell is occluded. Owner === myId
         // (or empty) → keep; a layer never occludes itself. `foreignOnly` layers
         // blank solely under the foreign occluder's stamp.
         if (foreignOnly ? owner === GLYPH_FOREIGN_OCCLUDER_ID : (owner !== -1 && owner !== myId)) {
+          // The foreign stamp (`setForeignOcclusion`) overwrites the id-map's
+          // owner but NOT its depth — the retained depth there still belongs
+          // to whatever local surface won the cell — and a scene stacked above
+          // this one is nearer by definition. Refining against it would
+          // compare a layer to itself and never blank.
+          if (seamRefine && owner !== GLYPH_FOREIGN_OCCLUDER_ID) {
+            const ownerDepth = odepth![ref]!;
+            const dx = Math.abs(refColF - (refCol + 0.5));
+            const allowed = (dx * ogradX![ref]! + dy * ogradY![ref]!) * OCCLUSION_SEAM_SAFETY;
+            // Within what the owner's own surface could legitimately vary
+            // across the sub-cell distance between the sample point and this
+            // cell → the two surfaces are effectively coincident here, and
+            // blanking would open a seam nothing else paints.
+            if (!(ownerDepth > myDepth + allowed)) continue;
+          }
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
           if (shadeBuf) shadeBuf[idx] = NaN;

@@ -156,7 +156,7 @@ describe("GlyphMeshElement", () => {
   });
 
   it("observes the per-mesh ramp / ambient / occlusion attributes", () => {
-    for (const attr of ["glyph-palette", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"]) {
+    for (const attr of ["glyph-palette", "mode", "ambient-intensity", "occlusion-priority", "occlusion-claim", "occlusion-contour-px"]) {
       expect(GlyphMeshElement.observedAttributes).toContain(attr);
     }
   });
@@ -168,6 +168,7 @@ describe("GlyphMeshElement", () => {
 
     mesh.setAttribute("geometry", "cube");
     mesh.setAttribute("glyph-palette", "dense");
+    mesh.setAttribute("mode", "ink");
     mesh.setAttribute("ambient-intensity", "0.75");
     mesh.setAttribute("occlusion-priority", "1");
     mesh.setAttribute("occlusion-claim", "geometry");
@@ -179,6 +180,7 @@ describe("GlyphMeshElement", () => {
     expect(addSpy).toHaveBeenCalled();
     expect(addSpy.mock.calls[0]![1]).toMatchObject({
       glyphPalette: "dense",
+      mode: "ink",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
       occlusionClaim: "geometry",
@@ -220,10 +222,25 @@ describe("GlyphMeshElement", () => {
 
     const t = addSpy.mock.calls[0]![1]!;
     expect(t.glyphPalette).toBeUndefined();
+    expect(t.mode).toBeUndefined();
     expect(t.ambientIntensity).toBeUndefined();
     expect(t.occlusionPriority).toBeUndefined();
     expect(t.occlusionClaim).toBeUndefined();
     expect(t.occlusionContourPx).toBeUndefined();
+  });
+
+  it("ignores an unrecognized mode rather than popping the mesh into a nonexistent one", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    mesh.setAttribute("mode", "sepia");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy.mock.calls[0]![1]!.mode).toBeUndefined();
   });
 
   it("ignores an unparseable occlusion-claim rather than forwarding it", async () => {

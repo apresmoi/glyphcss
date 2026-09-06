@@ -43,6 +43,25 @@ export interface GlyphProjectionMetrics {
   centerRow?: number;
 }
 
+/**
+ * MEMOIZED, and that is load-bearing rather than cosmetic: `project()` is
+ * called once per mesh VERTEX per render, so a terrain scene runs it a quarter
+ * of a million times a frame (measured on /maps: 65,312 quads x 4 = 261,248
+ * calls per render). Building a fresh result object on each of those made this
+ * function 3.7% of the whole script budget in a CPU profile of a continuous
+ * globe rotation, entirely in allocation and GC.
+ *
+ * The memo is keyed on every input by VALUE, so a hit is bit-identical to a
+ * recompute — this changes no arithmetic anywhere. The returned object is
+ * REUSED, which is safe because all three call sites destructure it
+ * immediately inside the same synchronous block and never retain it; the
+ * function is module-private, so there is no other caller to break.
+ */
+const metricsMemo = { cellPxW: 0, cellPxH: 0, centerCol: 0, centerRow: 0 };
+let memoCols = NaN, memoRows = NaN, memoAspect = NaN, memoCx = NaN, memoCy = NaN;
+let memoCw: number | undefined = NaN, memoCh: number | undefined = NaN;
+let memoCc: number | undefined = NaN, memoCr: number | undefined = NaN;
+
 function resolveProjectionMetrics(
   cols: number,
   rows: number,
@@ -50,12 +69,21 @@ function resolveProjectionMetrics(
   center: [number, number],
   metrics?: GlyphProjectionMetrics,
 ): { cellPxW: number; cellPxH: number; centerCol: number; centerRow: number } {
-  return {
-    cellPxW: metrics?.cellWidth && metrics.cellWidth > 0 ? metrics.cellWidth : BASE_TILE / cellAspect,
-    cellPxH: metrics?.cellHeight && metrics.cellHeight > 0 ? metrics.cellHeight : BASE_TILE,
-    centerCol: metrics?.centerCol ?? cols * center[0],
-    centerRow: metrics?.centerRow ?? rows * center[1],
-  };
+  const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
+  const cc = metrics?.centerCol, cr = metrics?.centerRow;
+  if (cols === memoCols && rows === memoRows && cellAspect === memoAspect
+    && center[0] === memoCx && center[1] === memoCy
+    && cw === memoCw && ch === memoCh && cc === memoCc && cr === memoCr) {
+    return metricsMemo;
+  }
+  memoCols = cols; memoRows = rows; memoAspect = cellAspect;
+  memoCx = center[0]; memoCy = center[1];
+  memoCw = cw; memoCh = ch; memoCc = cc; memoCr = cr;
+  metricsMemo.cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
+  metricsMemo.cellPxH = ch && ch > 0 ? ch : BASE_TILE;
+  metricsMemo.centerCol = cc ?? cols * center[0];
+  metricsMemo.centerRow = cr ?? rows * center[1];
+  return metricsMemo;
 }
 
 /**
@@ -93,6 +121,20 @@ const PERSPECTIVE_CLIP_NEAR_FRACTION = PERSPECTIVE_NEAR_FRACTION * 1.01;
  * Returns the rotated [x, y, z] in world units in CSS-frame axes
  * (caller still needs to multiply by `zoom` to get final CSS pixels).
  */
+/**
+ * Per-angle trig memo. Same reason as `resolveProjectionMetrics` above: this
+ * runs once per vertex per render, and recomputing `Math.cos`/`Math.sin` of two
+ * angles that are CONSTANT for the whole render cost four transcendental calls
+ * per vertex — over a million per frame on a terrain scene, 8.0% of the script
+ * budget in the same profile.
+ *
+ * Keyed on exact angle equality, so a hit returns the identical double a
+ * recompute would: no arithmetic changes. `NaN !== NaN` means a NaN angle
+ * always misses and recomputes rather than serving a stale cache.
+ */
+let trigRotX = NaN, trigCosX = 1, trigSinX = 0;
+let trigRotY = NaN, trigCosY = 1, trigSinY = 0;
+
 function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
   // Axis-swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
   const cx = v[1];
@@ -101,18 +143,26 @@ function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
 
   // Step 2: CSS rotate(rotY deg) = rotateZ(rotY).
   // RotZ(θ): (x,y,z) → (x·cosθ − y·sinθ, x·sinθ + y·cosθ, z)
-  const rotYR = rotYDeg * DEG;
-  const cosY = Math.cos(rotYR);
-  const sinY = Math.sin(rotYR);
+  if (rotYDeg !== trigRotY) {
+    const rotYR = rotYDeg * DEG;
+    trigCosY = Math.cos(rotYR);
+    trigSinY = Math.sin(rotYR);
+    trigRotY = rotYDeg;
+  }
+  const cosY = trigCosY, sinY = trigSinY;
   const rx = cx * cosY - cy * sinY;
   const ry = cx * sinY + cy * cosY;
   const rz = cz;
 
   // Step 3: rotateX(rotX deg).
   // RotX(θ): (x,y,z) → (x, y·cosθ − z·sinθ, y·sinθ + z·cosθ)
-  const rotXR = rotXDeg * DEG;
-  const cosX = Math.cos(rotXR);
-  const sinX = Math.sin(rotXR);
+  if (rotXDeg !== trigRotX) {
+    const rotXR = rotXDeg * DEG;
+    trigCosX = Math.cos(rotXR);
+    trigSinX = Math.sin(rotXR);
+    trigRotX = rotXDeg;
+  }
+  const cosX = trigCosX, sinX = trigSinX;
   const ry2 = ry * cosX - rz * sinX;
   const rz2 = ry * sinX + rz * cosX;
 

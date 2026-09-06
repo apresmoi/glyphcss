@@ -156,10 +156,28 @@ export interface CellGrid {
 export interface GlyphTransformCellsLayer {
   /** `true` for a detail mesh's own layer, `false` for the base/shared grid. */
   readonly detail: boolean;
+  /**
+   * `true` for a meshless viewport overlay requested through the scene handle.
+   * Such an overlay is still a detail output (`detail: true`) but has no
+   * `mesh`; its grid spans the full base viewport at its declared density.
+   */
+  readonly viewport?: boolean;
   /** The detail mesh's transform `id`, when the caller declared one. */
   readonly mesh?: string;
   /** The detail mesh's `density`, when set. */
   readonly density?: number;
+  /**
+   * The affine mapping THIS grid's cell coordinates to the scene's BASE grid
+   * cell coordinates: `sceneCol = a*col + e`, `sceneRow = d*row + f`,
+   * encoded `[a, 0, 0, d, e, f]`. Identity `[1, 0, 0, 1, 0, 0]` for the base
+   * grid itself. The same quantity `GlyphEffectCoordinates.cellToSceneGrid`
+   * (`api/effects.ts`) already carries for the generic effect compositor —
+   * exposed here too so a plain `transformCells` hook (a `line`/`contour`
+   * stroke layer in `@glyphcss/maps` is the reference consumer) can convert
+   * a cell it was handed into base-grid coordinates without re-deriving the
+   * per-mesh detail-layer fit math itself.
+   */
+  readonly cellToSceneGrid: readonly [number, number, number, number, number, number];
 }
 
 /**
