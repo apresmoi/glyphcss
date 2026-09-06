@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGlyphMap,
   glyphMapContourIntervalLevels,
+  glyphMapNormalizeBearing,
   GlyphMapClassifiers,
   GLYPH_MAP_MAX_TILT,
   type GlyphMapAttribution,
@@ -84,10 +85,10 @@ import {
 } from "./mapsKit";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_DEFAULT, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
-import { MapTiltReset } from "./MapTiltReset";
+import { MapCompass } from "./MapCompass";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
 import { MAPS_CONTOUR_WINDOW_OFF, readInitialMapsState, writeMapsUrlState, type MapCharMode, type MapColorEncoding } from "./mapsUrlState";
-import { mapTiltResetValue, readMapViewState } from "./mapsView";
+import { MAP_BEARING_HOME, mapTiltResetValue, readMapViewState } from "./mapsView";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "../InstrumentWorkbench/instrument-workbench.css";
 import "./maps-workbench.css";
@@ -336,6 +337,11 @@ export default function MapsWorkbench() {
   const [centerLat, setCenterLat] = useState(initial.centerLat);
   const [span, setSpan] = useState(initial.span);
   const [tilt, setTilt] = useState(initial.tilt);
+  // The camera HEADING (`getBearing()`, normalized to `[0, 360)`). Like
+  // `tilt` it is read back from the widget on every sync rather than assumed:
+  // the horizontal half of the Ctrl+drag orient gesture moves it without this
+  // page writing it at all.
+  const [bearing, setBearing] = useState(initial.bearing);
   const [lod, setLod] = useState(0);
   const [maxSpan, setMaxSpan] = useState(360);
   // The pitch CEILING the widget will honour at the live view's own scale
@@ -724,6 +730,9 @@ export default function MapsWorkbench() {
       projection,
       autoSize: true,
       tilt,
+      // Opening heading, from the URL — the same read-once-at-mount treatment
+      // `tilt` gets; every later change goes through `map.setBearing`.
+      bearing,
       controls: { drag: true, wheel: true },
       sun: {
         mode: sunRef.current.mode,
@@ -798,6 +807,7 @@ export default function MapsWorkbench() {
       setMaxSpan(r.maxSpan);
       setTilt(r.tilt);
       setMaxTilt(r.maxTilt);
+      setBearing(r.bearing);
       const deg = r.degPerCell;
       setDegPerCell(deg);
       setViewGrid((prev) => (prev.cols === v.cols && prev.rows === v.rows ? prev : { cols: v.cols, rows: v.rows }));
@@ -921,7 +931,7 @@ export default function MapsWorkbench() {
     // frame (the widget clamps up front so nothing snaps at the end), so the
     // slider's range has to follow it there, not only once it lands.
     void map.setProjection(projection, projectionChanged ? {} : { durationMs: 0 })
-      .then(() => { setMaxSpan(map.getMaxSpan()); setMaxTilt(map.getMaxTilt()); setTilt(map.getTilt()); });
+      .then(() => { setMaxSpan(map.getMaxSpan()); setMaxTilt(map.getMaxTilt()); setTilt(map.getTilt()); setBearing(map.getBearing()); });
     setMaxSpan(map.getMaxSpan());
     // A sheet has no limb, so crossing to or from the globe moves the pitch
     // ceiling by up to 64 degrees — and with it the applied pitch.
@@ -1238,14 +1248,26 @@ export default function MapsWorkbench() {
     mapRef.current?.setTilt(value);
   }, []);
 
+  // ── Bearing -> map.setBearing() — the other half of the same gesture, and
+  //    the same wiring. ────────────────────────────────────────────────────
+  const onBearing = useCallback((value: number) => {
+    // Normalized by the widget on the way in, so the state this page holds is
+    // whatever `getBearing()` would answer — the slider can never show a
+    // heading (`400`) the camera cannot hold.
+    mapRef.current?.setBearing(value);
+    setBearing(mapRef.current?.getBearing() ?? glyphMapNormalizeBearing(value));
+  }, []);
+
   /**
-   * The on-map "Level" control's action. It reads the projection family
-   * live rather than closing over one, and it writes through `onTilt` so the
-   * Dock's slider and the widget can never disagree about what happened.
+   * The on-map compass's action: square the map up — face north AND level —
+   * in one click. It reads the projection family live rather than closing
+   * over one, and it writes through `onTilt`/`onBearing` so the Dock's
+   * sliders and the widget can never disagree about what happened.
    */
-  const onLevelTilt = useCallback(() => {
+  const onResetOrientation = useCallback(() => {
     onTilt(mapTiltResetValue(isOrbitProjectionId(projectionIdRef.current)));
-  }, [onTilt]);
+    onBearing(MAP_BEARING_HOME);
+  }, [onTilt, onBearing]);
 
   // ── Center/span sliders -> imperative `map.setView()`. ─────────────────
   const onCenter = useCallback((lon: number, lat: number) => {
@@ -1302,6 +1324,7 @@ export default function MapsWorkbench() {
       centerLat,
       span,
       tilt,
+      bearing,
       palette,
       // Token `g`, formerly the scene-wide ramp. `mapsUrlState.ts` still
       // names this key `glyphPalette`; retiring the scene-wide control under
@@ -1327,7 +1350,7 @@ export default function MapsWorkbench() {
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
       contourCeiling: contourMaxElevation ?? MAPS_CONTOUR_WINDOW_OFF.max,
     });
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, contourMinElevation, contourMaxElevation]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, contourMinElevation, contourMaxElevation]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -1371,12 +1394,12 @@ export default function MapsWorkbench() {
   //    same real vanilla snippet). ────────────────────────────────────────
   const mapsSnippet = useMemo(
     () => buildMapsSnippet({
-      projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, terrainGlyphPalette,
+      projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette,
       backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
       contourMinElevation, contourMaxElevation,
     }),
     [
-      projectionId, exaggeration, centerLon, centerLat, span, tilt, palette, terrainGlyphPalette,
+      projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette,
       backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
       contourMinElevation, contourMaxElevation,
     ],
@@ -1401,7 +1424,7 @@ export default function MapsWorkbench() {
           {providerError && <div className="maps-error">Couldn&apos;t load terrain data: {providerError}</div>}
           <StatsOverlay anchor="top-left" container={stageHost} />
           <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} />
-          <MapTiltReset tilt={tilt} isOrbitProjection={isOrbitProjectionId(projectionId)} onReset={onLevelTilt} />
+          <MapCompass tilt={tilt} bearing={bearing} isOrbitProjection={isOrbitProjectionId(projectionId)} onReset={onResetOrientation} />
           <div className="synth-export-bar">
             <button type="button" className="gw-code-panel__action" onClick={handleCopyAscii} title="Copy the rendered ASCII map to the clipboard">
               {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
@@ -1437,9 +1460,9 @@ export default function MapsWorkbench() {
         <Dock id="maps-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <MapsDockFolders
             projectionId={projectionId} onProjectionId={setProjectionId}
-            centerLon={centerLon} centerLat={centerLat} span={span} maxSpan={maxSpan} tilt={tilt} maxTilt={maxTilt}
+            centerLon={centerLon} centerLat={centerLat} span={span} maxSpan={maxSpan} tilt={tilt} maxTilt={maxTilt} bearing={bearing}
             lod={lod} degPerCell={degPerCell}
-            onCenter={onCenter} onSpan={onSpanChange} onTilt={onTilt}
+            onCenter={onCenter} onSpan={onSpanChange} onTilt={onTilt} onBearing={onBearing}
             charMode={charMode} charModeReason={charModeReason}
             wireframeJunctions={wireframeJunctions} hiddenLines={hiddenLines}
             solidWeightRamp={solidWeightRamp} colorEncoding={colorEncoding} atlasReason={atlasReason}
@@ -1500,8 +1523,8 @@ interface RenderingPartial {
 
 function MapsDockFolders(props: {
   projectionId: MapProjectionId; onProjectionId: (id: MapProjectionId) => void;
-  centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; maxTilt: number; lod: number; degPerCell: number;
-  onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void;
+  centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; maxTilt: number; bearing: number; lod: number; degPerCell: number;
+  onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void; onBearing: (v: number) => void;
   charMode: MapCharMode; charModeReason: string | null;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
   colorEncoding: MapColorEncoding; atlasReason: string | null;
@@ -1517,9 +1540,9 @@ function MapsDockFolders(props: {
   const gui = useDockGui();
 
   useViewFolder(gui, {
-    centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt, maxTilt: props.maxTilt,
+    centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt, maxTilt: props.maxTilt, bearing: props.bearing,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
-    onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt,
+    onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt, onBearing: props.onBearing,
   });
 
   return (

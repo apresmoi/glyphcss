@@ -336,18 +336,48 @@ would aim past the limb at empty space) and rising to `GLYPH_MAP_MAX_TILT`
 that cap at every span. The request is remembered unclamped, so zooming back
 in restores the full pitch.
 
-**Ctrl+drag — or a right-button drag — pitches the camera**, vertically, at
-`GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5) degrees per pixel: the binding Google
-Maps, Mapbox and MapLibre all use, and MapLibre's own rate. Plain drag keeps
-its meaning (pan on a sheet, orbit on the globe). `controls.tilt` (default
-`true`) is its own opt-out alongside `controls.drag`/`controls.wheel`, and
-while it is enabled the widget suppresses the host's context menu so the
-right-button half is usable. The gesture clamps live to `getMaxTilt()` as the
-zoom changes it, carries no inertia, and shares the widget's one animation
-frame with every other gesture — at most one render per displayed frame.
+### Camera bearing
 
-There is no BEARING (rotation about the view axis). `camera.rotY` orbits the
-globe and moves the centre's longitude; that is navigation, not a heading.
+`bearing` is the compass heading, in degrees, that points UP on screen. `0`
+(the default) is north up; `90` puts east up — MapLibre's convention, so the
+picture turns counter-clockwise as the number grows. `map.setBearing(b)` /
+`map.getBearing()`, reported normalized to `[0, 360)`.
+
+It is a rotation about the SURFACE NORMAL AT THE PIVOT — the same point
+`tilt` pitches about — and not a roll about the view axis. The two are
+identical at zero pitch and diverge exactly when tilted: a view-axis roll
+tips the horizon, and no map product does that. Turning about the pivot's
+local up instead swings the camera around a cone at constant pitch, so the
+horizon stays level and only the heading changes. In glyphcss's own frame the
+composition is `RotX(tilt) · RotZ(-bearing) · RotX(trueRotX) · RotZ(rotY)`:
+navigate, then turn, then pitch.
+
+At bearing `0` no camera matrix is installed at all and the render is
+bit-for-bit what it was before the feature existed — the same string, the
+same `project()` cells, the same `getMaxSpan()`. At any other heading the
+widget installs it through `GlyphCamera.mat`/`useMat`, glyphcss's public
+rotation override.
+
+Two things follow the heading automatically and are worth knowing about: a
+drag still pans the way the picture looks (the pixel delta comes back through
+the bearing before it becomes navigation), and a SHEET's cover ceiling
+TIGHTENS, because a turned viewport is a rotated rectangle whose reach along
+each world axis is `w|cos b| + h|sin b|` — worst at 45 degrees.
+
+**Ctrl+drag — or a right-button drag — ORIENTS the camera**: VERTICAL travel
+pitches it at `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5) degrees per pixel,
+HORIZONTAL travel turns it at `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8) —
+the binding Google Maps, Mapbox and MapLibre all use, and MapLibre's own two
+rates. Dragging right decreases the bearing, so the top of the picture
+follows the hand, the same rule the pitch half obeys. Both axes are live in
+one stroke; there is no axis lock. Plain drag keeps its meaning (pan on a
+sheet, orbit on the globe). `controls.tilt` (default `true`) is the one
+opt-out for both halves — it is one press and one stroke — alongside
+`controls.drag`/`controls.wheel`, and while it is enabled the widget
+suppresses the host's context menu so the right-button half is usable. The
+pitch clamps live to `getMaxTilt()` as the zoom changes it, neither angle
+carries inertia, and the gesture shares the widget's one animation frame with
+every other one — at most one render per displayed frame.
 
 ### Cover, not contain
 

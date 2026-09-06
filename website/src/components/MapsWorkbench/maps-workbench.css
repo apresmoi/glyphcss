@@ -518,7 +518,7 @@
    (z-index 22), so this sits at the same z-index as the search box and never
    collides with it. Rendered only while the camera is off-level
    (`MapTiltReset.tsx`), so it costs nothing on the view most readers keep. */
-.maps-tilt-reset {
+.maps-compass {
   position: absolute;
   top: var(--overlay-top, 12px);
   right: 12px;
@@ -537,17 +537,24 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   cursor: pointer;
 }
-.maps-tilt-reset:hover,
-.maps-tilt-reset:focus-visible {
+.maps-compass:hover,
+.maps-compass:focus-visible {
   border-color: rgba(56, 189, 248, 0.55);
 }
 /* The angle carries the same orange the Dock uses for a live value, so the
    readout reads as state and the word next to it reads as the action. */
-.maps-tilt-reset__angle {
+.maps-compass__angles {
   color: #f97316;
   font-variant-numeric: tabular-nums;
 }
-.maps-tilt-reset__label {
+/* The needle points where north is, so it has to sit on the text baseline's
+   optical centre rather than on the baseline itself. */
+.maps-compass__needle {
+  display: inline-flex;
+  align-self: center;
+  color: rgba(255, 232, 184, 0.8);
+}
+.maps-compass__label {
   color: rgba(255, 232, 184, 0.62);
   font-size: 11px;
   text-transform: uppercase;

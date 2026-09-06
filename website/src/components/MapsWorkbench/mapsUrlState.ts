@@ -25,6 +25,13 @@ export interface MapsUrlState {
   centerLat: number;
   span: number;
   tilt: number;
+  /**
+   * Camera HEADING, degrees, `[0, 360)` — the compass direction at the top of
+   * the map (`GlyphMapHandle.getBearing()`). `0` (north up) is the default,
+   * so a link from before this field existed decodes to exactly the map it
+   * always showed.
+   */
+  bearing: number;
   palette: MapPaletteName;
   glyphPalette: MapGlyphPalette;
   charMode: MapCharMode;
@@ -69,6 +76,7 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   centerLat: 20,
   span: 140,
   tilt: 40,
+  bearing: 0,
   palette: "terrain",
   glyphPalette: "default",
   charMode: "ascii",
@@ -211,6 +219,12 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   // still decode with their existing rules (contrast `terrainRenderMode`'s
   // removal below, which needed one). 10m steps are finer than the 50m the
   // control itself offers, so a persisted value round-trips exactly.
+  // Appended, and for the third time with the same consequence: the codec is
+  // TOKEN-keyed, so a link carrying no `b` decodes to `0` — north up, the map
+  // every existing link already describes. No version bump: nothing was
+  // retired. A 1-degree step matches the slider's own, so a shared heading
+  // round-trips exactly.
+  { key: "bearing", token: "b", type: { kind: "float", step: 1 }, default: MAPS_URL_DEFAULTS.bearing },
   { key: "contourFloor", token: "F", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourFloor },
   { key: "contourCeiling", token: "C", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourCeiling },
 ];

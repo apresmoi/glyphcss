@@ -1087,39 +1087,175 @@ the host whenever the gesture is enabled — on some platforms the native menu
 appears on `mousedown`, i.e. before the drag has moved a pixel, which would
 make the right-button half unusable rather than merely untidy.
 
-*Bearing is NOT part of this and is not expressible today.* Bearing is
-rotation about the VIEW axis (the compass heading; north no longer up, with
-`view.center` unchanged) — a THIRD angle. `camera.rotY` is not it: it orbits
-the globe and moves `view.center`'s longitude, which is navigation. The Euler
-path composes exactly `RotZ(rotY)` then `RotX(rotX)`
-(`createGlyphCamera.ts`'s `rotateVec3Voxcss`), a 2-parameter subset of SO(3),
-and `cameraForCenter` returns only `{rotX, rotY}`. The route that does NOT
-require a core change is `GlyphCamera.mat` + `useMat` — a public, documented
-9-element row-major rotation matrix that `project()` already honours — with
-`useMat` left `false` at bearing 0 so every existing gate and byte-identity
-claim is untouched. What that route still has to settle, all of it audited
-while shipping the pitch half: the orbit drag branch writes `camera.rotY`/
-`camera.rotX` from raw pixel deltas and would need `[dx, dy]` rotated by
-`-bearing` first; the TAA history camera in glyphcss's `rasterize.ts` rebuilds
-a camera from `rotX`/`rotY` and drops `mat`/`useMat`, so `temporalBlend` would
-reproject against an unrotated frame (a glyphcss-side fix, outside this
-package); the sheet cover clamp's world-space box is axis-aligned while the
-visible window would become a rotated rect. Three things that look like they
-would break do NOT: `glyphMapHeadlightDirection` is bearing-INVARIANT (a roll
-about the view axis does not move that axis), `maxTiltFor` reads only a radius
-and a half-height, and every unproject-derived footprint —
-`unprojectSphere`'s Newton on `camera.project`, `sheetUnprojector`'s
-three-probe basis, `viewportGeoSamples` and `orbitCandidateGeoBounds` — is
-derived from SCREEN cells rather than from an axis-aligned lon/lat window
-around `view.center`, so the tile sweep follows a bearing for free and cannot
-under-cover at 45 degrees. `chirality.test.ts` needs no parameterizing: it
-pins the zero-bearing frame, which stays byte-identical. Label placement
-follows for free as well and needs no change: the contour labels' "near
-horizontal, locally straight" test is a SCREEN criterion measured on the
-projected polyline, and `glyphMapDeclutterLabels` arbitrates in screen space,
-so both rotate with the picture. If bearing becomes view state it appends to
-`mapsUrlState`'s token-keyed schema like `tilt` does — an appended field needs
-no version bump, only a token and a default.
+**BEARING IS A ROTATION ABOUT THE PIVOT'S SURFACE NORMAL, NOT A ROLL ABOUT
+THE VIEW AXIS.** The pitch half of this work shipped with the wrong one-line
+model written down — "bearing is a third rotation about the VIEW axis" — and
+it is worth stating why that is wrong before anything else, because it is
+wrong in the way that survives review. Rolling about the view axis ROLLS THE
+HORIZON: the map tips sideways, like a photograph turned in its frame. No map
+product does that, and it is not what a heading is. What Google Maps, Mapbox,
+MapLibre and Cesium all do is turn the camera about the LOCAL UP at the point
+it is looking at — the camera swings around a cone at constant pitch, the
+horizon stays level, and only the compass direction changes. The two models
+are IDENTICAL AT ZERO PITCH, which is exactly why the error is easy to miss
+and exactly why it matters: they diverge only when the camera is tilted, and
+tilted is the case bearing exists for.
+
+The number is the compass heading that points UP on screen: `0` is north up,
+`90` puts east up, so the picture turns counter-clockwise as it grows — the
+MapLibre convention, taken rather than invented because a heading a reader
+already knows how to read is worth more than a self-consistent new one.
+`getBearing()` reports it normalized to `[0, 360)`, and exactly `0` (never
+`-0`) at every multiple of a turn, because `bearing === 0` is the guard that
+keeps the whole render bit-identical.
+
+**The composition.** In glyphcss's own axis-swapped c-frame (`(v[1], v[0],
+v[2])` — `createGlyphCamera.ts`'s `rotateVec3WithMat` bakes that swap in), the
+installed matrix is
+
+    M = E · Rot(uc, −bearing),    E = RotX(camera.rotX) · RotZ(camera.rotY)
+
+where `uc` is the pivot's local up in that same frame. Two things fall out of
+the RIGHT-multiplication, and both are the reason for it:
+
+ 1. **The horizon stays level.** `up` is the rotation's own axis, so
+    `M · uc = E · uc` identically, for every bearing: the screen-space
+    direction of local up at the pivot cannot move. A roll is
+    `RotZ(ψ) · E` — LEFT multiplication — and fails exactly this clause.
+    Measured on a globe at pitch 40: up's screen angle moves by 8e-9 degrees
+    across a 60-degree turn under the right model, and by 36.2 degrees under
+    the roll.
+ 2. **It is the third Euler angle, in the right slot.** Where the pivot is
+    the view centre, `E0 · uc = ẑ` (proven, not assumed: `(E·c(u))_z` is
+    `glyphMapHeadlightDirection(rotX, rotY) · u`, and for the globe that
+    vector IS the radial direction at the view centre), so
+    `E0 · Rot(uc, −b) = RotZ(−b) · E0` and the whole camera reads
+    `RotX(tilt) · RotZ(−b) · RotX(trueRotX) · RotZ(rotY)` — navigate, turn,
+    pitch. That is the MapLibre/Cesium camera exactly, and it is what makes
+    the drag correction a single 2×2 rotation rather than a re-derivation.
+
+The axis `uc` is asked of the PROJECTION, through `localUpDirection`'s
+`project(lon, lat, +1m)` probe, not hardcoded as `+Z` (right for a sheet) or
+"radially outward" (right for the globe). `glyphMapFromD3Raw` lets a caller
+bring a projection this package has never seen, and a `setProjection` blend is
+a fourth thing again; all of them agree that a positive elevation nudge moves
+a point up, which is the entire definition needed. It is rebuilt from
+`camera.rotX`/`rotY`/`target` after EVERY write of any of them — construction,
+`syncCameraToView`, `applyDragState`, `applyTiltState`, `applyProjectionFrame`,
+`setBearing` — because a stale matrix is not a stale picture, it is a wrong
+`project()` for every caller in `widget.ts` (unproject, tile sweep, strokes,
+hotspots) until the next render.
+
+**Bearing 0 is the map that existed before this feature, and that is a
+guarantee with a test.** No matrix is installed at all there (`useMat` false,
+`mat` null), so glyphcss stays on its memoized Euler path and the default map
+pays nothing. `widget.bearing.test.ts` pins the render STRING, `project()` on
+five points, `unproject()` on three cells, `getMaxSpan()`, `getMaxTilt()` and
+`getTilt()` identical across three maps: one that never heard of bearing, one
+constructed at `bearing: 0`, and one turned to 137 and back — the third being
+the one that catches a matrix left on the camera (mutation-checked: not
+clearing it moves a probe cell from col 164.65 to col 24.55). Every branch
+that could change a cell is guarded on `bearing === 0` and takes the ORIGINAL
+expression verbatim rather than the general one with `cos 0`/`sin 0`
+substituted, because `(a/b)/c` and `a/(b·c)` are not the same double.
+
+**What the audit got right, and the one thing it got wrong.** Right: no core
+change is needed (`GlyphCamera.mat`/`useMat` is public and `project()` already
+honours it); `chirality.test.ts` needs no parameterizing, since it pins the
+zero-bearing frame; `maxTiltFor` reads only a radius and a half-height; and
+every unproject-derived footprint — `unprojectSphere`'s Newton on
+`camera.project`, `sheetUnprojector`'s three-probe basis, `viewportGeoSamples`,
+`orbitCandidateGeoBounds` — is derived from SCREEN cells rather than an
+axis-aligned lon/lat window, so the tile sweep, the contour labels' "near
+horizontal, locally straight" screen criterion and `glyphMapDeclutterLabels`
+all follow a heading for free. Wrong: **`glyphMapHeadlightDirection` is NOT
+bearing-invariant.** The audit's reasoning was sound for the model it was
+written against — a roll about the view axis cannot move that axis — but a
+rotation about the SURFACE NORMAL genuinely swings the camera, so reading the
+Euler pair while a matrix is installed lights the map from where the camera
+used to be. `headlightDirection()` reads the matrix instead:
+projected depth is `row3(mat) · c(v)`, so its world gradient is that row
+un-swapped, `(mat[7], mat[6], mat[8])` — already unit length, being a row of a
+rotation, and reducing ALGEBRAICALLY to `(sin rotX cos rotY, sin rotX sin
+rotY, cos rotX)` at bearing 0, where the Euler call is still the one that runs.
+At zero pitch it is invariant after all, which is the two models coinciding
+again and is pinned as its own case.
+
+**The drag.** `camera.rotX`/`rotY` are the NAVIGATION rotation and the heading
+sits on top of them, so a raw pixel delta means something else once the map is
+turned. `RotZ(−bearing)` acts on exactly the two components that become col
+and row, so undoing it is one 2×2 rotation by `+bearing` in screen
+coordinates (`y` DOWN, hence the plain unmirrored matrix). Check it at 90
+degrees, where east is up: dragging right there must move the centre NORTH,
+and `(1, 0)` maps to `(0, 1)` — drag DOWN in the navigation frame, which is
+what the orbit branch already turns into a northward step. Measured: the same
+40px stroke gives `lon −1.4213` at bearing 0 and `lat +1.4213` at bearing 90,
+the same magnitude spent on the other axis. The SHEET branch takes NO such
+correction and must not: `screenToWorldDelta` solves its basis from three
+probes of the live `camera.project`, which already carries `camera.mat`, so
+rotating the delta first would apply the turn twice.
+
+**The cover clamp DOES under-cover, and it is measurable.** A sheet's visible
+window is a rectangle in world space, and a bearing turns it; the AABB of a
+`w × h` rect turned by `b` is `w|cos b| + h|sin b|` by `w|sin b| + h|cos b|`,
+worst at 45 degrees. `sheetScreenScale`'s per-axis probe is unchanged (the
+rect's own axes turn with it, so the foreshortening still belongs to
+`perWorldX`); only the half-extents `clampWorldToCover` compares and the
+`coverZoom` `spanCoverLimit` needs take the turned AABB. On Mercator at
+140×63 the ceiling drops from 306.4 degrees of span to 234.1 at bearing 45,
+and without the term a viewport CORNER falls off the map at the ceiling —
+which is the gate, rather than the arithmetic. At the corrected ceiling the
+four corners land exactly on the domain edge (lat ±85.0511…, Mercator's own
+`maxLat`), i.e. the rule is exact rather than slack.
+
+**The one thing this cannot fix from inside `packages/maps`, reported not
+worked around:** glyphcss's TAA history camera. `rasterize.ts`'s
+`temporalBlend` path rebuilds the previous frame's camera from `rotX`/`rotY`
+(plus `target`/`zoom`/`center`/`perspective`/`distance`/`stretch`/`fovScale`)
+and DROPS `mat`/`useMat`, both in the `curCam` parameter it is handed and in
+the `H.cam` history it stores, so a turned scene would reproject its history
+against an unrotated frame and smear. The fix is small and belongs there —
+carry the two fields through both structures and set them on the rebuilt
+camera — and it is not made here. `@glyphcss/maps` never sets `temporalBlend`,
+and a consumer would have to pass it through `GlyphMapOptions.scene` to reach
+it, so nothing ships broken; but a maps scene that did opt in would be wrong
+at any nonzero bearing.
+
+**The gesture** is the HORIZONTAL axis of the stroke whose vertical axis is
+pitch, at `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8 — MapLibre's own
+`bearingDegreesPerPixelMoved`, a full turn in 450px), and dragging RIGHT
+DECREASES the bearing (MapLibre's own `* -0.8`), which turns the picture
+clockwise so the top of it follows the hand — the same "the horizon follows
+the hand" rule the pitch half obeys. Both axes are live in the one stroke
+rather than the gesture committing to one at `pointerdown`: that is what every
+map with this binding does, it is the only way a reader can compose "look
+across it and turn it" in one movement, and an axis lock would make a
+slightly-off-vertical pitch silently refuse to turn. `controls.tilt` is the
+one opt-out for both halves — one press, one stroke, and two flags would let a
+caller enable half of it. It goes through `applyBearingState` +
+`markMotionDirty()`, so `getBearing()` is exact per `pointermove` while the
+repaint stays on the one motion loop (gated: 20 synchronous moves render
+nothing and still report the exact live heading). No inertia, for the reason
+the pitch half has none.
+
+**View state and the page.** `bearing` appends to `mapsUrlState`'s
+token-keyed schema under `b` with a 1-degree step and a `0` default — no
+version bump, nothing retired, and a link written before it existed carries no
+`b` and decodes to north up, which is the map it always described. On `/maps`
+the Dock's View folder carries a `Bearing °` row directly under `Tilt °`
+(`MAP_BEARING_SLIDER_RANGE`, a fixed `0..360` — a heading has no ceiling to
+follow, so unlike Tilt it needs no per-sync range push) whose VALUE still
+syncs every frame, because the horizontal half of the gesture moves the camera
+without the page writing it and a row that did not read it back would show a
+stale heading — the exact defect just fixed for Tilt. `0..360` rather than
+`-180..180` because it is a compass heading and matches `getBearing()`; the
+cost is a seam at north where the handle jumps 359 → 1, which is only a
+redraw, since the row is written to per sync and never read back into the
+gesture. The on-map control that was `MapTiltReset` is now `MapCompass`: one
+button, in the same corner, showing whichever of heading and pitch is off home
+(with a needle that turns with the map and a 16-point compass label) and
+resetting both in one click — which is what a map compass has always done, and
+is why this is not a second button beside the first.
 
 **`cameraForCenter` is a 2-to-1 inverse, and the widget remembers which
 preimage it is on.** `centerForCamera`'s parametrization

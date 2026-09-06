@@ -1369,7 +1369,15 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
 
     map.destroy();
     host.remove();
-  });
+    // An explicit budget, like the other heavy sweep tests in this package
+    // (`widget.extrusionWalls`, `widget.antimeridianRing`,
+    // `widget.reliefResolution`): this one mounts a real 128x128 z7 pyramid
+    // and awaits the debounced sweep, and it measured 3.4s running alone
+    // against 4.6s under a full `pnpm test` — i.e. it was already spending
+    // 92% of the default 5s cap on machine contention alone, so ANY test file
+    // added anywhere in this package tipped it over. Nothing is weakened: the
+    // assertions above are untouched, only the wall clock they are allowed.
+  }, 30000);
 });
 
 describe("createGlyphMap — markers and events", () => {

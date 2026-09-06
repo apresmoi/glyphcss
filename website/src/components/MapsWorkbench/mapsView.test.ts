@@ -103,6 +103,19 @@ describe("readMapViewState", () => {
     expect(r.maxSpan).toBe(map.getMaxSpan());
     expect(r.degPerCell).toBeCloseTo(v.span / v.cols, 12);
   });
+
+  it("reports the live HEADING, which the gesture moves without the page writing it", () => {
+    const map = mount({
+      view: { center: [8, 46], span: 12, cols: COLS, rows: ROWS },
+      projection: glyphMapGlobe({ exaggeration: 0 }),
+    });
+    expect(readMapViewState(map).bearing).toBe(0);
+    // Written the way the GESTURE writes it — the widget normalizes, and the
+    // readout has to report what the camera holds, not what was asked for.
+    map.setBearing(-73);
+    expect(readMapViewState(map).bearing).toBe(map.getBearing());
+    expect(readMapViewState(map).bearing).toBe(287);
+  });
 });
 
 describe("mapTiltSliderRange", () => {

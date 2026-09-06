@@ -1,6 +1,7 @@
 /**
  * The View folder's pure half: what the page reads back off the widget every
- * sync, and what range the Tilt slider offers for it.
+ * sync, what ranges the Tilt and Bearing sliders offer for it, and when the
+ * on-map compass has anything to do.
  *
  * Both live here rather than inside `MapsWorkbench.tsx` for the reason
  * `mapsSearch.ts` gives: that component cannot be mounted under this vitest
@@ -19,6 +20,7 @@ export interface MapViewReadout {
   readonly maxSpan: number;
   readonly tilt: number;
   readonly maxTilt: number;
+  readonly bearing: number;
   readonly cols: number;
   readonly rows: number;
   readonly degPerCell: number;
@@ -42,9 +44,15 @@ export interface MapViewReadout {
  *    last wrote (40) while the camera held whatever the ceiling allowed
  *    (21), and the tilt GESTURE — which the page never writes at all —
  *    moved the camera with the slider frozen.
+ *
+ * `bearing` is here for the SECOND of those reasons and only that one: it has
+ * no ceiling to clamp against, but the HORIZONTAL half of the same Ctrl+drag
+ * gesture moves it without the page writing it, so a slider that did not read
+ * it back would show a stale heading the moment the reader turned the map —
+ * the exact defect just fixed for `tilt`.
  */
 export function readMapViewState(
-  map: Pick<GlyphMapHandle, "getView" | "getMaxSpan" | "getTilt" | "getMaxTilt">,
+  map: Pick<GlyphMapHandle, "getView" | "getMaxSpan" | "getTilt" | "getMaxTilt" | "getBearing">,
 ): MapViewReadout {
   const v = map.getView();
   return {
@@ -54,6 +62,7 @@ export function readMapViewState(
     maxSpan: map.getMaxSpan(),
     tilt: map.getTilt(),
     maxTilt: map.getMaxTilt(),
+    bearing: map.getBearing(),
     cols: v.cols,
     rows: v.rows,
     degPerCell: v.span / v.cols,
@@ -89,6 +98,25 @@ export function mapTiltSliderRange(isOrbitProjection: boolean, maxTilt: number):
 }
 
 /**
+ * The Bearing slider's range: a full compass, `0..360`, one degree a step.
+ *
+ * FIXED, unlike the Tilt slider's — a heading has no ceiling to follow, on
+ * either projection family and at every scale — so this needs no per-sync
+ * range push, only the per-sync VALUE push every control in the folder gets.
+ *
+ * `0..360` rather than `-180..180` because the readout is a COMPASS HEADING
+ * and 0..360 is how headings are written; it matches `getBearing()`, which
+ * normalizes to `[0, 360)`, so the control and the camera can never disagree
+ * about which number names a direction. The cost is a seam at north instead
+ * of at south: a gesture turning through 0 makes the HANDLE jump from 359 to
+ * 1. That is only a redraw — the slider is written to per sync and never
+ * read back into the gesture, so it cannot fight it — and north is the one
+ * heading a reader can recognise from the map itself, which makes the jump
+ * legible rather than mysterious.
+ */
+export const MAP_BEARING_SLIDER_RANGE: MapSliderRange = { min: 0, max: 360, step: 1 };
+
+/**
  * The pitch the "Level" control puts the camera back to.
  *
  * Not zero for both families, because zero does not mean the same thing to
@@ -119,7 +147,47 @@ export function mapTiltResetValue(isOrbitProjection: boolean): number {
  */
 export const MAP_TILT_RESET_EPSILON = 0.25;
 
-/** Whether the "Level" control has anything to do at this pitch. */
+/** Whether the compass control has anything to do about the PITCH at this angle. */
 export function mapTiltIsLevel(tilt: number, isOrbitProjection: boolean): boolean {
   return Math.abs(tilt - mapTiltResetValue(isOrbitProjection)) < MAP_TILT_RESET_EPSILON;
+}
+
+/** The heading the compass puts the camera back to. North up, for both projection families — a compass has one home. */
+export const MAP_BEARING_HOME = 0;
+
+/**
+ * How far from north the heading has to be before the compass counts as
+ * turned, in degrees.
+ *
+ * Half of the bearing gesture's own per-pixel step
+ * ({@link import("@glyphcss/maps").GLYPH_MAP_BEARING_DRAG_DEG_PER_PX}), the
+ * same rule {@link MAP_TILT_RESET_EPSILON} follows: the control appears on
+ * the first pixel of a turn, and hides again only when the map is genuinely
+ * back to north.
+ */
+export const MAP_BEARING_RESET_EPSILON = 0.4;
+
+/**
+ * Whether the compass has anything to do about the HEADING.
+ *
+ * Measured on the SHORT way round, so 359.7 degrees is north — it is a hair
+ * anticlockwise of it, not 359.7 degrees away from it. A plain
+ * `Math.abs(bearing)` would leave the control permanently up for a reader who
+ * turned the map one pixel to the left.
+ */
+export function mapBearingIsNorth(bearing: number): boolean {
+  const off = ((bearing - MAP_BEARING_HOME) % 360 + 360) % 360;
+  return Math.min(off, 360 - off) < MAP_BEARING_RESET_EPSILON;
+}
+
+/**
+ * Whether the map is in its home orientation entirely — level AND north up.
+ *
+ * One predicate for one control: the compass resets both, so it has to appear
+ * when EITHER is off home. Two separate controls would put two buttons in the
+ * same corner for one camera; a real map compass does both jobs, and does them
+ * with one click.
+ */
+export function mapOrientIsHome(tilt: number, bearing: number, isOrbitProjection: boolean): boolean {
+  return mapTiltIsLevel(tilt, isOrbitProjection) && mapBearingIsNorth(bearing);
 }

@@ -59,7 +59,7 @@ import type { GlyphMapProjection } from "./projection";
 import { glyphMapProjectionTransition } from "./transition";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
-import { glyphMapPolygons } from "./mesh";
+import { glyphMapPolygons, localUpDirection } from "./mesh";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
@@ -1011,11 +1011,16 @@ export interface GlyphMapOptions {
   /**
    * Per-gesture opt-outs. Each defaults to `true`.
    *
-   * `tilt` is the Ctrl+drag / right-button-drag PITCH gesture — its own
+   * `tilt` is the Ctrl+drag / right-button-drag ORIENT gesture — its own
    * surface, independent of `drag`: a map that pins its centre (`drag:
    * false`) may still want the reader to be able to look across it, and a
-   * map that must never leave its one pitch can keep panning. See
-   * {@link GLYPH_MAP_TILT_DRAG_DEG_PER_PX}.
+   * map that must never leave its one pitch can keep panning.
+   *
+   * ONE flag covers both axes of that one stroke — VERTICAL travel is pitch
+   * ({@link GLYPH_MAP_TILT_DRAG_DEG_PER_PX}), HORIZONTAL is bearing
+   * ({@link GLYPH_MAP_BEARING_DRAG_DEG_PER_PX}) — because it is one press
+   * and one stroke: a diagonal drag under two separate opt-outs would do
+   * half of what the hand asked for, and no map product splits them either.
    */
   readonly controls?: { readonly drag?: boolean; readonly wheel?: boolean; readonly tilt?: boolean };
   /** Forwarded to the underlying `createGlyphScene` as-is. Default `false` — `view.cols`/`view.rows` are the authoritative grid (MAPS.md §3b: the view, not host pixels, owns the grid shape); `true` lets host resize drive `cols`/`rows` the way both example pages did. */
@@ -1047,6 +1052,13 @@ export interface GlyphMapOptions {
    * that `tilt` ADDS to (default `0`, i.e. head-on).
    */
   readonly tilt?: number;
+  /**
+   * Camera heading, degrees — the compass direction that points UP on
+   * screen, `0` (the default) being north up. A rotation about the SURFACE
+   * NORMAL at the same pivot `tilt` pitches about, so the horizon stays
+   * level at every pitch. See {@link GlyphMapHandle.setBearing}.
+   */
+  readonly bearing?: number;
   /** Forwarded to `createGlyphScene`, merged UNDER the widget's own `camera`/`cols`/`rows`/`autoSize` — this is how shading, `colorEncoding`, shadows, etc. compose (MAPS.md §9: "no new scene concepts"). */
   readonly scene?: Partial<GlyphSceneOptions>;
   /** Real-sun lighting. Omitted (the default) is `{ mode: "off" }` — see {@link GlyphMapSunOptions}. */
@@ -1169,6 +1181,39 @@ export interface GlyphMapHandle {
    * its ceiling is that flat-surface cap at every span.
    */
   getMaxTilt(): number;
+  /**
+   * Live camera BEARING — the compass heading, in degrees, that points UP on
+   * screen. `0` is north up (and is byte-identical to a widget that never
+   * heard of bearing); `90` puts east at the top, i.e. the picture turns
+   * COUNTER-CLOCKWISE as the number grows, which is MapLibre's own
+   * convention. Reported normalized to `[0, 360)`.
+   *
+   * The model is ROTATION ABOUT THE SURFACE NORMAL AT THE PIVOT — the same
+   * surface point {@link setTilt} pitches about — never a roll about the
+   * view axis. The two are identical at zero pitch, which is exactly why the
+   * wrong one is easy to ship: a roll about the view axis TIPS THE HORIZON
+   * the moment the camera is pitched, and no map product does that. Turning
+   * about the pivot's local up instead swings the camera around a cone at
+   * constant pitch, so the horizon stays level and only the heading changes
+   * (pinned in `widget.bearing.test.ts` at a nonzero pitch: the screen
+   * direction of local up at the pivot is invariant under bearing, while the
+   * heading is not).
+   *
+   * Composition, in glyphcss's own c-frame (`createGlyphCamera.ts`'s
+   * axis-swapped `(v[1], v[0], v[2])`), is
+   * `RotX(tilt) * RotZ(-bearing) * RotX(trueRotX) * RotZ(rotY)` — the
+   * navigation rotation first, then the heading about the axis that
+   * navigation has just brought onto the view axis, then the pitch. It is
+   * installed as {@link GlyphCamera.mat}/`useMat`, glyphcss's public
+   * 9-element row-major rotation override, which `project()` already
+   * honours; `rotX`/`rotY` keep their existing meanings underneath so
+   * `centerForCamera` still inverts the view centre. At bearing `0` no
+   * matrix is installed at all (`useMat` stays `false`) and every projected
+   * cell, every tile sweep and every stroke is bit-for-bit what it was.
+   */
+  setBearing(bearing: number): void;
+  /** The camera's current heading, degrees, normalized to `[0, 360)`. `0` is north up. */
+  getBearing(): number;
   /**
    * Turn real-sun lighting on/off and tune it. A partial merge over the
    * current state — `setSun({ mode: "realtime" })` leaves every other field
@@ -1390,6 +1435,36 @@ export const GLYPH_MAP_MAX_TILT = 85;
  * camera by half a degree rather than by a visible jump.
  */
 export const GLYPH_MAP_TILT_DRAG_DEG_PER_PX = 0.5;
+
+/**
+ * Degrees of heading per pixel of HORIZONTAL travel in the same Ctrl+drag /
+ * right-button-drag gesture whose vertical axis is pitch.
+ *
+ * `0.8` is MapLibre's own `bearingDegreesPerPixelMoved`, taken for the same
+ * reason {@link GLYPH_MAP_TILT_DRAG_DEG_PER_PX} takes its `pitchRate`: it is
+ * the rate hands already have. A full turn is 450px, so a reader can spin the
+ * map right round inside one stroke on any real viewport, while a pixel of
+ * tremor is under a degree.
+ *
+ * SIGN: dragging RIGHT DECREASES the bearing (MapLibre's own `* -0.8`),
+ * which turns the picture clockwise on screen — so the top of the picture
+ * follows the hand, the same "the horizon follows the hand" rule the pitch
+ * half of the stroke obeys.
+ */
+export const GLYPH_MAP_BEARING_DRAG_DEG_PER_PX = 0.8;
+
+/**
+ * A heading normalized to `[0, 360)`.
+ *
+ * Exactly `0` (never `-0`) for every multiple of a full turn, because
+ * `bearing === 0` is the guard that keeps `camera.useMat` false and the whole
+ * render bit-identical to a widget without this feature. A non-finite input
+ * is north — a `NaN` heading would poison `camera.mat` and blank the map.
+ */
+export function glyphMapNormalizeBearing(bearing: number): number {
+  if (!Number.isFinite(bearing)) return 0;
+  return ((bearing % 360) + 360) % 360;
+}
 
 /** {@link GlyphMapHandle.setProjection}'s default animation length, ms. */
 const GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS = 600;
@@ -1640,6 +1715,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let appliedTilt = 0;
 
   /**
+   * The camera's heading, degrees, normalized to `[0, 360)` — see
+   * {@link GlyphMapHandle.setBearing} for the model.
+   *
+   * Exactly `0` is the whole point of storing it normalized: every branch
+   * that could change a rendered cell is guarded on `bearing === 0`, so the
+   * default widget installs no camera matrix, takes no extra cover term, and
+   * rotates no drag delta. There is no `bearingRequest`/`appliedBearing`
+   * split as there is for pitch, because a heading has no ceiling: every
+   * angle is reachable at every scale, on a sheet and on a globe alike.
+   */
+  let bearing = glyphMapNormalizeBearing(opts.bearing ?? 0);
+
+  /**
    * Declared HERE, beside the pitch state and the camera rather than down in the sun
    * block that reads it, because `applyKeyLight` runs from the construction
    * render — a `let` in the sun block would be in its temporal dead zone at
@@ -1702,6 +1790,123 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * internal world-axis -> screen-axis mapping here.
    */
   const coverProbeCamera = createGlyphOrthographicCamera({ zoom: 1, rotX: 0, rotY: 0 });
+
+  // ── Bearing ───────────────────────────────────────────────────────────
+  //
+  // Bearing is a rotation about the SURFACE NORMAL AT THE PIVOT — the very
+  // point `tilt` already pitches about — and NOT a roll about the view axis.
+  // The two coincide at zero pitch and diverge exactly where this feature is
+  // for: a view-axis roll TIPS THE HORIZON on a pitched camera, which is a
+  // thing no map product does. `GlyphMapHandle.setBearing` carries the model;
+  // what follows is how it reaches glyphcss.
+  //
+  // The route is `GlyphCamera.mat` + `useMat`, glyphcss's public, documented
+  // 9-element row-major rotation override, which `project()` (and so every
+  // depth test, every unproject, every stroke) already honours. `rotX`/`rotY`
+  // keep their existing meanings underneath — the matrix is BUILT from them —
+  // so `centerForCamera` still inverts the view centre, `appliedTilt` is
+  // still subtractable, and the whole existing camera model is intact. At
+  // bearing 0 no matrix is installed at all.
+
+  /**
+   * The pivot's local UP in world space, unit length — the axis a bearing
+   * turns about.
+   *
+   * Asked of the PROJECTION through {@link localUpDirection} (which probes
+   * `project(lon, lat, +1m)`), never hardcoded as `+Z` (right for a sheet) or
+   * "radially outward" (right for the globe): `glyphMapFromD3Raw` lets a
+   * caller bring a projection this package has never seen, and a
+   * `setProjection` blend is a fourth thing again — all of them agree that a
+   * positive elevation nudge moves a point UP, which is the whole definition
+   * this needs.
+   */
+  function bearingUpAxis(): Vec3 | null {
+    const up = localUpDirection(projection, view.center[0], view.center[1], 0);
+    if (!up) return null;
+    const len = Math.hypot(up[0], up[1], up[2]);
+    if (!(len > 0) || !Number.isFinite(len)) return null;
+    return [up[0] / len, up[1] / len, up[2] / len];
+  }
+
+  /**
+   * The camera rotation matrix for `(rotX, rotY)` turned by `bearingDeg`
+   * about world-space unit axis `up`, in glyphcss's own layout: 9 elements,
+   * row-major, acting on the AXIS-SWAPPED vector `(v[1], v[0], v[2])`
+   * (`createGlyphCamera.ts`'s `rotateVec3WithMat`).
+   *
+   * `M = E * Rot(uc, -bearing)`, where `E = RotX(rotX) * RotZ(rotY)` is
+   * exactly what the Euler path builds and `uc` is `up` in that same swapped
+   * frame. Right-multiplying is what makes this a rotation about the PIVOT'S
+   * NORMAL rather than a screen roll: the world turns about `up` first, then
+   * the unchanged camera looks at it. Since `camera.target` IS the pivot and
+   * `project` subtracts it before rotating, the turn is anchored there with
+   * no extra translation term.
+   *
+   * Two consequences worth naming, both load-bearing:
+   *
+   *  - THE HORIZON STAYS LEVEL. `up` is the rotation's own axis, so
+   *    `M * uc = E * uc` for every bearing: the screen-space direction of
+   *    local up at the pivot cannot move. A roll (`RotZ(psi) * E`, LEFT
+   *    multiplication) fails precisely this.
+   *  - IT IS THE THIRD EULER ANGLE, in the right slot. Where the pivot is
+   *    the view centre, `E * uc = z-hat`, so the identity
+   *    `E * Rot(uc, -b) = RotZ(-b) * E` holds and the whole composition
+   *    reads `RotX(tilt) * RotZ(-b) * RotX(trueRotX) * RotZ(rotY)` —
+   *    navigate, then turn, then pitch. That is the same camera MapLibre and
+   *    Cesium build, and it is why `applyDragState` only has to rotate its
+   *    pixel delta by the bearing rather than re-derive anything.
+   */
+  function bearingMatrix(rotXDeg: number, rotYDeg: number, up: Vec3, bearingDeg: number): number[] {
+    // The axis, in the camera's swapped frame.
+    const ax = up[1], ay = up[0], az = up[2];
+    // Rodrigues for `Rot(uc, -bearing)`.
+    const t = (-bearingDeg * Math.PI) / 180;
+    const c = Math.cos(t), sn = Math.sin(t), k = 1 - c;
+    const r = [
+      c + ax * ax * k, ax * ay * k - az * sn, ax * az * k + ay * sn,
+      ay * ax * k + az * sn, c + ay * ay * k, ay * az * k - ax * sn,
+      az * ax * k - ay * sn, az * ay * k + ax * sn, c + az * az * k,
+    ];
+    // `E = RotX(rotX) * RotZ(rotY)`, the exact matrix `rotateVec3Voxcss`
+    // applies in two steps.
+    const yr = (rotYDeg * Math.PI) / 180, xr = (rotXDeg * Math.PI) / 180;
+    const cy = Math.cos(yr), sy = Math.sin(yr), cx = Math.cos(xr), sx = Math.sin(xr);
+    const e = [
+      cy, -sy, 0,
+      cx * sy, cx * cy, -sx,
+      sx * sy, sx * cy, cx,
+    ];
+    const m = new Array<number>(9);
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        m[i * 3 + j] = e[i * 3]! * r[j]! + e[i * 3 + 1]! * r[3 + j]! + e[i * 3 + 2]! * r[6 + j]!;
+      }
+    }
+    return m;
+  }
+
+  /**
+   * Push the live bearing onto the camera. Called immediately after EVERY
+   * write of `camera.rotX`/`rotY`/`target` — construction, `syncCameraToView`,
+   * `applyDragState`, `applyTiltState`, `applyProjectionFrame`, `setBearing`
+   * — because `camera.mat` is DERIVED from all three and a stale matrix is
+   * not a stale picture, it is a wrong `project()` for every caller in this
+   * file (unproject, tile sweep, strokes, hotspots) until the next render.
+   *
+   * At bearing 0 it clears the override rather than installing an identity-
+   * equivalent matrix: `useMat: false` keeps glyphcss on its memoized Euler
+   * path, so the default widget pays nothing and renders the same bytes.
+   */
+  function syncCameraBearing(): void {
+    const up = bearing === 0 ? null : bearingUpAxis();
+    if (!up) {
+      camera.useMat = false;
+      camera.mat = null;
+      return;
+    }
+    camera.mat = bearingMatrix(camera.rotX, camera.rotY, up, bearing);
+    camera.useMat = true;
+  }
 
   const sceneOverrides = opts.scene ?? {};
   const scene: GlyphSceneHandle = createGlyphScene(host, {
@@ -2367,10 +2572,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // The BINDING axis is whichever needs the most zoom to be filled — that
     // is what makes this follow the host's shape (a wide viewport binds on
     // height, a tall one on width) instead of assuming a world aspect.
-    const coverZoom = Math.max(
-      mapPxW > 0 ? viewPxW / mapPxW : 0,
-      mapPxH > 0 ? viewPxH / mapPxH : 0,
-    );
+    //
+    // With a BEARING the visible window is a rotated rectangle inside an
+    // axis-aligned box, and both of its world-axis reaches grow: the AABB of
+    // a `w x h` rect turned by `b` is `w|cos b| + h|sin b|` by
+    // `w|sin b| + h|cos b|`, worst at 45 degrees. Ignoring that under-covers
+    // — at bearing 45 on a 16:7 grid a corner of the map comes inside the
+    // viewport, which is the exact letterbox the cover rule exists to
+    // remove. Bearing 0 takes the original expressions verbatim, not the
+    // general ones with `cos 0`/`sin 0` substituted, because `(a/b)/c` and
+    // `a/(b*c)` are not the same double.
+    const coverZoom = bearing === 0
+      ? Math.max(
+        mapPxW > 0 ? viewPxW / mapPxW : 0,
+        mapPxH > 0 ? viewPxH / mapPxH : 0,
+      )
+      : (() => {
+        const t = (bearing * Math.PI) / 180;
+        const bc = Math.abs(Math.cos(t)), bs = Math.abs(Math.sin(t));
+        // World reach the viewport needs along each axis, times `zoom`.
+        const alongX = (viewPxH / perWorldX) * bc + (viewPxW / perWorldY) * bs;
+        const alongY = (viewPxH / perWorldX) * bs + (viewPxW / perWorldY) * bc;
+        const boxH = box.maxX - box.minX, boxW = box.maxY - box.minY;
+        return Math.max(boxH > 0 ? alongX / boxH : 0, boxW > 0 ? alongY / boxW : 0);
+      })();
     if (!(coverZoom > 0) || !Number.isFinite(coverZoom)) return Infinity;
     const probeZoom = computeZoomForSpan({ ...v, span: 1 }, proj);
     if (!(probeZoom > 0) || !Number.isFinite(probeZoom)) return Infinity;
@@ -2440,9 +2665,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const scaleX = zoom * perWorldX;
     const scaleY = zoom * perWorldY;
     if (!(scaleX > 0) || !(scaleY > 0) || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)) return [wx, wy];
+    const halfX = (grid.rows * grid.cellHeight) / (2 * scaleX);
+    const halfY = (grid.cols * grid.cellWidth) / (2 * scaleY);
+    // The rotated-rect AABB — see `spanCoverLimit` for why, and for why
+    // bearing 0 short-circuits instead of multiplying through by 1 and 0.
+    if (bearing !== 0) {
+      const t = (bearing * Math.PI) / 180;
+      const bc = Math.abs(Math.cos(t)), bs = Math.abs(Math.sin(t));
+      return [
+        coverAxis(wx, box.minX, box.maxX, halfX * bc + halfY * bs),
+        coverAxis(wy, box.minY, box.maxY, halfX * bs + halfY * bc),
+      ];
+    }
     return [
-      coverAxis(wx, box.minX, box.maxX, (grid.rows * grid.cellHeight) / (2 * scaleX)),
-      coverAxis(wy, box.minY, box.maxY, (grid.cols * grid.cellWidth) / (2 * scaleY)),
+      coverAxis(wx, box.minX, box.maxX, halfX),
+      coverAxis(wy, box.minY, box.maxY, halfY),
     ];
   }
 
@@ -2570,6 +2807,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     appliedTilt = pitch;
     camera.zoom = zoom;
+    // The heading rides on TOP of the pose this just installed, and is
+    // rebuilt from it — a matrix left over from the previous centre would
+    // turn about the wrong point (see `syncCameraBearing`).
+    syncCameraBearing();
   }
 
   // ── project()/unproject() ────────────────────────────────────────────
@@ -3762,7 +4003,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * the memo below silently miss a camera change.
    */
   function cameraCullKey(): string {
-    return `${camera.rotX},${camera.rotY},${camera.zoom},${camera.target.join(",")}`;
+    // `bearing` is part of the camera as far as a wall cull is concerned:
+    // it is a real rotation, and it is the only one that does not show up in
+    // `rotX`/`rotY` at all (it lives in `camera.mat`).
+    return `${camera.rotX},${camera.rotY},${camera.zoom},${camera.target.join(",")},${bearing}`;
   }
 
   function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
@@ -4114,8 +4358,32 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * washed out by the camera. The page never has both on at once (its "Full"
    * button is sun-off + headlight-on), but the library has to answer anyway.
    */
+  /**
+   * The headlight direction for the camera AS POSED, bearing included.
+   *
+   * {@link glyphMapHeadlightDirection} answers from `rotX`/`rotY` alone, and
+   * a bearing lives in `camera.mat` where those two cannot see it — a turn
+   * about the pivot's normal genuinely MOVES the view axis (unlike the
+   * view-axis roll bearing was first mistaken for, which by definition does
+   * not), so reading the Euler pair while a matrix is installed would light
+   * the map from where the camera used to be.
+   *
+   * The matrix answer is the same functional, read off the rows: projected
+   * depth is `row3(mat) . c(v)`, so its world gradient is that row
+   * un-swapped, `(mat[7], mat[6], mat[8])`. At bearing 0 that reduces
+   * ALGEBRAICALLY to `(sin rotX cos rotY, sin rotX sin rotY, cos rotX)` —
+   * `glyphMapHeadlightDirection` exactly — and it is already unit length,
+   * being a row of a rotation. The Euler call is still the one that runs
+   * there, so the default path is untouched.
+   */
+  function headlightDirection(): Vec3 {
+    const m = camera.mat;
+    if (!camera.useMat || !m) return glyphMapHeadlightDirection(camera.rotX, camera.rotY);
+    return [m[7]!, m[6]!, m[8]!];
+  }
+
   function keyLightDirection(): Vec3 | null {
-    return sunDirection() ?? (keyLightMode === "headlight" ? glyphMapHeadlightDirection(camera.rotX, camera.rotY) : null);
+    return sunDirection() ?? (keyLightMode === "headlight" ? headlightDirection() : null);
   }
 
   /**
@@ -4749,6 +5017,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // it is the lerp of their pitches — recorded, not re-derived, so a drag
     // landing mid-flight subtracts back out exactly what was added.
     appliedTilt = framing ? framing.tilt : lerp(fromFraming.tilt, toFraming.tilt, t);
+    // Rebuilt from the pose this frame just installed, and about the pivot
+    // the BLENDED projection puts the view centre at — the heading is
+    // carried through a projection change unchanged, which is what a reader
+    // who turned the map and then switched projection asked for.
+    syncCameraBearing();
     reprojectGeometry();
     applyKeyLight();
     scene.rerender();
@@ -5077,6 +5350,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!isOrbitProjection()) {
       appliedTilt = clamp(tiltRequest, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT);
       camera.rotX = appliedTilt;
+      syncCameraBearing();
       return false;
     }
     // Re-derive rotX AND the pivot from the CURRENT view center (not the drag
@@ -5097,6 +5371,44 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function getTilt(): number {
     return appliedTilt;
   }
+
+  /**
+   * The STATE half of a heading change — camera matrix only, no repaint and
+   * no event, so the gesture can call it per `pointermove` while the render
+   * stays coalesced onto the one motion loop. Same split as
+   * {@link applyTiltState}, for the same reason.
+   *
+   * Unlike pitch there is nothing to clamp: a heading has no ceiling, and
+   * the normalization is the whole of its domain handling.
+   */
+  function applyBearingState(b: number): void {
+    bearing = glyphMapNormalizeBearing(b);
+    syncCameraBearing();
+  }
+
+  function setBearing(b: number): void {
+    applyBearingState(b);
+    applyKeyLight();
+    scene.rerender();
+    scheduleTileUpdate();
+    syncNearSide();
+    emitViewChange("move");
+  }
+
+  function getBearing(): number {
+    return bearing;
+  }
+
+  /**
+   * The bearing half of the orient gesture: `dxPx` pixels of HORIZONTAL
+   * travel become heading, at MapLibre's own rate and MapLibre's own sign
+   * ({@link GLYPH_MAP_BEARING_DRAG_DEG_PER_PX}) — drag right, the picture
+   * turns clockwise, the top of it follows the hand.
+   *
+   * No inertia, for the same reason the pitch half has none: there is
+   * nothing physical about an angle to justify momentum, and a heading that
+   * kept spinning after the hand stopped would have to be caught again.
+   */
 
   function getMaxTilt(): number {
     const grid = projectionGrid();
@@ -5162,6 +5474,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * A screen pixel delta, expressed in the camera's NAVIGATION frame — the
+   * frame `camera.rotX`/`rotY` move in, which the heading sits on top of.
+   *
+   * `bearingMatrix` composes `M = RotX(tilt) * RotZ(-bearing) * E0`, and
+   * `RotZ` acts on exactly the two components that become col and row, so
+   * undoing it is one 2x2 rotation by `+bearing` in screen coordinates
+   * (`y` DOWN, hence the plain, unmirrored matrix). Check it at 90 degrees,
+   * where east is up: dragging RIGHT there has to move the centre NORTH, and
+   * `(1, 0)` maps to `(0, 1)` — drag DOWN in the navigation frame, which is
+   * exactly what the orbit branch already turns into a northward step.
+   *
+   * At bearing 0 the delta is returned UNTOUCHED rather than multiplied by a
+   * `cos 0`/`sin 0` matrix: `dx * 1 - dy * 0` is only bit-identical to `dx`
+   * while `dy` is finite, and more to the point the default map must not
+   * take a different code path at all.
+   */
+  function bearingDragDelta(dxPx: number, dyPx: number): readonly [number, number] {
+    if (bearing === 0) return [dxPx, dyPx];
+    const t = (bearing * Math.PI) / 180;
+    const c = Math.cos(t), sn = Math.sin(t);
+    return [dxPx * c - dyPx * sn, dxPx * sn + dyPx * c];
+  }
+
+  /**
    * The state half of a drag: view + camera only, no repaint, no event.
    * Called synchronously per `pointermove` (state must not lag the gesture)
    * and once per frame by the inertial glide.
@@ -5176,8 +5512,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // measures `rotY +10 -> lon +10` and `rotX +10 -> lat -10`, so both
       // increments are negated relative to the raw pixel delta.
       const degPerPx = (1 / pixelsPerWorldUnit()) * (180 / Math.PI);
-      camera.rotY -= dxPx * degPerPx;
-      camera.rotX -= dyPx * degPerPx;
+      // `rotY`/`rotX` are the NAVIGATION rotation, which the heading sits on
+      // top of (`bearingMatrix`: `M = RotX(tilt) * RotZ(-bearing) * E0`), so
+      // the pixels have to come back through that `RotZ(-bearing)` before
+      // they can be read as navigation. Without this, turning the map 90
+      // degrees and dragging right pans the view NORTH: the delta would be
+      // spent on the axis the screen no longer shows it on.
+      const [dx, dy] = bearingDragDelta(dxPx, dyPx);
+      camera.rotY -= dx * degPerPx;
+      camera.rotX -= dy * degPerPx;
       // UNCLAMPED (was `clamp(trueRotX, 90 - 89.999, 90 + 89.999)`): that
       // clamp existed only to keep `centerForCamera`'s latitude away from
       // exactly ±90, where `computeZoomForSpan`'s OLD ±90-clamped meridian
@@ -5225,7 +5568,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // the gesture started on, and `view.center` would walk off the grid
       // again — the same displacement, one gesture at a time.
       camera.target = projection.project(center[0], center[1], 0);
+      // The pivot moved, so the axis the heading turns about moved with it.
+      syncCameraBearing();
     } else {
+      // NOT `bearingDragDelta` — deliberately. `screenToWorldDelta` solves
+      // its basis from three probes of the LIVE `camera.project`, which
+      // already carries `camera.mat`, so the sheet pan is bearing-correct
+      // for free and rotating the delta first would apply the turn twice.
       const delta = screenToWorldDelta(dxPx, dyPx, grid);
       if (!delta) return;
       const t = camera.target;
@@ -5247,6 +5596,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const lat = clamp(latRaw, d.south, d.north);
       view = { ...view, center: [lon, lat], bounds: undefined };
       camera.target = projection.project(lon, lat, 0);
+      syncCameraBearing();
     }
   }
 
@@ -5278,12 +5628,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
-   * The tilt gesture's per-`pointermove` step: `dyPx` pixels of vertical
-   * travel become pitch. Drag UP (negative `dyPx`) pitches the camera up off
-   * the surface — the direction every map library agrees on, because the
-   * horizon follows the hand.
+   * The orient gesture's per-`pointermove` step. VERTICAL travel becomes
+   * pitch — drag UP and the camera lifts off the surface — and HORIZONTAL
+   * travel becomes heading — drag RIGHT and the picture turns clockwise. Both
+   * halves obey the same rule: the top of the picture follows the hand, which
+   * is the direction every map library agrees on.
    *
-   * The delta accumulates from `appliedTilt`, NOT from `tiltRequest`. The two
+   * Both axes in ONE call, not two, so a diagonal stroke costs one
+   * `syncNearSide()` sweep and emits one `move` per pointer event rather than
+   * two of each. The heading is applied second on purpose: `applyTiltState`'s
+   * orbit branch re-poses the whole camera through `syncCameraToView`, so a
+   * heading written first would simply be rebuilt from that new pose anyway.
+   *
+   * The PITCH delta accumulates from `appliedTilt`, NOT from `tiltRequest`. The two
    * differ only where the request is above the view's own ceiling, and
    * accumulating from the request there would give the gesture DEAD TRAVEL:
    * at a whole-world span (ceiling ~21) a request left at 85 by a close-in
@@ -5293,22 +5650,37 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * to be. The remembered-request behaviour is untouched everywhere it is
    * observable — a zoom out never rewrites `tiltRequest`, so a pitch asked
    * for close in still survives the trip out and back
-   * (`widget.tiltGesture.test.ts`).
+   * (`widget.tiltGesture.test.ts`). The HEADING has no such split: there is
+   * no ceiling to clamp it against, so the request and the applied value are
+   * the same number.
    */
-  function applyTiltDrag(dyPx: number): void {
-    // An explicit pitch takes over from a glide or a flight in place, exactly
-    // as a pan or a wheel notch does.
+  function applyOrientDrag(dxPx: number, dyPx: number): void {
+    // An explicit orientation change takes over from a glide or a flight in
+    // place, exactly as a pan or a wheel notch does.
     cancelCameraGlide();
-    const orbit = applyTiltState(clamp(
-      appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX,
-      -GLYPH_MAP_MAX_TILT,
-      GLYPH_MAP_MAX_TILT,
-    ));
+    let orbit = false;
+    if (dyPx !== 0) {
+      orbit = applyTiltState(clamp(
+        appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX,
+        -GLYPH_MAP_MAX_TILT,
+        GLYPH_MAP_MAX_TILT,
+      ));
+    }
+    // The heading is applied AFTER the pitch, on the pose the pitch installed
+    // — `applyTiltState`'s orbit branch re-derives the whole camera through
+    // `syncCameraToView`, which would otherwise rebuild the matrix and then
+    // have it rebuilt again from a heading that had already changed.
+    if (dxPx !== 0) {
+      applyBearingState(bearing - dxPx * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX);
+      orbit = true;
+    }
+    if (!orbit && dxPx === 0 && dyPx === 0) return;
     // The camera turned, so the near/far hemisphere verdict every marker and
     // symbol carries is now one increment stale — the same window `applyDrag`
     // closes here rather than at the deferred motion frame, and for the same
     // reason (`map.scene` is a documented escape hatch a host may repaint
-    // through at any time).
+    // through at any time). ONE sweep and ONE event for the whole stroke
+    // increment, not one per axis.
     if (orbit) syncNearSide();
     markMotionDirty();
     emitViewChange("move");
@@ -5395,11 +5767,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     dragTotalPx += Math.abs(dx) + Math.abs(dy);
     if (dragTotalPx > 3) didDrag = true;
     if (gestureMode === "tilt") {
-      // No fling velocity is accumulated: pitch has no inertia. A camera
+      // No fling velocity is accumulated: neither angle has inertia. A camera
       // that kept pitching after the hand stopped would coast straight into
       // the horizon ceiling and sit there, and there is nothing physical
       // about an angle to justify the momentum in the first place.
-      applyTiltDrag(dy);
+      //
+      // BOTH axes of the stroke are live at once — vertical pitches,
+      // horizontal turns — rather than the gesture committing to one of them
+      // at `pointerdown`. That is what every map with this binding does, and
+      // it is the only way a reader can compose "look across it and turn it"
+      // in one movement; an axis lock would make a slightly-off-vertical
+      // pitch silently refuse to turn.
+      applyOrientDrag(dx, dy);
       scheduleTileUpdate();
       return;
     }
@@ -5548,6 +5927,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     setTilt,
     getTilt,
     getMaxTilt,
+    setBearing,
+    getBearing,
     setSun,
     getSun: () => ({
       mode: sunMode,

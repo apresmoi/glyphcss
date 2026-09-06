@@ -33,7 +33,7 @@ import {
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
 import { useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
-import { mapTiltSliderRange } from "./mapsView";
+import { MAP_BEARING_SLIDER_RANGE, mapTiltSliderRange } from "./mapsView";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // ── Projections ────────────────────────────────────────────────────────────
@@ -1554,16 +1554,18 @@ export interface ViewFolderInputs {
   maxSpan: number;
   tilt: number;
   maxTilt: number;
+  bearing: number;
   isOrbitProjection: boolean;
   lod: number;
   degPerCell: number;
   onCenter: (lon: number, lat: number) => void;
   onSpan: (span: number) => void;
   onTilt: (tilt: number) => void;
+  onBearing: (bearing: number) => void;
 }
 
 export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): void {
-  const { centerLon, centerLat, span, maxSpan, tilt, maxTilt, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt } = inputs;
+  const { centerLon, centerLat, span, maxSpan, tilt, maxTilt, bearing, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt, onBearing } = inputs;
   const folder = useFolder(parent, "View", { open: true });
   useSlider(folder, "Center lon", { min: -180, max: 180, step: 0.1 }, centerLon, (v) => onCenter(v, centerLat));
   useSlider(folder, "Center lat", { min: -90, max: 90, step: 0.1 }, centerLat, (v) => onCenter(centerLon, v));
@@ -1590,6 +1592,24 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
     tiltCtrl?.raw.min(tiltRange.min);
     tiltCtrl?.raw.max(tiltRange.max);
   }, [tiltCtrl, tiltRange.min, tiltRange.max]);
+  // Bearing sits immediately under Tilt because they are the two halves of
+  // ONE gesture (`controls.tilt`: vertical pitches, horizontal turns), and a
+  // reader who finds one should find the other. Unlike Tilt its range is
+  // FIXED — a heading has no ceiling — so there is no `raw.min`/`raw.max`
+  // push here; see `MAP_BEARING_SLIDER_RANGE` for why it is 0..360 and what
+  // the handle does at the north seam. The VALUE still syncs every frame
+  // like Tilt's does, or the horizontal half of the gesture would leave this
+  // showing a heading the camera no longer has.
+  const bearingCtrl = useSlider(folder, "Bearing °", MAP_BEARING_SLIDER_RANGE, bearing, onBearing);
+  useEffect(() => {
+    // The compass direction at the TOP of the picture, spelled out on the row
+    // itself: a heading a reader cannot orient is just a number, and the
+    // label alone cannot say which way 0 faces.
+    (bearingCtrl?.raw.domElement as HTMLElement | undefined)?.setAttribute(
+      "title",
+      "Compass heading at the top of the map. 0° = north up, 90° = east up. Ctrl+drag or right-drag sideways to turn.",
+    );
+  }, [bearingCtrl]);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 
@@ -1608,6 +1628,8 @@ export interface MapsSnippetState {
   readonly centerLat: number;
   readonly span: number;
   readonly tilt: number;
+  /** Camera heading, degrees. Emitted only when the map has actually been turned — see {@link buildMapsSnippet}. */
+  readonly bearing: number;
   readonly palette: MapPaletteName;
   readonly terrainGlyphPalette: MapLayerGlyphPalette;
   readonly backgroundColor: string;
@@ -1675,7 +1697,7 @@ const host = document.querySelector("#map");
 const map = createGlyphMap(host, {
   view: { center: [${fmt(state.centerLon)}, ${fmt(state.centerLat)}], span: ${fmt(state.span)}, cols: 160, rows: 64 },
   projection: ${factory}(${projectionArgs}),
-  tilt: ${fmt(state.tilt)},
+  tilt: ${fmt(state.tilt)},${state.bearing === 0 ? "" : `\n  bearing: ${fmt(state.bearing)},`}
   autoSize: true,
   controls: { drag: true, wheel: true },
   layers: [
