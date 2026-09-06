@@ -41,7 +41,7 @@
  *    sensibly without a scale-specific threshold table.
  */
 
-import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, createGlyphScene } from "glyphcss";
 import type {
   CellGrid,
   GlyphCamera,
@@ -58,6 +58,21 @@ import type {
 } from "glyphcss";
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
+import { glyphMapTrueScaleElevation } from "./projection";
+import {
+  GLYPH_MAP_WALK_HORIZON_TILT_DEG,
+  GLYPH_MAP_WALK_RUN_MULTIPLIER,
+  glyphMapWalkAxis,
+  glyphMapWalkAxisForKey,
+  glyphMapWalkLens,
+  glyphMapWalkSpan,
+  glyphMapWalkStep,
+  glyphMapWalkWithinHorizon,
+  resolveGlyphMapWalkOptions,
+  type GlyphMapResolvedWalkOptions,
+  type GlyphMapWalkOptions,
+  type GlyphMapWalkState,
+} from "./walk";
 import { glyphMapProjectionTransition } from "./transition";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
@@ -1392,6 +1407,30 @@ export interface GlyphMapHandle {
   /** The camera's current heading, degrees, normalized to `[0, 360)`. `0` is north up. */
   getBearing(): number;
   /**
+   * Enter (an options object), reconfigure, or leave (`null`) street-level
+   * WALK mode: a positioned PERSPECTIVE camera at eye height, walked with
+   * WASD/arrows and aimed by dragging.
+   *
+   * Off by default and byte-identical there — no perspective camera is ever
+   * constructed, and every walk branch in the widget is guarded on this
+   * being off.
+   *
+   * While walking, three of this handle's existing readouts change meaning
+   * rather than being duplicated: `getView().center` is where the walker is
+   * standing, `getBearing()` is the direction they face, and `getTilt()` is
+   * their pitch measured in the usual `tilt` units (`90` looks dead ahead).
+   * `getView().span` DESCRIBES the horizon footprint, so tile LOD, the URL
+   * codec and every readout keep working; it stops being a zoom control, and
+   * the wheel is a no-op while walking.
+   *
+   * Throws a `RangeError` on a flat sheet projection — see the implementation
+   * for why that is geometry, not policy. A `setProjection` LEAVES walk mode
+   * rather than blending through it.
+   */
+  setWalk(walk: GlyphMapWalkOptions | null): void;
+  /** The live walker (position, heading, pitch, ground elevation and the resolved options), or `null` when walk mode is off. */
+  getWalk(): GlyphMapWalkState | null;
+  /**
    * Turn real-sun lighting on/off and tune it. A partial merge over the
    * current state — `setSun({ mode: "realtime" })` leaves every other field
    * alone. Entering `"realtime"` snaps the sun to the true CURRENT position
@@ -2001,7 +2040,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   let orbitRotation: { readonly rotX: number; readonly rotY: number } | null = null;
 
-  const camera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
+  /**
+   * The map's own camera — the one every framing, sweep, unproject and
+   * stroke in this file projects through. `let`, not `const`, for exactly
+   * one reason: WALK MODE swaps a positioned PERSPECTIVE camera in for the
+   * duration and puts this one back on the way out (see {@link setWalk}).
+   * Every reader below reads the live binding, so the swap is invisible to
+   * them; the orthographic instance is retained UNTOUCHED while walking, so
+   * leaving walk mode restores the previous pose by putting the same object
+   * back rather than by recomputing it.
+   */
+  const orthographicCamera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
+  let walkCamera: GlyphCamera | null = null;
+  let camera: GlyphCamera = orthographicCamera;
   if (!isOrbitProjection()) {
     // A sheet's ceiling is the flat-surface cap and nothing else, so this
     // needs no measured grid — which the host may not have yet at
@@ -2010,6 +2061,51 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     camera.rotX = appliedTilt;
     camera.rotY = 0;
   }
+
+  // ── WALK MODE ─────────────────────────────────────────────────────────
+  //
+  // A GATED mode, not a general capability: `walk` is `null` for every map
+  // that never asks for it, every branch below is guarded on it, and with
+  // it null this file is byte-identical to before the mode existed.
+  //
+  // What walk mode replaces is exactly three things — the CAMERA (a
+  // positioned perspective one at eye height, `poseWalkCamera`), the
+  // VISIBILITY test (a local horizon disc instead of `projection.visible`,
+  // which is derived for the orthographic camera and reports the ground one
+  // metre in front of a walker invisible — `walk.ts`'s header carries the
+  // measurement), and the INPUT bindings (keys walk, drag looks). Everything
+  // else is reused as-is: `tiltRequest`/`appliedTilt` IS the walker's pitch
+  // measured from `GLYPH_MAP_WALK_HORIZON_TILT_DEG`, `bearing` IS the
+  // walker's heading, `view.center` IS where they are standing, and
+  // `view.span` still describes the footprint so tile LOD, the URL codec and
+  // every readout keep working without learning about a camera mode.
+
+  let walk: GlyphMapResolvedWalkOptions | null = null;
+  /** Terrain elevation under the walker's feet, metres — re-sampled on every step so the walk follows the relief instead of clipping through it. */
+  let walkGroundElevation = 0;
+  /** Movement keys currently held, lowercased. Non-empty is what keeps the motion loop running. */
+  const walkHeldKeys = new Set<string>();
+  /** Shift held: a jog. Tracked separately because it modifies rather than contributes an axis. */
+  let walkRunning = false;
+  /**
+   * The state walk mode is holding for its exit, captured VERBATIM on entry.
+   * The camera itself is not in here: `orthographicCamera` is never written
+   * while walking, so it still holds the exact pose it was left at.
+   */
+  let walkRestore: {
+    readonly view: GlyphMapView;
+    readonly tiltRequest: number;
+    readonly appliedTilt: number;
+    readonly bearing: number;
+    readonly orbitRotation: { readonly rotX: number; readonly rotY: number } | null;
+  } | null = null;
+
+  /** The pitch floor/ceiling while walking: a neck's worth either side of the horizontal. */
+  function walkTiltRange(): readonly [number, number] {
+    const w = walk!;
+    return [GLYPH_MAP_WALK_HORIZON_TILT_DEG - w.maxPitch, GLYPH_MAP_WALK_HORIZON_TILT_DEG + w.maxPitch];
+  }
+
 
   /**
    * A second, never-rendered camera the cover math measures the SHEET screen
@@ -2462,6 +2558,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * never a missing tile (this file's own standing contract for this
    * function).
    */
+  /**
+   * WALK MODE needs no branch here and deliberately has none. Measured
+   * (z14 pyramid, 2.4 km tiles, 400 m horizon): every one of the 49 screen
+   * samples fails to unproject under the positioned perspective camera, so
+   * this returns `null` and `candidateTileRange` falls back to its own
+   * `view.span` box — which walk mode has already set to the footprint
+   * (`glyphMapWalkSpan`). The bound therefore reaches the sweep through
+   * `view.span`, where every other consumer already reads it, and the sweep
+   * asks for the four tiles under the walker.
+   */
   function orbitCandidateGeoBounds(padCells: number): GlyphMapBounds | null {
     if (!isOrbitProjection()) return null;
     const grid = projectionGrid();
@@ -2693,6 +2799,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /** The pitch to actually pose the camera at for `(proj, v)`: the caller's request, clamped to {@link maxTiltFor}. */
   function tiltFor(proj: GlyphMapProjection, v: GlyphMapView, zoom: number, grid: ProjectionGrid): number {
+    // Walking, the pitch is a NECK: measured from the local horizontal, not
+    // from straight down, and bounded either side of it. The orthographic
+    // ceiling `asin(R / (R + h))` is the wrong quantity here twice over —
+    // it is a footprint bound, and it opens to 90 as the altitude goes to
+    // zero, which is exactly where the walker already is.
+    if (walk) { const [lo, hi] = walkTiltRange(); return clamp(tiltRequest, lo, hi); }
     const max = maxTiltFor(proj, v, zoom, grid);
     return clamp(tiltRequest, -max, max);
   }
@@ -3033,7 +3145,111 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return proj.cameraForCenter!(lon, lat);
   }
 
+  /**
+   * Pose the perspective camera for a walker standing at `v.center`.
+   *
+   * The ORIENTATION is the widget's existing orbit pose read at its limit,
+   * not a second camera model: `cameraForCenter(lon, lat)` gives the camera
+   * looking straight DOWN at the walker, `appliedTilt` pitches it about that
+   * same surface point, and at {@link GLYPH_MAP_WALK_HORIZON_TILT_DEG} the
+   * pitch has swung the view axis onto the local horizontal — dead ahead.
+   * `syncCameraBearing()` then turns it about the pivot's own local up,
+   * which is a compass heading, and keeps the horizon LEVEL by construction
+   * (`M * u_c = E * u_c` for every bearing) — the one thing a walker cannot
+   * do without and a view-axis roll would destroy.
+   *
+   * The POSITION is the part the orthographic camera has no notion of. An
+   * orthographic camera has no eye; this one's sits `P / BASE_TILE` world
+   * units behind `camera.target` along the view axis, so standing at eye
+   * height means putting `target` that far AHEAD of where the walker's eyes
+   * are. `BASE_TILE` is glyphcss's own constant and is PROBED rather than
+   * assumed: `eyeDepth` is affine in the world point (its own contract), so
+   * two evaluations one world unit apart along the view axis give the slope
+   * exactly, and the eye lands where this arithmetic says even if that
+   * constant ever moves.
+   *
+   * Every length that is a TRUE metre — the eye height, the near plane —
+   * converts through {@link glyphMapTrueScaleElevation}, the package's one
+   * elevation conversion, so a terrain `exaggeration` raises the GROUND the
+   * walker stands on without making them 40 m tall. Same rule, same reason,
+   * as a `fill-extrusion`'s height.
+   */
+  function poseWalkCamera(v: GlyphMapView): void {
+    const w = walk!;
+    const [lon, lat] = v.center;
+    const grid = projectionGrid();
+    const ground = projection.project(lon, lat, walkGroundElevation);
+    const oneMetre = glyphMapTrueScaleElevation(1, projection);
+    const raised = projection.project(lon, lat, walkGroundElevation + oneMetre);
+    // One TRUE metre straight up, in world units — direction and length both.
+    const upM: Vec3 = [raised[0] - ground[0], raised[1] - ground[1], raised[2] - ground[2]];
+    const worldPerMetre = Math.hypot(upM[0], upM[1], upM[2]);
+    if (!(worldPerMetre > 0) || !Number.isFinite(worldPerMetre)) return;
+
+    // The APPLIED pitch, clamped to the neck, exactly as the orthographic
+    // branch resolves its own against the horizon ceiling — this is the one
+    // place `tiltRequest` becomes `appliedTilt`, so `setTilt` and the orient
+    // gesture both reach their bound through it rather than each carrying a
+    // clamp of their own. (`camera.zoom` is a dummy argument here: `tiltFor`'s
+    // walk branch is a function of `tiltRequest` and the neck alone.)
+    appliedTilt = tiltFor(projection, v, camera.zoom, grid);
+    const { rotX, rotY } = orbitRotationFor(projection, lon, lat);
+    orbitRotation = { rotX, rotY };
+    camera.rotX = rotX + appliedTilt;
+    camera.rotY = rotY;
+    const eye: Vec3 = [
+      ground[0] + upM[0] * w.eyeHeight,
+      ground[1] + upM[1] * w.eyeHeight,
+      ground[2] + upM[2] * w.eyeHeight,
+    ];
+    // A provisional target so `syncCameraBearing`/`headlightDirection` read a
+    // fully posed camera; replaced below once the view axis is known.
+    camera.target = eye;
+    syncCameraBearing();
+
+    // `headlightDirection()` is the camera's own depth GRADIENT — the
+    // direction from a point toward the eye — read off `camera.mat` when a
+    // bearing is installed and off the Euler angles when it is not, so it is
+    // the one expression that is right in both cases. The walker looks the
+    // other way.
+    const toCamera = headlightDirection();
+    const forward: Vec3 = [-toCamera[0], -toCamera[1], -toCamera[2]];
+
+    // glyphcss's BASE_TILE, probed rather than assumed: `eyeDepth` is affine
+    // in the world point (its own contract) and its slope along the view
+    // axis is exactly that constant, independent of `perspective`. So this
+    // is one subtraction and it stays right if the constant ever moves.
+    const e0 = camera.eyeDepth(eye);
+    const e1 = camera.eyeDepth([eye[0] + forward[0], eye[1] + forward[1], eye[2] + forward[2]]);
+    const baseTilePx = e1 - e0;
+    if (!(baseTilePx > 0) || !Number.isFinite(baseTilePx)) return;
+
+    const lens = glyphMapWalkLens({
+      nearWorld: w.near * worldPerMetre,
+      fovDeg: w.fov,
+      viewportWidthPx: grid.cols * grid.cellWidth,
+      baseTilePx,
+    });
+    camera.perspective = lens.perspective;
+    camera.zoom = lens.zoom;
+    // The eye sits `P / BASE_TILE` world units behind `target`, so standing
+    // at eye height means putting the target that far AHEAD of the eyes.
+    const ahead = lens.perspective / baseTilePx;
+    camera.target = [
+      eye[0] + forward[0] * ahead,
+      eye[1] + forward[1] * ahead,
+      eye[2] + forward[2] * ahead,
+    ];
+    // The heading matrix is built from `rotX`/`rotY` and the pivot's local up
+    // alone, so moving `target` cannot have staled it.
+  }
+
   function syncCameraToView(v: GlyphMapView): void {
+    // Walk mode owns the whole pose — lens, position and orientation — and
+    // shares only the pitch/heading state. There is no zoom-for-span to
+    // compute and no pitch ceiling to derive from a synthetic altitude:
+    // the walker has a real one.
+    if (walk) { poseWalkCamera(v); return; }
     const [lon, lat] = v.center;
     // ONE grid for the whole sync (two `getBoundingClientRect`s, this file's
     // standing rule), and the zoom BEFORE the pitch: the pitch ceiling is a
@@ -3076,7 +3292,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     const [col, row] = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
     const visible = Number.isFinite(col) && Number.isFinite(row)
-      && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)))
+      // Walking, the horizon is local: `projection.visible` is derived for
+      // the orthographic camera and would call the pavement underfoot
+      // invisible (see `walk.ts`). The perspective camera's own near-plane
+      // rejection already returns NaN for anything behind the eye, so the
+      // on-grid test below plus the horizon disc is the whole verdict.
+      && (walk
+        ? glyphMapWalkWithinHorizon(view.center[0], view.center[1], lngLat[0], lngLat[1], walk.far)
+        : (!projection.visible || projection.visible(world, (w) => depthOf(w, grid))))
       && col >= 0 && col <= grid.cols && row >= 0 && row <= grid.rows;
     return { col, row, visible };
   }
@@ -4371,6 +4594,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * runs this for every ring vertex of every feature, and `projectionGrid()`
    * costs two `getBoundingClientRect()` calls.
    */
+  /**
+   * WALK MODE needs no branch here and deliberately has none — measured, not
+   * assumed. `projection.visible` is derived for the orthographic camera,
+   * but under the walk camera its cylinder test already cuts a
+   * `fill-extrusion`'s far walls at street scale: a 300 m block on the view
+   * axis paints 4,590 cells at 80 m, 1,485 at 160 m, 480 at 400 m and
+   * ZERO from 800 m out, with or without a horizon predicate here. Adding
+   * one changed not a cell, so it is not shipped.
+   *
+   * The far-field cull the walk needs is delivered where it costs nothing
+   * anyway: nothing outside the footprint is ever FETCHED, so for a provider
+   * source there is no far geometry to cull. `widget.walk.test.ts` pins the
+   * near-draws/far-does-not pair either way.
+   */
   function nearSidePredicate(): ((lon: number, lat: number, elev: number) => boolean) | undefined {
     const isVisible = projection.visible;
     if (!isVisible) return undefined;
@@ -5569,7 +5806,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let projectionAnim: ProjectionAnimState | null = null;
 
   function motionActive(): boolean {
-    return motionDirty || gliding || flight !== null || projectionAnim !== null;
+    // A held movement key is motion in exactly the sense this loop means:
+    // state that keeps changing until the reader stops it. It rides the ONE
+    // rAF loop rather than starting a second one, so a walk still issues at
+    // most one render per displayed frame.
+    return motionDirty || gliding || flight !== null || projectionAnim !== null
+      || (walk !== null && walkHeldKeys.size > 0);
   }
 
   function requestMotionFrame(): void {
@@ -5641,6 +5883,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let moved = motionDirty;
     motionDirty = false;
 
+    // Before the flight/glide branch, and never alongside one: a `flyTo` is
+    // cancelled on entering walk mode and a walk has no inertia, so the two
+    // cannot both own the position in the same frame.
+    if (walk && advanceWalk(dt)) moved = true;
+
     if (flight) {
       advanceFlight(now);
       moved = true;
@@ -5679,7 +5926,79 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (motionActive()) requestMotionFrame();
   }
 
+  /**
+   * One frame of walking: integrate the held keys into a geodesic step,
+   * re-sample the ground under the new position, and re-pose the camera.
+   * Returns whether anything moved, which is what tells `motionStep` to
+   * repaint and to re-arm the tile debounce.
+   *
+   * The step is a real geodesic (`glyphMapWalkStep`), not a planar delta:
+   * one frame's 27 mm hardly cares, but the INTEGRAL of a long walk does —
+   * a planar step accumulates a heading error with latitude, so walking due
+   * north for a kilometre would drift east.
+   *
+   * `view` is written directly rather than through `applyViewState`, which
+   * would run `clampViewToCover` (a sheet-only "cover, not contain" clamp
+   * that walk mode's orbit-only gate already excludes) and then
+   * `syncCameraToView` — the same pose this calls itself, once.
+   */
+  function advanceWalk(dtMs: number): boolean {
+    const axis = glyphMapWalkAxis(walkHeldKeys);
+    if (!axis) return false;
+    const w = walk!;
+    const metres = w.speed * (walkRunning ? GLYPH_MAP_WALK_RUN_MULTIPLIER : 1) * (dtMs / 1000);
+    const center = glyphMapWalkStep(view.center[0], view.center[1], bearing, axis.forward * metres, axis.strafe * metres);
+    view = { ...view, center, bounds: undefined };
+    refreshWalkGround();
+    syncCameraToView(view);
+    emitViewChange("move");
+    return true;
+  }
+
+  /** Re-read the terrain under the walker from the mounted raster layers (finest tier first); `0` with none mounted, which is the datum every other layer already uses. */
+  function refreshWalkGround(): void {
+    const sample = groundElevationSampler();
+    const elevation = sample ? sample(view.center[0], view.center[1]) : 0;
+    walkGroundElevation = Number.isFinite(elevation) ? elevation : 0;
+  }
+
+  function onKeyDown(e: KeyboardEvent): void {
+    if (!walk) return;
+    if (e.key === "Shift") { walkRunning = true; return; }
+    if (!glyphMapWalkAxisForKey(e.key)) return;
+    // Claimed only while walking, so the page keeps every one of these keys
+    // (arrows scroll, `d`/`s` reach whatever the host bound them to) at all
+    // other times.
+    e.preventDefault();
+    const key = e.key.toLowerCase();
+    if (walkHeldKeys.has(key)) return;
+    walkHeldKeys.add(key);
+    markMotionDirty();
+  }
+
+  function onKeyUp(e: KeyboardEvent): void {
+    if (e.key === "Shift") { walkRunning = false; return; }
+    walkHeldKeys.delete(e.key.toLowerCase());
+  }
+
+  /**
+   * A window BLUR drops every held key. Without it, tabbing away mid-stride
+   * leaves the key in the set with no `keyup` ever coming, and the walker
+   * strides on forever into whatever the reader comes back to.
+   */
+  function onWalkBlur(): void {
+    walkHeldKeys.clear();
+    walkRunning = false;
+  }
+
   function setProjection(target: GlyphMapProjection, setOpts: GlyphMapSetProjectionOptions = {}): Promise<void> {
+    // A projection change LEAVES walk mode rather than blending through it:
+    // a transition's intermediate projections are not generally invertible
+    // and a sheet endpoint cannot express a walker's world at all (see
+    // {@link setWalk}). Leaving restores the pre-walk view, which is then
+    // the view the transition flies from — the same hand-over rule a
+    // glide/flight takes.
+    if (walk) setWalk(null);
     // Hand over in place from whatever is currently moving the camera.
     if (projectionAnim) { const prev = projectionAnim; projectionAnim = null; prev.settle(); }
     cancelCameraGlide();
@@ -5887,6 +6206,101 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * Enter, reconfigure, or leave street-level WALK mode.
+   *
+   * `null` leaves. An options object enters (or re-resolves the options of a
+   * walk already under way). Entering is REFUSED — a `RangeError` naming the
+   * reason, not a silent degrade — on a projection with no
+   * `cameraForCenter`/`centerForCamera`, i.e. on a flat sheet. That is not a
+   * preference: a sheet puts X/Y in DEGREES and Z in Earth radii, so a 20 m
+   * building on `/maps`' equirectangular sheet is drawn 85x too short
+   * relative to its own footprint and is invisible from the ground. Only an
+   * orbit projection is metrically isotropic, and the capability check is
+   * how this file has always said "orbit" (never `projection.id`).
+   *
+   * Entering CAPTURES `view`, `tiltRequest`, `appliedTilt`, `bearing` and
+   * `orbitRotation` verbatim and leaving puts them back — nothing is
+   * recomputed. The orthographic camera is not part of that capture because
+   * it does not need to be: walk mode swaps a separate perspective camera in
+   * and never writes the orthographic one, so it still holds the exact pose
+   * it was left at and leaving is one assignment.
+   */
+  function setWalk(next: GlyphMapWalkOptions | null): void {
+    if (next === null) {
+      if (!walk) return;
+      const restore = walkRestore!;
+      walk = null;
+      walkRestore = null;
+      walkHeldKeys.clear();
+      walkRunning = false;
+      view = restore.view;
+      tiltRequest = restore.tiltRequest;
+      appliedTilt = restore.appliedTilt;
+      bearing = restore.bearing;
+      orbitRotation = restore.orbitRotation;
+      camera = orthographicCamera;
+      scene.setOptions({ camera });
+      applyKeyLight();
+      scene.rerender();
+      scheduleTileUpdate();
+      syncNearSide();
+      emitViewChange("zoom");
+      return;
+    }
+    if (!projection.cameraForCenter || !projection.centerForCamera) {
+      throw new RangeError(
+        `createGlyphMap: walk mode needs a projection navigated by orbiting the camera (one declaring cameraForCenter/centerForCamera); "${projection.id}" is a flat sheet, where a metre of height and a metre of ground are different world units.`,
+      );
+    }
+    const resolved = resolveGlyphMapWalkOptions(next);
+    if (walk) {
+      walk = resolved;
+      view = { ...view, span: glyphMapWalkSpan(resolved.far), bounds: undefined };
+      // A narrower neck can leave the live pitch outside it; `tiltFor`
+      // clamps the REQUEST, so re-running the pose is the whole correction.
+      appliedTilt = tiltFor(projection, view, camera.zoom, projectionGrid());
+      syncCameraToView(view);
+      applyKeyLight();
+      scene.rerender();
+      scheduleTileUpdate();
+      syncNearSide();
+      emitViewChange("zoom");
+      return;
+    }
+    // A flight or a glide owns the position; a walker owns it from here.
+    cancelCameraGlide();
+    walkRestore = { view, tiltRequest, appliedTilt, bearing, orbitRotation };
+    walk = resolved;
+    if (!walkCamera) walkCamera = createGlyphPerspectiveCamera({});
+    camera = walkCamera;
+    scene.setOptions({ camera });
+    // The walker starts looking at the horizon, facing whichever way the map
+    // was already oriented — `bearing` carries over untouched, because it
+    // already means the compass direction that points up the screen.
+    tiltRequest = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
+    appliedTilt = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
+    view = { ...view, span: glyphMapWalkSpan(resolved.far), bounds: undefined };
+    refreshWalkGround();
+    syncCameraToView(view);
+    applyKeyLight();
+    scene.rerender();
+    scheduleTileUpdate();
+    syncNearSide();
+    emitViewChange("zoom");
+  }
+
+  function getWalk(): GlyphMapWalkState | null {
+    if (!walk) return null;
+    return {
+      ...walk,
+      center: view.center,
+      heading: bearing,
+      pitch: appliedTilt - GLYPH_MAP_WALK_HORIZON_TILT_DEG,
+      groundElevation: walkGroundElevation,
+    };
+  }
+
+  /**
    * The bearing half of the orient gesture: `dxPx` pixels of HORIZONTAL
    * travel become heading, at MapLibre's own rate
    * ({@link GLYPH_MAP_BEARING_DRAG_DEG_PER_PX}) — drag right, the picture
@@ -5898,6 +6312,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
 
   function getMaxTilt(): number {
+    // Walking, the ceiling is the neck's, and it is what `setTilt` and the
+    // orient gesture both clamp to — so a UI reading this gets the bound
+    // that is actually applied rather than a horizon angle nothing uses.
+    if (walk) return walkTiltRange()[1];
     const grid = projectionGrid();
     return maxTiltFor(projection, view, computeZoomForSpan(view, projection, grid), grid);
   }
@@ -6148,11 +6566,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     cancelCameraGlide();
     let orbit = false;
     if (dyPx !== 0) {
-      orbit = applyTiltState(clamp(
-        appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX,
-        -GLYPH_MAP_MAX_TILT,
-        GLYPH_MAP_MAX_TILT,
-      ));
+      // Walking, the travel is bounded by the NECK either side of the
+      // horizontal rather than by the orthographic pitch cap — same
+      // accumulate-from-`appliedTilt` rule, different bound.
+      const [lo, hi] = walk ? walkTiltRange() : [-GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT] as const;
+      orbit = applyTiltState(clamp(appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX, lo, hi));
     }
     // The heading is applied AFTER the pitch, on the pose the pitch installed
     // — `applyTiltState`'s orbit branch re-derives the whole camera through
@@ -6188,6 +6606,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * for. The smoothness comes from frame coalescing, not from lag.
    */
   function applyWheel(deltaY: number, deltaMode: number): void {
+    // Walking, `view.span` DESCRIBES the horizon footprint rather than
+    // controlling the framing (the lens does that), so a wheel notch would
+    // silently resize the tile budget and change nothing on screen. It is a
+    // no-op, not a re-purposed FOV control: a walker's field of view is not
+    // a thing a scroll wheel should be able to distort.
+    if (walk) return;
     const normalized = glyphMapNormalizeWheelDelta(deltaY, deltaMode);
     // An explicit zoom takes over from a glide or a flight in place.
     cancelCameraGlide();
@@ -6225,7 +6649,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (activePointerId !== null) return;
     const tilting = isTiltGesture(e);
     if (!tilting && !controlsDrag) return;
-    gestureMode = tilting ? "tilt" : "pan";
+    // Walking, there is no pan: dragging the ground out from under a walker
+    // is not a thing a first-person view can mean. Every drag is a LOOK, so
+    // it takes the orient path the Ctrl/right-drag gesture already uses.
+    gestureMode = (tilting || walk !== null) ? "tilt" : "pan";
     // Suppress the compatibility mousedown a tilt gesture would otherwise
     // produce, which starts a text selection over the <pre> and (with the
     // right button) primes a native drag. The pan path is left alone: it has
@@ -6378,6 +6805,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   host.addEventListener("pointercancel", onPointerUp);
   host.addEventListener("wheel", onWheel, { passive: false });
   host.addEventListener("contextmenu", onContextMenu);
+  // On the OWNER DOCUMENT, not the host: a `<div>` takes no keyboard focus
+  // without a `tabindex` this widget has no business adding to a caller's
+  // element, and a walker who has just clicked the map to look around should
+  // not then have to click it again to walk. Both handlers no-op outright
+  // while `walk` is null, so a map that never walks pays two dead listeners
+  // and nothing else.
+  const keyTarget: EventTarget = host.ownerDocument ?? host;
+  keyTarget.addEventListener("keydown", onKeyDown as EventListener);
+  keyTarget.addEventListener("keyup", onKeyUp as EventListener);
+  const blurTarget: EventTarget | null = host.ownerDocument?.defaultView ?? null;
+  blurTarget?.addEventListener("blur", onWalkBlur);
 
   // ── Initial mount ─────────────────────────────────────────────────────
 
@@ -6417,6 +6855,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     getMaxTilt,
     setBearing,
     getBearing,
+    setWalk,
+    getWalk,
     setSun,
     getSun: () => ({
       mode: sunMode,
@@ -6481,6 +6921,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       host.removeEventListener("pointercancel", onPointerUp);
       host.removeEventListener("wheel", onWheel);
       host.removeEventListener("contextmenu", onContextMenu);
+      keyTarget.removeEventListener("keydown", onKeyDown as EventListener);
+      keyTarget.removeEventListener("keyup", onKeyUp as EventListener);
+      blurTarget?.removeEventListener("blur", onWalkBlur);
       for (const state of layerStates.values()) {
         if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
       }

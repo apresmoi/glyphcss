@@ -84,6 +84,7 @@ import {
   type MapProjectionId,
   type MapSunMode,
 } from "./mapsKit";
+import { mapWalkBudgetLabel, mapWalkReason } from "./mapsWalk";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
@@ -206,6 +207,12 @@ export default function MapsWorkbench() {
     () => mapsOsmSublayersFromMask(initial.osmMask),
   );
   const [osmDensity, setOsmDensity] = useState(initial.osmDensity);
+  /**
+   * Street-level walk mode. Deliberately NOT part of the URL state: it is a
+   * MODE a reader steps into and back out of, and a shared link that dropped
+   * someone at eye height in a street would hide the map they were sent.
+   */
+  const [walkOn, setWalkOn] = useState(false);
   const [attributions, setAttributions] = useState<readonly GlyphMapAttribution[]>([]);
 
   // ── Per-layer visibility + density + own controls (left-rail "Layers"
@@ -537,6 +544,17 @@ export default function MapsWorkbench() {
     if (!map) return;
     void flyToMapSearchResult(map, result);
   }, []);
+
+  /**
+   * Whether street-level walk mode is available, and if not, the one thing
+   * the reader would change (`mapsWalk.ts`). The projection and the view's
+   * own SCALE are the whole input — not what is mounted: the walker's height
+   * comes from `groundElevationSampler`, which answers for any raster layer
+   * and gives the datum for none, so walking a bare ridge is the same code
+   * path as walking a street. Recomputed from live state, so the row goes
+   * live and dim as the reader zooms rather than needing a refresh.
+   */
+  const walkGateReason = mapWalkReason({ projectionId, span });
 
   const layersFolderInputs: LayersFolderInputs = {
     background: { color: backgroundColor, onColor: setBackgroundColor },
@@ -1331,6 +1349,33 @@ export default function MapsWorkbench() {
     onBearing(MAP_BEARING_HOME);
   }, [onTilt, onBearing]);
 
+  /**
+   * The walk toggle -> the widget.
+   *
+   * Also the AUTO-EXIT: the gate is recomputed from live state, so a reader
+   * who turns OpenStreetMap off, switches to a flat sheet, or flies out to
+   * the world while walking has just made walk mode impossible — and the
+   * honest response is to put them back where the map was, not to keep a
+   * first-person camera pointed at nothing. The widget's own `setWalk(null)`
+   * restores the pre-walk view exactly, so "impossible now" costs the reader
+   * nothing.
+   *
+   * `setProjection` leaves walk mode inside the widget too (a transition's
+   * intermediate projections are not invertible and a sheet endpoint cannot
+   * express a walker's world), so this effect's job there is only to catch
+   * the React state up.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (walkOn && walkGateReason === null) {
+      if (!map.getWalk()) map.setWalk({});
+      return;
+    }
+    if (map.getWalk()) map.setWalk(null);
+    if (walkOn) setWalkOn(false);
+  }, [walkOn, walkGateReason]);
+
   // ── Center/span sliders -> imperative `map.setView()`. ─────────────────
   const onCenter = useCallback((lon: number, lat: number) => {
     setCenterLon(lon);
@@ -1573,6 +1618,8 @@ export default function MapsWorkbench() {
             lighting={lighting}
             onUpdateLighting={(partial) => setLighting((l) => ({ ...l, ...partial }))}
             sunMode={sunMode} sunDay={sunDay} sunHour={sunHour} shadows={shadows} onShadows={setShadows}
+            walk={walkOn} onWalk={setWalkOn}
+            walkReason={walkGateReason} walkBudget={mapWalkBudgetLabel()}
             shadowCasterReason={mapShadowCasterReason(extraVisible, showOsm, osmSublayers)}
             onSunMode={(mode) => {
               // Entering manual SEEDS the day/hour from the real clock, so
@@ -1617,6 +1664,11 @@ function MapsDockFolders(props: {
   projectionId: MapProjectionId; onProjectionId: (id: MapProjectionId) => void;
   centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; maxTilt: number; bearing: number; lod: number; degPerCell: number;
   onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void; onBearing: (v: number) => void;
+  walk: boolean; onWalk: (v: boolean) => void;
+  /** {@link mapWalkReason} — why the Walk row is dimmed, or `null` when it is live. */
+  walkReason: string | null;
+  /** {@link mapWalkBudgetLabel} — the walker's horizon and its tile cost, shown only while walking. */
+  walkBudget: string;
   charMode: MapCharMode; charModeReason: string | null;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
   colorEncoding: MapColorEncoding; atlasReason: string | null;
@@ -1638,6 +1690,7 @@ function MapsDockFolders(props: {
     centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt, maxTilt: props.maxTilt, bearing: props.bearing,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
     onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt, onBearing: props.onBearing,
+    walk: props.walk, onWalk: props.onWalk, walkReason: props.walkReason, walkBudget: props.walkBudget,
   });
 
   return (

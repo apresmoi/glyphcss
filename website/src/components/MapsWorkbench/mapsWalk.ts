@@ -1,0 +1,108 @@
+/**
+ * The /maps page's street-level WALK gate: when the Dock's Walk toggle is
+ * live, and what it says when it is not.
+ *
+ * Walk mode is a CAMERA MODE, not a layer feature. It puts the eye 1.7 m off
+ * the ground and swaps a perspective camera in; what it renders is whatever
+ * is mounted — OpenStreetMap buildings, a relief mesh, both, neither. Walking
+ * up a ridge with only terrain on is the same code path as walking down a
+ * street, because the walker's height comes from `groundElevationSampler`,
+ * which answers off the mounted `raster` layers' own tiles for ANY raster
+ * layer (and answers `null`, i.e. the datum, when none is mounted — correct,
+ * not an error). So this gate says nothing at all about WHICH layers are on.
+ *
+ * Two things have to be true, and each has a reason a reader can act on
+ * rather than an inert control — the idiom `mapDirectionLocked` and
+ * `charModeReason` already use:
+ *
+ *  1. **The globe.** Geometry, not preference. A flat sheet puts X/Y in
+ *     DEGREES and Z in Earth radii, so a 20 m building on this page's
+ *     equirectangular sheet is drawn 85x too short relative to its own
+ *     footprint and is invisible from the ground; the same anisotropy
+ *     flattens a mountain. Only the globe is metrically isotropic.
+ *     `setWalk` itself throws a `RangeError` on a sheet, so this gate is what
+ *     stops the reader ever reaching that.
+ *  2. **Already near the ground.** {@link MAP_WALK_MAX_ENTRY_SPAN_DEG}
+ *     below. This is the ALTITUDE clause, and it is the one that makes walk
+ *     mode safe at all: it is only because the eye is near the surface that
+ *     the Earth is locally flat over the visible frame, which is what lets
+ *     walk mode leave `glyphMapGlobe.visible()` and the orthographic path it
+ *     was derived for completely alone.
+ *
+ * Pure, so it is testable without mounting the Dock (which this vitest config
+ * cannot do for `MapsWorkbench.tsx` anyway).
+ */
+import { GLYPH_MAP_WALK_FAR_M, GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG } from "@glyphcss/maps";
+import type { MapProjectionId } from "./mapsKit";
+
+/** Re-exported so the page states one number and the package owns it. */
+export const MAP_WALK_MAX_ENTRY_SPAN_DEG = GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG;
+
+/**
+ * The zoom level the tile-budget readout is quoted against — the deepest the
+ * page's densest source serves (OpenFreeMap's planet is z0-z14). A terrain
+ * walk is cheaper still: this page's relief pyramid stops at a curated z7,
+ * whose tiles are 2.8 deg across, so a 400 m footprint is one tile.
+ */
+export const MAP_WALK_TILE_BUDGET_Z = 14;
+
+export interface MapWalkGate {
+  readonly projectionId: MapProjectionId;
+  /** The live `map.getView().span`, degrees. */
+  readonly span: number;
+}
+
+/**
+ * Why walk mode is not available right now, or `null` when it is.
+ *
+ * One string, not a list: a reader fixes one thing, looks again, and gets the
+ * next one. Ordered so the answer is always the cheapest thing to change that
+ * is still wrong.
+ */
+export function mapWalkReason(gate: MapWalkGate): string | null {
+  if (gate.projectionId !== "globe") {
+    return "Walk needs the globe. On a flat sheet the ground is measured in degrees and height in Earth radii, so anything standing up — a building, a mountain — draws about 85× too short to see from eye level.";
+  }
+  if (!(gate.span <= MAP_WALK_MAX_ENTRY_SPAN_DEG)) {
+    return `Walk needs the view near the ground: zoom in to about ${formatWalkSpan(MAP_WALK_MAX_ENTRY_SPAN_DEG)} across. At eye height you can see ${Math.round(GLYPH_MAP_WALK_FAR_M)} m, so from further out stepping down would discard everything on screen.`;
+  }
+  return null;
+}
+
+/** `mapWalkReason` as a boolean, for the places that only need the verdict. */
+export function mapWalkAvailable(gate: MapWalkGate): boolean {
+  return mapWalkReason(gate) === null;
+}
+
+/** A span in degrees as a distance a reader can picture. */
+export function formatWalkSpan(spanDeg: number): string {
+  const metres = spanDeg * (Math.PI / 180) * 6_371_000;
+  return metres >= 1000 ? `${(metres / 1000).toFixed(1)} km` : `${Math.round(metres)} m`;
+}
+
+/**
+ * How many tiles of a given level the walker's own horizon covers — the tile
+ * budget, stated where the reader can see it.
+ *
+ * This is the whole reason walk mode is affordable and the reason the horizon
+ * is capped at {@link GLYPH_MAP_WALK_FAR_M} rather than at the true 4.65 km
+ * geometric horizon of a 1.7 m eye. That cap is not an OpenStreetMap concern:
+ * a ground-level footprint reaching the horizon costs the same over a
+ * mountain range as over a city, and the relief pyramid is swept by the same
+ * `view.span` the vector one is.
+ *
+ * A footprint of `2 * far` metres against a level whose tiles are
+ * `360 / (2 * 2^z)` degrees wide, plus the one tile a disc can always
+ * straddle on each axis.
+ */
+export function mapWalkTileBudget(farM = GLYPH_MAP_WALK_FAR_M, z = MAP_WALK_TILE_BUDGET_Z): number {
+  const tileDeg = 360 / (2 * 2 ** z);
+  const spanDeg = (2 * farM) / ((Math.PI / 180) * 6_371_000);
+  const perAxis = Math.ceil(spanDeg / tileDeg) + 1;
+  return perAxis * perAxis;
+}
+
+/** The Dock's one readout while walking: the horizon, and what it costs at the densest level the page serves. */
+export function mapWalkBudgetLabel(farM = GLYPH_MAP_WALK_FAR_M, z = MAP_WALK_TILE_BUDGET_Z): string {
+  return `${Math.round(farM)} m · ≤${mapWalkTileBudget(farM, z)} tiles at z${z}`;
+}

@@ -2740,3 +2740,167 @@ so the last one mounted ends up first. URL token `D`, appended with no version
 bump (`S` and `s` were already spent on `smoothShading` and `span`); a link
 written before it decodes to `false`, which is the map every such link already
 described.
+
+## Street-level walk mode (`GlyphMapHandle.setWalk`)
+
+Off by default and byte-identical there: no perspective camera is ever
+constructed, `walk` is `null`, and every branch in `widget.ts` is guarded on
+it. `packages/maps/src/walk.ts` holds the pure half (lens, step, keys) and
+carries the derivations; this section is the record of what was decided, what
+was measured, and — the larger half — what was BUILT AND THEN DROPPED.
+
+### It is a GATED mode, and that is what makes it small
+
+The two spikes that preceded this feature (scratchpad `FPV_MAPS_FEASIBILITY.md`,
+`FPV_SPIKE.md`, `FPV_RENDER.md`) identified one P0: `glyphMapGlobe.visible()`
+is explicitly derived for the orthographic camera — its own comment says so —
+and under a positioned perspective camera at 1.7 m it reports the ground ONE
+METRE IN FRONT OF THE WALKER invisible. Its consumers are the tile sweep,
+`unprojectSphere`, `viewportGeoSamples`, `fill-extrusion` wall culling and
+marker visibility, so naively swapping the camera gives a BLANK map, not a
+degraded one.
+
+Generalising `visible()` is a real interface change (`visibleFrom(world, eye)`
+or similar) to a capability that serves a camera walk mode does not use.
+Walk mode does not need it: over the few hundred metres a walker can see the
+Earth is locally flat, so the visibility question reduces to "is this within
+`far` metres of where I am standing". So the mode is GATED — the control is
+only offered on the globe, over OSM, already near the ground — and every walk
+branch keys on "walk mode is active", never on a projection id and never by
+widening a projection capability.
+
+### The pose is the EXISTING orbit camera read at its limit
+
+Almost nothing new. The widget already pitches the camera about the surface
+point under the view centre with a ceiling of `asin(R / (R + h))`, which opens
+to 90 deg as the altitude goes to zero, and already turns it about the pivot's
+own local up (`bearing`). At `tilt: 90` the camera's depth-gradient direction
+is the local horizontal, so the view axis is dead ahead. Therefore:
+
+- `tiltRequest`/`appliedTilt` IS the walker's pitch, measured from
+  `GLYPH_MAP_WALK_HORIZON_TILT_DEG` (90) and clamped to a NECK
+  (`maxPitch`, 55 deg either side) instead of to the horizon ceiling.
+- `bearing` IS the walker's heading, unchanged. It keeps the horizon LEVEL by
+  construction (`M · u_c = E · u_c` for every bearing) — the one thing a
+  walker cannot do without, and exactly what a view-axis roll would destroy.
+- `view.center` IS where the walker stands.
+- `view.span` DESCRIBES the horizon footprint (`glyphMapWalkSpan`), so tile
+  LOD, the URL codec and every readout keep working without learning about a
+  camera mode. It stops being a zoom CONTROL: the wheel is a no-op while
+  walking, deliberately not repurposed as an FOV control.
+
+What is genuinely new is the POSITION (an orthographic camera has no eye) and
+the LENS. The eye sits `P / BASE_TILE` world units behind `camera.target`, so
+standing at eye height means putting `target` that far AHEAD of the eyes.
+`BASE_TILE` is PROBED off the live camera rather than assumed: `eyeDepth` is
+affine in the world point (its own contract) and its slope along the view axis
+is exactly that constant, independent of `perspective`, so two evaluations
+recover it and the eye lands where the arithmetic says even if glyphcss's
+constant ever moves. Every TRUE metre — the eye height, the near plane —
+converts through `glyphMapTrueScaleElevation`, the same exemption a
+`fill-extrusion`'s height takes: the ground a walker stands on is wherever the
+exaggerated relief puts it, and only what is measured up from that ground is
+exempt.
+
+### The horizon is capped at 400 m, and that cap is doing two jobs
+
+`GLYPH_MAP_WALK_FAR_M` is 400. The TRUE geometric horizon at 1.7 m is 4.65 km,
+whose footprint is 36 OpenFreeMap z14 tiles — already at the edge of the
+widget's measured budget (<= 24 at a city view, never more than 100) — and
+every metre of eye height makes it worse fast: 196 tiles at 10 m, 1,849 at
+100 m, 5,625 at 300 m. It is also where the PICTURE stops working: past
+~400 m a building is a couple of rows tall and the far field collapses into an
+undifferentiated band. The performance bound and the aesthetic bound are the
+same number, which is why there is one constant and not two.
+
+Measured on a z14-shaped pyramid (2.4 km tiles) at the 400 m horizon: the
+sweep requests exactly FOUR deep tiles, the four under the walker.
+
+### Three visibility branches were built, measured, and DROPPED
+
+This is the part worth keeping. The obvious design gives walk mode its own
+local-horizon test everywhere `projection.visible` is consulted. Three of
+those four were built and then removed because they changed nothing:
+
+- **`orbitCandidateGeoBounds`** — measured, all 49 of its screen samples fail
+  to unproject under the walk camera, so it returns `null` and
+  `candidateTileRange` falls back to its own `view.span` box — which walk mode
+  has ALREADY set to the footprint. The bound therefore reaches the sweep
+  through `view.span`, where every other consumer already reads it.
+- **`isBoundsVisible`** — with the footprint already bounding the candidate
+  range, a box-overlap branch here selected the same four tiles.
+- **`nearSidePredicate`** (wall culling, markers) — `projection.visible`'s
+  cylinder test already cuts a `fill-extrusion`'s far walls at street scale.
+  Measured, a 300 m block on the view axis paints 4,590 cells at 80 m, 1,485
+  at 160 m, 480 at 400 m and ZERO from 800 m out, identically with and without
+  a horizon predicate. Adding one changed not a cell.
+
+The ONE that is load-bearing is `project()`: a point at 5x the horizon is on
+the near hemisphere AND squarely on grid, so `projection.visible` cannot
+reject it and the public projector would report it visible. Removing that
+branch turns `widget.walk.test.ts`'s horizon clause red; removing any of the
+other three turns nothing red, so they are not shipped.
+
+### What is NOT in scope, and why the ground is bare
+
+Road ribbons are a separate slice (a per-layer `GlyphMapLineLayer.ribbon`
+option): the `line` layer is a post-raster STAMP by design, so a road has no
+geometry for a perspective camera to converge. Until that lands the ground
+between the buildings is one flat colour, which is a real limitation and not a
+defect to chase here — `FPV_RENDER.md` measured the ribbons at +1.2 ms and
+identified them as what turns the lower third of the frame from a floor into a
+street.
+
+No COLLISION, on both spikes' recommendation. Walking through a building is
+acceptable for v1.
+
+The relief backstop tiers are NOT suppressed while walking, deliberately.
+They are sunk `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M` (20,000 m), and a point
+20 km below the eye is off the bottom of a 35 deg vertical frame for every
+distance under ~63 km — so at street level the sink that exists to keep a
+backstop from occluding the target tier also keeps it entirely out of frame,
+for free and with no branch.
+
+### The `/maps` gate, and why it is not about layers
+
+`website/src/components/MapsWorkbench/mapsWalk.ts`, surfaced as a **Walk row
+in the Dock's View folder** — under Tilt and Bearing, because it IS a camera
+mode and it takes both of them over while it is on (Tilt becomes the walker's
+pitch, Bearing their heading), so those two rows stay live and keep meaning
+something. Not a layer card: what a walk RENDERS is whatever is mounted.
+
+Two clauses, each dimming the row with its own reason on it rather than
+leaving an inert control — `mapDirectionLocked`'s Azimuth/Elev treatment:
+
+1. **The globe.** A flat sheet puts X/Y in degrees and Z in Earth radii, so
+   anything standing up — a 20 m building, a mountain — is drawn 85x too short
+   relative to its own footprint. `setWalk` throws a `RangeError` on a sheet;
+   this gate is what stops a reader ever reaching it.
+2. **Already near the ground.** `GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG` = 0.05
+   (~5.6 km, ~40 m per cell on this page's grid). At eye height the walker
+   sees 400 m, so entering from much further out discards everything on
+   screen, which reads as the map blanking rather than as a mode changing.
+
+**There is deliberately no clause about WHICH LAYERS ARE MOUNTED.** An
+earlier draft gated this on OpenStreetMap and put the toggle on the OSM card,
+and that was wrong on the mechanism: the property that makes walk mode safe
+was never "the data is OSM", it is that the eye is near the surface, so the
+Earth is locally flat over the visible frame and `glyphMapGlobe.visible()`'s
+orthographic path is never consulted. That property holds identically over
+bare terrain. The walker's height comes from `groundElevationSampler`, which
+answers off ANY mounted `raster` layer's own tiles (finest tier first) and
+answers `null` — the datum, correct and not an error — for none. So walking up
+a ridge with only the relief mounted is the same code path as walking down a
+street, and `widget.walk.test.ts` pins the climb on a raster-only map.
+
+The tile cap is not an OpenStreetMap concern either: a ground-level footprint
+reaching the horizon costs the same over a mountain range as over a city, and
+the relief pyramid is swept by the same `view.span`. A terrain walk on this
+page's own curated z7 relief (2.8 deg tiles) is one tile; the Dock's Horizon
+readout quotes the budget at z14, the densest level the page serves.
+
+The toggle is NOT part of the URL state: it is a mode a reader steps into and
+back out of, and a shared link that dropped someone at eye height would hide
+the map they were sent. The gate is recomputed from live state, so switching
+projection or flying out while walking auto-exits — which costs nothing,
+because leaving restores the pre-walk view exactly.

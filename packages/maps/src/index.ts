@@ -188,6 +188,32 @@ export {
   type GlyphMapFacadeOptions,
 } from "./facade";
 
+export {
+  GLYPH_MAP_WALK_EYE_HEIGHT_M,
+  GLYPH_MAP_WALK_FAR_M,
+  GLYPH_MAP_WALK_FOV_DEG,
+  GLYPH_MAP_WALK_HORIZON_TILT_DEG,
+  GLYPH_MAP_WALK_KEYS,
+  GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG,
+  GLYPH_MAP_WALK_MAX_PITCH_DEG,
+  GLYPH_MAP_WALK_NEAR_M,
+  GLYPH_MAP_WALK_RUN_MULTIPLIER,
+  GLYPH_MAP_WALK_SPEED_M_PER_S,
+  glyphMapWalkAxis,
+  glyphMapWalkAxisForKey,
+  glyphMapWalkLens,
+  glyphMapWalkSpan,
+  glyphMapWalkStep,
+  glyphMapWalkWithinHorizon,
+  resolveGlyphMapWalkOptions,
+} from "./walk";
+export type {
+  GlyphMapResolvedWalkOptions,
+  GlyphMapWalkAxis,
+  GlyphMapWalkLens,
+  GlyphMapWalkOptions,
+  GlyphMapWalkState,
+} from "./walk";
 export { createGlyphMap, glyphMapContourIndexLevels, glyphMapContourIntervalLevels, glyphMapHeadlightDirection, glyphMapNormalizeWheelDelta, GLYPH_MAP_CONTOUR_LABEL_EVERY, GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y, GLYPH_MAP_SUN_TICK_MS, GLYPH_MAP_WHEEL_DELTA_MODE_SCALE, GLYPH_MAP_WHEEL_ZOOM_K, GLYPH_MAP_FLY_TO_DEFAULT_MS, GLYPH_MAP_FLY_TO_MAX_BOW, GLYPH_MAP_MAX_TILT, GLYPH_MAP_TILT_DRAG_DEG_PER_PX, GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, GLYPH_MAP_SHADOW_LIFT, glyphMapNormalizeBearing } from "./widget";
 export type {
   GlyphMapBackgroundLayer,

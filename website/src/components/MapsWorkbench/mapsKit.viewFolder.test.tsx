@@ -54,6 +54,7 @@ function baseInputs(over: Partial<ViewFolderInputs> = {}): ViewFolderInputs {
     tilt: 0, maxTilt: 85, bearing: 0,
     isOrbitProjection: true, lod: 3, degPerCell: 0.25,
     onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop,
+    walk: false, onWalk: noop, walkReason: null, walkBudget: "400 m · ≤9 tiles at z14",
     ...over,
   };
 }
@@ -160,5 +161,66 @@ describe("View folder — Bearing", () => {
     expect(title).toMatch(/0°\s*=\s*north up/i);
     expect(title).toMatch(/90°\s*=\s*east up/i);
     expect(title).toMatch(/Ctrl\+drag/i);
+  });
+});
+
+/**
+ * Walk is a CAMERA mode, so it lives here with Tilt and Bearing rather than
+ * on a layer card — and it takes those two over while it is on (Tilt becomes
+ * the walker's pitch, Bearing their heading), which is the argument for the
+ * placement and the reason both rows stay live beside it.
+ *
+ * The property under test is the page's dim-with-a-reason idiom
+ * (`mapDirectionLocked`'s Azimuth/Elev rows): an unavailable control says
+ * WHY on the row, and is never hidden and never silently inert.
+ */
+describe("View folder — Walk", () => {
+  it("sits with the camera rows, after Bearing", () => {
+    const host = render(baseInputs());
+    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
+    expect(names).toContain("Walk");
+    expect(names.indexOf("Walk")).toBe(names.indexOf("Bearing °") + 1);
+  });
+
+  it("is live, with a description, when walk mode is available", () => {
+    const host = render(baseInputs({ walkReason: null }));
+    const walk = row(host, "Walk");
+    expect(walk.classList.contains("disabled")).toBe(false);
+    expect(walk.getAttribute("title") ?? "").toMatch(/eye height/i);
+  });
+
+  it("is DIMMED with the reason on the row when it is not", () => {
+    const reason = "Walk needs the view near the ground: zoom in to about 5.6 km across.";
+    const host = render(baseInputs({ walkReason: reason }));
+    const walk = row(host, "Walk");
+    expect(walk.classList.contains("disabled")).toBe(true);
+    expect(walk.getAttribute("title")).toBe(reason);
+    // Dimmed, not removed: the reader is one zoom away from being able to
+    // walk, and a missing row would read as "this map cannot do that".
+    expect(walk.isConnected).toBe(true);
+  });
+
+  it("goes live again when the reason clears, without a remount", () => {
+    const host = render(baseInputs({ walkReason: "too far out" }));
+    expect(row(host, "Walk").classList.contains("disabled")).toBe(true);
+    act(() => { root!.render(<Harness inputs={baseInputs({ walkReason: null })} />); });
+    expect(row(guiHost!, "Walk").classList.contains("disabled")).toBe(false);
+  });
+
+  it("shows the horizon and its tile cost only while walking", () => {
+    const host = render(baseInputs({ walk: false }));
+    expect(row(host, "Horizon").style.display).toBe("none");
+    act(() => { root!.render(<Harness inputs={baseInputs({ walk: true, walkBudget: "400 m · ≤9 tiles at z14" })} />); });
+    const horizon = row(guiHost!, "Horizon");
+    expect(horizon.style.display).not.toBe("none");
+    expect(horizon.querySelector<HTMLInputElement>(".widget input")!.value).toBe("400 m · ≤9 tiles at z14");
+  });
+
+  it("routes the toggle back to the page", () => {
+    const onWalk = vi.fn();
+    const host = render(baseInputs({ walkReason: null, onWalk }));
+    const box = row(host, "Walk").querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    act(() => { box.click(); });
+    expect(onWalk).toHaveBeenCalledWith(true);
   });
 });
