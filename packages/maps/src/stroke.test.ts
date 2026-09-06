@@ -66,6 +66,55 @@ describe("stampGlyphMapPolyline — gate 1: a border behind terrain is occluded 
   });
 });
 
+/**
+ * The slope-scaled allowance is the ONLY one a stroke gets, and this is the
+ * gate that goes red without it.
+ *
+ * A `line` is DRAPED on the ground field (`widget.ts`, bilinear over a
+ * tile's full vertex grid) while the terrain under it is rasterized from a
+ * COARSENED quad mesh, whose chord cuts under every rise inside a quad. The
+ * two are therefore near-coplanar, not exactly coplanar, and the stroke
+ * reads a little BEHIND the surface on a real fraction of its cells —
+ * measured on a real relief pyramid at `/maps`' own pitch, 154 of 650
+ * samples, by up to 1.63e-3 world units where the local screen-space depth
+ * gradient offered 1.45e-2 (`widget.strokeDrape.test.ts`'s ridge fixture).
+ *
+ * The allowance has to be PROPORTIONAL to that gradient, which is why it is
+ * this and not a constant: the same faceting error foreshortens into one
+ * screen cell in proportion to how steeply the surface is turning away, so
+ * a fixed number is simultaneously too small on a flank and too large on a
+ * plain. `0.5` is glyphcss's own wireframe `hiddenLines: "hide"` constant,
+ * for the identical problem.
+ */
+describe("stampGlyphMapPolyline — the slope-scaled allowance, and its bound", () => {
+  /** A surface tilting away at `gradient` world-depth units per column. */
+  const sloped = (gradient: number) => makeGrid(10, 5, (col) => col * gradient);
+  const line = (depthAt: (col: number) => number): GlyphMapStrokeVertex[] => [
+    { col: 1, row: 2, depth: depthAt(1) },
+    { col: 8, row: 2, depth: depthAt(8) },
+  ];
+
+  it("draws a stroke lying just behind a steep surface — the faceting a coarsened relief mesh always has", () => {
+    const gradient = 1e-2;
+    // A quarter of the local gradient behind the surface: inside the
+    // allowance (which is half of it), and about 30x the worst faceting
+    // error the real fixture produces relative to its own gradient.
+    const grid = sloped(gradient);
+    stampGlyphMapPolyline(grid, line((col) => col * gradient - 0.25 * gradient), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBeGreaterThan(4);
+  });
+
+  it("still occludes a stroke genuinely behind that same surface — the allowance is bounded, not a licence", () => {
+    const gradient = 1e-2;
+    // Twice the local gradient behind it: past the allowance, and the
+    // surface is really in front. A margin large enough to swallow this is
+    // the defect the flat 0.03 constant was.
+    const grid = sloped(gradient);
+    stampGlyphMapPolyline(grid, line((col) => col * gradient - 2 * gradient), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBe(0);
+  });
+});
+
 describe("stampGlyphMapPolyline — no special-casing at a cut endpoint (cross-tile-seam continuity)", () => {
   it("stamping a polyline in two pieces (simulating a tile-clipped cut) produces the SAME glyphs at every shared cell as stamping it whole", () => {
     const whole: GlyphMapStrokeVertex[] = [

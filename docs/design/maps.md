@@ -1630,59 +1630,104 @@ tangent→glyph quantizer) is now exported from the `glyphcss` package root
 (`index.ts`) for this — it already existed internally but was never
 re-exported before this slice.
 
+**Strokes are DRAPED on the terrain.** A `line` layer's vertices are
+projected at the GROUND elevation under their own lon/lat
+(`groundElevationSampler`, read from the tiles the mounted `raster` layers
+actually have up, finest tier first), not at the datum. Everything else in a
+`/maps` scene already stands on the exaggerated relief — the terrain mesh by
+construction, a `fill-extrusion` through this same sampler — and under a tilt
+that relief has PARALLAX, so a stroke left at the datum lands somewhere its
+own ground is not. Measured at `/maps`' defaults (globe, `exaggeration: 24`,
+40 degree pitch, 4.8 m per cell): 10 m of ground displaces the building
+standing on it by **16 rows** and displaced the road beside it by **zero**,
+so the two no longer coincided; 400 m displaces by ~2,000 rows, which is why
+every fixture here measures single-digit metres. No raster layer mounted ⇒
+the sampler is `null`, the ground is the datum for every vertex, and the
+whole expression collapses to `projection.project(lon, lat, 0)` — the
+pre-drape line, byte for byte, with no lookup at all (frame-hash gate in
+`widget.strokeDrape.test.ts`).
+
 **The depth contract, pinned** (`stroke.ts`): compare `project()[3] ??
-project()[2]` against `CellGrid.depth`, larger = nearer. The allowance
-before a nearer surface counts as OCCLUSION has two terms, and only one of
-them is a bias:
+project()[2]` against `CellGrid.depth`, larger = nearer. The allowance before
+a nearer surface counts as OCCLUSION is now a SINGLE term — the ordinary
+coplanar-surface bias:
 
-1. **Slope-scaled** (`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME
-   constant as wireframe `hiddenLines: "hide"`'s own slope-scaled bias
-   above) — the real discretization allowance, measured off the grid's own
-   local depth gradient and therefore scale-free.
-2. **The ground offset** (`GlyphMapStrokeVertex.groundDepth`, scaled by
-   `GLYPH_MAP_STROKE_GROUND_MARGIN = 2`) — not a bias but a stated fact
-   about the geometry. A `line` layer's vertices are projected at
-   ELEVATION ZERO (a road or a border carries no elevation), so where the
-   ground under one stands at 400 m the stroke is genuinely 400 m of world
-   depth behind that ground and every depth test rightly calls it
-   occluded. The widget therefore projects each vertex a SECOND time at the
-   ground elevation under it (`groundElevationSampler`, read from the tiles
-   the mounted `raster` layers actually have up, finest tier first) and
-   passes that depth along; exactly that difference is forgiven, nothing
-   else. No raster layer mounted ⇒ the sampler is `null`, not one extra
-   projection runs, and the render is byte-identical to a map that never had
-   terrain.
+**Slope-scaled** (`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME
+constant as wireframe `hiddenLines: "hide"`'s own slope-scaled bias above) —
+measured off the grid's own local depth gradient and therefore scale-free.
+It is not a formality: a stroke is draped on the ground FIELD
+(`glyphMapGeoTileElevationAt`, bilinear over a tile's full vertex grid) while
+the terrain under it is rasterized from a COARSENED quad mesh
+(`glyphMapPolygons`' per-level `resolution`), whose chord cuts under every
+rise inside a quad. The two are near-coplanar, not coplanar. Measured on a
+3,800 m ridge plus 200 m of tile-scale roughness at 720x360, span 12, 40
+degree pitch: of 650 stamped samples **147 read behind the surface**, by up
+to **6.54e-4** world units, against a slope-scaled allowance reaching
+**7.18e-3** at those same cells (11x headroom) — 125 forgiven, 22 genuinely
+occluded by a rough peak really standing in front, which is the correct
+answer rather than something to pad away. Mutated to `0`, all 307 go dark.
 
-**This replaced a flat `GLYPH_MAP_STROKE_DEPTH_BIAS = 0.03`**, which was the
-ground offset stated as a guess: at `/maps`' default `exaggeration: 24`,
-0.03 earth radii is ~7,960 m of terrain — Earth's whole relief, spent on
-every stroke everywhere, whether or not any terrain was under it. Sized to
-survive Everest it swallowed everything a city contains, which is the
-reported defect "buildings should cover the road layers clearly." Measured
-at that view (globe, 40 degree tilt, 0.006 degree span, 140x63): a 60 m OSM
-building stands **1.1676e-5** world units in front of a road crossing under
-it, against an allowance of **0.0300006** — 2,570x too generous, so all 25
-crossing cells drew the road through the building. The same instrument on
-terrain says why no single constant can work: at that view 400 m of ground
-puts the surface **1.9535e-3** in front of a sea-level border — 167x the
-building's gap — so any threshold that keeps the border alive over ground
-also hides every building in the city. Gate:
-`widget.strokeOcclusion.test.ts` (both halves, each red when the other's
-mechanism is removed) plus `widget.tiltedTileCulling.test.ts`, whose border
-runs along a 3,950 m alpine ridge and goes to zero ink without the ground
-offset.
+**Two allowances died here, and neither was reduced — both had their premise
+removed.** Both existed only because a `line` vertex used to be projected at
+elevation zero:
 
-`GLYPH_MAP_STROKE_GROUND_MARGIN = 2` is `1 / cos(60°)`: the offset is
-measured straight up, but under a pitch `t` the view ray also meets the
-raised ground at a horizontal offset of `h·tan(t)`, adding `h·sin(t)·tan(t)`
-of depth on top of the `h·cos(t)` the lift contributes — summing to exactly
-`h / cos(t)`. Measured at `/maps`' own default 40 degree pitch the factor is
-1.305 (gap 1.9535e-3 against a vertical offset of 1.5069e-3), matching
-`1/cos(40°) = 1.305` to three figures. It is deliberately NOT sized against
-`GLYPH_MAP_MAX_TILT` (85 degrees, where `1/cos` is 11.5): at a grazing pitch
-the ground between the camera and a sea-level stroke really is in front of
-it, and hiding the stroke there is the correct answer rather than a defect
-to pad away.
+1. **A flat `GLYPH_MAP_STROKE_DEPTH_BIAS = 0.03`** — the ground offset stated
+   as a guess. At `exaggeration: 24`, 0.03 earth radii is ~7,960 m of terrain,
+   i.e. Earth's whole relief spent on every stroke everywhere. Sized to
+   survive Everest it swallowed everything a city contains, which is the
+   reported defect "buildings should cover the road layers clearly": measured
+   at that view (globe, 40 degree tilt, 0.006 degree span, 140x63) a 60 m OSM
+   building stands **1.1676e-5** world units in front of a road crossing under
+   it, against an allowance of **0.0300006** — 2,570x too generous, so all 25
+   crossing cells drew the road through the building.
+2. **`GLYPH_MAP_STROKE_GROUND_MARGIN = 2`** — that same offset MEASURED, by
+   projecting each vertex a second time at the ground under it and forgiving
+   the difference (`1/cos(60°)`, the pitch-parallax term). Correct about
+   WHETHER a stroke was occluded and silent about WHERE IT WAS DRAWN. It is
+   exactly the projection the drape now IS.
+
+For scale, the gap the surviving bias has to cover is **6.54e-4** at the ridge
+view while the ground offset there is **~2e-2** (3,950 m at 24x) — thirty
+times larger. The premise is gone, not the magnitude tuned. The drape also
+costs LESS than the allowance it replaces: measured on 9,600 border vertices
+at 160x64, span 12, 40 degree pitch with terrain mounted, the stamp is
+**2.76 ms** draped against **3.26 ms** pre-drape (median of 3, 60 renders
+each) — one projection per vertex where there were two. With no raster layer
+mounted both are **~3.05 ms**, the same code path.
+
+Gates: `widget.strokeDrape.test.ts` (position against an analytically derived
+ground row, the building/road coincidence, the frame hash with no raster
+layer, tier-following, and the unbroken run over a coarsened mesh),
+`stroke.test.ts` (the allowance and its BOUND, both directions red),
+`widget.strokeOcclusion.test.ts`, `widget.tiltedTileCulling.test.ts` (whose
+border ink now lands on the ridge's own row at every span, derived the same
+analytic way).
+
+**Contour needs none of this and is byte-identical.** A `contour` layer
+projects no vertex and runs no depth test at all: it samples per CELL
+(`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inks a level
+crossing between neighbouring cells, gated only on surface COVERAGE. It never
+carried a ground offset, so there is nothing to double-count. It does have the
+MIRROR-IMAGE of the same parallax, unfixed and out of scope here: `unproject`
+inverts at elevation zero, so a cell showing raised terrain is attributed the
+lon/lat of the sea-level point under the view ray rather than of the terrain
+point actually drawn there, which offsets the contour field against the relief
+it annotates by the same 16 rows per 10 m at `/maps`' defaults. Closing it
+needs a ray-march against the terrain, not a per-vertex sampler.
+
+**Sub-cell stability.** The sampler reads MOUNTED tiles and the relief mesh is
+built from those same tiles, so the two can never disagree about where the
+ground is. Within one tier the sample is a pure function of `(lon, lat)` and
+of nothing the camera does, so a pan, a zoom or an orbit moves a stroke
+exactly as much as it moves the terrain under it — no shimmer is possible.
+When a FINER tier lands the stroke DOES move, to wherever that tier says the
+ground now is, in the same frame the terrain itself moves there: `stamp()`
+resolves `groundElevationSampler()` on every call and holds no snapshot. A
+stroke that did not move would be the defect — it would then be the only
+thing in the scene still standing on the old tier. Gate:
+`widget.strokeDrape.test.ts`'s tiered-provider test, which goes red when the
+sampler is made to answer from the permanent floor tier instead of the finest
+mounted one.
 
 A `line` layer draws unconditionally through an empty (`-Infinity` depth)
 cell — no base surface there means nothing to be occluded by. A `contour`

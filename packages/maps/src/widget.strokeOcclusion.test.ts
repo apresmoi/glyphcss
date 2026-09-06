@@ -23,20 +23,20 @@
  * stands at the real ground elevation. Sized to survive Everest, it swallowed
  * everything a city contains.
  *
- * The fix states that allowance instead of guessing it: each vertex carries
- * the depth its own lon/lat reaches at the GROUND elevation under it
- * (`widget.ts`'s `groundElevationSampler`, read from the tiles the mounted
- * `raster` layers actually have up), and only that difference is forgiven.
- * So the two halves below are the two halves of the same rule, and each one
- * goes red on its own when the other's mechanism is removed:
+ * The fix stated that allowance instead of guessing it — each vertex carried
+ * the depth its own lon/lat reached at the GROUND elevation under it — and
+ * that measurement has since become the stroke's own POSITION instead: a
+ * `line` vertex is now projected AT the ground (`widget.ts`'s drape,
+ * `widget.strokeDrape.test.ts`), so there is no offset left to forgive and
+ * the slope-scaled coplanar bias is the whole allowance. What this file
+ * pins is unchanged by that and is what the bug report was about:
  *
- *  - no terrain under the road ⇒ nothing is forgiven ⇒ the building occludes
- *    it (this file's first test — the reported bug);
- *  - 400 m of terrain under the border ⇒ exactly 400 m is forgiven ⇒ it still
- *    draws (this file's second test, the guard that the fix did not simply
- *    trade one defect for the border layer vanishing over any high ground —
- *    `widget.tiltedTileCulling.test.ts` covers the same property against a
- *    4 km alpine ridge and a real curated pyramid).
+ *  - a building standing on the same ground as the road occludes it (this
+ *    file's first test — the reported bug);
+ *  - terrain the road LIES ON does not (this file's second test, the guard
+ *    that the fix did not trade one defect for the road vanishing over any
+ *    high ground — `widget.tiltedTileCulling.test.ts` covers the same
+ *    property against a 4 km alpine ridge and a real curated pyramid).
  *
  * happy-dom has no layout, hence `stubMonospaceMetrics`; assertions are on
  * EXACT cells of the road's own row, never a row-wide ink count, because a
@@ -44,7 +44,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { glyphMapGlobe } from "./projection";
+import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -63,6 +63,8 @@ const SPAN = 0.006;
 const HALF = 0.0008;
 /** A real OSM `render_height` for a mid-rise block, in TRUE metres (extrusions do not inherit the terrain's exaggeration). */
 const BUILDING_M = 60;
+/** Terrain for the "a surface does not occlude what lies on it" guard — see that test for why it is metres, not hundreds of them. */
+const GROUND_M = 10;
 
 const EMPTY_RECT = { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
 const rect = (width: number, height: number): DOMRect =>
@@ -202,9 +204,9 @@ describe("createGlyphMap — a building occludes a road passing under it", () =>
     }
   });
 
-  it("still draws the road where 400 m of terrain stands under it — the ground the stroke is missing is forgiven, everything else is not", async () => {
+  it("still draws the road where terrain stands under it — the road lies ON that terrain, and a surface does not occlude what lies on it", async () => {
     const map = mount();
-    map.addLayer({ type: "raster", id: "terrain", source: terrainProvider(400) });
+    map.addLayer({ type: "raster", id: "terrain", source: terrainProvider(GROUND_M) });
     await settle();
     map.scene.rerender();
     const before = rows(map);
@@ -214,11 +216,17 @@ describe("createGlyphMap — a building occludes a road passing under it", () =>
     map.scene.rerender();
     const after = rows(map);
 
-    const roadRow = Math.floor(map.project([CENTRE[0], CENTRE[1]]).row);
-    const inked = inkedColumns(before, after, roadRow);
-    // The road crosses the whole viewport; 400 m of terrain at 24x stands
-    // 1.95e-3 world units in front of a sea-level stroke, which without the
-    // ground offset hides every cell of it.
-    expect(inked.length).toBeGreaterThan(100);
+    // The road's own row is the DRAPED one, not the datum's — see
+    // `widget.strokeDrape.test.ts` for the derivation of this expression and
+    // for why the ground has to be small enough to stay on a 63-row
+    // viewport (10 m is already 16 rows at 24x; 400 m would be 2,000).
+    const near = map.project([CENTRE[0], CENTRE[1]]);
+    const far = map.project([CENTRE[0] + 180, -CENTRE[1]]);
+    const originRow = (near.row + far.row) / 2;
+    const k = 1 + (GROUND_M / GLYPH_MAP_EARTH_RADIUS_M) * 24;
+    const roadRow = Math.floor(originRow + k * (near.row - originRow));
+    // The road crosses the whole viewport, and the terrain it lies on
+    // occludes not one cell of it.
+    expect(inkedColumns(before, after, roadRow).length).toBeGreaterThan(100);
   });
 });

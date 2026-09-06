@@ -32,7 +32,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { glyphMapGlobe } from "./projection";
+import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
 import { glyphMapCuratedProvider } from "./curated";
 import { glyphMapCuratedVectorProvider } from "./vector/curated";
 import { glyphMapDegreesPerCell, glyphMapTargetLOD, type GlyphMapProvider, type GlyphMapProviderZoomLevel } from "./provider";
@@ -163,6 +163,25 @@ function screenCentreVectorTileKey(): string {
   return `4/${Math.floor((SCREEN_CENTRE[0] + 180) / lvl.tileLonSpan)}_${Math.floor((90 - SCREEN_CENTRE[1]) / lvl.tileLatSpan)}`;
 }
 
+/**
+ * The row the ground under `SCREEN_CENTRE` reaches — the expected home of a
+ * draped stroke, from public API only.
+ *
+ * `glyphMapGlobe.project(lon, lat, h)` is purely RADIAL, i.e.
+ * `(1 + h * exaggeration / R_earth)` times the same point at the datum, and
+ * the widget's only camera is orthographic, whose `project()` is AFFINE in
+ * the world point. So with `b` the row the world ORIGIN maps to,
+ * `row(k * P) = b + k * (row(P) - b)` — and `b` needs no internals either:
+ * `row(P) + row(-P) = 2b`, and `-P` is the ANTIPODE at the datum.
+ */
+function groundRow(map: ReturnType<typeof createGlyphMap>): number {
+  const near = map.project(SCREEN_CENTRE);
+  const far = map.project([SCREEN_CENTRE[0] + 180, -SCREEN_CENTRE[1]]);
+  const originRow = (near.row + far.row) / 2;
+  const k = 1 + (elevAt(SCREEN_CENTRE[0], SCREEN_CENTRE[1]) / GLYPH_MAP_EARTH_RADIUS_M) * 24;
+  return originRow + k * (near.row - originRow);
+}
+
 interface InkReport {
   readonly count: number;
   readonly rows: readonly number[];
@@ -253,10 +272,16 @@ describe("createGlyphMap — a tilted orbit view keeps drawing borders past the 
       // Ink, and ink in the RIGHT PLACE. A far-side point shares its
       // near-side twin's COLUMN (`sin(180 - L) === sin(L)`), so the row band
       // is the load-bearing assertion: the border runs through
-      // SCREEN_CENTRE's own latitude, which is the middle of the viewport.
+      // SCREEN_CENTRE's own latitude, drawn on the ground standing there.
       expect(ink.count).toBeGreaterThan(20);
-      const middle = ink.rows.filter((r) => Math.abs(r - ROWS / 2) <= ROWS / 8);
-      expect(middle.length).toBeGreaterThan(0);
+      // The right place is the RIDGE'S OWN ROW, not the viewport's middle:
+      // a stroke is DRAPED on the terrain (`widget.strokeDrape.test.ts`), so
+      // where the ridge stands 3,950 m up at `exaggeration: 24` the border
+      // lying on it is displaced by that relief's parallax exactly as the
+      // ridge itself is — 4 rows at span 12, 29 at span 1.5. `ROWS / 2` was
+      // the DATUM's row, which is where the border used to be drawn and
+      // where nothing it belongs to has ever been drawn.
+      expect(ink.rows.some((r) => Math.abs(r - groundRow(map)) <= 3)).toBe(true);
 
       map.destroy();
       host.remove();

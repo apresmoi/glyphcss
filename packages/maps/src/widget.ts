@@ -293,6 +293,12 @@ export type GlyphMapFeatureFilter = (feature: GlyphMapVectorFeature) => boolean;
  * Rendered by post-raster stamping (`stroke.ts`'s `stampGlyphMapPolyline`)
  * into the scene's `transformCells` hook — see `stroke.ts`'s doc for why
  * that mechanism was chosen over `compileScene`.
+ *
+ * Its vertices are DRAPED on the terrain: each is projected at the ground
+ * elevation under its own lon/lat, from the mounted `raster` layers' tiles,
+ * so a road is drawn where the ground it belongs to is drawn rather than at
+ * a datum the tilt's parallax would displace it from. With no `raster` layer
+ * mounted the ground IS the datum and nothing extra runs.
  */
 export interface GlyphMapLineLayer {
   readonly type: "line";
@@ -3143,9 +3149,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * mounted set, not the cache — a tile fetched but no longer on screen
      * describes ground nothing is rendering.
      *
-     * Its one consumer is a `line` layer's depth test (`stroke.ts`'s ground
-     * offset): a stroke is projected at elevation zero, and this is how far
-     * above it the ground it belongs on stands.
+     * Its consumers PLANT things on it: a `fill-extrusion`'s base and a
+     * `line` layer's draped vertices are both projected at this elevation,
+     * so a structure and the road beside it stand on the same ground and
+     * move together under the tilt's parallax. It was once read only to
+     * FORGIVE that offset in a stroke's depth test — see `stroke.ts` for why
+     * that allowance no longer exists.
      */
     groundElevationAt(lon: number, lat: number): number;
     dispose(): void;
@@ -3761,8 +3770,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const feats = isGlyphMapVectorProvider(layer.source) ? activeFeatures : staticFeatures;
       // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
       // list, and a world view hands this loop tens of thousands of vertices.
-      // `null` = no raster layer mounted, and then not one extra projection
-      // runs anywhere below (`stroke.ts`'s ground offset defaults to "none").
+      // `null` = no raster layer mounted, so the ground IS the datum and the
+      // whole drape reduces to `projection.project(lon, lat, 0)` — the
+      // pre-drape expression, byte for byte, with no lookup at all.
       const groundElevationAt = groundElevationSampler();
       for (const feature of feats) {
         for (const ring of feature.rings) {
@@ -3771,7 +3781,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // identity, so its stamped output is byte-identical to before.
           for (const run of visibleStrokeRuns(ring, baseGrid)) {
           const verts: GlyphMapStrokeVertex[] = run.map(([lon, lat]) => {
-            const world = projection.project(lon, lat, 0);
+            // DRAPED: the vertex is projected at the ground elevation under
+            // its own lon/lat, so it is drawn where the terrain it belongs to
+            // is drawn. Everything else in the scene already stands on the
+            // exaggerated relief (the terrain mesh by construction, a
+            // `fill-extrusion` through this same sampler), and under a tilt
+            // that relief has PARALLAX — a stroke left at the datum lands
+            // somewhere its own ground is not (measured: 16 rows at
+            // `/maps`' 24x over 10 m of terrain, 2,000 rows over 400 m).
+            //
+            // A non-finite sample (no mounted tile covers this vertex, e.g.
+            // a border running off the edge of the loaded pyramid) falls back
+            // to the datum rather than poisoning the vertex with NaN — the
+            // same "the honest base is the datum" rule `groundElevationSampler`
+            // states for a map with no raster layer at all.
+            const groundElev = groundElevationAt ? groundElevationAt(lon, lat) : 0;
+            const world = projection.project(lon, lat, Number.isFinite(groundElev) ? groundElev : 0);
             // `baseGrid` (NOT the live `projectionGrid()`) is what makes this
             // a SCENE/base-grid col/row — see `StrokeLayerRuntime`'s doc.
             // `composedTransformCells` restores `camera`'s zoom/center/
@@ -3787,20 +3812,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             // cellWidth/centerCol metrics that vary between grids.
             const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
             const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
-            const depth = p[3] ?? p[2];
-            // The GROUND under this vertex, as a depth. A `line` carries no
-            // elevation, so it is projected at zero and every metre of
-            // terrain over it reads as occlusion; `stroke.ts`'s ground
-            // offset is how much of that gap is the stroke's own missing
-            // elevation rather than something genuinely in front of it.
-            // Ground at (or below) sea level costs nothing: no second
-            // projection runs, and the vertex carries no offset at all.
-            const groundElev = groundElevationAt ? groundElevationAt(lon, lat) : 0;
-            if (!(groundElev > 0)) return { col: local.col, row: local.row, depth };
-            const groundWorld = projection.project(lon, lat, groundElev);
-            const g = camera.project(groundWorld, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
-            const groundDepth = g[3] ?? g[2];
-            return { col: local.col, row: local.row, depth, ...(Number.isFinite(groundDepth) ? { groundDepth } : {}) };
+            // ONE projection per vertex. The second one this used to run —
+            // the same lon/lat taken at the ground, to forgive that offset in
+            // the depth test — was the workaround for projecting here at the
+            // datum, and it is exactly the projection this line now IS.
+            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
           });
           stampGlyphMapPolyline(grid, verts, { color });
           }

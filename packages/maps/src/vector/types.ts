@@ -11,11 +11,12 @@ export type { GlyphMapAttribution } from "../types";
  * `resolveGlyphMapTopology` (`vector/topology.ts`) needs to know arcs were
  * ever involved — it just walks rings.
  *
- * `rings` intentionally carries no elevation: borders/rivers/routes are
- * projected at `elev: 0` by every consumer — see `widget.ts`'s line-layer
- * runtime, which reads the GROUND elevation under each vertex separately
- * and hands it to the depth test as `GlyphMapStrokeVertex.groundDepth`,
- * precisely because the geometry itself cannot say where the ground is.
+ * `rings` intentionally carries no elevation: a border, river or route is a
+ * position on the ground, and the geometry itself cannot say where that
+ * ground is. `widget.ts`'s line-layer runtime supplies it — every vertex is
+ * DRAPED, projected at the elevation `groundElevationSampler` reads off the
+ * mounted `raster` tiles under that lon/lat, so a stroke is drawn on the
+ * terrain rather than at the datum a tilted camera would displace it from.
  */
 export interface GlyphMapVectorFeature {
   readonly id?: string;

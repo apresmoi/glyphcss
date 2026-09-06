@@ -34,41 +34,46 @@
  * ever grows a perspective mode, even though it always resolves to index 2
  * today.
  *
- * **Two allowances, and only one of them is a bias.**
+ * **ONE allowance, and it is the ordinary coplanar-surface bias.**
  *
- * 1. SLOPE-SCALED, reusing the exact rationale (and the exact constant)
- *    AGENTS.md's wireframe `hiddenLines: "hide"` pins: "a FLAT bias
- *    regresses every convex mesh at every magnitude tried... a smooth
- *    surface's own silhouette needs an allowance proportional to the local
- *    depth gradient, not a constant one." A stroke lying flush on the
- *    surface reads the same depth as it on a flat cell, but proportionally
- *    MORE on a steep one (a mountain flank foreshortens a lot of
- *    world-space depth range into one screen cell). This is the real
- *    discretization allowance and it is measured from the grid itself, so
- *    it is scale-free.
+ * SLOPE-SCALED, reusing the exact rationale (and the exact constant)
+ * AGENTS.md's wireframe `hiddenLines: "hide"` pins: "a FLAT bias regresses
+ * every convex mesh at every magnitude tried... a smooth surface's own
+ * silhouette needs an allowance proportional to the local depth gradient,
+ * not a constant one." A stroke lying flush on the surface reads the same
+ * depth as it on a flat cell, but proportionally MORE on a steep one (a
+ * mountain flank foreshortens a lot of world-space depth range into one
+ * screen cell). This is the real discretization allowance and it is measured
+ * from the grid itself, so it is scale-free — which is the whole reason it
+ * is the only one a DRAPED stroke needs.
  *
- * 2. GROUND OFFSET ({@link GlyphMapStrokeVertex.groundDepth}), which is not
- *    a bias at all but a stated geometric fact: a `line` layer's vertices
- *    are projected at ELEVATION ZERO (`widget.ts`'s `createLineLayerRuntime`
- *    — a road or a border carries no elevation), while the terrain it is
- *    meant to lie on stands at the real ground elevation. A sea-level
- *    stroke under 400 m of ground is 400 m of world depth behind that
- *    ground and every depth test rightly calls it occluded. The caller
- *    therefore passes the depth the SAME lon/lat reaches at the ground
- *    elevation under it, and the difference is allowed for explicitly.
+ * **Two allowances died here, and each one's premise is worth keeping
+ * written down.** Both existed only because a `line` vertex used to be
+ * projected at ELEVATION ZERO while the terrain it belongs on stood at the
+ * real ground elevation:
  *
- * This replaces a flat `0.03` world-unit constant, which was the same
- * allowance stated as a guess: at `/maps`' default 24x exaggeration `0.03`
- * earth radii is ~7,960 m of terrain — Earth's own relief, spent on every
- * stroke everywhere, whether or not there was any terrain under it.
- * Measured consequence, the reported defect: at a tilted city view a 60 m
- * OSM building stands 1.17e-5 world units in front of a road crossing under
- * it, against an allowance of 0.03 — 2,570x too generous, so nothing a city
- * contains could ever occlude a stroke. With the allowance derived from the
- * ground instead, a map with no terrain mounted allows nothing beyond the
- * slope term and the building occludes the road; a map with terrain allows
- * exactly the ground under each vertex and a border still draws over a
- * 4 km ridge.
+ * 1. A flat `0.03` world-unit constant — that offset guessed at. At
+ *    `/maps`' default 24x exaggeration `0.03` earth radii is ~7,960 m of
+ *    terrain, i.e. Earth's own relief spent on every stroke everywhere,
+ *    whether or not there was any terrain under it. Measured consequence: at
+ *    a tilted city view a 60 m OSM building stands 1.17e-5 world units in
+ *    front of a road crossing under it, against an allowance 2,570x larger,
+ *    so nothing a city contained could ever occlude a stroke.
+ * 2. `GLYPH_MAP_STROKE_GROUND_MARGIN` — that same offset MEASURED, per
+ *    vertex, by projecting each lon/lat a second time at the ground
+ *    elevation under it and forgiving the difference. Correct about
+ *    WHETHER a stroke was occluded, and silent about WHERE IT WAS DRAWN:
+ *    the stroke still landed at the datum, 16 rows from its own ground at
+ *    `/maps`' defaults over 10 m of terrain (2,000 rows over 400 m), so a
+ *    road and the building standing beside it no longer coincided.
+ *
+ * `widget.ts` now hands the ground elevation to the PROJECTION instead
+ * (`createLineLayerRuntime`'s drape), which is the same second projection
+ * spent on the stroke's real position rather than on excusing its wrong one.
+ * A draped stroke's own depth already IS the ground's depth, so there is
+ * nothing left to forgive and no per-vertex offset to carry: what remains is
+ * a surface and a curve lying on it, which is precisely the case the
+ * slope-scaled bias was written for.
  */
 import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
@@ -76,52 +81,18 @@ import type { CellGrid } from "glyphcss";
 /** Same pinned constant as AGENTS.md's wireframe `hiddenLines: "hide"` slope-scaled bias (glyphcss `render/rasterize.ts`) — the identical class of problem (a stroke's own depth vs. a solid surface's depth, both subject to discretization noise proportional to local slope). */
 export const GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5;
 
-/**
- * Multiplier on the ground offset ({@link GlyphMapStrokeVertex.groundDepth}).
- *
- * The offset is measured straight up: how much nearer the camera the SAME
- * lon/lat is at the ground elevation than at sea level. Under a tilt the
- * surface a cell actually shows is not the point directly above the stroke
- * — the view ray meets the raised ground at a horizontal offset of
- * `h·tan(t)` as well, which adds `h·sin(t)·tan(t)` of depth on top of the
- * `h·cos(t)` the lift itself contributes. Those sum to exactly `h / cos(t)`,
- * so the true offset at pitch `t` is the vertical one divided by `cos(t)`.
- *
- * `2` is `1 / cos(60°)`. Measured on a globe at `/maps`' own default 40°
- * pitch the factor is 1.305 (gap 1.9535e-3 against a vertical offset of
- * 1.5069e-3 over 400 m of terrain at 24x), and the widget's controls reach
- * {@link GLYPH_MAP_MAX_TILT} = 85°, where `1/cos` is 11.5 — but that limit
- * is the wrong thing to size against: at a grazing pitch the ground between
- * the camera and a sea-level stroke genuinely stands in front of it, and
- * hiding the stroke there is the correct answer, not a defect to pad away.
- * `2` covers every pitch up to 60° exactly and degrades past it into real
- * terrain occlusion.
- */
-export const GLYPH_MAP_STROKE_GROUND_MARGIN = 2;
-
 export interface GlyphMapStrokeVertex {
   readonly col: number;
   readonly row: number;
   /** `project()[3] ?? project()[2]` at this vertex — see this file's depth-contract doc. */
   readonly depth: number;
-  /**
-   * The same metric for this vertex's own lon/lat taken at the GROUND
-   * elevation under it, when the caller can answer for it. Omitted (or
-   * equal to {@link depth}) means "no ground offset here" — no terrain is
-   * mounted, or the stroke is already at ground level — and leaves the
-   * depth test with only the slope term, which is what lets a building
-   * occlude a road. See this file's "Two allowances" doc.
-   */
-  readonly groundDepth?: number;
 }
 
 export interface GlyphMapStampOptions {
   readonly color?: string;
-  /** Extra FLAT depth allowance, in world depth units. Default `0` — the ground offset carried per vertex is what a map's strokes actually need, and a flat constant cannot be right at two zoom levels at once. */
+  /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
   readonly depthBias?: number;
   readonly depthSlopeScale?: number;
-  /** Multiplier on the per-vertex ground offset. Default {@link GLYPH_MAP_STROKE_GROUND_MARGIN}. */
-  readonly groundMargin?: number;
 }
 
 /** Local screen-space depth gradient of the SURFACE already in `grid` at cell `idx` — the finite-difference probe the slope-scaled bias reads, using whichever horizontal/vertical neighbor is available (an edge cell falls back to the one-sided difference). */
@@ -167,7 +138,6 @@ export function stampGlyphMapPolyline(
   const color = opts.color ?? null;
   const bias = opts.depthBias ?? 0;
   const slopeScale = opts.depthSlopeScale ?? GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE;
-  const groundMargin = opts.groundMargin ?? GLYPH_MAP_STROKE_GROUND_MARGIN;
 
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
@@ -187,14 +157,7 @@ export function stampGlyphMapPolyline(
       const depth = a.depth + (b.depth - a.depth) * t;
       const surfaceDepth = grid.depth[idx];
       if (Number.isFinite(surfaceDepth)) {
-        // Interpolated exactly like `depth`, from the same two endpoints, so
-        // the allowance follows the ground along the segment instead of
-        // stepping at vertices.
-        const groundA = a.groundDepth ?? a.depth;
-        const groundB = b.groundDepth ?? b.depth;
-        const groundDepth = groundA + (groundB - groundA) * t;
-        const groundOffset = groundDepth > depth ? (groundDepth - depth) * groundMargin : 0;
-        const allowed = bias + groundOffset + slopeScale * surfaceDepthGradient(grid, colI, rowI);
+        const allowed = bias + slopeScale * surfaceDepthGradient(grid, colI, rowI);
         if (surfaceDepth - depth > allowed) continue; // occluded by nearer geometry
       }
       const subCol = col - colI;
