@@ -177,7 +177,7 @@ export {
 } from "./layers";
 export type { GlyphMapLabelCandidate } from "./layers";
 
-export { createGlyphMap, glyphMapContourIndexLevels, glyphMapContourIntervalLevels, glyphMapHeadlightDirection, glyphMapNormalizeWheelDelta, GLYPH_MAP_CONTOUR_LABEL_EVERY, GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y, GLYPH_MAP_SUN_TICK_MS, GLYPH_MAP_WHEEL_DELTA_MODE_SCALE, GLYPH_MAP_WHEEL_ZOOM_K, GLYPH_MAP_FLY_TO_DEFAULT_MS, GLYPH_MAP_FLY_TO_MAX_BOW, GLYPH_MAP_MAX_TILT, GLYPH_MAP_TILT_DRAG_DEG_PER_PX, GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, glyphMapNormalizeBearing } from "./widget";
+export { createGlyphMap, glyphMapContourIndexLevels, glyphMapContourIntervalLevels, glyphMapHeadlightDirection, glyphMapNormalizeWheelDelta, GLYPH_MAP_CONTOUR_LABEL_EVERY, GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y, GLYPH_MAP_SUN_TICK_MS, GLYPH_MAP_WHEEL_DELTA_MODE_SCALE, GLYPH_MAP_WHEEL_ZOOM_K, GLYPH_MAP_FLY_TO_DEFAULT_MS, GLYPH_MAP_FLY_TO_MAX_BOW, GLYPH_MAP_MAX_TILT, GLYPH_MAP_TILT_DRAG_DEG_PER_PX, GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, GLYPH_MAP_SHADOW_LIFT, glyphMapNormalizeBearing } from "./widget";
 export type {
   GlyphMapBackgroundLayer,
   GlyphMapClickEvent,
@@ -205,6 +205,7 @@ export type {
   GlyphMapRasterLayer,
   GlyphMapRasterSource,
   GlyphMapSetProjectionOptions,
+  GlyphMapShadowOptions,
   GlyphMapSunEvent,
   GlyphMapSunMode,
   GlyphMapSunOptions,

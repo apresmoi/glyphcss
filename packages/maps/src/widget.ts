@@ -50,6 +50,7 @@ import type {
   GlyphMeshTransform,
   GlyphSceneHandle,
   GlyphSceneOptions,
+  GlyphShadowOptions,
   RenderMode,
   TransformCells,
   Vec3,
@@ -104,9 +105,42 @@ const GLYPH_MAP_DEFAULT_GLYPH_PALETTE = "default";
 
 /** The appearance a MESH-BACKED layer contributes to its own mesh transform. */
 interface GlyphMapMeshAppearance {
+  readonly type?: GlyphMapLayer["type"];
   readonly renderMode?: RenderMode;
   readonly glyphPalette?: string;
 }
+
+/**
+ * Which mesh-backed layers CAST a shadow, and which RECEIVE one.
+ *
+ * The two sets are DISJOINT, and that is a design decision rather than an
+ * accident of taste — it is what makes {@link GLYPH_MAP_SHADOW_LIFT} zero.
+ * glyphcss's shadow map has no slope-scaled bias, so any surface that both
+ * casts and receives is tested against its OWN quantized depth and speckles
+ * ("acne") wherever it is near-parallel to the light, which for a building
+ * wall is every low sun. Nothing here is ever in both sets, so no surface is
+ * ever compared with its own texel, and the bias exists only to break
+ * exact-coplanar ties — which nothing here has either.
+ *
+ * CASTERS are the layers that stand UP off the ground: `fill-extrusion`
+ * (OSM buildings, the reason this feature exists) and `model`. TERRAIN is
+ * deliberately NOT a caster, and that is the load-bearing exclusion:
+ * glyphcss fits the shadow map's light-space volume to the AABB of ALL
+ * casters at a fixed 256x256, and the relief system keeps a PERMANENT GLOBAL
+ * floor tier mounted at every view (AGENTS.md's "Relief mesh"), so terrain
+ * casting would stretch those 256 texels across the whole Earth — ~156 km
+ * per texel, at which no building, valley or mountain shadow survives at all
+ * — and would re-rasterize the floor tier's whole polygon set into the depth
+ * buffer on every render. Mountain-shadow-on-valley needs a view-fitted
+ * cascade this renderer does not have; it is not a tuning away.
+ *
+ * RECEIVERS are the ground surfaces: `raster` (the relief itself), `fill`
+ * (a flat overlay on the datum) and `heatmap` (whose relief hugs the
+ * terrain). A `line`/`contour`/`symbol`/`circle` layer owns no mesh and
+ * cannot be either.
+ */
+export const GLYPH_MAP_SHADOW_CASTERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["fill-extrusion", "model"]);
+export const GLYPH_MAP_SHADOW_RECEIVERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["raster", "fill", "heatmap"]);
 
 /**
  * The per-mesh transform a MESH-BACKED layer (`raster`, `fill`,
@@ -157,6 +191,17 @@ function glyphMapMeshTransform(
   }
   if (layer.glyphPalette !== undefined && layer.glyphPalette !== sceneGlyphPalette) {
     transform.glyphPalette = layer.glyphPalette;
+  }
+  // Set UNCONDITIONALLY — not gated on whether shadows are currently on.
+  // glyphcss reads these flags only inside a pass that has `scene.shadow`
+  // set (`buildShadowMap` is skipped outright otherwise, and `makeShadowCtx`
+  // returns null), and `isDetailMesh` does not consider them, so with
+  // shadows off they change nothing about the render — which is what makes
+  // the toggle ONE `scene.setOptions({ shadow })` instead of a remount of
+  // every mounted mesh in the map.
+  if (layer.type !== undefined) {
+    if (GLYPH_MAP_SHADOW_CASTERS.has(layer.type)) transform.castShadow = true;
+    else if (GLYPH_MAP_SHADOW_RECEIVERS.has(layer.type)) transform.receiveShadow = true;
   }
   return transform;
 }
@@ -1112,6 +1157,35 @@ export interface GlyphMapOptions {
   readonly sun?: GlyphMapSunOptions;
   /** Who aims the scene's key light. Omitted (the default) is `"fixed"` — the widget never writes it. See {@link GlyphMapKeyLightMode}. */
   readonly keyLight?: GlyphMapKeyLightMode;
+  /** Cast shadows. Omitted or `null` (the default) is OFF, and byte-identical to a map built before this option existed. See {@link GlyphMapShadowOptions}. */
+  readonly shadow?: GlyphMapShadowOptions | null;
+}
+
+/**
+ * Cast shadows for the map's standing geometry — buildings and models onto
+ * the ground they stand on.
+ *
+ * Off unless asked for. What the widget contributes on top of glyphcss's own
+ * `shadow` scene option is the two things a caller here cannot compute:
+ * WHICH layers cast and which receive ({@link GLYPH_MAP_SHADOW_CASTERS}),
+ * and a depth bias in the map's own world units ({@link
+ * GLYPH_MAP_SHADOW_LIFT}) — glyphcss's default `lift` of `0.05` is 5% of the
+ * globe's radius, ~318 km of terrain, which erases every shadow this feature
+ * could draw. `color` and `opacity` pass straight through.
+ *
+ * The DIRECTION is not here, and must not be: shadows are cast along the
+ * scene's own `directionalLight.direction`, which is exactly the vector the
+ * sun / headlight / the consumer's own slider already own (AGENTS.md's
+ * "Camera-following key light"). One vector lights the scene and casts its
+ * shadows, so the two can never disagree.
+ */
+export interface GlyphMapShadowOptions {
+  /** Shadow tint. Omitted = glyphcss's own `"#000000"`. */
+  readonly color?: string;
+  /** Darkness, 0..1 toward `color`. Omitted = glyphcss's own `0.25`. */
+  readonly opacity?: number;
+  /** Depth bias in the projection's own world units. Omitted = {@link GLYPH_MAP_SHADOW_LIFT}. */
+  readonly lift?: number;
 }
 
 export interface GlyphMapSetProjectionOptions {
@@ -1285,6 +1359,20 @@ export interface GlyphMapHandle {
    */
   setKeyLight(mode: GlyphMapKeyLightMode): void;
   getKeyLight(): GlyphMapKeyLightMode;
+  /**
+   * Turn cast shadows on (an options object, `{}` for the defaults) or off
+   * (`null`). Applies immediately and re-renders.
+   *
+   * Cheap to toggle, by construction: the per-mesh cast/receive flags are
+   * already on every mounted mesh (see {@link GLYPH_MAP_SHADOW_CASTERS}), so
+   * this writes ONE scene option and nothing is rebuilt or re-mounted.
+   * glyphcss's shading cache survives a shadow change too — shadows blend
+   * per cell at fill time — so the frame this turns them on in is a plain
+   * re-render, not a re-light.
+   */
+  setShadow(shadow: GlyphMapShadowOptions | null): void;
+  /** The shadow options in force, or `null` when shadows are off. */
+  getShadow(): GlyphMapShadowOptions | null;
   /**
    * The direction the WIDGET currently owns for the scene's key light, from
    * whichever owner is active — the sun if it is on and this projection
@@ -1493,12 +1581,56 @@ export const GLYPH_MAP_TILT_DRAG_DEG_PER_PX = 0.5;
  * map right round inside one stroke on any real viewport, while a pixel of
  * tremor is under a degree.
  *
- * SIGN: dragging RIGHT DECREASES the bearing (MapLibre's own `* -0.8`),
- * which turns the picture clockwise on screen — so the top of the picture
- * follows the hand, the same "the horizon follows the hand" rule the pitch
- * half of the stroke obeys.
+ * SIGN: dragging RIGHT INCREASES the bearing, which turns the picture
+ * ANTI-clockwise on screen. The rotation is about the view centre, so
+ * whichever half of the picture the hand is not on turns against it, and the
+ * only question is which half the reader is actually grabbing. Under a pitch
+ * — the pose this gesture exists for — the near ground fills the LOWER half
+ * and the far half is horizon, so the reader's hand is on the lower half, and
+ * an anti-clockwise turn is the one that carries the ground under the cursor
+ * to the right. The opposite sign shipped first, justified as "the TOP of the
+ * picture follows the hand"; read as a gesture on a pitched map it is
+ * backwards, which is what the reader reported. The Dock's Bearing slider
+ * agrees with this sign for free (right along the track = a larger heading =
+ * the same anti-clockwise turn), where under the old sign the slider and the
+ * drag moved the map opposite ways.
  */
 export const GLYPH_MAP_BEARING_DRAG_DEG_PER_PX = 0.8;
+
+/**
+ * The depth bias {@link GlyphMapShadowOptions} applies to glyphcss's shadow
+ * map, in the projection's own world units. ZERO, and derived rather than
+ * tuned.
+ *
+ * glyphcss's own default is `0.05`, and that number is the trap in this
+ * feature: it is a WORLD-UNIT length, and this package's world units are not
+ * a room's. On the globe `0.05` is 5% of Earth's radius — 318 km, about
+ * 36,000 times the tallest building on the planet — so with the default every
+ * receiver's depth clears every caster's by a margin nothing can exceed and
+ * NOT ONE SHADOW IS DRAWN. On a sheet the same number is 0.05 Earth radii on
+ * an axis whose neighbours are degrees; equally meaningless. There is no
+ * value of it that is right for both, which is why the widget owns it.
+ *
+ * Why zero is the RIGHT derivation and not merely the smallest one: a shadow
+ * bias exists to stop a surface shadowing ITSELF, which happens because the
+ * shadow map stores one quantized depth per texel and a surface that is both
+ * caster and receiver is then compared against a coarsened copy of its own
+ * height. {@link GLYPH_MAP_SHADOW_CASTERS} and
+ * {@link GLYPH_MAP_SHADOW_RECEIVERS} are disjoint, so that comparison never
+ * happens here: every receiver's depth is compared only against geometry
+ * belonging to some OTHER mesh, standing at a genuinely different height.
+ * The bias would then buy nothing, and it would cost the exact thing this
+ * feature is for — a bias `b` erases every shadow whose caster stands less
+ * than `b / sin(altitude)` above its receiver, so any nonzero value takes the
+ * short buildings first and takes them worst at a LOW sun, which is precisely
+ * where shadows are longest and most legible. The remaining error is
+ * horizontal (a shadow edge lands within one shadow-map texel of the truth),
+ * and no depth bias addresses that in any case.
+ *
+ * The one artefact zero admits is a tie at exact coplanarity, which here can
+ * only occur under a building's own footprint — already in shadow.
+ */
+export const GLYPH_MAP_SHADOW_LIFT = 0;
 
 /**
  * A heading normalized to `[0, 360)`.
@@ -1955,11 +2087,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     camera.useMat = true;
   }
 
+  /**
+   * The widget's own shadow state. `null` = off, and then NO `shadow` key
+   * reaches `createGlyphScene` at all — not `undefined`, not a disabled
+   * object — so a map that never asks for shadows builds the same scene
+   * options it built before this option existed, and a consumer that set
+   * `scene.shadow` by hand still gets exactly what they asked for.
+   */
+  let shadow: GlyphMapShadowOptions | null = opts.shadow ?? null;
+
+  /** `shadow` in glyphcss's own shape, with this package's world-scale {@link GLYPH_MAP_SHADOW_LIFT} filled in. */
+  function resolvedShadow(): GlyphShadowOptions | undefined {
+    if (!shadow) return undefined;
+    const out: GlyphShadowOptions = { lift: shadow.lift ?? GLYPH_MAP_SHADOW_LIFT };
+    if (shadow.color !== undefined) out.color = shadow.color;
+    if (shadow.opacity !== undefined) out.opacity = shadow.opacity;
+    return out;
+  }
+
   const sceneOverrides = opts.scene ?? {};
   const scene: GlyphSceneHandle = createGlyphScene(host, {
     mode: "solid",
     useColors: true,
     ...sceneOverrides,
+    ...(shadow ? { shadow: resolvedShadow() } : {}),
     camera,
     cols: view.cols,
     rows: view.rows,
@@ -4741,6 +4892,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!applyKeyLight()) scene.rerender();
   }
 
+  /**
+   * ONE scene option, then a synchronous render — the same write-then-render
+   * discipline `applyKeyLight` follows, and for the same reason (a bare
+   * `setOptions` only schedules a microtask render). Nothing is re-mounted:
+   * every mesh already carries its cast/receive flag.
+   */
+  function setShadow(next: GlyphMapShadowOptions | null): void {
+    if (destroyed) return;
+    shadow = next;
+    scene.setOptions({ shadow: resolvedShadow() });
+    scene.rerender();
+  }
+
   // ── Stroke layers (`line`/`contour`) composed into ONE `transformCells`
   // hook (glyphcss allows exactly one). Installed lazily — a map with zero
   // line/contour layers never touches `transformCells` at all, keeping the
@@ -5644,9 +5808,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /**
    * The bearing half of the orient gesture: `dxPx` pixels of HORIZONTAL
-   * travel become heading, at MapLibre's own rate and MapLibre's own sign
+   * travel become heading, at MapLibre's own rate
    * ({@link GLYPH_MAP_BEARING_DRAG_DEG_PER_PX}) — drag right, the picture
-   * turns clockwise, the top of it follows the hand.
+   * turns ANTI-clockwise, so the near ground the hand is on follows the hand.
    *
    * No inertia, for the same reason the pitch half has none: there is
    * nothing physical about an angle to justify momentum, and a heading that
@@ -5873,9 +6037,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /**
    * The orient gesture's per-`pointermove` step. VERTICAL travel becomes
    * pitch — drag UP and the camera lifts off the surface — and HORIZONTAL
-   * travel becomes heading — drag RIGHT and the picture turns clockwise. Both
-   * halves obey the same rule: the top of the picture follows the hand, which
-   * is the direction every map library agrees on.
+   * travel becomes heading — drag RIGHT and the picture turns ANTI-clockwise.
+   * Both halves obey the same rule: the NEAR ground, the part of the picture
+   * the hand is actually on under a pitch, follows the hand
+   * ({@link GLYPH_MAP_BEARING_DRAG_DEG_PER_PX} carries the full argument).
    *
    * Both axes in ONE call, not two, so a diagonal stroke costs one
    * `syncNearSide()` sweep and emits one `move` per pointer event rather than
@@ -5914,7 +6079,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // `syncCameraToView`, which would otherwise rebuild the matrix and then
     // have it rebuilt again from a heading that had already changed.
     if (dxPx !== 0) {
-      applyBearingState(bearing - dxPx * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX);
+      applyBearingState(bearing + dxPx * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX);
       orbit = true;
     }
     if (!orbit && dxPx === 0 && dyPx === 0) return;
@@ -6186,6 +6351,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     setKeyLight,
     getKeyLight: () => keyLightMode,
     getKeyLightDirection: () => keyLightDirection(),
+    setShadow,
+    getShadow: () => shadow,
     getSubsolarPoint: () => (sunMode === "off" ? null : glyphMapSubsolarPoint(sunAt())),
     setProjection,
     flyTo,

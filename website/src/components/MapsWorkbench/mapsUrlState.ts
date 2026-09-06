@@ -51,6 +51,8 @@ export interface MapsUrlState {
   sunDay: number;
   /** Manual-sun UTC hour, 0-24. Only meaningful when `sunMode === "manual"`. */
   sunHour: number;
+  /** Cast shadows (`GlyphMapHandle.setShadow`). Off by default — it is an extra pass, and it draws nothing at all without a layer that stands up off the ground. */
+  shadows: boolean;
   /**
    * The contour layer's elevation WINDOW in metres
    * (`GlyphMapContourLayer.minElevation`/`maxElevation`).
@@ -237,6 +239,10 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // the most legible terminator of the year rather than an arbitrary one.
   sunDay: 172,
   sunHour: 12,
+  // Off, like the widget's own default: shadows cost a pass, and a link
+  // written before this token existed carries no `D` and decodes to exactly
+  // the map it always described.
+  shadows: false,
   contourFloor: MAPS_CONTOUR_WINDOW_OFF.min,
   contourCeiling: MAPS_CONTOUR_WINDOW_OFF.max,
   // Every layer-content default below is READ from the page's own constant
@@ -374,6 +380,12 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   // retired. A 1-degree step matches the slider's own, so a shared heading
   // round-trips exactly.
   { key: "bearing", token: "b", type: { kind: "float", step: 1 }, default: MAPS_URL_DEFAULTS.bearing },
+  // Appended beside the sun tokens it belongs with, and safe for the same
+  // reason: TOKEN-keyed, so a link carrying no `D` decodes to `false` — no
+  // shadow pass, byte-identical to every link written before it. No version
+  // bump; nothing was retired. `D` because `S`/`s` are both already spoken
+  // for (`smoothShading`, `span`).
+  { key: "shadows", token: "D", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.shadows },
   { key: "contourFloor", token: "F", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourFloor },
   { key: "contourCeiling", token: "C", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourCeiling },
   // ── Layer CONTENT. Appended, and for the fourth time with the same

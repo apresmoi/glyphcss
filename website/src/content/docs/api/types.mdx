@@ -86,7 +86,7 @@ interface GlyphShadowOptions {
   color?: string;      // shadow tint hex; default "#000000"
   opacity?: number;    // darkness 0..1 toward color; default 0.25
   lift?: number;       // depth bias — prevents self-shadow acne; default 0.05
-  maxExtend?: number;  // half-extent of the light-space projection volume; default 2000
+  maxExtend?: number;  // accepted but NOT READ — the volume is fitted to the casters' own bounds
 }
 ```
 

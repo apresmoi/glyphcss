@@ -1224,9 +1224,16 @@ at any nonzero bearing.
 **The gesture** is the HORIZONTAL axis of the stroke whose vertical axis is
 pitch, at `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8 — MapLibre's own
 `bearingDegreesPerPixelMoved`, a full turn in 450px), and dragging RIGHT
-DECREASES the bearing (MapLibre's own `* -0.8`), which turns the picture
-clockwise so the top of it follows the hand — the same "the horizon follows
-the hand" rule the pitch half obeys. Both axes are live in the one stroke
+INCREASES the bearing, which turns the picture ANTI-clockwise. The rotation is
+about the view centre, so one half of the picture always turns against the
+hand and the only question is which half the reader is grabbing: under a pitch
+— the pose this gesture exists for — the near ground fills the LOWER half and
+the upper half is horizon, so the hand is on the lower half and the
+anti-clockwise turn is the one that carries the ground under the cursor to the
+right. The opposite sign shipped first, argued as "the TOP of the picture
+follows the hand"; the reader who used it reported it backwards, and it also
+disagreed with the Dock's own `Bearing °` slider, where dragging the handle
+right raises the heading. Both now move the map the same way. Both axes are live in the one stroke
 rather than the gesture committing to one at `pointerdown`: that is what every
 map with this binding does, it is the only way a reader can compose "look
 across it and turn it" in one movement, and an axis lock would make a
@@ -2415,3 +2422,163 @@ tile in the visible set, so one rejection would drop a whole frame's fetch and
 blank layers that had nothing wrong with them. That region simply has no data
 this frame. `onError` is how the card still gets to say how many, instead of
 the reader guessing why a render looks thin.
+
+## Cast shadows (`GlyphMapOptions.shadow`)
+
+The ask was small — "we have light, could the buildings drop shadows, with a
+toggle in the Lighting section" — and glyphcss has had a shadow map since
+before this package existed. Everything below is what it took to make that
+shadow map mean something in a world whose unit is an Earth radius.
+
+### What the widget adds, and why each part is not the caller's to supply
+
+`GlyphMapOptions.shadow` / `handle.setShadow`/`getShadow` take a
+`GlyphMapShadowOptions` (`{ color?, opacity?, lift? }`) or `null`. `color` and
+`opacity` pass straight through to glyphcss. Three things do not.
+
+**WHO casts and WHO receives.** `GLYPH_MAP_SHADOW_CASTERS` is
+`fill-extrusion` + `model` — the layers that stand UP off the ground.
+`GLYPH_MAP_SHADOW_RECEIVERS` is `raster` + `fill` + `heatmap` — the ground
+surfaces. `line`/`contour`/`symbol`/`circle` own no mesh and can be neither.
+The flags are set on every mounted mesh through `glyphMapMeshTransform`
+UNCONDITIONALLY, not gated on whether shadows are currently on: glyphcss reads
+them only inside a pass that carries `scene.shadow` (`buildShadowMap` is
+skipped outright otherwise and `makeShadowCtx` returns `null`), and
+`isDetailMesh` does not consider them, so with shadows off they change nothing
+— which is what makes the Dock toggle ONE `scene.setOptions({ shadow })`
+instead of re-mounting every mesh in the map. Gated by rendering the real
+renderer twice, flags and no flags, and comparing `textContent`, `innerHTML`
+and the `<pre>` count.
+
+The two sets are DISJOINT, and that is a decision rather than an omission.
+glyphcss's shadow map has no slope-scaled bias, so any surface that both casts
+and receives is compared against a quantized copy of its OWN depth and
+speckles wherever it is near-parallel to the light — which for a building wall
+is every low sun. Disjoint sets remove that case by construction, and are what
+make the bias below zero. The cost is building-on-building shadows, which at
+map scale are sub-cell detail; the price of having them would be a bias
+glyphcss cannot express.
+
+**TERRAIN NEVER CASTS**, and this is the load-bearing exclusion.
+`buildShadowMap` fits the light-space volume to the AABB of ALL casters at a
+fixed 256x256, and the relief system keeps a PERMANENT GLOBAL floor tier
+mounted at every view. Terrain casting would therefore stretch those 256
+texels across the whole Earth — ~156 km per texel, at which no shadow of
+anything survives — and would re-rasterize the floor tier's entire polygon set
+into the depth buffer on every render. Mountain-shadow-on-valley needs a
+view-fitted cascade this renderer does not have; it is not a tuning away.
+
+**The BIAS.** `GLYPH_MAP_SHADOW_LIFT` is `0`. glyphcss's own default `lift` is
+`0.05`, and that number is the real trap in this feature — not `maxExtend`
+(see below), which does nothing at all. `lift` is a WORLD-UNIT length, and on
+the globe `0.05` is 5% of Earth's radius: 318 km, about 36,000 times the
+tallest building on the planet. Every receiver then clears every caster by a
+margin nothing can exceed and NOT ONE SHADOW IS DRAWN. On a sheet the same
+number is 0.05 Earth radii on an axis whose neighbours are degrees. No single
+value is right for both, so the widget owns the field. Zero is the derivation
+rather than merely the smallest value: a shadow bias exists to stop a surface
+shadowing itself, the disjoint sets mean that never happens here, and any
+nonzero `b` erases every shadow whose caster stands less than `b / sin(sun
+altitude)` above its receiver — taking the SHORT buildings first and taking
+them worst at a LOW sun, exactly where shadows are longest and most legible.
+The residual error is horizontal (a shadow edge lands within one shadow-map
+texel of the truth) and no depth bias addresses that anyway. Gated both ways:
+the geometry tests go red if the constant is put back to `0.05`, and one test
+hands `lift: 0.05` through the public option and asserts it changes not one
+cell.
+
+**The DIRECTION is deliberately not an option.** Shadows are cast along the
+scene's own `directionalLight.direction`, which is whatever
+`getKeyLightDirection()` reports — the sun, the headlight, or the page's own
+azimuth/elevation sliders. One vector lights the scene and casts its shadows,
+so the two can never point different ways. Gated with a manual sun over Zurich
+whose shadow lands in the opposite half-plane from the direction the scene was
+CONSTRUCTED with, plus a cell-exact landing derived from
+`getKeyLightDirection()` alone.
+
+### The glyphcss defect this uncovered, and the fix
+
+Shadows did not appear at all at first, at any setting. The cause was in
+`buildShadowMap`, not here: the light-space bounds were padded by
+`(span * 0.05) + 0.01` — an ABSOLUTE world length. The padded volume is then
+divided into 256 texels, so that constant sets a smallest scene the shadow map
+can resolve. A city block on the unit-radius globe spans ~1e-5 world units, so
+the pad made the volume 500x the casters and left every building a 0.23-texel
+speck. Bisected by rendering the same cube-on-a-plane scene at scale 1 and at
+scale 3e-5: 18 cells differed at scale 1, zero at 3e-5.
+
+The additive term exists only to keep a DEGENERATE axis from dividing by zero
+in `toLightUV` — a caster set flat in one light-space direction (one wall seen
+edge-on from the light). It now borrows the other axis's span for that case,
+and only a set collapsed to a point falls back to an absolute epsilon; the
+ordinary pad is purely relative. glyphcss's own 910 tests, its six shadow
+tests included, are unchanged by it. This is the same class of bug as `lift`,
+in the same function: a room-scale assumption in a renderer used at planetary
+scale.
+
+`GlyphShadowOptions.maxExtend` (documented default `2000`, "half-extent of the
+light-space projection volume") is READ BY NOTHING — `GlyphSceneElement`
+assembles it, the type declares it, and `buildShadowMap` fits the volume to
+the casters instead. It is therefore not a trap to be tuned but dead surface;
+removing it is a public break and was not taken here.
+
+### What it looks like, and what it costs
+
+Shadows are BASE-GRID only: `doRenderTransaction` pushes cast/receive flags
+only for meshes that stay in the shared grid, and every detail pass renders
+with `shadow: undefined`. A layer separated by its own `density` therefore
+neither casts nor receives — on `/maps` that means raising "OSM density" turns
+the buildings' shadows off.
+
+**Low sun**, measured on a 60 m block over flat ground at 140x63, ~4.8 m per
+column (shadow cells = the cells a render changed when the shadow was switched
+on):
+
+| sun altitude | shadow cells | rows | look |
+|---|---|---|---|
+| 60 deg | 100 | 4 | solid |
+| 30 deg | 275 | 11 | solid |
+| 10 deg | 520 | 22 | solid, every ~4th row starting to dot |
+| 5 deg | 251 | 22 | a stipple — about half the cells lost |
+
+That degradation is the shadow map's finite resolution meeting a receiver that
+is nearly parallel to the light, and it is the case a slope-scaled bias would
+address. It matters less than the table suggests: at 5 degrees of altitude the
+direct term is `cos(85 deg) = 0.087`, so the lit and shadowed ground differ by
+almost nothing anyway.
+
+**Cost** (`bench/maps-render`, spans, 1440x900, 140x63, headed,
+`--demo-layer fill-extrusion`, base-raster ms per render):
+
+| scenario | shadows off | shadows on | delta | fps |
+|---|---|---|---|---|
+| orbit | 19.60 | 22.06 | +2.46 (+13%) | 19.3 -> 17.8 |
+| drag | 21.54 | 24.04 | +2.50 (+12%) | 12.4 -> 11.3 |
+| wheel | 4.58 | 7.53 | +2.95 (+64%) | 41.8 -> 33.9 |
+| flyto | 9.39 | 12.27 | +2.88 (+31%) | 34.4 -> 29.4 |
+
+A flat +2.5 to +3.0 ms per render, which is what the mechanism predicts: the
+shadow map is rebuilt from the casters and the receiver test runs per covered
+cell, and neither depends on where the camera is. So it costs most where the
+frame was cheapest. It is opt-in and off by default, and `renders/frame` is
+unchanged (2.0 / 2.98 / 1.95 / 2.01 against 2.0 / 2.97 / 1.96 / 2.01) — the
+toggle buys no extra render.
+
+**Off is byte-identical.** No `shadow` key reaches `createGlyphScene` at all
+when it is off, and the bench's fidelity digest for the default page is
+`c61977879666aa92104d9e64` for all three of: no token, `D0` (explicitly off),
+and `D1` with no caster layer mounted. At unit level, turning shadows on and
+back off restores the render's `textContent` AND `innerHTML` exactly.
+
+### The page
+
+`/maps` carries it as a two-state icon toggle in the Dock's Lighting folder,
+portaled through the same `extras` seam and the same `.dock-subcell` row as
+the Sun toggle — a shadow is thrown by the key light, so the reader who has
+just set the sun is the reader who wants to know whether it casts. It renders
+BELOW Sun, which means it is rendered ABOVE it in the JSX: `useDockSlot`'s
+`position: "top"` inserts each slot before the folder's current first child,
+so the last one mounted ends up first. URL token `D`, appended with no version
+bump (`S` and `s` were already spent on `smoothShading` and `span`); a link
+written before it decodes to `false`, which is the map every such link already
+described.

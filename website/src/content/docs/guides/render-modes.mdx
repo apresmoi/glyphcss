@@ -651,8 +651,8 @@ Shadow fields (`GlyphShadowOptions`):
 |---|---|---|
 | `color` | `"#000000"` | Shadow tint color |
 | `opacity` | `0.25` | Darkness 0..1 |
-| `lift` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
-| `maxExtend` | `2000` | Half-extent of the light-space projection volume |
+| `lift` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces. A WORLD-UNIT length, so the default assumes a room-scale scene; a scene whose unit is (say) an Earth radius must set its own, or every shadow is biased away |
+| `maxExtend` | `2000` | **Accepted but not read.** The light-space volume is fitted to the casters' own bounds; this value has no effect on any render |
 
 ## Built-in `geometry` attribute
 

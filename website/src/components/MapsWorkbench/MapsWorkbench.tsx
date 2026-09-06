@@ -68,6 +68,7 @@ import {
   mapSunManualFields,
   mapSunManualInstant,
   MapsProjectionControls,
+  MapsShadowControls,
   MapsSunControls,
   paletteColorsFor,
   useViewFolder,
@@ -611,6 +612,10 @@ export default function MapsWorkbench() {
   const [sunMode, setSunMode] = useState<MapSunMode>(initial.sunMode);
   const [sunDay, setSunDay] = useState(initial.sunDay);
   const [sunHour, setSunHour] = useState(initial.sunHour);
+  // ── Cast shadows, off by default. Whatever aims the key light above also
+  //    casts them — the widget reads ONE `directionalLight.direction`, so
+  //    there is nothing here to keep in step with the sun.
+  const [shadows, setShadows] = useState(initial.shadows);
 
   // ── Character-mode availability. Unlike `atlasReason` above, this is a
   //    pure function of state this component already owns — no DOM probe,
@@ -651,6 +656,8 @@ export default function MapsWorkbench() {
   exaggerationRef.current = exaggeration;
   const sunRef = useRef({ mode: sunMode, day: sunDay, hour: sunHour });
   sunRef.current = { mode: sunMode, day: sunDay, hour: sunHour };
+  const shadowsRef = useRef(shadows);
+  shadowsRef.current = shadows;
 
   // ── Load the baked ETOPO1 tile provider once. ──────────────────────────
   useEffect(() => {
@@ -775,6 +782,11 @@ export default function MapsWorkbench() {
         date: mapSunManualInstant(sunRef.current.day, sunRef.current.hour),
       },
       keyLight: mapKeyLightForSunMode(sunRef.current.mode, projectionId),
+      // Read once at mount like `tilt`/`bearing`/`sun`; every later change
+      // goes through `map.setShadow` in the effect below. `null` is the
+      // widget's own off, so a page opened without the URL token builds the
+      // scene it built before this control existed.
+      shadow: shadowsRef.current ? {} : null,
       layers: [
         { type: "background" as const, id: BACKGROUND_LAYER_ID, color: backgroundColorRef.current },
         ...(showTerrainRef.current
@@ -1241,6 +1253,14 @@ export default function MapsWorkbench() {
     map.setKeyLight(mapKeyLightForSunMode(sunMode, projectionId));
   }, [sunMode, sunDay, sunHour, projectionId]);
 
+  // ── Shadows -> `map.setShadow()`. Its own effect rather than a clause in
+  //    the lighting one below: the widget writes ONE scene option and
+  //    re-renders, nothing is re-mounted, and it must not be re-issued on
+  //    every azimuth nudge.
+  useEffect(() => {
+    mapRef.current?.setShadow(shadows ? {} : null);
+  }, [shadows]);
+
   // ── Lighting -> `scene.setOptions()`. ──────────────────────────────────
   //    `map.getKeyLightDirection()` is read FRESH here rather than cached:
   //    when the widget owns the direction — the sun on an orbit projection,
@@ -1381,6 +1401,7 @@ export default function MapsWorkbench() {
       ambientIntensity: lighting.ambientIntensity,
       ambientColor: lighting.ambientColor,
       sunMode,
+      shadows,
       sunDay,
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
@@ -1414,7 +1435,7 @@ export default function MapsWorkbench() {
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensity, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensity, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
@@ -1545,7 +1566,7 @@ export default function MapsWorkbench() {
             }}
             lighting={lighting}
             onUpdateLighting={(partial) => setLighting((l) => ({ ...l, ...partial }))}
-            sunMode={sunMode} sunDay={sunDay} sunHour={sunHour}
+            sunMode={sunMode} sunDay={sunDay} sunHour={sunHour} shadows={shadows} onShadows={setShadows}
             onSunMode={(mode) => {
               // Entering manual SEEDS the day/hour from the real clock, so
               // the sun stays where it was instead of jumping to whatever
@@ -1597,6 +1618,7 @@ function MapsDockFolders(props: {
   lighting: MapLighting;
   onUpdateLighting: (partial: Partial<MapLighting>) => void;
   sunMode: MapSunMode; sunDay: number; sunHour: number;
+  shadows: boolean; onShadows: (on: boolean) => void;
   onSunMode: (mode: MapSunMode) => void;
   onSunDay: (day: number) => void;
   onSunHour: (hour: number) => void;
@@ -1686,15 +1708,21 @@ function MapsDockFolders(props: {
           : "The sun owns the key light's direction in this mode — switch Sun to Manual to aim it by hand."}
         onUpdateScene={props.onUpdateLighting}
         extras={(folder) => (
-          <MapsSunControls
-            folder={folder}
-            mode={props.sunMode}
-            day={props.sunDay}
-            hour={props.sunHour}
-            onMode={props.onSunMode}
-            onDay={props.onSunDay}
-            onHour={props.onSunHour}
-          />
+          <>
+            {/* Rendered FIRST so it lands BELOW the Sun row — each top slot
+                is inserted before the folder's current first child, so the
+                last one mounted ends up first. */}
+            <MapsShadowControls folder={folder} shadows={props.shadows} onShadows={props.onShadows} />
+            <MapsSunControls
+              folder={folder}
+              mode={props.sunMode}
+              day={props.sunDay}
+              hour={props.sunHour}
+              onMode={props.onSunMode}
+              onDay={props.onSunDay}
+              onHour={props.onSunHour}
+            />
+          </>
         )}
       />
     </>

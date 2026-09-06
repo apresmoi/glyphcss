@@ -368,8 +368,10 @@ each world axis is `w|cos b| + h|sin b|` — worst at 45 degrees.
 pitches it at `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5) degrees per pixel,
 HORIZONTAL travel turns it at `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8) —
 the binding Google Maps, Mapbox and MapLibre all use, and MapLibre's own two
-rates. Dragging right decreases the bearing, so the top of the picture
-follows the hand, the same rule the pitch half obeys. Both axes are live in
+rates. Dragging right INCREASES the bearing, turning the picture
+anti-clockwise, so the near ground — the lower half of a pitched picture, the
+half the hand is actually on — follows the hand, and the Dock's own Bearing
+slider moves the same way the drag does. Both axes are live in
 one stroke; there is no axis lock. Plain drag keeps its meaning (pan on a
 sheet, orbit on the globe). `controls.tilt` (default `true`) is the one
 opt-out for both halves — it is one press and one stroke — alongside
@@ -827,6 +829,39 @@ projection the sun owns the direction and the headlight waits. Compose your
 own key-light write from `getKeyLightDirection()`, not `getSunDirection()` —
 the latter is `null` while a headlight is on, so reading it would clobber the
 headlight with your own vector.
+
+## Cast shadows
+
+Off unless asked for. `shadow` turns them on; `null` turns them off again.
+
+```js
+const map = createGlyphMap(host, { view, projection, shadow: {} });
+map.setShadow({ color: "#000000", opacity: 0.35 });  // color/opacity pass through to glyphcss
+map.setShadow(null);                                  // off — and byte-identical to never asking
+```
+
+**`fill-extrusion` and `model` layers CAST; `raster`, `fill` and `heatmap`
+RECEIVE.** The two sets are disjoint on purpose — glyphcss has no
+slope-scaled depth bias, so a surface that both casts and receives speckles
+wherever it is near-parallel to the light, and disjoint sets remove that case
+rather than tuning around it. Terrain deliberately never casts: the shadow
+volume is fitted to the AABB of every caster and a raster layer keeps a global
+floor tier mounted, so terrain casting would spread the 256x256 shadow map
+across the whole Earth.
+
+**The direction is not an option here.** Shadows fall along the scene's own
+`directionalLight.direction` — whatever `getKeyLightDirection()` reports —
+so the sun, the headlight and your own azimuth/elevation slider each cast the
+shadows they light. `lift` defaults to `0` (`GLYPH_MAP_SHADOW_LIFT`) rather
+than glyphcss's `0.05`, which in this package's world units is 318 km and
+erases every shadow.
+
+Shadows are drawn in the base grid only: a layer separated into its own
+`<pre>` by a per-mesh `density` neither casts nor receives. Cost is a flat
++2.5 to +3.0 ms per render on `bench/maps-render` at 140x63 with buildings
+mounted, and shadows stay solid down to roughly 10 degrees of sun altitude —
+below that the shadow map's finite resolution dithers the edge. `docs/design/
+maps.md` has the measurements.
 
 ## Scope
 

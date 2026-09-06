@@ -3349,9 +3349,25 @@ function buildShadowMap(
   }
   if (!hasCasters) return null;
 
-  // Pad the bounds slightly to avoid edge clipping.
-  const uPad = (uMax - uMin) * 0.05 + 0.01;
-  const vPad = (vMax - vMin) * 0.05 + 0.01;
+  // Pad the bounds slightly to avoid edge clipping. RELATIVE to the caster
+  // set's own extent, never a fixed world length: this volume is divided into
+  // SHADOW_MAP_SIZE texels, so an absolute term silently sets a smallest
+  // scene the shadow map can resolve at all. The `+ 0.01` this replaced was a
+  // room-scale assumption — `@glyphcss/maps` works on a unit-radius globe
+  // where a city block spans ~1e-5 world units, so that term made the padded
+  // volume 500x the casters and left every building a sub-texel speck: not
+  // one shadow was drawn anywhere on the map.
+  //
+  // The additive term exists only for a DEGENERATE axis — a caster set that
+  // is flat in one light-space direction (a single wall seen edge-on from the
+  // light) has zero span there, which the 5% pad cannot open and `toLightUV`
+  // would divide by. That case borrows the other axis's span, and only a set
+  // collapsed to one point falls back to an absolute epsilon.
+  const uSpan = uMax - uMin;
+  const vSpan = vMax - vMin;
+  const spanFallback = Math.max(uSpan, vSpan) || 1e-9;
+  const uPad = (uSpan || spanFallback) * 0.05;
+  const vPad = (vSpan || spanFallback) * 0.05;
   uMin -= uPad; uMax += uPad; vMin -= vPad; vMax += vPad;
 
   const buf = new Float64Array(SHADOW_MAP_SIZE * SHADOW_MAP_SIZE).fill(-Infinity);

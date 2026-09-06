@@ -1455,6 +1455,60 @@ export function MapsSunControls({ folder, mode, day, hour, onMode, onDay, onHour
   );
 }
 
+const SHADOW_TOGGLE = ([
+  { value: "off", label: "Off", desc: "no shadow pass at all — the render is byte-identical to a map built without this control" },
+  { value: "on", label: "Cast", desc: "buildings and models drop a shadow onto the terrain and fill under them, along the same light the shading uses" },
+] as const).map(({ value, label, desc }) => ({
+  value,
+  label,
+  desc,
+  icon: value === "off" ? (
+    // An empty block: something standing there, throwing nothing.
+    <ToggleIcon strokeWidth={1.3}>
+      <path d="M4.5 4.5H9.5V9.5H4.5Z" />
+    </ToggleIcon>
+  ) : (
+    // The same block with its shadow laid out to one side.
+    <ToggleIcon strokeWidth={1.3}>
+      <path d="M4.5 4.5H9.5V9.5H4.5Z" />
+      <path d="M9.5 9.5H14V12H4.5V9.5Z" fill="currentColor" stroke="none" opacity="0.55" />
+    </ToggleIcon>
+  ),
+}));
+
+/**
+ * The cast-shadow toggle, in the SAME Dock Lighting folder and through the
+ * same `extras` seam as {@link MapsSunControls} — because it is the same
+ * subject. A shadow is thrown by the key light, so a reader who has just set
+ * the sun is exactly the reader who wants to know whether it casts, and
+ * putting this anywhere else (a Rendering row, a layer card) would separate a
+ * light from what it does.
+ *
+ * It renders BELOW the Sun row, which is why it is rendered ABOVE it in the
+ * JSX: `useDockSlot(folder, { position: "top" })` inserts each slot before the
+ * folder's current first child, so the LAST one mounted ends up first.
+ */
+export function MapsShadowControls({ folder, shadows, onShadows }: {
+  folder: GUI | null;
+  shadows: boolean;
+  onShadows: (on: boolean) => void;
+}) {
+  const slot = useDockSlot(folder, { position: "top", className: "dock-subcell-slot" });
+  if (!slot) return null;
+  return createPortal(
+    <div className="dock-subcell">
+      <span className="dock-subcell-label">Shadows</span>
+      <IconToggle
+        groupTitle="Shadows — whether standing geometry (OSM buildings, the model layer) casts onto the ground under it. Off by default: it is a second pass, and it needs a layer that stands up off the ground to draw anything at all."
+        options={SHADOW_TOGGLE}
+        value={shadows ? "on" : "off"}
+        onChange={(v) => onShadows(v === "on")}
+      />
+    </div>,
+    slot,
+  );
+}
+
 // ── "Projection" picker — segmented icon toggle portaled into a slot at the
 //    TOP of the Dock, above every folder (View/Rendering/Lighting): a
 //    projection is the map's fundamental shape, not a scene/camera tuning

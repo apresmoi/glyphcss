@@ -464,16 +464,39 @@ describe("the orient gesture turns as well as pitches", () => {
   it("Ctrl+drag HORIZONTAL turns the map, at MapLibre's rate and MapLibre's sign", () => {
     const { map, host, done } = mount(base);
     drag(host, 50, 0, { ctrlKey: true });
-    // Drag right turns the picture clockwise — the top of it follows the
-    // hand — which DECREASES the heading.
-    expect(map.getBearing()).toBeCloseTo(glyphMapNormalizeBearing(-50 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX), 9);
+    // Drag right turns the picture ANTI-clockwise — the near ground, the
+    // lower half of the picture the hand is actually on, follows the hand —
+    // which INCREASES the heading.
+    expect(map.getBearing()).toBeCloseTo(50 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, 9);
     done();
+  });
+
+  it("the drag and the Dock's `Bearing °` slider turn the map the SAME way", () => {
+    // The slider is the identity on the heading and its handle runs 0..360
+    // left to right, so pushing it RIGHT raises the bearing. A right-going
+    // DRAG has to land on the same camera, or the two controls in the same
+    // view move the map opposite ways — which is the complaint, one control
+    // over. Compared through `project()` rather than through `getBearing()`,
+    // so it is the PICTURE that has to agree, not the number.
+    const dragged = mount(base);
+    drag(dragged.host, 50, 0, { ctrlKey: true });
+    const slid = mount(base);
+    slid.map.setBearing(50 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX);
+    const probe: [number, number] = [12, 7];
+    const a = dragged.map.project(probe), b = slid.map.project(probe);
+    expect(a.col).toBeCloseTo(b.col, 9);
+    expect(a.row).toBeCloseTo(b.row, 9);
+    // ...and both genuinely turned: agreeing on a map neither of them moved
+    // would pass the clause above for free.
+    expect(Math.abs(angleDelta(northScreenAngle(dragged.map), -90))).toBeGreaterThan(30);
+    slid.done();
+    dragged.done();
   });
 
   it("right-button drag does the same, since on macOS Ctrl+click IS the secondary click", () => {
     const { map, host, done } = mount(base);
     drag(host, -30, 0, { button: 2 });
-    expect(map.getBearing()).toBeCloseTo(30 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, 9);
+    expect(map.getBearing()).toBeCloseTo(glyphMapNormalizeBearing(-30 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX), 9);
     done();
   });
 
@@ -481,7 +504,7 @@ describe("the orient gesture turns as well as pitches", () => {
     const { map, host, done } = mount(base);
     drag(host, 40, -20, { ctrlKey: true });
     expect(map.getTilt()).toBeGreaterThan(0);
-    expect(map.getBearing()).toBeCloseTo(glyphMapNormalizeBearing(-40 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX), 9);
+    expect(map.getBearing()).toBeCloseTo(40 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, 9);
     done();
   });
 
@@ -521,7 +544,7 @@ describe("the orient gesture turns as well as pitches", () => {
     for (let i = 1; i <= 20; i++) fire(host, "pointermove", 400 + i * 3, 300, { ctrlKey: true });
     fire(host, "pointerup", 460, 300, { ctrlKey: true });
     // The heading is exact and current the instant the last event returns...
-    expect(map.getBearing()).toBeCloseTo(glyphMapNormalizeBearing(-60 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX), 9);
+    expect(map.getBearing()).toBeCloseTo(60 * GLYPH_MAP_BEARING_DRAG_DEG_PER_PX, 9);
     // ...and not one of those 20 events painted anything (the motion loop's
     // frame does, and no frame ran).
     expect(renders).toHaveLength(0);
