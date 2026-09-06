@@ -2423,6 +2423,97 @@ blank layers that had nothing wrong with them. That region simply has no data
 this frame. `onError` is how the card still gets to say how many, instead of
 the reader guessing why a render looks thin.
 
+### One density PER ROW, and the two opposite costs behind it
+
+The card mounts one layer per OpenMapTiles row and used to hand all ten of
+them a single number (`mapOsmLayers` fanned the card's one slider out over
+every enabled row), so a reader who wanted ROADS sharpened had to sharpen
+land cover with them. `glyphMapOpenMapTilesLayers(source, { densities })` had
+taken a per-row record from the day it was written; the page was the only
+thing collapsing it. Each row now carries its own control on its own line,
+`MapOsmLayerOptions.densities` is that record, and nothing in
+`@glyphcss/maps` changed.
+
+**Master and per-row.** The RECORD is the single source of truth — there is
+no second master value in page state. The card's surviving one-drag control
+is derived both ways: it WRITES every row (`mapOsmDensityRecord`, an
+overwrite, never a ratio — a ratio makes "all of it, this dense" unreachable
+from any mixed state without flattening it by hand first) and it READS as the
+shared value or as **"mixed"** (`mapOsmMasterDensity` answers `null`), because
+no single number is true of ten different ones. A mixed slider's thumb sits at
+the mean of the rows shown: a range input needs a position, and the mean
+belongs to no row, so it cannot be read as a claim about one.
+
+**The two costs are opposite, which is why the card states them per row
+rather than once.**
+
+- A `fill`/`fill-extrusion` row is **free** to differ. A mesh-backed vector
+  layer mounts with `meshTransform(layer, layer.density)` and NO
+  `detailGroup` (only a raster layer's tiles are grouped, `widget.ts`), so it
+  already popped into its own `<pre>` the moment it left 1x. Water at 2x and
+  buildings at 3x is exactly as many passes as both at 2x.
+- A `line` row is **not**. A stroke owns no mesh; it is stamped post-raster,
+  and `syncViewportOverlayDensities` routes the SET of distinct, non-1 stroke
+  densities to `scene.setViewportOverlayDensities` — so the card's three
+  stroke rows (waterways, roads, boundaries) sharing one number cost ONE
+  full-viewport overlay grid and holding three cost THREE, each with its own
+  geometry depth pass.
+- `symbol`/`circle` rows read no density at all (nothing in `widget.ts`
+  consumes it for the two hotspot-mounting types), so their control is
+  disabled with that reason rather than offered as a knob that does nothing.
+
+**Measured**, 140x63 over a relief mesh with three stroke layers mounted
+(median of 60 renders, node/happy-dom, so read the RATIOS rather than the
+absolute milliseconds):
+
+| stroke densities | overlay grids | ms/render |
+|---|---|---|
+| 1 / 1 / 1 | 0 | 6.6 |
+| 2 / 2 / 2 | 1 | 27.4 |
+| 2 / 2.1 / 2.2 | 3 | 63.4 |
+| 2 / 3 / 4 | 3 | 86.2 |
+| 3 / 3 / 3 | 1 | 63.6 |
+| 4 / 4 / 4 | 1 | 117.7 |
+
+The 2 / 2.1 / 2.2 row is the one that isolates the claim: three grids at
+essentially ONE resolution cost 2.3x one grid at that resolution, so it is the
+grid COUNT being charged for and not the sharpness. (2 / 3 / 4 then adds the
+resolution cost on top, and 4 / 4 / 4 shows a reader can spend as much on one
+sharp shared grid as on three distinct ones.) That is material, so the card
+says it twice where the choice is being made: in each stroke row's own
+tooltip, and as a live `stroke grids` info row counting the distinct non-1
+densities the ON stroke rows are currently asking for
+(`mapOsmStrokeOverlayCount`, derived in the panel from rows it already has —
+no page state, and it moves in the same render as the slider that caused it).
+
+**On the wire.** Token `Q` (`osmDensity`) is a single float and is in links
+already shared. It stays, decoding exactly as it did, and
+`readInitialMapsState` seeds EVERY row from it when a link carries no per-row
+token — which is not a fallback but the map that link described, since that
+one number was applied to every enabled row when it was written. The new token
+`M` (`osmDensities`) carries the vector as a `floatTuple` of
+`MAPS_OSM_DENSITY_SLOTS` = 10 slots at step 0.1, positional over
+`MAPS_OSM_SUBLAYER_KEYS`. A tuple, where the six per-LAYER densities beside it
+are one token each, because the common cases are opposite: those six are
+touched one at a time, while the master gesture writes all ten of these at
+once. It is appended LAST in the field list, since `decodePacked` stops at the
+first unrecognized token and there is then nothing after `M` for an
+older build to strand. A uniform card writes `Q` at the shared value; a mixed
+one writes it at the default and so spends no characters on it, because there
+is no honest single float for ten different ones. The tuple's WIDTH is itself
+a wire format — unlike the `osmMask` bitfield beside it, which has 31 bits of
+headroom — so `mapsUrlState.osmDensity.test.ts` asserts the two lists still
+match and an eleventh row goes red here rather than silently reinterpreting
+every shared `M` link.
+
+Gates: `mapsOsm.density.test.ts` (the record, the master reading, and that a
+row's density reaches that row and only that row), `mapsOsmDensity.cost.test.ts`
+(both cost claims, through the real widget, against
+`pre[data-glyph-overlay-density]`), `mapsUrlState.osmDensity.test.ts` (legacy
+`Q` seeding, mixed round trip, `M` beating a `Q` carried beside it),
+`LayersPanel.osmDensity.test.tsx` (the rows, the master's "mixed", the gated
+types, the live grid count).
+
 ## Cast shadows (`GlyphMapOptions.shadow`)
 
 The ask was small — "we have light, could the buildings drop shadows, with a
@@ -2595,8 +2686,11 @@ and shadows on), so the headlight was never in play; the manual sun at that
 instant stands ~32 degrees above Buenos Aires, well clear of the ~10-degree
 altitude where shadows start to dither.
 
-`2.9` is the whole story. The OSM card gives its ten rows ONE density slider
-(`mapOsmLayers` fans it out over every enabled row), and `density !== 1` is
+`2.9` is the whole story. The OSM card gave its ten rows ONE density slider at
+the time (`mapOsmLayers` fanned it out over every enabled row; it now carries
+one control per row plus a master that writes all ten — "One density PER ROW"
+above, which changes nothing here: the master gesture still writes every row
+at once, so this link is reproduced exactly), and `density !== 1` is
 exactly what `isDetailMesh` separates on — so moving that one slider separated
 the `omt-buildings` `fill-extrusion` that CASTS and the `omt-landuse` /
 `omt-landcover` `fill`s that RECEIVE, in the same gesture. The base grid was

@@ -10,7 +10,7 @@
 import { createUrlCodec, readUrlParam, scheduleCompactedUrlWrite, type UrlField } from "../../lib/urlState";
 import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 import { DEFAULT_MAP_LIGHTING, MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode, type PointDataset } from "./mapsKit";
-import { MAP_OSM_DEFAULT_ON } from "./mapsOsm";
+import { MAP_OSM_DEFAULT_DENSITY, MAP_OSM_DEFAULT_ON } from "./mapsOsm";
 
 // Includes "calibrated" — `DockRendering`'s glyph-palette dropdown always
 // offers it (registered as a side effect of importing that folder, see
@@ -98,7 +98,29 @@ export interface MapsUrlState {
   terrainDensity: number;
   borderDensity: number;
   contourDensity: number;
+  /**
+   * The OSM card's MASTER density — the one number that is still true when
+   * every row agrees.
+   *
+   * It is no longer the card's state (see {@link osmDensities}); it is kept,
+   * written and decoded because it is in links already shared, and because a
+   * uniform card has exactly one honest number to offer. A MIXED card writes
+   * this at its default: no single float describes ten different ones, and
+   * the codec omits a field at its default, so saying nothing costs nothing.
+   */
   osmDensity: number;
+  /**
+   * One density per OSM row, positionally over
+   * {@link MAPS_OSM_SUBLAYER_KEYS} — a fixed-width tuple, never a record, so
+   * it packs as `MAPS_OSM_DENSITY_SLOTS` self-delimiting base36 numbers with
+   * no key names on the wire.
+   *
+   * A tuple here, where the six per-LAYER densities above are one token
+   * each, because the two have opposite common cases: those six are touched
+   * one at a time, while the master gesture writes all ten of these at once,
+   * so a per-row token set would spend ten tokens to say what one says.
+   */
+  osmDensities: readonly number[];
   fillDensity: number;
   extrusionDensity: number;
 
@@ -197,6 +219,32 @@ export function mapsOsmSublayersFromMask(mask: number): Record<string, boolean> 
   return unpackBitmask(MAPS_OSM_SUBLAYER_KEYS, mask);
 }
 
+/**
+ * The per-row density tuple's FROZEN width (token `M`).
+ *
+ * Unlike the bitfield beside it — which has 31 bits of headroom, so
+ * appending a row costs nothing — a `floatTuple` reads exactly this many
+ * slots and then hands the cursor to the next token. The width is therefore
+ * itself the wire format: appending an eleventh row and widening this in
+ * place would make every already-shared `M` link decode the token AFTER it
+ * as a density, and `decodePacked` would strand everything from there on.
+ * `mapsUrlState.osmDensity.test.ts` asserts the two lists still match, so a
+ * package-side insertion goes red here — the same treatment
+ * `MAPS_OSM_SUBLAYER_KEYS`' own cross-check gets — rather than quietly
+ * rewriting every shared link. Growing past it means a NEW token (or a
+ * version bump), not a wider one.
+ */
+export const MAPS_OSM_DENSITY_SLOTS = 10;
+
+/** Pack the OSM card's per-row density record into {@link MapsUrlState.osmDensities}. A row the record does not carry packs at the 1x default. */
+export function mapsOsmDensitiesFromRecord(densities: Readonly<Record<string, number>>): number[] {
+  return MAPS_OSM_SUBLAYER_KEYS.map((key) => densities[key] ?? MAP_OSM_DEFAULT_DENSITY);
+}
+/** The inverse of {@link mapsOsmDensitiesFromRecord} — always a complete record over {@link MAPS_OSM_SUBLAYER_KEYS}. */
+export function mapsOsmDensityRecordFromTuple(tuple: readonly number[]): Record<string, number> {
+  return Object.fromEntries(MAPS_OSM_SUBLAYER_KEYS.map((key, i) => [key, tuple[i] ?? MAP_OSM_DEFAULT_DENSITY]));
+}
+
 /** The sentinel a `null` (unbounded) contour-window end packs as — see `MapsUrlState.contourFloor`. */
 export const MAPS_CONTOUR_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
@@ -254,7 +302,8 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   terrainDensity: 1,
   borderDensity: 1,
   contourDensity: 1,
-  osmDensity: 1,
+  osmDensity: MAP_OSM_DEFAULT_DENSITY,
+  osmDensities: Array(MAPS_OSM_DENSITY_SLOTS).fill(MAP_OSM_DEFAULT_DENSITY),
   fillDensity: 1,
   extrusionDensity: 1,
   symbolDataset: POINT_DATASET_DEFAULTS.symbol,
@@ -423,6 +472,24 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   { key: "contourLabels", token: "R", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.contourLabels },
   { key: "extrusionRenderMode", token: "U", type: { kind: "enum", values: RENDER_MODE_VALUES }, default: MAPS_URL_DEFAULTS.extrusionRenderMode },
   { key: "modelRenderMode", token: "V", type: { kind: "enum", values: RENDER_MODE_VALUES }, default: MAPS_URL_DEFAULTS.modelRenderMode },
+  // ── The OSM card's PER-ROW densities. Appended LAST on purpose, and for
+  //    the fifth time with the same consequence: the codec is TOKEN-keyed,
+  //    so a link carrying no `M` decodes to every row at 1x — and
+  //    `readInitialMapsState` then seeds them from whatever `Q` that link
+  //    does carry, which is the map it described (one number, applied to
+  //    every enabled row, is exactly what the card did then). No version
+  //    bump: nothing was retired, `Q` still decodes with its existing rules,
+  //    and `M` is a token no v1/v2/v3 link has ever contained.
+  //
+  //    LAST, rather than beside `Q`, because `decodePacked` stops at the
+  //    first token it does not recognize: a link written here and opened by
+  //    a not-yet-updated build strands every field ordered AFTER `M`, and
+  //    there is nothing after it.
+  //
+  //    `M` (not `m`): the token map is case-sensitive, and lowercase `m` is
+  //    the RETIRED `terrainRenderMode` token that `mapsCodecLegacyV2` still
+  //    decodes.
+  { key: "osmDensities", token: "M", type: { kind: "floatTuple", length: MAPS_OSM_DENSITY_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.osmDensities },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";
@@ -504,6 +571,15 @@ export function readInitialMapsState(): MapsUrlState {
     // merge) — see `MAPS_URL_DEFAULTS.colorEncoding`'s doc for why the
     // codec's own omission sentinel must stay the fixed "spans" instead.
     colorEncoding: decoded.colorEncoding ?? defaultGlyphColorEncoding(),
+    // A link from before the OSM card had per-row densities carries `Q` and
+    // no `M`. `Q` was applied to EVERY enabled row when that link was
+    // written, so seeding every row with it is not a fallback — it is the
+    // map the link describes, restored exactly. Read from the raw DECODED
+    // partial (never the merged defaults) for the same reason
+    // `colorEncoding` above is: an explicit `M` must win over the `Q` a
+    // newer link carries beside it.
+    osmDensities: decoded.osmDensities
+      ?? Array(MAPS_OSM_DENSITY_SLOTS).fill(decoded.osmDensity ?? MAPS_URL_DEFAULTS.osmDensity),
   };
   // `decoded` can carry the retired `terrainRenderMode` key at runtime when
   // it came from `mapsCodecLegacyV1`/`mapsCodecLegacyV2` (both still decode

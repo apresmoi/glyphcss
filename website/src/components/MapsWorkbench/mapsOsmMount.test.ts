@@ -79,7 +79,7 @@ describe("the page's OSM source draws real data far from Zurich", () => {
     const blank = (map.scene.output.textContent ?? "").replace(/[\s\n]/g, "");
     expect(blank).toBe("");
 
-    for (const layer of mapOsmLayers(source(fetchTile), { enabled: ["omt-roads"], density: 1 })) map.addLayer(layer);
+    for (const layer of mapOsmLayers(source(fetchTile), { enabled: ["omt-roads"], densities: {} })) map.addLayer(layer);
     await vi.waitFor(() => expect(fetchTile).toHaveBeenCalled());
     await vi.waitFor(() => {
       map.scene.rerender();
@@ -96,7 +96,7 @@ describe("the page's OSM source draws real data far from Zurich", () => {
   it("draws at a WORLD view too — the extract's whole coverage problem is gone", async () => {
     const fetchTile = recorder();
     const map = mount([-140, 0], 360);
-    for (const layer of mapOsmLayers(source(fetchTile), { enabled: ["omt-water"], density: 1 })) map.addLayer(layer);
+    for (const layer of mapOsmLayers(source(fetchTile), { enabled: ["omt-water"], densities: {} })) map.addLayer(layer);
     await vi.waitFor(() => expect(fetchTile).toHaveBeenCalled());
     await vi.waitFor(() => {
       map.scene.rerender();
@@ -111,7 +111,7 @@ describe("attribution rides the mounted layer, never the page", () => {
     const map = mount([139.7514, 35.6853], 0.06);
     expect(map.getAttributions()).toEqual([]);
 
-    const layers = mapOsmLayers(source(recorder()), { enabled: ["omt-roads"], density: 1 });
+    const layers = mapOsmLayers(source(recorder()), { enabled: ["omt-roads"], densities: {} });
     for (const layer of layers) map.addLayer(layer);
     const credited = map.getAttributions();
     expect(credited.map((a) => a.name)).toContain(OSM_CREDIT);
@@ -127,7 +127,7 @@ describe("attribution rides the mounted layer, never the page", () => {
 
   it("credits OpenStreetMap exactly once however many rows are on", async () => {
     const map = mount([139.7514, 35.6853], 0.06);
-    const layers = mapOsmLayers(source(recorder()), { enabled: MAP_OSM_DEFAULT_ON, density: 1 });
+    const layers = mapOsmLayers(source(recorder()), { enabled: MAP_OSM_DEFAULT_ON, densities: {} });
     expect(layers.length).toBe(MAP_OSM_DEFAULT_ON.length);
     for (const layer of layers) map.addLayer(layer);
     expect(map.getAttributions().filter((a) => a.name === OSM_CREDIT)).toHaveLength(1);
@@ -143,7 +143,7 @@ describe("on-demand volume with every default row mounted", () => {
   const count = async (center: [number, number], span: number) => {
     const fetchTile = recorder();
     const map = mount(center, span);
-    for (const layer of mapOsmLayers(source(fetchTile), { enabled: MAP_OSM_DEFAULT_ON, density: 1 })) map.addLayer(layer);
+    for (const layer of mapOsmLayers(source(fetchTile), { enabled: MAP_OSM_DEFAULT_ON, densities: {} })) map.addLayer(layer);
     await vi.waitFor(() => expect(fetchTile).toHaveBeenCalled());
     // Let every mounted runtime's sweep land before counting.
     await new Promise((r) => setTimeout(r, 0));
@@ -178,7 +178,7 @@ describe("failure degrades quietly", () => {
     const onError = vi.fn();
     const fetchTile = vi.fn(async () => { throw new Error("504 Gateway Timeout"); });
     const map = mount([139.7514, 35.6853], 0.06);
-    const layers = mapOsmLayers(createOsmSource({ fetchTile, onError }), { enabled: ["omt-roads"], density: 1 });
+    const layers = mapOsmLayers(createOsmSource({ fetchTile, onError }), { enabled: ["omt-roads"], densities: {} });
     expect(() => { for (const layer of layers) map.addLayer(layer); }).not.toThrow();
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     expect(() => map.setView({ center: [139.76, 35.69] })).not.toThrow();

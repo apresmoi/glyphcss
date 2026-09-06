@@ -320,6 +320,41 @@
   border-bottom-color: transparent;
 }
 
+/* ── The OpenStreetMap card's rows ───────────────────────────────────────
+   Each row carries BOTH the layer's toggle and that layer's own density, on
+   one line, so the checkbox shares the WIDGET column with the slider instead
+   of spanning the value column the way a plain `.maps-layer-bool-row`'s
+   does (that rule still applies — it is simply inert once the checkbox sits
+   inside a flex parent rather than directly in the row's grid). The row
+   keeps the card body's three-column geometry unchanged: name / widget /
+   value, with the readout in the value column like every other row. */
+.maps-layer-card .maps-layer-body .maps-osm-row-widget {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-row-widget .maps-layer-bool-check {
+  flex: none;
+}
+.maps-layer-card .maps-layer-body .maps-osm-row-widget .voice-slider-track {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A row whose DENSITY is gated — either the row is switched off, or it is a
+   `symbol`/`circle` row, which mounts positioned hotspots rather than
+   geometry and so reads no density at all. Same treatment as
+   `.maps-layer-slider--off` (0.5 opacity, `not-allowed`, tooltip left
+   reachable) but scoped to the density control, because the TOGGLE on this
+   row is live and dimming the name beside it would say otherwise. */
+.maps-osm-row--density-off .voice-slider-track,
+.maps-osm-row--density-off .voice-slider-readout {
+  opacity: 0.5;
+}
+.maps-osm-row--density-off input[type="range"] {
+  cursor: not-allowed;
+}
+
 /* ── Point-layer hotspots (`symbol`/`circle`) ────────────────────────────
    `@glyphcss/maps` tags each point layer's hotspot element with
    `.glyph-map-symbol` / `.glyph-map-circle` and sets only what the LAYER

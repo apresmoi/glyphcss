@@ -34,6 +34,10 @@ import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProv
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
 import { useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
 import { MAP_BEARING_SLIDER_RANGE, mapTiltSliderRange } from "./mapsView";
+// One-way: `mapsOsm.ts` imports `@glyphcss/maps` and nothing from this file,
+// so the OSM card can read its own cost rule from the same place the page's
+// mount path does rather than restating it.
+import { mapOsmStrokeOverlayCount } from "./mapsOsm";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // ── Projections ────────────────────────────────────────────────────────────
@@ -487,6 +491,17 @@ function LayerCard({ label, visible, onVisible, children }: {
  * `.controller.disabled` treatment — has no reachable path through the panel
  * to assert it from.
  */
+/**
+ * The density track every row on this rail shares — glyphcss's per-mesh
+ * detail-resolution multiplier. Module constants, not literals repeated per
+ * row, because the OSM card's per-row rows have to land on the SAME track as
+ * `DensityRow` or the card reads as a second control family.
+ */
+const DENSITY_MIN = 1;
+const DENSITY_MAX = 4;
+const DENSITY_STEP = 0.1;
+const formatDensity = (v: number) => `${v.toFixed(1)}x`;
+
 export function DensityRow({ label, density, onDensity, enabled }: {
   label: string;
   density: number;
@@ -511,15 +526,153 @@ export function DensityRow({ label, density, onDensity, enabled }: {
     >
       <span>density</span>
       <span className="voice-slider-track">
-        <input type="range" min={1} max={4} step={0.1} disabled={!enabled} value={density} style={densityFill(density, 1, 4)} onChange={(e) => onDensity(+e.target.value)} />
+        <input type="range" min={DENSITY_MIN} max={DENSITY_MAX} step={DENSITY_STEP} disabled={!enabled} value={density} style={densityFill(density, DENSITY_MIN, DENSITY_MAX)} onChange={(e) => onDensity(+e.target.value)} />
       </span>
       <MapsReadout
         value={density}
         disabled={!enabled}
-        format={(v) => `${v.toFixed(1)}x`}
-        parse={parseMapsNumber(1, 4)}
+        format={formatDensity}
+        parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
         onCommit={onDensity}
         title="Type a multiplier between 1 and 4."
+      />
+    </label>
+  );
+}
+
+/**
+ * The OpenStreetMap card's MASTER density: `DensityRow`'s twin, for a value
+ * that can be "mixed".
+ *
+ * A sibling rather than a widened `DensityRow` because `DensityRow`'s
+ * contract — a number in, a number out — is the right one for the eight
+ * cards that have exactly one layer, and this is the only control on the
+ * page standing for ten values at once. It reads `null` as "mixed" (it
+ * cannot print a number that is wrong for nine of ten rows) while the
+ * SLIDER still needs a position, which `sliderAt` supplies. Committing —
+ * dragging or typing — always writes every row, which is the gesture this
+ * control has always been.
+ */
+function OsmMasterDensityRow({ density, sliderAt, onDensity }: {
+  density: number | null;
+  sliderAt: number;
+  onDensity: (v: number) => void;
+}) {
+  return (
+    <label
+      className="voice-slider maps-layer-slider"
+      title="OpenStreetMap density — every row at once. Moving this OVERWRITES all ten per-row densities below; it reads 'mixed' while they disagree."
+    >
+      <span>density</span>
+      <span className="voice-slider-track">
+        <input
+          type="range"
+          min={DENSITY_MIN}
+          max={DENSITY_MAX}
+          step={DENSITY_STEP}
+          value={density ?? sliderAt}
+          style={densityFill(density ?? sliderAt, DENSITY_MIN, DENSITY_MAX)}
+          onChange={(e) => onDensity(+e.target.value)}
+        />
+      </span>
+      <MapsReadout
+        value={density}
+        format={(v) => (v === null ? "mixed" : formatDensity(v))}
+        parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
+        onCommit={(v) => { if (v !== null) onDensity(v); }}
+        title="Type a multiplier between 1 and 4 to set every OpenStreetMap row at once."
+      />
+    </label>
+  );
+}
+
+/**
+ * One OpenStreetMap row: its toggle and its own density, on ONE line.
+ *
+ * The card mounts one layer per OpenMapTiles source row and used to give all
+ * ten of them a single density, so sharpening roads meant sharpening land
+ * cover too. The control is the rail's own — the same 1..4/0.1 track and the
+ * same editable `MapsReadout` every other density row carries — landed in
+ * the card body's existing three-column grid with the checkbox moved into
+ * the head of the WIDGET column beside the slider, rather than a fourth
+ * column or a second line per row.
+ *
+ * The class list keeps `maps-layer-bool-row` (this is still the row that
+ * toggles the layer, and the checkbox is still its first input) and adds
+ * `maps-osm-row`, which is what the CSS uses to stop the checkbox spanning
+ * the value column.
+ *
+ * **The `title` states what the row's own density COSTS**, and the answer
+ * differs by layer type, which is why it is written per type rather than
+ * once on the card:
+ *
+ *  - `fill`/`fill-extrusion` are FREE to differ. A mesh-backed layer carries
+ *    no `detailGroup` (`widget.ts` groups only a raster layer's tiles), so
+ *    it already popped into its own `<pre>` the moment it left 1x — a
+ *    private number costs nothing over a shared one.
+ *  - `line` rows are NOT. A stroke owns no mesh; it is stamped into a
+ *    full-viewport overlay grid, and `syncViewportOverlayDensities` routes
+ *    the set of DISTINCT stroke densities to
+ *    `scene.setViewportOverlayDensities`, so the three stroke rows sharing
+ *    one number cost one grid and holding three cost three, each with its
+ *    own geometry depth pass.
+ *  - `symbol`/`circle` mount DOM hotspots rather than geometry and read no
+ *    density at all (nothing in `widget.ts` consumes it for those two), so
+ *    the control is disabled with that reason — the same treatment
+ *    `DensityRow`'s own `enabled: false` state carries.
+ */
+const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
+  line: (label) => `${label} density — a stroke row is stamped into a full-viewport overlay grid, and each DISTINCT density among the stroke rows (Waterways, Roads, Boundaries) buys another grid and another depth pass: measured at 140x63, one grid at 2x costs 27.4 ms/render and three at 2/2.1/2.2 cost 63.4 ms, so it is the COUNT that is charged for. Sharing one number with the other strokes costs nothing.`,
+  fill: (label) => `${label} density — free to differ. This row renders in its own pass at any value above 1x, so a number of its own costs no more than sharing one.`,
+  "fill-extrusion": (label) => `${label} density — free to differ. This row renders in its own pass at any value above 1x, so a number of its own costs no more than sharing one.`,
+  symbol: (label) => `${label} density — this row mounts positioned labels rather than geometry, so density is not wired through to the renderer for it.`,
+  circle: (label) => `${label} density — this row mounts positioned markers rather than geometry, so density is not wired through to the renderer for it.`,
+};
+/** The two layer types the OSM card mounts that read no `density` at all. */
+const OSM_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
+
+function OsmSublayerRow({ row, onToggle, onDensity }: {
+  row: OsmSublayerInputs;
+  onToggle: (on: boolean) => void;
+  onDensity: (v: number) => void;
+}) {
+  const wired = !OSM_DENSITYLESS_TYPES.has(row.type);
+  const live = row.on && wired;
+  return (
+    <label
+      // `maps-osm-row--density-off`, NOT `maps-layer-slider--off`: on this
+      // row only the DENSITY is gated — the toggle beside it is exactly how
+      // a reader turns the row back on, so dimming the whole line (which is
+      // what `--off` does, name column included) would read as "this control
+      // is dead" about a control that is not.
+      className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${live ? "" : " maps-osm-row--density-off"}`}
+      title={OSM_DENSITY_TITLES[row.type]?.(row.label) ?? `${row.label} — the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
+    >
+      <span>{row.label}</span>
+      <span className="maps-osm-row-widget">
+        <span className="layer-group-check maps-layer-bool-check">
+          <input type="checkbox" checked={row.on} onChange={(e) => onToggle(e.target.checked)} />
+        </span>
+        <span className="voice-slider-track">
+          <input
+            type="range"
+            min={DENSITY_MIN}
+            max={DENSITY_MAX}
+            step={DENSITY_STEP}
+            disabled={!live}
+            value={row.density}
+            style={densityFill(row.density, DENSITY_MIN, DENSITY_MAX)}
+            onChange={(e) => onDensity(+e.target.value)}
+          />
+        </span>
+      </span>
+      <MapsReadout
+        value={row.density}
+        disabled={!live}
+        format={formatDensity}
+        parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
+        onCommit={onDensity}
+        title="Type a multiplier between 1 and 4 for this row alone."
       />
     </label>
   );
@@ -901,6 +1054,17 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
  * What is left is one provenance row and, only while it is true, one line
  * saying that some tiles did not arrive.
  */
+/** One row of the OpenStreetMap card: a mapped OpenMapTiles layer, its toggle state and its own glyph density. */
+export interface OsmSublayerInputs {
+  readonly id: string;
+  readonly label: string;
+  /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether it is wired at all (`OSM_DENSITY_TITLES`). */
+  readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle";
+  readonly on: boolean;
+  /** This row's own density. The card's per-row control, not the master's value. */
+  readonly density: number;
+}
+
 export interface OsmLayerInputs {
   visible: boolean; onVisible: (v: boolean) => void;
   /** Where the data comes from — service, schema and zoom ladder, read off the provider (`mapOsmSourceLabel`). */
@@ -908,9 +1072,18 @@ export interface OsmLayerInputs {
   /** `null` when every tile arrived; otherwise how many did not (`mapOsmMissingTilesLabel`). */
   missing: string | null;
   /** One row per mapped OpenMapTiles layer (`GLYPH_MAP_OPENMAPTILES_LAYERS`). */
-  sublayers: readonly { readonly id: string; readonly label: string; readonly on: boolean }[];
+  sublayers: readonly OsmSublayerInputs[];
   onSublayer: (id: string, on: boolean) => void;
-  density: number; onDensity: (v: number) => void;
+  /** A single row's density. Writes THAT row and nothing else. */
+  onSublayerDensity: (id: string, density: number) => void;
+  /**
+   * The MASTER's reading: the value every row shares, or `null` — "mixed" —
+   * while they disagree (`mapOsmMasterDensity`). Committing it writes all
+   * ten rows; the card keeps it because the common gesture is still one
+   * drag.
+   */
+  density: number | null;
+  onDensity: (v: number) => void;
 }
 
 export interface LayersFolderInputs {
@@ -1231,16 +1404,47 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             <span className="maps-layer-info-value maps-layer-info-warn">{osm.missing}</span>
           </div>
         )}
+        {/*
+          The one cost a reader of this card can spend by accident, stated
+          LIVE and where the choice is being made rather than only in a
+          tooltip. Derived here from the rows the panel already has — no page
+          state, and it moves in the same render as the slider that caused it.
+        */}
+        {(() => {
+          const grids = mapOsmStrokeOverlayCount(osm.sublayers);
+          if (grids === 0) return null;
+          return (
+            <div
+              className="maps-layer-info-row"
+              title="Stroke rows (Waterways, Roads, Boundaries) are stamped into full-viewport overlay grids, one per DISTINCT density, each with its own depth pass. Measured at 140x63 over a relief mesh: 6.6 ms/render with none, 27.4 ms with one grid at 2x, 63.4 ms with three at 2/2.1/2.2 — so it is the grid COUNT that is charged for, not the sharpness. Give the strokes one shared number to pay for one."
+            >
+              <span>stroke grids</span>
+              <span className={`maps-layer-info-value${grids > 1 ? " maps-layer-info-warn" : ""}`}>
+                {grids === 1 ? "1 extra pass" : `${grids} extra passes`}
+              </span>
+            </div>
+          );
+        })()}
         {osm.sublayers.map((s) => (
-          <BoolRow
+          <OsmSublayerRow
             key={s.id}
-            label={s.label}
-            value={s.on}
-            onChange={(v) => osm.onSublayer(s.id, v)}
-            title={`${s.label} \u2014 the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
+            row={s}
+            onToggle={(v) => osm.onSublayer(s.id, v)}
+            onDensity={(v) => osm.onSublayerDensity(s.id, v)}
           />
         ))}
-        <DensityRow label="OpenStreetMap" density={osm.density} onDensity={osm.onDensity} enabled={true} />
+        {/*
+          The master stays BELOW the rows it writes, where the card's single
+          density row has always been \u2014 moving it above would read as a
+          heading for them rather than as the control that overwrites them.
+        */}
+        <OsmMasterDensityRow
+          density={osm.density}
+          sliderAt={osm.sublayers.length === 0
+            ? 1
+            : osm.sublayers.reduce((sum, s) => sum + s.density, 0) / osm.sublayers.length}
+          onDensity={osm.onDensity}
+        />
       </LayerCard>
     </div>
   );

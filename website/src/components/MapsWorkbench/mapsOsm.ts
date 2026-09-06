@@ -122,11 +122,98 @@ export function createOsmSource(opts: MapOsmSourceOptions = {}): GlyphMapVectorP
   };
 }
 
+/**
+ * The density every row opens on, and the value a row absent from a density
+ * record is read as. `1` is glyphcss's own "no separate pass" number on both
+ * paths this card feeds — `isDetailMesh` ignores a per-mesh `density` of 1,
+ * and `syncViewportOverlayDensities` drops a stroke density of 1 before it
+ * reaches `setViewportOverlayDensities` — so an untouched card costs exactly
+ * what it always did.
+ */
+export const MAP_OSM_DEFAULT_DENSITY = 1;
+
+/** One density per {@link MAP_OSM_SUBLAYERS} row, keyed by row id. */
+export type MapOsmDensities = Readonly<Record<string, number>>;
+
+/**
+ * A complete record with every row at `value`.
+ *
+ * This IS the master gesture: the card keeps one slider over all ten rows,
+ * and moving it OVERWRITES each of them rather than scaling the spread they
+ * currently hold. A ratio was considered and rejected — the master's whole
+ * job is "all of it, this dense", and a ratio makes that unreachable from
+ * any mixed state without first flattening it by hand. It is also what a
+ * legacy `Q`-only link seeds (`mapsUrlState.ts`), which is exactly the map
+ * such a link described: one number applied to every enabled row.
+ */
+export function mapOsmDensityRecord(value: number): Record<string, number> {
+  return Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, value]));
+}
+
+/**
+ * What the master control READS: the shared value while every row agrees,
+ * and `null` — "mixed" — as soon as one differs.
+ *
+ * A row the record does not carry counts as {@link MAP_OSM_DEFAULT_DENSITY},
+ * never as absent: "nine rows at 3x and one unset" is a mixed card, and
+ * skipping the hole would print 3x over a row that is not at 3x.
+ */
+export function mapOsmMasterDensity(densities: MapOsmDensities): number | null {
+  let shared: number | null = null;
+  for (const spec of MAP_OSM_SUBLAYERS) {
+    const value = densities[spec.id] ?? MAP_OSM_DEFAULT_DENSITY;
+    if (shared === null) shared = value;
+    else if (shared !== value) return null;
+  }
+  return shared;
+}
+
+/**
+ * How many full-viewport overlay grids the card's CURRENT stroke densities
+ * ask the scene for — the one cost a reader of this card can actually spend
+ * by accident.
+ *
+ * `line` rows own no mesh. They are stamped post-raster, and
+ * `syncViewportOverlayDensities` (`widget.ts`) routes the SET of distinct,
+ * non-1 stroke densities to `scene.setViewportOverlayDensities`, each of
+ * which is another full-viewport grid with its own geometry depth pass. So
+ * three stroke rows sharing one number cost ONE grid and three holding
+ * different numbers cost THREE — measured at 140x63 over a relief mesh:
+ * 6.6 ms/render with no overlay, 27.4 ms with one at 2x, and 63.4 ms with
+ * three at 2/2.1/2.2 (three grids at the SAME resolution, so that 2.3x is
+ * the grid COUNT and not the sharpness). Only rows that are ON are counted:
+ * a switched-off layer is not mounted and asks for nothing.
+ */
+export function mapOsmStrokeOverlayCount(
+  rows: readonly { readonly id: string; readonly type: string; readonly on: boolean; readonly density: number }[],
+): number {
+  const distinct = new Set<number>();
+  for (const row of rows) {
+    if (row.type !== "line" || !row.on) continue;
+    if (row.density !== MAP_OSM_DEFAULT_DENSITY) distinct.add(row.density);
+  }
+  return distinct.size;
+}
+
 export interface MapOsmLayerOptions {
   /** Which {@link MAP_OSM_SUBLAYERS} rows are on. Order and membership come straight from the card. */
   readonly enabled: readonly string[];
-  /** The card's one density slider, applied to every enabled row (glyphcss's per-mesh detail resolution / stroke overlay density). */
-  readonly density: number;
+  /**
+   * Each row's own glyph density, keyed by row id (glyphcss's per-mesh
+   * detail resolution for the mesh rows, stroke overlay density for the
+   * `line` ones). A row absent from the record mounts at
+   * {@link MAP_OSM_DEFAULT_DENSITY}.
+   *
+   * Per ROW, not one number for the card, because the two kinds of row cost
+   * differently and a reader should be able to spend on the one they are
+   * reading: `fill`/`fill-extrusion` rows are free to differ (each already
+   * has its own `<pre>` the moment it leaves 1x, and they carry no
+   * `detailGroup`), while each DISTINCT `line` density is another
+   * full-viewport overlay grid with its own depth pass
+   * (`syncViewportOverlayDensities`). `mapsOsmDensity.cost.test.ts` pins
+   * both.
+   */
+  readonly densities: MapOsmDensities;
 }
 
 /**
@@ -139,7 +226,9 @@ export interface MapOsmLayerOptions {
 export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOptions) {
   return glyphMapOpenMapTilesLayers(source, {
     include: opts.enabled,
-    densities: Object.fromEntries(opts.enabled.map((id) => [id, opts.density])),
+    densities: Object.fromEntries(
+      opts.enabled.map((id) => [id, opts.densities[id] ?? MAP_OSM_DEFAULT_DENSITY]),
+    ),
   });
 }
 

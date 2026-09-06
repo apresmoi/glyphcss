@@ -21,9 +21,12 @@ import { createVectorTilesProvider } from "../../lib/vectorTilesProvider";
 import { createPlaceTilesProvider } from "../../lib/placeTilesProvider";
 import { createCountryTilesProvider, COUNTRY_PRIORITY_PROPERTY, COUNTRY_PRIORITY_RANGE } from "../../lib/countryTilesProvider";
 import {
+  MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
   createOsmSource,
+  mapOsmDensityRecord,
   mapOsmLayers,
+  mapOsmMasterDensity,
   mapOsmMissingTilesLabel,
   mapOsmSourceLabel,
 } from "./mapsOsm";
@@ -94,6 +97,8 @@ import {
   MAPS_CONTOUR_WINDOW_OFF,
   mapsLayerMaskFromVisibility,
   mapsLayerVisibilityFromMask,
+  mapsOsmDensitiesFromRecord,
+  mapsOsmDensityRecordFromTuple,
   mapsOsmMaskFromSublayers,
   mapsOsmSublayersFromMask,
   readInitialMapsState,
@@ -207,7 +212,17 @@ export default function MapsWorkbench() {
   const [osmSublayers, setOsmSublayers] = useState<Record<string, boolean>>(
     () => mapsOsmSublayersFromMask(initial.osmMask),
   );
-  const [osmDensity, setOsmDensity] = useState(initial.osmDensity);
+  // One density PER ROW, not one for the card: the ten mounted layers cost
+  // differently (a mesh row is free to differ, each distinct stroke density
+  // is another viewport overlay grid — `mapsOsm.ts`'s `MapOsmLayerOptions
+  // .densities`), so a reader can spend on the row they are reading. The
+  // record is the truth; the card's surviving master slider WRITES all ten
+  // (`mapOsmDensityRecord`) and READS as "mixed" when they disagree
+  // (`mapOsmMasterDensity`). Restored from the link's `M` tuple, which
+  // `readInitialMapsState` seeds from a legacy `Q` when the link predates it.
+  const [osmDensities, setOsmDensities] = useState<Record<string, number>>(
+    () => mapsOsmDensityRecordFromTuple(initial.osmDensities),
+  );
   /**
    * Street-level walk mode. Deliberately NOT part of the URL state: it is a
    * MODE a reader steps into and back out of, and a shared link that dropped
@@ -595,9 +610,14 @@ export default function MapsWorkbench() {
       visible: showOsm, onVisible: setShowOsm,
       source: mapOsmSourceLabel(osmSource),
       missing: osmMissing,
-      sublayers: MAP_OSM_SUBLAYERS.map((spec) => ({ id: spec.id, label: spec.label, on: osmSublayers[spec.id] ?? false })),
+      sublayers: MAP_OSM_SUBLAYERS.map((spec) => ({
+        id: spec.id, label: spec.label, type: spec.type,
+        on: osmSublayers[spec.id] ?? false,
+        density: osmDensities[spec.id] ?? MAP_OSM_DEFAULT_DENSITY,
+      })),
       onSublayer: (id, on) => setOsmSublayers((prev) => ({ ...prev, [id]: on })),
-      density: osmDensity, onDensity: setOsmDensity,
+      onSublayerDensity: (id, density) => setOsmDensities((prev) => ({ ...prev, [id]: density })),
+      density: mapOsmMasterDensity(osmDensities), onDensity: (v) => setOsmDensities(mapOsmDensityRecord(v)),
     },
   };
 
@@ -1219,14 +1239,14 @@ export default function MapsWorkbench() {
     for (const { id } of MAP_OSM_SUBLAYERS) map.removeLayer(id);
     if (showOsm) {
       const enabled = MAP_OSM_SUBLAYERS.filter((s) => osmSublayers[s.id]).map((s) => s.id);
-      for (const layer of mapOsmLayers(osmSource, { enabled, density: osmDensity })) map.addLayer(layer);
+      for (const layer of mapOsmLayers(osmSource, { enabled, densities: osmDensities })) map.addLayer(layer);
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
     // `provider`/`vectorProvider` are dependencies for the same reason the
     // borders and demo-layer effects list them: those two are what rebuild
     // the widget instance, and a rebuilt widget has no layers on it.
-  }, [showOsm, osmSource, osmSublayers, osmDensity, provider, vectorProvider]);
+  }, [showOsm, osmSource, osmSublayers, osmDensities, provider, vectorProvider]);
 
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,
@@ -1471,7 +1491,13 @@ export default function MapsWorkbench() {
       terrainDensity,
       borderDensity,
       contourDensity,
-      osmDensity,
+      // The legacy single float: still written, because it is in links
+      // already shared and a UNIFORM card has exactly one honest number to
+      // offer. A mixed card writes the default and says nothing (the codec
+      // omits a field at its default) — no single float describes ten
+      // different ones. `M` below carries the truth either way.
+      osmDensity: mapOsmMasterDensity(osmDensities) ?? MAP_OSM_DEFAULT_DENSITY,
+      osmDensities: mapsOsmDensitiesFromRecord(osmDensities),
       fillDensity: layerAmount.fillDensity,
       extrusionDensity: layerAmount.extrusionDensity,
       symbolDataset: pointDataset.symbol,
@@ -1488,7 +1514,7 @@ export default function MapsWorkbench() {
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensity, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
