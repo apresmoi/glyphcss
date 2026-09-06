@@ -21,7 +21,6 @@ import { createVectorTilesProvider } from "../../lib/vectorTilesProvider";
 import { createPlaceTilesProvider } from "../../lib/placeTilesProvider";
 import { createCountryTilesProvider, COUNTRY_PRIORITY_PROPERTY, COUNTRY_PRIORITY_RANGE } from "../../lib/countryTilesProvider";
 import {
-  MAP_OSM_DEFAULT_ON,
   MAP_OSM_SUBLAYERS,
   createOsmSource,
   mapOsmLayers,
@@ -47,7 +46,6 @@ import {
   MAP_PALETTES,
   MAP_SCENE_GLYPH_PALETTE,
   MAP_SCENE_RENDER_MODE,
-  POINT_DATASET_DEFAULTS,
   POINT_DATASET_OPTIONS,
   POINT_LAYER_IDS,
   isCountryDataset,
@@ -83,11 +81,21 @@ import {
   type MapProjectionId,
   type MapSunMode,
 } from "./mapsKit";
-import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_DEFAULT, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
+import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
-import { MAPS_CONTOUR_WINDOW_OFF, readInitialMapsState, writeMapsUrlState, type MapCharMode, type MapColorEncoding } from "./mapsUrlState";
+import {
+  MAPS_CONTOUR_WINDOW_OFF,
+  mapsLayerMaskFromVisibility,
+  mapsLayerVisibilityFromMask,
+  mapsOsmMaskFromSublayers,
+  mapsOsmSublayersFromMask,
+  readInitialMapsState,
+  writeMapsUrlState,
+  type MapCharMode,
+  type MapColorEncoding,
+} from "./mapsUrlState";
 import { MAP_BEARING_HOME, mapTiltResetValue, readMapViewState } from "./mapsView";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "../InstrumentWorkbench/instrument-workbench.css";
@@ -155,6 +163,12 @@ const MODEL_ANCHOR: readonly [number, number] = [7.7491, 45.9766];
 
 export default function MapsWorkbench() {
   const initial = useMemo(() => readInitialMapsState(), []);
+  // The link's layer-visibility bitfield, unpacked once into the complete
+  // record every toggle below reads its starting value from. A link that
+  // carries no `L` decodes to the default mask, i.e. terrain + borders —
+  // the map /maps has always opened on (`mapsUrlState.ts`'s
+  // `MAPS_LAYER_DEFAULT_ON`).
+  const initialLayerVisible = useMemo(() => mapsLayerVisibilityFromMask(initial.layerMask), [initial]);
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
@@ -181,11 +195,14 @@ export default function MapsWorkbench() {
     }),
     [],
   );
-  const [showOsm, setShowOsm] = useState(false);
+  const [showOsm, setShowOsm] = useState(initialLayerVisible.osm);
+  // Restored from the link's `O` bitfield, whose default mask IS
+  // `MAP_OSM_DEFAULT_ON` (`mapsUrlState.ts`), so a link that carries no `O`
+  // opens on exactly the rows this page always opened on.
   const [osmSublayers, setOsmSublayers] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, MAP_OSM_DEFAULT_ON.includes(s.id)])),
+    () => mapsOsmSublayersFromMask(initial.osmMask),
   );
-  const [osmDensity, setOsmDensity] = useState(1);
+  const [osmDensity, setOsmDensity] = useState(initial.osmDensity);
   const [attributions, setAttributions] = useState<readonly GlyphMapAttribution[]>([]);
 
   // ── Per-layer visibility + density + own controls (left-rail "Layers"
@@ -199,16 +216,19 @@ export default function MapsWorkbench() {
   //    always-mounted colour, not a layer card (mapsKit.tsx's `LayersPanel`
   //    doc: `GlyphMapBackgroundLayer.density` is a documented permanent
   //    no-op). ─────────────────────────────────────────────────────────────
-  const [showTerrain, setShowTerrain] = useState(true);
-  const [showBorders, setShowBorders] = useState(true);
-  const [showContour, setShowContour] = useState(false);
-  const [terrainDensity, setTerrainDensity] = useState(1);
-  const [borderDensity, setBorderDensity] = useState(1);
-  const [contourDensity, setContourDensity] = useState(1);
+  const [showTerrain, setShowTerrain] = useState(initialLayerVisible.terrain);
+  const [showBorders, setShowBorders] = useState(initialLayerVisible.borders);
+  const [showContour, setShowContour] = useState(initialLayerVisible.contour);
+  const [terrainDensity, setTerrainDensity] = useState(initial.terrainDensity);
+  const [borderDensity, setBorderDensity] = useState(initial.borderDensity);
+  const [contourDensity, setContourDensity] = useState(initial.contourDensity);
+  // Colours stay page-local on purpose — see the layer-content block in
+  // `mapsUrlState.ts`'s field list: nine `"color"` tokens would be ~54
+  // characters of link to re-pick something the reader can already see.
   const [backgroundColor, setBackgroundColor] = useState("#05070c");
   const [borderColor, setBorderColor] = useState("#e8c988");
   const [contourColor, setContourColor] = useState("#7fe8c9");
-  const [contourInterval, setContourInterval] = useState(1000);
+  const [contourInterval, setContourInterval] = useState(initial.contourInterval);
   /**
    * The contour layer's elevation WINDOW in metres, `null` per end for
    * unbounded (`GlyphMapContourLayer.minElevation`/`maxElevation`). Contouring
@@ -230,15 +250,18 @@ export default function MapsWorkbench() {
    * fixed at its library default (5, the paper-map convention) rather than
    * getting its own control.
    */
-  const [contourLabels, setContourLabels] = useState(false);
-  const [extraVisible, setExtraVisible] = useState<Record<string, boolean>>({});
+  const [contourLabels, setContourLabels] = useState(initial.contourLabels);
+  const [extraVisible, setExtraVisible] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(EXTRA_LAYER_IDS.map((id) => [id, initialLayerVisible[id]])),
+  );
   // Per-layer render mode for the demo layers only — page-local, like their
   // colours and amounts. Terrain has no render-mode control at all (see
   // `TerrainLayerInputs`' doc in `mapsKit.tsx`): a relief mesh is always
   // rasterized `solid`.
-  const [extraRenderMode, setExtraRenderMode] = useState<Record<string, MapLayerRenderMode>>(
-    Object.fromEntries(RENDER_MODE_LAYER_IDS.map((id) => [id, MAP_SCENE_RENDER_MODE])),
-  );
+  const [extraRenderMode, setExtraRenderMode] = useState<Record<string, MapLayerRenderMode>>({
+    "fill-extrusion": initial.extrusionRenderMode,
+    model: initial.modelRenderMode,
+  });
   // Per-layer GLYPH palette (the character ramp), which replaced the Dock's
   // scene-wide "Glyph palette" row — a map is no more one picture in one ramp
   // than it is one picture in one mode. Terrain's rides the URL token the
@@ -252,13 +275,23 @@ export default function MapsWorkbench() {
    * Which `resolveGeometry` solid the `model` layer stands at its anchor.
    * The mirror image of `pointDataset`: the one layer with no data source is
    * the one layer with a shape to pick (`mapPin.ts`'s `MAP_MODEL_SHAPES`).
-   * Page-local, like the demo layers' colours — not URL-persisted.
+   * URL-persisted (token `G`): it is not an appearance tweak, it is WHICH
+   * object is standing on the map. The cast is sound because
+   * `MAPS_MODEL_SHAPE_VALUES` and `MAP_MODEL_SHAPES` are pinned equal by
+   * `mapsUrlState.layers.test.ts` — the codec can only ever decode a name
+   * from that list.
    */
-  const [modelShape, setModelShape] = useState<MapModelShape>(MAP_MODEL_SHAPE_DEFAULT);
+  const [modelShape, setModelShape] = useState<MapModelShape>(initial.modelShape as MapModelShape);
   const [extraColor, setExtraColor] = useState<Record<string, string>>({ fill: "#4f7f52", symbol: "#ffffff", circle: "#f59e0b", heatmap: "#ef4444", "fill-extrusion": "#94a3b8", model: "#38bdf8" });
   // Which baked point dataset drives each point layer (its `sourceLayer`,
-  // plus which of the two point pyramids it reads) — see `POINT_DATASET_DEFAULTS`.
-  const [pointDataset, setPointDataset] = useState<Record<string, PointDataset>>({ ...POINT_DATASET_DEFAULTS });
+  // plus which of the two point pyramids it reads). URL-persisted (tokens
+  // `Y`/`Z`/`H`) — a dataset is WHICH data is on the map, not how it looks;
+  // the schema defaults are `POINT_DATASET_DEFAULTS` itself.
+  const [pointDataset, setPointDataset] = useState<Record<string, PointDataset>>({
+    symbol: initial.symbolDataset,
+    circle: initial.circleDataset,
+    heatmap: initial.heatmapDataset,
+  });
   /**
    * Every demo layer's own controls, in its OWN unit — replacing the single
    * shared 1..40 "amount" slider that drove six layers with unrelated units
@@ -285,7 +318,10 @@ export default function MapsWorkbench() {
    * pinned at the new max on load.
    */
   const [layerAmount, setLayerAmount] = useState({
-    fillDensity: 1,
+    // The two DENSITY entries in this bag ride the URL (tokens `W`/`X`) with
+    // every other layer density; the magnitude sliders below deliberately do
+    // not — see the layer-content block in `mapsUrlState.ts`'s field list.
+    fillDensity: initial.fillDensity,
     symbolMinPop: 1_000_000,
     /**
      * The symbol layer's threshold when it is showing COUNTRIES, in the
@@ -302,7 +338,7 @@ export default function MapsWorkbench() {
     heatHeightM: 3_000,
     heatThreshold: 0.12,
     extrusionHeightM: 150_000,
-    extrusionDensity: 1,
+    extrusionDensity: initial.extrusionDensity,
     modelHeightM: 200_000,
   });
   const showBordersRef = useRef(showBorders);
@@ -1349,8 +1385,36 @@ export default function MapsWorkbench() {
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
       contourCeiling: contourMaxElevation ?? MAPS_CONTOUR_WINDOW_OFF.max,
+      // What is ON the map. The four named toggles and the six demo cards
+      // are one flat record here because the wire format is one bitfield
+      // (`mapsUrlState.ts`'s `MAPS_LAYER_KEYS`) — the page's own split
+      // between named state and a record is a UI shape, not a URL one.
+      layerMask: mapsLayerMaskFromVisibility({
+        terrain: showTerrain, borders: showBorders, contour: showContour, osm: showOsm,
+        ...extraVisible,
+      }),
+      osmMask: mapsOsmMaskFromSublayers(osmSublayers),
+      terrainDensity,
+      borderDensity,
+      contourDensity,
+      osmDensity,
+      fillDensity: layerAmount.fillDensity,
+      extrusionDensity: layerAmount.extrusionDensity,
+      symbolDataset: pointDataset.symbol,
+      circleDataset: pointDataset.circle,
+      heatmapDataset: pointDataset.heatmap,
+      modelShape,
+      contourInterval,
+      contourLabels,
+      extrusionRenderMode: extraRenderMode["fill-extrusion"],
+      modelRenderMode: extraRenderMode.model,
     });
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, contourMinElevation, contourMaxElevation]);
+    // `layerAmount` is depended on by its two persisted ENTRIES, never as a
+    // whole: a magnitude slider changes that object's identity, and re-running
+    // this effect there would call `writeUrlParam` with an identical string on
+    // every drag frame — spending `urlState.ts`'s history-write rate budget on
+    // a URL that cannot change.
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensity, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

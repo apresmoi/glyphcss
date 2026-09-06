@@ -9,7 +9,8 @@
  */
 import { createUrlCodec, readUrlParam, scheduleCompactedUrlWrite, type UrlField } from "../../lib/urlState";
 import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
-import { DEFAULT_MAP_LIGHTING, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode } from "./mapsKit";
+import { DEFAULT_MAP_LIGHTING, MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode, type PointDataset } from "./mapsKit";
+import { MAP_OSM_DEFAULT_ON } from "./mapsOsm";
 
 // Includes "calibrated" — `DockRendering`'s glyph-palette dropdown always
 // offers it (registered as a side effect of importing that folder, see
@@ -64,6 +65,134 @@ export interface MapsUrlState {
    */
   contourFloor: number;
   contourCeiling: number;
+
+  // ── What is ON the map (as opposed to how it is drawn) ─────────────────
+  //
+  // Everything above describes the RENDER; a link carrying only those
+  // restored the sender's exact viewpoint, palette, character mode and
+  // lighting, and then drew whatever layers the READER's defaults mount.
+  // That is a different map, which is the defect these fields close.
+
+  /**
+   * Which layers are mounted, as a bitfield over {@link MAPS_LAYER_KEYS}:
+   * bit `i` set = that key's layer is visible.
+   *
+   * One token rather than ten: this is a boolean record over a known,
+   * fixed key list, and ten `bool` fields would cost ten tokens and twenty
+   * characters to say what four say here. The cost is that the KEY LIST is
+   * now a wire format — see {@link MAPS_LAYER_KEYS} for the append-only
+   * rule that follows from it.
+   */
+  layerMask: number;
+  /** Which OpenStreetMap rows the OSM card mounts, as a bitfield over {@link MAPS_OSM_SUBLAYER_KEYS}. Same shape and same append-only rule as {@link layerMask}. */
+  osmMask: number;
+
+  /**
+   * Per-layer glyph density (the 1..4 / 0.1 track every density row on the
+   * page shares). One token each rather than a tuple: a tuple encodes every
+   * slot the moment ANY slot moves, and the overwhelmingly common case is
+   * one layer's density touched and five left alone.
+   */
+  terrainDensity: number;
+  borderDensity: number;
+  contourDensity: number;
+  osmDensity: number;
+  fillDensity: number;
+  extrusionDensity: number;
+
+  /**
+   * Which baked point dataset drives each point layer. Retiring one means
+   * keeping its slot in {@link MAPS_POINT_DATASET_VALUES} decode-only and
+   * remapping it in `readInitialMapsState`, exactly as `"orthographic"` is
+   * handled — `decodePackedEnum` resolves by INDEX.
+   */
+  symbolDataset: PointDataset;
+  circleDataset: PointDataset;
+  heatmapDataset: PointDataset;
+
+  /** The `model` layer's solid — a `MapModelShape` (`mapPin.ts`), typed loosely here so this file need not import the geometry registry. Same index-retirement rule as the datasets above. */
+  modelShape: string;
+
+  /** Contour spacing in metres. Step 1, not the slider's 100, because the card's readout accepts any integer in `[100, 2000]` un-snapped. */
+  contourInterval: number;
+  /** `GlyphMapContourLayer.labels` — elevations printed on every index contour. */
+  contourLabels: boolean;
+
+  /**
+   * The two layers that actually offer a render-mode row. A wireframe cage
+   * or an ink outline is a categorically different picture from a solid
+   * one, which puts these in the same bucket as the layer being mounted at
+   * all rather than in the per-layer COLOUR bucket the URL deliberately
+   * does not carry.
+   */
+  extrusionRenderMode: MapLayerRenderMode;
+  modelRenderMode: MapLayerRenderMode;
+}
+
+// ── Layer-content wire lists and their bitfields ──────────────────────────
+
+/**
+ * The layer-visibility bitfield's key order (token `L`). **APPEND-ONLY**, the
+ * same rule the field-synth schema's key families live under (AGENTS.md,
+ * "Stock effects"): bit `i` is `MAPS_LAYER_KEYS[i]` in every link ever
+ * shared, so inserting, reordering or dropping a key silently reinterprets
+ * them all. A key appended later is absent from an older link's mask and so
+ * reads as OFF there — append rows that default off, or accept that.
+ * `mapsUrlState.layers.test.ts` pins the order.
+ */
+export const MAPS_LAYER_KEYS = [
+  "terrain", "borders", "contour", "osm",
+  "fill", "symbol", "circle", "heatmap", "fill-extrusion", "model",
+] as const;
+export type MapsLayerKey = (typeof MAPS_LAYER_KEYS)[number];
+
+/** Which layers the page mounts before any link says otherwise — terrain and borders, i.e. the map /maps has always opened on. */
+export const MAPS_LAYER_DEFAULT_ON: readonly MapsLayerKey[] = ["terrain", "borders"];
+
+/**
+ * The OSM sublayer bitfield's key order (token `O`). Frozen here rather than
+ * derived from `MAP_OSM_SUBLAYERS` (which is itself derived from
+ * `@glyphcss/maps`' `GLYPH_MAP_OPENMAPTILES_LAYERS`) precisely because that
+ * list is free to move and this one is not — same **APPEND-ONLY** rule as
+ * {@link MAPS_LAYER_KEYS}. The cross-check that the two still agree lives in
+ * `mapsUrlState.layers.test.ts`, so a package-side insertion goes red here
+ * instead of quietly rewriting every shared link.
+ */
+export const MAPS_OSM_SUBLAYER_KEYS = [
+  "omt-landcover", "omt-landuse", "omt-water", "omt-waterways", "omt-roads",
+  "omt-buildings", "omt-boundaries", "omt-places", "omt-peaks", "omt-pois",
+] as const;
+
+/** Wire order for the point-dataset enums — append-only for the same reason (`decodePackedEnum` resolves by index). */
+export const MAPS_POINT_DATASET_VALUES: readonly PointDataset[] = ["countries", "places", "capitals", "megacities"];
+/** Wire order for the `model` layer's shape enum — append-only, same reason. */
+export const MAPS_MODEL_SHAPE_VALUES: readonly string[] = ["pyramid", "cone", "cube", "cylinder", "sphere", "icosahedron"];
+
+function packBitmask(keys: readonly string[], on: Readonly<Record<string, boolean>>): number {
+  let mask = 0;
+  keys.forEach((key, i) => { if (on[key]) mask |= 1 << i; });
+  return mask;
+}
+
+function unpackBitmask<K extends string>(keys: readonly K[], mask: number): Record<K, boolean> {
+  return Object.fromEntries(keys.map((key, i) => [key, ((mask >>> i) & 1) === 1])) as Record<K, boolean>;
+}
+
+/** Pack the page's layer-visibility record into {@link MapsUrlState.layerMask}. Keys outside the wire list are ignored; keys missing from the record pack as off. */
+export function mapsLayerMaskFromVisibility(visible: Readonly<Record<string, boolean>>): number {
+  return packBitmask(MAPS_LAYER_KEYS, visible);
+}
+/** The inverse of {@link mapsLayerMaskFromVisibility} — always a complete record over {@link MAPS_LAYER_KEYS}. */
+export function mapsLayerVisibilityFromMask(mask: number): Record<MapsLayerKey, boolean> {
+  return unpackBitmask(MAPS_LAYER_KEYS, mask);
+}
+/** Pack the OSM card's row record into {@link MapsUrlState.osmMask}. */
+export function mapsOsmMaskFromSublayers(on: Readonly<Record<string, boolean>>): number {
+  return packBitmask(MAPS_OSM_SUBLAYER_KEYS, on);
+}
+/** The inverse of {@link mapsOsmMaskFromSublayers}. */
+export function mapsOsmSublayersFromMask(mask: number): Record<string, boolean> {
+  return unpackBitmask(MAPS_OSM_SUBLAYER_KEYS, mask);
 }
 
 /** The sentinel a `null` (unbounded) contour-window end packs as — see `MapsUrlState.contourFloor`. */
@@ -110,6 +239,26 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   sunHour: 12,
   contourFloor: MAPS_CONTOUR_WINDOW_OFF.min,
   contourCeiling: MAPS_CONTOUR_WINDOW_OFF.max,
+  // Every layer-content default below is READ from the page's own constant
+  // rather than restated, so the "a link carrying no token renders exactly
+  // what the untouched page renders" property cannot drift: the codec omits
+  // a field at its default, so these values ARE what an old link decodes to.
+  layerMask: MAPS_LAYER_KEYS.reduce((mask, key, i) => (MAPS_LAYER_DEFAULT_ON.includes(key) ? mask | (1 << i) : mask), 0),
+  osmMask: MAPS_OSM_SUBLAYER_KEYS.reduce((mask, key, i) => (MAP_OSM_DEFAULT_ON.includes(key) ? mask | (1 << i) : mask), 0),
+  terrainDensity: 1,
+  borderDensity: 1,
+  contourDensity: 1,
+  osmDensity: 1,
+  fillDensity: 1,
+  extrusionDensity: 1,
+  symbolDataset: POINT_DATASET_DEFAULTS.symbol,
+  circleDataset: POINT_DATASET_DEFAULTS.circle,
+  heatmapDataset: POINT_DATASET_DEFAULTS.heatmap,
+  modelShape: "pyramid",
+  contourInterval: 1000,
+  contourLabels: false,
+  extrusionRenderMode: MAP_SCENE_RENDER_MODE,
+  modelRenderMode: MAP_SCENE_RENDER_MODE,
 };
 
 // `"orthographic"` (index 3) was a real, offered `MapProjectionId` before
@@ -227,6 +376,41 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   { key: "bearing", token: "b", type: { kind: "float", step: 1 }, default: MAPS_URL_DEFAULTS.bearing },
   { key: "contourFloor", token: "F", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourFloor },
   { key: "contourCeiling", token: "C", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.contourCeiling },
+  // ── Layer CONTENT. Appended, and for the fourth time with the same
+  //    consequence: the codec is TOKEN-keyed, so a link carrying none of
+  //    these decodes every one to its default above — terrain and borders
+  //    on, the OSM card's own four rows armed but the card itself off, every
+  //    density at 1x, each point layer on its own default dataset. That is
+  //    the page exactly as it rendered before these tokens existed, so NO
+  //    version bump: nothing here was retired, and every v3 token still
+  //    decodes with its existing rules (contrast `terrainRenderMode`'s
+  //    removal below, which needed one).
+  //
+  //    Deliberately NOT here: every per-layer COLOUR (background, borders,
+  //    contour, and the six demo layers). Nine `"color"` fields would add
+  //    ~54 characters to a link that carries them, they are one click each
+  //    to re-pick, and they change the tint of something the reader can
+  //    already see rather than whether they can see it at all. Nor are the
+  //    demo layers' magnitude sliders (min-pop, radii, extrusion/model
+  //    heights, heat threshold): eight more numeric tokens tuning layers
+  //    that are off by default. A URL that carries the whole UI is its own
+  //    failure.
+  { key: "layerMask", token: "L", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.layerMask },
+  { key: "osmMask", token: "O", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.osmMask },
+  { key: "terrainDensity", token: "T", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.terrainDensity },
+  { key: "borderDensity", token: "B", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.borderDensity },
+  { key: "contourDensity", token: "N", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.contourDensity },
+  { key: "osmDensity", token: "Q", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.osmDensity },
+  { key: "fillDensity", token: "W", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.fillDensity },
+  { key: "extrusionDensity", token: "X", type: { kind: "float", step: 0.1 }, default: MAPS_URL_DEFAULTS.extrusionDensity },
+  { key: "symbolDataset", token: "Y", type: { kind: "enum", values: MAPS_POINT_DATASET_VALUES }, default: MAPS_URL_DEFAULTS.symbolDataset },
+  { key: "circleDataset", token: "Z", type: { kind: "enum", values: MAPS_POINT_DATASET_VALUES }, default: MAPS_URL_DEFAULTS.circleDataset },
+  { key: "heatmapDataset", token: "H", type: { kind: "enum", values: MAPS_POINT_DATASET_VALUES }, default: MAPS_URL_DEFAULTS.heatmapDataset },
+  { key: "modelShape", token: "G", type: { kind: "enum", values: MAPS_MODEL_SHAPE_VALUES }, default: MAPS_URL_DEFAULTS.modelShape },
+  { key: "contourInterval", token: "I", type: { kind: "float", step: 1 }, default: MAPS_URL_DEFAULTS.contourInterval },
+  { key: "contourLabels", token: "R", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.contourLabels },
+  { key: "extrusionRenderMode", token: "U", type: { kind: "enum", values: RENDER_MODE_VALUES }, default: MAPS_URL_DEFAULTS.extrusionRenderMode },
+  { key: "modelRenderMode", token: "V", type: { kind: "enum", values: RENDER_MODE_VALUES }, default: MAPS_URL_DEFAULTS.modelRenderMode },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";
