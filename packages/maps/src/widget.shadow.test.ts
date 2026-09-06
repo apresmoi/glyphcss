@@ -34,7 +34,7 @@ import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
 import { createGlyphScene } from "glyphcss";
-import type { Polygon } from "glyphcss";
+import type { GlyphMeshTransform, Polygon } from "glyphcss";
 
 const COLS = 140;
 const ROWS = 63;
@@ -189,6 +189,59 @@ async function mountScene(light: V3, opts: { exaggeration?: number; heightM?: nu
   return { map, projection, height };
 }
 
+/**
+ * Several towers on one flat ground `fill`, in plan view — the fixture the
+ * building-on-building tests need. `towers` are `[dLon, dLat, heightM]`
+ * offsets from {@link CENTRE}.
+ */
+async function mountTowers(light: V3, towers: [number, number, number][]) {
+  const projection = glyphMapGlobe({ exaggeration: 1 });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  hostsToRemove.push(host);
+  stubMonospaceMetrics(host);
+  const map = createGlyphMap(host, {
+    view: { center: [CENTRE[0], CENTRE[1]], span: SPAN, cols: COLS, rows: ROWS },
+    projection,
+    tilt: 0,
+    scene: { directionalLight: { direction: light, intensity: 1 }, ambientLight: { intensity: 0.15 } },
+  });
+  mounted.push(map);
+  map.addLayer({ type: "fill", id: "ground", source: { features: [ground] }, color: GROUND_COLOR });
+  map.addLayer({
+    type: "fill-extrusion", id: "towers", color: BUILDING_COLOR, heightProperty: "render_height",
+    source: {
+      features: towers.map(([dLon, dLat, h], i) => ({
+        id: `t${i}`,
+        geometryType: "polygon" as const,
+        rings: [squareRing(CENTRE[0] + dLon, CENTRE[1] + dLat, HALF)],
+        properties: { render_height: h },
+      })),
+    },
+  });
+  await settle();
+  map.scene.rerender();
+  return { map, projection };
+}
+
+/**
+ * The screen cells a footprint centred `dLon`/`dLat` from {@link CENTRE}
+ * occupies. In plan view a tower's own image IS its footprint, so this is
+ * exactly "on that building" — and it is derived through `map.project`, never
+ * read off the render.
+ */
+function footprintCells(map: ReturnType<typeof createGlyphMap>, dLon: number, dLat: number): { row: number; col: number }[] {
+  const n = map.project([CENTRE[0] + dLon, CENTRE[1] + dLat + HALF]).row;
+  const s = map.project([CENTRE[0] + dLon, CENTRE[1] + dLat - HALF]).row;
+  const w = map.project([CENTRE[0] + dLon - HALF, CENTRE[1] + dLat]).col;
+  const e = map.project([CENTRE[0] + dLon + HALF, CENTRE[1] + dLat]).col;
+  const out: { row: number; col: number }[] = [];
+  for (let row = Math.ceil(Math.min(n, s)); row <= Math.floor(Math.max(n, s)); row++) {
+    for (let col = Math.ceil(Math.min(w, e)); col <= Math.floor(Math.max(w, e)); col++) out.push({ row, col });
+  }
+  return out;
+}
+
 /** The cells the SHADOW alone claims: the same map rendered with it off and with it on. */
 function shadowCells(map: ReturnType<typeof createGlyphMap>, opacity = 0.6): { row: number; col: number }[] {
   map.setShadow(null);
@@ -231,23 +284,48 @@ describe("createGlyphMap — shadows are OFF unless asked for, and byte-identica
     // its own `<pre>`). Both halves are checked against the real renderer.
     const quad: Polygon[] = [{ vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#8899aa" }];
     const box: Polygon[] = [{ vertices: [[-0.3, -0.3, 0.5], [0.3, -0.3, 0.5], [0.3, 0.3, 0.5], [-0.3, 0.3, 0.5]], color: "#ddeeff" }];
-    const build = (flags: boolean) => {
+    const build = (flags: GlyphMeshTransform) => {
       const host = document.createElement("div");
       document.body.appendChild(host);
       hostsToRemove.push(host);
       const scene = createGlyphScene(host, { cols: 40, rows: 20, mode: "solid", useColors: true });
-      scene.add(quad, flags ? { receiveShadow: true } : {});
-      scene.add(box, flags ? { castShadow: true } : {});
+      scene.add(quad, { ...flags });
+      // The CASTER now carries BOTH flags (a building receives its neighbour's
+      // shadow), which is the configuration this whole slice changed. It has
+      // to stay just as inert with no `scene.shadow` as the old cast-only one.
+      scene.add(box, { ...flags });
       scene.rerender();
       const out = { text: scene.output.textContent, html: (scene.output as HTMLElement).innerHTML, pres: host.querySelectorAll("pre").length };
       scene.destroy();
       return out;
     };
-    const plain = build(false);
-    const flagged = build(true);
+    const plain = build({});
+    const flagged = build({ castShadow: true, receiveShadow: true });
     expect(flagged.text).toBe(plain.text);
     expect(flagged.html).toBe(plain.html);
     expect(flagged.pres).toBe(plain.pres);
+  });
+
+  it("a map with CASTERS AND RECEIVERS mounted renders byte-identically with shadows off — the whole /maps layer stack", async () => {
+    // The digest the widget's OFF claim rests on, over the real mount path
+    // rather than two hand-built meshes: terrain (`raster`), a flat overlay
+    // (`fill`) and a building (`fill-extrusion`, now flagged BOTH ways). Off
+    // must be the render a map built before this feature existed, glyph for
+    // glyph and span for span.
+    const light = lightFromNorth(glyphMapGlobe(), 45);
+    const { map } = await mountTowers(light, [[0, 0, BUILDING_M], [0, 0.0025, 60]]);
+    expect(map.getShadow()).toBeNull();
+    const text = map.scene.output.textContent;
+    const html = (map.scene.output as HTMLElement).innerHTML;
+    expect(text).not.toBeNull();
+    expect(text!.length).toBeGreaterThan(COLS * ROWS - ROWS);
+    // On, then off again: every buffer the shadow pass touches has to be
+    // restored, not merely re-derived close enough.
+    map.setShadow({ opacity: 0.6 });
+    expect(map.scene.output.textContent).not.toBe(text);
+    map.setShadow(null);
+    expect(map.scene.output.textContent).toBe(text);
+    expect((map.scene.output as HTMLElement).innerHTML).toBe(html);
   });
 });
 
@@ -380,18 +458,19 @@ describe("createGlyphMap — shadows follow whoever owns the key light", () => {
 });
 
 describe("createGlyphMap — the bias is the map's, not glyphcss's", () => {
-  it("has no layer that both casts and receives — the premise the zero bias rests on", () => {
-    // Not taste: a surface in BOTH sets is compared against its own quantized
-    // depth in the shadow map, and with no slope-scaled bias (glyphcss has
-    // none) that speckles wherever the surface is near-parallel to the light
-    // — every low sun, on every building wall. If a layer type is ever added
-    // to both sets, `GLYPH_MAP_SHADOW_LIFT` stops being derivable and this
-    // goes red first.
-    for (const type of GLYPH_MAP_SHADOW_CASTERS) expect(GLYPH_MAP_SHADOW_RECEIVERS.has(type)).toBe(false);
-    // And terrain is a receiver, never a caster: glyphcss fits the shadow
-    // volume to ALL casters, and a raster layer keeps a global floor tier
-    // mounted at every view, so terrain casting stretches 256 texels across
-    // the Earth.
+  it("every CASTER also RECEIVES — the premise building-on-building shadows rest on", () => {
+    // The two sets used to be disjoint, which made a building shadowing its
+    // neighbour impossible by construction. They overlap now because the acne
+    // that disjointness was avoiding is guarded inside glyphcss, in the shadow
+    // map's OWN texels (`SHADOW_SLOPE_BIAS_TEXELS`) rather than by an absolute
+    // world length no map scale can supply.
+    for (const type of GLYPH_MAP_SHADOW_CASTERS) expect(GLYPH_MAP_SHADOW_RECEIVERS.has(type)).toBe(true);
+    expect(GLYPH_MAP_SHADOW_RECEIVERS.has("fill-extrusion")).toBe(true);
+    expect(GLYPH_MAP_SHADOW_RECEIVERS.has("model")).toBe(true);
+    // Terrain is still a receiver and still never a caster: glyphcss fits the
+    // shadow volume to ALL casters, and a raster layer keeps a global floor
+    // tier mounted at every view, so terrain casting stretches 256 texels
+    // across the Earth.
     expect(GLYPH_MAP_SHADOW_RECEIVERS.has("raster")).toBe(true);
     expect(GLYPH_MAP_SHADOW_CASTERS.has("raster")).toBe(false);
   });
@@ -407,6 +486,118 @@ describe("createGlyphMap — the bias is the map's, not glyphcss's", () => {
     const off = rows(map);
     map.setShadow({ opacity: 0.6, lift: 0.05 });
     expect(changedCells(off, rows(map))).toHaveLength(0);
+  });
+});
+
+describe("createGlyphMap — a building casts onto the building NEXT TO IT", () => {
+  it("darkens the far tower's roof, cell for cell — the case that was impossible by construction", async () => {
+    // 20 degrees of sun altitude, from the NORTH: a 200 m tower throws ~550 m
+    // of shadow, and the 60 m tower 278 m south of it stands inside that.
+    const light = lightFromNorth(glyphMapGlobe(), 70);
+    const NEAR_LAT = 0.0025;
+    const { map, projection } = await mountTowers(light, [[0, NEAR_LAT, BUILDING_M], [0, 0, 60]]);
+    const cells = shadowCells(map);
+    const claimed = new Set(cells.map((c) => `${c.row}/${c.col}`));
+
+    // The far tower's own roof, worked out through `map.project` alone.
+    const roof = footprintCells(map, 0, 0);
+    expect(roof.length).toBeGreaterThan(100);
+    // EVERY cell of it, counted exactly — not a fraction over a band, which
+    // the ground around the tower satisfies on its own.
+    const litRoof = roof.filter((c) => !claimed.has(`${c.row}/${c.col}`));
+    expect(litRoof).toEqual([]);
+
+    // ...and it really is the NEAR tower's shadow reaching it: the near
+    // tower's south edge throws its roof corner past the far tower entirely,
+    // predicted from the projection and the light with no reference to the
+    // render.
+    const [lon, lat] = shadowLanding(projection, CENTRE[0], CENTRE[1] + NEAR_LAT - HALF, BUILDING_M, light);
+    expect(map.project([lon, lat]).row).toBeGreaterThan(Math.max(...roof.map((c) => c.row)));
+  });
+
+  it("does NOT shadow itself — the acne the slope-scaled guard exists to stop", async () => {
+    // A lone convex box can legitimately shadow only its own faces turned
+    // AWAY from the light, and those are lit by ambient alone, which the
+    // shadow term never touches. So in plan view EVERY changed cell on the
+    // tower's own roof is acne, at every sun angle — and there are none.
+    // Remove `SHADOW_SLOPE_BIAS_TEXELS` and this prints 450 of 450 roof cells
+    // claimed at every angle, because `tu = lu | 0` samples the texel
+    // BELOW-LEFT of the reading point and so errs in one systematic
+    // direction rather than speckling.
+    for (const zenith of [30, 45, 60, 70, 80]) {
+      const { map } = await mountTowers(lightFromNorth(glyphMapGlobe(), zenith), [[0, 0, BUILDING_M]]);
+      const claimed = new Set(shadowCells(map).map((c) => `${c.row}/${c.col}`));
+      const roof = footprintCells(map, 0, 0);
+      const speckled = roof.filter((c) => claimed.has(`${c.row}/${c.col}`));
+      expect({ zenith, speckled: speckled.length }).toEqual({ zenith, speckled: 0 });
+    }
+  });
+
+  it("a flat `fill` under the building still darkens where the shadow lands", async () => {
+    // The receiver half of the same fixture, kept separate so a regression in
+    // ground-receiving cannot hide behind the building-on-building clause.
+    const light = lightFromNorth(glyphMapGlobe(), 45);
+    const { map, projection } = await mountTowers(light, [[0, 0, BUILDING_M]]);
+    const claimed = new Set(shadowCells(map).map((c) => `${c.row}/${c.col}`));
+    const [lon, lat] = shadowLanding(projection, CENTRE[0], CENTRE[1] - HALF, BUILDING_M, light);
+    const tip = map.project([lon, lat]);
+    const roofBottom = Math.max(...footprintCells(map, 0, 0).map((c) => c.row));
+    expect(tip.row).toBeGreaterThan(roofBottom + 10);
+    // Every row of ground between the footprint and the tip, on the shadow's
+    // own centre column — the whole shaft, not a count.
+    for (let row = roofBottom + 2; row <= Math.round(tip.row) - 2; row++) {
+      expect({ row, shadowed: claimed.has(`${row}/${Math.round(tip.col)}`) }).toEqual({ row, shadowed: true });
+    }
+  });
+});
+
+describe("createGlyphMap — a HEADLIGHT key light hides every shadow behind its own caster", () => {
+  it("is why the /maps page showed none: the shadow lands in the caster's own cells", async () => {
+    // An orthographic camera's screen position is the component of a world
+    // point PERPENDICULAR to its view axis, and `keyLight: "headlight"` aims
+    // the key light down that same axis. A shadow is the caster displaced
+    // along the light, so it is displaced along the view axis alone: same
+    // column, same row, hidden behind the thing that cast it. No `lift` and
+    // no receiver set can recover that — the page has to stop asking for a
+    // headlight when it wants shadows (`mapKeyLightForSunMode`).
+    const projection = glyphMapGlobe({ exaggeration: 1 });
+    const light = lightFromNorth(projection, 45);
+    const build = async (keyLight: "fixed" | "headlight") => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      hostsToRemove.push(host);
+      stubMonospaceMetrics(host);
+      const map = createGlyphMap(host, {
+        view: { center: [CENTRE[0], CENTRE[1]], span: SPAN, cols: COLS, rows: ROWS },
+        projection, tilt: 0, keyLight,
+        scene: { directionalLight: { direction: light, intensity: 1 }, ambientLight: { intensity: 0.15 } },
+      });
+      mounted.push(map);
+      map.addLayer({ type: "fill", id: "ground", source: { features: [ground] }, color: GROUND_COLOR });
+      map.addLayer({
+        type: "fill-extrusion", id: "tower", color: BUILDING_COLOR, heightProperty: "render_height",
+        source: { features: [tower] },
+      });
+      await settle();
+      map.scene.rerender();
+      return map;
+    };
+    const fixed = await build("fixed");
+    const headlit = await build("headlight");
+    const fixedCells = shadowCells(fixed);
+    const headlitCells = shadowCells(headlit);
+    // The fixed light draws a real shadow; the headlight leaves only a
+    // sub-texel fringe at the silhouette, an order of magnitude smaller.
+    expect(fixedCells.length).toBeGreaterThan(400);
+    expect(headlitCells.length).toBeLessThan(fixedCells.length / 10);
+    // And what little it leaves is AT the footprint, never a shaft running
+    // away from it.
+    const foot = footprintCells(headlit, 0, 0);
+    const footRows = { top: Math.min(...foot.map((c) => c.row)), bottom: Math.max(...foot.map((c) => c.row)) };
+    for (const cell of headlitCells) {
+      expect(cell.row).toBeGreaterThanOrEqual(footRows.top - 2);
+      expect(cell.row).toBeLessThanOrEqual(footRows.bottom + 2);
+    }
   });
 });
 

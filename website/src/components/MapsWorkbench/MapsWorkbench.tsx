@@ -65,6 +65,7 @@ import {
   parsePeople,
   parsePriority,
   isOrbitProjectionId,
+  mapDirectionLocked,
   mapSunManualFields,
   mapSunManualInstant,
   MapsProjectionControls,
@@ -781,7 +782,7 @@ export default function MapsWorkbench() {
         mode: sunRef.current.mode,
         date: mapSunManualInstant(sunRef.current.day, sunRef.current.hour),
       },
-      keyLight: mapKeyLightForSunMode(sunRef.current.mode, projectionId),
+      keyLight: mapKeyLightForSunMode(sunRef.current.mode, projectionId, shadowsRef.current),
       // Read once at mount like `tilt`/`bearing`/`sun`; every later change
       // goes through `map.setShadow` in the effect below. `null` is the
       // widget's own off, so a page opened without the URL token builds the
@@ -1250,8 +1251,12 @@ export default function MapsWorkbench() {
     const map = mapRef.current;
     if (!map) return;
     map.setSun({ mode: sunMode, date: mapSunManualInstant(sunDay, sunHour) });
-    map.setKeyLight(mapKeyLightForSunMode(sunMode, projectionId));
-  }, [sunMode, sunDay, sunHour, projectionId]);
+    // `shadows` is a dependency because a headlight and a cast shadow cannot
+    // coexist — see `mapKeyLightForSunMode`. Turning shadows on therefore
+    // hands the direction back to the Azimuth/Elev sliders, and turning them
+    // off restores the headlight.
+    map.setKeyLight(mapKeyLightForSunMode(sunMode, projectionId, shadows));
+  }, [sunMode, sunDay, sunHour, projectionId, shadows]);
 
   // ── Shadows -> `map.setShadow()`. Its own effect rather than a clause in
   //    the lighting one below: the widget writes ONE scene option and
@@ -1694,7 +1699,7 @@ function MapsDockFolders(props: {
         lightColor={props.lighting.lightColor}
         ambientIntensity={props.lighting.ambientIntensity}
         ambientColor={props.lighting.ambientColor}
-        // On an ORBIT projection SOMETHING always owns the key light's
+        // On an ORBIT projection SOMETHING usually owns the key light's
         // direction — the sun in Real time/Manual, the camera-following
         // headlight in Full — so Azimuth/Elev have nothing left to aim and
         // are dimmed with the reason rather than left live and silently
@@ -1702,7 +1707,14 @@ function MapsDockFolders(props: {
         // hillshading; the sun's terminator there is a separate per-cell
         // term, and Full leaves the light alone because a flat map has no
         // dark hemisphere to fix), so they stay enabled.
-        directionLocked={isOrbitProjectionId(props.projectionId)}
+        //
+        // SHADOWS in Full mode are the exception, and the equivalence in
+        // `mapsKit.sun.test.ts` is what keeps this row honest: a headlight
+        // casts every shadow behind its own caster, so asking for shadows
+        // drops it (`mapKeyLightForSunMode`) and the sliders become the only
+        // thing aiming the light again — they must be live, or the reader has
+        // shadows they cannot move.
+        directionLocked={mapDirectionLocked(props.projectionId, props.sunMode, props.shadows)}
         directionLockedReason={props.sunMode === "off"
           ? "Full lights the globe from the camera, so the whole visible face stays lit — switch Sun to Manual to aim a light by hand."
           : "The sun owns the key light's direction in this mode — switch Sun to Manual to aim it by hand."}

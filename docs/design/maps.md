@@ -2439,7 +2439,8 @@ shadow map mean something in a world whose unit is an Earth radius.
 **WHO casts and WHO receives.** `GLYPH_MAP_SHADOW_CASTERS` is
 `fill-extrusion` + `model` — the layers that stand UP off the ground.
 `GLYPH_MAP_SHADOW_RECEIVERS` is `raster` + `fill` + `heatmap` — the ground
-surfaces. `line`/`contour`/`symbol`/`circle` own no mesh and can be neither.
+surfaces — PLUS both casters. `line`/`contour`/`symbol`/`circle` own no mesh
+and can be neither.
 The flags are set on every mounted mesh through `glyphMapMeshTransform`
 UNCONDITIONALLY, not gated on whether shadows are currently on: glyphcss reads
 them only inside a pass that carries `scene.shadow` (`buildShadowMap` is
@@ -2450,14 +2451,55 @@ instead of re-mounting every mesh in the map. Gated by rendering the real
 renderer twice, flags and no flags, and comparing `textContent`, `innerHTML`
 and the `<pre>` count.
 
-The two sets are DISJOINT, and that is a decision rather than an omission.
-glyphcss's shadow map has no slope-scaled bias, so any surface that both casts
-and receives is compared against a quantized copy of its OWN depth and
-speckles wherever it is near-parallel to the light — which for a building wall
-is every low sun. Disjoint sets remove that case by construction, and are what
-make the bias below zero. The cost is building-on-building shadows, which at
-map scale are sub-cell detail; the price of having them would be a bias
-glyphcss cannot express.
+The two sets OVERLAP. They were disjoint at first, on the reasoning that
+glyphcss had no slope-scaled bias, so any surface that both casts and receives
+is compared against a quantized copy of its OWN depth — and that disjoint sets
+remove the case by construction. The reasoning was sound and the conclusion
+was wrong, because the thing it gave up is the case a reader in a city
+notices first: **a building shadowing the building next to it, which was
+impossible by construction.** Measured on two towers 278 m apart under a
+20-degree sun, where the near one's shadow covers the far one completely:
+0 of the far tower's 450 roof cells darkened.
+
+The overlap is safe because the acne was mis-attributed. It is not a
+depth-PRECISION artefact — glyphcss's shadow buffer is a `Float64Array` —
+it is a POSITION quantization artefact with an exact size. A receiver reads
+the map at `tu = lu | 0`, i.e. the texel BELOW-LEFT of where it actually
+stands, so a self-receiving surface is compared against its own depth taken up
+to one full texel away in each light-space axis: an error of exactly
+`|dd/du| + |dd/dv|`, the two per-texel components of its own depth gradient.
+That quantity is a function of the shadow map's FITTED VOLUME, so it cannot be
+written as `lift`, which is a world length — and this is why the fix had to go
+into glyphcss rather than here. `SHADOW_SLOPE_BIAS_TEXELS` (`rasterize.ts`)
+computes the gradient per receiver triangle from the same light-space triple
+the sampling already uses and adds `1.25` texels of it. Both bounds were swept
+on this package's own fixture, a lone tower in plan view where every changed
+cell on its roof is by construction acne (a convex box can legitimately shadow
+only faces turned away from the light, and those are lit by ambient alone,
+which the shadow term never touches):
+
+| slope factor | self-shadowed roof cells (of 450) | 4 m building's ground shadow (cells) |
+|---|---|---|
+| 0 | 450 | 10 |
+| 0.5 | 225 | 10 |
+| **1.0** | **0** | 10 |
+| 1.25 (shipped) | 0 | 10 |
+| 1.4 | 0 | 10 |
+| 1.5 | 0 | 8 |
+| 2 | 0 | 0 |
+| 3 | 0 | 0 (8 m goes too) |
+| 6 | 0 | 0 (20 m goes too) |
+
+Acne stops at exactly `1.0`, which is the derivation's own bound rather than a
+fitted number, and the first real shadow loss is at `1.5`. `1.25` sits between
+them with 25% headroom above the acne bound and 20% below the first loss. Note
+the failure mode without the guard is not a speckle but a near-uniform
+darkening — 450 of 450, not half of them — because `floor` errs in ONE
+direction where `round` would err symmetrically. The peter-panning column is
+measured with the casters spread over ~1.8 km (the widget mounts whole tiles,
+so the fitted volume is the city, not one building) at a 45-degree sun; that
+is the shadow map's own resolution talking, and a shadow shorter than a texel
+was never representable at any bias.
 
 **TERRAIN NEVER CASTS**, and this is the load-bearing exclusion.
 `buildShadowMap` fits the light-space volume to the AABB of ALL casters at a
@@ -2475,14 +2517,17 @@ the globe `0.05` is 5% of Earth's radius: 318 km, about 36,000 times the
 tallest building on the planet. Every receiver then clears every caster by a
 margin nothing can exceed and NOT ONE SHADOW IS DRAWN. On a sheet the same
 number is 0.05 Earth radii on an axis whose neighbours are degrees. No single
-value is right for both, so the widget owns the field. Zero is the derivation
-rather than merely the smallest value: a shadow bias exists to stop a surface
-shadowing itself, the disjoint sets mean that never happens here, and any
-nonzero `b` erases every shadow whose caster stands less than `b / sin(sun
-altitude)` above its receiver — taking the SHORT buildings first and taking
-them worst at a LOW sun, exactly where shadows are longest and most legible.
-The residual error is horizontal (a shadow edge lands within one shadow-map
-texel of the truth) and no depth bias addresses that anyway. Gated both ways:
+value is right for both, so the widget owns the field. Zero stays the right
+value now that the sets overlap, and for a better reason than before: the
+self-shadow case a bias exists for is closed by the derived slope-scaled guard
+above, in the shadow map's own texels, which is the only frame in which the
+error is expressible. `lift` is then a purely EXTRA absolute term, and a map
+has no absolute length to offer — while any nonzero `b` erases every shadow
+whose caster stands less than `b / sin(sun altitude)` above its receiver,
+taking the SHORT buildings first and worst at a LOW sun, exactly where shadows
+are longest and most legible. The residual error is horizontal (a shadow edge
+lands within one shadow-map texel of the truth) and no depth bias addresses
+that anyway. Gated both ways:
 the geometry tests go red if the constant is put back to `0.05`, and one test
 hands `lift: 0.05` through the public option and asserts it changes not one
 cell.
@@ -2495,6 +2540,67 @@ so the two can never point different ways. Gated with a manual sun over Zurich
 whose shadow lands in the opposite half-plane from the direction the scene was
 CONSTRUCTED with, plus a cell-exact landing derived from
 `getKeyLightDirection()` alone.
+
+### A HEADLIGHT and a visible shadow are mutually exclusive
+
+This is why `/maps` showed no shadow anywhere at its own defaults, and it is
+not a bias, a receiver set, or a fitted volume — it is geometry, and it is
+exact.
+
+`keyLight: "headlight"` aims the key light along the camera's OWN view axis
+`n` (`glyphMapHeadlightDirection`). An orthographic camera's screen position
+is the component of a world point PERPENDICULAR to `n`. A shadow is its caster
+displaced ALONG the light, i.e. along `n` — a displacement with zero
+perpendicular component. So the shadow of every point lands in that point's
+own column and its own row, hidden behind the thing that threw it. Measured on
+the tower fixture: **535 shadow cells under a fixed light, 27 under a
+headlight** — and those 27 are a sub-texel fringe at the silhouette, all of
+them inside the footprint's own rows.
+
+`/maps` opens on the globe with Sun "Full", and Full on an orbit projection IS
+a headlight (that is the whole point of it: no terminator anywhere, while
+Lambert still varies per face so relief survives). So the reader turned
+shadows on and correctly saw nothing — over the floor, over other layers, and
+over other buildings.
+
+The fix is a precedence rule, in the page rather than the widget because it is
+a question about two page controls: `mapKeyLightForSunMode(mode, projection,
+shadows)` returns `"fixed"` whenever shadows are on. An evenly lit globe and
+cast shadows cannot both exist, so the reader gets whichever they asked for
+last, and asking for shadows hands the direction back to the Azimuth/Elev
+sliders. Those sliders are dimmed in exactly the cases something else owns the
+direction, which is no longer `isOrbitProjectionId(projectionId)` alone —
+`mapDirectionLocked(projection, mode, shadows)` derives it from
+`mapKeyLightForSunMode` and the sun's own rule, so the row cannot drift from
+who is actually aiming the light. `mapsKit.sun.test.ts` pins the equivalence
+across every mode/projection/shadow combination, and pins that globe + Full is
+the ONE case the shadow flag changes (a targeted un-dim, not a blanket one).
+
+Real time and Manual were never affected: the sun writes a real outward vector
+at the subsolar point, which is not the view axis, so shadows worked in those
+modes all along.
+
+### Separation was NOT implicated, but it remains a real limit
+
+Shadows are BASE-GRID only, so the obvious second suspect was a layer popping
+into its own `<pre>`. It is not what happened: every `/maps` density default
+is `1`, `glyphMapMeshTransform` drops a `glyphPalette` that matches the
+scene's, the extrusion layer's default `renderMode` IS the scene's mode, and
+`isDetailMesh` treats `density === 1` as no separation. The OSM layers built
+by `glyphMapOpenMapTilesLayers` carry no `renderMode` or `glyphPalette` at
+all. So nothing separated, and the whole layer stack was in the base grid.
+
+The limit is real anyway and worth stating plainly rather than papering over:
+**shadows cannot cross `<pre>`s, and that is architectural.** Each detail pass
+renders with `shadow: undefined` and its own grid; the cross-layer occlusion
+id-map exists to resolve DEPTH ownership between passes, not to carry a
+light-space depth buffer between them. Making a detail layer receive would
+mean building the shadow map once per transaction and threading it into every
+pass — mechanically possible — but making one CAST would additionally require
+the shadow map to be built after every mesh's world geometry is known, which
+is the one thing the per-layer pass structure does not guarantee. On `/maps`
+this surfaces as: raising any layer's density slider above 1 turns that
+layer's shadows off.
 
 ### The glyphcss defect this uncovered, and the fix
 
@@ -2526,9 +2632,11 @@ removing it is a public break and was not taken here.
 
 Shadows are BASE-GRID only: `doRenderTransaction` pushes cast/receive flags
 only for meshes that stay in the shared grid, and every detail pass renders
-with `shadow: undefined`. A layer separated by its own `density` therefore
-neither casts nor receives — on `/maps` that means raising "OSM density" turns
-the buildings' shadows off.
+with `shadow: undefined`. A layer separated by its own `density`, `renderMode`
+or `glyphPalette` therefore neither casts nor receives — on `/maps` that means
+raising "OSM density" turns the buildings' shadows off. See "Separation was
+NOT implicated" above for why this was not the cause of the reported
+invisibility, and why it is architectural rather than a missing wire.
 
 **Low sun**, measured on a 60 m block over flat ground at 140x63, ~4.8 m per
 column (shadow cells = the cells a render changed when the shadow was switched
@@ -2556,6 +2664,23 @@ almost nothing anyway.
 | drag | 21.54 | 24.04 | +2.50 (+12%) | 12.4 -> 11.3 |
 | wheel | 4.58 | 7.53 | +2.95 (+64%) | 41.8 -> 33.9 |
 | flyto | 9.39 | 12.27 | +2.88 (+31%) | 34.4 -> 29.4 |
+
+Making the CASTERS receive as well — the change that buys
+building-on-building — is inside that measurement's noise. Measured directly
+on `rasterize` (989 polygons, 845 of them caster polygons: a 13x13 grid of
+boxes on a tiled ground, 140x63, oblique ortho, colours on, 120 renders after
+20 warm-up, three runs):
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| shadows off | 0.29 | 0.29 | 0.30 |
+| ground receives only | 0.76 | 0.74 | 0.79 |
+| casters receive too | 0.75 | 0.76 | 0.75 |
+
+The extra receivers cost nothing measurable next to the shadow feature's own
++150%, because the added work per caster triangle is three `toLightUV` calls
+and one 2x2 solve for the depth gradient, against a scan-fill that was already
+running.
 
 A flat +2.5 to +3.0 ms per render, which is what the mechanism predicts: the
 shadow map is rebuilt from the casters and the receiver test runs per covered

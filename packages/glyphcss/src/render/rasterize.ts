@@ -1942,12 +1942,22 @@ function rasterizeSolid(
     const uvA = toLightUV(wa, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
     const uvB = toLightUV(wb, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
     const uvC = toLightUV(wc, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+    // The receiver's own depth gradient per light-space TEXEL, solved from the
+    // triangle's affine map. A degenerate triangle (zero light-space area) is
+    // seen edge-on from the light and covers no texel, so it gets no guard.
+    const eu1 = uvB[0] - uvA[0], ev1 = uvB[1] - uvA[1], ed1 = uvB[2] - uvA[2];
+    const eu2 = uvC[0] - uvA[0], ev2 = uvC[1] - uvA[1], ed2 = uvC[2] - uvA[2];
+    const det = eu1 * ev2 - ev1 * eu2;
+    const slopeBias = det === 0
+      ? 0
+      : SHADOW_SLOPE_BIAS_TEXELS * (Math.abs((ed1 * ev2 - ed2 * ev1) / det) + Math.abs((ed2 * eu1 - ed1 * eu2) / det));
     return {
       map: sm,
       luA: uvA[0], lvA: uvA[1], ldA: uvA[2],
       luB: uvB[0], lvB: uvB[1], ldB: uvB[2],
       luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
       lift: shadowLift,
+      slopeBias,
       opacity: shadowOpacity,
       ambientIntensity: ambIntensity,
       shadowColorRgb,
@@ -3201,6 +3211,41 @@ const BAYER_4X4 = new Float64Array([
 
 const SHADOW_MAP_SIZE = 256;
 
+/**
+ * The acne guard, in SHADOW-MAP TEXELS of the receiver's own light-space depth
+ * slope. Added to `shadow.lift` (which stays an absolute world length the
+ * caller owns) on every receiver comparison.
+ *
+ * WHY IT IS SLOPE-SCALED AND NOT A CONSTANT. Self-shadow acne here is not a
+ * depth-precision artefact — the buffer is `Float64Array` — it is a POSITION
+ * quantization artefact, and its size is derivable exactly. The map stores one
+ * depth per texel, sampled at the texel's integer point; a receiver reads it at
+ * `tu = lu | 0`, i.e. the texel BELOW-LEFT of where it actually is. So a
+ * surface is compared against its own depth taken up to one full texel away in
+ * each light-space axis, and the resulting error is `|dd/du| + |dd/dv|` — the
+ * two per-texel components of the surface's own depth gradient. One texel of
+ * each is the exact bound, so `1` is the smallest guard that provably closes
+ * the case and everything above it is headroom; `floor` (not round) makes the
+ * offset SYSTEMATIC rather than symmetric, which is why an unguarded surface
+ * that both casts and receives does not speckle but goes almost uniformly dark.
+ *
+ * WHY A WORLD-UNIT CONSTANT CANNOT DO THIS JOB. `shadow.lift`'s `0.05` is an
+ * absolute length, and the quantity it has to cover scales with the fitted
+ * volume: the same scene is 5% of a room and 318 km of a unit-radius globe.
+ * `@glyphcss/maps` measured both ends — a city block spans ~1e-5 world units
+ * there, four orders of magnitude from a room — so no single number is right
+ * for both and the guard has to be expressed in the map's OWN texels. The
+ * gradient is computed per receiver triangle from the same light-space triple
+ * the sampling uses, so it costs three subtractions and no extra state.
+ *
+ * The price of the guard is peter-panning: a caster standing less than one
+ * texel-gradient above its receiver loses its shadow. That bound is the shadow
+ * map's own resolution talking — a shadow shorter than a texel is not
+ * representable at all — so the guard makes an existing limit explicit rather
+ * than adding one.
+ */
+const SHADOW_SLOPE_BIAS_TEXELS = 1.25;
+
 interface ShadowMapData {
   buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
   right: [number, number, number];
@@ -3217,6 +3262,8 @@ interface ScanFillShadowCtx {
   luB: number; lvB: number; ldB: number;
   luC: number; lvC: number; ldC: number;
   lift: number;
+  /** Slope-scaled acne guard in light-space depth units — see {@link SHADOW_SLOPE_BIAS_TEXELS}. */
+  slopeBias: number;
   opacity: number;
   ambientIntensity: number;
   shadowColorRgb: [number, number, number];
@@ -3659,9 +3706,11 @@ function scanFillTriangle(
             const mapDepth = sh.map.buf[tv * SHADOW_MAP_SIZE + tu]!;
             // Surface is in shadow when the closest caster depth at this texel
             // is greater than the surface's projected lightDepth (+ bias lift).
-            // The lift nudges the surface slightly toward the light to prevent
-            // self-acne on flat lit surfaces.
-            if (mapDepth > -Infinity && ld + sh.lift < mapDepth) {
+            // Two terms nudge the surface toward the light: the caller's
+            // absolute `lift`, and the derived slope-scaled acne guard
+            // (`SHADOW_SLOPE_BIAS_TEXELS`) that makes a surface which both
+            // casts and receives safe at ANY world scale.
+            if (mapDepth > -Infinity && ld + sh.lift + sh.slopeBias < mapDepth) {
               // Shadows attenuate only direct/key light. Ambient is independent
               // scene fill, so with key intensity 0 the shadow map must be a no-op.
               const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));

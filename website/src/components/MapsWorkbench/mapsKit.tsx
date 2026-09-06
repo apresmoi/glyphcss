@@ -1390,9 +1390,43 @@ export const SUN_MODE_TOGGLE = (["off", "realtime", "manual"] as const).map((val
  * With the sun ON, the sun owns the direction on an orbit projection and the
  * sheet's terminator is a per-cell term — either way a headlight would be
  * fighting it, so it stays off.
+ *
+ * SHADOWS OUTRANK THE HEADLIGHT, and not as a preference. Shadows fall along
+ * the key light, and a headlight IS the camera's view axis; an orthographic
+ * camera's screen position is the component of a world point PERPENDICULAR to
+ * that axis, so displacing a caster along it moves the shadow zero columns and
+ * zero rows. Every shadow lands in its own caster's cells, hidden behind the
+ * thing that threw it — measured at 27 surviving fringe cells against 535 for
+ * the same scene under a fixed light (`widget.shadow.test.ts` pins the
+ * order of magnitude). That is why the /maps page could turn shadows on at its
+ * defaults — globe projection, Sun "Full" — and see nothing anywhere, and no
+ * depth bias or receiver set can recover it. Asking for shadows therefore
+ * gives the direction back to the Azimuth/Elev sliders, which the Dock then
+ * un-dims: an evenly lit globe and cast shadows are mutually exclusive, and
+ * the reader gets whichever they asked for last.
  */
-export function mapKeyLightForSunMode(mode: MapSunMode, projection: MapProjectionId): GlyphMapKeyLightMode {
+export function mapKeyLightForSunMode(mode: MapSunMode, projection: MapProjectionId, shadows = false): GlyphMapKeyLightMode {
+  if (shadows) return "fixed";
   return mode === "off" && isOrbitProjectionId(projection) ? "headlight" : "fixed";
+}
+
+/**
+ * Whether the Dock's Azimuth/Elev rows are dimmed — true in EXACTLY the cases
+ * where something other than those two sliders is aiming the key light.
+ *
+ * Derived from {@link mapKeyLightForSunMode} and the sun's own rule rather
+ * than restated as a second condition, because a live-looking slider that
+ * changes nothing (and a dimmed one that was the only thing left aiming the
+ * light) are the two failure modes this row has. `mapsKit.sun.test.ts` pins
+ * the equivalence across every mode/projection/shadow combination.
+ */
+export function mapDirectionLocked(projection: MapProjectionId, mode: MapSunMode, shadows = false): boolean {
+  const headlightOwns = mapKeyLightForSunMode(mode, projection, shadows) === "headlight";
+  // The sun writes a real `directionalLight.direction` only on an orbit
+  // projection; on a sheet its terminator is a per-cell colour term that
+  // leaves the key light alone.
+  const sunOwns = mode !== "off" && isOrbitProjectionId(projection);
+  return headlightOwns || sunOwns;
 }
 
 export function mapSunManualInstant(dayOfYear: number, utcHour: number, year = new Date().getUTCFullYear()): number {

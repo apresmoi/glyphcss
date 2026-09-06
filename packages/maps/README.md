@@ -840,28 +840,32 @@ map.setShadow({ color: "#000000", opacity: 0.35 });  // color/opacity pass throu
 map.setShadow(null);                                  // off — and byte-identical to never asking
 ```
 
-**`fill-extrusion` and `model` layers CAST; `raster`, `fill` and `heatmap`
-RECEIVE.** The two sets are disjoint on purpose — glyphcss has no
-slope-scaled depth bias, so a surface that both casts and receives speckles
-wherever it is near-parallel to the light, and disjoint sets remove that case
-rather than tuning around it. Terrain deliberately never casts: the shadow
-volume is fitted to the AABB of every caster and a raster layer keeps a global
-floor tier mounted, so terrain casting would spread the 256x256 shadow map
-across the whole Earth.
+**`fill-extrusion` and `model` layers CAST; `raster`, `fill`, `heatmap` and
+those same two RECEIVE.** The sets overlap, so a building shadows the building
+next to it. Terrain deliberately never casts: the shadow volume is fitted to
+the AABB of every caster and a raster layer keeps a global floor tier mounted,
+so terrain casting would spread the 256x256 shadow map across the whole Earth.
+`lift` defaults to `0` (`GLYPH_MAP_SHADOW_LIFT`) rather than glyphcss's
+`0.05`, which in this package's world units is 318 km and erases every shadow;
+the self-shadow acne guard is glyphcss's own, derived from the shadow map's
+texels rather than from any world length.
 
 **The direction is not an option here.** Shadows fall along the scene's own
 `directionalLight.direction` — whatever `getKeyLightDirection()` reports —
-so the sun, the headlight and your own azimuth/elevation slider each cast the
-shadows they light. `lift` defaults to `0` (`GLYPH_MAP_SHADOW_LIFT`) rather
-than glyphcss's `0.05`, which in this package's world units is 318 km and
-erases every shadow.
+so the sun and your own azimuth/elevation slider each cast the shadows they
+light. **A camera-following `keyLight: "headlight"` is the one direction that
+cannot show a shadow at all**: it points down the view axis, and an
+orthographic camera's screen position is the component perpendicular to that
+axis, so every shadow lands in its own caster's cells. Turn the headlight off
+when you want shadows.
 
 Shadows are drawn in the base grid only: a layer separated into its own
-`<pre>` by a per-mesh `density` neither casts nor receives. Cost is a flat
-+2.5 to +3.0 ms per render on `bench/maps-render` at 140x63 with buildings
-mounted, and shadows stay solid down to roughly 10 degrees of sun altitude —
-below that the shadow map's finite resolution dithers the edge. `docs/design/
-maps.md` has the measurements.
+`<pre>` by a per-mesh `density`, `renderMode` or `glyphPalette` neither casts
+nor receives. Cost is a flat +2.5 to +3.0 ms per render on `bench/maps-render`
+at 140x63 with buildings mounted (the casters receiving as well is inside that
+measurement's noise), and shadows stay solid down to roughly 10 degrees of sun
+altitude — below that the shadow map's finite resolution dithers the edge.
+`docs/design/maps.md` has the measurements.
 
 ## Scope
 

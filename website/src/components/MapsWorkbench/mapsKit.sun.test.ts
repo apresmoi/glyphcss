@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { glyphMapGlobe, glyphMapSubsolarPoint, glyphMapSunDirection } from "@glyphcss/maps";
-import { buildMapLighting, DEFAULT_MAP_LIGHTING, isOrbitProjectionId, mapKeyLightForSunMode, mapSunManualFields, mapSunManualInstant, SUN_MODE_TOGGLE, type MapProjectionId, type MapSunMode } from "./mapsKit";
+import { buildMapLighting, DEFAULT_MAP_LIGHTING, isOrbitProjectionId, mapDirectionLocked, mapKeyLightForSunMode, mapSunManualFields, mapSunManualInstant, SUN_MODE_TOGGLE, type MapProjectionId, type MapSunMode } from "./mapsKit";
 
 /**
  * The page's half of real-sun lighting: `buildMapLighting` is the ONE writer
@@ -102,6 +102,23 @@ describe("mapKeyLightForSunMode — what the page's 'Full' actually does", () =>
     }
   });
 
+  it("CAST SHADOWS drop it everywhere — a headlight hides every shadow behind its own caster", () => {
+    // Not a preference. A headlight points down the camera's view axis, and
+    // an orthographic camera's screen position is the component PERPENDICULAR
+    // to that axis, so a caster displaced along it moves its shadow zero
+    // columns and zero rows. `@glyphcss/maps`' `widget.shadow.test.ts`
+    // measures what survives: 27 fringe cells against 535 under a fixed
+    // light. This is why /maps at its own defaults — globe, Sun "Full" —
+    // showed no shadow anywhere the moment the toggle went on.
+    for (const p of projections) {
+      for (const m of modes) {
+        expect(mapKeyLightForSunMode(m, p, true)).toBe("fixed");
+      }
+    }
+    // ...and turning them off gives the headlight straight back.
+    expect(mapKeyLightForSunMode("off", "globe", false)).toBe("headlight");
+  });
+
   /**
    * The honest-UI invariant, pinned as an equivalence rather than restated as
    * a second constant: the Dock dims Azimuth/Elev with
@@ -113,13 +130,28 @@ describe("mapKeyLightForSunMode — what the page's 'Full' actually does", () =>
   it("the Dock's dim rule matches, case for case, who actually owns the direction", () => {
     for (const p of projections) {
       for (const m of modes) {
-        const headlightOwns = mapKeyLightForSunMode(m, p) === "headlight";
-        // The sun writes a real directional light only on an orbit
-        // projection; on a sheet its terminator is a per-cell colour term
-        // that leaves the key light alone.
-        const sunOwns = m !== "off" && isOrbitProjectionId(p);
-        expect(isOrbitProjectionId(p)).toBe(headlightOwns || sunOwns);
+        for (const shadows of [false, true]) {
+          const headlightOwns = mapKeyLightForSunMode(m, p, shadows) === "headlight";
+          // The sun writes a real directional light only on an orbit
+          // projection; on a sheet its terminator is a per-cell colour term
+          // that leaves the key light alone.
+          const sunOwns = m !== "off" && isOrbitProjectionId(p);
+          expect(mapDirectionLocked(p, m, shadows)).toBe(headlightOwns || sunOwns);
+        }
       }
     }
+  });
+
+  it("the ONE case shadows un-dim is globe + Full — where the sliders become the only thing aiming the light", () => {
+    // Everywhere else the rule is unchanged, so this is a targeted un-dim and
+    // not a blanket "shadows enable the sliders".
+    for (const p of projections) {
+      for (const m of modes) {
+        const changed = mapDirectionLocked(p, m, true) !== mapDirectionLocked(p, m, false);
+        expect({ p, m, changed }).toEqual({ p, m, changed: p === "globe" && m === "off" });
+      }
+    }
+    expect(mapDirectionLocked("globe", "off", true)).toBe(false);
+    expect(mapDirectionLocked("globe", "off", false)).toBe(true);
   });
 });

@@ -113,14 +113,22 @@ interface GlyphMapMeshAppearance {
 /**
  * Which mesh-backed layers CAST a shadow, and which RECEIVE one.
  *
- * The two sets are DISJOINT, and that is a design decision rather than an
- * accident of taste — it is what makes {@link GLYPH_MAP_SHADOW_LIFT} zero.
- * glyphcss's shadow map has no slope-scaled bias, so any surface that both
- * casts and receives is tested against its OWN quantized depth and speckles
- * ("acne") wherever it is near-parallel to the light, which for a building
- * wall is every low sun. Nothing here is ever in both sets, so no surface is
- * ever compared with its own texel, and the bias exists only to break
- * exact-coplanar ties — which nothing here has either.
+ * The two sets OVERLAP: every caster is also a receiver, which is what makes
+ * a building shadow the building next to it. They used to be disjoint, and
+ * that made building-on-building impossible by construction — the case a
+ * reader notices first in a city.
+ *
+ * What changed is not the sets but the ACNE GUARD they were working around. A
+ * surface that both casts and receives is tested against its own depth read
+ * out of a texel up to one texel away in each light-space axis, and glyphcss
+ * had no guard for that other than `shadow.lift`, an absolute WORLD length —
+ * unusable here, where the same number is 5% of a room and 318 km of a
+ * unit-radius globe. glyphcss now derives the guard from the shadow map's own
+ * texels and the receiver's own depth slope (`SHADOW_SLOPE_BIAS_TEXELS`, in
+ * `rasterize.ts`), which is scale-free and so is right on a globe, on a sheet
+ * and in a room alike. Measured on this package's own fixture: a lone tower
+ * self-shadowed 450 of its 450 visible roof cells without the guard, 0 with
+ * it, at every sun altitude from 10 to 60 degrees.
  *
  * CASTERS are the layers that stand UP off the ground: `fill-extrusion`
  * (OSM buildings, the reason this feature exists) and `model`. TERRAIN is
@@ -134,13 +142,13 @@ interface GlyphMapMeshAppearance {
  * buffer on every render. Mountain-shadow-on-valley needs a view-fitted
  * cascade this renderer does not have; it is not a tuning away.
  *
- * RECEIVERS are the ground surfaces: `raster` (the relief itself), `fill`
- * (a flat overlay on the datum) and `heatmap` (whose relief hugs the
- * terrain). A `line`/`contour`/`symbol`/`circle` layer owns no mesh and
- * cannot be either.
+ * RECEIVERS are the ground surfaces — `raster` (the relief itself), `fill`
+ * (a flat overlay on the datum) and `heatmap` (whose relief hugs the terrain)
+ * — PLUS the casters themselves. A `line`/`contour`/`symbol`/`circle` layer
+ * owns no mesh and cannot be either.
  */
 export const GLYPH_MAP_SHADOW_CASTERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["fill-extrusion", "model"]);
-export const GLYPH_MAP_SHADOW_RECEIVERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["raster", "fill", "heatmap"]);
+export const GLYPH_MAP_SHADOW_RECEIVERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["raster", "fill", "heatmap", "fill-extrusion", "model"]);
 
 /**
  * The per-mesh transform a MESH-BACKED layer (`raster`, `fill`,
@@ -199,9 +207,12 @@ function glyphMapMeshTransform(
   // shadows off they change nothing about the render — which is what makes
   // the toggle ONE `scene.setOptions({ shadow })` instead of a remount of
   // every mounted mesh in the map.
+  // Two independent `if`s, not an `else if`: the sets overlap, and a
+  // `fill-extrusion` has to carry BOTH flags or a building cannot darken its
+  // neighbour.
   if (layer.type !== undefined) {
     if (GLYPH_MAP_SHADOW_CASTERS.has(layer.type)) transform.castShadow = true;
-    else if (GLYPH_MAP_SHADOW_RECEIVERS.has(layer.type)) transform.receiveShadow = true;
+    if (GLYPH_MAP_SHADOW_RECEIVERS.has(layer.type)) transform.receiveShadow = true;
   }
   return transform;
 }
@@ -1611,24 +1622,23 @@ export const GLYPH_MAP_BEARING_DRAG_DEG_PER_PX = 0.8;
  * an axis whose neighbours are degrees; equally meaningless. There is no
  * value of it that is right for both, which is why the widget owns it.
  *
- * Why zero is the RIGHT derivation and not merely the smallest one: a shadow
- * bias exists to stop a surface shadowing ITSELF, which happens because the
- * shadow map stores one quantized depth per texel and a surface that is both
- * caster and receiver is then compared against a coarsened copy of its own
- * height. {@link GLYPH_MAP_SHADOW_CASTERS} and
- * {@link GLYPH_MAP_SHADOW_RECEIVERS} are disjoint, so that comparison never
- * happens here: every receiver's depth is compared only against geometry
- * belonging to some OTHER mesh, standing at a genuinely different height.
- * The bias would then buy nothing, and it would cost the exact thing this
- * feature is for — a bias `b` erases every shadow whose caster stands less
- * than `b / sin(altitude)` above its receiver, so any nonzero value takes the
- * short buildings first and takes them worst at a LOW sun, which is precisely
- * where shadows are longest and most legible. The remaining error is
- * horizontal (a shadow edge lands within one shadow-map texel of the truth),
- * and no depth bias addresses that in any case.
+ * Why zero is the RIGHT value and not merely the smallest one. A shadow bias
+ * exists to stop a surface shadowing ITSELF, and a map now has that case:
+ * {@link GLYPH_MAP_SHADOW_CASTERS} and {@link GLYPH_MAP_SHADOW_RECEIVERS}
+ * OVERLAP, so a building is compared against its own depth read out of a
+ * neighbouring texel. But the size of that error is a function of the shadow
+ * map's own resolution, not of the world — it is `|dd/du| + |dd/dv|` in
+ * texels of the fitted volume — so the guard belongs where the volume is
+ * known, and glyphcss now derives it there
+ * (`SHADOW_SLOPE_BIAS_TEXELS`, `rasterize.ts`), scale-free.
  *
- * The one artefact zero admits is a tie at exact coplanarity, which here can
- * only occur under a building's own footprint — already in shadow.
+ * That leaves this field as what it always was: an EXTRA absolute length on
+ * top, and a map has no absolute length to offer. Every nonzero value costs
+ * the exact thing the feature is for — a bias `b` erases every shadow whose
+ * caster stands less than `b / sin(altitude)` above its receiver, taking the
+ * short buildings first and worst at a LOW sun, which is precisely where
+ * shadows are longest and most legible — so zero is the only value that adds
+ * nothing to a guard that is already correct.
  */
 export const GLYPH_MAP_SHADOW_LIFT = 0;
 
