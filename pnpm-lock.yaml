@@ -267,6 +267,9 @@ importers:
       '@mapbox/vector-tile':
         specifier: ^3.0.0
         version: 3.0.0
+      earcut:
+        specifier: ^3.0.1
+        version: 3.0.2
       glyphcss:
         specifier: workspace:^
         version: link:../glyphcss
@@ -277,6 +280,9 @@ importers:
         specifier: ^4.5.0
         version: 4.5.0
     devDependencies:
+      '@types/earcut':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.43

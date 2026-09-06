@@ -1,6 +1,8 @@
 node_modules/
 dist/
-/docs/
+# Legacy site output dir; docs/design/ holds the agent-guide design notes.
+/docs/*
+!/docs/design/
 /scripts/
 coverage/
 .DS_Store

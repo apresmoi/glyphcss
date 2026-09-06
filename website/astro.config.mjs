@@ -32,6 +32,12 @@ export default defineConfig({
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
         {
+          // Root entry only — `@glyphcss/maps/node` is fs-backed and never
+          // reaches the browser bundle.
+          find: /^@glyphcss\/maps$/,
+          replacement: repoPath('../packages/maps/src/index.ts'),
+        },
+        {
           find: /^glyphcss\/elements$/,
           replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
         },
