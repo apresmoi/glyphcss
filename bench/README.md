@@ -38,6 +38,13 @@ The rasterizer records timings into two optional globals (zero cost when unset):
 | `parity.html` | glyphcss vs local polycss footprint parity using real gallery meshes by default. Shared camera state drives both renderers, including FPV; side-by-side plus overlay. |
 | `three-parity.html` | three.js reference vs production `glyphcss/three` parity surface vs native glyphcss conversion. Gallery objects, layouts, perspective/orthographic/FPV controls, and bbox/text parity readouts. |
 
+## `/maps` render bench
+
+`bench/maps-render/` is a separate, Playwright-driven harness that measures the
+REAL `/maps` page (React, widget, tiles and all) under continuous motion —
+renders per displayed frame, the Chrome task/script/layout/paint split,
+glyphcss's own stage breakdown, and a fidelity digest. See its own README.
+
 ## Findings — making the drag loop faster, losslessly
 
 Profiling `army.vox` (7k polys, line-height 0.5) showed the per-render loop is
