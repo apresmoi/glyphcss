@@ -1,7 +1,7 @@
 import earcut from "earcut";
 import type { Polygon, Vec3 } from "glyphcss";
 import type { GlyphMapBounds, GlyphMapField } from "./types";
-import type { GlyphMapProjection } from "./projection";
+import { glyphMapTrueScaleElevation, type GlyphMapProjection } from "./projection";
 import { localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
 
@@ -367,7 +367,25 @@ export function glyphMapVectorPolygons(features: readonly GlyphMapVectorFeature[
 
 export interface GlyphMapVectorMeshOptions {
   readonly color?: (feature: GlyphMapVectorFeature) => string | undefined;
+  /**
+   * The feature's extrusion height in TRUE METRES, rendered at true scale
+   * whatever the projection's terrain `exaggeration` is
+   * ({@link glyphMapTrueScaleElevation} puts it on the projection's own
+   * elevation axis). A structure's height is a real measured quantity, so at
+   * `/maps`' default `exaggeration: 24` inheriting the terrain's factor drew
+   * a 20 m building 480 m tall and a 60 m block taller than anything on
+   * Earth.
+   *
+   * {@link base} is deliberately NOT exempt: that is a terrain elevation, and
+   * the ground a structure stands on is wherever the exaggerated relief puts
+   * it. Exempting the base instead — or as well — buries every extrusion
+   * inside the terrain it should be standing on.
+   *
+   * A caller who WANTS a stylised skyline scales the metres it hands back
+   * (`GlyphMapFillExtrusionLayer.heightScale` is exactly that knob).
+   */
   readonly height?: (feature: GlyphMapVectorFeature) => number;
+  /** The feature's base elevation in metres on the terrain's own (exaggerated) axis — see {@link height}. */
   readonly base?: (feature: GlyphMapVectorFeature) => number;
 }
 
@@ -375,9 +393,9 @@ export interface GlyphMapVectorMeshOptions {
  * One extrusion wall face, addressed back into {@link GlyphMapVectorMesh}'s
  * own polygon list. `a`/`b` are the wall's two ring endpoints in lon/lat; the
  * face spans elevations `elev` (its base) to `elevTop` (its top, i.e. the
- * feature's own `base + height`, which varies per feature) — everything
- * {@link glyphMapVectorCullWalls} needs to re-run a near-side test on the
- * whole face without re-triangulating anything.
+ * elevation the feature's cap was actually projected at, which varies per
+ * feature) — everything {@link glyphMapVectorCullWalls} needs to re-run a
+ * near-side test on the whole face without re-triangulating anything.
  *
  * BOTH elevations are carried because a wall is a tall object and its two
  * ends do not share a verdict: on a globe a point at height `h` clears the
@@ -391,7 +409,14 @@ export interface GlyphMapVectorWall {
   readonly b: readonly [lon: number, lat: number];
   /** The wall's BASE elevation — the feature's own `base`. */
   readonly elev: number;
-  /** The wall's TOP elevation — the feature's own `base + height`. */
+  /**
+   * The wall's TOP elevation, on the PROJECTION's own elevation axis — i.e.
+   * `base` plus the true-metre height converted by
+   * {@link glyphMapTrueScaleElevation}, not the raw metre count. It is fed
+   * straight back through `project()` by {@link glyphMapVectorCullWalls}, so
+   * it has to be the elevation the cap was built at: a raw true-metre number
+   * here would over-reach the globe's horizon by the exaggeration factor.
+   */
   readonly elevTop: number;
 }
 
@@ -453,7 +478,11 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
   for (const feature of features) {
     const groups = feature.polygons ?? feature.rings.map((ring) => [ring]);
     const base = options.base?.(feature) ?? 0;
-    const height = options.height?.(feature) ?? 0;
+    // TRUE metres, converted onto this projection's own (exaggerated)
+    // elevation axis — see {@link GlyphMapVectorMeshOptions.height}. `base`
+    // is deliberately NOT converted: it is a terrain elevation and belongs
+    // wherever the exaggerated relief under this feature is.
+    const height = glyphMapTrueScaleElevation(options.height?.(feature) ?? 0, projection);
     const color = options.color?.(feature);
     for (const group of groups) {
       const rings: LonLat[][] = [];

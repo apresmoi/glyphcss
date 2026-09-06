@@ -393,7 +393,7 @@ export default function MapsWorkbench() {
       { key: "threshold", label: "floor", min: 0, max: 0.5, step: 0.01, value: layerAmount.heatThreshold, title: "Normalized density below which a cell emits nothing, letting the terrain show through. At 0 the heatmap is an unbroken sheet over the whole world.", format: (v) => v.toFixed(2), onChange: setAmount("heatThreshold") },
     ],
     "fill-extrusion": [
-      logHeightSliderSpec({ key: "height", label: "height", ...EXTRUSION_HEIGHT_BOUNDS_M, value: layerAmount.extrusionHeightM, title: "Extrusion height in metres. Logarithmic: a building-scale value is genuinely sub-pixel at a global view — relief divides by the Earth's radius — so this range runs from real structures up through landmark scale and well past the old 600 km ceiling.", onChange: setAmount("extrusionHeightM") }),
+      logHeightSliderSpec({ key: "height", label: "height", ...EXTRUSION_HEIGHT_BOUNDS_M, value: layerAmount.extrusionHeightM, title: "Extrusion height in TRUE metres — a structure's height is a measured quantity, so it ignores the terrain exaggeration above (only its base sits on the exaggerated relief). Logarithmic: a building-scale value is genuinely sub-pixel at a global view — relief divides by the Earth's radius — so this range runs from real structures up through landmark scale and well past the old 600 km ceiling.", onChange: setAmount("extrusionHeightM") }),
       // Same 1..4 / 0.1 track as every other density control on this page
       // (`mapsKit.tsx`'s `DensityRow`, and `fill`'s own row just above):
       // `GlyphMapFillExtrusionLayer.density` passes straight through to

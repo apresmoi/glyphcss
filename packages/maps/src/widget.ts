@@ -638,7 +638,17 @@ export interface GlyphMapFillExtrusionLayer {
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
-  readonly heightProperty?: string; readonly baseProperty?: string; readonly height?: number; readonly color?: string; readonly density?: number;
+  readonly heightProperty?: string; readonly baseProperty?: string;
+  /**
+   * Flat extrusion height in TRUE METRES for every feature with no usable
+   * {@link heightProperty} value — rendered at true scale whatever the
+   * projection's terrain `exaggeration` is, exactly like a property-driven
+   * height (see `glyphMapVectorMesh`'s own `height` option for why). Authoring
+   * a taller skyline here is just typing a bigger number: this is a literal,
+   * not measured data, so it needs no scale knob of its own.
+   */
+  readonly height?: number;
+  readonly color?: string; readonly density?: number;
   /**
    * Metres of extrusion per unit of {@link heightProperty} (default `1`, i.e.
    * the property IS a height in metres — the pre-existing behaviour). Same
@@ -650,6 +660,15 @@ export interface GlyphMapFillExtrusionLayer {
    * Applied to the property value only. The flat {@link height} fallback is
    * already metres and is NOT scaled, so a layer with no `heightProperty` is
    * untouched by this.
+   *
+   * This is ALSO the deliberate opt-in for a stylised skyline, and the reason
+   * there is no second "extrusion exaggeration" option beside it. Extrusion
+   * heights render at TRUE metres (terrain `exaggeration` is a terrain
+   * concept and never reaches them), so a caller who wants OSM's
+   * `render_height` drawn 24x tall sets `heightScale: 24` — "24 metres of
+   * extrusion per metre of building" is the same multiply a unit conversion
+   * performs, on the same quantity, and splitting it into two options that
+   * multiply the identical number would only make their product ambiguous.
    */
   readonly heightScale?: number;
   /**

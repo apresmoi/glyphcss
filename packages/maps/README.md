@@ -581,6 +581,25 @@ Labels inherit the elevation window and the globe horizon from the ink they
 are derived from: a level outside `minElevation`/`maxElevation` has no ink and
 so no label, and no label (nor any part of one) is placed past the limb.
 
+### Extrusion heights are true metres
+
+A `fill-extrusion`'s height (`heightProperty` x `heightScale`, or the flat
+`height`) is a REAL measured quantity and renders at true scale whatever the
+projection's terrain `exaggeration` is. Its BASE is not exempt: the ground a
+structure stands on is wherever the exaggerated relief puts it, so only the
+height on top of that base is true-scale. Without the split, a view at
+`/maps`' own default `exaggeration: 24` drew a 20 m OSM building 480 m tall.
+
+For a deliberately stylised skyline, scale the metres: `heightScale: 24` means
+"24 metres of extrusion per metre of building". There is no separate
+extrusion-exaggeration option — it would multiply the same number twice.
+
+The conversion is `glyphMapTrueScaleElevation(metres, projection)`, which is
+public: `GlyphMapProjection.exaggeration` is readable precisely so a caller
+building its own geometry can put a true-metre quantity onto the projection's
+elevation axis. `exaggeration: 0` (relief off) passes metres through, so
+terrain and extrusions are flat together, as before.
+
 ### `fill`/`fill-extrusion` on a curved projection
 
 `glyphMapVectorPolygons` triangulates a polygon in lon/lat with earcut, which

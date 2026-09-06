@@ -1341,6 +1341,96 @@ does NOT share this code (it goes through `glyphMapPointHeatmap` plus
 `glyphMapPolygons`, which has always carried the per-quad probe), and neither
 does `model` (caller-authored `Polygon[]`, passed straight through).
 
+**An extrusion's HEIGHT is exempt from the terrain's `exaggeration`; its BASE
+is not.** Every vertical quantity in the package went through one conversion,
+`reliefZ` = `(metres / GLYPH_MAP_EARTH_RADIUS_M) * exaggeration`, and `/maps`
+defaults `exaggeration` to 24 because true-scale relief is invisible at planet
+scale (Everest is 0.14% of Earth's radius). A `fill-extrusion`'s
+`render_height` took that same path, so an OSM building drew 24x too tall — a
+20 m house at 480 m, a 60 m block at 1,440 m, taller than anything on Earth,
+which is the reported "the height of the OpenStreetMap buildings seems a bit
+disproportioned". Exaggeration is a statement about TERRAIN — it exists so a
+mountain is legible against a planet — while a structure's height is a real
+measured quantity, so `glyphMapVectorMesh` now converts `options.height`
+through `glyphMapTrueScaleElevation(metres, projection)` (`metres /
+projection.exaggeration`) before adding it to the base.
+
+The BASE deliberately keeps the terrain's factor. The ground a structure
+stands on is wherever the exaggerated relief puts it, so de-exaggerating the
+base as well sinks every extrusion into the terrain it should be standing on —
+at exaggeration 24 a base of 1,000 m would sit 24x below the relief around it.
+Exempting the base *instead* of the height gets both halves wrong at once.
+`layers.extrusionHeight.test.ts` pins the split from both sides: the world
+height is bit-identical at exaggeration 1 and 24 while terrain at the same
+metre count is 24x taller, and the base ring's world Z is exactly
+`project(lon, lat, base)`. Mutating the fix to divide the base instead prints
+`expected 0.0001569612305760477 to be 0.003767069533825145` for the base
+clause and `expected 1 to be close to 24` for the globe's radial clause.
+
+`GlyphMapProjection.exaggeration` had to become READABLE for this. `project`
+is the package's one elevation conversion, and the factor is not recoverable
+from its output: a sheet's `X`/`Y` are degrees while the globe's are Earth
+radii, so there is no world-units-per-metre a probe of `project` could divide
+out. Every projection here is affine in `elev` (`reliefZ` is one multiply), so
+dividing is exact rather than approximate — `project(lon, lat, base + m/exag)`
+is `project(lon, lat, base)` displaced along that projection's own local up by
+exactly `m / EARTH_RADIUS_M` world units, which is what makes the globe's
+radial case fall out with no globe-specific code. `exaggeration: 0` (relief
+off entirely) is the one singular value: the axis has collapsed, so the metres
+pass through unchanged and both quantities render flat, exactly as they
+already did. `glyphMapProjectionTransition`'s blended projection lerps the
+two endpoints' values, which is the shared constant throughout in practice
+(`createGlyphMap` swaps geometry, never relief scale).
+
+**A sheet's own axis anisotropy is untouched by this and worth stating.** On
+`glyphMapEquirectangular`/`glyphMapMercator`/`glyphMapOrthographic`, `X`/`Y`
+are DEGREES while `Z` is a fraction of Earth's radius, so one metre of height
+is `1/6,371,000` of a world unit against one metre of ground at `1/111,320` —
+vertical is compressed 57x relative to horizontal, per unit of exaggeration.
+That predates this change and applies identically to terrain, `elevationBias`,
+marker `elevation` and heatmap relief; the globe has no such mismatch (every
+axis is Earth radii, so a true-metre extrusion there is exactly true 3D
+shape). The practical consequence is that a true-metre extrusion is genuinely
+small on a sheet — which is what `/maps`' own extrusion slider range (20 m to
+2,000,000 m, its tooltip already noting that "a building-scale value is
+genuinely sub-pixel at a global view") reflects, and what `heightScale`
+exists to answer for a caller who wants a legible skyline there.
+
+`GlyphMapVectorWall.elevTop` is consequently the cap's own AXIS elevation, not
+the raw metre count — `glyphMapVectorCullWalls` feeds it straight back through
+`project()` to decide whether a wall clears the globe's limb, and a true-metre
+number there would over-reach the horizon by the exaggeration factor.
+
+**The opt-in for a stylised skyline is `heightScale`, and no second option was
+added.** `heightScale` is documented as "metres of extrusion per unit of
+`heightProperty`" — a unit conversion — and a deliberate exaggeration is the
+same multiply on the same metre count, so `heightScale: 24` on an OSM
+buildings layer restores the old look exactly. Two options that multiply the
+identical number would only make their product ambiguous. The flat `height`
+fallback stays unscaled by it and needs no knob of its own for the same
+reason: it is an authored literal, not measured data, so "make it taller" is
+typing a bigger number.
+
+**What was NOT exempted, and why.**
+
+- `heatmap` relief. Its amplitude is a normalized DENSITY mapped onto a
+  display height (`GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M`), not a measured one,
+  and the layer's whole job is to read as relief sitting on the terrain it
+  hugs. Exempt it and at exaggeration 24 the heat bumps become 1/24 of the
+  mountains they are drawn against and stop being comparable to anything on
+  screen. It is not a true-metre quantity, so there is nothing to be true to.
+- `model`. Caller-authored `Polygon[]` in world space that never touches
+  `project`, so it already inherits nothing — nothing to fix.
+- Marker `elevation`. Documented as the same axis `glyphMapPolygons` lifts
+  relief along, and its only real use (`website/src/components/MapsWorkbench/
+  mapPin.ts`) is standing a pin ON the terrain. A pin that ignored
+  exaggeration would float or sink exactly like a de-exaggerated extrusion
+  base.
+- `elevationBias` (the backstop sink) and the heatmap's surface lift. Both are
+  explicitly documented as pre-exaggeration metres so they scale with the
+  relief they must clear or avoid z-fighting against; that coupling is the
+  point.
+
 **On a CURVED projection those faces are refined until the projection is
 locally affine across each one, and an extrusion's walls are culled against
 `projection.visible`.** earcut triangulates in lon/lat and will join boundary

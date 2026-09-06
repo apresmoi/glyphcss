@@ -533,6 +533,17 @@ export function glyphMapProjectionTransition(
   return {
     id: `glyph-map-transition(${a.id}->${b.id})`,
     domain,
+    /**
+     * Lerped like the vertex positions above, for the same reason and with
+     * the same guarantee at the endpoints. In practice both endpoints carry
+     * the widget's ONE exaggeration (`createGlyphMap` never blends two relief
+     * scales — `setProjection` swaps geometry, not terrain scale), so this is
+     * exactly that shared value throughout; the lerp exists so a caller who
+     * does blend two differently-exaggerated projections gets a true-scale
+     * extrusion height that tracks the same continuous path its own terrain
+     * takes, rather than a step at `t = 0.5`.
+     */
+    exaggeration: a.exaggeration + (b.exaggeration - a.exaggeration) * clamped,
     project: blend,
     /**
      * A blended vertex position is a nonlinear function (the unwrap's

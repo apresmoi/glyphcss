@@ -15,9 +15,13 @@
  *   rotX 0   col = 20.5 + 1.5*lon   row = 20.5 - 1.5*lat    (straight down)
  *   rotX 65  col = 20.5 + 1.5*lon   row = 20.5 + 1.5*(-lat*cos65 - h*sin65)
  *
- * `exaggeration: GLYPH_MAP_EARTH_RADIUS_M` makes `height`/`base` read as world
- * units instead of metres (`reliefZ` divides by the earth radius), so the
- * numbers above stay legible.
+ * `exaggeration: GLYPH_MAP_EARTH_RADIUS_M` makes `base` read as world units
+ * instead of metres (`reliefZ` divides by the earth radius), so the numbers
+ * above stay legible. An extrusion's HEIGHT is exempt from exaggeration (it
+ * is a true-metre quantity — see `layers.extrusionHeight.test.ts`), so it
+ * reaches the same legible world units through {@link WORLD_UNIT_M} instead:
+ * one world unit of height is one Earth radius of real height, at every
+ * exaggeration.
  */
 import { describe, expect, it } from "vitest";
 import { compileScene, createGlyphOrthographicCamera, type Polygon } from "glyphcss";
@@ -30,6 +34,15 @@ const ROWS = 41;
 const ZOOM = 75;
 
 const projection = glyphMapEquirectangular({ exaggeration: GLYPH_MAP_EARTH_RADIUS_M });
+
+/**
+ * Metres of real extrusion height per world unit. An extrusion height never
+ * inherits `exaggeration`, so unlike `base` it converts through the Earth
+ * radius alone — the `props.height: 5` fixtures below are 5 WORLD UNITS tall
+ * either way, which is what every row/column number in this file is drawn
+ * against.
+ */
+const WORLD_UNIT_M = GLYPH_MAP_EARTH_RADIUS_M;
 
 function render(polygons: readonly Polygon[], rotX: number): string[] {
   const { inner } = compileScene({
@@ -131,7 +144,7 @@ describe("fill-extrusion winding", () => {
   const outerCcw = ccwRing(10);
   const outerCw = reversed(outerCcw);
   const props = { height: 5 };
-  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) };
+  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) * WORLD_UNIT_M };
 
   /**
    * At rotX 65 the roof occupies rows ~7..20 and the near (south) wall skirt
@@ -162,7 +175,7 @@ describe("fill-extrusion holes", () => {
   const outer = ccwRing(10);
   const hole = reversed(ccwRing(4));
   const props = { height: 5 };
-  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) };
+  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) * WORLD_UNIT_M };
 
   it("leaves the roof aperture empty from directly above", () => {
     const grid = render(glyphMapVectorPolygons([feature([[outer, hole]], props)], projection, opts), 0);
@@ -206,7 +219,7 @@ describe("orientation-reversing projection", () => {
   );
   const outer = ccwRing(10);
   const props = { height: 5 };
-  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) };
+  const opts = { height: (f: GlyphMapVectorFeature) => Number(f.properties?.height ?? 0) * WORLD_UNIT_M };
 
   it("faces the cap toward the camera even though the projection flips handedness", () => {
     const ccw = render(glyphMapVectorPolygons([feature([[outer]])], mirrored), 0);

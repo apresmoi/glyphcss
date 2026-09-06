@@ -11,6 +11,10 @@ function stubProjection(opts: {
 }): GlyphMapProjection {
   return {
     id: opts.id,
+    // These stubs' own `project` ignores elevation entirely, so the relief
+    // scale is only here to satisfy the interface — `1` (true scale) is the
+    // neutral value.
+    exaggeration: 1,
     domain: opts.domain,
     project: opts.project,
     unproject() {
@@ -372,6 +376,7 @@ describe("glyphMapProjectionTransition — unwrap continuity, placement, croppin
     // would not.
     const notASphere: GlyphMapProjection = {
       id: "not-a-sphere",
+      exaggeration: 1,
       domain: { west: -180, east: 180, south: -90, north: 90 },
       project: (lon, lat) => {
         const latR = (lat * Math.PI) / 180;

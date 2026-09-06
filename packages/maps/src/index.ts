@@ -47,6 +47,7 @@ export {
   glyphMapGlobe,
   glyphMapMercator,
   glyphMapOrthographic,
+  glyphMapTrueScaleElevation,
 } from "./projection";
 export type { GlyphMapD3RawOptions, GlyphMapD3RawProjection, GlyphMapProjection } from "./projection";
 export { glyphMapProjectionTransition } from "./transition";

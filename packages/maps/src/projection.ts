@@ -35,6 +35,26 @@ export interface GlyphMapProjection {
   readonly id: string;
   /** DEGREES in. Returns `[NaN, NaN, NaN]` when `(lon, lat)` is outside this projection's valid window. */
   project(lon: number, lat: number, elev: number): Vec3;
+  /**
+   * The relief scale this projection multiplies every `elev` by — `1` is
+   * true-scale relief, `/maps`' own default of `24` makes terrain legible at
+   * planet scale (Everest is 0.14% of Earth's radius, so true scale is
+   * invisible there).
+   *
+   * READABLE, not merely a constructor option, because exaggeration is a
+   * TERRAIN concept and not every vertical quantity is terrain. A structure's
+   * height is a real measured metre count that must render at true scale
+   * whatever the relief around it is doing (see
+   * {@link glyphMapTrueScaleElevation} and `glyphMapVectorMesh`'s extrusion
+   * height), and there is no way to put a true-metre quantity onto this
+   * projection's exaggerated elevation axis without knowing this number:
+   * `project` is the package's ONE elevation conversion (AGENTS.md, "every
+   * projection treats elevation the same way"), and the world-units-per-metre
+   * it implies is not recoverable from its output — `X`/`Y` are degrees for a
+   * sheet and Earth radii for the globe, so no probe of `project` can tell a
+   * caller how much of the `Z` it returns was exaggeration.
+   */
+  readonly exaggeration: number;
   /** Inverse of the `(x, y)` plane position. Elevation is not round-tripped — a projection's `z` axis is one-way relief, never re-derived from world space. */
   unproject(p: Vec3): readonly [lon: number, lat: number];
   readonly domain: GlyphMapBounds;
@@ -88,6 +108,31 @@ function reliefZ(elev: number, exaggeration: number): number {
 }
 
 /**
+ * A TRUE-METRE vertical quantity expressed on `projection`'s own (exaggerated)
+ * elevation axis — the value to hand `project()` so the result is displaced by
+ * `metres` of REAL height, whatever the terrain's exaggeration is.
+ *
+ * Exaggeration is a terrain concept: it exists so a 8,849 m mountain is
+ * visible against a 6,371 km radius. A measured structure height is not that
+ * kind of quantity, and inheriting the terrain's factor draws a 20 m building
+ * 480 m tall at `/maps`' default. Dividing here is exact rather than
+ * approximate because every projection in this file is affine in `elev`
+ * (`reliefZ` is one multiply), so `project(lon, lat, base + metres / exag)` is
+ * `project(lon, lat, base)` displaced along that projection's own local up by
+ * exactly `metres / EARTH_RADIUS_M` world units.
+ *
+ * `exaggeration: 0` (relief switched off entirely) is the one singular case:
+ * that axis has collapsed, so there is no elevation at all to express a true
+ * metre on and the metres pass through unchanged — projecting to the same
+ * flat `Z` the terrain got, which is what a caller asking for no relief
+ * already gets today for BOTH quantities.
+ */
+export function glyphMapTrueScaleElevation(metres: number, projection: GlyphMapProjection): number {
+  const { exaggeration } = projection;
+  return exaggeration !== 0 && Number.isFinite(exaggeration) ? metres / exaggeration : metres;
+}
+
+/**
  * Unrolled lon/lat plane, no projection math at all — "unbounded" (§7): every
  * `(lon, lat)` is valid, including past ±180°/±90° (a caller normalizes if it
  * cares). World frame (documented, not incidental — MAPS.md §7's "the world
@@ -109,6 +154,7 @@ export function glyphMapEquirectangular(opts: { exaggeration?: number } = {}): G
   const exaggeration = opts.exaggeration ?? 1;
   return {
     id: "glyph-map-equirectangular",
+    exaggeration,
     domain: FULL_DOMAIN,
     project(lon, lat, elev) {
       return [-lat, lon, reliefZ(elev, exaggeration)];
@@ -136,6 +182,7 @@ export function glyphMapMercator(opts: { maxLat?: number; exaggeration?: number 
   const exaggeration = opts.exaggeration ?? 1;
   return {
     id: "glyph-map-mercator",
+    exaggeration,
     domain: { west: -180, east: 180, south: -maxLat, north: maxLat },
     project(lon, lat, elev) {
       if (lat < -maxLat || lat > maxLat) return [NaN, NaN, NaN];
@@ -185,6 +232,7 @@ export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } =
   const exaggeration = opts.exaggeration ?? 1;
   return {
     id: "glyph-map-globe",
+    exaggeration,
     domain: FULL_DOMAIN,
     project(lon, lat, elev) {
       const latR = lat * DEG;
@@ -291,6 +339,7 @@ export function glyphMapOrthographic(opts: { lon0?: number; lat0?: number; exagg
   const domainEast = ((lon0 + 90 + 540) % 360) - 180;
   return {
     id: "glyph-map-orthographic",
+    exaggeration,
     domain: {
       west: domainWest > domainEast ? -180 : domainWest,
       east: domainWest > domainEast ? 180 : domainEast,
@@ -359,6 +408,7 @@ export function glyphMapFromD3Raw(raw: GlyphMapD3RawProjection, opts: GlyphMapD3
   const exaggeration = opts.exaggeration ?? 1;
   return {
     id,
+    exaggeration,
     domain,
     project(lon, lat, elev) {
       const [x, y] = raw(lon * DEG, lat * DEG);
