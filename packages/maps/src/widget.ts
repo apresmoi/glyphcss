@@ -61,7 +61,7 @@ import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
 import { glyphMapPolygons } from "./mesh";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
-import { glyphMapDegreesPerCell, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
+import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
 import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
@@ -264,6 +264,27 @@ function isGlyphMapVectorProvider(source: GlyphMapVectorSource): source is Glyph
 }
 
 /**
+ * Selects which of a layer's source features it renders — applied AFTER
+ * `sourceLayer` (and instead of it for a static
+ * {@link GlyphMapVectorFeatureCollection}, which has no source-layer
+ * grouping to name). Omitted = every feature, byte-identical to before this
+ * option existed.
+ *
+ * A real vector-tile schema does not ship one source layer per cartographic
+ * layer. The Protomaps basemap (`vector/protomaps.ts`) carries motorways,
+ * footpaths and railways in ONE `roads` layer discriminated by a `kind`
+ * property, and rivers (lines) alongside lakes (polygons) in ONE `water`
+ * layer. `sourceLayer` can say "roads"; only this can say "motorways", or
+ * "the line half of water".
+ *
+ * A predicate rather than a declarative match spec because the alternative —
+ * pre-splitting the features into one collection per rendered layer — is
+ * impossible for a PROVIDER-backed source, whose tiles arrive after mount and
+ * are re-fetched as the view moves.
+ */
+export type GlyphMapFeatureFilter = (feature: GlyphMapVectorFeature) => boolean;
+
+/**
  * A stroke layer (MAPS.md §13 slice 5): country/subdivision borders, roads,
  * rivers, routes. `source` mirrors `GlyphMapRasterLayer.source`'s
  * static-vs-provider split — a single in-memory `GlyphMapVectorFeatureCollection`
@@ -279,6 +300,8 @@ export interface GlyphMapLineLayer {
   readonly source: GlyphMapVectorSource;
   /** Named vector-tile source layer (for example Protomaps `roads`). Omit to consume every source layer. */
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string;
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
@@ -463,6 +486,8 @@ export interface GlyphMapContourLayer {
 export interface GlyphMapFillLayer {
   readonly type: "fill"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string; readonly colorProperty?: string; readonly colors?: Readonly<Record<string, string>>; readonly density?: number;
   /**
    * Per-layer render mode — this layer's mounted mesh(es) rasterize under
@@ -497,11 +522,15 @@ export interface GlyphMapFillLayer {
 export interface GlyphMapSymbolLayer {
   readonly type: "symbol"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly textProperty?: string; readonly priorityProperty?: string; readonly minPriority?: number; readonly color?: string; readonly density?: number;
 }
 export interface GlyphMapCircleLayer {
   readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly radius?: number; readonly radiusProperty?: string; readonly color?: string; readonly density?: number;
   /**
    * Output radius in CSS pixels per unit of {@link radiusProperty} (default
@@ -521,6 +550,8 @@ export interface GlyphMapCircleLayer {
 export interface GlyphMapHeatmapLayer {
   readonly type: "heatmap"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly radius?: number; readonly weightProperty?: string; readonly colors?: readonly string[]; readonly density?: number; readonly bounds?: GlyphMapBounds;
   /**
    * Relief height in METRES at full (normalized `1`) density — the layer's
@@ -605,6 +636,8 @@ const GLYPH_MAP_HEATMAP_SURFACE_LIFT_M = 10;
 export interface GlyphMapFillExtrusionLayer {
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
+  /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
+  readonly filter?: GlyphMapFeatureFilter;
   readonly heightProperty?: string; readonly baseProperty?: string; readonly height?: number; readonly color?: string; readonly density?: number;
   /**
    * Metres of extrusion per unit of {@link heightProperty} (default `1`, i.e.
@@ -1902,15 +1935,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { west, east, south: Math.max(-90, south), north: Math.min(90, north) };
   }
 
-  function candidateTileRange(level: GlyphMapProviderZoomLevel, padCells: number): { readonly x0: number; readonly x1: number; readonly y0: number; readonly y1: number } {
+  function candidateTileRange(
+    level: GlyphMapProviderZoomLevel,
+    padCells: number,
+    /**
+     * The provider's own addressing, defaulting to this package's
+     * equal-angle one. Passing the raw geographic WINDOW (rather than a
+     * pre-clamped `level.bounds`) is what lets a Mercator provider keep the
+     * latitude restriction on an antimeridian-crossing view: the
+     * equal-angle strategy's rule of dropping such a window to "sweep
+     * everything" is survivable at a curated z7 and catastrophic at a
+     * hosted z12, so that rule now lives inside the strategy that owns it
+     * rather than out here. `glyphMapEqualAngleTileRange` applies it
+     * verbatim, so this path is unchanged for every baked pyramid.
+     */
+    toRange: GlyphMapTileRangeStrategy = glyphMapEqualAngleTileRange,
+  ): GlyphMapTileIndexRange {
     const geoBounds = orbitCandidateGeoBounds(padCells);
     if (geoBounds) {
       const west = geoBounds.west - level.tileLonSpan * (padCells + 1);
       const east = geoBounds.east + level.tileLonSpan * (padCells + 1);
       const south = Math.max(-90, geoBounds.south - level.tileLatSpan * (padCells + 1));
       const north = Math.min(90, geoBounds.north + level.tileLatSpan * (padCells + 1));
-      const bounds = west >= -180 && east <= 180 ? { west, east, south, north } : undefined;
-      return glyphMapTileRangeForLevel({ ...level, bounds });
+      return toRange(level, { west, east, south, north });
     }
     const [centerLon, centerLat] = view.center;
     // Slack beyond the view's own lon/lat box: a few tile-widths (absorbs
@@ -1929,8 +1976,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const east = centerLon + halfLonSpan;
     const south = Math.max(-90, centerLat - halfLatSpan);
     const north = Math.min(90, centerLat + halfLatSpan);
-    const bounds = west >= -180 && east <= 180 ? { west, east, south, north } : undefined;
-    return glyphMapTileRangeForLevel({ ...level, bounds });
+    return toRange(level, { west, east, south, north });
   }
 
   /**
@@ -3062,6 +3108,37 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
+  /**
+   * One vector tile, or `null` if it could not be loaded.
+   *
+   * A frame's sweep awaits a `Promise.all` over EVERY missing tile in the
+   * visible set, so a single rejection would reject the whole batch: the
+   * tiles that arrived fine are dropped on the floor, `activeFeatures` is
+   * never assigned, and — because `addLayer`/`scheduleTileUpdate` fire these
+   * updates without a `catch` — the rejection escapes as an unhandled one.
+   * That is one region with no data this frame turning into a blank layer
+   * plus a console error, which is exactly what "degrade quietly" forbids.
+   *
+   * A local network is not the only way in: the shipped
+   * {@link import("./vector/openfreemap").glyphMapOpenFreeMapProvider}
+   * resolves empty rather than rejecting, but a provider is a public
+   * interface and a caller's own (the website's baked-tile reader among
+   * them) may well throw on a 404.
+   */
+  async function loadVectorTileSafely(
+    provider: GlyphMapVectorProvider,
+    z: number,
+    x: number,
+    y: number,
+  ): Promise<import("./vector/types").GlyphMapVectorTile | null> {
+    try {
+      return await provider.loadTile(z, x, y);
+    } catch (err) {
+      console.warn(`[glyphcss/maps] vector tile ${z}/${x}/${y} from '${provider.id}' failed to load; rendering without it:`, err);
+      return null;
+    }
+  }
+
   // ── Stroke layers (`line`/`contour`) — post-raster CellGrid stamping,
   // composed into ONE `transformCells` hook rather than mesh mounting. See
   // `stroke.ts`'s doc for the mechanism and the depth contract. ───────────
@@ -3092,7 +3169,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const desired = new Set<string>();
         const grid = projectionGrid();
         const geoSamples = viewportGeoSamples(padCells, grid);
-        const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+        // The PROVIDER's addressing — Mercator for a hosted OSM pyramid,
+        // this package's equal-angle grid for a baked one. See
+        // `candidateTileRange`'s `toRange` parameter.
+        const { x0, x1, y0, y1 } = candidateTileRange(level, padCells, provider.tileRange);
         for (let y = y0; y <= y1; y++) {
           for (let x = x0; x <= x1; x++) {
             if (isBoundsVisible(provider.bounds(lod, x, y), padCells, grid, geoSamples)) desired.add(`${lod}/${x}_${y}`);
@@ -3104,7 +3184,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           await Promise.all(missing.map(async (key) => {
             const [zStr, xy] = key.split("/");
             const [xStr, yStr] = xy.split("_");
-            tileCache.set(key, await provider.loadTile(Number(zStr), Number(xStr), Number(yStr)));
+            const tile = await loadVectorTileSafely(provider, Number(zStr), Number(xStr), Number(yStr));
+            if (tile) tileCache.set(key, tile);
           }));
           if (disposed) return;
         }
@@ -3112,7 +3193,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         for (const key of desired) {
           const tile = tileCache.get(key);
           if (!tile) continue;
-          for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...list);
+          for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
         }
         activeFeatures = feats;
         scene.rerender();
@@ -3129,7 +3210,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (isGlyphMapVectorProvider(layer.source)) {
         await updateProvider(layer.source);
       } else {
-        staticFeatures = layer.source.features;
+        staticFeatures = layer.filter ? layer.source.features.filter(layer.filter) : layer.source.features;
         scene.rerender();
       }
     }
@@ -3456,11 +3537,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     rebuild: (features: readonly GlyphMapVectorFeature[]) => void,
     padCells = 2,
     sourceLayer?: string,
+    filter?: GlyphMapFeatureFilter,
   ): FeatureLayerRuntime {
     const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let disposed = false;
     async function update(): Promise<void> {
-      if (!isGlyphMapVectorProvider(source)) { rebuild(source.features); return; }
+      if (!isGlyphMapVectorProvider(source)) { rebuild(filter ? source.features.filter(filter) : source.features); return; }
       // `getView()`, not raw `view` — see the raster runtime's own
       // `updateProvider` doc for why.
       const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
@@ -3469,17 +3551,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const desired: string[] = [];
       const grid = projectionGrid();
       const geoSamples = viewportGeoSamples(padCells, grid);
-      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+      // The provider's OWN addressing — a Mercator-addressed hosted pyramid
+      // indexes `y` through a `log(tan)`, not through latitude directly.
+      // Everything else in this sweep is already addressing-agnostic:
+      // `isBoundsVisible` asks `source.bounds`, and the cache key, the
+      // in-flight guard and the debounce treat `z/x_y` as opaque.
+      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells, source.tileRange);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         if (isBoundsVisible(source.bounds(lod, x, y), padCells, grid, geoSamples)) desired.push(`${lod}/${x}_${y}`);
       }
       if (!desired.length) desired.push(`${lod}/0_0`);
       await Promise.all(desired.filter((key) => !cache.has(key)).map(async (key) => {
         const [z, xy] = key.split("/"), [x, y] = xy.split("_");
-        cache.set(key, await source.loadTile(+z, +x, +y));
+        const tile = await loadVectorTileSafely(source, +z, +x, +y);
+        if (tile) cache.set(key, tile);
       }));
       if (disposed) return;
-      rebuild(desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features)));
+      const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
+      rebuild(filter ? selected.filter(filter) : selected);
     }
     return { update, dispose() { disposed = true; cache.clear(); rebuild([]); } };
   }
@@ -3579,7 +3668,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
       if (nearSide) culledAt = cameraCullKey();
       scene.rerender();
-    }, 2, layer.sourceLayer);
+    }, 2, layer.sourceLayer, layer.filter);
     nearSideSyncs.add(syncWalls);
     return {
       update: runtime.update,
@@ -3636,7 +3725,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
       nearSideSyncs.add(sync); sync();
-    }, 2, layer.sourceLayer);
+    }, 2, layer.sourceLayer, layer.filter);
     return { update: runtime.update, dispose() { runtime.dispose(); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
   }
 
@@ -3800,7 +3889,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         meshTransform(layer),
       );
       scene.rerender();
-    }, 2, layer.sourceLayer);
+    }, 2, layer.sourceLayer, layer.filter);
     return {
       async update(): Promise<void> { await terrain.resolve(); await runtime.update(); },
       dispose() { runtime.dispose(); handle?.dispose(); handle = null; },

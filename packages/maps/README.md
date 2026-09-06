@@ -589,6 +589,75 @@ gitignored. Review fixture size before committing and keep committed extracts
 to a few megabytes total. This uses the downloadable ODbL basemap, not the
 hosted Protomaps API.
 
+### The Protomaps basemap schema
+
+`glyphMapPMTilesProvider` reads an archive; `glyphMapProtomapsExtract` turns
+one into layers. The basemap's nine source layers are not map layers — `roads`
+holds motorways, footpaths and railways together under a `kind` property, and
+`water` holds rivers as lines beside lakes as polygons — so the mapping is
+`(source layer, kind, geometry) → layer type`, with both discriminators
+exposed.
+
+```ts
+import {
+  glyphMapPMTilesBufferSource,
+  glyphMapProtomapsExtract,
+  glyphMapProtomapsLayers,
+} from "@glyphcss/maps";
+
+const bytes = await (await fetch("/data/osm/zurich-z12.pmtiles")).arrayBuffer();
+const extract = await glyphMapProtomapsExtract(glyphMapPMTilesBufferSource(bytes));
+
+extract.bounds;       // the archive header's own bbox — outside it there is no data
+extract.kinds.roads;  // ["ferry", "highway", "major_road", "minor_road", "path", "rail"]
+
+for (const layer of glyphMapProtomapsLayers(extract, {
+  include: ["osm-roads", "osm-water", "osm-waterway", "osm-buildings"],
+  kinds: { roads: ["highway", "major_road"] },   // narrow a source layer by `kind`
+})) {
+  map.addLayer(layer);
+}
+map.getAttributions();  // [{ name: "OpenStreetMap contributors", license: "ODbL" }, ...]
+```
+
+| spec id | source layer | layer type | selects |
+|---|---|---|---|
+| `osm-earth` | `earth` | `fill` | polygons |
+| `osm-landuse` | `landuse` | `fill` | polygons |
+| `osm-water` | `water` | `fill` | polygons (lakes, basins) |
+| `osm-waterway` | `water` | `line` | lines (rivers, canals) |
+| `osm-roads` | `roads` | `line` | lines |
+| `osm-buildings` | `buildings` | `fill-extrusion` | polygons, extruded on `height` |
+| `osm-boundaries` | `boundaries` | `line` | lines |
+| `osm-places` | `places` | `symbol` | points, labelled by `name` |
+| `osm-pois` | `pois` | `circle` | points |
+
+An archive is read as an EXTRACT — one `GlyphMapVectorFeatureCollection` per
+source layer, decoded once up front — not mounted as a `GlyphMapVectorProvider`.
+PMTiles is Web Mercator addressed while every pyramid `createGlyphMap` sweeps
+is equal-angle addressed, and an extract is a handful of tiles at one zoom, so
+there is no LOD ladder for a provider to select across. `maxTiles` (default 64)
+refuses an archive whose bbox is too large to hold in memory.
+
+Attribution rides on every collection, so mounting an OSM layer credits
+OpenStreetMap through `map.getAttributions()` and removing it withdraws the
+credit — no page ever hardcodes the string.
+
+### Filtering a layer's features
+
+Every vector-source layer takes `filter`, applied after `sourceLayer`:
+
+```ts
+map.addLayer({
+  type: "line",
+  source: extract.sources.roads,
+  filter: (f) => f.properties?.kind === "highway",
+});
+```
+
+It is a predicate rather than a match spec because a provider-backed source's
+tiles arrive after mount, so a caller cannot pre-split them.
+
 ## Real-sun lighting
 
 `glyphMapSubsolarPoint(date)` is the pure, clock-free solar position — the

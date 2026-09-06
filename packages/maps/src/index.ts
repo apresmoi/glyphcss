@@ -22,7 +22,7 @@ export type {
   GlyphMapUpsample,
   GlyphMapView,
 } from "./types";
-export { glyphMapDedupeAttributions, GLYPH_MAP_PROTOMAPS_ATTRIBUTION } from "./attribution";
+export { glyphMapDedupeAttributions, GLYPH_MAP_OPENFREEMAP_ATTRIBUTION, GLYPH_MAP_PROTOMAPS_ATTRIBUTION } from "./attribution";
 
 export { glyphMapBounds, viewBounds } from "./view";
 export { sampleGlyphMapField, glyphMapSamplerId, glyphMapFieldValueAt } from "./sample";
@@ -56,8 +56,8 @@ export type { GlyphMapGeoTile, GlyphMapGeoTileInt16Meta } from "./tile";
 export { glyphMapPolygons } from "./mesh";
 export type { GlyphMapPolygonsOptions } from "./mesh";
 
-export { glyphMapDegreesPerCell, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
-export type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
+export { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
+export type { GlyphMapProvider, GlyphMapProviderZoomLevel, GlyphMapTileIndexRange, GlyphMapTileRangeStrategy } from "./provider";
 export { glyphMapCuratedProvider } from "./curated";
 export type { GlyphMapCuratedRasterTiles } from "./curated";
 
@@ -81,8 +81,52 @@ export {
 export { glyphMapBuildVectorTile, glyphMapDecodeVectorTile, glyphMapVectorTileBounds } from "./vector/tile";
 export type { GlyphMapVectorWireFeature, GlyphMapVectorWireTile } from "./vector/tile";
 export { glyphMapCuratedVectorProvider } from "./vector/curated";
-export { glyphMapDecodeMVT, glyphMapPMTilesProvider } from "./vector/pmtiles";
-export type { GlyphMapPMTilesOptions } from "./vector/pmtiles";
+export {
+  GLYPH_MAP_MERCATOR_MAX_LAT,
+  glyphMapMercatorTileBounds,
+  glyphMapMercatorTileIndex,
+  glyphMapMercatorTileRange,
+  glyphMapMercatorZooms,
+} from "./vector/mercator";
+export {
+  GLYPH_MAP_OPENFREEMAP_MAX_ZOOM,
+  GLYPH_MAP_OPENFREEMAP_MIN_ZOOM,
+  GLYPH_MAP_OPENFREEMAP_TILE_URL,
+  glyphMapOpenFreeMapProvider,
+} from "./vector/openfreemap";
+export type { GlyphMapOpenFreeMapOptions } from "./vector/openfreemap";
+export {
+  GLYPH_MAP_OPENMAPTILES_LAYERS,
+  GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
+  glyphMapOpenMapTilesAdminLevel,
+  glyphMapOpenMapTilesClass,
+  glyphMapOpenMapTilesFeatureFilter,
+  glyphMapOpenMapTilesLayers,
+} from "./vector/openmaptiles";
+export type {
+  GlyphMapOpenMapTilesFeatureFilterOptions,
+  GlyphMapOpenMapTilesLayerSpec,
+  GlyphMapOpenMapTilesLayersOptions,
+  GlyphMapOpenMapTilesSourceLayer,
+} from "./vector/openmaptiles";
+export { glyphMapDecodeMVT, glyphMapPMTilesBufferSource, glyphMapPMTilesProvider } from "./vector/pmtiles";
+export type { GlyphMapPMTilesOptions, GlyphMapPMTilesProvider, GlyphMapPMTilesReader } from "./vector/pmtiles";
+export {
+  GLYPH_MAP_PROTOMAPS_LAYERS,
+  GLYPH_MAP_PROTOMAPS_SOURCE_LAYERS,
+  glyphMapProtomapsExtract,
+  glyphMapProtomapsFeatureFilter,
+  glyphMapProtomapsKind,
+  glyphMapProtomapsLayers,
+} from "./vector/protomaps";
+export type {
+  GlyphMapProtomapsExtract,
+  GlyphMapProtomapsExtractOptions,
+  GlyphMapProtomapsFeatureFilterOptions,
+  GlyphMapProtomapsLayerSpec,
+  GlyphMapProtomapsLayersOptions,
+  GlyphMapProtomapsSourceLayer,
+} from "./vector/protomaps";
 export type { GlyphMapCuratedVectorTiles } from "./vector/curated";
 export type {
   GlyphMapVectorFeature,
@@ -142,6 +186,7 @@ export type {
   GlyphMapCircleLayer,
   GlyphMapEvent,
   GlyphMapEventHandler,
+  GlyphMapFeatureFilter,
   GlyphMapFlyToOptions,
   GlyphMapFlyToTarget,
   GlyphMapHandle,

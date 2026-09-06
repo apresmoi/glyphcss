@@ -1,7 +1,7 @@
 import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { PMTiles, type Source } from "pmtiles";
-import type { GlyphMapAttribution } from "../types";
+import type { GlyphMapAttribution, GlyphMapBounds } from "../types";
 import { GLYPH_MAP_PROTOMAPS_ATTRIBUTION } from "../attribution";
 import type { GlyphMapProviderZoomLevel } from "../provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorTile } from "./types";
@@ -14,9 +14,50 @@ export interface GlyphMapPMTilesOptions {
   readonly tileResolution?: number;
 }
 
-interface PMTilesReader {
-  getHeader(): Promise<{ minZoom: number; maxZoom: number }>;
+/**
+ * The slice of `PMTiles` this package actually uses. Declared structurally so
+ * a test (or a caller with its own cache/transport) can inject a stand-in
+ * without constructing a real archive.
+ *
+ * `getHeader` returns the PMTiles v3 header's own declared EXTENT alongside
+ * the zoom range. A `.pmtiles` file is very often a regional extract rather
+ * than a world pyramid — the vendored Zurich fixture covers ~4 km at one
+ * zoom — and that box is the only honest answer to "where does this archive
+ * have data", so it is read from the archive instead of being configured by
+ * a caller who would have to keep it in sync by hand.
+ */
+export interface GlyphMapPMTilesReader {
+  getHeader(): Promise<{
+    minZoom: number;
+    maxZoom: number;
+    minLon?: number;
+    minLat?: number;
+    maxLon?: number;
+    maxLat?: number;
+  }>;
   getZxy(z: number, x: number, y: number): Promise<{ data: ArrayBuffer } | undefined>;
+}
+
+/**
+ * A pmtiles `Source` over bytes ALREADY in memory — the shipped path for a
+ * small vendored archive, and the one this package's tests use.
+ *
+ * `new PMTiles(url)` reads an archive by HTTP RANGE request, which is the
+ * right transport for a large hosted pyramid and the wrong one for a 150 KB
+ * extract that is smaller than the round-trips it would take to page in:
+ * range requests also need the host to honour them, which a bundler dev
+ * server or a `file://` page may not. Reading the whole archive once and
+ * serving `getBytes` out of the buffer removes both concerns, and is exactly
+ * what {@link glyphMapProtomapsExtract} does on the website.
+ */
+export function glyphMapPMTilesBufferSource(bytes: ArrayBuffer | Uint8Array, key = "pmtiles:buffer"): Source {
+  const buffer = bytes instanceof Uint8Array
+    ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    : bytes;
+  return {
+    getKey: () => key,
+    getBytes: async (offset: number, length: number) => ({ data: buffer.slice(offset, offset + length) }),
+  };
 }
 
 function tileBounds(z: number, x: number, y: number) {
@@ -77,9 +118,25 @@ export function glyphMapDecodeMVT(data: ArrayBuffer | Uint8Array, z: number, x: 
   return out;
 }
 
+/**
+ * A {@link GlyphMapVectorProvider} over one PMTiles archive, plus the
+ * archive's own declared {@link GlyphMapPMTilesProvider.extent}.
+ *
+ * NOTE the addressing: `z/x/y` here is WEB MERCATOR, as PMTiles is — NOT the
+ * equal-angle quadtree the rest of this package's pyramids (and therefore
+ * `createGlyphMap`'s tile sweep) use. The two disagree in `y` at any
+ * meaningful zoom. Read an archive through {@link
+ * import("./protomaps").glyphMapProtomapsExtract} to mount it on a widget;
+ * this provider is the raw archive reader beneath it.
+ */
+export interface GlyphMapPMTilesProvider extends GlyphMapVectorProvider {
+  /** The header's own bbox — where this archive has data — or `null` if it declares none. */
+  readonly extent: GlyphMapBounds | null;
+}
+
 /** Adapt a local/static PMTiles archive (URL, File-backed Source, or injected reader) to the existing vector-provider contract. */
-export async function glyphMapPMTilesProvider(source: string | Source | PMTilesReader, opts: GlyphMapPMTilesOptions = {}): Promise<GlyphMapVectorProvider> {
-  const archive: PMTilesReader = typeof source === "string" || "getBytes" in source ? new PMTiles(source as string | Source) : source;
+export async function glyphMapPMTilesProvider(source: string | Source | GlyphMapPMTilesReader, opts: GlyphMapPMTilesOptions = {}): Promise<GlyphMapPMTilesProvider> {
+  const archive: GlyphMapPMTilesReader = typeof source === "string" || "getBytes" in source ? new PMTiles(source as string | Source) : source;
   const header = await archive.getHeader();
   const tileResolution = opts.tileResolution ?? 4096;
   const zooms: GlyphMapProviderZoomLevel[] = [];
@@ -88,10 +145,16 @@ export async function glyphMapPMTilesProvider(source: string | Source | PMTilesR
     zooms.push({ z, cols: n, rows: n, tileLonSpan: 360 / n, tileLatSpan: 170.10225756 / n, tileCols: tileResolution, tileRows: tileResolution });
   }
   const attribution = opts.attribution ?? GLYPH_MAP_PROTOMAPS_ATTRIBUTION;
+  const { minLon, minLat, maxLon, maxLat } = header;
+  const extent = [minLon, minLat, maxLon, maxLat].every((v) => typeof v === "number" && Number.isFinite(v))
+    && (minLon as number) < (maxLon as number) && (minLat as number) < (maxLat as number)
+    ? { west: minLon as number, south: minLat as number, east: maxLon as number, north: maxLat as number }
+    : null;
   return {
     id: opts.id ?? "protomaps-pmtiles",
     zooms,
     attribution,
+    extent,
     bounds: tileBounds,
     async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
       const response = await archive.getZxy(z, x, y);

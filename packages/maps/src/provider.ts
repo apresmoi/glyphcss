@@ -34,6 +34,46 @@ export interface GlyphMapProviderZoomLevel {
   readonly bounds?: GlyphMapBounds;
 }
 
+/** An inclusive tile-index box a sweep enumerates: `x0..x1` by `y0..y1`. `y1 < y0` (or `x1 < x0`) is the degenerate/empty range. */
+export interface GlyphMapTileIndexRange {
+  readonly x0: number;
+  readonly x1: number;
+  readonly y0: number;
+  readonly y1: number;
+}
+
+/**
+ * How a provider's tile pyramid is ADDRESSED: the view's geographic window
+ * (already padded by the sweep, and possibly reaching outside +/-180 or
+ * +/-90) turned into an index box at one zoom level. `null` means the sweep
+ * could not derive a window at all (nothing on screen unprojects) and the
+ * strategy should answer with whatever it considers "everything".
+ *
+ * This is the ONE piece of the widget's tile sweep that knows about
+ * addressing at all — see `vector/mercator.ts`'s header for why that is
+ * true, and why a second strategy is cheaper than retiling. A provider that
+ * declares none gets {@link glyphMapEqualAngleTileRange}.
+ */
+export type GlyphMapTileRangeStrategy = (
+  level: GlyphMapProviderZoomLevel,
+  window: GlyphMapBounds | null,
+) => GlyphMapTileIndexRange;
+
+/**
+ * The equal-angle strategy every baked pyramid in this package uses — this
+ * package's own addressing, extracted verbatim from `createGlyphMap`'s
+ * `candidateTileRange` so it can sit beside a second one rather than be
+ * assumed. A window needing antimeridian wraparound (`west < -180` or
+ * `east > 180`) is DROPPED to `undefined`, which
+ * {@link glyphMapTileRangeForLevel} already falls back to the full range
+ * for; that rule was the sweep's and is now this strategy's, unchanged.
+ */
+export const glyphMapEqualAngleTileRange: GlyphMapTileRangeStrategy = (level, window) =>
+  glyphMapTileRangeForLevel({
+    ...level,
+    bounds: window && window.west >= -180 && window.east <= 180 ? window : undefined,
+  });
+
 /**
  * The inclusive tile-index range a sweep should enumerate at `level` —
  * `[0, cols-1] x [0, rows-1]` when `level.bounds` is absent, or restricted
@@ -42,7 +82,7 @@ export interface GlyphMapProviderZoomLevel {
  * back to the full range on a degenerate result (an inverted or empty
  * intersection) rather than silently sweeping zero tiles.
  */
-export function glyphMapTileRangeForLevel(level: GlyphMapProviderZoomLevel): { readonly x0: number; readonly x1: number; readonly y0: number; readonly y1: number } {
+export function glyphMapTileRangeForLevel(level: GlyphMapProviderZoomLevel): GlyphMapTileIndexRange {
   const full = { x0: 0, x1: level.cols - 1, y0: 0, y1: level.rows - 1 };
   const b = level.bounds;
   if (!b) return full;

@@ -1,5 +1,5 @@
 import type { GlyphMapAttribution, GlyphMapBounds } from "../types";
-import type { GlyphMapProviderZoomLevel } from "../provider";
+import type { GlyphMapProviderZoomLevel, GlyphMapTileRangeStrategy } from "../provider";
 
 export type { GlyphMapAttribution } from "../types";
 
@@ -76,6 +76,24 @@ export interface GlyphMapVectorProvider {
   readonly attribution?: readonly GlyphMapAttribution[];
   bounds(z: number, x: number, y: number): GlyphMapBounds;
   loadTile(z: number, x: number, y: number): Promise<GlyphMapVectorTile>;
+  /**
+   * OPTIONAL: how this pyramid is ADDRESSED — the view's geographic window
+   * turned into a tile-index box. Absent = this package's own EQUAL-ANGLE
+   * addressing (`glyphMapEqualAngleTileRange`), which every baked pyramid
+   * here uses and which stays byte-identical for them.
+   *
+   * A hosted OSM pyramid (OpenFreeMap, any PMTiles archive, anything
+   * Planetiler or Tippecanoe cut) is WEB MERCATOR and declares
+   * `glyphMapMercatorTileRange` instead. The two indexers disagree in `y` by
+   * hundreds of rows at any real zoom, so without this a sweep requests
+   * tiles the service does not hold and never requests the ones it does —
+   * see `vector/mercator.ts`'s header, and `vector/protomaps.test.ts` for
+   * the measurement that pinned it.
+   *
+   * `createGlyphMap` keys on the PRESENCE of this capability, never on a
+   * provider id, the same rule projections follow.
+   */
+  readonly tileRange?: GlyphMapTileRangeStrategy;
 }
 
 export type GlyphMapVectorSource = GlyphMapVectorFeatureCollection | GlyphMapVectorProvider;
