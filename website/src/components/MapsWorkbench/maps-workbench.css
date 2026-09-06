@@ -572,3 +572,83 @@
   line-height: 1.35;
   color: rgba(255, 232, 184, 0.5);
 }
+
+/* The on-map WALK control — the third of this page's map overlays, matching
+   `.maps-compass` (top right) and `.maps-search` (top centre) in register and
+   in stacking, and taking the bottom-right corner, which is the one corner
+   nothing else claims (`.synth-export-bar` is bottom left, `.maps-attribution`
+   bottom centre). See `MapWalkButton.tsx` for why walk is chrome ON the map
+   rather than a Dock row. */
+.maps-walk {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.maps-walk__toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.maps-walk__toggle:hover:not(:disabled),
+.maps-walk__toggle:focus-visible {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* Greyed, never hidden — the reader is one zoom (or one projection) away, and
+   the reason is on the control's own `title`. Google's pegman greys in exactly
+   the same situation and for exactly the same reason. */
+.maps-walk__toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Live: the same orange the Dock uses for a value that is in force, so the
+   control reads as state rather than as a button that was pressed once. */
+.maps-walk__toggle.is-walking {
+  color: #f97316;
+  border-color: rgba(249, 115, 22, 0.55);
+}
+.maps-walk__label {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+/* The keys, shown only while walking: pointer lock hides the cursor, so
+   nothing else on screen hints at them. */
+.maps-walk__legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  margin: 0;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 5px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 232, 184, 0.7);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.18);
+}
+.maps-walk__legend kbd {
+  font: inherit;
+  padding: 0 4px;
+  color: rgba(255, 232, 184, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.3);
+}
+.maps-walk__budget {
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+}

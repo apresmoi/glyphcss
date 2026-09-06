@@ -2779,7 +2779,15 @@ is the local horizontal, so the view axis is dead ahead. Therefore:
 
 - `tiltRequest`/`appliedTilt` IS the walker's pitch, measured from
   `GLYPH_MAP_WALK_HORIZON_TILT_DEG` (90) and clamped to a NECK
-  (`maxPitch`, 55 deg either side) instead of to the horizon ceiling.
+  (`maxPitch`, 84 deg either side) instead of to the horizon ceiling. 84 is
+  the parthenon's own `FPV_MIN_PITCH = 6` / `FPV_MAX_PITCH = 174` read from
+  the same horizontal (`90 -+ 84` IS `6..174`), and what it protects is the
+  YAW AXIS: at exactly straight up or down the view axis is parallel to the
+  axis a heading turns about, so the heading stops meaning anything. It was
+  55, on the argument that "looking far up puts the true horizon back in
+  shot" — which is backwards, since looking up REMOVES ground from the frame,
+  and which cost a reader standing 20 m from a building the top of anything
+  taller than 28 m.
 - `bearing` IS the walker's heading, unchanged. It keeps the horizon LEVEL by
   construction (`M · u_c = E · u_c` for every bearing) — the one thing a
   walker cannot do without, and exactly what a view-axis roll would destroy.
@@ -2801,6 +2809,94 @@ converts through `glyphMapTrueScaleElevation`, the same exemption a
 `fill-extrusion`'s height takes: the ground a walker stands on is wherever the
 exaggerated relief puts it, and only what is measured up from that ground is
 exempt.
+
+### The lens: why `perspective` is 3.9e-4 CSS pixels, and why that is right
+
+`website/src/pages/examples/parthenon.astro` is this repo's reference FPV, and
+its lens model is a REAL CSS-pixel focal length (`FPV_PERSPECTIVE = 1000`,
+anchored at `FPV_REF_WIDTH = 1060`, floored at 320) scaled with the rendered
+width and re-applied on `resize`, so the horizontal FOV holds across a phone
+and a desktop.
+
+That model cannot be lifted verbatim, and the reason is the unit system, not
+the arithmetic: the parthenon is authored at 1 world unit = 1 METRE while this
+package's world unit is an EARTH RADIUS. glyphcss's CSS-perspective near plane
+is `P / BASE_TILE / 100` WORLD units, so `P = 1000` puts it 1,274 km in front
+of the eye. Measured by substituting exactly that constant into
+`glyphMapWalkLens`: the field of view collapses to **0.02 degrees** and the
+near plane goes past 10 m — the whole planet is clipped.
+
+Solved in the map's own units the same lens is
+`P = 0.5 / 6371000 * 50 / 0.01 = 3.9240e-4` CSS pixels at the default entry
+(Zurich, globe, 140x63 at 8x16 px cells). That number looks broken and is not:
+measured through the REAL `project()` — bisecting for the off-axis angle whose
+ray lands on the last column — it produces **exactly 70.000 degrees** of
+horizontal field of view, which is `GLYPH_MAP_WALK_FOV_DEG`, with the near
+plane at 0.500 m.
+
+What DOES carry over from the parthenon is the invariant rather than the
+constant. Solving `zoom` from `viewportWidthPx` holds the FOV across every
+rendered width exactly, where `fpvPerspective()` holds it approximately — but
+the parthenon's other half, **re-applying it on resize**, was genuinely
+missing and was the reported "the FOV is super wrong". `/maps` never calls
+`map.resize()` at all: the scene's own `autoSize` observer re-fits the grid
+underneath the widget, so a reader who resized a window, rotated a phone or
+opened a devtools pane while walking kept a lens cut for the old width, in
+direct proportion. Measured at a third of the width: **26.3 degrees where 70
+was asked for.** The widget now owns a `ResizeObserver` on the host for the
+duration of a walk and nothing else — constructed on entry, disconnected on
+exit and on `destroy`, so a map that never walks observes nothing.
+
+### Steering: the eye used to swing 70 m when you turned your head
+
+The second reported defect ("it cannot be steered") was one number. The eye
+sits `P / BASE_TILE` world units BEHIND `camera.target` — at the default lens,
+**50 metres** — and a heading change used to install a bearing matrix and
+nothing else (`applyBearingState` -> `syncCameraBearing`). So the view axis
+turned about a target that stayed put and the EYE orbited it on a 50 m circle.
+Measured at Zurich on the shipped build: a **4 degree turn (five pixels of the
+old 0.8 deg/px drag rate) slid the walker 3.49 m** sideways through the world,
+and a quarter turn slid them **70.7 m**, while `view.center` — where the map
+believes they stand, and where `refreshWalkGround` samples the terrain under
+their feet — did not move at all. One step then re-posed and snapped the eye
+back. `applyBearingState` now re-poses through `poseWalkCamera` while walking
+(the orthographic branch genuinely is matrix-only: it has no eye to move), and
+`widget.walkLook.test.ts` pins the eye to within a centimetre across a full
+turn; removing the re-pose puts 68.17 m back.
+
+On top of that, walk mode had no mouselook at all — it steered through the
+map's own Ctrl/right-drag orient gesture. It now takes the parthenon's control
+model whole:
+
+- **Pointer lock acquired from `pointerdown`, never `click`.** That page found
+  the failure and named it: a per-frame effect layer rewrites the `<pre>`'s
+  coloured spans, so a mousedown landing on a glyph has its target detached
+  before mouseup and the browser never fires `click`. EVERY render in this
+  package rewrites the same `<pre>`, so walk mode inherits it exactly.
+  (`createGlyphFirstPersonControls` still binds `click` internally — the
+  parthenon calls that a good candidate for an upstream fix, and this is the
+  second consumer to route around it.)
+- **Its own look RATE.** `GLYPH_MAP_WALK_LOOK_DEG_PER_PX` is 0.15, which is
+  `createGlyphFirstPersonControls`' own `lookSensitivity` default, not the
+  map's 0.8/0.5 drag rates — those are tuned for a hand holding onto the
+  ground, and at 0.8 deg/px a 5 px twitch was a 4 degree turn.
+- **Drag-to-look for the pointers that cannot lock** (touch, and a refused
+  lock), at the parthenon's own `LOOK_SENS` = 0.24
+  (`GLYPH_MAP_WALK_DRAG_DEG_PER_PX`). A locked mouse stands down in
+  `onPointerMove` so the two models can never both fire on one event.
+
+`createGlyphFirstPersonControls` itself is NOT reused, and the reason is the
+world frame rather than a preference. Its movement integrates
+`cameraOrigin[0] += cos(rotY) * moveSpeed * dt` on the world XY PLANE with a
+fixed `groundZ` — a flat-Earth step in world units. Here a step is a geodesic
+on a sphere whose ground elevation is re-sampled per frame
+(`glyphMapWalkStep` + `refreshWalkGround`), the eye height is a TRUE metre
+converted through `glyphMapTrueScaleElevation`, and the heading is `bearing`
+(a rotation about the pivot's local up, which is what keeps the horizon level)
+rather than `camera.rotY`. Every one of its movement, gravity, crouch and
+jump paths would have to be overridden, leaving only the input plumbing —
+which is the part reproduced above. What IS taken from it is its numbers and
+its shape: the look rate, the pitch clamp, and the pointer-lock model.
 
 ### The horizon is capped at 400 m, and that cap is doing two jobs
 
@@ -2863,14 +2959,33 @@ for free and with no branch.
 
 ### The `/maps` gate, and why it is not about layers
 
-`website/src/components/MapsWorkbench/mapsWalk.ts`, surfaced as a **Walk row
-in the Dock's View folder** — under Tilt and Bearing, because it IS a camera
-mode and it takes both of them over while it is on (Tilt becomes the walker's
-pitch, Bearing their heading), so those two rows stay live and keep meaning
-something. Not a layer card: what a walk RENDERS is whatever is mounted.
+`website/src/components/MapsWorkbench/mapsWalk.ts` owns the gate. It was first
+surfaced as a **Walk row in the Dock's View folder**, under Tilt and Bearing,
+and that placement was rejected outright: "that walk shouldn't be a toggle ...
+it feels stupid as a checkbox". The objection is right and it is the same one
+`MapCompass` answers. Walk is a MODE — the reader stops looking at the map and
+stands in it — and a mode is not a preference ticked beside a slider. Every
+map product that ships one puts it ON the map: Google Maps' pegman sits
+permanently in a corner, greys where the mode cannot be entered, and is an
+ICON rather than a word and a tick.
 
-Two clauses, each dimming the row with its own reason on it rather than
-leaving an inert control — `mapDirectionLocked`'s Azimuth/Elev treatment:
+So the control is `MapWalkButton.tsx`, the third of this page's map overlays
+after `MapCompass` (top right) and `MapSearchBox` (top centre): `position:
+absolute` inside `InstrumentMain`, `z-index: 20`, `pointer-events: auto`,
+covering only its own box, in the bottom-right corner nothing else on the page
+claims. Unlike the compass it is ALWAYS rendered — the compass is FEEDBACK
+about a state the reader created, this is an ENTRANCE, and an entrance nobody
+can find is not one, which was the whole complaint. While walking it becomes
+the way out and carries the keys (`WASD` / `Shift` / `click` / `Esc`, the
+parthenon's own sidebar legend, needed here because pointer lock hides the
+cursor) plus the horizon and tile-budget readout the Dock used to hold. Tilt
+and Bearing stay in the View folder and keep meaning something while walking
+(the walker's pitch and heading), which is what the old placement argument was
+really about.
+
+Two clauses, each disabling the control with its own reason on its `title` and
+`aria-label` rather than leaving an inert one — `mapDirectionLocked`'s
+Azimuth/Elev treatment, and Google's own greyed pegman:
 
 1. **The globe.** A flat sheet puts X/Y in degrees and Z in Earth radii, so
    anything standing up — a 20 m building, a mountain — is drawn 85x too short
@@ -2896,8 +3011,16 @@ street, and `widget.walk.test.ts` pins the climb on a raster-only map.
 The tile cap is not an OpenStreetMap concern either: a ground-level footprint
 reaching the horizon costs the same over a mountain range as over a city, and
 the relief pyramid is swept by the same `view.span`. A terrain walk on this
-page's own curated z7 relief (2.8 deg tiles) is one tile; the Dock's Horizon
-readout quotes the budget at z14, the densest level the page serves.
+page's own curated z7 relief (2.8 deg tiles) is one tile; the walk overlay's
+horizon readout quotes the budget at z14, the densest level the page serves.
+
+Gates: `widget.walk.test.ts` (entry, step, terrain, exit, footprint),
+`widget.walkLens.test.ts` (the FOV the camera actually produces, its
+width-invariance, the resize re-application, the near plane),
+`widget.walkLook.test.ts` (pointer-lock wiring, the look rate, the pitch
+clamp, and the eye that does not move), `mapsWalk.test.ts` (the gate),
+`MapWalkButton.test.tsx` (the overlay and its disabled reason),
+`mapsKit.viewFolder.test.tsx` (the folder must not grow the rows back).
 
 The toggle is NOT part of the URL state: it is a mode a reader steps into and
 back out of, and a shared link that dropped someone at eye height would hide

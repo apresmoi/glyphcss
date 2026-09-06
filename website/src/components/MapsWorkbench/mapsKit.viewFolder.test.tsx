@@ -54,7 +54,6 @@ function baseInputs(over: Partial<ViewFolderInputs> = {}): ViewFolderInputs {
     tilt: 0, maxTilt: 85, bearing: 0,
     isOrbitProjection: true, lod: 3, degPerCell: 0.25,
     onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop,
-    walk: false, onWalk: noop, walkReason: null, walkBudget: "400 m · ≤9 tiles at z14",
     ...over,
   };
 }
@@ -165,62 +164,37 @@ describe("View folder — Bearing", () => {
 });
 
 /**
- * Walk is a CAMERA mode, so it lives here with Tilt and Bearing rather than
- * on a layer card — and it takes those two over while it is on (Tilt becomes
- * the walker's pitch, Bearing their heading), which is the argument for the
- * placement and the reason both rows stay live beside it.
+ * Walk is NOT a row in this folder — and this is where that is held.
  *
- * The property under test is the page's dim-with-a-reason idiom
- * (`mapDirectionLocked`'s Azimuth/Elev rows): an unavailable control says
- * WHY on the row, and is never hidden and never silently inert.
+ * It was one: a `Walk` toggle under Bearing plus a `Horizon` readout, both
+ * dimmed with `mapWalkReason` on the row. The reader rejected the placement
+ * outright ("that walk shouldn't be a toggle ... it feels stupid as a
+ * checkbox"), so the control moved onto the map itself, beside the compass
+ * and the search box, where `MapWalkButton.test.tsx` now holds every property
+ * this describe block used to: that it is always present, that it carries the
+ * gate's reason verbatim when it cannot be entered, that it routes the toggle
+ * back to the page, and that the horizon and its tile budget stay on screen
+ * while walking.
+ *
+ * What is left here is the negative: the folder must not grow the rows back,
+ * and Tilt and Bearing — which a walker genuinely does re-purpose (pitch and
+ * heading) — must still be here beside them.
  */
-describe("View folder — Walk", () => {
-  it("sits with the camera rows, after Bearing", () => {
+describe("View folder — Walk is not here", () => {
+  it("has no Walk row and no Horizon row: a mode is not a setting", () => {
     const host = render(baseInputs());
     const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
-    expect(names).toContain("Walk");
-    expect(names.indexOf("Walk")).toBe(names.indexOf("Bearing °") + 1);
+    expect(names).not.toContain("Walk");
+    expect(names).not.toContain("Horizon");
+    expect(host.querySelectorAll("input[type=checkbox]").length).toBe(0);
   });
 
-  it("is live, with a description, when walk mode is available", () => {
-    const host = render(baseInputs({ walkReason: null }));
-    const walk = row(host, "Walk");
-    expect(walk.classList.contains("disabled")).toBe(false);
-    expect(walk.getAttribute("title") ?? "").toMatch(/eye height/i);
-  });
-
-  it("is DIMMED with the reason on the row when it is not", () => {
-    const reason = "Walk needs the view near the ground: zoom in to about 5.6 km across.";
-    const host = render(baseInputs({ walkReason: reason }));
-    const walk = row(host, "Walk");
-    expect(walk.classList.contains("disabled")).toBe(true);
-    expect(walk.getAttribute("title")).toBe(reason);
-    // Dimmed, not removed: the reader is one zoom away from being able to
-    // walk, and a missing row would read as "this map cannot do that".
-    expect(walk.isConnected).toBe(true);
-  });
-
-  it("goes live again when the reason clears, without a remount", () => {
-    const host = render(baseInputs({ walkReason: "too far out" }));
-    expect(row(host, "Walk").classList.contains("disabled")).toBe(true);
-    act(() => { root!.render(<Harness inputs={baseInputs({ walkReason: null })} />); });
-    expect(row(guiHost!, "Walk").classList.contains("disabled")).toBe(false);
-  });
-
-  it("shows the horizon and its tile cost only while walking", () => {
-    const host = render(baseInputs({ walk: false }));
-    expect(row(host, "Horizon").style.display).toBe("none");
-    act(() => { root!.render(<Harness inputs={baseInputs({ walk: true, walkBudget: "400 m · ≤9 tiles at z14" })} />); });
-    const horizon = row(guiHost!, "Horizon");
-    expect(horizon.style.display).not.toBe("none");
-    expect(horizon.querySelector<HTMLInputElement>(".widget input")!.value).toBe("400 m · ≤9 tiles at z14");
-  });
-
-  it("routes the toggle back to the page", () => {
-    const onWalk = vi.fn();
-    const host = render(baseInputs({ walkReason: null, onWalk }));
-    const box = row(host, "Walk").querySelector<HTMLInputElement>("input[type=checkbox]")!;
-    act(() => { box.click(); });
-    expect(onWalk).toHaveBeenCalledWith(true);
+  it("still carries the two rows a walker re-purposes, in order", () => {
+    const host = render(baseInputs());
+    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
+    expect(names).toContain("Tilt °");
+    expect(names.indexOf("Bearing °")).toBe(names.indexOf("Tilt °") + 1);
+    // LOD closes the folder, where Walk/Horizon used to sit in front of it.
+    expect(names[names.length - 1]).toBe("LOD");
   });
 });

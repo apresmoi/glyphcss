@@ -88,6 +88,7 @@ import { mapWalkBudgetLabel, mapWalkReason } from "./mapsWalk";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
+import { MapWalkButton } from "./MapWalkButton";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
 import {
   MAPS_CONTOUR_WINDOW_OFF,
@@ -551,8 +552,9 @@ export default function MapsWorkbench() {
    * own SCALE are the whole input — not what is mounted: the walker's height
    * comes from `groundElevationSampler`, which answers for any raster layer
    * and gives the datum for none, so walking a bare ridge is the same code
-   * path as walking a street. Recomputed from live state, so the row goes
-   * live and dim as the reader zooms rather than needing a refresh.
+   * path as walking a street. Recomputed from live state, so the on-map
+   * `MapWalkButton` greys and un-greys as the reader zooms rather than
+   * needing a refresh.
    */
   const walkGateReason = mapWalkReason({ projectionId, span });
 
@@ -1561,6 +1563,12 @@ export default function MapsWorkbench() {
           <StatsOverlay anchor="top-left" container={stageHost} />
           <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} />
           <MapCompass tilt={tilt} bearing={bearing} isOrbitProjection={isOrbitProjectionId(projectionId)} onReset={onResetOrientation} />
+          {/* Bottom right, the one map corner nothing else on this page
+              claims — the entrance to street level, always present and
+              greyed with its reason when the view is too high for it.
+              `mapsKit.tsx`'s View folder carries the argument for why it is
+              no longer a Dock row. */}
+          <MapWalkButton walking={walkOn} reason={walkGateReason} budget={mapWalkBudgetLabel()} onToggle={setWalkOn} />
           <div className="synth-export-bar">
             <button type="button" className="gw-code-panel__action" onClick={handleCopyAscii} title="Copy the rendered ASCII map to the clipboard">
               {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
@@ -1618,8 +1626,6 @@ export default function MapsWorkbench() {
             lighting={lighting}
             onUpdateLighting={(partial) => setLighting((l) => ({ ...l, ...partial }))}
             sunMode={sunMode} sunDay={sunDay} sunHour={sunHour} shadows={shadows} onShadows={setShadows}
-            walk={walkOn} onWalk={setWalkOn}
-            walkReason={walkGateReason} walkBudget={mapWalkBudgetLabel()}
             shadowCasterReason={mapShadowCasterReason(extraVisible, showOsm, osmSublayers)}
             onSunMode={(mode) => {
               // Entering manual SEEDS the day/hour from the real clock, so
@@ -1664,11 +1670,6 @@ function MapsDockFolders(props: {
   projectionId: MapProjectionId; onProjectionId: (id: MapProjectionId) => void;
   centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; maxTilt: number; bearing: number; lod: number; degPerCell: number;
   onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void; onBearing: (v: number) => void;
-  walk: boolean; onWalk: (v: boolean) => void;
-  /** {@link mapWalkReason} — why the Walk row is dimmed, or `null` when it is live. */
-  walkReason: string | null;
-  /** {@link mapWalkBudgetLabel} — the walker's horizon and its tile cost, shown only while walking. */
-  walkBudget: string;
   charMode: MapCharMode; charModeReason: string | null;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
   colorEncoding: MapColorEncoding; atlasReason: string | null;
@@ -1690,7 +1691,6 @@ function MapsDockFolders(props: {
     centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt, maxTilt: props.maxTilt, bearing: props.bearing,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
     onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt, onBearing: props.onBearing,
-    walk: props.walk, onWalk: props.onWalk, walkReason: props.walkReason, walkBudget: props.walkBudget,
   });
 
   return (

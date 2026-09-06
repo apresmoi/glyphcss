@@ -31,7 +31,7 @@
  * ## The lens
  *
  * glyphcss's non-`eyeMode` perspective camera is the browser's own CSS
- * `perspective: Npx` math, and two of its knobs are independent:
+ * `perspective: Npx` math, and three of its knobs are entangled:
  *
  * ```
  *   near-plane distance   d_near = P / BASE_TILE / 100   world units
@@ -39,13 +39,36 @@
  *   the eye sits          P / BASE_TILE world units behind camera.target
  * ```
  *
- * `P` alone sets the near plane; the product `zoom * P` alone sets the FOV.
- * So {@link glyphMapWalkLens} solves both from a metre-denominated near
- * plane and a field of view, and the caller never has to think in CSS
- * pixels. Cross-checked against `website/src/pages/examples/parthenon.astro`,
- * a known-good FPV page authored at 1 world unit = 1 m: its `P = 1000,
- * zoom = 50` come back out of this solve as a 0.2 m near plane and a 56 deg
- * FOV, which is what that page's own comment claims.
+ * `P` alone sets the near plane; the product `zoom * P` alone sets the FOV;
+ * and `P` ALSO sets how far in front of the eye `camera.target` has to be
+ * put. So {@link glyphMapWalkLens} solves the first two from a
+ * metre-denominated near plane and a field of view, and the caller never has
+ * to think in CSS pixels — but the third is why a lens change is a POSE
+ * change here, and why every look re-poses (see {@link
+ * GLYPH_MAP_WALK_LOOK_DEG_PER_PX}).
+ *
+ * ## Why `P` is a four-orders-of-magnitude-below-one-pixel number, and right
+ *
+ * `website/src/pages/examples/parthenon.astro` is the reference FPV, and its
+ * lens model is a REAL CSS-pixel focal length (`FPV_PERSPECTIVE = 1000`)
+ * scaled with the rendered width so the horizontal FOV stays put across a
+ * phone and a desktop. That model cannot be lifted verbatim, because the
+ * parthenon is authored at 1 world unit = 1 METRE and this package's world
+ * unit is an EARTH RADIUS: at `P = 1000` the near plane above is
+ * `1000 / 50 / 100 = 0.2` world units, i.e. 1,274 km in front of the eye,
+ * which clips the entire planet.
+ *
+ * Solved in the map's own units the same lens comes out at
+ * `P = 0.5 / 6371000 * 50 / 0.01 = 3.9240e-4` CSS pixels at the default
+ * entry, which looks broken and is not: measured through the real
+ * `project()` it produces exactly {@link GLYPH_MAP_WALK_FOV_DEG} degrees of
+ * horizontal field of view (`widget.walkLens.test.ts` bisects for the
+ * off-axis angle that lands on the last column). What the parthenon's model
+ * DOES carry over is the invariant rather than the constant: the FOV must be
+ * the same on a narrow viewport as on a wide one, and must be re-solved when
+ * the rendered width changes — which is exactly what solving `zoom` from
+ * `viewportWidthPx` gives, and what the widget's own resize observer keeps
+ * true while walking.
  *
  * `BASE_TILE` is deliberately NOT hardcoded here — the widget recovers it by
  * probing the live camera's own `eyeDepth` (which is affine in the world
@@ -112,12 +135,48 @@ export const GLYPH_MAP_WALK_RUN_MULTIPLIER = 4;
 export const GLYPH_MAP_WALK_HORIZON_TILT_DEG = 90;
 
 /**
- * How far above and below the horizontal a walker may look, degrees. A neck,
- * not a gimbal: past this the frame is all sky or all pavement, and looking
- * far up puts the true horizon back in shot, which is exactly what the
- * `far` cap exists to keep out.
+ * How far above and below the horizontal a walker may look, degrees.
+ *
+ * 84 puts the clamp at exactly the parthenon's own `FPV_MIN_PITCH = 6` /
+ * `FPV_MAX_PITCH = 174`, because both are measured from the same horizontal:
+ * that page's `rotX = 90` looks dead ahead and so does
+ * {@link GLYPH_MAP_WALK_HORIZON_TILT_DEG}, so `90 -+ 84` IS `6..174`. What
+ * the bound is actually protecting is the YAW AXIS, not the picture: at
+ * exactly straight up or straight down the view axis is parallel to the axis
+ * a heading rotates about, so the heading stops meaning anything and the
+ * horizon flips through itself. A few degrees short of the pole is the whole
+ * requirement.
+ *
+ * It was 55, on the argument that "looking far up puts the true horizon back
+ * in shot, which is what the `far` cap exists to keep out". That argument is
+ * backwards — looking UP removes ground from the frame, it never adds any —
+ * and the cost was real: at 55 a reader standing 20 m from a building could
+ * not see the top of anything taller than 28 m, which in a city is most of
+ * what they came to look at.
  */
-export const GLYPH_MAP_WALK_MAX_PITCH_DEG = 55;
+export const GLYPH_MAP_WALK_MAX_PITCH_DEG = 84;
+
+/**
+ * Mouselook sensitivity, degrees per pixel of mouse travel under pointer
+ * lock. `createGlyphFirstPersonControls`' own `lookSensitivity` default, so
+ * a walk on the map and a walk through the parthenon aim at the same rate.
+ *
+ * Deliberately NOT the map's own `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8)
+ * or `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5): those are DIRECT-MANIPULATION
+ * rates, tuned so a grabbed map follows the hand, and a first-person camera
+ * is not being grabbed — the pointer is captured and the hand has the whole
+ * desk to travel across. At 0.8 deg/px a 5 px twitch was a 4 degree turn.
+ */
+export const GLYPH_MAP_WALK_LOOK_DEG_PER_PX = 0.15;
+
+/**
+ * Drag-to-look sensitivity, degrees per pixel, for the pointers that cannot
+ * take a pointer lock — touch, and any mouse whose lock request the browser
+ * refuses. The parthenon's own `LOOK_SENS`, and higher than the locked rate
+ * for the reason that page implies: a finger has a screen's worth of travel,
+ * not a desk's.
+ */
+export const GLYPH_MAP_WALK_DRAG_DEG_PER_PX = 0.24;
 
 /**
  * The widest `view.span` (degrees) walk mode may be ENTERED from.

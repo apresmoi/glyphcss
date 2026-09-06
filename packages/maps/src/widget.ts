@@ -60,7 +60,9 @@ import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapF
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
 import {
+  GLYPH_MAP_WALK_DRAG_DEG_PER_PX,
   GLYPH_MAP_WALK_HORIZON_TILT_DEG,
+  GLYPH_MAP_WALK_LOOK_DEG_PER_PX,
   GLYPH_MAP_WALK_RUN_MULTIPLIER,
   glyphMapWalkAxis,
   glyphMapWalkAxisForKey,
@@ -5991,6 +5993,113 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     walkRunning = false;
   }
 
+  // ── WALK MODE: mouselook ──────────────────────────────────────────────
+  //
+  // Reproduced from `website/src/pages/examples/parthenon.astro`, which is
+  // the shipped, known-good FPV in this repo. Three things are taken from
+  // it verbatim, each for its own stated reason:
+  //
+  //  1. **Pointer lock, acquired from `pointerdown`, never from `click`.**
+  //     That page found the failure and named it: a per-frame effect layer
+  //     rewrites the `<pre>`'s coloured spans, so a mousedown that lands on
+  //     a glyph has its target detached before mouseup and the browser then
+  //     never fires `click` — reproducing as "clicking the background works,
+  //     clicking the temple doesn't". EVERY render in this package rewrites
+  //     the same `<pre>`, so walk mode inherits the fragility exactly and
+  //     takes the same way out. (`createGlyphFirstPersonControls` still
+  //     binds `click` internally; the parthenon calls that a good candidate
+  //     for an upstream fix, and this is the second consumer to route
+  //     around it.)
+  //  2. **A separate, slower look RATE.** Pointer lock hands the pointer a
+  //     desk's worth of travel; the map's own drag rates are tuned for a
+  //     hand that is holding onto the ground.
+  //  3. **Drag-to-look for pointers that cannot lock** — touch, and any
+  //     mouse whose lock request is refused. The parthenon's other half.
+  //
+  // Escape needs no handling: the browser releases the lock itself and the
+  // `pointerlockchange` below is what the widget learns it from.
+  let walkPointerLocked = false;
+
+  /**
+   * One look input, both axes, ONE re-pose.
+   *
+   * The heading and the pitch are written as STATE and then the camera is
+   * posed once from both, rather than each axis posing on its own — a
+   * `poseWalkCamera` re-solves the lens, re-derives the eye and rebuilds the
+   * heading matrix, so doing it twice per mouse event is pure waste and the
+   * intermediate pose is never seen.
+   *
+   * Mouse RIGHT turns the head right (facing north, the new heading is east
+   * of north) and mouse DOWN looks down — the same signs the parthenon's
+   * `applyLook` produces from `rotY - dx * sens` / `rotX - dy * sens`, and
+   * the same signs this widget's own orient drag already had.
+   */
+  function applyWalkLook(dxPx: number, dyPx: number, degPerPx: number): void {
+    if (!walk) return;
+    const [lo, hi] = walkTiltRange();
+    tiltRequest = clamp(appliedTilt - dyPx * degPerPx, lo, hi);
+    bearing = glyphMapNormalizeBearing(bearing + dxPx * degPerPx);
+    syncCameraToView(view);
+    markMotionDirty();
+    emitViewChange("move");
+  }
+
+  function onWalkPointerLockChange(): void {
+    const doc = host.ownerDocument;
+    walkPointerLocked = walk !== null && doc?.pointerLockElement === host;
+  }
+
+  function onWalkMouseMove(e: MouseEvent): void {
+    if (!walk || !walkPointerLocked) return;
+    const dx = e.movementX ?? 0;
+    const dy = e.movementY ?? 0;
+    if (dx === 0 && dy === 0) return;
+    applyWalkLook(dx, dy, GLYPH_MAP_WALK_LOOK_DEG_PER_PX);
+  }
+
+  /**
+   * The lens is solved against the RENDERED WIDTH (`glyphMapWalkLens`'
+   * `viewportWidthPx`), so a host that changes size while walking needs the
+   * pose re-run or the field of view is left cut for the old one — measured
+   * at a third of the width, 26.3 degrees where 70 was asked for.
+   *
+   * It has to live HERE rather than in the consumer, and the consumer is the
+   * proof: `/maps` never calls `map.resize()` at all — the scene's own
+   * `autoSize` observer re-fits the grid underneath the widget — so a
+   * lens-follows-the-width guarantee that depended on the host noticing is a
+   * guarantee nothing was keeping. This is the parthenon's own
+   * `window.addEventListener("resize", ...)` clause, scoped the same way it
+   * is there (`if (mode !== "fpv") return;`): the observer exists only while
+   * walking, so a map that never walks constructs nothing and observes
+   * nothing.
+   */
+  let walkResizeObserver: ResizeObserver | null = null;
+
+  function attachWalkInput(): void {
+    const doc = host.ownerDocument;
+    doc?.addEventListener("pointerlockchange", onWalkPointerLockChange);
+    doc?.addEventListener("mousemove", onWalkMouseMove);
+    if (!walkResizeObserver && typeof ResizeObserver !== "undefined") {
+      walkResizeObserver = new ResizeObserver(() => {
+        if (!walk) return;
+        syncCameraToView(view);
+        applyKeyLight();
+        scene.rerender();
+      });
+      walkResizeObserver.observe(host);
+    }
+  }
+
+  function detachWalkInput(): void {
+    const doc = host.ownerDocument;
+    doc?.removeEventListener("pointerlockchange", onWalkPointerLockChange);
+    doc?.removeEventListener("mousemove", onWalkMouseMove);
+    if (walkPointerLocked) { try { doc?.exitPointerLock(); } catch { /* ignore */ } }
+    walkPointerLocked = false;
+    walkResizeObserver?.disconnect();
+    walkResizeObserver = null;
+  }
+
   function setProjection(target: GlyphMapProjection, setOpts: GlyphMapSetProjectionOptions = {}): Promise<void> {
     // A projection change LEAVES walk mode rather than blending through it:
     // a transition's intermediate projections are not generally invertible
@@ -6189,6 +6298,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   function applyBearingState(b: number): void {
     bearing = glyphMapNormalizeBearing(b);
+    // WALKING, a heading is not a matrix change — it is a POSE change, and
+    // this is the whole of the "it cannot be steered" defect.
+    //
+    // A walker's eye sits `perspective / BASE_TILE` world units BEHIND
+    // `camera.target` (that is what a CSS-perspective camera IS), which at
+    // the default lens is 50 metres. Installing a bearing matrix turns the
+    // view axis about a target that stays put, so the EYE orbits it on a
+    // 50 m circle: measured at Zurich, a 4 degree turn slid the walker
+    // 3.49 m sideways through the world and a quarter turn slid them 70.7 m,
+    // while `view.center` — where the map believes they are standing, and
+    // where `refreshWalkGround` samples the terrain under their feet — did
+    // not move at all. The next step then re-posed and snapped the eye back.
+    //
+    // `poseWalkCamera` derives the eye from `view.center` and puts the
+    // target ahead of it, and calls `syncCameraBearing()` itself, so
+    // re-posing is both the fix and the whole of it. (The orthographic
+    // branch genuinely is matrix-only: it has no eye to move.)
+    if (walk) { syncCameraToView(view); return; }
     syncCameraBearing();
   }
 
@@ -6233,6 +6360,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       walkRestore = null;
       walkHeldKeys.clear();
       walkRunning = false;
+      detachWalkInput();
       view = restore.view;
       tiltRequest = restore.tiltRequest;
       appliedTilt = restore.appliedTilt;
@@ -6279,6 +6407,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // already means the compass direction that points up the screen.
     tiltRequest = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
     appliedTilt = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
+    attachWalkInput();
     view = { ...view, span: glyphMapWalkSpan(resolved.far), bounds: undefined };
     refreshWalkGround();
     syncCameraToView(view);
@@ -6564,13 +6693,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // An explicit orientation change takes over from a glide or a flight in
     // place, exactly as a pan or a wheel notch does.
     cancelCameraGlide();
+    // WALKING, a drag is a LOOK and takes the first-person path: both axes
+    // at the first-person rate, one re-pose, and — the part the orbit
+    // branch below cannot give — an eye that does not move. This is the
+    // fallback look model, for the pointers pointer lock cannot serve
+    // (touch, and any mouse whose lock request was refused); a locked mouse
+    // never reaches here, because `onPointerMove` stands down while the
+    // lock is held.
+    if (walk) { applyWalkLook(dxPx, dyPx, GLYPH_MAP_WALK_DRAG_DEG_PER_PX); return; }
     let orbit = false;
     if (dyPx !== 0) {
-      // Walking, the travel is bounded by the NECK either side of the
-      // horizontal rather than by the orthographic pitch cap — same
-      // accumulate-from-`appliedTilt` rule, different bound.
-      const [lo, hi] = walk ? walkTiltRange() : [-GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT] as const;
-      orbit = applyTiltState(clamp(appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX, lo, hi));
+      orbit = applyTiltState(clamp(appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT));
     }
     // The heading is applied AFTER the pitch, on the pose the pitch installed
     // — `applyTiltState`'s orbit branch re-derives the whole camera through
@@ -6653,6 +6786,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // is not a thing a first-person view can mean. Every drag is a LOOK, so
     // it takes the orient path the Ctrl/right-drag gesture already uses.
     gestureMode = (tilting || walk !== null) ? "tilt" : "pan";
+    // Mouselook, from `pointerdown` rather than `click` — see the walk
+    // mouselook block for the parthenon's own account of why `click` never
+    // arrives on a `<pre>` that is rewritten every render. The drag path is
+    // still armed below on purpose: it is what steers when the lock request
+    // is refused, and it costs nothing when the lock is granted (a locked
+    // pointer's moves are stood down in `onPointerMove`).
+    if (walk && e.pointerType === "mouse" && !walkPointerLocked) {
+      try { host.requestPointerLock(); } catch { /* a refused lock leaves drag-to-look */ }
+    }
     // Suppress the compatibility mousedown a tilt gesture would otherwise
     // produce, which starts a text selection over the <pre> and (with the
     // right button) primes a native drag. The pan path is left alone: it has
@@ -6674,6 +6816,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function onPointerMove(e: PointerEvent): void {
+    // Under pointer lock the browser keeps dispatching pointermove alongside
+    // the mousemove mouselook reads, so without this a locked mouse would
+    // steer twice per event — once at the locked rate and once at the drag
+    // rate.
+    if (walkPointerLocked) return;
     if (activePointerId !== e.pointerId) return;
     const dx = e.clientX - lastClientX;
     const dy = e.clientY - lastClientY;
@@ -6924,6 +7071,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       keyTarget.removeEventListener("keydown", onKeyDown as EventListener);
       keyTarget.removeEventListener("keyup", onKeyUp as EventListener);
       blurTarget?.removeEventListener("blur", onWalkBlur);
+      detachWalkInput();
       for (const state of layerStates.values()) {
         if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
       }

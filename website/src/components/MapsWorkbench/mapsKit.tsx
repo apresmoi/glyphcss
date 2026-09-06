@@ -32,7 +32,7 @@ import {
 } from "@glyphcss/maps";
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
-import { useDockSlot, useFolder, useReadonlyText, useSlider, useToggle } from "../Dock/primitives";
+import { useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
 import { MAP_BEARING_SLIDER_RANGE, mapTiltSliderRange } from "./mapsView";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
@@ -1693,24 +1693,24 @@ export interface ViewFolderInputs {
   onSpan: (span: number) => void;
   onTilt: (tilt: number) => void;
   onBearing: (bearing: number) => void;
-  /**
-   * Street-level walk mode. It lives in the View folder, beside Tilt and
-   * Bearing, because it IS a camera mode and it shares their state outright:
-   * while walking, Tilt is the walker's pitch (90 looks dead ahead) and
-   * Bearing is the direction they face. It is deliberately NOT on a layer
-   * card — what it renders is whatever is mounted, terrain or streets or
-   * both, and its entry condition is the view's own ALTITUDE.
-   */
-  walk: boolean;
-  onWalk: (walk: boolean) => void;
-  /** `mapsWalk.ts`' `mapWalkReason` — why the Walk row is dimmed, or `null` when it is live. */
-  walkReason: string | null;
-  /** The walker's horizon and what it costs in tiles (`mapWalkBudgetLabel`), shown only while walking. */
-  walkBudget: string;
 }
 
+/*
+ * Street-level WALK is deliberately NOT a row in this folder.
+ *
+ * It shipped as one — a `Walk` toggle under Bearing plus a `Horizon`
+ * readout — and was rejected as one ("it feels stupid as a checkbox"). It is
+ * a MODE, not a setting: the reader stops looking at the map and stands in
+ * it, and the entrance to that belongs ON the map, the way Google Maps'
+ * pegman does. It now lives in `MapWalkButton.tsx`, an overlay beside
+ * `MapCompass` and `MapSearchBox`, and it carries the same gate reason and
+ * the same tile-budget readout there. Tilt and Bearing stay here and keep
+ * meaning something while walking (the walker's pitch and heading), which is
+ * what the old placement argument was really about.
+ */
+
 export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): void {
-  const { centerLon, centerLat, span, maxSpan, tilt, maxTilt, bearing, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt, onBearing, walk, onWalk, walkReason, walkBudget } = inputs;
+  const { centerLon, centerLat, span, maxSpan, tilt, maxTilt, bearing, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt, onBearing } = inputs;
   const folder = useFolder(parent, "View", { open: true });
   useSlider(folder, "Center lon", { min: -180, max: 180, step: 0.1 }, centerLon, (v) => onCenter(v, centerLat));
   useSlider(folder, "Center lat", { min: -90, max: 90, step: 0.1 }, centerLat, (v) => onCenter(centerLon, v));
@@ -1755,30 +1755,6 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
       "Compass heading at the top of the map. 0° = north up, 90° = east up. Ctrl+drag or right-drag sideways to turn.",
     );
   }, [bearingCtrl]);
-  // Walk sits under Bearing because it is the third thing about where the
-  // camera IS, and because it takes the other two over: while walking, Tilt
-  // is the walker's pitch (90 = dead ahead) and Bearing is their heading, so
-  // the two rows above stay live and keep meaning something.
-  const walkCtrl = useToggle(folder, "Walk", walk, onWalk);
-  useEffect(() => {
-    if (!walkCtrl) return;
-    // DIMMED with the reason on the row, never hidden and never inert: the
-    // reader is one zoom (or one projection) away from being able to walk,
-    // and the reason is that action. Same treatment, same argument, as the
-    // Lighting folder's Azimuth/Elev rows under `mapDirectionLocked`.
-    walkCtrl.setEnabled(walkReason === null);
-    walkCtrl.raw.domElement.title = walkReason
-      ?? "Walk — stand on the ground at eye height (1.7 m) under a real perspective camera. WASD or the arrow keys walk, Shift jogs, dragging looks around. Leaving puts the view back exactly where it was.";
-  }, [walkCtrl, walkReason]);
-  // Only while walking: the horizon is the walker's own, and off the ground
-  // there is nothing for it to describe.
-  const horizonCtrl = useReadonlyText(folder, "Horizon", walkBudget);
-  useEffect(() => {
-    horizonCtrl?.setVisible(walk);
-    if (horizonCtrl) {
-      horizonCtrl.raw.domElement.title = "How far the walker can see, and what that costs in tiles at the densest level this page serves. Capped well inside the true 4.65 km horizon of a 1.7 m eye — that one is 36 tiles, and every metre of eye height makes it far worse.";
-    }
-  }, [horizonCtrl, walk, walkBudget]);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 
