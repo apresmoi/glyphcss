@@ -6,7 +6,7 @@
 import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
 import { resolveGeometry, recenterPolygons, loadMesh } from "@glyphcss/core";
-import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
+import type { Vec3, Polygon, GlyphGeometryName, RenderMode } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { GlyphSceneContextKey } from "./context";
 
@@ -55,6 +55,8 @@ export interface GlyphMeshProps {
   transparent?: boolean;
   /** Per-mesh solid-mode glyph ramp. Pops the mesh into its own `<pre>` (the shared grid shades against one ramp). */
   glyphPalette?: string;
+  /** Per-mesh render mode. A genuinely different mode pops the mesh into its own `<pre>` (the shared grid is rasterized in one pass under one mode); the scene's own mode keeps it in the shared grid at no cost. */
+  mode?: RenderMode;
   /** Per-mesh ambient intensity (solid mode). Pops the mesh into its own `<pre>` (the shared grid is lit under one ambient). */
   ambientIntensity?: number;
   /** Cross-layer occlusion class for an opaque detail mesh — a higher class claims id-map cells regardless of depth. Default 0. */
@@ -63,6 +65,8 @@ export interface GlyphMeshProps {
   occlusionClaim?: "alpha" | "geometry";
   /** Coverage-aware contour claim with a screen-px margin of clean ground around this mesh's ink. Never steals from another detail mesh. Omitted = point-sampled claims. */
   occlusionContourPx?: number;
+  /** Share ONE detail output `<pre>` (one grid, one rasterizer pass, one occlusion id) with every other detail mesh naming the same group — two abutting meshes in separate detail outputs sample coverage on differently-phased lattices and seam along the edge they share. Inert on a mesh that is not a detail mesh. Members must agree on every per-layer decision (`density`/`fontSize`/`lineHeight`/`transparent`/`glyphPalette`/`ambientIntensity`/`mode` and the occlusion-claim options) or the render throws. */
+  detailGroup?: string;
   class?: string;
   // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
   // TODO(hit-layer): wire these to the hit layer raycasting once the
@@ -96,10 +100,12 @@ export const GlyphMesh = defineComponent({
     lineHeight: { type: Number, default: undefined },
     transparent: { type: Boolean, default: undefined },
     glyphPalette: { type: String, default: undefined },
+    mode: { type: String as PropType<RenderMode>, default: undefined },
     ambientIntensity: { type: Number, default: undefined },
     occlusionPriority: { type: Number, default: undefined },
     occlusionClaim: { type: String as PropType<"alpha" | "geometry">, default: undefined },
     occlusionContourPx: { type: Number, default: undefined },
+    detailGroup: { type: String, default: undefined },
     class: { type: String, default: undefined },
     // TODO(hit-layer): wire these to the hit layer raycasting once the
     // rasterizer hit-map is wired to the hit-layer dispatch.
@@ -160,10 +166,12 @@ export const GlyphMesh = defineComponent({
       if (props.lineHeight !== undefined) t.lineHeight = props.lineHeight;
       if (props.transparent !== undefined) t.transparent = props.transparent;
       if (props.glyphPalette !== undefined) t.glyphPalette = props.glyphPalette;
+      if (props.mode !== undefined) t.mode = props.mode;
       if (props.ambientIntensity !== undefined) t.ambientIntensity = props.ambientIntensity;
       if (props.occlusionPriority !== undefined) t.occlusionPriority = props.occlusionPriority;
       if (props.occlusionClaim !== undefined) t.occlusionClaim = props.occlusionClaim;
       if (props.occlusionContourPx !== undefined) t.occlusionContourPx = props.occlusionContourPx;
+      if (props.detailGroup !== undefined) t.detailGroup = props.detailGroup;
       return t;
     }
 
@@ -199,7 +207,7 @@ export const GlyphMesh = defineComponent({
 
     // Update transform on id/position/scale/rotation/castShadow/receiveShadow changes
     watch(
-      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow, density: props.density, fontSize: props.fontSize, lineHeight: props.lineHeight, transparent: props.transparent, glyphPalette: props.glyphPalette, ambientIntensity: props.ambientIntensity, occlusionPriority: props.occlusionPriority, occlusionClaim: props.occlusionClaim, occlusionContourPx: props.occlusionContourPx }),
+      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow, density: props.density, fontSize: props.fontSize, lineHeight: props.lineHeight, transparent: props.transparent, glyphPalette: props.glyphPalette, mode: props.mode, ambientIntensity: props.ambientIntensity, occlusionPriority: props.occlusionPriority, occlusionClaim: props.occlusionClaim, occlusionContourPx: props.occlusionContourPx, detailGroup: props.detailGroup }),
       () => {
         const mesh = meshRef.value;
         if (!mesh) return;
