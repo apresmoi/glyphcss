@@ -12,8 +12,10 @@ export type { GlyphMapAttribution } from "../types";
  * ever involved — it just walks rings.
  *
  * `rings` intentionally carries no elevation: borders/rivers/routes are
- * drawn at ground level (`elev: 0`) by every consumer — see `widget.ts`'s
- * line-layer runtime.
+ * projected at `elev: 0` by every consumer — see `widget.ts`'s line-layer
+ * runtime, which reads the GROUND elevation under each vertex separately
+ * and hands it to the depth test as `GlyphMapStrokeVertex.groundDepth`,
+ * precisely because the geometry itself cannot say where the ground is.
  */
 export interface GlyphMapVectorFeature {
   readonly id?: string;

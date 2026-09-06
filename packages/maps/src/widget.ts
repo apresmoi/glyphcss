@@ -3080,6 +3080,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * change, only what each tile's geometry projects to.
      */
     reproject(): void;
+    /**
+     * The GROUND elevation in metres under `(lon, lat)`, read from the tiles
+     * this layer currently has MOUNTED — `NaN` where none covers the point.
+     *
+     * Finest tier first (`activeHandles`, then `fallbackHandles`, then the
+     * permanent floor, then a static tile): the finest is the tier that
+     * actually wins the depth test, and a backstop tier is sunk
+     * {@link GLYPH_MAP_RELIEF_BACKSTOP_SINK_M} below it anyway. This is the
+     * mounted set, not the cache — a tile fetched but no longer on screen
+     * describes ground nothing is rendering.
+     *
+     * Its one consumer is a `line` layer's depth test (`stroke.ts`'s ground
+     * offset): a stroke is projected at elevation zero, and this is how far
+     * above it the ground it belongs on stands.
+     */
+    groundElevationAt(lon: number, lat: number): number;
     dispose(): void;
   }
 
@@ -3512,10 +3528,33 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
+    /** @see RasterLayerRuntime.groundElevationAt */
+    function groundElevationAt(lon: number, lat: number): number {
+      if (!isGlyphMapProvider(layer.source)) {
+        return staticHandles.length > 0 ? glyphMapGeoTileElevationAt(layer.source, lon, lat) : NaN;
+      }
+      for (const tiles of [activeHandles, fallbackHandles]) {
+        for (const key of tiles.keys()) {
+          const tile = tileCache.get(key);
+          if (!tile) continue;
+          const value = glyphMapGeoTileElevationAt(tile, lon, lat);
+          if (Number.isFinite(value)) return value;
+        }
+      }
+      if (floorHandles.length > 0) {
+        for (const tile of floorTiles) {
+          const value = glyphMapGeoTileElevationAt(tile, lon, lat);
+          if (Number.isFinite(value)) return value;
+        }
+      }
+      return NaN;
+    }
+
     return {
       update,
       disposeMeshes,
       reproject,
+      groundElevationAt,
       dispose(): void {
         disposed = true;
         disposeMeshes();
@@ -3558,6 +3597,36 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // ── Stroke layers (`line`/`contour`) — post-raster CellGrid stamping,
   // composed into ONE `transformCells` hook rather than mesh mounting. See
   // `stroke.ts`'s doc for the mechanism and the depth contract. ───────────
+
+  /**
+   * The ground elevation in metres under `(lon, lat)`, across every MOUNTED
+   * `raster` layer — `null` when no raster layer is mounted at all, which is
+   * the signal to skip the whole ground-offset pass and keep a terrain-free
+   * map byte-identical (and free) rather than sampling a field that does not
+   * exist.
+   *
+   * Layer order, topmost first: the raster layer drawn last is the surface a
+   * stroke sits on where two overlap. First finite answer wins — the same
+   * "first mounted piece that covers the point" rule the contour mosaic uses,
+   * and for the same reason (a tile's bounds are inclusive on both edges, so
+   * neighbours agree on their shared edge and which one answers is
+   * unobservable).
+   */
+  function groundElevationSampler(): ((lon: number, lat: number) => number) | null {
+    const runtimes: RasterLayerRuntime[] = [];
+    for (let i = layerOrder.length - 1; i >= 0; i--) {
+      const state = layerStates.get(layerOrder[i]);
+      if (state?.kind === "raster") runtimes.push(state.runtime);
+    }
+    if (runtimes.length === 0) return null;
+    return (lon, lat) => {
+      for (const runtime of runtimes) {
+        const value = runtime.groundElevationAt(lon, lat);
+        if (Number.isFinite(value)) return value;
+      }
+      return 0;
+    };
+  }
 
   function createLineLayerRuntime(layer: GlyphMapLineLayer): StrokeLayerRuntime {
     const color = layer.color;
@@ -3633,6 +3702,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
       const feats = isGlyphMapVectorProvider(layer.source) ? activeFeatures : staticFeatures;
+      // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
+      // list, and a world view hands this loop tens of thousands of vertices.
+      // `null` = no raster layer mounted, and then not one extra projection
+      // runs anywhere below (`stroke.ts`'s ground offset defaults to "none").
+      const groundElevationAt = groundElevationSampler();
       for (const feature of feats) {
         for (const ring of feature.rings) {
           // Clip to the projection's visible side FIRST — see
@@ -3656,7 +3730,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             // cellWidth/centerCol metrics that vary between grids.
             const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
             const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
-            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
+            const depth = p[3] ?? p[2];
+            // The GROUND under this vertex, as a depth. A `line` carries no
+            // elevation, so it is projected at zero and every metre of
+            // terrain over it reads as occlusion; `stroke.ts`'s ground
+            // offset is how much of that gap is the stroke's own missing
+            // elevation rather than something genuinely in front of it.
+            // Ground at (or below) sea level costs nothing: no second
+            // projection runs, and the vertex carries no offset at all.
+            const groundElev = groundElevationAt ? groundElevationAt(lon, lat) : 0;
+            if (!(groundElev > 0)) return { col: local.col, row: local.row, depth };
+            const groundWorld = projection.project(lon, lat, groundElev);
+            const g = camera.project(groundWorld, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+            const groundDepth = g[3] ?? g[2];
+            return { col: local.col, row: local.row, depth, ...(Number.isFinite(groundDepth) ? { groundDepth } : {}) };
           });
           stampGlyphMapPolyline(grid, verts, { color });
           }

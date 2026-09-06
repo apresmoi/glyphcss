@@ -1536,12 +1536,60 @@ tangent→glyph quantizer) is now exported from the `glyphcss` package root
 re-exported before this slice.
 
 **The depth contract, pinned** (`stroke.ts`): compare `project()[3] ??
-project()[2]` against `CellGrid.depth`, larger = nearer; occlusion uses a
-**slope-scaled** bias (`GLYPH_MAP_STROKE_DEPTH_BIAS = 0.03`,
-`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME constants as
-wireframe `hiddenLines: "hide"`'s own slope-scaled bias above) — a flat
-bias fails across world scales for the identical reason it fails there. A
-`line` layer draws unconditionally through an empty (`-Infinity` depth)
+project()[2]` against `CellGrid.depth`, larger = nearer. The allowance
+before a nearer surface counts as OCCLUSION has two terms, and only one of
+them is a bias:
+
+1. **Slope-scaled** (`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME
+   constant as wireframe `hiddenLines: "hide"`'s own slope-scaled bias
+   above) — the real discretization allowance, measured off the grid's own
+   local depth gradient and therefore scale-free.
+2. **The ground offset** (`GlyphMapStrokeVertex.groundDepth`, scaled by
+   `GLYPH_MAP_STROKE_GROUND_MARGIN = 2`) — not a bias but a stated fact
+   about the geometry. A `line` layer's vertices are projected at
+   ELEVATION ZERO (a road or a border carries no elevation), so where the
+   ground under one stands at 400 m the stroke is genuinely 400 m of world
+   depth behind that ground and every depth test rightly calls it
+   occluded. The widget therefore projects each vertex a SECOND time at the
+   ground elevation under it (`groundElevationSampler`, read from the tiles
+   the mounted `raster` layers actually have up, finest tier first) and
+   passes that depth along; exactly that difference is forgiven, nothing
+   else. No raster layer mounted ⇒ the sampler is `null`, not one extra
+   projection runs, and the render is byte-identical to a map that never had
+   terrain.
+
+**This replaced a flat `GLYPH_MAP_STROKE_DEPTH_BIAS = 0.03`**, which was the
+ground offset stated as a guess: at `/maps`' default `exaggeration: 24`,
+0.03 earth radii is ~7,960 m of terrain — Earth's whole relief, spent on
+every stroke everywhere, whether or not any terrain was under it. Sized to
+survive Everest it swallowed everything a city contains, which is the
+reported defect "buildings should cover the road layers clearly." Measured
+at that view (globe, 40 degree tilt, 0.006 degree span, 140x63): a 60 m OSM
+building stands **1.1676e-5** world units in front of a road crossing under
+it, against an allowance of **0.0300006** — 2,570x too generous, so all 25
+crossing cells drew the road through the building. The same instrument on
+terrain says why no single constant can work: at that view 400 m of ground
+puts the surface **1.9535e-3** in front of a sea-level border — 167x the
+building's gap — so any threshold that keeps the border alive over ground
+also hides every building in the city. Gate:
+`widget.strokeOcclusion.test.ts` (both halves, each red when the other's
+mechanism is removed) plus `widget.tiltedTileCulling.test.ts`, whose border
+runs along a 3,950 m alpine ridge and goes to zero ink without the ground
+offset.
+
+`GLYPH_MAP_STROKE_GROUND_MARGIN = 2` is `1 / cos(60°)`: the offset is
+measured straight up, but under a pitch `t` the view ray also meets the
+raised ground at a horizontal offset of `h·tan(t)`, adding `h·sin(t)·tan(t)`
+of depth on top of the `h·cos(t)` the lift contributes — summing to exactly
+`h / cos(t)`. Measured at `/maps`' own default 40 degree pitch the factor is
+1.305 (gap 1.9535e-3 against a vertical offset of 1.5069e-3), matching
+`1/cos(40°) = 1.305` to three figures. It is deliberately NOT sized against
+`GLYPH_MAP_MAX_TILT` (85 degrees, where `1/cos` is 11.5): at a grazing pitch
+the ground between the camera and a sea-level stroke really is in front of
+it, and hiding the stroke there is the correct answer rather than a defect
+to pad away.
+
+A `line` layer draws unconditionally through an empty (`-Infinity` depth)
 cell — no base surface there means nothing to be occluded by. A `contour`
 layer's `requireSurface` option (default `true`) instead gates on surface
 coverage — an ANNOTATION of whatever surface won a cell, not an
