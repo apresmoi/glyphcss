@@ -3,11 +3,15 @@
    with /synth and /loaders); this file only carries what's genuinely unique
    to the map surface: drag cursor/touch handling on the host (same fix
    `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
-   a `<pre>` that rewrites its own contents every frame), the Layers rail
-   cards, marker labels, and the provider-load error banner. Places moved
-   out of the rail into the Dock's View folder ("jump to" dropdown) — the
-   rail is layers only now (user ask: "remove the places from the left
-   sidebar, they shouldn't go there"). */
+   a `<pre>` that rewrites its own contents every frame), the rail's Layers
+   cards, marker labels, and the provider-load error banner. Places/"Jump to"
+   was removed entirely, not relocated (user ask: "remove the places from
+   the left sidebar" plus "remove the jump to from the right sidebar") — the
+   rail is Layers only now. The Projection picker used to live here too
+   (`.maps-projection-picker`); it now portals inline into the Dock
+   (`mapsKit.tsx`'s `MapsProjectionControls`), styled entirely by the shared
+   `.dock-subcell`/`.dock-subcell-label` rules in instrument-workbench.css —
+   no page-specific CSS of its own left to carry. */
 
 .maps-viewport {
   touch-action: none;
@@ -67,11 +71,13 @@
    `.layer-group-head`/`.layer-group-toggle`+`.layer-group-caret`/
    `.layer-group-body`, `.layer-group-check` for the bracket enable
    checkbox) from instrument-workbench.css — a collapsed card is just the
-   enable checkbox + name; expanding it reveals that layer's own controls
-   (`.voice-slider`/`.voice-slider-track`/`.voice-color` for every
-   slider/swatch inside, same idiom). This file supplies only the new row
-   shapes those existing idioms don't already cover, plus the stack of
-   cards itself. */
+   enable checkbox + name; expanding it reveals that layer's own controls.
+   Those controls are the DOCK's rows, not /synth's voice rows: the shared
+   `.voice-slider`/`.voice-slider-track`/`.voice-slider-readout` markup is
+   reused for the slider itself (instrument-workbench.css documents it as a
+   pixel match for the Dock's `.controller.number` bar), and everything
+   around it — row geometry, `<select>` skin, colour swatch + hex field,
+   read-only and gated states — is reproduced from the Dock below. */
 .maps-layers-list {
   display: flex;
   flex-direction: column;
@@ -89,32 +95,242 @@
    `.layer-group-head` is a plain flex row with no `justify-content`
    assumption of its own, so this is the one rule needed to push it there. */
 
-.maps-layer-color-row,
-.maps-layer-select-row,
-.maps-layer-info-row {
-  display: flex;
+/* Background — not a `.layer-group` card: it has no toggleable STATE (a
+   flat CSS colour is either applied or it isn't) and no density (no glyph
+   resolution to multiply), so it is one plain always-present row, same
+   card-weight border/background as `.layer-group` but no head/body split,
+   caret, or checkbox. It carries ONE Dock row (`mapsKit.tsx`'s `ColorRow`,
+   named "Background" rather than the in-card "color") instead of a card
+   header plus a separately-labelled swatch — the doubled label that
+   structure produced had no equivalent anywhere in the Dock. */
+.maps-layer-background-row {
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  background: #030509;
+}
+/* Card-header weight for the one row that IS a card in the stack's rhythm,
+   while its geometry stays the shared Dock row below. */
+.maps-layer-background-row .maps-layer-color-row > span:first-child {
+  font-size: 12px;
+}
+
+/* ── The Dock's controller row, reproduced ───────────────────────────────
+   The right-hand Dock is lil-gui restyled by `.dn-floating-controls .lil-gui
+   …` (gallery-workbench.css). One `.controller` there is a flex row of
+   `.name` (`--name-width: 45%`, `flex-shrink: 0`, `padding-right:
+   --spacing`, `line-height: --widget-height`) followed by `.widget` (flex,
+   `width: 100%`, `min-height: --widget-height`). With that panel's own
+   variables (`--padding: 6px`, `--spacing: 5px`, `--widget-height: 24px`)
+   this is a 24px-tall row on a 5px vertical rhythm, an 11px name at
+   rgba(255, 232, 184, 0.70), and — on a number row — a 10px bracketed
+   slider whose widget reserves 8px each side for the `[ ]` pseudos,
+   followed by a right-aligned cyan value INPUT (`min-width: 45px`,
+   `max-width: 70px`), not a label: the Dock's numbers have always been
+   type-to-set, which is the behaviour these rows were missing.
+
+   Reproduced here as a three-column grid rather than flex, because this
+   markup is authored (a `<label>` with its own children) instead of built
+   by lil-gui: column 1 = the name at the Dock's own 45%, column 2 = the
+   widget, column 3 = the value. A row with no value of its own — a
+   `<select>`, a read-only provenance string — spans its widget across
+   columns 2-3, exactly as the Dock's `.widget` fills everything after
+   `.name`.
+
+   ONE deliberate divergence, and it is on WIDTH: the Dock sizes column 3
+   `clamp(45px, 27% of the widget, 70px)`, which on its own 360px panel
+   (`Dock.tsx` → `useGui`'s default width) lands at 50px. This rail is
+   340px and its card body is inset twice over, so the same formula would
+   land on the 45px floor and clip an 8-character readout ("12 cells",
+   Heatmap's radius). 60px is still inside the Dock's own 45-70px band —
+   the same system, a different point in it — and fits every readout this
+   page prints. Track, brackets, fill, type scale, colours and states are
+   the Dock's, unchanged.
+
+   Every selector below is scoped under a maps-only ancestor.
+   `.voice-slider`/`.voice-slider-track`/`.voice-slider-readout`/
+   `.gx-select` are declared in instrument-workbench.css, which /synth and
+   /loaders load verbatim; a bare redeclaration here would either fight
+   those on bundle order or leak if it were ever hoisted into the shared
+   file. `maps-workbench.rowWidths.test.ts` pins that. */
+.maps-layer-card .maps-layer-body {
+  gap: 5px;
+}
+.maps-layer-card .maps-layer-body .voice-slider,
+.maps-layer-card .maps-layer-body .maps-layer-select-row,
+.maps-layer-card .maps-layer-body .maps-layer-color-row,
+.maps-layer-card .maps-layer-body .maps-layer-info-row,
+.maps-layer-background-row .maps-layer-color-row {
+  display: grid;
+  grid-template-columns: 45% minmax(0, 1fr) 60px;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 5px;
+  min-height: 24px;
   font-size: 11px;
 }
-.maps-layer-color-row span:first-child,
-.maps-layer-select-row span:first-child,
-.maps-layer-info-row span:first-child {
+/* The name column — the Dock's `.controller .name`: 11px, 0.70 amber,
+   `white-space: pre` (never wraps; a long one is clipped, and every row
+   carries its own `title`). */
+.maps-layer-card .maps-layer-body > label > span:first-child,
+.maps-layer-card .maps-layer-body > div > span:first-child,
+.maps-layer-background-row .maps-layer-color-row > span:first-child {
   color: rgba(255, 232, 184, 0.70);
   letter-spacing: 0.02em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.maps-layer-select-row .gx-select {
-  flex: 1;
-  max-width: 130px;
+/* A widget with no value column of its own fills columns 2-3, mirroring
+   `.controller.option`/`.controller.disabled`, whose `.widget` takes all of
+   the row after `.name`. */
+.maps-layer-card .maps-layer-body .maps-layer-select-row .gx-select,
+.maps-layer-card .maps-layer-body .maps-layer-info-value {
+  grid-column: 2 / 4;
 }
-.maps-layer-info-value {
-  color: rgba(226, 232, 240, 0.65);
+/* The value input. The shared base already gives it the Dock's colour,
+   weight, right alignment and dotted underline; what is left is the 5px
+   gutter the base cancels with `margin-left: -7px` (it hugs the `]` on
+   /synth) — the Dock instead separates value from slider by `--spacing`,
+   which this grid's own `gap` supplies. */
+.maps-layer-card .maps-layer-body .voice-slider-readout {
+  margin-left: 0;
+}
+/* `<select>` — the Dock's `.controller.option .display`, not `.gx-select`'s
+   own darker/cyan-caret treatment: translucent amber fill, amber border,
+   an ORANGE caret, and a cyan border on focus. `.gx-select select` keeps
+   its own `appearance: none` reset from the shared file; only the skin
+   changes here. */
+.maps-layer-card .maps-layer-body .gx-select select,
+.maps-layer-background-row .gx-select select {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 22px 2px 8px;
+  background: rgba(255, 232, 184, 0.03);
+  color: rgba(255, 232, 184, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+}
+.maps-layer-card .maps-layer-body .gx-select::after,
+.maps-layer-background-row .gx-select::after {
+  content: "▾";
+  right: 5px;
   font-size: 10px;
+  color: #f97316;
 }
+.maps-layer-card .maps-layer-body .gx-select select:focus,
+.maps-layer-background-row .gx-select select:focus {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* Colour — the Dock's `.controller.color`: the swatch is a 10px bracketed
+   bar filling the widget (its own `[ ]` come from `.voice-slider-track`,
+   shared with the sliders so both read as one control family), with the
+   real `<input type="color">` as the bar itself, plus an editable hex
+   field in the value column. Replaces an 18px square swatch that had no
+   counterpart in the Dock and no way to type a colour. */
+.maps-layer-swatch input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.25);
+}
+.maps-layer-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.maps-layer-swatch input[type="color"]::-webkit-color-swatch { border: none; }
+.maps-layer-swatch input[type="color"]::-moz-color-swatch { border: none; }
+/* The hex field — the Dock's `.controller.color input[type="text"]`: the
+   value readout's chrome, at the Dock's dimmer amber rather than the
+   number rows' cyan. */
+.maps-layer-hex {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: right;
+  padding: 1px 0;
+  color: rgba(255, 232, 184, 0.65);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.maps-layer-hex:hover { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.maps-layer-hex:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+  border-bottom-color: rgba(56, 189, 248, 0.8);
+}
+/* Read-only provenance — the Dock's own read-only row (`useReadonlyText`
+   calls `setEnabled(false, { dim: false })`, so the row is NOT dimmed and
+   only its input is disabled): a plain right-aligned cyan number at the
+   same 11px, no bar and no border. */
+.maps-layer-info-value {
+  color: #38bdf8;
+  font-size: 11px;
+  text-align: right;
+}
+/* A GATED row — the Dock's `.controller.disabled`: the whole row at
+   `opacity: 0.5` with its name dimmed to 0.38, and the value input
+   stripped of its underline rather than dimmed a second time (lil-gui's
+   disabled input keeps `opacity: 1` and lets the row's own opacity carry
+   it; the shared base instead dims the input to 0.6, which would compound
+   here). `pointer-events: none` — which lil-gui also sets — is deliberately
+   NOT copied: these rows explain their gating through a `title`, and a row
+   that ignores the pointer has no tooltip. */
 .maps-layer-slider--off {
-  opacity: 0.35;
+  opacity: 0.5;
+}
+.maps-layer-slider--off > span:first-child {
+  color: rgba(255, 232, 184, 0.38);
 }
 .maps-layer-slider--off input[type="range"] {
   cursor: not-allowed;
+}
+.maps-layer-card .maps-layer-body .voice-slider-readout:disabled {
+  opacity: 1;
+  border-bottom-color: transparent;
+}
+
+/* ── Point-layer hotspots (`symbol`/`circle`) ────────────────────────────
+   `@glyphcss/maps` tags each point layer's hotspot element with
+   `.glyph-map-symbol` / `.glyph-map-circle` and sets only what the LAYER
+   knows (label text, colour, and — for a circle — its own diameter and
+   border-radius). Everything else about how a city reads on an ASCII map is
+   presentation, so it lives here rather than in the library: without it a
+   symbol label inherited the page's body font at full size and rendered as
+   unstyled dark text over the terrain.
+
+   `pointer-events: none` on both: these are decoration over the map, and
+   glyphcss's base `.glyph-hotspot` rule turns pointer events ON (it is built
+   for clickable anchors). Leaving them clickable would swallow the drag
+   gestures that pan the map wherever a dot happens to sit. */
+.glyph-scene .glyph-map-symbol,
+.glyph-scene .glyph-map-circle {
+  pointer-events: none;
+  cursor: default;
+}
+.glyph-scene .glyph-map-symbol {
+  font: 500 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  /* An outline rather than a filled plate: a box would blank the glyph grid
+     under it, which is the whole picture on this page. */
+  text-shadow:
+    0 0 2px rgba(5, 7, 12, 0.95),
+    0 1px 0 rgba(5, 7, 12, 0.95),
+    0 -1px 0 rgba(5, 7, 12, 0.95),
+    1px 0 0 rgba(5, 7, 12, 0.95),
+    -1px 0 0 rgba(5, 7, 12, 0.95);
+  transition: opacity 120ms linear;
+}
+.glyph-scene .glyph-map-circle {
+  border: 1px solid rgba(5, 7, 12, 0.85);
+  box-sizing: border-box;
+  opacity: 0.75;
 }

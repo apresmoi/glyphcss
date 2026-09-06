@@ -167,6 +167,47 @@ describe("floatOrFalse field kind", () => {
   });
 });
 
+describe("logFloat field kind", () => {
+  interface SpanState { span: number }
+  const fields: readonly UrlField<SpanState>[] = [
+    { key: "span", token: "s", type: { kind: "logFloat", step: 0.0005 } as UrlFieldKind, default: 140 },
+  ];
+  const codec = createUrlCodec<SpanState>("1", fields);
+
+  it("round-trips a value near the small end of a wide domain to a tight RELATIVE tolerance", () => {
+    const decoded = codec.decode(codec.encode({ span: 0.001 }));
+    expect(decoded.span).toBeCloseTo(0.001, 5);
+  });
+
+  it("round-trips a value near the large end of the same domain, still to a tight RELATIVE tolerance", () => {
+    const decoded = codec.decode(codec.encode({ span: 720 }));
+    expect(decoded.span).toBeCloseTo(720, 0); // ~0.18 absolute at this magnitude — see mapsUrlState.ts's doc
+  });
+
+  it("costs roughly the SAME digit count at both ends of a 5-order-of-magnitude domain — the point of a relative step", () => {
+    const small = codec.encode({ span: 0.001 });
+    const large = codec.encode({ span: 720 });
+    expect(Math.abs(small.length - large.length)).toBeLessThanOrEqual(1);
+  });
+
+  it("omits the field when equal to default", () => {
+    expect(codec.encode({ span: 140 })).toBe("p1");
+  });
+
+  it("a non-positive or non-finite value fails to encode (dropped, not written as garbage)", () => {
+    expect(codec.encode({ span: 0 })).toBe("p1");
+    expect(codec.encode({ span: -5 })).toBe("p1");
+    expect(codec.encode({ span: Number.NaN })).toBe("p1");
+  });
+
+  it("never throws on truncated logFloat input", () => {
+    const packed = codec.encode({ span: 55 });
+    for (let i = 2; i < packed.length; i++) {
+      expect(() => codec.decode(packed.slice(0, i))).not.toThrow();
+    }
+  });
+});
+
 describe("createUrlCodec size", () => {
   it("packs smaller than an equivalent verbose query string", () => {
     const state: DemoState = {

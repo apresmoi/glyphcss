@@ -140,6 +140,19 @@ export type UrlFieldKind =
   | { readonly kind: "bool" }
   | { readonly kind: "int" }
   | { readonly kind: "float"; readonly step: number }
+  /** A strictly-positive quantity spanning many orders of magnitude (e.g.
+   *  glyphcss/maps's view `span`: 0.001 to 720) fits a RELATIVE step far
+   *  better than a `"float"`'s absolute one — see mapsUrlState.ts's own doc
+   *  for the derivation. Encodes `Math.log(value)` quantized to `step`
+   *  (natural log; a fixed absolute step in log-space is a fixed *relative*
+   *  step in linear space — `Math.exp(step) - 1` — regardless of
+   *  magnitude), so a value near either end of a wide domain costs the same
+   *  few base36 digits and carries the same relative precision throughout,
+   *  unlike a plain `"float"` step, which is either too coarse at the small
+   *  end or wastefully long at the large end for the same value. `value`
+   *  must be finite and `> 0`; anything else fails to encode (dropped,
+   *  same as an out-of-domain value on any other kind). */
+  | { readonly kind: "logFloat"; readonly step: number }
   | { readonly kind: "enum"; readonly values: readonly string[] }
   | { readonly kind: "color" }
   | { readonly kind: "string" }
@@ -168,6 +181,10 @@ function sameValue(type: UrlFieldKind, a: unknown, b: unknown): boolean {
     const step = numberStep(type);
     return round(a, step) === round(b, step);
   }
+  if (type.kind === "logFloat") {
+    if (typeof a !== "number" || typeof b !== "number" || !(a > 0) || !(b > 0)) return a === b;
+    return round(Math.log(a), type.step) === round(Math.log(b), type.step);
+  }
   if (type.kind === "floatTuple") {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
     return a.every((v, i) => round(v, type.step) === round(b[i], type.step));
@@ -191,6 +208,10 @@ function encodeFieldValue(type: UrlFieldKind, value: unknown): string | undefine
     case "float":
       return typeof value === "number" && Number.isFinite(value)
         ? encodePackedNumber(value, numberStep(type))
+        : undefined;
+    case "logFloat":
+      return typeof value === "number" && Number.isFinite(value) && value > 0
+        ? encodePackedNumber(Math.log(value), type.step)
         : undefined;
     case "floatOrFalse":
       if (value === false) return "n";
@@ -221,6 +242,12 @@ function decodeFieldValue(
     case "int":
     case "float":
       return decodePackedNumber(raw, index, numberStep(type));
+    case "logFloat": {
+      const decoded = decodePackedNumber(raw, index, type.step);
+      if (!decoded) return undefined;
+      const value = Math.exp(decoded.value);
+      return Number.isFinite(value) && value > 0 ? { value, next: decoded.next } : undefined;
+    }
     case "floatOrFalse":
       if (raw[index] === "n") return { value: false, next: index + 1 };
       return decodePackedNumber(raw, index, type.step);
@@ -889,8 +916,34 @@ export function readUrlParam(param: string): string | null {
   return new URLSearchParams(window.location.search).get(param);
 }
 
-export function writeUrlParam(param: string, value: string | null): void {
-  if (typeof window === "undefined") return;
+// P2 "a3" fix. WebKit throws `SecurityError` past ~100 `history.replaceState`
+// calls in a rolling 30-second window — with no error boundary around a page
+// like `/maps` (verified: no `componentDidCatch`/error-boundary anywhere in
+// `website/src`), that throw unmounts the whole React root, not just the map.
+// One trackpad flick alone is >100 wheel events, each triggering a "zoom"
+// view-change that reaches here. This is a SLIDING-WINDOW RATE LIMIT, not an
+// unconditional debounce: below the safety margin every call still commits
+// `history.replaceState` immediately and synchronously — the same behavior
+// every existing caller (gallery/synth/wordart's own "write then read back
+// the same tick" tests included) already depends on — and only sustained,
+// genuinely high-frequency bursts (a wheel flick, never a handful of
+// ordinary state changes) get coalesced to the latest value per param and
+// flushed once the window has room again.
+const HISTORY_WRITE_WINDOW_MS = 30_000;
+// Comfortably under WebKit's ~100 cap so normal (non-bursty) traffic never
+// gets close enough to risk crossing it while this margin is still open.
+const HISTORY_WRITE_SAFE_LIMIT = 80;
+let historyWriteTimestamps: number[] = [];
+const pendingUrlWrites = new Map<string, string | null>();
+let pendingUrlWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function pruneHistoryWriteTimestamps(now: number): void {
+  while (historyWriteTimestamps.length > 0 && now - historyWriteTimestamps[0]! >= HISTORY_WRITE_WINDOW_MS) {
+    historyWriteTimestamps.shift();
+  }
+}
+
+function commitUrlParam(param: string, value: string | null): void {
   const params = new URLSearchParams(window.location.search);
   if (value) params.set(param, value);
   else params.delete(param);
@@ -898,6 +951,41 @@ export function writeUrlParam(param: string, value: string | null): void {
   const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (next !== current) window.history.replaceState(window.history.state, "", next);
+  historyWriteTimestamps.push(Date.now());
+}
+
+function scheduleUrlWriteFlush(): void {
+  if (pendingUrlWriteTimer !== null) return;
+  const now = Date.now();
+  const oldest = historyWriteTimestamps[0] ?? now;
+  const waitMs = Math.max(16, HISTORY_WRITE_WINDOW_MS - (now - oldest) + 1);
+  pendingUrlWriteTimer = setTimeout(() => {
+    pendingUrlWriteTimer = null;
+    const now2 = Date.now();
+    pruneHistoryWriteTimestamps(now2);
+    for (const [param, value] of [...pendingUrlWrites]) {
+      if (historyWriteTimestamps.length >= HISTORY_WRITE_SAFE_LIMIT) break;
+      pendingUrlWrites.delete(param);
+      commitUrlParam(param, value);
+    }
+    if (pendingUrlWrites.size > 0) scheduleUrlWriteFlush();
+  }, waitMs);
+}
+
+export function writeUrlParam(param: string, value: string | null): void {
+  if (typeof window === "undefined") return;
+  const now = Date.now();
+  pruneHistoryWriteTimestamps(now);
+  if (pendingUrlWrites.size === 0 && historyWriteTimestamps.length < HISTORY_WRITE_SAFE_LIMIT) {
+    commitUrlParam(param, value);
+    return;
+  }
+  // Over the safety margin (or a coalesced write is already queued, which
+  // preserves ordering): remember only the LATEST value per param — an
+  // intermediate value during a burst is never observably different from
+  // going straight to the final one — and flush once the window permits.
+  pendingUrlWrites.set(param, value);
+  scheduleUrlWriteFlush();
 }
 
 /** Writes the synchronous packed form immediately, then (only above the size

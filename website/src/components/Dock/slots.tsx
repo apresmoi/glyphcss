@@ -60,9 +60,15 @@ export function DockCamera(inputs: CameraFolderInputs): null {
   return null;
 }
 
-export function DockLighting(inputs: LightingFolderInputs): null {
-  useLightingFolder(useDockGui(), inputs);
-  return null;
+/**
+ * `extras` is the seam a page uses to put its OWN controls inside this shared
+ * folder rather than standing up a second Lighting section — the same
+ * folder-aware-children shape `DockEffects` already uses for its parameter
+ * rows. /maps' sun-mode toggle is the reference consumer.
+ */
+export function DockLighting(inputs: LightingFolderInputs & { extras?: (folder: GUI | null) => React.ReactNode }) {
+  const folder = useLightingFolder(useDockGui(), inputs);
+  return <>{inputs.extras?.(folder)}</>;
 }
 
 export function DockShadow(inputs: ShadowFolderInputs): null {

@@ -191,11 +191,12 @@ scene.add(icosa,  { density: 3, transparent: true }); // x-ray
   </TabItem>
 </Tabs>
 
-## Per-mesh ramp and lighting
+## Per-mesh ramp, lighting and render mode
 
-Two more per-mesh options force a mesh into its own layer for the same structural
-reason `density` does — the shared grid is rasterized **in one pass**, so a mesh
-that wants its own ramp or its own ambient needs its own `<pre>`:
+Three more per-mesh options force a mesh into its own layer for the same
+structural reason `density` does — the shared grid is rasterized **in one pass**,
+so a mesh that wants its own ramp, its own ambient or its own render mode needs
+its own `<pre>`:
 
 - **`glyphPalette`** — this mesh shades from a different named palette than the
   scene. Solid-mode ramps only; `charMode`, junctions and `solidWeightRamp` stay
@@ -205,36 +206,51 @@ that wants its own ramp or its own ambient needs its own `<pre>`:
   `{ ...scene.ambientLight, intensity }`, so both its glyph choice and its texel
   tint follow that value. The ambient **colour** and the key light stay
   scene-level.
+- **`mode`** — this mesh rasterizes in its own render mode (`wireframe`,
+  `solid`, `voxel`, `ink`). A map is the motivating case: terrain reads as
+  `solid` while an overlay reads as `ink`. Unlike the two above, separation is
+  conditional — declaring the mode the scene is **already** rendering in keeps
+  the mesh in the shared grid, byte-identical and one pass, because a mode is a
+  small closed enum that can be compared exactly. The comparison is re-made
+  every render, so a `setOptions({ mode })` that matches lets the mesh rejoin
+  the base grid on the next frame.
 
-Set either one alone and the mesh renders in its own `<pre>` at the **base** cell
-size — no extra detail, just a separate pass.
+Set any one of them alone and the mesh renders in its own `<pre>` at the **base**
+cell size — no extra detail, just a separate pass. Each distinct mode is a full
+extra rasterizer pass, so reach for `mode` per layer, not per mesh.
+
+Occlusion is unchanged by `mode`: a mode-separated **opaque** mesh still claims
+its full footprint in the shared id-map, so an outline mode (`wireframe`, `ink`)
+blanks the base cells under its silhouette while painting only edges. Add
+`transparent` alongside it for the x-ray layering an outline over other geometry
+usually wants.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
 
 ```tsx
-<GlyphMesh geometry="icosahedron" glyphPalette="dense" ambientIntensity={0.8} />
+<GlyphMesh geometry="icosahedron" glyphPalette="dense" ambientIntensity={0.8} mode="ink" transparent />
 ```
 
   </TabItem>
   <TabItem label="Vue">
 
 ```vue
-<GlyphMesh geometry="icosahedron" glyph-palette="dense" :ambient-intensity="0.8" />
+<GlyphMesh geometry="icosahedron" glyph-palette="dense" :ambient-intensity="0.8" mode="ink" transparent />
 ```
 
   </TabItem>
   <TabItem label="Vanilla JS">
 
 ```ts
-scene.add(polys, { glyphPalette: "dense", ambientIntensity: 0.8 });
+scene.add(polys, { glyphPalette: "dense", ambientIntensity: 0.8, mode: "ink", transparent: true });
 ```
 
   </TabItem>
   <TabItem label="HTML">
 
 ```html
-<glyph-mesh geometry="icosahedron" glyph-palette="dense" ambient-intensity="0.8"></glyph-mesh>
+<glyph-mesh geometry="icosahedron" glyph-palette="dense" ambient-intensity="0.8" mode="ink" transparent></glyph-mesh>
 ```
 
   </TabItem>
@@ -327,6 +343,7 @@ mesh and it behaves the same whether the scene is orbited, flown, or walked.
 | `transparent` | `boolean` | `false` | See-through — doesn't occlude / isn't occluded. Pops the mesh into its own `<pre>`. |
 | `glyphPalette` | `string` | scene's | Per-mesh solid ramp. Pops the mesh into its own `<pre>` (the shared grid shades against one ramp). |
 | `ambientIntensity` | `number` | scene's | Per-mesh ambient intensity. Pops the mesh into its own `<pre>` (the shared grid is lit under one ambient). |
+| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | scene's | Per-mesh render mode. Pops the mesh into its own `<pre>` **only when it differs** from the scene's mode (the shared grid is rasterized in one pass under one mode). |
 | `occlusionPriority` | `number` | `0` | Occlusion class — a higher class claims id-map cells regardless of depth. Opaque detail meshes only. |
 | `occlusionClaim` | `"alpha" \| "geometry"` | `"alpha"` | Claim only texel-opaque cells, or the full triangle footprint. Opaque detail meshes only. |
 | `occlusionContourPx` | `number` | — | Coverage-aware claim with a screen-px margin of clean ground around the ink. Never steals from another detail mesh. Costs a 4×-per-axis id-map raster. Opaque detail meshes only. |

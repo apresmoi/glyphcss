@@ -1,2 +1,2 @@
-export { GlyphScene } from "./GlyphScene";
+export { GlyphScene, dragDensityToDownscale } from "./GlyphScene";
 export type { GlyphSceneProps } from "./GlyphScene";
