@@ -202,14 +202,41 @@ export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } =
     },
     // The sphere's centre (world origin) is the natural reference point: for
     // ANY camera rotation, `depthOf([0,0,0])` is the depth of the ORIGIN, and
-    // a point on the sphere is on the near side exactly when it is no
+    // a point AT THE DATUM is on the near side exactly when it is no
     // farther than the origin along the camera's own view axis — origin
     // depth is 0 for an orthographic camera with `target: [0,0,0]` (the
     // depth functional is linear/homogeneous), but this reads it from
     // `depthOf` rather than assuming that, so it stays correct even if a
     // caller ever pans a globe camera's `target` off the sphere's centre.
+    //
+    // The centre plane is NOT the whole story for a RAISED point, and taking
+    // it as such is what hid a `fill-extrusion`'s walls the moment its base
+    // ring crossed the limb (`widget.extrusionHorizon.test.ts`). A point at
+    // height `h` clears the horizon from `acos(r / (r + h))` of extra arc —
+    // the ship's-mast-before-the-hull effect — so its top is genuinely in
+    // view while its base is not. Under the orthographic camera every caller
+    // here uses, the sphere's silhouette is a CYLINDER of radius `radius`
+    // about the view axis (not a cone), so the exact test for a point behind
+    // the centre plane is "is it outside that cylinder?": with `axial` the
+    // point's own component along the view axis, its distance from the axis
+    // is `sqrt(|world|² - axial²)`, compared against `radius`.
+    //
+    // `axial` is in WORLD units and needs no camera metrics: subtracting the
+    // origin's depth cancels the camera's `target` translation, and
+    // `createGlyphOrthographicCamera` applies `zoom`/`fovScale` to col/row
+    // only — its returned depth is the raw rotated `z`, and rotation is
+    // norm-preserving, so `|world|` and `axial` are in the same units.
+    //
+    // A point at the datum has `|world| === radius`, so `|world|² - axial²`
+    // is `radius² - axial² < radius²` for every `axial < 0`: this is exactly
+    // the old verdict there, and every datum-level caller (tile culling,
+    // stroke clipping, `unproject`, markers at the default elevation) is
+    // unchanged. Only a point genuinely raised above the sphere can differ.
     visible(world, depthOf) {
-      return depthOf(world) >= depthOf([0, 0, 0]);
+      const axial = depthOf(world) - depthOf([0, 0, 0]);
+      if (axial >= 0) return true;
+      const rho2 = world[0] * world[0] + world[1] * world[1] + world[2] * world[2];
+      return rho2 - axial * axial >= radius * radius;
     },
     // Exact, closed-form inverse of `createGlyphOrthographicCamera`'s own
     // rotation math (`rotateVec3Voxcss`), not a search/scan (the bug

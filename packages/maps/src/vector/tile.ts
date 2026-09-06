@@ -25,7 +25,7 @@
  * by accident here.
  */
 import type { GlyphMapBounds } from "../types";
-import { glyphMapClipPolyline } from "./clip";
+import { glyphMapClipPolygonGroup, glyphMapClipPolyline, glyphMapSplitAtAntimeridian } from "./clip";
 import {
   GLYPH_MAP_VECTOR_TILE_EXTENT,
   glyphMapDecodeQuantizedLine,
@@ -52,11 +52,62 @@ function isClosedRing(ring: readonly GlyphMapLonLat[]): boolean {
   return a[0] === b[0] && a[1] === b[1];
 }
 
+/**
+ * A POINT is clipped by CONTAINMENT, never by {@link glyphMapClipPolyline}:
+ * Liang-Barsky clips SEGMENTS, and a one-point ring has none, so
+ * `glyphMapClipPolyline` correctly returns nothing for it. Without this
+ * branch every point feature was silently dropped from every baked tile —
+ * which is what left `symbol`/`circle`/`heatmap` (the three point-driven
+ * layer types) with no tiled data source at all, however good the source
+ * data was.
+ *
+ * The test is HALF-OPEN on east/south, the same convention `sample.ts`'s
+ * cell footprint uses, so a place sitting exactly on a shared tile edge
+ * belongs to exactly ONE tile rather than being mounted twice as two
+ * overlapping hotspots. The world's own outer edges (`east >= 180`,
+ * `south <= -90`) are closed instead, since there is no neighbouring tile
+ * there to own the point.
+ */
+function pointInTile(point: GlyphMapLonLat, bounds: GlyphMapBounds): boolean {
+  const [lon, lat] = point;
+  const inLon = lon >= bounds.west && (lon < bounds.east || bounds.east >= 180);
+  const inLat = lat <= bounds.north && (lat > bounds.south || bounds.south <= -90);
+  return inLon && inLat;
+}
+
 /** The wire-format record for one feature inside one baked tile layer — quantized, delta-encoded lines only; never floats. */
 export interface GlyphMapVectorWireFeature {
   readonly id?: string;
   readonly properties?: Readonly<Record<string, unknown>>;
+  /**
+   * Carried through the wire format so a decoded feature stays
+   * self-describing — a POINT tile is otherwise only distinguishable from a
+   * degenerate line by every one of its `lines` having a single vertex,
+   * which is exactly the fallback `widget.ts`'s point runtime had to use.
+   * Optional and omitted when the source feature declares none, so tiles
+   * baked before this field existed decode identically.
+   */
+  readonly geometryType?: "point" | "line" | "polygon";
   readonly lines: readonly (readonly number[])[];
+  /**
+   * AREA geometry — polygon groups (`[outer, ...holes]`) clipped to this
+   * tile as CLOSED rings, alongside (never instead of) `lines`.
+   *
+   * The two are genuinely different cuts of the same source ring and a fill
+   * cannot read the line one: `lines` carries the OPEN fragments a `line`
+   * layer needs, where a cut end must be indistinguishable from an interior
+   * point, while a fill needs the ring re-closed along the tile's own
+   * boundary (see `glyphMapClipPolygonGroup`). Handing the open fragments to
+   * earcut fills "fragment plus straight chord" instead of "country
+   * intersect tile", which is what left large multi-tile countries with big
+   * unpainted holes.
+   *
+   * Absent for a feature with no polygon geometry (a river, a route, a
+   * place point) and for a tile a polygon feature only grazes with a
+   * degenerate sliver — so a line-only pyramid bakes exactly the bytes it
+   * always did.
+   */
+  readonly polygons?: readonly (readonly (readonly number[])[])[];
 }
 
 export interface GlyphMapVectorWireTile {
@@ -76,6 +127,10 @@ export interface GlyphMapVectorWireTile {
  * name, e.g. `"admin0"`) into one tile's wire record. A feature with zero
  * surviving fragments after clipping (it doesn't touch this tile at all) is
  * dropped from the tile entirely — not emitted as an empty entry.
+ *
+ * A ring of exactly ONE point is a point geometry and takes
+ * {@link pointInTile}'s containment test instead of the segment clipper —
+ * see its doc.
  */
 export function glyphMapBuildVectorTile(
   layers: Readonly<Record<string, readonly GlyphMapVectorFeature[]>>,
@@ -92,11 +147,46 @@ export function glyphMapBuildVectorTile(
     for (const feature of features) {
       const lines: number[][] = [];
       for (const ring of feature.rings) {
-        for (const frag of glyphMapClipPolyline(ring, bounds, isClosedRing(ring))) {
-          lines.push(glyphMapEncodeQuantizedLine(frag, bounds, extent));
+        if (ring.length === 1) {
+          if (pointInTile(ring[0], bounds)) lines.push(glyphMapEncodeQuantizedLine(ring, bounds, extent));
+          continue;
+        }
+        // Antimeridian FIRST, box second — see `glyphMapSplitAtAntimeridian`.
+        // A ±180-spanning source ring read as a planar segment clips to one
+        // full-width chord in EVERY tile at its latitude; once the seam
+        // jump is cut out, each surviving run is ordinary planar geometry
+        // and the box clip is unchanged. A ring with no wrap comes back by
+        // identity (`part === ring`), so its `closed` handling and its
+        // baked bytes are exactly what they were.
+        const closed = isClosedRing(ring);
+        for (const part of glyphMapSplitAtAntimeridian(ring, closed)) {
+          for (const frag of glyphMapClipPolyline(part, bounds, closed && part === ring)) {
+            lines.push(glyphMapEncodeQuantizedLine(frag, bounds, extent));
+          }
         }
       }
-      if (lines.length > 0) outFeatures.push({ id: feature.id, properties: feature.properties, lines });
+      // AREA geometry takes its own clip — see `GlyphMapVectorWireFeature.
+      // polygons`. A feature that declares no `polygons` groups (every line
+      // source, and any polygon source that lost its hole grouping upstream)
+      // bakes exactly as before.
+      const polygons: number[][][] = [];
+      for (const group of feature.polygons ?? []) {
+        for (const clipped of glyphMapClipPolygonGroup(group, bounds)) {
+          polygons.push(clipped.map((ring) => glyphMapEncodeQuantizedLine(ring, bounds, extent)));
+        }
+      }
+      // A tile a polygon SWALLOWS carries no piece of its outline at all, so
+      // `lines` is empty there and the feature used to be dropped — which is
+      // precisely the interior of a large country going unpainted.
+      if (lines.length > 0 || polygons.length > 0) {
+        outFeatures.push({
+          id: feature.id,
+          properties: feature.properties,
+          geometryType: feature.geometryType,
+          lines,
+          ...(polygons.length > 0 ? { polygons } : {}),
+        });
+      }
     }
     if (outFeatures.length > 0) outLayers[layerName] = outFeatures;
   }
@@ -110,7 +200,9 @@ export function glyphMapDecodeVectorTile(wire: GlyphMapVectorWireTile): GlyphMap
     layers[layerName] = features.map((f) => ({
       id: f.id,
       properties: f.properties,
+      geometryType: f.geometryType,
       rings: f.lines.map((line) => glyphMapDecodeQuantizedLine(line, wire.bounds, wire.extent)),
+      polygons: f.polygons?.map((group) => group.map((ring) => glyphMapDecodeQuantizedLine(ring, wire.bounds, wire.extent))),
     }));
   }
   return {

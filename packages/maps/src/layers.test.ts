@@ -27,9 +27,13 @@ describe("map layer primitives", () => {
     const feature = { geometryType: "polygon" as const, properties: { height: 12 }, rings: [[[-1, -1], [-1, 1], [1, 1], [1, -1], [-1, -1]] as const] };
     const fill = glyphMapVectorPolygons([feature], glyphMapEquirectangular(), { color: () => "#123456" });
     const extrusion = glyphMapVectorPolygons([feature], glyphMapEquirectangular(), { height: (f) => Number(f.properties?.height) });
-    expect(fill).toHaveLength(1);
-    expect(fill[0].color).toBe("#123456");
-    expect(extrusion).toHaveLength(5);
+    // The cap is triangulated (see `glyphMapVectorPolygons`'s "Holes" note —
+    // glyphcss's own n-gon fan is only correct for a convex ring), so a square
+    // roof is 2 triangles and the extrusion is that plus 4 walls.
+    expect(fill).toHaveLength(2);
+    expect(fill.every((p) => p.vertices.length === 3)).toBe(true);
+    expect(fill.every((p) => p.color === "#123456")).toBe(true);
+    expect(extrusion).toHaveLength(6);
     expect(new Set(extrusion.flatMap((p) => p.vertices.map((v) => v[2]))).size).toBe(2);
   });
 });

@@ -14,9 +14,11 @@
  * globe's back hemisphere); gesture semantics use the PRESENCE of
  * `projection.cameraForCenter`/`centerForCamera` (present only on a
  * projection navigated by orbiting the camera around fixed world geometry)
- * to pick orbit-drag over pan-drag; zoom range is derived from
- * `projection.domain`'s own width. Every one of these is a capability check
- * on the interface, never an `if (projection.id === "glyph-map-globe")`.
+ * to pick orbit-drag over pan-drag; zoom range defaults to
+ * `projection.domain`'s own width, with an explicit `maxSpan` escape hatch
+ * for consumers that want overview margin around the whole projection.
+ * Every one of these is a capability check on the interface, never an
+ * `if (projection.id === "glyph-map-globe")`.
  *
  * **Two bugs fixed rather than ported** (MAPS.md §13 slice 3):
  * 1. `world.astro:182-232`'s `findFocalLatLon` scans for MINIMUM projected
@@ -45,23 +47,27 @@ import type {
   GlyphCamera,
   GlyphHotspotHandle,
   GlyphMeshHandle,
+  GlyphMeshTransform,
   GlyphSceneHandle,
   GlyphSceneOptions,
+  RenderMode,
   TransformCells,
   Vec3,
 } from "glyphcss";
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
+import { glyphMapProjectionTransition } from "./transition";
 import type { GlyphMapGeoTile } from "./tile";
-import { splitGlyphMapGeoTileAtAntimeridian } from "./tile";
+import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
 import { glyphMapPolygons } from "./mesh";
-import type { GlyphMapProvider } from "./provider";
-import { glyphMapDegreesPerCell, glyphMapTargetLOD } from "./provider";
+import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
+import { glyphMapDegreesPerCell, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
-import { stampGlyphMapContour, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
-import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
@@ -79,6 +85,112 @@ export type GlyphMapRasterSource = GlyphMapGeoTile | GlyphMapProvider;
 
 function isGlyphMapProvider(source: GlyphMapRasterSource): source is GlyphMapProvider {
   return typeof (source as GlyphMapProvider).loadTile === "function";
+}
+
+/**
+ * Render modes that paint EDGES only, leaving every interior cell empty.
+ * A mesh-backed layer in one of these renders as an OUTLINE over whatever is
+ * beneath it, so it is mounted `transparent`: an opaque detail layer claims
+ * its full triangle footprint in glyphcss's shared occlusion id-map (a
+ * geometry raster — it knows nothing about which glyphs the layer will
+ * actually paint), which would blank the terrain under the outline instead of
+ * letting it show through. `solid`/`voxel` fill their coverage and stay
+ * opaque, so they occlude normally.
+ */
+const GLYPH_MAP_EDGE_RENDER_MODES: ReadonlySet<RenderMode> = new Set<RenderMode>(["wireframe", "ink"]);
+
+/** The ramp glyphcss itself falls back to when a scene declares no `glyphPalette` (`createGlyphScene`). */
+const GLYPH_MAP_DEFAULT_GLYPH_PALETTE = "default";
+
+/** The appearance a MESH-BACKED layer contributes to its own mesh transform. */
+interface GlyphMapMeshAppearance {
+  readonly renderMode?: RenderMode;
+  readonly glyphPalette?: string;
+}
+
+/**
+ * The per-mesh transform a MESH-BACKED layer (`raster`, `fill`,
+ * `fill-extrusion`, `heatmap`, `model`) mounts with. `density`, `renderMode`
+ * and `glyphPalette` all pass straight through to glyphcss's own per-mesh
+ * options (AGENTS.md's "Per-mesh detail layers"): `density` pops the mesh into
+ * its own `<pre>` at that glyph resolution, and a `renderMode` or a
+ * `glyphPalette` that DIFFERS from the scene's does the same so the layer can
+ * be rasterized under its own mode / against its own ramp — the shared grid is
+ * rasterized in ONE pass, under one mode, against one ramp. A layer declaring
+ * none of them — or declaring the mode/ramp the scene is already in — stays in
+ * the shared base grid at no extra cost.
+ *
+ * The ramp escape has to be applied HERE, not in glyphcss: `isDetailMesh`
+ * separates on ANY non-null per-mesh `glyphPalette` on purpose, because an
+ * unrecognized palette name resolves to the default ramp and so two DIFFERENT
+ * names can mean one ramp. That asymmetry does not touch the case this
+ * function screens for — two EQUAL names always resolve to one ramp, known or
+ * not — so comparing against the scene's own live palette and simply not
+ * setting the per-mesh option is exact, not an approximation. It matters
+ * because a separated OPAQUE layer is not cheap: it makes `computeOcclusionIds`
+ * raster the whole scene's geometry once per render (bench/maps-render measured
+ * +8.8 ms/frame for a one-quad overlay), so the common case — every layer on
+ * the scene's own ramp — must reach glyphcss with nothing set at all.
+ *
+ * `sceneGlyphPalette` is read from the LIVE scene at mount time. A consumer
+ * that changes the scene's palette afterwards through the `map.scene` escape
+ * hatch does not re-evaluate already-mounted meshes; re-add the layer (which
+ * is how every other per-layer appearance change on this widget already
+ * works — there is no live setter for one).
+ *
+ * `line`/`contour` layers never reach this: they own no mesh, are stamped
+ * post-raster, and already emit oriented stroke glyphs by construction —
+ * `glyphPalette` is a documented no-op for that path (AGENTS.md).
+ */
+function glyphMapMeshTransform(
+  layer: GlyphMapMeshAppearance,
+  sceneGlyphPalette: string,
+  density?: number,
+  detailGroup?: string,
+): GlyphMeshTransform {
+  const transform: GlyphMeshTransform = {};
+  if (density !== undefined) transform.density = density;
+  if (detailGroup !== undefined) transform.detailGroup = detailGroup;
+  if (layer.renderMode !== undefined) {
+    transform.mode = layer.renderMode;
+    if (GLYPH_MAP_EDGE_RENDER_MODES.has(layer.renderMode)) transform.transparent = true;
+  }
+  if (layer.glyphPalette !== undefined && layer.glyphPalette !== sceneGlyphPalette) {
+    transform.glyphPalette = layer.glyphPalette;
+  }
+  return transform;
+}
+
+/**
+ * The `GlyphMeshTransform.detailGroup` name a raster layer's tiles of ONE
+ * TIER share, so that tier renders into ONE detail output instead of one per
+ * tile.
+ *
+ * WHY: a raster layer mounts one mesh per tile, and glyphcss pops each mesh
+ * carrying a `density` into its own silhouette-fitted `<pre>`. Two abutting
+ * tiles then point-sample coverage on two lattices fitted to two different
+ * silhouettes, so on a curved, foreshortened surface a sub-cell sliver along
+ * their shared edge can fall inside neither and nothing paints it — a dark
+ * line along every tile boundary, which at z3 sits within a degree of the
+ * tropics and the polar circles and reads as a deliberate graticule. One
+ * lattice per tier removes the boundary rather than refining a test at it.
+ *
+ * PER TIER, not per layer. The never-black system mounts up to three tiers of
+ * the same terrain at once (fine / coarser fallback / permanent floor) whose
+ * surfaces are near-coincident but built at different mesh resolutions.
+ * Across tiers that is resolved today by the shared cross-layer occlusion
+ * id-map; folding them into ONE depth buffer would instead let two
+ * near-coplanar surfaces win alternate cells, which reads as speckle. Tiles
+ * WITHIN a tier are the ones that abut exactly, and they are the ones the
+ * reported seam runs between.
+ *
+ * Set unconditionally, including at `density === 1`. `detailGroup` never
+ * separates a mesh by itself (glyphcss's `isDetailMesh` does not consider it),
+ * so on the ordinary `density: 1` path the tiles stay in the shared base grid
+ * and the name is inert — that path is byte-identical, not merely equivalent.
+ */
+function glyphMapRasterDetailGroup(layerId: string, tier: "fine" | "fallback" | "floor"): string {
+  return `glyph-map-raster:${layerId}:${tier}`;
 }
 
 export interface GlyphMapBackgroundLayer {
@@ -105,7 +217,7 @@ export interface GlyphMapRasterLayer {
   readonly classifier?: GlyphMapClassifier;
   /** Color per band, indexed by `classifier.classifyValue`'s result. Ignored without `classifier`. */
   readonly colors?: readonly string[];
-  /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted — absorbed from both pages' "pad by a tile diagonal so tiles straddling the edge load before they pop in". Default `2`. Ignored for a static (non-provider) source. */
+  /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted — absorbed from both pages' "pad by a tile diagonal so tiles straddling the edge load before they pop in". Default {@link GLYPH_MAP_RASTER_PAD_CELLS_DEFAULT}. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
   /**
    * Passed straight through as this layer's mounted mesh(es)' own
@@ -116,6 +228,35 @@ export interface GlyphMapRasterLayer {
    * (default) keeps this layer in the shared base grid, unchanged.
    */
   readonly density?: number;
+  /**
+   * Per-layer render mode — this layer's mounted mesh(es) rasterize under
+   * `renderMode` instead of the scene's own (glyphcss's per-mesh
+   * `GlyphMeshTransform.mode`). A map is not one picture in one mode: terrain
+   * reads as `solid`, an administrative overlay reads as `ink`. Omitted (the
+   * default) = the scene's mode, and so does declaring the mode the scene is
+   * already in — both keep this layer in the shared base grid, one pass, byte
+   * identical. A genuinely different mode is a full extra rasterizer pass, and
+   * `wireframe`/`ink` additionally mount `transparent` (see
+   * {@link GLYPH_MAP_EDGE_RENDER_MODES}).
+   */
+  readonly renderMode?: RenderMode;
+  /**
+   * Per-layer GLYPH palette — the CHARACTER ramp this layer's mounted mesh(es)
+   * shade with (glyphcss's per-mesh `GlyphMeshTransform.glyphPalette`),
+   * instead of the scene's own. Distinct axis from a colour ramp: this picks
+   * WHICH characters carry the shade, never which colours they are painted
+   * in. Solid-mode ramps only, exactly as glyphcss documents — `charMode`,
+   * `wireframeJunctions` and `solidWeightRamp` stay scene-level.
+   *
+   * Omitted (the default) = the scene's ramp, and so does naming the ramp the
+   * scene is already on — both keep this layer in the shared base grid, one
+   * pass, byte identical. A genuinely different ramp is a full extra
+   * rasterizer pass at the BASE cell size (no extra detail), and an opaque one
+   * additionally turns on the whole-scene occlusion id-map raster — see
+   * {@link glyphMapMeshTransform} for why that escape lives here rather than
+   * in glyphcss.
+   */
+  readonly glyphPalette?: string;
 }
 
 function isGlyphMapVectorProvider(source: GlyphMapVectorSource): source is GlyphMapVectorProvider {
@@ -142,15 +283,26 @@ export interface GlyphMapLineLayer {
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
   /**
-   * NOT YET IMPLEMENTED — reserved so a future implementation is additive,
-   * not a breaking rename (AGENTS.md's no-BC-shims rule cuts the other way
-   * once a name ships). A stroke layer is stamped into the SHARED base
-   * `CellGrid` post-raster (`stroke.ts`'s doc); giving it its own resolution
-   * needs its own detail `<pre>` with its own projected geometry and its
-   * own occlusion sampling against the base grid — real work, not a
-   * passthrough like {@link GlyphMapRasterLayer.density}'s mesh-transform
-   * wiring. `createGlyphMap` THROWS at `addLayer` time for any value other
-   * than `1`/`undefined`, rather than silently ignoring it.
+   * A stroke layer has no geometry of its own — it is a post-raster
+   * annotation, stamped into an output grid the scene produces, depth-tested
+   * against whatever surface already won each cell there. `density` picks
+   * WHICH grid(s):
+   * - `undefined`/`1` (the default): the layer has no resolution preference
+   *   of its own, so it stamps into EVERY grid this scene produces (the
+   *   base grid and each per-mesh detail grid), following the ANNOTATED
+   *   SURFACE'S own density (raise {@link GlyphMapRasterLayer.density} to
+   *   sharpen a border/contour where it crosses that terrain) — the
+   *   pre-existing behavior.
+   * - a genuine value (`!== 1`): the layer wants its OWN independent
+   *   resolution, decoupled from every mesh's. `createGlyphMap` routes it
+   *   through `scene.setViewportOverlayDensities` — a meshless, full-
+   *   viewport output grid at that density, with its own geometry depth
+   *   pass so a stroke stamped there is still occluded correctly by scene
+   *   geometry rendered at a DIFFERENT density (glyphcss's
+   *   `GlyphSceneHandle.setViewportOverlayDensities` doc has the mechanism).
+   *   The layer then stamps ONLY into that overlay, not into the base grid
+   *   or any mesh's detail grid, so the same stroke never renders twice at
+   *   two different resolutions.
    */
   readonly density?: number;
 }
@@ -172,42 +324,45 @@ function isGlyphMapFieldProvider(source: GlyphMapContourSource): source is Glyph
 }
 
 /**
- * Converts a provider's elevation tile (vertex-centered, `(cols+1)x(rows+1)`)
- * into a cell-centered `GlyphMapField` by averaging each quad's 4 corners —
- * absorbed from the website's own `loadContourField` (MapsWorkbench), moved
- * here so `scheduleTileUpdate`'s existing provider-refresh mechanism can
- * drive it directly instead of every consumer re-deriving fields by hand.
+ * One member of an elevation MOSAIC — "what is the terrain height at this
+ * lon/lat, and what range does this piece span", with `NaN` for a point the
+ * piece does not cover. It exists so a `contour` layer's two source shapes —
+ * a static, already-sampled {@link GlyphMapField} and a provider's
+ * vertex-centered {@link GlyphMapGeoTile} — are read through one lookup
+ * instead of coercing one into the other.
  */
-/** The `z/x/y` a view resolves to — exposed so a caller can skip a re-fetch when panning hasn't actually crossed into a new tile. */
-function glyphMapContourTileKey(provider: GlyphMapProvider, v: GlyphMapView): { readonly z: number; readonly x: number; readonly y: number; readonly key: string } {
-  const degPerCell = glyphMapDegreesPerCell(v);
-  const z = glyphMapTargetLOD(provider, degPerCell);
-  const level = provider.zooms.find((lvl) => lvl.z === z)!;
-  const x = Math.min(level.cols - 1, Math.max(0, Math.floor((v.center[0] + 180) / level.tileLonSpan)));
-  const y = Math.min(level.rows - 1, Math.max(0, Math.floor((90 - v.center[1]) / level.tileLatSpan)));
-  return { z, x, y, key: `${z}/${x}_${y}` };
+interface GlyphMapElevationPiece {
+  readonly min: number;
+  readonly max: number;
+  valueAt(lon: number, lat: number): number;
 }
 
-async function loadGlyphMapContourField(provider: GlyphMapProvider, z: number, x: number, y: number): Promise<GlyphMapField> {
-  const tile = await provider.loadTile(z, x, y);
-  const cols = tile.cols;
-  const rows = tile.rows;
-  const values = new Float32Array(cols * rows);
-  const vcols = cols + 1;
-  let min = Infinity, max = -Infinity;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const a = tile.elevation[row * vcols + col];
-      const b = tile.elevation[row * vcols + col + 1];
-      const c = tile.elevation[(row + 1) * vcols + col];
-      const d = tile.elevation[(row + 1) * vcols + col + 1];
-      const value = (a + b + c + d) / 4;
-      values[row * cols + col] = value;
-      if (value < min) min = value;
-      if (value > max) max = value;
-    }
-  }
-  return { bounds: tile.bounds, cols, rows, values, noData: new Uint8Array(cols * rows), kind: "continuous", min, max };
+/**
+ * A provider tile as an elevation piece, sampled through its own VERTEX grid
+ * (`glyphMapGeoTileElevationAt`).
+ *
+ * This deliberately does NOT derive a cell-centered `GlyphMapField` from the
+ * tile first, which is what it used to do. Adjacent tiles SHARE their edge
+ * vertex row/column, so vertex sampling makes two neighbours agree EXACTLY on
+ * their shared boundary; a cell-centered derivation places its outermost
+ * samples half a cell inside the tile, leaving a one-cell band across every
+ * boundary that each side flat-extrapolates on its own — a step in the
+ * sampled field, which a contour then inks as a line the terrain does not
+ * have (see `glyphMapGeoTileElevationAt`'s doc and
+ * `widget.contourTileBoundary.test.ts`).
+ */
+function elevationPieceFromTile(tile: GlyphMapGeoTile): GlyphMapElevationPiece {
+  const { min, max } = glyphMapGeoTileElevationRange(tile);
+  return { min, max, valueAt: (lon, lat) => glyphMapGeoTileElevationAt(tile, lon, lat) };
+}
+
+/** A static, already-sampled cell-centered field as an elevation piece. It has no neighbours, so its own edge clamp has nothing to disagree with. */
+function elevationPieceFromField(field: GlyphMapField): GlyphMapElevationPiece {
+  return { min: field.min, max: field.max, valueAt: (lon, lat) => glyphMapFieldValueAt(field, lon, lat) };
+}
+
+async function loadGlyphMapElevationPiece(provider: GlyphMapProvider, z: number, x: number, y: number): Promise<GlyphMapElevationPiece> {
+  return elevationPieceFromTile(await provider.loadTile(z, x, y));
 }
 
 /**
@@ -237,8 +392,71 @@ export interface GlyphMapContourLayer {
   readonly id?: string;
   readonly source: GlyphMapContourSource;
   readonly levels: number | readonly number[] | { readonly interval: number };
+  /**
+   * Elevation WINDOW in METRES (the unit every elevation in this package
+   * speaks) — a floor and a ceiling, both optional, both omitted by default
+   * (byte-identical to declaring no window at all). `minElevation: 0` is
+   * land only, `maxElevation: 0` is sea only, `0..2000` is the foothills.
+   *
+   * It exists because `levels` otherwise resolves against whatever range the
+   * mounted mosaic has, and ETOPO1's is roughly -10,900..+8,300 m: a count
+   * spends most of its lines on the abyssal plains and leaves land with a
+   * handful. Two numbers do strictly more than a land/sea MODE would, and
+   * sidestep having to define "land" at all — the Caspian and the Dead Sea
+   * are simply below a `0` floor, like anywhere else.
+   *
+   * It does BOTH halves of that, because either alone is a half-fix:
+   *
+   * - LEVELS ARE CHOSEN WITHIN THE WINDOW. A count `N` spreads its lines
+   *   evenly across the window ∩ the field's own range instead of across
+   *   the field's range alone — the part that actually fixes the crowding.
+   *   An explicit array and an `{ interval }`'s absolute multiples are
+   *   CLIPPED (a level outside the window is dropped), never renumbered:
+   *   an interval's whole point is that its lines sit at fixed elevations
+   *   and do not crawl as the view pans, which re-deriving them from the
+   *   window's own edges would undo.
+   * - INK IS CLIPPED TO THE WINDOW. No cell whose own elevation is outside
+   *   it inks, even where a level legitimately crosses between it and a
+   *   neighbour — see `stampGlyphMapContour`'s own `minElevation` doc for
+   *   the sea-cliff case that makes this a separate, necessary gate.
+   *
+   * An EMPTY window (floor above ceiling, or one the visible field never
+   * enters) renders nothing and is not an error — the layer stays mounted
+   * and introspectable, and starts drawing again as soon as the view brings
+   * terrain inside it. {@link GlyphMapHandle.getContourFieldRange} keeps
+   * reporting the field's own DATA range, never the windowed one, so a UI
+   * can bound its floor/ceiling controls by what the terrain actually holds
+   * (a clipped report would let those controls shrink onto their own last
+   * value and never widen back).
+   */
+  readonly minElevation?: number;
+  readonly maxElevation?: number;
   readonly color?: string;
-  /** NOT YET IMPLEMENTED — see {@link GlyphMapLineLayer.density}'s doc; the same stamped-into-the-shared-grid constraint applies here. Throws at `addLayer` time for any value other than `1`/`undefined`. */
+  /**
+   * Elevation LABELS on the contour lines — off by default, and byte-identical
+   * to before the option existed while off (no extra buffer, no extra pass).
+   *
+   * Only INDEX contours are labelled (see {@link labelEvery}), the number sits
+   * in a GAP in its own line, and placement is chosen where the contour runs
+   * near-horizontally on screen and has room — see `stroke.ts`'s
+   * {@link GlyphMapContourLabelOptions} for which cartographic conventions
+   * this keeps, which it drops, and why. Labels are drawn in the layer's own
+   * {@link color}, as USGS prints them in the contour's own brown.
+   */
+  readonly labels?: boolean;
+  /**
+   * Label every Nth contour — the INDEX contour interval. Default
+   * {@link GLYPH_MAP_CONTOUR_LABEL_EVERY} (5), the paper convention. `1`
+   * labels every line.
+   *
+   * Which lines that picks is anchored to ABSOLUTE elevation wherever the
+   * level list itself is (`{ interval }`, and any evenly-spaced explicit
+   * array): with `{ interval: 500 }` and the default, the labelled lines are
+   * the multiples of 2,500 m and stay so as the view pans, exactly as an
+   * interval's own lines do. See {@link glyphMapContourIndexLevels}.
+   */
+  readonly labelEvery?: number;
+  /** See {@link GlyphMapLineLayer.density}'s doc — the same "default follows the annotated surface, a genuine value gets its own viewport overlay" reasoning applies here. */
   readonly density?: number;
 }
 
@@ -246,6 +464,35 @@ export interface GlyphMapFillLayer {
   readonly type: "fill"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   readonly color?: string; readonly colorProperty?: string; readonly colors?: Readonly<Record<string, string>>; readonly density?: number;
+  /**
+   * Per-layer render mode — this layer's mounted mesh(es) rasterize under
+   * `renderMode` instead of the scene's own (glyphcss's per-mesh
+   * `GlyphMeshTransform.mode`). A map is not one picture in one mode: terrain
+   * reads as `solid`, an administrative overlay reads as `ink`. Omitted (the
+   * default) = the scene's mode, and so does declaring the mode the scene is
+   * already in — both keep this layer in the shared base grid, one pass, byte
+   * identical. A genuinely different mode is a full extra rasterizer pass, and
+   * `wireframe`/`ink` additionally mount `transparent` (see
+   * {@link GLYPH_MAP_EDGE_RENDER_MODES}).
+   */
+  readonly renderMode?: RenderMode;
+  /**
+   * Per-layer GLYPH palette — the CHARACTER ramp this layer's mounted mesh(es)
+   * shade with (glyphcss's per-mesh `GlyphMeshTransform.glyphPalette`),
+   * instead of the scene's own. Distinct axis from a colour ramp: this picks
+   * WHICH characters carry the shade, never which colours they are painted
+   * in. Solid-mode ramps only, exactly as glyphcss documents — `charMode`,
+   * `wireframeJunctions` and `solidWeightRamp` stay scene-level.
+   *
+   * Omitted (the default) = the scene's ramp, and so does naming the ramp the
+   * scene is already on — both keep this layer in the shared base grid, one
+   * pass, byte identical. A genuinely different ramp is a full extra
+   * rasterizer pass at the BASE cell size (no extra detail), and an opaque one
+   * additionally turns on the whole-scene occlusion id-map raster — see
+   * {@link glyphMapMeshTransform} for why that escape lives here rather than
+   * in glyphcss.
+   */
+  readonly glyphPalette?: string;
 }
 export interface GlyphMapSymbolLayer {
   readonly type: "symbol"; readonly id?: string; readonly source: GlyphMapVectorSource;
@@ -256,23 +503,184 @@ export interface GlyphMapCircleLayer {
   readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   readonly radius?: number; readonly radiusProperty?: string; readonly color?: string; readonly density?: number;
+  /**
+   * Output radius in CSS pixels per unit of {@link radiusProperty} (default
+   * `1`, i.e. the property IS the radius — the pre-existing behaviour). A
+   * real attribute is never already in pixels: a population column reads
+   * `35_676_000`, which without a scale asks for a 35-million-pixel dot. The
+   * multiplier lives here rather than being baked into the data because the
+   * same baked property has to serve a 6-pixel dot and a 20-pixel one at two
+   * different zoom levels or on two different pages.
+   *
+   * Ignored when `radiusProperty` is absent, and ignored for a feature whose
+   * own property value is missing or non-numeric — both fall back to the flat
+   * {@link radius} (then `2`), which is a pixel count already.
+   */
+  readonly radiusScale?: number;
 }
 export interface GlyphMapHeatmapLayer {
   readonly type: "heatmap"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   readonly radius?: number; readonly weightProperty?: string; readonly colors?: readonly string[]; readonly density?: number; readonly bounds?: GlyphMapBounds;
+  /**
+   * Relief height in METRES at full (normalized `1`) density — the layer's
+   * own vertical unit, lifted through the projection's own `elev` axis like
+   * every other elevation in this package, so it exaggerates with the
+   * projection exactly as terrain does. Defaults to
+   * {@link GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M}, which is what this was as a
+   * private constant.
+   */
+  readonly height?: number;
+  /**
+   * Normalized density (`0..1`, relative to the frame's own hottest cell)
+   * below which a cell emits NO geometry at all, letting whatever is beneath
+   * show through. Default `0` — every cell emits, an unbroken sheet over the
+   * layer's whole `bounds`, byte-identical to before this option existed.
+   *
+   * A real point dataset is mostly empty: population is concentrated in a few
+   * hundred cells and zero across every ocean. At `0` that renders as an
+   * opaque flat sheet AT SEA LEVEL over the entire world, which both hides
+   * the terrain layer and z-fights whatever terrain sits within `height` of
+   * sea level. A small threshold is what turns the layer back into a heat
+   * OVERLAY.
+   *
+   * Implemented by writing `NaN` into the relief tile's own elevation grid,
+   * which {@link glyphMapPolygons} already drops quad-by-quad ("crop, don't
+   * clamp"). A grid VERTEX is shared by up to four cells, so it is kept
+   * whenever ANY incident cell clears the threshold — a quad therefore
+   * survives when all four of its corners have some hot neighbour, i.e. the
+   * emitted region is the hot set dilated by one quad and then eroded by
+   * one. That deliberately over-draws by about a quad at the edge of a blob
+   * rather than eating a ring out of it.
+   */
+  readonly threshold?: number;
+  /**
+   * Per-layer render mode — this layer's mounted mesh(es) rasterize under
+   * `renderMode` instead of the scene's own (glyphcss's per-mesh
+   * `GlyphMeshTransform.mode`). A map is not one picture in one mode: terrain
+   * reads as `solid`, an administrative overlay reads as `ink`. Omitted (the
+   * default) = the scene's mode, and so does declaring the mode the scene is
+   * already in — both keep this layer in the shared base grid, one pass, byte
+   * identical. A genuinely different mode is a full extra rasterizer pass, and
+   * `wireframe`/`ink` additionally mount `transparent` (see
+   * {@link GLYPH_MAP_EDGE_RENDER_MODES}).
+   */
+  readonly renderMode?: RenderMode;
+  /**
+   * Per-layer GLYPH palette — the CHARACTER ramp this layer's mounted mesh(es)
+   * shade with (glyphcss's per-mesh `GlyphMeshTransform.glyphPalette`),
+   * instead of the scene's own. Distinct axis from a colour ramp: this picks
+   * WHICH characters carry the shade, never which colours they are painted
+   * in. Solid-mode ramps only, exactly as glyphcss documents — `charMode`,
+   * `wireframeJunctions` and `solidWeightRamp` stay scene-level.
+   *
+   * Omitted (the default) = the scene's ramp, and so does naming the ramp the
+   * scene is already on — both keep this layer in the shared base grid, one
+   * pass, byte identical. A genuinely different ramp is a full extra
+   * rasterizer pass at the BASE cell size (no extra detail), and an opaque one
+   * additionally turns on the whole-scene occlusion id-map raster — see
+   * {@link glyphMapMeshTransform} for why that escape lives here rather than
+   * in glyphcss.
+   */
+  readonly glyphPalette?: string;
 }
 
 /** Heatmap density is unitless after normalization; render it as bounded physical relief. */
 const GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M = 1_000;
+/**
+ * A deliberate, small, constant lift (raw metres, pre-exaggeration — same
+ * unit as `GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M`) added ON TOP of terrain
+ * elevation everywhere, including where density is 0. Without it, a
+ * zero-density cell's surface sits EXACTLY on the terrain's own mesh —
+ * two independently-meshed surfaces (different grid resolutions, different
+ * source data) sharing one depth would z-fight per cell as the camera
+ * moves, which reads as shimmering and is a worse defect than the
+ * "floating" bug this lift exists to help fix. It is small enough (1% of
+ * the default relief height) to be visually indistinguishable from "on the
+ * surface" at any reasonable exaggeration, while comfortably exceeding the
+ * ~1m vertical resolution of a typical baked elevation grid (ETOPO1 is
+ * whole metres), so it is never itself lost to source-data quantization.
+ */
+const GLYPH_MAP_HEATMAP_SURFACE_LIFT_M = 10;
 export interface GlyphMapFillExtrusionLayer {
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   readonly heightProperty?: string; readonly baseProperty?: string; readonly height?: number; readonly color?: string; readonly density?: number;
+  /**
+   * Metres of extrusion per unit of {@link heightProperty} (default `1`, i.e.
+   * the property IS a height in metres — the pre-existing behaviour). Same
+   * reason {@link GlyphMapCircleLayer.radiusScale} exists: a real attribute
+   * (a population, a GDP, a count) is not already in the layer's output unit,
+   * and the conversion belongs to the layer rather than to the baked data,
+   * which has to serve more than one view scale.
+   *
+   * Applied to the property value only. The flat {@link height} fallback is
+   * already metres and is NOT scaled, so a layer with no `heightProperty` is
+   * untouched by this.
+   */
+  readonly heightScale?: number;
+  /**
+   * Per-layer render mode — this layer's mounted mesh(es) rasterize under
+   * `renderMode` instead of the scene's own (glyphcss's per-mesh
+   * `GlyphMeshTransform.mode`). A map is not one picture in one mode: terrain
+   * reads as `solid`, an administrative overlay reads as `ink`. Omitted (the
+   * default) = the scene's mode, and so does declaring the mode the scene is
+   * already in — both keep this layer in the shared base grid, one pass, byte
+   * identical. A genuinely different mode is a full extra rasterizer pass, and
+   * `wireframe`/`ink` additionally mount `transparent` (see
+   * {@link GLYPH_MAP_EDGE_RENDER_MODES}).
+   */
+  readonly renderMode?: RenderMode;
+  /**
+   * Per-layer GLYPH palette — the CHARACTER ramp this layer's mounted mesh(es)
+   * shade with (glyphcss's per-mesh `GlyphMeshTransform.glyphPalette`),
+   * instead of the scene's own. Distinct axis from a colour ramp: this picks
+   * WHICH characters carry the shade, never which colours they are painted
+   * in. Solid-mode ramps only, exactly as glyphcss documents — `charMode`,
+   * `wireframeJunctions` and `solidWeightRamp` stay scene-level.
+   *
+   * Omitted (the default) = the scene's ramp, and so does naming the ramp the
+   * scene is already on — both keep this layer in the shared base grid, one
+   * pass, byte identical. A genuinely different ramp is a full extra
+   * rasterizer pass at the BASE cell size (no extra detail), and an opaque one
+   * additionally turns on the whole-scene occlusion id-map raster — see
+   * {@link glyphMapMeshTransform} for why that escape lives here rather than
+   * in glyphcss.
+   */
+  readonly glyphPalette?: string;
 }
 export interface GlyphMapModelLayer {
   readonly type: "model"; readonly id?: string; readonly polygons: readonly Polygon[]; readonly density?: number;
   readonly attribution?: readonly GlyphMapAttribution[];
+  /**
+   * Per-layer render mode — this layer's mounted mesh(es) rasterize under
+   * `renderMode` instead of the scene's own (glyphcss's per-mesh
+   * `GlyphMeshTransform.mode`). A map is not one picture in one mode: terrain
+   * reads as `solid`, an administrative overlay reads as `ink`. Omitted (the
+   * default) = the scene's mode, and so does declaring the mode the scene is
+   * already in — both keep this layer in the shared base grid, one pass, byte
+   * identical. A genuinely different mode is a full extra rasterizer pass, and
+   * `wireframe`/`ink` additionally mount `transparent` (see
+   * {@link GLYPH_MAP_EDGE_RENDER_MODES}).
+   */
+  readonly renderMode?: RenderMode;
+  /**
+   * Per-layer GLYPH palette — the CHARACTER ramp this layer's mounted mesh(es)
+   * shade with (glyphcss's per-mesh `GlyphMeshTransform.glyphPalette`),
+   * instead of the scene's own. Distinct axis from a colour ramp: this picks
+   * WHICH characters carry the shade, never which colours they are painted
+   * in. Solid-mode ramps only, exactly as glyphcss documents — `charMode`,
+   * `wireframeJunctions` and `solidWeightRamp` stay scene-level.
+   *
+   * Omitted (the default) = the scene's ramp, and so does naming the ramp the
+   * scene is already on — both keep this layer in the shared base grid, one
+   * pass, byte identical. A genuinely different ramp is a full extra
+   * rasterizer pass at the BASE cell size (no extra detail), and an opaque one
+   * additionally turns on the whole-scene occlusion id-map raster — see
+   * {@link glyphMapMeshTransform} for why that escape lives here rather than
+   * in glyphcss.
+   */
+  readonly glyphPalette?: string;
 }
 
 /** Every multiple of `interval` strictly between `min` and `max` (both exclusive, matching the `N`-count variant's own "never a line along the field's own edge" convention). Exported so a caller (e.g. a UI readout) can preview the level COUNT an `{ interval }` value will produce without re-deriving this math. */
@@ -284,12 +692,94 @@ export function glyphMapContourIntervalLevels(interval: number, min: number, max
   return out;
 }
 
+/** Default INDEX-contour interval: label every 5th line, the USGS/paper convention. */
+export const GLYPH_MAP_CONTOUR_LABEL_EVERY = 5;
+/** Declutter padding for contour labels, in cells. `X` doubles as the repetition spacing along one line (see {@link glyphMapDeclutterLabels}); `Y` keeps two labels off adjacent rows. */
+export const GLYPH_MAP_CONTOUR_LABEL_PAD_X = 12;
+export const GLYPH_MAP_CONTOUR_LABEL_PAD_Y = 1;
+
+/**
+ * The INDEX contours of a resolved level list — the subset that gets
+ * labelled, `every`th line, drawn from `levels`.
+ *
+ * `step` is the list's own nominal spacing (an `{ interval }`'s interval, a
+ * count's even spacing, an explicit array's smallest positive gap). Selection
+ * is by a level's ORDINAL on the absolute ladder `Math.round(level / step)`,
+ * not by its position in the array, and that distinction is the whole point:
+ * an ordinal is a property of the ELEVATION, so for a list that already sits
+ * at fixed absolute elevations (`{ interval: 500 }` → the multiples of
+ * 2,500 m at the default `every`) the labelled lines never move as the view
+ * pans, appearing and disappearing at the domain edges exactly like the lines
+ * themselves. A position-in-array rule would instead renumber the whole
+ * ladder every time the visible range gained or lost a line at one end, and
+ * every label on the map would jump to a different contour.
+ *
+ * For a count-based list — whose levels already re-space themselves with the
+ * visible range, by design — ordinals are still consecutive integers, so this
+ * picks a genuine every-Nth subset there too.
+ *
+ * Returning `levels` unchanged when NOTHING qualifies is deliberate and is
+ * the short-authored-array case: `[1000, 3000]` sits on no `every`-th rung of
+ * its own ladder, and silently labelling none of a two-line map is worse than
+ * labelling both.
+ */
+export function glyphMapContourIndexLevels(levels: readonly number[], step: number, every: number): readonly number[] {
+  if (!(every > 1) || !(step > 0) || !Number.isFinite(step)) return levels;
+  const picked = levels.filter((level) => Math.round(level / step) % every === 0);
+  return picked.length > 0 ? picked : levels;
+}
+
 export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer | GlyphMapFillLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer | GlyphMapFillExtrusionLayer | GlyphMapModelLayer;
 
-/** A layer kind whose rendering is post-raster CellGrid stamping rather than mesh mounting — composed into ONE `transformCells` hook (see `createGlyphMap`'s "stroke layers" section). */
+/**
+ * `GlyphTransformCellsLayer.cellToSceneGrid`'s own shape: the affine mapping
+ * a CellGrid's own cell coordinates to the scene's BASE grid cell
+ * coordinates (`sceneCol = a*col + e`, `sceneRow = d*row + f`, encoded
+ * `[a, 0, 0, d, e, f]`). A stroke layer needs this in BOTH directions: `line`
+ * projects world geometry into scene coordinates once (`camera.project`
+ * always returns SCENE-space col/row, regardless of which grid it will be
+ * stamped into — glyphcss's own `GlyphProjectionMetrics` carries no "which
+ * grid" concept) and then needs the INVERSE to place a vertex into whichever
+ * grid is currently being stamped; `contour` walks a grid's own LOCAL cells
+ * and needs the FORWARD direction to recover the scene coordinate `unproject`
+ * understands.
+ */
+type GlyphMapCellAffine = readonly [number, number, number, number, number, number];
+const GLYPH_MAP_IDENTITY_CELL_AFFINE: GlyphMapCellAffine = [1, 0, 0, 1, 0, 0];
+
+/** Scene/base-grid (col,row) → a grid's own LOCAL (col,row) — the inverse of `cellToSceneGrid`'s forward mapping. */
+function glyphMapSceneToLocalCell(sceneCol: number, sceneRow: number, affine: GlyphMapCellAffine): { readonly col: number; readonly row: number } {
+  return { col: (sceneCol - affine[4]) / affine[0], row: (sceneRow - affine[5]) / affine[3] };
+}
+
+/** A grid's own LOCAL (col,row) → scene/base-grid (col,row) — `cellToSceneGrid`'s own forward direction. */
+function glyphMapLocalCellToScene(col: number, row: number, affine: GlyphMapCellAffine): { readonly col: number; readonly row: number } {
+  return { col: affine[0] * col + affine[4], row: affine[3] * row + affine[5] };
+}
+
+/**
+ * A layer kind whose rendering is post-raster CellGrid stamping rather than
+ * mesh mounting — composed into ONE `transformCells` hook (see
+ * `createGlyphMap`'s "stroke layers" section). `stamp` is called once per
+ * output grid the scene produces (the base grid, then each per-mesh detail
+ * grid) — `cellToSceneGrid` is THAT grid's own affine, letting one
+ * line/contour layer stay correctly positioned and depth-tested against
+ * every grid it crosses. `baseGrid` is a SNAPSHOT of `projectionGrid()`
+ * taken at the base grid's own hook call (before this render's detail
+ * layers exist) — `stamp` MUST use it instead of calling the live
+ * `projectionGrid()`/`camera.project` itself: glyphcss temporarily mutates
+ * the shared `camera` object's `zoom`/`center` to reproject EACH detail
+ * mesh into its own grid, and that mutated state is still live exactly
+ * while THIS hook runs for that mesh's own detail grid — reading the live
+ * camera there projects world geometry through the WRONG (detail-layer)
+ * center instead of the scene's true base framing (measured: a "flat"
+ * mesh's own detail grid, off-center from the view, converted stroke
+ * vertices hundreds of cells off — silently outside the grid's own bounds,
+ * so nothing rendered, no error).
+ */
 interface StrokeLayerRuntime {
   update(): Promise<void>;
-  stamp(grid: CellGrid): void;
+  stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void;
   dispose(): void;
 }
 
@@ -337,7 +827,16 @@ export interface GlyphMapLoadEvent {
   readonly type: "load";
 }
 
-export type GlyphMapEvent = GlyphMapClickEvent | GlyphMapViewEvent | GlyphMapLoadEvent;
+export interface GlyphMapSunEvent {
+  readonly type: "sun";
+  /** The instant the sun was resolved at — `Date.now()` in `"realtime"`, the pinned {@link GlyphMapSunOptions.date} in `"manual"`. */
+  readonly at: number;
+  readonly subsolar: GlyphMapSolarPosition;
+  /** The directional-light source vector for an ORBIT projection, or `null` for a sheet (which has no directional-light terminator — see `sun.ts`). */
+  readonly direction: Vec3 | null;
+}
+
+export type GlyphMapEvent = GlyphMapClickEvent | GlyphMapViewEvent | GlyphMapLoadEvent | GlyphMapSunEvent;
 export type GlyphMapEventHandler<E extends GlyphMapEvent = GlyphMapEvent> = (event: E) => void;
 
 // ── project()/unproject() ─────────────────────────────────────────────
@@ -351,6 +850,127 @@ export interface GlyphMapProjectResult {
 
 // ── Options / handle ───────────────────────────────────────────────────
 
+/**
+ * Where the sun is.
+ *
+ * - `"off"` (the default) — the widget never touches lighting at all: the
+ *   scene's own `directionalLight` is whatever the consumer set, no timer
+ *   runs, and the `transformCells` hook is not installed on the sun's
+ *   account. Byte-identical to every render before this option existed.
+ * - `"realtime"` — the sun's TRUE current position, re-resolved on a
+ *   wall-clock timer ({@link GlyphMapSunOptions.tickMs}) so the terminator
+ *   keeps advancing (15 deg of longitude per hour) with no further input.
+ * - `"manual"` — the sun at one pinned instant ({@link GlyphMapSunOptions.date}),
+ *   frozen there. No timer runs.
+ */
+export type GlyphMapSunMode = "off" | "realtime" | "manual";
+
+/**
+ * Real-sun lighting. The MECHANISM is chosen by projection CAPABILITY, never
+ * by `projection.id` — see `sun.ts`'s header:
+ * - ORBIT projection (`cameraForCenter` present — the globe): the widget
+ *   writes the scene's `directionalLight.direction` as the outward unit
+ *   vector at the subsolar point, and glyphcss's own Lambert shading
+ *   produces a real terminator, correctly tilted for the season.
+ *   `intensity`/`color` are left exactly as the consumer set them.
+ * - SHEET projection: one surface normal everywhere means a directional
+ *   light can only dim the whole map uniformly, so instead a per-cell
+ *   day/night term is stamped through the same single `transformCells` hook
+ *   `line`/`contour` layers already share.
+ *
+ * Leaving `"realtime"`/`"manual"` for `"off"` stops the widget updating the
+ * light; it deliberately does NOT restore some earlier direction (the
+ * consumer owns that value and may have changed its intensity/colour
+ * meanwhile — re-apply your own).
+ */
+export interface GlyphMapSunOptions {
+  readonly mode?: GlyphMapSunMode;
+  /** The instant `"manual"` mode is pinned to (a `Date` or epoch ms). Ignored in the other two modes. Defaults to the widget's construction time. */
+  readonly date?: Date | number;
+  /** Wall-clock cadence of `"realtime"` re-resolution, ms. Default {@link GLYPH_MAP_SUN_TICK_MS}. */
+  readonly tickMs?: number;
+  /** Sheet-projection terminator softness — solar-altitude half-width of the twilight ramp, degrees. Default `GLYPH_MAP_SUN_TWILIGHT_DEG`. */
+  readonly twilightDeg?: number;
+  /** Sheet-projection terminator depth, `0..1`. Default `GLYPH_MAP_NIGHT_OPACITY`. */
+  readonly nightOpacity?: number;
+  /** `#rrggbb` the sheet-projection night side is blended toward. Default `"#000000"`. */
+  readonly nightColor?: string;
+  /** Discrete darkness levels in the sheet-projection terminator. Default `GLYPH_MAP_NIGHT_LEVELS` — a PERFORMANCE knob (fewer levels = longer same-colour runs = fewer spans), see that constant's own measured table. */
+  readonly nightLevels?: number;
+}
+
+/** {@link GlyphMapHandle.getSun}'s fully-resolved answer — every field defaulted, `date` normalized to epoch ms. */
+export interface GlyphMapSunState {
+  readonly mode: GlyphMapSunMode;
+  readonly date: number;
+  readonly tickMs: number;
+  readonly twilightDeg: number;
+  readonly nightOpacity: number;
+  readonly nightColor: string;
+  readonly nightLevels: number;
+}
+
+/**
+ * How often `"realtime"` re-resolves the sun. The subsolar point moves
+ * 0.25 deg of longitude per MINUTE, so 30 s is 0.125 deg — about a twelfth
+ * of a cell at a world view, i.e. visually continuous — while costing two
+ * re-renders a minute on an otherwise idle map. Driving this from the render
+ * loop instead would be wrong in the other direction: a lighting change
+ * forces a re-render, so a per-frame sun would pin the CPU on a still map
+ * forever.
+ */
+export const GLYPH_MAP_SUN_TICK_MS = 30_000;
+
+/**
+ * Who aims the scene's key light.
+ *
+ * - `"fixed"` (the default) — nobody here does. The scene's
+ *   `directionalLight.direction` is whatever the consumer set and the widget
+ *   never writes it, byte-identical to every render before this option
+ *   existed. (A `sun` in `"realtime"`/`"manual"` still owns the direction on
+ *   an orbit projection; that is the sun's own contract and predates this.)
+ * - `"headlight"` — the direction is the camera's OWN view axis, rewritten
+ *   whenever the camera moves. On a globe this is the "everything lit"
+ *   framing: the face you are looking at is lit edge to edge with no
+ *   terminator anywhere, while Lambert still varies with each face's own
+ *   normal, so terrain relief stays legible. Compare pure ambient, which
+ *   also removes the terminator but gives every face the SAME shade and so
+ *   erases relief entirely (rendered and pinned in
+ *   `widget.headlight.test.ts`).
+ *
+ * Like the sun, this writes `direction` ONLY — `intensity` and `color` stay
+ * exactly as the consumer set them, so a headlight and a consumer-owned key
+ * light never fight over the same field.
+ */
+export type GlyphMapKeyLightMode = "fixed" | "headlight";
+
+/**
+ * The key-light source vector for a camera at `(rotXDeg, rotYDeg)` — i.e.
+ * the unit vector from a shaded surface TOWARD the camera, which is
+ * glyphcss's own directional-light convention (AGENTS.md, "Numeric
+ * conventions": `direction` points from the surface toward the light).
+ *
+ * `createGlyphOrthographicCamera` rotates a world vector by `rotZ(rotY)` then
+ * `rotX(rotX)` under the axis swap `world[0] -> CSS y, world[1] -> CSS x`,
+ * and its projected DEPTH is `r[2] = (v1 sinY + v0 cosY) sinX + v2 cosX`
+ * with larger = nearer. Depth is therefore LINEAR in the world point, so the
+ * direction that increases it fastest — the direction the camera lies in —
+ * is exactly that functional's gradient:
+ *
+ *     n = (sin rotX cos rotY, sin rotX sin rotY, cos rotX)
+ *
+ * already a unit vector. This is the same `n` `glyphMapGlobe.cameraForCenter`
+ * inverts to place a view centre, which is the cross-check
+ * `widget.headlight.test.ts` uses: the headlight at the camera framing for
+ * `(lon, lat)` equals the SUN direction for a subsolar point at `(lon, lat)`.
+ */
+export function glyphMapHeadlightDirection(rotXDeg: number, rotYDeg: number): Vec3 {
+  const rx = (rotXDeg * Math.PI) / 180;
+  const ry = (rotYDeg * Math.PI) / 180;
+  const sinX = Math.sin(rx);
+  return [sinX * Math.cos(ry), sinX * Math.sin(ry), Math.cos(rx)];
+}
+
 export interface GlyphMapOptions {
   readonly view: GlyphMapView;
   readonly projection: GlyphMapProjection;
@@ -360,6 +980,19 @@ export interface GlyphMapOptions {
   readonly autoSize?: boolean;
   /** Smallest `view.span` (degrees) reachable by wheel-zoom or `setView`. Default `0.001`. */
   readonly minSpan?: number;
+  /**
+   * Largest `view.span` (degrees) reachable by wheel-zoom. Values beyond the
+   * projection's domain width leave an overview margin around the complete
+   * map or globe.
+   *
+   * Setting this OPTS OUT of the cover rule entirely (see
+   * {@link GlyphMapHandle.getMaxSpan}), for both the span and the pan
+   * clamp — "overview margin" is exactly the background cover exists to
+   * remove, so the two cannot both hold and the explicit request wins.
+   * Omitted (the default), a SHEET projection's ceiling is the cover limit
+   * and an ORBIT projection's is its domain width, as before.
+   */
+  readonly maxSpan?: number;
   /**
    * Camera pitch, degrees. Meaning is unified across both navigation modes
    * as "additional rotation on top of whatever the projection's own base
@@ -377,6 +1010,32 @@ export interface GlyphMapOptions {
   readonly tilt?: number;
   /** Forwarded to `createGlyphScene`, merged UNDER the widget's own `camera`/`cols`/`rows`/`autoSize` — this is how shading, `colorEncoding`, shadows, etc. compose (MAPS.md §9: "no new scene concepts"). */
   readonly scene?: Partial<GlyphSceneOptions>;
+  /** Real-sun lighting. Omitted (the default) is `{ mode: "off" }` — see {@link GlyphMapSunOptions}. */
+  readonly sun?: GlyphMapSunOptions;
+  /** Who aims the scene's key light. Omitted (the default) is `"fixed"` — the widget never writes it. See {@link GlyphMapKeyLightMode}. */
+  readonly keyLight?: GlyphMapKeyLightMode;
+}
+
+export interface GlyphMapSetProjectionOptions {
+  /** Animation length, ms. `0` applies the target instantly (no animation frame at all). Default {@link GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS}. */
+  readonly durationMs?: number;
+}
+
+/** Where a {@link GlyphMapHandle.flyTo} flight ends: a centre and/or span, or a box to frame (the same framing `fitBounds` computes). */
+export type GlyphMapFlyToTarget =
+  | { readonly center?: readonly [number, number]; readonly span?: number; readonly bounds?: undefined }
+  | { readonly bounds: GlyphMapBounds; readonly center?: undefined; readonly span?: undefined };
+
+export interface GlyphMapFlyToOptions {
+  /** Flight length, ms. `0` applies the target instantly. Default {@link GLYPH_MAP_FLY_TO_DEFAULT_MS}. */
+  readonly durationMs?: number;
+  /**
+   * How far the flight is allowed to zoom OUT at mid-arc, as a multiple of
+   * the larger endpoint span. `1` flies at a straight log-span interpolation
+   * (no bow). Default {@link GLYPH_MAP_FLY_TO_MAX_BOW}; see
+   * {@link GlyphMapHandle.flyTo} for why the bow exists.
+   */
+  readonly bow?: number;
 }
 
 export interface GlyphMapHandle {
@@ -385,6 +1044,26 @@ export interface GlyphMapHandle {
   readonly scene: GlyphSceneHandle;
   setView(view: Partial<GlyphMapView>): void;
   getView(): GlyphMapView;
+  /**
+   * The largest `view.span` this widget will currently accept — the live
+   * ceiling `setView`/`fitBounds`/wheel-zoom all clamp to, so a consumer
+   * driving a span SLIDER can bound it to what the map can actually show
+   * instead of offering a range that silently snaps back.
+   *
+   * For a SHEET projection this is the COVER limit: the span at which the
+   * projected map still fills the viewport on BOTH axes, so no page
+   * background is ever visible around the edges. It moves with the host's
+   * shape, the camera `tilt` and the projection (and, where a projection's
+   * scale varies across its domain — orthographic — with `view.center`), so
+   * it must be re-read rather than cached. For an ORBIT projection (the
+   * globe) there is no cover limit at all — a globe legitimately floats in
+   * space — and this is the projection's domain width, exactly as before;
+   * an explicit {@link GlyphMapOptions.maxSpan} replaces both outright.
+   * During a `setProjection` flight it is already the DESTINATION's
+   * limit, so a mid-flight zoom cannot land somewhere the flight's own end
+   * would have to snap away from.
+   */
+  getMaxSpan(): number;
   fitBounds(bounds: GlyphMapBounds): void;
   /**
    * Live camera pitch — see {@link GlyphMapOptions.tilt} for the unified
@@ -410,6 +1089,108 @@ export interface GlyphMapHandle {
    */
   setTilt(tilt: number): void;
   getTilt(): number;
+  /**
+   * Turn real-sun lighting on/off and tune it. A partial merge over the
+   * current state — `setSun({ mode: "realtime" })` leaves every other field
+   * alone. Entering `"realtime"` snaps the sun to the true CURRENT position
+   * immediately (it never waits up to a whole {@link GlyphMapSunOptions.tickMs}
+   * for its first tick) and starts the timer; leaving it stops the timer.
+   * See {@link GlyphMapSunOptions} for the two mechanisms and why the choice
+   * between them is a projection CAPABILITY check.
+   */
+  setSun(sun: GlyphMapSunOptions): void;
+  getSun(): GlyphMapSunState;
+  /** The current directional-light source vector for an ORBIT projection, or `null` for a sheet / while the sun is off / mid-`setProjection` blend. Consumers that own the scene's `directionalLight` (intensity, colour) read this to compose their own write without fighting the widget's. */
+  getSunDirection(): Vec3 | null;
+  /** The subsolar point the sun currently resolves to, or `null` while the sun is off. */
+  getSubsolarPoint(): GlyphMapSolarPosition | null;
+  /**
+   * Switch who aims the key light. Applies immediately and re-renders, so a
+   * `"headlight"` turned on mid-gesture lights the frame it was turned on
+   * in. Leaving `"headlight"` for `"fixed"` stops the widget updating the
+   * direction and — like leaving the sun — deliberately does NOT restore
+   * some earlier value: the consumer owns it, re-apply your own.
+   */
+  setKeyLight(mode: GlyphMapKeyLightMode): void;
+  getKeyLight(): GlyphMapKeyLightMode;
+  /**
+   * The direction the WIDGET currently owns for the scene's key light, from
+   * whichever owner is active — the sun if it is on and this projection
+   * takes a directional terminator, otherwise the headlight — or `null` when
+   * nobody here owns it (`keyLight: "fixed"` with the sun off, a sheet
+   * projection with the sun on, mid-`setProjection` blend).
+   *
+   * This is the ONE call a consumer composing its own `directionalLight`
+   * write needs: `getSunDirection()` answers only for the sun, so a consumer
+   * reading that alone would clobber a headlight with its own slider vector.
+   */
+  getKeyLightDirection(): Vec3 | null;
+  /**
+   * Animates from the CURRENT projection to `target` over
+   * `opts.durationMs` (default {@link GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS},
+   * `0` = instant) — MAPS.md §13 slice 4, `transition.ts`'s own reference
+   * caller. Every animation frame: (1) the closure projection is reassigned
+   * to `glyphMapProjectionTransition(from, to, t)` (the exact `from`/`to`
+   * object at `t<=0`/`t>=1`), which every mesh/stamp rebuild below reads
+   * live; (2) camera FRAMING is blended between each endpoint's OWN framing
+   * — picked by CAPABILITY presence on that endpoint (`cameraForCenter`),
+   * never by identity, the same rule every other projection-aware branch in
+   * this file follows — since the blended projection itself deliberately
+   * exposes neither `cameraForCenter` nor `centerForCamera`
+   * (`transition.ts`'s doc) to compute a framing from; (3) every mesh whose
+   * geometry depends on projection is rebuilt against the newly-blended
+   * projection (raster tiles reproject from cache, no refetch; `line`/
+   * `contour` reproject for free every render already).
+   *
+   * `unproject()` — and so click-to-lonlat and contour field sampling,
+   * which both go through it — degrades to `null` for the whole transition,
+   * never throwing: `glyphMapProjectionTransition`'s blend has no
+   * closed-form inverse by design, and every internal caller of
+   * `projection.unproject` here catches that throw and treats it as "no
+   * answer" rather than propagating it or crashing.
+   *
+   * Resolves once `t` reaches `1` — at that point `projection` is the exact
+   * `target` reference and camera framing is byte-identical to a plain,
+   * non-animated `setProjection(target, { durationMs: 0 })` call. Calling
+   * this again before a prior transition settles cancels the in-flight one
+   * and restarts from wherever the camera/projection currently ARE (not
+   * from the original start), same "last call wins, no queueing" precedent
+   * every other async layer update in this file follows.
+   */
+  setProjection(target: GlyphMapProjection, opts?: GlyphMapSetProjectionOptions): Promise<void>;
+  /**
+   * Animated camera flight to `target` — the eased counterpart of the
+   * instantaneous {@link GlyphMapHandle.setView}/{@link GlyphMapHandle.fitBounds},
+   * and the mechanism a "fly to this country" search box drives.
+   *
+   * Runs on the widget's ONE camera-motion loop, the same loop that owns
+   * inertial drag glide and {@link GlyphMapHandle.setProjection}'s blend —
+   * never a second animation mechanism of its own. That is what makes every
+   * hand-over continuous: a drag, a wheel, another `flyTo`, a `setView` or a
+   * `setProjection` arriving mid-flight simply cancels the flight WHERE THE
+   * CAMERA CURRENTLY IS. Nothing is ever re-derived from the flight's
+   * original start, so an interrupted flight cannot snap.
+   *
+   * The centre eases (`easeInOutQuad`) along the shorter longitude arc while
+   * the span interpolates in LOG space — a zoom is multiplicative, so a
+   * linear span lerp would spend almost the whole flight at the wide end.
+   * On top of that the span is BOWED outward at mid-arc (`opts.bow`): a
+   * cross-globe flight would otherwise skim the surface at final detail the
+   * whole way, which is both the wrong look and the expensive one — the bow
+   * is what bounds how much fine terrain is ever needed mid-flight. This is
+   * the simple `sin`-bow, not van Wijk's optimal-path zoom-and-pan: the
+   * latter buys a slightly more natural constant-perceived-velocity arc for
+   * a lot more math, and nothing here depends on that.
+   *
+   * Detail settles when MOTION STOPS, not when the flight's promise
+   * resolves — the shared loop re-arms the tile-fetch debounce on every
+   * moving frame, so waypoints mid-flight never trigger a fetch.
+   *
+   * Resolves when the flight completes; a cancelled flight resolves too
+   * (the caller asked to go somewhere and something else took over — that
+   * is not an error), so `await flyTo(...)` never hangs.
+   */
+  flyTo(target: GlyphMapFlyToTarget, opts?: GlyphMapFlyToOptions): Promise<void>;
   project(lngLat: readonly [number, number]): GlyphMapProjectResult;
   unproject(cell: readonly [number, number]): readonly [number, number] | null;
   addLayer(layer: GlyphMapLayer, beforeId?: string): string;
@@ -447,21 +1228,344 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/**
+ * Per-`deltaMode` wheel-delta normalization ratios (pixel / line / page),
+ * adopted from Leaflet's `DomEvent.getWheelDelta` — a battle-tested
+ * cross-device/cross-browser table, not a value picked blind. A raw
+ * `WheelEvent.deltaY` is meaningless on its own: `deltaMode` 0 (pixel), 1
+ * (line), or 2 (page) changes what one unit of `deltaY` represents, and the
+ * SAME physical gesture reports wildly different magnitudes across modes
+ * and devices — a macOS trackpad emits many small pixel-mode events
+ * (`deltaY` ~1-5), a physical mouse wheel notch emits a much larger
+ * pixel-mode jump (`deltaY` ~100 on macOS Chrome/Safari) or a handful of
+ * line-mode units elsewhere (Firefox on Windows, `deltaY` ~3, `deltaMode`
+ * 1). The old fixed `deltaY * 0.001` coefficient ignored `deltaMode`
+ * entirely and read pixel-mode trackpad events as a 0.1-0.5% span change
+ * per event — the exact "locked in, barely moves" symptom.
+ */
+export const GLYPH_MAP_WHEEL_DELTA_MODE_SCALE: Readonly<Record<number, number>> = {
+  0: 1 / 4.000244140625, // DOM_DELTA_PIXEL
+  1: 20, // DOM_DELTA_LINE
+  2: 60, // DOM_DELTA_PAGE
+};
+
+/**
+ * `k` in `span *= exp(k * normalizedDelta)` — the exponential (not linear)
+ * zoom step, chosen so a single physical mouse-wheel notch (macOS
+ * pixel-mode `deltaY` ~100 -> normalized ~25 via the table above) lands a
+ * ~12% span change: `exp(25k) = 1.12 => k = ln(1.12) / 25`. Exponential
+ * rather than linear because zoom is naturally multiplicative — a linear
+ * `span * (1 + delta)` step is asymmetric (zooming in then out by the same
+ * raw delta does not return to the original span); `exp` is exactly
+ * self-inverse under negation, which `widget.test.ts`'s wheel-symmetry test
+ * pins directly.
+ */
+export const GLYPH_MAP_WHEEL_ZOOM_K = Math.log(1.12) / 25;
+
+/**
+ * Converts a raw `WheelEvent.deltaY`/`deltaMode` pair into the normalized
+ * delta {@link GLYPH_MAP_WHEEL_ZOOM_K} is calibrated against. An
+ * unrecognized `deltaMode` (none is standard beyond 0/1/2) falls back to
+ * the pixel-mode ratio rather than throwing — a wheel gesture should never
+ * hard-fail the widget.
+ */
+export function glyphMapNormalizeWheelDelta(deltaY: number, deltaMode: number): number {
+  return deltaY * (GLYPH_MAP_WHEEL_DELTA_MODE_SCALE[deltaMode] ?? GLYPH_MAP_WHEEL_DELTA_MODE_SCALE[0]);
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function lerp3(a: Vec3, b: Vec3, t: number): Vec3 {
+  return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+
+/** {@link GlyphMapHandle.setProjection}'s default animation length, ms. */
+const GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS = 600;
+
+/** Default {@link GlyphMapHandle.flyTo} flight length, ms. */
+export const GLYPH_MAP_FLY_TO_DEFAULT_MS = 1400;
+/** Default mid-arc zoom-out bow for {@link GlyphMapHandle.flyTo} — see its doc. */
+export const GLYPH_MAP_FLY_TO_MAX_BOW = 3;
+/**
+ * Inertial glide: velocity decays by `exp(-dt / TAU)` per frame, and the
+ * glide ends once speed drops below the threshold. 220ms reads as "the map
+ * keeps going and settles" rather than either a hard stop or a long skate;
+ * the threshold is a quarter of a pixel per 16ms frame, below which another
+ * frame could not move a single glyph cell.
+ */
+const GLYPH_MAP_GLIDE_TAU_MS = 220;
+const GLYPH_MAP_GLIDE_MIN_PX_PER_MS = 0.015;
+/** Ceiling on the flung velocity, px/ms — a single huge pointer jump must not launch the camera across the globe. */
+const GLYPH_MAP_GLIDE_MAX_PX_PER_MS = 4;
+/** Exponential smoothing weight for the newest pointer sample when estimating fling velocity. */
+const GLYPH_MAP_GLIDE_VELOCITY_MIX = 0.35;
+
+/** Monotonic ms. `performance.now` where it exists (it is monotonic and immune to a clock step), `Date.now` otherwise. */
+function nowMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
+/**
+ * Default {@link GlyphMapRasterLayer.padCells} — widened from the original
+ * `2` (never-black investigation): tile updates are gesture-GATED
+ * (`scheduleTileUpdate`'s debounce never fires mid-drag/mid-wheel, only once
+ * events go idle), so a settled view's own prefetch margin is what a user
+ * can nudge into — a small pan started right after settling, or the first
+ * few pixels of a new gesture before its own settle — without immediately
+ * falling back to coarser retained/floor geometry. `6` covers a few cells
+ * of slack without materially growing the candidate sweep (still well under
+ * `widget.test.ts`'s pinned <1000-candidate bound for a z7-shaped level).
+ * Genuine "never black" coverage no longer depends on this value at all —
+ * see the permanent floor level / retained-ancestor fallback below — this
+ * is purely a "how much of the sharpen-in still needs a re-fetch" tuning.
+ */
+const GLYPH_MAP_RASTER_PAD_CELLS_DEFAULT = 6;
+
+/**
+ * Screen-space padding (output cells) for a provider-backed `contour`
+ * layer's own visible-tile sweep. A contour has no mesh to pop in, so it
+ * needs no pre-load slack for a sharpen-in the way `raster` does — but a
+ * cell whose unprojected `(lon, lat)` lands a hair outside every mounted
+ * tile's box samples NaN and is skipped, so a small pad keeps the mosaic
+ * covering the whole visible disc rather than stopping exactly at it.
+ * Matches the `line`/vector sweeps' own default.
+ */
+/**
+ * How near a pole the globe's Newton unproject is allowed to sit. Latitude is
+ * a degenerate coordinate AT a pole (the longitude derivative is zero there),
+ * so both the iteration's start point and every step it takes are kept this
+ * far off it — near enough that a genuinely polar answer is still reachable to
+ * ~1 m, far enough that the Jacobian stays invertible.
+ */
+const POLE_SAFE_LAT = 89.999;
+
+const GLYPH_MAP_CONTOUR_PAD_CELLS = 2;
+
+/**
+ * The relief-mesh resolution ladder, as fractions of a tile's own baked
+ * quad grid (`glyphMapPolygons`'s `resolution` option). A tier's mesh is
+ * built at the COARSEST rung that still resolves at least one quad per
+ * glyph cell.
+ *
+ * Quantized to eighths rather than computed exactly for one reason:
+ * rebuilding a tier's meshes costs ~0.24us/quad (measured), so a
+ * resolution that tracked `view.span` continuously would rebuild every
+ * mounted tile of a level on essentially every settled zoom step. Eighths
+ * put at most 8 distinct resolutions across a level's whole zoom range —
+ * so a rebuild happens a handful of times per zoom sweep, not per tick —
+ * at a cost of at most one eighth of over-resolution.
+ */
+const GLYPH_MAP_RELIEF_FRACTIONS = [1 / 8, 2 / 8, 3 / 8, 4 / 8, 5 / 8, 6 / 8, 7 / 8, 1] as const;
+
+/**
+ * How much coarser than "one quad per glyph cell" the FALLBACK tier is
+ * built. That tier exists only to be glimpsed through the gap between a
+ * zoom gesture settling and the fine tier finishing its fetch, and it is
+ * evicted the instant the fine set is fully mounted — a fallback that
+ * reads as visibly coarse is exactly what it is FOR. `2` per axis is 4x
+ * fewer quads.
+ */
+const GLYPH_MAP_RELIEF_FALLBACK_COARSEN = 2;
+
+/**
+ * Hard cap on the permanent FLOOR tier's quads per axis, applied only
+ * while the floor is NOT itself the target LOD. The floor is mounted
+ * once and never evicted purely so no view can ever be black; at any zoom
+ * deeper than its own level, every cell it could paint is already painted
+ * by a nearer tier (measured with this cap in place: 8 of its 16,200 quads
+ * even reach the screen at span 2, 4 of them front-facing). When the
+ * floor IS the target LOD (zoomed out past the pyramid's own shallowest
+ * level) this cap is not applied and it renders at the same
+ * one-quad-per-cell resolution any other tier would.
+ *
+ * This cap is NOT what keeps the floor out of the way. An earlier note here
+ * claimed "a coarser sphere is inscribed inside a finer one, so shrinking it
+ * cannot make it poke through the tier above" — that is false as soon as
+ * relief is exaggerated, and it is the bug
+ * {@link GLYPH_MAP_RELIEF_BACKSTOP_SINK_M} exists to fix. Raising this cap
+ * does not fix it either: measured on the real ETOPO1 pyramid over the
+ * Peru-Chile trench, the floor still stole 231 open-ocean cells at its
+ * FINEST possible resolution (180 quads/axis, 2 degrees) against 486 at this
+ * cap of 32.
+ */
+const GLYPH_MAP_RELIEF_FLOOR_BACKSTOP_COLS = 32;
+
+/**
+ * Metres a relief tier is sunk along the projection's own elevation axis
+ * ({@link GlyphMapPolygonsOptions.elevationBias}) while it is NOT the target
+ * LOD — i.e. while it is a BACKSTOP, mounted only so a pan or a zoom never
+ * opens a blank hole.
+ *
+ * All three tiers are opaque meshes in ONE glyphcss scene, so which one a
+ * cell shows is decided by the shared per-cell depth buffer and nothing
+ * else: glyphcss's `occlusionPriority` orders LAYERS (separate `<pre>`s),
+ * not meshes inside the base grid. A coarse tier is not merely a blurrier
+ * version of the fine one — its quads interpolate LINEARLY between vertices
+ * up to ~11 degrees apart, so where one straddles a coast the chord runs
+ * from the sea floor up to the summit and, over the ocean half of that span,
+ * sits kilometres ABOVE the fine tier's own sea floor. The backstop wins
+ * those cells and paints them in its own quad's colour, which is the
+ * majority of a block that is mostly land. That is the reported
+ * "the sea is basically GREEN" on `/maps`: measured through the real widget
+ * over the Peru-Chile trench at 486 of 4,462 sea cells in a land band,
+ * against 16 for the fine tier rendered alone.
+ *
+ * The sink makes the depth test agree with the tier ladder instead of
+ * fighting it. `20_000` is a BOUND, not a tuning: it exceeds Earth's entire
+ * solid-surface relief (Everest 8,849 m to Challenger Deep -10,935 m, about
+ * 19,784 m), which is the most a coarse chord between two samples of ANY
+ * terrestrial elevation source can rise above a finer sample of the same
+ * field. Measured requirement at the reported view is between 5,000 and
+ * 10,000 m (the worst within-quad relief range in the real z0 tile is
+ * 10,817 m, at lon -78 lat -22 — the Altiplano over the trench, exactly
+ * where the artifact was reported); at 10,000 m and above the combined
+ * render is already cell-for-cell identical to the fine tier alone.
+ *
+ * Metres, not world units, so it is exaggeration-invariant: a projection
+ * scales this by the same `exaggeration` it scales the relief it must clear.
+ *
+ * Every backstop tier gets the SAME sink, deliberately. Their positions
+ * relative to EACH OTHER are then exactly what they were before this
+ * existed — only their relationship to the target tier changes — so this
+ * cannot introduce new z-fighting between fallback and floor.
+ *
+ * What it costs: in a genuine hole (a fast pan into unfetched tiles, or the
+ * first paint before any target tile lands) the backstop shows sunk, which
+ * at the `/maps` default exaggeration of 24 is about 7.5% of the globe's
+ * radius. That is a transient loading state; the artifact it replaces was
+ * permanent and in the steady-state view.
+ */
+const GLYPH_MAP_RELIEF_BACKSTOP_SINK_M = 20_000;
+
+/** A relief mesh's quad resolution as a fraction of the tile's own baked grid. */
+type ReliefFraction = number;
+
+function reliefResolution(cols: number, rows: number, fraction: ReliefFraction): { readonly cols: number; readonly rows: number } {
+  return { cols: Math.max(1, Math.round(cols * fraction)), rows: Math.max(1, Math.round(rows * fraction)) };
+}
+
+/**
+ * The coarsest {@link GLYPH_MAP_RELIEF_FRACTIONS} rung whose quads are
+ * still no larger than one glyph cell, for a pyramid LEVEL (never a single
+ * tile) at `degPerCell` ground units per output cell.
+ *
+ * Per LEVEL, not per tile, is the crack-freedom rule: two tiles resolved at
+ * the same fraction of the same baked grid shape sample the identical
+ * source vertices along their shared edge (`gridLineIndices`' own doc), so
+ * the edge is exactly shared rather than approximately met. Per-TILE
+ * resolution would let a tile near the limb — genuinely more foreshortened,
+ * and so genuinely cheaper to resolve — coarsen away from its neighbour and
+ * open a T-junction crack along the whole shared edge, which at the map's
+ * relief exaggeration is a visible tear, not a hairline.
+ *
+ * `coarsen` scales the requirement (a tier that may render coarser than one
+ * quad per cell passes > 1).
+ */
+function reliefFractionForLevel(level: GlyphMapProviderZoomLevel, degPerCell: number, coarsen = 1): ReliefFraction {
+  if (!(degPerCell > 0) || !(level.tileCols > 0)) return 1;
+  // Quads the level's own baked grid would need to hold one quad per cell.
+  const neededCols = level.tileLonSpan / (degPerCell * coarsen);
+  const wanted = neededCols / level.tileCols;
+  for (const f of GLYPH_MAP_RELIEF_FRACTIONS) if (f >= wanted) return f;
+  return 1;
+}
+
 export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphMapHandle {
-  const projection = opts.projection;
+  // `let`, not `const` — `setProjection` reassigns this to a
+  // `glyphMapProjectionTransition` blend mid-animation and to the target
+  // endpoint object itself once settled (MAPS.md §13 slice 4). Every
+  // function below that closes over `projection` reads it live, so a
+  // reassignment here is visible everywhere without extra threading.
+  let projection: GlyphMapProjection = opts.projection;
   const minSpan = opts.minSpan ?? 0.001;
+  if (opts.maxSpan !== undefined && (!Number.isFinite(opts.maxSpan) || opts.maxSpan <= 0 || opts.maxSpan < minSpan)) {
+    throw new RangeError(`glyphcss/maps: maxSpan must be finite, positive, and >= minSpan (got ${opts.maxSpan}).`);
+  }
   const controlsDrag = opts.controls?.drag ?? true;
   const controlsWheel = opts.controls?.wheel ?? true;
-  const isOrbitProjection = !!(projection.cameraForCenter && projection.centerForCamera);
+  /**
+   * A FUNCTION, not a one-time `const` — `projection` can change under
+   * `setProjection`, and a strictly-interior transition blend deliberately
+   * exposes neither `cameraForCenter` nor `centerForCamera` (`transition.ts`'s
+   * own doc), so this must re-read the LIVE projection's capabilities on
+   * every call rather than freezing whatever the constructor's projection
+   * happened to be.
+   */
+  function isOrbitProjection(): boolean {
+    return isOrbit(projection);
+  }
+
+  function domainWidth(proj: GlyphMapProjection = projection): number {
+    const width = proj.domain.east - proj.domain.west;
+    return width > 0 ? Math.min(360, width) : 360;
+  }
+
+  function isOrbit(proj: GlyphMapProjection): boolean {
+    return !!(proj.cameraForCenter && proj.centerForCamera);
+  }
 
   let view: GlyphMapView = opts.view;
-  let tilt = opts.tilt ?? (isOrbitProjection ? 0 : 40);
+  let tilt = opts.tilt ?? (isOrbitProjection() ? 0 : 40);
+
+  /**
+   * Declared HERE, beside `tilt` and the camera rather than down in the sun
+   * block that reads it, because `applyKeyLight` runs from the construction
+   * render — a `let` in the sun block would be in its temporal dead zone at
+   * that point.
+   */
+  let keyLightMode: GlyphMapKeyLightMode = opts.keyLight ?? "fixed";
+
+  /**
+   * The TRUE (tilt-free) orbit rotation the camera is currently on —
+   * `null` until the first orbit sync, and never read by a sheet
+   * projection (which has no `cameraForCenter` branch at all).
+   *
+   * `cameraForCenter` is a 2-to-1 INVERSE, and this is the widget's memory
+   * of WHICH preimage it is on. `centerForCamera`'s own parametrization
+   * `n = (sin rotX cos rotY, sin rotX sin rotY, cos rotX)` maps
+   * `(rotX, rotY)` and `(-rotX, rotY + 180)` to the SAME `(lon, lat)` —
+   * `cos` is even, so `nz` (latitude) is unchanged while `nx`/`ny` (and so
+   * longitude) both flip sign — but `cameraForCenter(lon, lat)` can only
+   * ever answer with the canonical `rotX = 90 - lat` branch, inside
+   * `[0, 180]`. While `applyDrag` clamped `rotX` into that range the two
+   * were interchangeable; now that a drag deliberately carries the camera
+   * THROUGH the pole (`applyDrag`'s own doc — dragging past the pole is a
+   * feature, not an edge case), `view.center` alone can no longer say which
+   * branch the camera is on, and re-deriving it from `cameraForCenter`
+   * silently jumps to the other one. The two branches share a view AXIS but
+   * differ by a 180deg ROLL about it — the screen point-REFLECTS (measured
+   * at tilt 0: lon -150/lat 78 col 45.6 -> 74.4; lon -180/lat 88 row 52.5 ->
+   * 7.5) — and because `tilt` is ADDED to whichever branch was picked
+   * (`camera.rotX = rotX + tilt`), a nonzero tilt makes them different AXES
+   * outright (measured at the page default tilt 40: rotX 28.663 -> 51.337,
+   * rotY 0 -> -180, carrying lon 0/lat 60 clean off screen, row 33.2 ->
+   * -107.0). That is the reported "scroll closer to the pole, then zoom out
+   * and it jumps around" — the flip discharges on the FIRST wheel notch
+   * after the drag, because that is the next `syncCameraToView`.
+   */
+  let orbitRotation: { readonly rotX: number; readonly rotY: number } | null = null;
 
   const camera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
-  if (!isOrbitProjection) {
+  if (!isOrbitProjection()) {
     camera.rotX = tilt;
     camera.rotY = 0;
   }
+
+  /**
+   * A second, never-rendered camera the cover math measures the SHEET screen
+   * basis with (see {@link sheetScreenScale}). It exists because the cover
+   * limit has to be asked about a projection the live camera may not
+   * currently be posed for — `setProjection` computes the DESTINATION's
+   * limit while the camera still holds the origin's pose, which for a
+   * globe->sheet flight is an orbit pose with a completely different `rotX`.
+   * Posing a scratch camera at the sheet framing (`framingFor`'s own sheet
+   * branch: `rotX = tilt`, `rotY = 0`) and asking it through the same public
+   * `project()` keeps this measured rather than re-deriving the camera's
+   * internal world-axis -> screen-axis mapping here.
+   */
+  const coverProbeCamera = createGlyphOrthographicCamera({ zoom: 1, rotX: 0, rotY: 0 });
 
   const sceneOverrides = opts.scene ?? {};
   const scene: GlyphSceneHandle = createGlyphScene(host, {
@@ -474,8 +1578,33 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     autoSize: opts.autoSize ?? false,
   });
 
+  /**
+   * Every mesh-backed layer's mount goes through here so the per-layer
+   * glyph-ramp escape is applied in ONE place. The scene's palette is read
+   * LIVE rather than captured at construction, because `map.scene.setOptions`
+   * is a documented escape hatch a consumer may have used since — see
+   * {@link glyphMapMeshTransform} for the escape itself and for what a later
+   * scene-palette change does (and does not) do to already-mounted meshes.
+   */
+  function meshTransform(layer: GlyphMapMeshAppearance, density?: number, detailGroup?: string): GlyphMeshTransform {
+    return glyphMapMeshTransform(layer, scene.getOptions().glyphPalette ?? GLYPH_MAP_DEFAULT_GLYPH_PALETTE, density, detailGroup);
+  }
+
   // ── Screen-space geometry (absorbed from both pages' identical helper) ──
 
+  /**
+   * DELIBERATELY NOT MEMOIZED, though it reads two `getBoundingClientRect()`s
+   * (each a forced synchronous layout) several times per rendered frame.
+   * A memo scoped to "until this widget's next repaint" was built and
+   * measured, and removed on both counts: it moved `layout` by nothing
+   * (1.787 -> 1.824 ms/frame on `bench/maps-render`, i.e. noise), and it was
+   * not sound — glyphcss ALSO renders on its own microtask whenever a mesh is
+   * added or removed, so a tile mount repaints without passing through any
+   * widget-side invalidation, and the stroke hook then stamped against a
+   * stale grid. It changed the render at exactly the two fidelity waypoints
+   * that mount tiles. If this is ever worth caching, the invalidation has to
+   * come from glyphcss's own render boundary, not from this file's.
+   */
   function projectionGrid(): ProjectionGrid {
     const o = scene.getOptions();
     const cols = o.cols ?? view.cols;
@@ -501,6 +1630,143 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * Split one lon/lat polyline into the maximal runs that lie on the
+   * projection's VISIBLE side, inserting a bisected limb vertex at every
+   * crossing so a run reaches exactly the silhouette and stops.
+   *
+   * This exists because a `line` layer's stamp previously projected every
+   * ring vertex and stamped it with NO visibility test at all — the one
+   * geometry path in this file that did not go through
+   * `projection.visible`, which tile culling (`isBoundsVisible`), marker
+   * sync, point-feature hotspots and `unprojectSphere` all already consult.
+   * An orthographic camera maps the FAR hemisphere onto the same screen
+   * disc as the near one, so a far-side border landed inside the globe's
+   * silhouette and read as lines drawn through the sphere. The depth test in
+   * `stampGlyphMapPolyline` was the only thing in the way and is explicitly
+   * a no-op wherever `grid.depth` is non-finite ("no base surface there
+   * means nothing to be occluded by") — which is every cell the terrain mesh
+   * does not cover, the polar caps and the ring just inside the limb
+   * included, and EVERY cell when no raster layer is mounted at all.
+   *
+   * Clipping the GEOMETRY here, rather than adding a per-sample test inside
+   * `stroke.ts`, keeps the projection capability in the layer that owns the
+   * projection and leaves the stamper pure — and it mirrors
+   * `vector/clip.ts`'s own discipline exactly: clip against a boundary,
+   * keep real neighbouring geometry on the visible side of the cut, and
+   * never emit a synthetic single-point fragment (a 1-point run draws
+   * nothing, since `stampGlyphMapPolyline` walks SEGMENTS). The inserted
+   * limb vertex is a real point on the segment, so the "tangent comes from
+   * the geometry, never from a segment happening to end there" contract
+   * holds across a cut end exactly as it does across a tile seam.
+   *
+   * A projection with no `visible` capability (every flat projection —
+   * `project()` returning NaN is already its own exclusion) returns the ring
+   * UNCHANGED, by identity, so nothing about the flat path changes.
+   *
+   * Interpolation is linear in lon/lat, matching what `stampGlyphMapPolyline`
+   * already does between two projected vertices in screen space; a segment
+   * that wraps the antimeridian is no more (and no less) supported than
+   * before, and the vector pipeline's tile-clipped rings never produce one.
+   */
+  function visibleStrokeRuns(
+    ring: readonly (readonly [number, number])[],
+    grid: ProjectionGrid,
+  ): readonly (readonly (readonly [number, number])[])[] {
+    const isVisible = projection.visible;
+    if (!isVisible || ring.length === 0) return [ring];
+    const depth = (w: Vec3): number => depthOf(w, grid);
+    const visibleAt = (lon: number, lat: number): boolean => {
+      const world = projection.project(lon, lat, 0);
+      return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2]) && isVisible(world, depth);
+    };
+    const vis = ring.map(([lon, lat]) => visibleAt(lon, lat));
+    if (vis.every((v) => v)) return [ring];
+    if (vis.every((v) => !v)) return [];
+
+    /** Bisect toward the limb, always keeping `lo` on the VISIBLE side, and return that side's endpoint — so a run never carries a vertex the projection calls invisible. */
+    const crossing = (a: readonly [number, number], b: readonly [number, number], aVisible: boolean): readonly [number, number] => {
+      let [loLon, loLat] = aVisible ? a : b;
+      let [hiLon, hiLat] = aVisible ? b : a;
+      for (let i = 0; i < 16; i++) {
+        const mLon = (loLon + hiLon) / 2;
+        const mLat = (loLat + hiLat) / 2;
+        if (visibleAt(mLon, mLat)) { loLon = mLon; loLat = mLat; } else { hiLon = mLon; hiLat = mLat; }
+      }
+      return [loLon, loLat];
+    };
+
+    const runs: (readonly [number, number])[][] = [];
+    let current: (readonly [number, number])[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      if (vis[i]) {
+        if (current.length === 0 && i > 0) current.push(crossing(ring[i - 1], ring[i], false));
+        current.push(ring[i]);
+      } else if (current.length > 0) {
+        current.push(crossing(ring[i - 1], ring[i], true));
+        runs.push(current);
+        current = [];
+      }
+    }
+    if (current.length > 0) runs.push(current);
+    return runs;
+  }
+
+  /**
+   * The lon/lat points the VIEWPORT ITSELF is showing: a 3x3 screen sample
+   * grid over the (padded) viewport, unprojected through the same
+   * `unprojectSphere`/`sheetUnprojector` inverse `map.unproject()` uses.
+   * `isBoundsVisible`'s complement case reads these — a tile containing one
+   * of them covers a point that is genuinely on screen, so accepting it is
+   * a true positive by construction, never an over-approximation of the
+   * kind `candidateTileRange`'s min/max box deliberately is.
+   *
+   * `view.center` is NOT one of these points, and substituting it was a real
+   * defect (reported as "the border layer disappears at z > 6"). The premise
+   * it rested on — "the view's own geographic CENTRE always projects to
+   * dead-centre of the viewport by construction" — is false for an ORBIT
+   * projection under a nonzero `tilt`: `tilt` is ADDITIONAL camera pitch on
+   * top of `cameraForCenter(lon, lat)`, and `applyDrag` subtracts it back
+   * out of `camera.rotX` before calling `centerForCamera` (so `view.center`
+   * stays uncontaminated by pitch — "Camera tilt" in AGENTS.md), which puts
+   * `view.center` exactly `tilt` degrees of latitude away from the point at
+   * screen centre. `/maps` ships `tilt: 40`. The consequence was worst
+   * exactly where a pyramid stops deepening while the view keeps shrinking:
+   * the borders pyramid tops out at its curated z4 (22.5x11.25 degree
+   * tiles), so past terrain's z6 no tile of it had a sample of its OWN on
+   * screen either, the complement rescued the tile containing `view.center`
+   * 40 degrees away, and the layer inked nothing at all.
+   *
+   * A single point (even the correct screen centre) is not enough: a 22.5
+   * degree tile against a 3 degree viewport straddles the viewport whenever
+   * the centre lands within a viewport-width of a tile edge — Switzerland
+   * sits 0.8 degrees from its own curated tile's south edge — so the corners
+   * and edge midpoints are what keep the neighbouring tile from being
+   * dropped. Nine points is also enough BECAUSE the two tests are
+   * complementary: any tile small enough to slip between these samples has
+   * its own 3x3 samples land on screen and is caught by the primary test.
+   *
+   * Falls back to `[view.center]` when nothing unprojects (a projection
+   * mid-`setProjection` blend, whose `unproject` throws by design; a
+   * degenerate camera basis; a viewport entirely off the globe) — the exact
+   * pre-existing behaviour for that case, never an empty set that would
+   * silently disable the complement.
+   */
+  function viewportGeoSamples(padCells: number, grid: ProjectionGrid): readonly (readonly [number, number])[] {
+    const orbit = isOrbitProjection();
+    const solveSheet = orbit ? null : sheetUnprojector(grid);
+    const samples: (readonly [number, number])[] = [];
+    for (let i = 0; i <= 2; i++) {
+      const col = -padCells + ((grid.cols + 2 * padCells) * i) / 2;
+      for (let j = 0; j <= 2; j++) {
+        const row = -padCells + ((grid.rows + 2 * padCells) * j) / 2;
+        const lonLat = orbit ? unprojectSphere(col, row, grid) : (solveSheet ? solveSheet(col, row) : null);
+        if (lonLat) samples.push(lonLat);
+      }
+    }
+    return samples.length > 0 ? samples : [view.center];
+  }
+
+  /**
    * Single culling/visibility test for BOTH tile bounds and markers (MAPS.md
    * §13 slice 3: "stop, this reproduces two branches" — no plane-AABB vs
    * great-circle split; one sample-point test that degrades correctly for
@@ -516,22 +1782,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * (jumping to a bounded region via `fitBounds`) failed every tile's
    * sample test, fell through to the "never blank the layer" failsafe below
    * (which always picks tile `0_0` regardless of where the camera actually
-   * is), and rendered nothing when `0_0` wasn't it. The fix is a cheap,
-   * projection-agnostic complement: the view's own geographic CENTRE always
-   * projects to dead-centre of the viewport by construction, so a tile
-   * containing it is trivially visible with no projection call at all.
-   * `±360` on the longitude covers a view centred just past the
-   * antimeridian against an "unwrapped" tile bounds box (the convention
+   * is), and rendered nothing when `0_0` wasn't it. The complement is
+   * `viewportGeoSamples` — the lon/lat points the VIEWPORT ITSELF shows, so
+   * a tile containing any of them is visible by construction. `±360` on the
+   * longitude covers a view centred just past the antimeridian against an
+   * "unwrapped" tile bounds box (the convention
    * `splitGlyphMapGeoTileAtAntimeridian` documents).
    */
-  function isBoundsVisible(bounds: GlyphMapBounds, padCells: number): boolean {
-    const [centerLon, centerLat] = view.center;
-    if (centerLat >= bounds.south && centerLat <= bounds.north) {
-      for (const lon of [centerLon, centerLon + 360, centerLon - 360]) {
+  /**
+   * `grid` is a caller-supplied {@link ProjectionGrid} rather than a fresh
+   * `projectionGrid()` call per invocation (P2 "a2" fix): a deep tile sweep
+   * calls this once per candidate, and `projectionGrid()` does two
+   * `getBoundingClientRect()` calls — a real z7 sweep over 16,383 raw
+   * candidates measured 32,766 layout reads from this alone. Every sweep
+   * below now computes ONE grid before its loop and threads it through.
+   * `geoSamples` is hoisted the same way and for the same reason (its own
+   * doc) — one unprojection pass per sweep, not one per candidate tile.
+   */
+  function isBoundsVisible(
+    bounds: GlyphMapBounds,
+    padCells: number,
+    grid: ProjectionGrid,
+    geoSamples: readonly (readonly [number, number])[],
+  ): boolean {
+    for (const [sampleLon, sampleLat] of geoSamples) {
+      if (sampleLat < bounds.south || sampleLat > bounds.north) continue;
+      for (const lon of [sampleLon, sampleLon + 360, sampleLon - 360]) {
         if (lon >= bounds.west && lon <= bounds.east) return true;
       }
     }
-    const grid = projectionGrid();
     const lons = [bounds.west, (bounds.west + bounds.east) / 2, bounds.east];
     const lats = [bounds.south, (bounds.south + bounds.north) / 2, bounds.north];
     for (const lat of lats) {
@@ -547,27 +1826,541 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return false;
   }
 
-  function computeZoomForSpan(v: GlyphMapView): number {
+  /**
+   * Candidate tile index range for a sweep, computed from the VIEW's own
+   * geographic window (P2 "a2" fix) — NOT from `level.bounds`, and not the
+   * level's whole `cols x rows` grid. `glyphMapCuratedProvider` deliberately
+   * leaves every curated level's `bounds` `undefined` (its effective
+   * coverage is global — a miss degrades to an ancestor tile, see
+   * `curated.ts`), so restricting on `level.bounds` degenerates to
+   * enumerating the level's ENTIRE grid at every curated depth (measured:
+   * 16,383 raw candidates at z7). The view's own window is real and cheap
+   * regardless of whether a provider declares `bounds` at all, which is why
+   * this replaces `level.bounds` as the sweep's restriction rather than
+   * intersecting with it.
+   *
+   * Reuses `glyphMapTileRangeForLevel`'s own equal-angle math and
+   * degenerate-range fallback (a synthesized `bounds` window that would
+   * need antimeridian wraparound — `west < -180` or `east > 180` — is
+   * dropped to `undefined`, which that function already falls back to the
+   * full range for) rather than a second copy of the index formula.
+   * `isBoundsVisible` remains the exact per-tile authority — a generous or
+   * even a wrong window here only costs a slower sweep, never a missing
+   * tile, the same contract `glyphMapTileRangeForLevel` already documents.
+   */
+  /**
+   * The geographic box the camera can ACTUALLY see, for an ORBIT projection
+   * (the globe — capability check, never `projection.id`), by unprojecting
+   * a sample grid across the (padded) viewport through the same tilt-aware
+   * `unprojectSphere` `map.unproject()` itself uses. `view.center`/
+   * `view.span` are not enough on their own: `computeZoomForSpan` samples
+   * `span` along the MERIDIAN so zoom stays latitude-invariant, so a plain
+   * `view.span`-based box under-covers longitude by up to `1 / cos(lat)`
+   * toward the poles; and `GlyphMapOptions.tilt` adds ADDITIONAL camera
+   * pitch on top of `cameraForCenter(lon, lat)`'s own orientation ("Camera
+   * tilt" above), which — especially at a high base latitude, where
+   * `cameraForCenter`'s own pitch is already large — can shift the screen's
+   * actual sub-observer point well away from `view.center` entirely (found
+   * live: `view.center` [1, 66.4] + `tilt: 40` shows lon [-20, 20] / lat
+   * [10, 40], nowhere near [1, 66.4] at all). Deriving the box from real
+   * unprojected screen samples is correct under both effects at once, with
+   * no separate cos(lat) formula or tilt bookkeeping needed.
+   *
+   * `null` (nothing on screen unprojects, or `isOrbitProjection()` is
+   * false) tells `candidateTileRange` to fall back to its existing
+   * `view.span`-based box (sheet) or the full sweep (orbit degenerate case)
+   * — sampling never narrows the window below what a fallback would give,
+   * only widens/repositions it, so a miss here only costs a slower sweep,
+   * never a missing tile (this file's own standing contract for this
+   * function).
+   */
+  function orbitCandidateGeoBounds(padCells: number): GlyphMapBounds | null {
+    if (!isOrbitProjection()) return null;
+    const grid = projectionGrid();
+    const STEPS = 6; // 7x7 sample grid — cheap (candidateTileRange runs once per level per sweep, not per tile)
+    let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+    let hits = 0;
+    for (let i = 0; i <= STEPS; i++) {
+      const col = -padCells + ((grid.cols + 2 * padCells) * i) / STEPS;
+      for (let j = 0; j <= STEPS; j++) {
+        const row = -padCells + ((grid.rows + 2 * padCells) * j) / STEPS;
+        const ll = unprojectSphere(col, row, grid);
+        if (!ll) continue;
+        hits++;
+        west = Math.min(west, ll[0]);
+        east = Math.max(east, ll[0]);
+        south = Math.min(south, ll[1]);
+        north = Math.max(north, ll[1]);
+      }
+    }
+    if (hits === 0) return null;
+    // A visible pole puts every longitude on screen; a min/max box over
+    // sampled longitudes near a pole reads as an arbitrary narrow slice
+    // depending on where samples happen to land, so widen explicitly
+    // rather than trust the sampled west/east there.
+    if (north >= 89 || south <= -89) { west = -180; east = 180; }
+    return { west, east, south: Math.max(-90, south), north: Math.min(90, north) };
+  }
+
+  function candidateTileRange(level: GlyphMapProviderZoomLevel, padCells: number): { readonly x0: number; readonly x1: number; readonly y0: number; readonly y1: number } {
+    const geoBounds = orbitCandidateGeoBounds(padCells);
+    if (geoBounds) {
+      const west = geoBounds.west - level.tileLonSpan * (padCells + 1);
+      const east = geoBounds.east + level.tileLonSpan * (padCells + 1);
+      const south = Math.max(-90, geoBounds.south - level.tileLatSpan * (padCells + 1));
+      const north = Math.min(90, geoBounds.north + level.tileLatSpan * (padCells + 1));
+      const bounds = west >= -180 && east <= 180 ? { west, east, south, north } : undefined;
+      return glyphMapTileRangeForLevel({ ...level, bounds });
+    }
+    const [centerLon, centerLat] = view.center;
+    // Slack beyond the view's own lon/lat box: a few tile-widths (absorbs
+    // `padCells`' screen-space slack and camera tilt) plus the view's own
+    // half-span again, so a moderately tilted/oriented camera can't see
+    // past the window without a real chance of still being enumerated.
+    // `getView()`'s live `cols`/`rows` (not the raw `view.cols`/`.rows`,
+    // frozen wherever `setView` last left them — AGENTS.md's root-cause
+    // doc): a wrong aspect here only costs a slower sweep, never a missing
+    // tile (`isBoundsVisible` remains the real authority), but there is no
+    // reason to feed it a stale one when the live value is one call away.
+    const { cols: liveCols, rows: liveRows } = getView();
+    const halfLonSpan = view.span / 2 + level.tileLonSpan * (padCells + 1);
+    const halfLatSpan = (view.span * liveRows) / (2 * liveCols) + level.tileLatSpan * (padCells + 1);
+    const west = centerLon - halfLonSpan;
+    const east = centerLon + halfLonSpan;
+    const south = Math.max(-90, centerLat - halfLatSpan);
+    const north = Math.min(90, centerLat + halfLatSpan);
+    const bounds = west >= -180 && east <= 180 ? { west, east, south, north } : undefined;
+    return glyphMapTileRangeForLevel({ ...level, bounds });
+  }
+
+  /**
+   * `proj` defaults to the live closure `projection` for every ordinary
+   * caller; `setProjection`'s `framingFor` passes an explicit ENDPOINT
+   * projection instead, so it can ask "what zoom would projection X alone
+   * use for this view" for both transition endpoints independently of
+   * whatever `projection` currently holds mid-blend.
+   */
+  function computeZoomForSpan(v: GlyphMapView, proj: GlyphMapProjection = projection): number {
     const [lon, lat] = v.center;
-    const domainWidth = Math.min(360, projection.domain.east - projection.domain.west) || 360;
-    const halfSpanDeg = clamp(v.span, 1e-6, domainWidth) / 2;
-    const centerWorld = projection.project(lon, lat, 0);
-    const worldSpanOf = (edgeLon: number): number => {
-      const edge = projection.project(edgeLon, lat, 0);
-      if (!Number.isFinite(edge[0])) return 0;
+    const fullDomainSpan = domainWidth(proj);
+    const requestedSpan = Math.max(v.span, 1e-6);
+    const sampledSpan = Math.min(requestedSpan, fullDomainSpan);
+    const halfSpanDeg = sampledSpan / 2;
+    const centerWorld = proj.project(lon, lat, 0);
+    const isOrbit = !!(proj.cameraForCenter && proj.centerForCamera);
+    // An ORBIT projection (the globe — detected by CAPABILITY, never
+    // `proj.id`) is sampled along the MERIDIAN (varying latitude) instead of
+    // the parallel (varying longitude): moving along a meridian is always a
+    // full-radius great-circle rotation, so the resulting chord is
+    // latitude-invariant. Sampling along the parallel — what this function
+    // used to do unconditionally — shrinks the chord by `cos(lat)` toward
+    // the poles, so the same `span` bought up to ~57x more `camera.zoom` at
+    // lat 89 than at the equator (measured; AGENTS.md's "b1" fix). A sheet
+    // projection (equirectangular/Mercator/orthographic) has no such axis
+    // asymmetry — `project` is linear in `lon` for every one of them — so
+    // this branch leaves the sheet path's sampled axis, and its output,
+    // unchanged.
+    //
+    // The meridian sample is deliberately UNCLAMPED (no `Math.max(-90,
+    // Math.min(90, ...))` any more): `glyphMapGlobe.project()` is periodic
+    // in latitude and never NaN — going past a pole along a fixed meridian
+    // is a genuine, continuous point on the OTHER side of the sphere, not an
+    // invalid one. Clamping the SAMPLE (not the geometry) froze the
+    // meridian chord the instant `lat + halfSpanDeg` crossed +/-90, which
+    // made `halfWorldSpan` — and so `camera.zoom` — silently
+    // latitude-dependent right at that crossing (measured: a drag north
+    // that crosses this boundary then a single wheel notch produced a
+    // x1.277 zoom snap) and froze it flat across an entire multi-notch wheel
+    // range beyond it (measured: 4+ consecutive wheel-out notches with ZERO
+    // visible span/zoom change from span ~221 to ~348). A projection making
+    // the same orbit CAPABILITY promise without sharing that periodicity
+    // still degrades safely: `worldSpanOf` below returns NaN for a
+    // non-finite sample and the rate-based fallback further down picks it
+    // up.
+    const edgeWorld = (offset: number): Vec3 =>
+      isOrbit ? proj.project(lon, lat + offset, 0) : proj.project(lon + offset, lat, 0);
+    const worldSpanOf = (offset: number): number => {
+      const edge = edgeWorld(offset);
+      if (!Number.isFinite(edge[0]) || !Number.isFinite(edge[1]) || !Number.isFinite(edge[2])) return NaN;
       return Math.hypot(edge[0] - centerWorld[0], edge[1] - centerWorld[1], edge[2] - centerWorld[2]);
     };
-    let halfWorldSpan = worldSpanOf(lon + halfSpanDeg);
-    if (!(halfWorldSpan > 1e-9)) halfWorldSpan = worldSpanOf(lon - halfSpanDeg);
-    if (!(halfWorldSpan > 1e-9)) halfWorldSpan = 1e-6;
+    // A local rate (world units per degree) from a tiny, always-valid step
+    // either side of CENTER, extrapolated linearly over the full
+    // half-span. It never touches the far, possibly-invalid edge at all, so
+    // it stays defined and continuous straight through a horizon crossing
+    // that would otherwise flip which edge is finite.
+    const rateEstimate = (): number => {
+      const rateEps = 1e-4;
+      const rateA = edgeWorld(rateEps);
+      const rateB = edgeWorld(-rateEps);
+      const rate = Number.isFinite(rateA[0]) && Number.isFinite(rateA[1]) && Number.isFinite(rateA[2])
+        && Number.isFinite(rateB[0]) && Number.isFinite(rateB[1]) && Number.isFinite(rateB[2])
+        ? Math.hypot(rateA[0] - rateB[0], rateA[1] - rateB[1], rateA[2] - rateB[2]) / (2 * rateEps)
+        : NaN;
+      const estimate = rate * halfSpanDeg;
+      return Number.isFinite(estimate) && estimate > 1e-9 ? estimate : 1e-6;
+    };
+    let halfWorldSpan: number;
+    if (!isOrbit) {
+      // SHEET projections ALWAYS use the local-derivative estimate — never
+      // "average both edges when both are valid, otherwise fall back to the
+      // rate" (the old plus-then-minus-then-rate ladder). A measure that is
+      // sometimes an average of two real samples and sometimes a rate-based
+      // estimate is discontinuous exactly AT the boundary where one edge
+      // flips from finite to NaN — orthographic's far-hemisphere `NaN`
+      // (`projection.ts`'s `cosC < 0` crop) is exactly such a boundary
+      // (measured: an extra x1.182 zoom-out in a single wheel notch at that
+      // crossing, on top of the requested x1.12 step). The derivative never
+      // touches the far edge at all, so it stays continuous straight
+      // through. It is EXACT for equirectangular/Mercator (`project` is
+      // linear in `lon` for both, so the local rate never differs from the
+      // true chord) and a smooth, continuous APPROXIMATION for orthographic
+      // — strictly better than a measure that saturates as `|sin(dLon)|`
+      // and then discontinuously swaps to an unrelated one.
+      halfWorldSpan = rateEstimate();
+    } else {
+      // ORBIT: with the clamp removed above, `glyphMapGlobe`'s own
+      // `project()` never returns NaN, so `plus`/`minus` are always both
+      // valid AND — by meridian/great-circle symmetry — always exactly
+      // equal (chord distance depends only on the ANGULAR separation `h`,
+      // not on which side of center it's measured from), giving an EXACT
+      // closed-form chord with no approximation needed. A custom orbit
+      // projection is not assumed to share the globe's own periodicity, so
+      // this still degrades to the rate-based estimate if its own
+      // `project()` returns non-finite at the (unclamped) sample point.
+      const plus = worldSpanOf(halfSpanDeg);
+      const minus = worldSpanOf(-halfSpanDeg);
+      const validPlus = Number.isFinite(plus) && plus > 1e-9;
+      const validMinus = Number.isFinite(minus) && minus > 1e-9;
+      halfWorldSpan = validPlus && validMinus ? (plus + minus) / 2 : rateEstimate();
+    }
+    // The host's own rendered pixel WIDTH — `grid.cols * grid.cellWidth`,
+    // not `v.cols * grid.cellWidth` (the OLD formula). `grid.cellWidth` is
+    // itself DEFINED as `outputRect.width / grid.cols` (`projectionGrid()`),
+    // so `grid.cols * grid.cellWidth` always recovers the real rendered
+    // pixel width regardless of `cols`/cell size — invariant to both by
+    // construction, unlike `v.cols`, which is `view`'s OWN `cols` field:
+    // frozen wherever `setView`/`applyDrag`/`applyWheel` last left it, never
+    // updated when `scene`'s live `cols` changes underneath it (autoSize, or
+    // a caller poking `scene.setOptions({ cols, rows })` directly — e.g. a
+    // density slider). That divergence is what let a font-size-only change
+    // (cols same, cellWidth halved) silently multiply `camera.zoom` by
+    // exactly 2 on the NEXT view->camera sync (AGENTS.md's "the view/camera
+    // round-trip is not the identity" root cause).
     const grid = projectionGrid();
-    return (v.cols * grid.cellWidth) / (halfWorldSpan * 2);
+    const sampledZoom = (grid.cols * grid.cellWidth) / (halfWorldSpan * 2);
+    // Beyond the complete geographic domain there is no new edge to sample.
+    // Continue the span scale linearly: 720° frames a 360° world at half
+    // size, creating a real overview margin instead of pinning the camera.
+    return sampledZoom * (sampledSpan / requestedSpan);
+  }
+
+  // ── COVER, NOT CONTAIN (sheet projections only) ───────────────────────
+  //
+  // A flat map must FILL the viewport: no page background around its edges,
+  // at any zoom or pan position. Two constraints enforce that, and both are
+  // gated on the same capability check every other projection-aware branch
+  // in this file uses — a projection with `cameraForCenter`/`centerForCamera`
+  // is navigated by ORBITING fixed geometry, legitimately floats in space
+  // with background around it (dragging the globe through the pole is a
+  // feature), and is exempt from both:
+  //
+  //   1. `spanCoverLimit` — the widest `view.span` whose camera still covers
+  //      the viewport on BOTH axes, replacing the old default of "the
+  //      projection's `domain` WIDTH" (360deg for equirectangular, i.e.
+  //      the whole world laid out inside a viewport that is rarely 2:1, so
+  //      it letterboxed on whichever axis was not binding).
+  //   2. `clampWorldToCover` — the visible window is kept INSIDE the map's
+  //      own projected extent, per axis, so a pan cannot pull the map's edge
+  //      in from the side either.
+  //
+  // Both are derived from the projection's OWN projected extent, never from
+  // a per-projection table: `projectedDomainBox` projects the projection's
+  // declared `domain` and measures what comes out.
+
+  interface ProjectedBox { readonly minX: number; readonly maxX: number; readonly minY: number; readonly maxY: number }
+
+  /** Samples per axis over `domain`. 33x33 projections, memoized per projection object (below) — a settled widget computes this once. */
+  const COVER_DOMAIN_SAMPLES = 32;
+  let domainBoxCache: { readonly proj: GlyphMapProjection; readonly box: ProjectedBox | null } | null = null;
+
+  /**
+   * World-space AABB of everything `proj` can draw — its `domain` projected
+   * at `elev: 0`, with the non-finite samples outside the projection's true
+   * valid window skipped ("crop, don't clamp", `projection.ts`'s own rule).
+   *
+   * Sampled rather than derived, because `domain` is in DEGREES and
+   * `project` is an arbitrary function: the only projection-agnostic way to
+   * ask "how big is this map in world units" is to project it and measure.
+   * A sampling grid can only ever UNDER-measure an extent it misses between
+   * samples, which errs toward a slightly tighter (more zoomed-in) cover
+   * limit — the safe direction, since a smaller measured map demands more
+   * zoom, never less.
+   *
+   * An AXIS-ALIGNED BOX is deliberately the whole contract. A projection
+   * whose valid region is not a world-space rectangle — orthographic's disc
+   * — cannot cover a rectangular viewport's CORNERS at any span short of
+   * cropping to the disc's inscribed rectangle, which would put the
+   * hemisphere's own limb permanently out of reach. Covering the bbox
+   * removes the letterbox BANDS (the whole visible margin for
+   * equirectangular/Mercator, and the dominant one for orthographic) and
+   * leaves only those four corner arcs.
+   */
+  function projectedDomainBox(proj: GlyphMapProjection): ProjectedBox | null {
+    if (domainBoxCache && domainBoxCache.proj === proj) return domainBoxCache.box;
+    const d = proj.domain;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i <= COVER_DOMAIN_SAMPLES; i++) {
+      const lon = d.west + ((d.east - d.west) * i) / COVER_DOMAIN_SAMPLES;
+      for (let j = 0; j <= COVER_DOMAIN_SAMPLES; j++) {
+        const lat = d.south + ((d.north - d.south) * j) / COVER_DOMAIN_SAMPLES;
+        const w = proj.project(lon, lat, 0);
+        if (!Number.isFinite(w[0]) || !Number.isFinite(w[1])) continue;
+        if (w[0] < minX) minX = w[0];
+        if (w[0] > maxX) maxX = w[0];
+        if (w[1] < minY) minY = w[1];
+        if (w[1] > maxY) maxY = w[1];
+      }
+    }
+    const box = maxX > minX && maxY > minY ? { minX, maxX, minY, maxY } : null;
+    domainBoxCache = { proj, box };
+    return box;
+  }
+
+  /**
+   * Screen PIXELS per world unit along each world axis, at `zoom: 1`, for
+   * the SHEET camera pose — world X (this package's north/south axis, see
+   * `glyphMapEquirectangular`'s doc) and world Y (east/west).
+   *
+   * Measured through {@link coverProbeCamera}'s public `project()` rather
+   * than computed as `zoom` / `zoom * cos(tilt)`, so the vertical
+   * foreshortening a tilted sheet gets is whatever the real camera actually
+   * applies. `rotY` is `0` for every sheet framing, so the two world axes
+   * land on the two screen axes with no shear and the per-axis magnitude
+   * below is exact.
+   */
+  function sheetScreenScale(grid: ProjectionGrid): { readonly perWorldX: number; readonly perWorldY: number } {
+    coverProbeCamera.rotX = tilt;
+    coverProbeCamera.rotY = 0;
+    coverProbeCamera.zoom = 1;
+    coverProbeCamera.target = [0, 0, 0];
+    const at = (v: Vec3) => coverProbeCamera.project(v, grid.cols, grid.rows, grid.cellAspect, grid);
+    const o = at([0, 0, 0]);
+    const ex = at([1, 0, 0]);
+    const ey = at([0, 1, 0]);
+    return {
+      perWorldX: Math.hypot((ex[0]! - o[0]!) * grid.cellWidth, (ex[1]! - o[1]!) * grid.cellHeight),
+      perWorldY: Math.hypot((ey[0]! - o[0]!) * grid.cellWidth, (ey[1]! - o[1]!) * grid.cellHeight),
+    };
+  }
+
+  /**
+   * The widest `view.span` at which `proj` still covers the viewport, or
+   * `Infinity` where the rule does not apply (an orbit projection, or a
+   * projection whose extent cannot be measured).
+   *
+   * Inverting "zoom that covers" back into "span" needs no search: for a
+   * sheet, `computeZoomForSpan` is EXACTLY inverse-linear in span — its
+   * sheet branch is `zoom = hostPxWidth / (rate(centre) * span)`, where
+   * `rate` is a local derivative taken with a fixed epsilon that never
+   * depends on the span — so one probe at `span: 1` fixes the whole curve.
+   * That also keeps this consistent with the real camera by construction,
+   * rather than re-deriving a second zoom formula that could drift from it.
+   */
+  function spanCoverLimit(proj: GlyphMapProjection, v: GlyphMapView): number {
+    if (!coverApplies(proj)) return Infinity;
+    const box = projectedDomainBox(proj);
+    if (!box) return Infinity;
+    const grid = projectionGrid();
+    const { perWorldX, perWorldY } = sheetScreenScale(grid);
+    const viewPxW = grid.cols * grid.cellWidth;
+    const viewPxH = grid.rows * grid.cellHeight;
+    const mapPxW = (box.maxY - box.minY) * perWorldY;
+    const mapPxH = (box.maxX - box.minX) * perWorldX;
+    // The BINDING axis is whichever needs the most zoom to be filled — that
+    // is what makes this follow the host's shape (a wide viewport binds on
+    // height, a tall one on width) instead of assuming a world aspect.
+    const coverZoom = Math.max(
+      mapPxW > 0 ? viewPxW / mapPxW : 0,
+      mapPxH > 0 ? viewPxH / mapPxH : 0,
+    );
+    if (!(coverZoom > 0) || !Number.isFinite(coverZoom)) return Infinity;
+    const probeZoom = computeZoomForSpan({ ...v, span: 1 }, proj);
+    if (!(probeZoom > 0) || !Number.isFinite(probeZoom)) return Infinity;
+    return probeZoom / coverZoom;
+  }
+
+  /**
+   * The projection every span/centre clamp is taken against: the live one
+   * when settled, and a `setProjection` flight's DESTINATION while one is in
+   * the air.
+   *
+   * Using the destination is what keeps a flight from snapping at its own
+   * boundary when the two endpoints' limits differ. The alternative — the
+   * live blended projection — is not usable: it exposes no
+   * `cameraForCenter`, so a globe->sheet flight would read as a sheet from
+   * its very first blended frame and start clamping a view the globe
+   * endpoint is entitled to. Reading the destination instead makes the limit
+   * CONSTANT across the whole flight and exactly equal to the projection
+   * that is live at `t = 1`, so nothing changes at either boundary.
+   * `setProjection` applies it once, up front, so the flight's own zoom
+   * pacing absorbs the change continuously (see its own comment).
+   */
+  function limitProjection(): GlyphMapProjection {
+    return projectionAnim ? projectionAnim.to : projection;
+  }
+
+  /**
+   * Does the cover rule apply at all?
+   *
+   * Two exemptions, both deliberate. An ORBIT projection legitimately floats
+   * in space (capability, never `projection.id`). And an explicit
+   * `maxSpan` is the documented "I want overview margin around the whole
+   * projection" opt-out — margin is precisely what cover removes, so the two
+   * cannot both be honoured, and the caller's explicit request wins. When it
+   * is set, this widget behaves exactly as it did before the cover rule
+   * existed: neither the span nor the centre is cover-clamped.
+   */
+  function coverApplies(proj: GlyphMapProjection): boolean {
+    return opts.maxSpan === undefined && !isOrbit(proj);
+  }
+
+  function maxViewSpan(proj: GlyphMapProjection = limitProjection(), v: GlyphMapView = view): number {
+    if (opts.maxSpan !== undefined) return Math.max(minSpan, opts.maxSpan);
+    return Math.max(minSpan, Math.min(domainWidth(proj), spanCoverLimit(proj, v)));
+  }
+
+  /**
+   * Clamp one world axis so the visible window (`half` either side of the
+   * centre) stays inside `[lo, hi]`.
+   *
+   * When the window is WIDER than the map on that axis the constraint is
+   * infeasible — Mercator's finite north/south window inside a very tall
+   * viewport is the real case — and the axis is CENTRED on the map instead.
+   * That is a single fixed point, so a drag against it settles rather than
+   * oscillating between two clamps, and it degrades to symmetric background
+   * top and bottom rather than pinning the map to one edge.
+   */
+  function coverAxis(value: number, lo: number, hi: number, half: number): number {
+    const min = lo + half;
+    const max = hi - half;
+    if (!(min <= max)) return (lo + hi) / 2;
+    return value < min ? min : value > max ? max : value;
+  }
+
+  function clampWorldToCover(wx: number, wy: number, box: ProjectedBox, zoom: number, grid: ProjectionGrid): readonly [number, number] {
+    const { perWorldX, perWorldY } = sheetScreenScale(grid);
+    const scaleX = zoom * perWorldX;
+    const scaleY = zoom * perWorldY;
+    if (!(scaleX > 0) || !(scaleY > 0) || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)) return [wx, wy];
+    return [
+      coverAxis(wx, box.minX, box.maxX, (grid.rows * grid.cellHeight) / (2 * scaleX)),
+      coverAxis(wy, box.minY, box.maxY, (grid.cols * grid.cellWidth) / (2 * scaleY)),
+    ];
+  }
+
+  /**
+   * `v.center`, pulled back to wherever the viewport still sits inside the
+   * map. Works in WORLD space (project -> clamp -> unproject) rather than in
+   * degrees, because "half a viewport" is a world-space length: clamping
+   * lon/lat directly would need a per-projection conversion, which is
+   * exactly the per-projection branching this file does not do.
+   */
+  function coverCenter(v: GlyphMapView, proj: GlyphMapProjection): readonly [number, number] {
+    if (!coverApplies(proj)) return v.center;
+    const box = projectedDomainBox(proj);
+    if (!box) return v.center;
+    const world = proj.project(v.center[0], v.center[1], 0);
+    if (!Number.isFinite(world[0]) || !Number.isFinite(world[1])) return v.center;
+    const [wx, wy] = clampWorldToCover(world[0], world[1], box, computeZoomForSpan(v, proj), projectionGrid());
+    if (wx === world[0] && wy === world[1]) return v.center;
+    return tryUnproject(proj, [wx, wy, 0]) ?? v.center;
+  }
+
+  /**
+   * The one place a view is made legal. Span first (it decides how much of
+   * the map the viewport shows, which is what the centre clamp measures
+   * against), then the centre. A view this changed no longer names the
+   * `bounds` box it may have been built from, so that box is dropped — the
+   * same rule `applyDrag`/`applyWheel` already follow.
+   */
+  function clampViewToCover(v: GlyphMapView, proj: GlyphMapProjection = limitProjection()): GlyphMapView {
+    let out = v;
+    // ITERATED to a fixed point, because the two clamps are coupled wherever
+    // a projection's SCALE varies across its own domain (orthographic:
+    // `computeZoomForSpan`'s local rate falls off as `cos(dLon)` away from
+    // the anchor). Pulling the centre in changes that rate, which changes
+    // both the zoom the centre clamp measured itself against AND the span
+    // limit — one pass left the view slightly UNDER-covered and made the
+    // next wheel notch step the zoom back UP (measured x1.10 on the
+    // orthographic notch ladder, i.e. a visible reversal mid-gesture).
+    // Equirectangular/Mercator have a constant rate and settle on pass two
+    // by the early-out below; the bound is a guard, never a convergence
+    // promise — a projection that did not settle would simply keep the last
+    // (still legal-by-span) iterate rather than loop.
+    for (let pass = 0; pass < 4; pass++) {
+      const span = clamp(out.span, minSpan, maxViewSpan(proj, out));
+      const withSpan = span === out.span ? out : { ...out, span, bounds: undefined };
+      const center = coverCenter(withSpan, proj);
+      const next = center === withSpan.center ? withSpan : { ...withSpan, center, bounds: undefined };
+      if (next === out) return out;
+      out = next;
+    }
+    return out;
+  }
+
+  /**
+   * Do `a` and `b` name the SAME point on `proj`'s surface? Compared through
+   * `proj.project` rather than by comparing degrees, so longitude wrap
+   * (`180` vs `-180`) and the pole degeneracy (where longitude is arbitrary
+   * and `centerForCamera`'s `Math.atan2(0, 0)` answers `0`) both fall out for
+   * free instead of needing their own special cases. Tolerance is relative to
+   * the projection's own world scale — `glyphMapGlobe({ radius })` is
+   * configurable, so an absolute epsilon would mean different things on
+   * different globes.
+   */
+  function sameSurfacePoint(proj: GlyphMapProjection, a: readonly [number, number], b: readonly [number, number]): boolean {
+    const pa = proj.project(a[0], a[1], 0);
+    const pb = proj.project(b[0], b[1], 0);
+    for (let i = 0; i < 3; i++) if (!Number.isFinite(pa[i]) || !Number.isFinite(pb[i])) return false;
+    const scale = Math.max(1, Math.hypot(pa[0], pa[1], pa[2]));
+    return Math.hypot(pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2]) <= scale * 1e-9;
+  }
+
+  /**
+   * The TRUE (tilt-free) orbit rotation framing `(lon, lat)` under `proj` —
+   * the held {@link orbitRotation} branch whenever that branch STILL frames
+   * exactly this centre, and `proj.cameraForCenter`'s canonical branch
+   * otherwise.
+   *
+   * This is what makes the view <-> camera round-trip the identity for a
+   * camera that a through-pole drag left outside `cameraForCenter`'s own
+   * `[0, 180]` range: a wheel notch, `resize`, `setTilt`, or a `setView` that
+   * does not move the centre all re-sync against the SAME centre, so the held
+   * branch still maps to it and is reused verbatim — no flip. A genuinely
+   * different centre (`setView({ center })`, `fitBounds`) has no held
+   * preimage and re-derives the canonical, north-up branch, which is what an
+   * explicit "frame this place" request should give.
+   *
+   * The reuse test is a CAPABILITY question asked of `proj` itself ("does
+   * this rotation still frame that centre under YOUR inverse?"), never a
+   * projection-identity check, so it stays correct across a `setProjection`
+   * to a different orbit projection: an endpoint whose `centerForCamera`
+   * disagrees simply fails the test and gets its own canonical branch.
+   */
+  function orbitRotationFor(proj: GlyphMapProjection, lon: number, lat: number): { readonly rotX: number; readonly rotY: number } {
+    const inverse = proj.centerForCamera;
+    if (orbitRotation && inverse && sameSurfacePoint(proj, inverse(orbitRotation.rotX, orbitRotation.rotY), [lon, lat])) {
+      return orbitRotation;
+    }
+    return proj.cameraForCenter!(lon, lat);
   }
 
   function syncCameraToView(v: GlyphMapView): void {
     const [lon, lat] = v.center;
     if (projection.cameraForCenter) {
-      const { rotX, rotY } = projection.cameraForCenter(lon, lat);
+      const { rotX, rotY } = orbitRotationFor(projection, lon, lat);
+      orbitRotation = { rotX, rotY };
       camera.rotX = rotX + tilt;
       camera.rotY = rotY;
       camera.target = [0, 0, 0];
@@ -592,7 +2385,38 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { col, row, visible };
   }
 
-  function unprojectSheet(col: number, row: number, grid: ProjectionGrid): readonly [number, number] | null {
+  /**
+   * `projection.unproject` THROWS for a strictly-interior `setProjection`
+   * blend (`glyphMapProjectionTransition`'s own doc: "not generally
+   * invertible"). Every caller of `unproject` — click-to-lonlat,
+   * `unprojectSheet` itself, contour field sampling (through the public
+   * `unproject()` wrapper) — must degrade to "no answer" for the
+   * transition's duration rather than propagate that throw, per
+   * `transition.ts`'s documented expectation. A `try`/`catch` here (rather
+   * than a separate "is a transition active" flag threaded through every
+   * call site) degrades correctly for ANY projection whose `unproject`
+   * throws, not just this package's own transition blend.
+   */
+  function tryUnproject(proj: GlyphMapProjection, p: Vec3): readonly [number, number] | null {
+    try {
+      return proj.unproject(p);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The sheet inverse, with its screen basis solved ONCE — a closure over
+   * three `camera.project` calls that then answers any number of cells with
+   * two multiplies plus the projection's own `unproject`.
+   *
+   * `unprojectSheet` (one cell) and the sun's per-cell night term (every
+   * covered cell of every grid, on every render while the sun is on) share
+   * this one implementation rather than each carrying its own copy of the
+   * solve: hoisting the basis is what keeps a full-grid sweep from paying
+   * three camera projections per cell.
+   */
+  function sheetUnprojector(grid: ProjectionGrid): ((col: number, row: number) => readonly [number, number] | null) | null {
     const o = camera.project([0, 0, 0], grid.cols, grid.rows, grid.cellAspect, grid);
     const ux = camera.project([1, 0, 0], grid.cols, grid.rows, grid.cellAspect, grid);
     const uy = camera.project([0, 1, 0], grid.cols, grid.rows, grid.cellAspect, grid);
@@ -600,13 +2424,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const bx = uy[0] - o[0], by = uy[1] - o[1];
     const det = ax * by - ay * bx;
     if (!Number.isFinite(det) || Math.abs(det) < 1e-9) return null;
-    const dc = col - o[0], dr = row - o[1];
-    const wx = (by * dc - bx * dr) / det;
-    const wy = (-ay * dc + ax * dr) / det;
-    const [lon, lat] = projection.unproject([wx, wy, 0]);
-    const d = projection.domain;
-    if (lon < d.west - 1e-6 || lon > d.east + 1e-6 || lat < d.south - 1e-6 || lat > d.north + 1e-6) return null;
-    return [lon, lat];
+    return (col: number, row: number): readonly [number, number] | null => {
+      const dc = col - o[0], dr = row - o[1];
+      const wx = (by * dc - bx * dr) / det;
+      const wy = (-ay * dc + ax * dr) / det;
+      const result = tryUnproject(projection, [wx, wy, 0]);
+      if (!result) return null;
+      const [lon, lat] = result;
+      const d = projection.domain;
+      if (lon < d.west - 1e-6 || lon > d.east + 1e-6 || lat < d.south - 1e-6 || lat > d.north + 1e-6) return null;
+      return [lon, lat];
+    };
+  }
+
+  function unprojectSheet(col: number, row: number, grid: ProjectionGrid): readonly [number, number] | null {
+    const solve = sheetUnprojector(grid);
+    return solve ? solve(col, row) : null;
   }
 
   /**
@@ -621,6 +2454,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const centerForCamera = projection.centerForCamera;
     if (!centerForCamera) return null;
     let [lon, lat] = centerForCamera(camera.rotX, camera.rotY);
+    // Start a hair OFF a pole. The (lon, lat) Jacobian's longitude column
+    // vanishes at a pole — every longitude is the same point there — so a view
+    // centred exactly on one starts Newton at a singular point, the first
+    // iteration reports a degenerate determinant, and EVERY cell unprojects to
+    // `null`: click-to-lonlat stops answering and a `contour` layer paints
+    // nothing at all. The iteration only needs a starting point, not the exact
+    // sub-observer point, so it takes the same clamp the loop below already
+    // applies to every step it makes.
+    lat = clamp(lat, -POLE_SAFE_LAT, POLE_SAFE_LAT);
     const EPS = 1e-4;
     let converged = false;
     for (let i = 0; i < 12; i++) {
@@ -639,7 +2481,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const dLon = (j11 * dCol - j01 * dRow) / det;
       const dLat = (-j10 * dCol + j00 * dRow) / det;
       lon += dLon;
-      lat = clamp(lat + dLat, -89.999, 89.999);
+      lat = clamp(lat + dLat, -POLE_SAFE_LAT, POLE_SAFE_LAT);
     }
     const world = projection.project(lon, lat, 0);
     // Newton can settle on a residual local minimum (e.g. clamped at a pole)
@@ -660,7 +2502,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function unproject(cell: readonly [number, number]): readonly [number, number] | null {
     const grid = projectionGrid();
-    return isOrbitProjection ? unprojectSphere(cell[0], cell[1], grid) : unprojectSheet(cell[0], cell[1], grid);
+    return isOrbitProjection() ? unprojectSphere(cell[0], cell[1], grid) : unprojectSheet(cell[0], cell[1], grid);
   }
 
   // ── Events ────────────────────────────────────────────────────────────
@@ -679,9 +2521,45 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   // ── Markers ───────────────────────────────────────────────────────────
 
-  const markerSyncs = new Set<() => void>();
-  function syncMarkers(): void {
-    for (const sync of markerSyncs) sync();
+  /**
+   * Everything whose visibility is a NEAR/FAR-hemisphere question the
+   * renderer cannot answer for itself, re-evaluated from the live camera:
+   * a marker/symbol/circle hotspot's `visibility` (below), and a
+   * `fill-extrusion` layer's wall faces (`createMeshFeatureRuntime` —
+   * tangential normals, so no winding makes a far-side one back-facing).
+   *
+   * ONE registry, drained at every point the camera can have moved, because
+   * these all share one failure mode: decide on one cadence, render on
+   * another, and the picture is stale for the difference. Symbols hit it as a
+   * one-frame label flicker; extrusion walls hit it as walls MISSING for a
+   * whole gesture, since their verdict used to be baked into geometry rebuilt
+   * on the 180ms `scheduleTileUpdate` debounce that every moving frame
+   * re-arms (measured 681ms with 0 of 41 walls drawn).
+   */
+  const nearSideSyncs = new Set<() => void>();
+  function syncNearSide(): void {
+    for (const sync of nearSideSyncs) sync();
+  }
+
+  /**
+   * Hide/show a hotspot for the NEAR/FAR-hemisphere reason, on a CSS channel
+   * glyphcss does not own.
+   *
+   * `display` is glyphcss's own hotspot-visibility channel: `stageHotspots`
+   * (`createGlyphScene.ts`) re-stages `style.display` for EVERY hotspot on
+   * every committed render, from its own on-grid `cell.visible` test — which
+   * knows nothing about hemispheres, because an orthographic camera projects
+   * the far hemisphere onto the same screen disc as the near one. Writing
+   * `display: "none"` here therefore held only until the next commit, and
+   * `scene.addHotspot()` itself schedules one: a far-side dot was hidden for
+   * exactly as long as it took the coalesced render to run, then reappeared
+   * and stayed until the next `syncNearSide()`. `visibility` is additive to
+   * glyphcss's `display` (either one hides; neither clears the other), and a
+   * `visibility: hidden` element is not hit-testable either, so a culled
+   * marker stays unclickable as well as unseen.
+   */
+  function setHotspotNearSide(el: HTMLElement, nearSide: boolean): void {
+    el.style.visibility = nearSide ? "" : "hidden";
   }
 
   let nextMarkerId = 0;
@@ -700,14 +2578,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const grid = projectionGrid();
       const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
         && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)));
-      hotspot.el.style.display = visible ? "" : "none";
+      setHotspotNearSide(hotspot.el, visible);
     }
     sync();
-    markerSyncs.add(sync);
+    nearSideSyncs.add(sync);
     return {
       el: hotspot.el,
       remove(): void {
-        markerSyncs.delete(sync);
+        nearSideSyncs.delete(sync);
         hotspot.remove();
       },
     };
@@ -728,56 +2606,382 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   interface RasterLayerRuntime {
     update(): Promise<void>;
     disposeMeshes(): void;
+    /**
+     * Rebuilds every currently mounted mesh (static, or provider tiles
+     * already sitting in `activeHandles`/`fallbackHandles`/the permanent
+     * floor) against the CURRENT `projection` closure value, with no
+     * network fetch — `setProjection`'s per-frame reprojection hook
+     * (MAPS.md §13 slice 4). `update()` itself can't be reused for this:
+     * its provider branch deliberately SKIPS remounting a tile whose key is
+     * already mounted (the ordinary "nothing changed" fast path), which is
+     * exactly the common case mid-transition — the visible tile SET doesn't
+     * change, only what each tile's geometry projects to.
+     */
+    reproject(): void;
     dispose(): void;
   }
 
-  function createRasterLayerRuntime(layer: GlyphMapRasterLayer): RasterLayerRuntime {
+  /**
+   * Never-black raster coverage (see AGENTS.md's "never a blank/black hole
+   * while panning or zooming"): a provider-backed raster layer keeps THREE
+   * tiers of mounted geometry instead of one.
+   *
+   * - `activeHandles` — the target-LOD "desired" tiles, exactly as before.
+   * - `fallbackHandles` — the CURRENT view's own tiles at the nearest
+   *   AVAILABLE zoom level strictly coarser than the target LOD, mounted
+   *   from cache immediately (zero fetch latency for the common "you just
+   *   zoomed in from here" case) and evicted the instant the fine `desired`
+   *   set finishes mounting. This is what makes a zoom-in read as
+   *   "sharpens" rather than "blanks then appears."
+   * - `floorHandles` — EVERY tile of the provider's shallowest zoom level,
+   *   fetched once and never evicted. This is the actual "never black"
+   *   guarantee: `fallbackHandles`/`activeHandles` both change with the
+   *   view and can momentarily cover nothing (a pan far enough that neither
+   *   the old fine nor the old fallback tiles overlap the new viewport,
+   *   with tile churn itself frozen mid-gesture — see `scheduleTileUpdate`),
+   *   but the floor covers the WHOLE domain unconditionally.
+   *
+   * Skipped when the provider has only one zoom level (nothing coarser
+   * exists to sit beneath) — `provider.zooms.length <= 1`. Otherwise, every
+   * tile identity the floor's own grid already covers (`floorKeys`,
+   * computed synchronously from its shape) is subtracted from BOTH
+   * `desired` and `fallbackDesired` on every update, so nothing is ever
+   * mounted twice at the identical depth — covers both "the target LOD
+   * already equals the floor's own level" (every `desired` key would
+   * resolve to a floor key, leaving `activeHandles` empty for that view)
+   * and a degrading provider whose ancestor resolution for a fine/fallback
+   * tile happens to land exactly on a floor tile's own identity.
+   */
+  function createRasterLayerRuntime(layer: GlyphMapRasterLayer, layerId: string): RasterLayerRuntime {
     const color = colorForLayer(layer);
     let staticHandles: GlyphMeshHandle[] = [];
     const tileCache = new Map<string, GlyphMapGeoTile>();
     const activeHandles = new Map<string, GlyphMeshHandle[]>();
+    const fallbackHandles = new Map<string, GlyphMeshHandle[]>();
+    let floorHandles: GlyphMeshHandle[] = [];
+    // The floor's own source tiles, kept alongside its handles so
+    // `reproject()` can rebuild geometry from `glyphMapPolygons` against the
+    // NEW projection — re-adding a mounted handle's already-projected
+    // `polygons` would just re-mount the same stale (old-projection) shape.
+    let floorTiles: readonly GlyphMapGeoTile[] = [];
+    let floorPromise: Promise<void> | null = null;
     let updateInFlight = false;
     let updateQueued = false;
+    /**
+     * Every mount in this runtime happens AFTER an `await provider.loadTile
+     * (...)` — the floor's own `Promise.all`, the fallback tier's fetch
+     * phase, the fine tier's, and the queued-update tail. A layer removed
+     * (or a widget destroyed) mid-fetch disposes every handle it holds, and
+     * without this flag the already-in-flight continuation then calls
+     * `scene.add(...)` again: those meshes are ORPHANS — no runtime holds
+     * their handles any more, so nothing can ever dispose them. That is the
+     * reported "I unticked ALL the layers but I still see the world", and
+     * re-ticking mounts a second copy over the orphan ("layers get
+     * duplicated, they do not offload"). Same mechanism, same discipline as
+     * `createFeatureLayerRuntime`'s own `disposed` guard below.
+     *
+     * The `updateProvider` ENTRY check is what stops the queued-update tail
+     * (`finally`'s `if (updateQueued) await updateProvider(...)`) restarting
+     * a whole update after dispose — deliberately one guard rather than
+     * also clearing `updateQueued` in `dispose()`, which would be a second
+     * mechanism covering the same case and would mask this one.
+     */
+    let disposed = false;
 
-    function mountTile(tile: GlyphMapGeoTile): GlyphMeshHandle[] {
+    /**
+     * The mesh resolution each tier is currently MOUNTED at, as a fraction
+     * of the tile's own baked grid (`reliefFractionForLevel`). Held per
+     * tier rather than recomputed at each use so `updateProvider` can spot
+     * a change and rebuild that tier's already-mounted tiles: a level whose
+     * mounted tiles disagreed about their fraction would crack along the
+     * seams between the old and new ones. `null` = nothing mounted yet.
+     */
+    let activeFraction: ReliefFraction | null = null;
+    let fallbackFraction: ReliefFraction | null = null;
+    let floorFraction: ReliefFraction | null = null;
+
+    /**
+     * Whether the permanent floor level is itself the current target LOD.
+     * Held alongside `floorFraction` for the same reason: it is an input to
+     * the floor's mounted GEOMETRY (through
+     * {@link GLYPH_MAP_RELIEF_BACKSTOP_SINK_M}), so a change has to trigger
+     * the same remount a fraction change does — and it can flip WITHOUT the
+     * fraction changing, whenever `reliefFractionForLevel` already wanted
+     * something no coarser than the backstop cap.
+     */
+    let floorIsTarget = false;
+
+    /**
+     * A tier that is not the target LOD is a BACKSTOP — mounted so a pan or
+     * a zoom never opens a blank hole — and must never occlude the target
+     * tier. See {@link GLYPH_MAP_RELIEF_BACKSTOP_SINK_M}.
+     */
+    function tierElevationBias(tier: "fine" | "fallback" | "floor"): number {
+      if (tier === "fine") return 0;
+      if (tier === "floor" && floorIsTarget) return 0;
+      return -GLYPH_MAP_RELIEF_BACKSTOP_SINK_M;
+    }
+
+    /**
+     * `fraction` applies per SPLIT PART, not to the pre-split tile: both
+     * halves of an antimeridian-straddling tile keep the tile's own `rows`,
+     * so `round(rows * fraction)` is identical on both sides of the seam
+     * and the shared seam edge stays exactly shared (`gridLineIndices`).
+     * Scaling one resolution computed from the whole tile would instead
+     * give the two halves different row counts and tear along the seam.
+     *
+     * `elevationBias` is per TIER, never per tile, for that same reason: two
+     * tiles of one level sunk by different amounts would tear along their
+     * shared edge.
+     */
+    function mountTile(tile: GlyphMapGeoTile, fraction: ReliefFraction, tier: "fine" | "fallback" | "floor"): GlyphMeshHandle[] {
+      const transform = meshTransform(layer, layer.density, glyphMapRasterDetailGroup(layerId, tier));
+      const elevationBias = tierElevationBias(tier);
       return splitGlyphMapGeoTileAtAntimeridian(tile).map((part) =>
-        scene.add(glyphMapPolygons(part, projection, { color }), layer.density !== undefined ? { density: layer.density } : {}),
+        scene.add(
+          glyphMapPolygons(
+            part,
+            projection,
+            fraction >= 1 ? { color, elevationBias } : { color, elevationBias, resolution: reliefResolution(part.cols, part.rows, fraction) },
+          ),
+          transform,
+        ),
       );
+    }
+
+    /**
+     * Rebuilds every mounted tile of one tier at `fraction`, disposing and
+     * re-adding each in the same synchronous turn so no render can observe
+     * the tier with a hole in it.
+     */
+    function remountTier(map: Map<string, GlyphMeshHandle[]>, fraction: ReliefFraction, tier: "fine" | "fallback"): void {
+      for (const [key, handles] of map) {
+        const tile = tileCache.get(key);
+        if (!tile) continue;
+        for (const h of handles) h.dispose();
+        map.set(key, mountTile(tile, fraction, tier));
+      }
+    }
+
+    function disposeAll(map: Map<string, GlyphMeshHandle[]>): void {
+      for (const handles of map.values()) for (const h of handles) h.dispose();
+      map.clear();
     }
 
     function disposeMeshes(): void {
       for (const h of staticHandles) h.dispose();
       staticHandles = [];
-      for (const handles of activeHandles.values()) for (const h of handles) h.dispose();
-      activeHandles.clear();
+      disposeAll(activeHandles);
+      disposeAll(fallbackHandles);
+      for (const h of floorHandles) h.dispose();
+      floorHandles = [];
+      floorTiles = [];
+      floorPromise = null;
+    }
+
+    /**
+     * Fetches and mounts EVERY tile of `provider`'s shallowest zoom level,
+     * once. Idempotent (`floorPromise` caches the in-flight/settled
+     * promise) — every `updateProvider` call awaits it, so the very first
+     * settle (before any pan/zoom) already guarantees the floor is up.
+     */
+    function ensureFloorMounted(provider: GlyphMapProvider): Promise<void> {
+      if (floorPromise) return floorPromise;
+      if (provider.zooms.length <= 1) { floorPromise = Promise.resolve(); return floorPromise; }
+      const floorZ = Math.min(...provider.zooms.map((z) => z.z));
+      const level = provider.zooms.find((z) => z.z === floorZ)!;
+      const coords: { readonly x: number; readonly y: number }[] = [];
+      for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) coords.push({ x, y });
+      floorPromise = Promise.all(coords.map(({ x, y }) => provider.loadTile(floorZ, x, y))).then((tiles) => {
+        if (disposed) return;
+        floorTiles = tiles;
+        floorHandles = tiles.flatMap((tile) => mountTile(tile, floorFraction ?? 1, "floor"));
+        scene.rerender();
+      });
+      return floorPromise;
+    }
+
+    /** The nearest AVAILABLE zoom level strictly coarser than `lod` (`undefined` if `lod` is already the shallowest). */
+    function pickFallbackLevel(provider: GlyphMapProvider, lod: number): GlyphMapProviderZoomLevel | undefined {
+      let best: GlyphMapProviderZoomLevel | undefined;
+      for (const z of provider.zooms) if (z.z < lod && (!best || z.z > best.z)) best = z;
+      return best;
     }
 
     async function updateProvider(provider: GlyphMapProvider): Promise<void> {
+      if (disposed) return;
       if (updateInFlight) { updateQueued = true; return; }
       updateInFlight = true;
       try {
-        const degPerCell = glyphMapDegreesPerCell(view);
+        // `getView()`, NOT the raw `view` closure — `view.cols`/`.rows` are
+        // frozen wherever `setView` last left them (AGENTS.md's root-cause
+        // doc), so a live `cols` change (autoSize, or a caller poking
+        // `scene.setOptions({ cols, rows })` directly, e.g. a density
+        // slider) never reached `glyphMapDegreesPerCell` through the raw
+        // field — LOD silently stayed pinned to whatever resolution was
+        // requested at construction, regardless of a later density raise.
+        const degPerCell = glyphMapDegreesPerCell(getView());
         const lod = glyphMapTargetLOD(provider, degPerCell);
-        const level = provider.zooms.find((z) => z.z === lod);
-        if (!level) return;
-        const padCells = layer.padCells ?? 2;
-        const desired = new Set<string>();
-        for (let y = 0; y < level.rows; y++) {
-          for (let x = 0; x < level.cols; x++) {
-            if (isBoundsVisible(provider.bounds(lod, x, y), padCells)) desired.add(`${lod}/${x}_${y}`);
+        const floorZ = Math.min(...provider.zooms.map((z) => z.z));
+
+        // The floor tier's own mesh resolution, resolved BEFORE
+        // `ensureFloorMounted` so its one-and-only mount already uses it.
+        // Capped to a glimpse-only backstop resolution unless the floor IS
+        // the target LOD, in which case it is the visible surface and gets
+        // the same one-quad-per-cell treatment as any other tier.
+        const floorLevel = provider.zooms.find((z) => z.z === floorZ);
+        if (floorLevel) {
+          const nextIsTarget = lod === floorZ;
+          const needed = reliefFractionForLevel(floorLevel, degPerCell);
+          const next = nextIsTarget ? needed : Math.min(needed, GLYPH_MAP_RELIEF_FLOOR_BACKSTOP_COLS / floorLevel.tileCols);
+          // `floorIsTarget` is an input to the mounted geometry too (the
+          // backstop sink), and it can flip while `next` stays put, so both
+          // are compared before deciding the floor is already correct.
+          if (next !== floorFraction || nextIsTarget !== floorIsTarget) {
+            floorFraction = next;
+            floorIsTarget = nextIsTarget;
+            if (floorHandles.length > 0) {
+              const tiles = floorTiles;
+              for (const h of floorHandles) h.dispose();
+              floorHandles = tiles.flatMap((tile) => mountTile(tile, next, "floor"));
+            }
           }
         }
-        // Failsafe: never blank the layer entirely.
-        if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(`${lod}/0_0`);
 
-        const missing = [...desired].filter((key) => !tileCache.has(key));
-        if (missing.length > 0) {
-          await Promise.all(missing.map(async (key) => {
+        const floor = ensureFloorMounted(provider);
+        const level = provider.zooms.find((z) => z.z === lod);
+        if (!level) { await floor; return; }
+        const padCells = layer.padCells ?? GLYPH_MAP_RASTER_PAD_CELLS_DEFAULT;
+
+        // Every tile identity the permanent floor ALREADY covers (empty
+        // when there's no separate floor — a single-zoom provider, where
+        // `ensureFloorMounted` above is itself a no-op) — computed
+        // synchronously from the floor level's own grid shape, no fetch
+        // needed. Filtered out of `desired`/`fallbackDesired` below so
+        // nothing is ever mounted twice at the identical depth: NOT just
+        // the "target LOD already equals the floor" case, but also a
+        // degrading provider (`glyphMapCuratedProvider`) whose ancestor
+        // resolution for a fine/fallback tile happens to land exactly on a
+        // floor tile's own identity.
+        const floorKeys = new Set<string>();
+        if (provider.zooms.length > 1) {
+          const floorLevel = provider.zooms.find((z) => z.z === floorZ)!;
+          for (let y = 0; y < floorLevel.rows; y++) {
+            for (let x = 0; x < floorLevel.cols; x++) floorKeys.add(`${floorZ}/${x}_${y}`);
+          }
+        }
+
+        // `resolveKey` maps a requested tile to what `loadTile` will
+        // ACTUALLY return — for a plain provider that's itself, but a
+        // degrading provider (`glyphMapCuratedProvider`) can send several
+        // requested addresses to the SAME ancestor tile. Keying `desired`
+        // (and therefore `tileCache`/`activeHandles`) by that resolved
+        // identity instead of the requested address means two siblings that
+        // both miss curated coverage fetch and mount that ancestor ONCE,
+        // not once per sibling.
+        const resolveKey = (z: number, x: number, y: number): string => {
+          const r = provider.resolveTile ? provider.resolveTile(z, x, y) : { z, x, y };
+          return `${r.z}/${r.x}_${r.y}`;
+        };
+        const grid = projectionGrid();
+        const geoSamples = viewportGeoSamples(padCells, grid);
+        const sweepDesired = (lvl: GlyphMapProviderZoomLevel): Set<string> => {
+          const desired = new Set<string>();
+          const { x0, x1, y0, y1 } = candidateTileRange(lvl, padCells);
+          for (let y = y0; y <= y1; y++) {
+            for (let x = x0; x <= x1; x++) {
+              if (isBoundsVisible(provider.bounds(lvl.z, x, y), padCells, grid, geoSamples)) desired.add(resolveKey(lvl.z, x, y));
+            }
+          }
+          return desired;
+        };
+
+        const desired = sweepDesired(level);
+        // Failsafe: never blank the layer entirely — before the floor
+        // filter below, so a resolved (0,0) that itself turns out to be a
+        // floor tile is still correctly dropped (the floor already shows
+        // it; "never blank" holds via that mesh instead).
+        if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(resolveKey(lod, 0, 0));
+        for (const key of floorKeys) desired.delete(key);
+
+        // One level coarser than target — skip when it WOULD be the floor
+        // (already permanently mounted, mounting it again as "fallback"
+        // too would just duplicate it).
+        const fallbackLevel = pickFallbackLevel(provider, lod);
+        const fallbackDesired = fallbackLevel && fallbackLevel.z !== floorZ ? sweepDesired(fallbackLevel) : new Set<string>();
+        for (const key of floorKeys) fallbackDesired.delete(key);
+
+        // Resolve both remaining tiers' mesh resolutions, and rebuild
+        // whatever is already mounted whose resolution just changed — a
+        // level with two different resolutions mounted at once would crack
+        // along the seam between an old tile and a new one. Both rebuilds
+        // are synchronous (dispose + re-add in this same turn), so no
+        // render observes the tier mid-swap.
+        const nextActive = reliefFractionForLevel(level, degPerCell);
+        if (nextActive !== activeFraction) {
+          activeFraction = nextActive;
+          remountTier(activeHandles, nextActive, "fine");
+        }
+        const nextFallback = fallbackLevel ? reliefFractionForLevel(fallbackLevel, degPerCell, GLYPH_MAP_RELIEF_FALLBACK_COARSEN) : 1;
+        if (nextFallback !== fallbackFraction) {
+          fallbackFraction = nextFallback;
+          remountTier(fallbackHandles, nextFallback, "fallback");
+        }
+
+        // Mount whatever's already cached for BOTH tiers immediately —
+        // zero-latency coverage upgrade for the common "you just zoomed
+        // in/out from here" case, shown even before this call's own
+        // network fetch resolves.
+        let mountedNow = false;
+        for (const key of fallbackDesired) {
+          if (!fallbackHandles.has(key)) {
+            const tile = tileCache.get(key);
+            if (tile) { fallbackHandles.set(key, mountTile(tile, fallbackFraction, "fallback")); mountedNow = true; }
+          }
+        }
+        for (const key of desired) {
+          if (!activeHandles.has(key)) {
+            const tile = tileCache.get(key);
+            if (tile) { activeHandles.set(key, mountTile(tile, activeFraction, "fine")); mountedNow = true; }
+          }
+        }
+        if (mountedNow) scene.rerender();
+
+        // Fallback is fetched and mounted as its OWN phase, awaited BEFORE
+        // the fine tier's own fetch — not merged into one `Promise.all`
+        // with it. A single combined batch would let a slow/stuck fine
+        // fetch (a genuinely new region's own tile, the common case this
+        // whole mechanism exists for) hold up mounting the ALREADY-ARRIVED
+        // fallback tiles too, since `Promise.all` only resolves once every
+        // member does — defeating the "coarser cover appears immediately,
+        // fine sharpens in after" story this tier is for.
+        const missingFallback = [...fallbackDesired].filter((key) => !tileCache.has(key));
+        if (missingFallback.length > 0) {
+          await Promise.all(missingFallback.map(async (key) => {
+            const [zStr, xy] = key.split("/");
+            const [xStr, yStr] = xy.split("_");
+            tileCache.set(key, await provider.loadTile(Number(zStr), Number(xStr), Number(yStr)));
+          }));
+          if (disposed) return;
+          for (const key of fallbackDesired) {
+            if (!fallbackHandles.has(key)) {
+              const tile = tileCache.get(key);
+              if (tile) fallbackHandles.set(key, mountTile(tile, fallbackFraction, "fallback"));
+            }
+          }
+          scene.rerender();
+        }
+
+        const missingFine = [...desired].filter((key) => !tileCache.has(key));
+        if (missingFine.length > 0) {
+          await Promise.all(missingFine.map(async (key) => {
             const [zStr, xy] = key.split("/");
             const [xStr, yStr] = xy.split("_");
             tileCache.set(key, await provider.loadTile(Number(zStr), Number(xStr), Number(yStr)));
           }));
         }
+        await floor;
+        if (disposed) return;
 
         for (const [key, handles] of activeHandles) {
           if (!desired.has(key)) {
@@ -788,9 +2992,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         for (const key of desired) {
           if (!activeHandles.has(key)) {
             const tile = tileCache.get(key);
-            if (tile) activeHandles.set(key, mountTile(tile));
+            if (tile) activeHandles.set(key, mountTile(tile, activeFraction, "fine"));
           }
         }
+
+        // Off-screen fallback tiles are always dropped. On-screen ones stay
+        // only until the fine `desired` set is FULLY mounted for this
+        // update (a still-missing fine tile — e.g. a rejected fetch — keeps
+        // its fallback rather than leaving a hole).
+        const fineFullyCovered = [...desired].every((key) => activeHandles.has(key));
+        for (const [key, handles] of fallbackHandles) {
+          if (!fallbackDesired.has(key) || fineFullyCovered) {
+            for (const h of handles) h.dispose();
+            fallbackHandles.delete(key);
+          }
+        }
+
         scene.rerender();
       } finally {
         updateInFlight = false;
@@ -806,15 +3023,39 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         await updateProvider(layer.source);
       } else {
         disposeMeshes();
-        staticHandles = mountTile(layer.source);
+        staticHandles = mountTile(layer.source, 1, "fine");
         scene.rerender();
+      }
+    }
+
+    function reproject(): void {
+      if (isGlyphMapProvider(layer.source)) {
+        for (const [key, handles] of activeHandles) {
+          for (const h of handles) h.dispose();
+          const tile = tileCache.get(key);
+          activeHandles.set(key, tile ? mountTile(tile, activeFraction ?? 1, "fine") : []);
+        }
+        for (const [key, handles] of fallbackHandles) {
+          for (const h of handles) h.dispose();
+          const tile = tileCache.get(key);
+          fallbackHandles.set(key, tile ? mountTile(tile, fallbackFraction ?? 1, "fallback") : []);
+        }
+        if (floorTiles.length > 0) {
+          for (const h of floorHandles) h.dispose();
+          floorHandles = floorTiles.flatMap((tile) => mountTile(tile, floorFraction ?? 1, "floor"));
+        }
+      } else {
+        for (const h of staticHandles) h.dispose();
+        staticHandles = mountTile(layer.source, 1, "fine");
       }
     }
 
     return {
       update,
       disposeMeshes,
+      reproject,
       dispose(): void {
+        disposed = true;
         disposeMeshes();
         tileCache.clear();
       },
@@ -825,16 +3066,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // composed into ONE `transformCells` hook rather than mesh mounting. See
   // `stroke.ts`'s doc for the mechanism and the depth contract. ───────────
 
-  /** `GlyphMapLineLayer.density`/`GlyphMapContourLayer.density` are reserved, not implemented — see either type's own doc. Reject explicitly rather than silently ignoring, the same "reject explicitly" precedent AGENTS.md's static exporters use for a genuine, not-yet-built capability gap. */
-  function assertStrokeDensitySupported(layer: GlyphMapLineLayer | GlyphMapContourLayer): void {
-    if (layer.density !== undefined && layer.density !== 1) {
-      throw new RangeError(
-        `glyphcss/maps: createGlyphMap.addLayer — "${layer.type}" layer "density" is not implemented yet (got ${layer.density}). ` +
-          `A stroke layer is stamped into the shared base CellGrid; per-layer resolution needs its own detail <pre> and its own occlusion sampling, which this slice does not build. Omit density or pass 1.`,
-      );
-    }
-  }
-
   function createLineLayerRuntime(layer: GlyphMapLineLayer): StrokeLayerRuntime {
     const color = layer.color;
     const isProvider = isGlyphMapVectorProvider(layer.source);
@@ -843,20 +3074,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let activeFeatures: readonly GlyphMapVectorFeature[] = [];
     let updateInFlight = false;
     let updateQueued = false;
+    /** Same post-dispose re-entry guard the raster runtime documents above. */
+    let disposed = false;
 
     async function updateProvider(provider: GlyphMapVectorProvider): Promise<void> {
+      if (disposed) return;
       if (updateInFlight) { updateQueued = true; return; }
       updateInFlight = true;
       try {
-        const degPerCell = glyphMapDegreesPerCell(view);
+        // `getView()`, not raw `view` — see the raster runtime's own
+        // `updateProvider` doc for why.
+        const degPerCell = glyphMapDegreesPerCell(getView());
         const lod = glyphMapTargetLOD(provider, degPerCell);
         const level = provider.zooms.find((z) => z.z === lod);
         if (!level) return;
         const padCells = layer.padCells ?? 2;
         const desired = new Set<string>();
-        for (let y = 0; y < level.rows; y++) {
-          for (let x = 0; x < level.cols; x++) {
-            if (isBoundsVisible(provider.bounds(lod, x, y), padCells)) desired.add(`${lod}/${x}_${y}`);
+        const grid = projectionGrid();
+        const geoSamples = viewportGeoSamples(padCells, grid);
+        const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            if (isBoundsVisible(provider.bounds(lod, x, y), padCells, grid, geoSamples)) desired.add(`${lod}/${x}_${y}`);
           }
         }
         if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(`${lod}/0_0`);
@@ -867,6 +3106,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const [xStr, yStr] = xy.split("_");
             tileCache.set(key, await provider.loadTile(Number(zStr), Number(xStr), Number(yStr)));
           }));
+          if (disposed) return;
         }
         const feats: GlyphMapVectorFeature[] = [];
         for (const key of desired) {
@@ -894,17 +3134,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    function stamp(grid: CellGrid): void {
-      const gridInfo = projectionGrid();
+    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
       const feats = isGlyphMapVectorProvider(layer.source) ? activeFeatures : staticFeatures;
       for (const feature of feats) {
         for (const ring of feature.rings) {
-          const verts: GlyphMapStrokeVertex[] = ring.map(([lon, lat]) => {
+          // Clip to the projection's visible side FIRST — see
+          // `visibleStrokeRuns`. A flat projection returns the ring by
+          // identity, so its stamped output is byte-identical to before.
+          for (const run of visibleStrokeRuns(ring, baseGrid)) {
+          const verts: GlyphMapStrokeVertex[] = run.map(([lon, lat]) => {
             const world = projection.project(lon, lat, 0);
-            const p = camera.project(world, gridInfo.cols, gridInfo.rows, gridInfo.cellAspect, gridInfo);
-            return { col: p[0], row: p[1], depth: p[3] ?? p[2] };
+            // `baseGrid` (NOT the live `projectionGrid()`) is what makes this
+            // a SCENE/base-grid col/row — see `StrokeLayerRuntime`'s doc.
+            // `composedTransformCells` restores `camera`'s zoom/center/
+            // fovScale to their base-call values for the duration of a
+            // detail call's stamping, so `camera.project` here reads the
+            // scene's true base framing even while stamping into a detail
+            // grid. Convert the resulting SCENE col/row into THIS grid's own
+            // local coordinates before stamping (see `GlyphMapCellAffine`'s
+            // doc) — the affine is the missing step that let ink land at
+            // scene-scale coordinates on a detail grid many times smaller,
+            // silently out of bounds. Depth is unaffected by the affine:
+            // `project()`'s cssZ/1-over-denom terms never depend on the
+            // cellWidth/centerCol metrics that vary between grids.
+            const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+            const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
+            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
           });
           stampGlyphMapPolyline(grid, verts, { color });
+          }
         }
       }
     }
@@ -913,6 +3171,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       update,
       stamp,
       dispose(): void {
+        disposed = true;
+        activeFeatures = [];
         tileCache.clear();
       },
     };
@@ -920,33 +3180,178 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function createContourLayerRuntime(layer: GlyphMapContourLayer): ContourLayerRuntime {
     const isProvider = isGlyphMapFieldProvider(layer.source);
-    // A provider-backed contour starts with no resolved field at all —
-    // `stamp` degrades to "draw nothing" (not "draw everywhere") until the
-    // first `update()` resolves, same discipline `line`'s `activeFeatures`
-    // starts empty under.
-    let field: GlyphMapField | null = isProvider ? null : layer.source;
-    let lastTileKey: string | null = null;
+    /**
+     * A provider-backed contour holds a tile MOSAIC — every tile the view
+     * currently covers — not the single tile containing `view.center`.
+     *
+     * The single-tile form was a real defect: a field only answers inside
+     * its own `bounds` (`glyphMapFieldValueAt` returns NaN outside them), so
+     * a contour could only ever ink one tile's geographic box and silently
+     * skipped every cell beyond it. Which SHAPE that box read as depended
+     * purely on the LOD the view resolved to (a z0 tile is the whole world
+     * and hides the bug entirely; z1 is a hemisphere, z2 a quadrant), and
+     * `view.center` `[0, 0]` sits exactly on a tile corner at every z >= 1,
+     * so the resolved box lay wholly east and south of the screen centre.
+     *
+     * The visible-set sweep here is deliberately the SAME machinery the
+     * raster runtime uses a few hundred lines above — `candidateTileRange` +
+     * `isBoundsVisible` against one hoisted `projectionGrid()`, keyed by
+     * `provider.resolveTile`'s resolved identity so a degrading provider
+     * (`glyphMapCuratedProvider`) that sends several sibling addresses to
+     * one ancestor tile derives that ancestor's field once — plus the same
+     * in-flight guard, and the same `scheduleTileUpdate` debounce driving
+     * it. Nothing about tile selection is re-derived here.
+     *
+     * `stamp` degrades to "draw nothing" (not "draw everywhere") until the
+     * first `update()` resolves, the same discipline `line`'s
+     * `activeFeatures` starts empty under.
+     */
+    const fieldCache = new Map<string, GlyphMapElevationPiece>();
+    let mosaic: readonly GlyphMapElevationPiece[] = isProvider ? [] : [elevationPieceFromField(layer.source as GlyphMapField)];
     let updateInFlight = false;
     let updateQueued = false;
+    /**
+     * Same post-dispose re-entry guard the raster runtime documents above.
+     * A contour mounts no mesh, so a late continuation cannot orphan
+     * geometry — but it WOULD repopulate the `mosaic` that `dispose()` just
+     * cleared, and keep refetching for a layer that is gone.
+     */
+    let disposed = false;
 
-    function levelsFor(f: GlyphMapField): readonly number[] {
-      if (typeof layer.levels === "number") {
-        return Array.from({ length: layer.levels }, (_, i) => f.min + (f.max - f.min) * ((i + 1) / ((layer.levels as number) + 1)));
+    /**
+     * The elevation range across the WHOLE mounted mosaic, not one tile's —
+     * `levels` as a count or an `{ interval }` is documented to be resolved
+     * against "whichever field is CURRENTLY resolved", and with a mosaic
+     * that is the union. A per-tile range would give neighbouring tiles
+     * different level sets and tear every contour at the seams.
+     */
+    function fieldRange(): { readonly min: number; readonly max: number } | null {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const f of mosaic) {
+        if (f.min < min) min = f.min;
+        if (f.max > max) max = f.max;
       }
-      if (Array.isArray(layer.levels)) return layer.levels;
-      return glyphMapContourIntervalLevels((layer.levels as { readonly interval: number }).interval, f.min, f.max);
+      return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+    }
+
+    /**
+     * The elevation WINDOW (`GlyphMapContourLayer.minElevation`/
+     * `maxElevation`), resolved once per layer. Absent = unbounded, which is
+     * what keeps every level expression below identical to the pre-window
+     * behaviour by construction rather than by a special case.
+     */
+    const windowMin = layer.minElevation ?? -Infinity;
+    const windowMax = layer.maxElevation ?? Infinity;
+    const inWindow = (level: number): boolean => level >= windowMin && level <= windowMax;
+
+    function levelsFor(range: { readonly min: number; readonly max: number }): readonly number[] {
+      if (typeof layer.levels === "number") {
+        // A COUNT is DISTRIBUTED within the window (the crowding fix): the
+        // same "evenly spaced, neither extreme" rule, applied to the window
+        // ∩ the field's own range. An empty intersection yields no levels
+        // rather than a degenerate or reversed spread — an empty window is
+        // "draw nothing", never an error.
+        const min = Math.max(range.min, windowMin);
+        const max = Math.min(range.max, windowMax);
+        if (!(min <= max)) return [];
+        return Array.from({ length: layer.levels }, (_, i) => min + (max - min) * ((i + 1) / ((layer.levels as number) + 1)));
+      }
+      // An explicit array and an `{ interval }`'s absolute multiples are
+      // CLIPPED, not renumbered — an interval's lines must stay at the same
+      // fixed elevations regardless of the window, exactly as they stay
+      // fixed regardless of the visible range.
+      if (Array.isArray(layer.levels)) return layer.levels.filter(inWindow);
+      return glyphMapContourIntervalLevels((layer.levels as { readonly interval: number }).interval, range.min, range.max).filter(inWindow);
+    }
+
+    /**
+     * The level list's own nominal spacing — the ladder rung
+     * {@link glyphMapContourIndexLevels} measures a level's ordinal against.
+     * Each `levels` shape knows its own: an `{ interval }` IS the spacing, a
+     * count's is the even step it distributes across the window, and an
+     * explicit array's is its smallest positive gap (`0` for a single level,
+     * which makes every level an index level — the right answer when there
+     * is no ladder to count along).
+     */
+    function levelStepFor(range: { readonly min: number; readonly max: number }, levels: readonly number[]): number {
+      if (typeof layer.levels === "number") {
+        const min = Math.max(range.min, windowMin);
+        const max = Math.min(range.max, windowMax);
+        return min <= max ? (max - min) / (layer.levels + 1) : 0;
+      }
+      if (!Array.isArray(layer.levels)) return (layer.levels as { readonly interval: number }).interval;
+      const sorted = [...levels].sort((a, b) => a - b);
+      let step = Infinity;
+      for (let i = 1; i < sorted.length; i++) {
+        const gap = sorted[i] - sorted[i - 1];
+        if (gap > 0 && gap < step) step = gap;
+      }
+      return Number.isFinite(step) ? step : 0;
+    }
+
+    /**
+     * First mounted piece whose bounds contain `(lon, lat)` wins. Tile bounds
+     * are inclusive on both edges, so adjacent tiles overlap on their shared
+     * edge — but with vertex sampling the tie no longer MATTERS: both sides
+     * interpolate the same shared edge values and return the same number, so
+     * which one answers is unobservable. It stays first-wins (stable key
+     * order) so it is deterministic rather than render-order dependent. NaN
+     * only when NO mounted piece covers the point, which is what keeps an
+     * uncovered cell skipped instead of smeared with a clamped edge value.
+     */
+    function elevationAtLonLat(lon: number, lat: number): number {
+      for (const f of mosaic) {
+        const value = f.valueAt(lon, lat);
+        if (Number.isFinite(value)) return value;
+      }
+      return NaN;
     }
 
     async function updateProvider(provider: GlyphMapProvider): Promise<void> {
+      if (disposed) return;
       if (updateInFlight) { updateQueued = true; return; }
       updateInFlight = true;
       try {
-        const { z, x, y, key } = glyphMapContourTileKey(provider, view);
-        if (key !== lastTileKey) {
-          field = await loadGlyphMapContourField(provider, z, x, y);
-          lastTileKey = key;
-          scene.rerender();
+        // `getView()`, not raw `view` — see the raster runtime's own
+        // `updateProvider` doc for why.
+        const degPerCell = glyphMapDegreesPerCell(getView());
+        const lod = glyphMapTargetLOD(provider, degPerCell);
+        const level = provider.zooms.find((z) => z.z === lod);
+        if (!level) return;
+        const padCells = GLYPH_MAP_CONTOUR_PAD_CELLS;
+        const grid = projectionGrid();
+        const geoSamples = viewportGeoSamples(padCells, grid);
+        const resolveKey = (z: number, x: number, y: number): string => {
+          const r = provider.resolveTile ? provider.resolveTile(z, x, y) : { z, x, y };
+          return `${r.z}/${r.x}_${r.y}`;
+        };
+        const desired = new Set<string>();
+        const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            if (isBoundsVisible(provider.bounds(lod, x, y), padCells, grid, geoSamples)) desired.add(resolveKey(lod, x, y));
+          }
         }
+        // Same "never blank the layer entirely" failsafe the raster and
+        // vector sweeps use — a view whose every sample misses still gets
+        // one field rather than nothing.
+        if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(resolveKey(lod, 0, 0));
+
+        const missing = [...desired].filter((key) => !fieldCache.has(key));
+        if (missing.length > 0) {
+          await Promise.all(missing.map(async (key) => {
+            const [zStr, xy] = key.split("/");
+            const [xStr, yStr] = xy.split("_");
+            fieldCache.set(key, await loadGlyphMapElevationPiece(provider, Number(zStr), Number(xStr), Number(yStr)));
+          }));
+          if (disposed) return;
+        }
+
+        const next = [...desired].map((key) => fieldCache.get(key)).filter((f): f is GlyphMapElevationPiece => f !== undefined);
+        const changed = next.length !== mosaic.length || next.some((f, i) => f !== mosaic[i]);
+        mosaic = next;
+        if (changed) scene.rerender();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -956,25 +3361,75 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    function stamp(grid: CellGrid): void {
-      const f = field;
-      if (!f) return;
-      // With no opaque base layer mounted, every cell reads non-finite
-      // depth uniformly — degrade to "draw everywhere the field is
-      // defined" rather than reading that as "off the map" (the
-      // coordinator's explicit hidden-terrain gate; see stroke.ts's
-      // `GlyphMapContourOptions.requireSurface` doc for why this can't be
-      // decided from inside the per-cell stamping function).
+    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
+      const range = fieldRange();
+      if (!range) return;
+      // `hasOpaqueSurface` stays a SCENE-level check (does ANY raster layer
+      // exist, anywhere — base or a detail grid, regardless of density) —
+      // deliberately not per-grid. `stampGlyphMapContour`'s own gate
+      // (`Number.isFinite(grid.depth[idx])`) already reads whichever grid IS
+      // passed to it, so it already answers "does a surface exist HERE" per
+      // grid on its own; this flag only decides whether that question is
+      // meaningful at all. With a raster layer mounted at density > 1, its
+      // geometry lives ENTIRELY in its own detail grid (AGENTS.md's per-mesh
+      // detail layers): the base grid's own `grid.depth` then reads
+      // non-finite everywhere, so `requireSurface: true` correctly blanks
+      // the contour on the base (nothing there to annotate) while the SAME
+      // flag, passed to the detail grid's own `stamp()` call, correctly
+      // gates on that grid's real terrain coverage instead. No raster layer
+      // mounted anywhere degrades every grid to "draw wherever the field
+      // itself is defined" (open sky reads uniformly non-finite too, and the
+      // per-grid gate can't tell that apart from "no surface exists to
+      // annotate" — see `stroke.ts`'s `GlyphMapContourOptions.requireSurface`
+      // doc).
       const hasOpaqueSurface = [...layerStates.values()].some((s) => s.kind === "raster");
-      stampGlyphMapContour(
+      const levels = levelsFor(range);
+      const plan = stampGlyphMapContour(
         grid,
         (col, row) => {
-          const ll = unproject([col + 0.5, row + 0.5]);
+          // `col`/`row` are THIS grid's own local cell coordinates — sample
+          // at the cell CENTER in LOCAL units first (a local half-cell is
+          // 1/density of a scene cell; adding 0.5 after the affine would
+          // sample the wrong offset), then convert forward through the
+          // affine into scene/base coordinates (the mirror of `line`'s own
+          // inverse conversion above) and unproject through the public
+          // `unproject()` wrapper — safe here because `composedTransformCells`
+          // restores `camera`'s zoom/center/fovScale to their base-call
+          // values for the duration of a detail call's stamping (see
+          // `StrokeLayerRuntime`'s doc), so `unproject()`'s own live
+          // `projectionGrid()`/`camera.project` reads answer with the
+          // scene's true base framing even mid-detail-render.
+          const scenePt = glyphMapLocalCellToScene(col + 0.5, row + 0.5, cellToSceneGrid);
+          const ll = unproject([scenePt.col, scenePt.row]);
           if (!ll) return NaN;
-          return glyphMapFieldValueAt(f, ll[0], ll[1]);
+          return elevationAtLonLat(ll[0], ll[1]);
         },
-        { levels: levelsFor(f), color: layer.color, requireSurface: hasOpaqueSurface },
+        {
+          levels,
+          color: layer.color,
+          requireSurface: hasOpaqueSurface,
+          minElevation: layer.minElevation,
+          maxElevation: layer.maxElevation,
+          labels: layer.labels === true
+            ? { levels: glyphMapContourIndexLevels(levels, levelStepFor(range, levels), layer.labelEvery ?? GLYPH_MAP_CONTOUR_LABEL_EVERY) }
+            : undefined,
+        },
       );
+      if (!plan) return;
+      // ONE greedy declutter over this grid's whole candidate set, the same
+      // stable "priority descending, then input order" arbitration the symbol
+      // layer uses — not a second mechanism. `padX` is doing double duty as
+      // the repetition spacing along a single contour (see
+      // `glyphMapDeclutterLabels`), which is why it is much wider than the
+      // labels themselves.
+      const placed = glyphMapDeclutterLabels(
+        plan.candidates.map((candidate, index) => ({ id: String(index), col: candidate.col, row: candidate.row, label: candidate.text, priority: candidate.priority })),
+        1,
+        1,
+        GLYPH_MAP_CONTOUR_LABEL_PAD_X,
+        GLYPH_MAP_CONTOUR_LABEL_PAD_Y,
+      );
+      stampGlyphMapContourLabels(grid, placed.map((p) => plan.candidates[Number(p.id)]), plan, layer.color);
     }
 
     return {
@@ -983,9 +3438,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         else scene.rerender();
       },
       stamp,
-      dispose(): void {},
+      dispose(): void {
+        disposed = true;
+        fieldCache.clear();
+        mosaic = [];
+      },
       getFieldRange(): { readonly min: number; readonly max: number } | null {
-        return field ? { min: field.min, max: field.max } : null;
+        return fieldRange();
       },
     };
   }
@@ -1002,12 +3461,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let disposed = false;
     async function update(): Promise<void> {
       if (!isGlyphMapVectorProvider(source)) { rebuild(source.features); return; }
-      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(view));
+      // `getView()`, not raw `view` — see the raster runtime's own
+      // `updateProvider` doc for why.
+      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
       const level = source.zooms.find((z) => z.z === lod);
       if (!level) return;
       const desired: string[] = [];
-      for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
-        if (isBoundsVisible(source.bounds(lod, x, y), padCells)) desired.push(`${lod}/${x}_${y}`);
+      const grid = projectionGrid();
+      const geoSamples = viewportGeoSamples(padCells, grid);
+      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        if (isBoundsVisible(source.bounds(lod, x, y), padCells, grid, geoSamples)) desired.push(`${lod}/${x}_${y}`);
       }
       if (!desired.length) desired.push(`${lod}/0_0`);
       await Promise.all(desired.filter((key) => !cache.has(key)).map(async (key) => {
@@ -1020,31 +3484,120 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { update, dispose() { disposed = true; cache.clear(); rebuild([]); } };
   }
 
+  /**
+   * `glyphMapVectorPolygons`'s `visible` option — the near-hemisphere test
+   * an extrusion WALL needs, since a wall's normal is tangential and no
+   * winding can make a far-side one back-facing (`layers.ts`'s "Far
+   * hemisphere" section; a cap needs nothing here, its own outward normal
+   * plus the rasterizer's backface cull already answer it, view-independently).
+   *
+   * `null` for a projection with no `visible` capability, which is every flat
+   * one — `project()` returning NaN is already their exclusion — so the flat
+   * path stays byte-identical.
+   *
+   * The grid is captured ONCE per mesh rebuild rather than per vertex, the
+   * same `projectionGrid()`-hoisting `isBoundsVisible`'s callers do: a rebuild
+   * runs this for every ring vertex of every feature, and `projectionGrid()`
+   * costs two `getBoundingClientRect()` calls.
+   */
+  function nearSidePredicate(): ((lon: number, lat: number, elev: number) => boolean) | undefined {
+    const isVisible = projection.visible;
+    if (!isVisible) return undefined;
+    const grid = projectionGrid();
+    return (lon, lat, elev) => {
+      const world = projection.project(lon, lat, elev);
+      return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
+        && isVisible(world, (w) => depthOf(w, grid));
+    };
+  }
+
+  /**
+   * The live camera state a `fill-extrusion`'s wall cull depends on, as one
+   * comparable value. ONE definition because two copies that drift apart make
+   * the memo below silently miss a camera change.
+   */
+  function cameraCullKey(): string {
+    return `${camera.rotX},${camera.rotY},${camera.zoom},${camera.target.join(",")}`;
+  }
+
   function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
     let handles: GlyphMeshHandle[] = [];
+    let mesh: GlyphMapVectorMesh | null = null;
+    /**
+     * The camera state the mounted polygons were last culled against. The
+     * wall cull is idempotent, so a repeated sync with an unmoved camera —
+     * `applyDrag` fires per pointer EVENT and the motion loop fires again per
+     * FRAME — costs one string compare instead of a re-cull. `""` forces the
+     * next sync to do the work (a fresh mesh, or a fresh mount).
+     *
+     * The camera alone is the whole key: the verdict is `projection.visible`,
+     * which asks only whether a point's `camera.project(...)` DEPTH beats the
+     * projection's own anchor's, and the grid dimensions the projection call
+     * also takes scale screen x/y without reordering depth. A `resize()`
+     * therefore cannot change which walls survive, and this need not pay
+     * `projectionGrid()`'s two `getBoundingClientRect` calls to find that out.
+     */
+    let culledAt = "";
+    /**
+     * Re-cull the mesh's walls against the LIVE camera and hand the survivors
+     * to the existing mesh handle. Nothing here re-triangulates: `mesh` is
+     * camera-independent (see `glyphMapVectorMesh`) and only which of its
+     * wall faces survive depends on where the camera is.
+     *
+     * O(1) for a `fill` layer (no walls) and for every flat projection (no
+     * `visible` capability), so registering this unconditionally costs a
+     * mounted-layer-count loop and nothing else.
+     */
+    function syncWalls(): void {
+      if (!mesh || !mesh.walls.length || !projection.visible) return;
+      const key = cameraCullKey();
+      if (key === culledAt) return;
+      culledAt = key;
+      const nearSide = nearSidePredicate();
+      const polygons = nearSide ? glyphMapVectorCullWalls(mesh, nearSide) : [...mesh.polygons];
+      if (handles.length) handles[0].setPolygons(polygons);
+      else if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
+    }
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       for (const handle of handles) handle.dispose();
       handles = [];
+      culledAt = "";
       const color = (feature: GlyphMapVectorFeature) => {
         if (layer.type === "fill" && layer.colorProperty && layer.colors) return layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color;
         return layer.color;
       };
-      const polygons = glyphMapVectorPolygons(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
+      mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
         color,
-        height: layer.type === "fill-extrusion" ? (f) => Number(f.properties?.[layer.heightProperty ?? "height"] ?? layer.height ?? 0) : undefined,
+        height: layer.type === "fill-extrusion" ? (f) => {
+          const raw = Number(f.properties?.[layer.heightProperty ?? "height"]);
+          return Number.isFinite(raw) ? raw * (layer.heightScale ?? 1) : layer.height ?? 0;
+        } : undefined,
         base: layer.type === "fill-extrusion" ? (f) => Number(f.properties?.[layer.baseProperty ?? "min_height"] ?? 0) : undefined,
       });
-      if (polygons.length) handles.push(scene.add(polygons, layer.density === undefined ? {} : { density: layer.density }));
+      const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;
+      const polygons = nearSide ? glyphMapVectorCullWalls(mesh, nearSide) : [...mesh.polygons];
+      if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
+      if (nearSide) culledAt = cameraCullKey();
       scene.rerender();
     }, 2, layer.sourceLayer);
-    return { update: runtime.update, dispose() { runtime.dispose(); for (const h of handles) h.dispose(); handles = []; } };
+    nearSideSyncs.add(syncWalls);
+    return {
+      update: runtime.update,
+      dispose() {
+        nearSideSyncs.delete(syncWalls);
+        runtime.dispose();
+        mesh = null;
+        for (const h of handles) h.dispose();
+        handles = [];
+      },
+    };
   }
 
   function createPointFeatureRuntime(layer: GlyphMapSymbolLayer | GlyphMapCircleLayer): FeatureLayerRuntime {
     let hotspots: GlyphHotspotHandle[] = [];
     let sync: (() => void) | null = null;
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
-      if (sync) markerSyncs.delete(sync);
+      if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
       hotspots = [];
       const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; priority: number }[] = [];
@@ -1058,7 +3611,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         handle.el.textContent = label;
         handle.el.style.color = layer.color ?? "";
         if (layer.type === "circle") {
-          const radius = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty] ?? layer.radius ?? 2) : layer.radius ?? 2;
+          const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
+          const radius = Number.isFinite(scaled) ? scaled : layer.radius ?? 2;
           handle.el.style.width = handle.el.style.height = `${Math.max(1, radius) * 2}px`;
           handle.el.style.borderRadius = "50%";
           handle.el.style.backgroundColor = layer.color ?? "currentColor";
@@ -1073,7 +3627,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const grid = projectionGrid();
             const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
               && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)));
-            r.handle.el.style.display = visible ? "" : "none";
+            setHotspotNearSide(r.handle.el, visible);
           });
           return;
         }
@@ -1081,13 +3635,96 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
-      markerSyncs.add(sync); sync();
+      nearSideSyncs.add(sync); sync();
     }, 2, layer.sourceLayer);
-    return { update: runtime.update, dispose() { runtime.dispose(); if (sync) markerSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
+    return { update: runtime.update, dispose() { runtime.dispose(); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
+  }
+
+  /**
+   * A small, self-contained elevation MOSAIC reader over whichever `raster`
+   * layer is currently mounted — the terrain source `createHeatmapRuntime`
+   * needs so its relief hugs the real surface instead of floating at the
+   * datum (the reported "doesn't begin glued to the planet" defect).
+   *
+   * Deliberately reuses the CONTOUR runtime's own machinery rather than
+   * writing a third elevation lookup: `loadGlyphMapElevationPiece` and
+   * `GlyphMapElevationPiece.valueAt` are the exact functions
+   * `createContourLayerRuntime` above already uses for the identical
+   * "elevation at an arbitrary lon/lat across the currently visible tile
+   * set" problem — including its vertex-grid sampling, so a heatmap's
+   * ground-hugging relief reads the same continuous terrain a contour does. This is a
+   * SEPARATE instance (a heatmap layer's own source is independent of any
+   * contour layer's, and either may be mounted without the other) built
+   * the same way, not a shared mutable cache — sharing one would couple two
+   * independently-addable/removable layers' lifecycles together for no
+   * reason.
+   *
+   * There is no terrain source of its own on `GlyphMapHeatmapLayer` — it is
+   * whichever `raster` layer happens to be mounted, found by kind in
+   * `layerStates` at the moment this resolves (mirroring the contour
+   * runtime's own `hasOpaqueSurface` lookup a few hundred lines above). No
+   * mounted raster, or a raster whose `source` is a static (non-provider)
+   * `GlyphMapGeoTile` rather than a `GlyphMapProvider` tile pyramid, both
+   * resolve to an EMPTY mosaic — elevation 0 (the datum) is then the
+   * honest answer, not a bug, exactly as a flat, terrain-less map should
+   * render a heatmap sitting on the ground plane.
+   */
+  function createHeatmapTerrainReader() {
+    const fieldCache = new Map<string, GlyphMapElevationPiece>();
+    let mosaic: readonly GlyphMapElevationPiece[] = [];
+
+    async function resolve(): Promise<void> {
+      const rasterLayer = [...layerStates.values()]
+        .map((s) => (s.kind === "raster" ? s.layer : null))
+        .find((l): l is GlyphMapRasterLayer => l !== null);
+      const source = rasterLayer?.source;
+      if (!source || !isGlyphMapProvider(source)) { mosaic = []; return; }
+      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
+      const level = source.zooms.find((z) => z.z === lod);
+      if (!level) { mosaic = []; return; }
+      const padCells = GLYPH_MAP_CONTOUR_PAD_CELLS;
+      const grid = projectionGrid();
+      const geoSamples = viewportGeoSamples(padCells, grid);
+      const desired = new Set<string>();
+      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        if (isBoundsVisible(source.bounds(lod, x, y), padCells, grid, geoSamples)) desired.add(`${lod}/${x}_${y}`);
+      }
+      if (desired.size === 0 && level.cols > 0 && level.rows > 0) desired.add(`${lod}/0_0`);
+      const missing = [...desired].filter((key) => !fieldCache.has(key));
+      if (missing.length > 0) {
+        await Promise.all(missing.map(async (key) => {
+          const [zStr, xy] = key.split("/");
+          const [xStr, yStr] = xy.split("_");
+          fieldCache.set(key, await loadGlyphMapElevationPiece(source, Number(zStr), Number(xStr), Number(yStr)));
+        }));
+      }
+      mosaic = [...desired].map((key) => fieldCache.get(key)).filter((f): f is GlyphMapElevationPiece => f !== undefined);
+    }
+
+    function elevationAt(lon: number, lat: number): number {
+      for (const f of mosaic) {
+        const value = f.valueAt(lon, lat);
+        if (Number.isFinite(value)) return value;
+      }
+      return 0;
+    }
+
+    // Whether there is any real terrain mesh for the heatmap to potentially
+    // z-fight against — `elevationAt` returning exactly 0 is not itself
+    // proof of "no terrain" (a raster's own real elevation is legitimately
+    // 0 at sea level), so this is its own explicit signal, not inferred
+    // from a value.
+    function hasTerrain(): boolean {
+      return mosaic.length > 0;
+    }
+
+    return { resolve, elevationAt, hasTerrain };
   }
 
   function createHeatmapRuntime(layer: GlyphMapHeatmapLayer): FeatureLayerRuntime {
     let handle: GlyphMeshHandle | null = null;
+    const terrain = createHeatmapTerrainReader();
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       handle?.dispose(); handle = null;
       const bounds = layer.bounds ?? projection.domain;
@@ -1096,13 +3733,78 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const field = glyphMapPointHeatmap(features, bounds, cols, rows, layer.radius ?? 2, layer.weightProperty);
       const elevation = new Float32Array((cols + 1) * (rows + 1));
       const densityScale = 1 / Math.max(field.max, Number.EPSILON);
-      for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) elevation[y * (cols + 1) + x] = field.values[Math.min(rows - 1, y) * cols + Math.min(cols - 1, x)] * densityScale * GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M;
+      const reliefHeight = layer.height ?? GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M;
+      // A grid VERTEX samples the cell up-and-left of it (`Math.min` clamps
+      // the outer ring back onto the last real cell), so `threshold` has to
+      // ask about every cell INCIDENT to the vertex, not just that one —
+      // see `GlyphMapHeatmapLayer.threshold`'s doc for the dilate-then-erode
+      // consequence this deliberately accepts.
+      const threshold = layer.threshold ?? 0;
+      const densityAt = (x: number, y: number) => field.values[Math.min(rows - 1, Math.max(0, y)) * cols + Math.min(cols - 1, Math.max(0, x))] * densityScale;
+      // The lift only exists to keep two independently-meshed surfaces
+      // (terrain's own relief mesh and this one) from z-fighting where they
+      // coincide — with no mounted raster there is no second surface to
+      // fight, so a flat, terrain-less heatmap keeps its pre-existing
+      // bounded-relief contract (`[0, reliefHeight]`) exactly.
+      const lift = terrain.hasTerrain() ? GLYPH_MAP_HEATMAP_SURFACE_LIFT_M : 0;
+      for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) {
+        const own = densityAt(x, y);
+        const keep = threshold <= 0
+          || own >= threshold || densityAt(x - 1, y) >= threshold || densityAt(x, y - 1) >= threshold || densityAt(x - 1, y - 1) >= threshold;
+        // Terrain elevation is looked up at THIS vertex's own lon/lat (the
+        // same mapping `glyphMapGeoTileVertexLonLat` uses inside
+        // `glyphMapPolygons` itself, reused here rather than re-derived) so
+        // the relief mesh's base tracks the ground beneath it exactly, not
+        // an average or a per-tile constant. Raw metres, pre-exaggeration —
+        // `glyphMapPolygons` feeds this straight into `projection.project`,
+        // which applies `exaggeration` uniformly to terrain and heatmap
+        // relief alike (AGENTS.md: "every projection treats elevation the
+        // same way"), so this function must never itself multiply by it.
+        const [lon, lat] = glyphMapGeoTileVertexLonLat({ bounds, cols, rows } as GlyphMapGeoTile, x, y);
+        const base = terrain.elevationAt(lon, lat) + lift;
+        elevation[y * (cols + 1) + x] = keep ? base + own * reliefHeight : NaN;
+      }
       const colors = layer.colors ?? ["#111827", "#2563eb", "#22c55e", "#f59e0b", "#ef4444"];
       const tile: GlyphMapGeoTile = { bounds, cols, rows, elevation, source: "heatmap", sampler: "density" };
-      handle = scene.add(glyphMapPolygons(tile, projection, { color: (v) => colors[Math.min(colors.length - 1, Math.floor((v / GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M) * colors.length))] }));
+      // The color ramp reads DENSITY, not absolute elevation — `elevation[]`
+      // now carries terrain + lift + relief, so `glyphMapPolygons`'s own
+      // `elevCenter` (the average of a quad's 4 corner elevations, passed to
+      // `color`) is no longer proportional to density alone. `colorByCenter`
+      // maps that SAME combined-elevation average (computed here identically
+      // — same 4 corners, same order, same division, so the float value is
+      // bit-exact and safe to use as a lookup key) back to the density-only
+      // relief average that drove it, so the ramp still reads density
+      // regardless of what terrain sits underneath.
+      const colorByCenter = new Map<number, number>();
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const nw = elevation[r * (cols + 1) + c];
+        const sw = elevation[(r + 1) * (cols + 1) + c];
+        const se = elevation[(r + 1) * (cols + 1) + c + 1];
+        const ne = elevation[r * (cols + 1) + c + 1];
+        if (![nw, sw, se, ne].every(Number.isFinite)) continue;
+        const combined = (nw + sw + se + ne) / 4;
+        const ownNW = densityAt(c, r), ownSW = densityAt(c, r + 1), ownSE = densityAt(c + 1, r + 1), ownNE = densityAt(c + 1, r);
+        colorByCenter.set(combined, ((ownNW + ownSW + ownSE + ownNE) / 4) * reliefHeight);
+      }
+      // `heatmap`'s own `density` sizes its relief GRID (above), not a
+      // per-mesh detail layer, so only the render mode is forwarded here.
+      handle = scene.add(
+        // `colorSample: "corner-mean"` is REQUIRED here, not a preference:
+        // `colorByCenter` above is keyed on the 4-corner mean, so the
+        // default `"median"` (which reads terrain, not the drawn surface —
+        // see `glyphMapPolygons`' own doc) would miss every lookup and flatten
+        // the ramp to `colors[0]`. A median could not be substituted on both
+        // sides either: it IS one of the corner values, and adjacent quads
+        // share corners, so two quads with different densities collide on one key.
+        glyphMapPolygons(tile, projection, { colorSample: "corner-mean", color: (v) => colors[Math.min(colors.length - 1, Math.floor(((colorByCenter.get(v) ?? 0) / reliefHeight) * colors.length))] }),
+        meshTransform(layer),
+      );
       scene.rerender();
     }, 2, layer.sourceLayer);
-    return { update: runtime.update, dispose() { runtime.dispose(); handle?.dispose(); handle = null; } };
+    return {
+      async update(): Promise<void> { await terrain.resolve(); await runtime.update(); },
+      dispose() { runtime.dispose(); handle?.dispose(); handle = null; },
+    };
   }
 
   type LayerState =
@@ -1126,6 +3828,168 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scene.output.style.backgroundColor = color ?? "";
   }
 
+  // ── Real-sun lighting ─────────────────────────────────────────────────
+  // Two mechanisms, one concept, selected by projection CAPABILITY (see
+  // `GlyphMapSunOptions` and `sun.ts`'s header): an ORBIT projection gets a
+  // real directional light (Lambert draws the terminator), a SHEET gets a
+  // per-cell day/night term stamped through the shared `transformCells`
+  // hook. Nothing here branches on `projection.id`.
+
+  let sunMode: GlyphMapSunMode = opts.sun?.mode ?? "off";
+  let sunManualAt: number = opts.sun?.date !== undefined
+    ? (typeof opts.sun.date === "number" ? opts.sun.date : opts.sun.date.getTime())
+    : Date.now();
+  let sunTickMs: number = opts.sun?.tickMs ?? GLYPH_MAP_SUN_TICK_MS;
+  let sunTwilightDeg: number = opts.sun?.twilightDeg ?? GLYPH_MAP_SUN_TWILIGHT_DEG;
+  let sunNightOpacity: number = opts.sun?.nightOpacity ?? GLYPH_MAP_NIGHT_OPACITY;
+  let sunNightColor: string = opts.sun?.nightColor ?? "#000000";
+  let sunNightLevels: number = opts.sun?.nightLevels ?? GLYPH_MAP_NIGHT_LEVELS;
+  let sunTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * The instant the sun is resolved at. `"realtime"` reads the wall clock
+   * on every call — that, plus the timer below, is the whole of "the
+   * terminator advances"; nothing caches a subsolar point.
+   */
+  function sunAt(): number {
+    return sunMode === "manual" ? sunManualAt : Date.now();
+  }
+
+  function sunDirection(): Vec3 | null {
+    return sunMode === "off" ? null : glyphMapSunDirection(projection, sunAt());
+  }
+
+  /**
+   * The direction the widget owns for the key light right now, or `null`
+   * when it owns none.
+   *
+   * PRECEDENCE, stated once: the sun wins. Both write the same field, and a
+   * real sun is a statement about the world while a headlight is a statement
+   * about the viewer — a map showing a genuine terminator must not have it
+   * washed out by the camera. The page never has both on at once (its "Full"
+   * button is sun-off + headlight-on), but the library has to answer anyway.
+   */
+  function keyLightDirection(): Vec3 | null {
+    return sunDirection() ?? (keyLightMode === "headlight" ? glyphMapHeadlightDirection(camera.rotX, camera.rotY) : null);
+  }
+
+  /**
+   * Write the owned direction into the scene, and report whether it wrote.
+   *
+   * Two properties this has to hold, both load-bearing:
+   *
+   * 1. DIRECTION ONLY — `intensity`/`color` stay exactly as the consumer set
+   *    them, so a widget-owned light and a consumer-owned key light never
+   *    fight over the same field.
+   * 2. NO WRITE WHEN NOTHING MOVED. `scene.setOptions` invalidates glyphcss's
+   *    per-triangle shading cache and schedules a render; a headlight is
+   *    called on every camera-moving frame, and a pan or a wheel-zoom does
+   *    not rotate the camera at all (nor does ANY gesture on a sheet, whose
+   *    `rotX`/`rotY` are `tilt`/`0`). The equality check turns those into one
+   *    three-number compare instead of a full re-shade.
+   *
+   * Every caller invokes this IMMEDIATELY BEFORE a synchronous
+   * `scene.rerender()`, which supersedes the microtask `setOptions` queued —
+   * so a headlight costs zero extra renders per frame. Calling it anywhere
+   * else would buy a whole extra grid render per pointer event, which is
+   * exactly the discarded work the motion loop above exists to remove.
+   */
+  function applyKeyLight(): boolean {
+    if (destroyed) return false;
+    const direction = keyLightDirection();
+    if (!direction) return false;
+    const current = scene.getOptions().directionalLight;
+    const d = current?.direction;
+    if (d && d[0] === direction[0] && d[1] === direction[1] && d[2] === direction[2]) return false;
+    scene.setOptions({ directionalLight: { ...current, direction } });
+    return true;
+  }
+
+  /**
+   * Push the sun into the scene. On a sheet there is no light to write, so
+   * this only re-renders: the night term is stamped from `sunAt()` inside
+   * the hook, which re-reads the clock itself.
+   */
+  function applySun(): void {
+    if (destroyed) return;
+    if (!applyKeyLight()) scene.rerender();
+  }
+
+  function emitSun(): void {
+    if (sunMode === "off") return;
+    const at = sunAt();
+    emit({ type: "sun", at, subsolar: glyphMapSubsolarPoint(at), direction: sunDirection() });
+  }
+
+  function syncSunTimer(): void {
+    if (sunTimer !== null) { clearInterval(sunTimer); sunTimer = null; }
+    if (destroyed || sunMode !== "realtime" || !(sunTickMs > 0)) return;
+    sunTimer = setInterval(() => {
+      applySun();
+      emitSun();
+    }, sunTickMs);
+  }
+
+  /**
+   * The SHEET terminator. Skipped outright on an orbit projection (its
+   * directional light already IS the terminator — stamping as well would
+   * double-darken the night side, the same "don't run both" rule
+   * `GlyphMapPresentation.hillshade` follows under a relief mesh) and on a
+   * viewport overlay grid (which owns no lit surface of its own; strokes
+   * stamp into it afterwards and stay legible at full colour).
+   */
+  function stampSunNight(g: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid, viewport: boolean): void {
+    if (sunMode === "off" || viewport || isOrbitProjection()) return;
+    const solve = sheetUnprojector(baseGrid);
+    if (!solve) return;
+    const sun = glyphMapSubsolarPoint(sunAt());
+    stampGlyphMapNight(
+      g,
+      (col, row) => {
+        // Sample at the cell CENTER in this grid's own LOCAL units before
+        // converting forward into scene/base coordinates — the same order
+        // the contour layer's own field probe uses, and for the same reason
+        // (a local half-cell is 1/density of a scene cell).
+        const scenePt = glyphMapLocalCellToScene(col + 0.5, row + 0.5, cellToSceneGrid);
+        return solve(scenePt.col, scenePt.row);
+      },
+      sun,
+      { twilightDeg: sunTwilightDeg, nightOpacity: sunNightOpacity, nightColor: sunNightColor, levels: sunNightLevels },
+    );
+  }
+
+  function setSun(next: GlyphMapSunOptions): void {
+    const previousMode = sunMode;
+    if (next.mode !== undefined) sunMode = next.mode;
+    if (next.date !== undefined) sunManualAt = typeof next.date === "number" ? next.date : next.date.getTime();
+    if (next.tickMs !== undefined) sunTickMs = next.tickMs;
+    if (next.twilightDeg !== undefined) sunTwilightDeg = next.twilightDeg;
+    if (next.nightOpacity !== undefined) sunNightOpacity = next.nightOpacity;
+    if (next.nightColor !== undefined) sunNightColor = next.nightColor;
+    if (next.nightLevels !== undefined) sunNightLevels = next.nightLevels;
+    // Whether the shared cell hook is needed at all can flip with the mode.
+    syncStrokeHookInstalled();
+    syncSunTimer();
+    // Snap to the true current sun NOW rather than waiting up to a whole
+    // tick — entering "realtime" must not show a stale (or absent) sun for
+    // 30 s. Turning the sun OFF still re-renders, so a sheet's night term
+    // disappears in the same frame.
+    if (sunMode !== "off" || previousMode !== "off") applySun();
+    emitSun();
+  }
+
+  /**
+   * Turning the headlight ON writes it and renders in this same call.
+   * Turning it OFF only re-renders: the direction the widget last wrote
+   * stays, exactly as leaving the sun leaves the sun's last direction — the
+   * consumer owns that field and re-applies its own.
+   */
+  function setKeyLight(mode: GlyphMapKeyLightMode): void {
+    if (mode === keyLightMode) return;
+    keyLightMode = mode;
+    if (!applyKeyLight()) scene.rerender();
+  }
+
   // ── Stroke layers (`line`/`contour`) composed into ONE `transformCells`
   // hook (glyphcss allows exactly one). Installed lazily — a map with zero
   // line/contour layers never touches `transformCells` at all, keeping the
@@ -1138,19 +4002,126 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const baseTransformCells = sceneOverrides.transformCells;
   let strokeLayerCount = 0;
 
+  // Snapshot of `projectionGrid()` taken at the BASE grid's own hook call —
+  // see `StrokeLayerRuntime`'s doc. glyphcss ALWAYS rasterizes the base grid
+  // (and so calls this hook for it) before any detail layer in a given
+  // render, so capturing here on the base call and reusing it for every
+  // detail call in the SAME render is safe; a render with no base meshes at
+  // all still calls this hook for the base grid (an empty one), so the
+  // snapshot is never stale by the time a detail call needs it.
+  let cachedBaseGrid: ProjectionGrid | null = null;
+
+  // The camera fields glyphcss temporarily mutates while fitting EACH detail
+  // mesh's own `<pre>` (`camera.zoom`/`center`/`fovScale` — see
+  // `createGlyphScene.ts`'s per-mesh detail-layer loop; `rotX`/`rotY`/
+  // `target`/`stretch`/`mat` never change across a render's detail meshes).
+  // Snapshotting just these three at the base call and restoring them for
+  // the DURATION of a detail call's stamping is what makes `camera.project`/
+  // `unproject()` (and this file's own `projectionGrid()`, which reads
+  // `camera.center`) answer with the scene's true BASE framing while a
+  // stroke layer stamps into a detail grid — passing `baseGrid` as the
+  // METRICS argument alone is not sufficient, because both camera
+  // implementations (`createGlyphCamera.ts`) scale by the LIVE
+  // `state.zoom` directly (`screenPxX = r[0] * state.zoom`), not by
+  // anything `metrics` can override.
+  let cachedBaseCamera: { readonly zoom: number; readonly center: readonly [number, number]; readonly fovScale: number } | null = null;
+
+  /**
+   * Whether a stroke layer stamps into the grid `layerInfo` describes.
+   *
+   * A stroke layer's own `density` (`GlyphMapLineLayer.density`/
+   * `GlyphMapContourLayer.density`) now has two distinct meanings:
+   * - `undefined`/`1` (the pre-existing default): the layer has no
+   *   resolution preference of its own, so it stamps into EVERY grid this
+   *   scene produces — base and every per-mesh detail grid — following
+   *   whichever surface it happens to cross, exactly the pre-existing
+   *   behavior. It never stamps into a viewport OVERLAY grid, since it
+   *   never asked `syncViewportOverlayDensities` to create one.
+   * - a genuine value (`!== 1`): the layer wants an INDEPENDENT resolution
+   *   of its own, decoupled from any mesh. It stamps ONLY into the single
+   *   viewport overlay grid whose `density` matches its own — never into
+   *   the base grid or any mesh's detail grid, which would otherwise
+   *   duplicate the same stroke at a coarser resolution alongside its own
+   *   sharper overlay.
+   */
+  function strokeLayerStampsIntoGrid(layer: GlyphMapLineLayer | GlyphMapContourLayer, layerInfo?: Parameters<TransformCells>[1]): boolean {
+    const density = layer.density;
+    if (density === undefined || density === 1) return layerInfo?.viewport !== true;
+    return layerInfo?.viewport === true && layerInfo.density === density;
+  }
+
+  /**
+   * The set of densities `line`/`contour` layers currently ask for
+   * (`layer.density`, excluding `undefined`/`1`) — routed straight to
+   * `scene.setViewportOverlayDensities`, which itself dedupes and ignores
+   * `1`. Recomputed on every stroke-layer add/remove; a layer's own
+   * `density` cannot change after `addLayer` (there is no per-layer setter),
+   * so no other event needs to trigger this.
+   */
+  function syncViewportOverlayDensities(): void {
+    const densities: number[] = [];
+    for (const state of layerStates.values()) {
+      if (state.kind !== "line" && state.kind !== "contour") continue;
+      const d = state.layer.density;
+      if (d !== undefined && d !== 1 && !densities.includes(d)) densities.push(d);
+    }
+    scene.setViewportOverlayDensities(densities);
+  }
+
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
-    if (layerInfo?.detail) return g; // strokes are base-grid-only (geographic features, not per-mesh detail)
-    for (const id of layerOrder) {
-      const state = layerStates.get(id);
-      if (state?.kind === "line" || state?.kind === "contour") state.runtime.stamp(g);
+    const isDetail = !!layerInfo?.detail;
+    if (!isDetail) {
+      cachedBaseGrid = projectionGrid();
+      cachedBaseCamera = { zoom: camera.zoom, center: camera.center, fovScale: camera.fovScale };
+    }
+    // Stamp into EVERY output grid the scene produces — the base grid AND
+    // each per-mesh detail grid — each in its own coordinate frame and
+    // depth-tested against its own depth buffer (glyphcss renders the base
+    // grid before any detail layer is fit, so a "stamp base cells outside
+    // each detail footprint" partition can't work: this frame's detail
+    // footprints don't exist yet at base-hook time). `layerInfo` is
+    // `undefined` only for a render routed through the effects pipeline's
+    // own cell hook (AGENTS.md's transformCells doc: "a hook must tolerate
+    // `undefined`") — that path only ever hands this hook the shared base
+    // grid, so identity is the correct affine there, not a guess.
+    const cellToSceneGrid = layerInfo?.cellToSceneGrid ?? GLYPH_MAP_IDENTITY_CELL_AFFINE;
+    const liveZoom = camera.zoom, liveCenter = camera.center, liveFovScale = camera.fovScale;
+    if (isDetail && cachedBaseCamera) {
+      camera.zoom = cachedBaseCamera.zoom;
+      camera.center = cachedBaseCamera.center as [number, number];
+      camera.fovScale = cachedBaseCamera.fovScale;
+    }
+    try {
+      // Night first, strokes after: a border/contour is an ANNOTATION, not a
+      // lit surface, so it stays at full colour on the dark side instead of
+      // being dimmed into illegibility along with the terrain under it.
+      if (cachedBaseGrid) stampSunNight(g, cellToSceneGrid, cachedBaseGrid, layerInfo?.viewport === true);
+      for (const id of layerOrder) {
+        const state = layerStates.get(id);
+        if ((state?.kind === "line" || state?.kind === "contour") && strokeLayerStampsIntoGrid(state.layer, layerInfo)) {
+          state.runtime.stamp(g, cellToSceneGrid, cachedBaseGrid!);
+        }
+      }
+    } finally {
+      if (isDetail && cachedBaseCamera) {
+        camera.zoom = liveZoom;
+        camera.center = liveCenter;
+        camera.fovScale = liveFovScale;
+      }
     }
     return g;
   }
 
   function syncStrokeHookInstalled(): void {
-    const shouldInstall = strokeLayerCount > 0;
+    // The sun's SHEET terminator rides the same single hook — but ONLY a
+    // sheet has one: an orbit projection's terminator is a real directional
+    // light, so holding the hook there would buy nothing and cost the
+    // encoder's slower hook-safe path (measured 0.9 ms per render on a
+    // 160x64 globe, ~35%). The live projection decides, and every site that
+    // can change it re-syncs (`applyProjectionFrame`, `setSun`).
+    const shouldInstall = strokeLayerCount > 0 || (sunMode !== "off" && !isOrbitProjection());
     const current = scene.getOptions().transformCells;
     if (shouldInstall && current !== composedTransformCells) {
       scene.setOptions({ transformCells: composedTransformCells });
@@ -1175,28 +4146,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       layerStates.set(id, { kind: "background", layer });
       applyBackground();
     } else if (layer.type === "raster") {
-      const runtime = createRasterLayerRuntime(layer);
+      const runtime = createRasterLayerRuntime(layer, id);
       layerStates.set(id, { kind: "raster", layer, runtime });
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "line") {
-      assertStrokeDensitySupported(layer);
       const runtime = createLineLayerRuntime(layer);
       layerStates.set(id, { kind: "line", layer, runtime });
       strokeLayerCount++;
       syncStrokeHookInstalled(); // BEFORE update() so its rerender already carries this layer's stamps
+      syncViewportOverlayDensities();
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "contour") {
-      assertStrokeDensitySupported(layer);
       const runtime = createContourLayerRuntime(layer);
       layerStates.set(id, { kind: "contour", layer, runtime });
       strokeLayerCount++;
       syncStrokeHookInstalled();
+      syncViewportOverlayDensities();
       const p = runtime.update();
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "model") {
-      const handle = scene.add([...layer.polygons], layer.density === undefined ? {} : { density: layer.density });
+      const handle = scene.add([...layer.polygons], meshTransform(layer, layer.density));
       layerStates.set(id, { kind: "model", layer, handle });
     } else {
       const runtime = layer.type === "fill" || layer.type === "fill-extrusion"
@@ -1223,7 +4194,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const idx = layerOrder.indexOf(id);
     if (idx >= 0) layerOrder.splice(idx, 1);
     if (state.kind === "background") applyBackground();
-    if (state.kind === "line" || state.kind === "contour") syncStrokeHookInstalled();
+    if (state.kind === "line" || state.kind === "contour") {
+      syncStrokeHookInstalled();
+      syncViewportOverlayDensities();
+    }
     scene.rerender();
   }
 
@@ -1281,6 +4255,467 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return state?.kind === "contour" ? state.runtime.getFieldRange() : null;
   }
 
+  // ── Projection transitions (MAPS.md §13 slice 4) ────────────────────────
+
+  /**
+   * Camera framing projection `proj` alone would use for view `v` — mirrors
+   * `syncCameraToView`'s own two branches (capability, not identity: an
+   * orbit endpoint is one with `cameraForCenter`), but takes `proj` as an
+   * explicit argument instead of reading the live closure `projection`.
+   * `syncCameraToView` can only ever answer "what framing does the CURRENT
+   * projection want" — `setProjection` needs to ask that question of BOTH
+   * transition endpoints independently, every animation frame, while
+   * `projection` itself holds a THIRD, blended value with neither
+   * `cameraForCenter` nor a meaningful `project(lon,lat,0)` "this is home"
+   * anchor of its own.
+   */
+  function framingFor(proj: GlyphMapProjection, v: GlyphMapView): { readonly rotX: number; readonly rotY: number; readonly target: Vec3; readonly zoom: number } {
+    const [lon, lat] = v.center;
+    const zoom = computeZoomForSpan(v, proj);
+    if (proj.cameraForCenter) {
+      // `orbitRotationFor`, not `proj.cameraForCenter` directly — same
+      // 2-to-1-inverse reason `syncCameraToView` uses it (J8): re-deriving
+      // the canonical branch for an endpoint that the held branch already
+      // frames would make a transition's very first frame lerp toward a
+      // 180deg roll flip the camera never asked for.
+      const { rotX, rotY } = orbitRotationFor(proj, lon, lat);
+      return { rotX: rotX + tilt, rotY, target: [0, 0, 0], zoom };
+    }
+    return { rotX: tilt, rotY: 0, target: proj.project(lon, lat, 0), zoom };
+  }
+
+  /**
+   * Reprojects every mesh whose geometry was baked against the (now stale)
+   * `projection` closure value. `raster` tiles rebuild via `RasterLayerRuntime
+   * .reproject()` (dispose + remount from cache, no refetch); `fill`/
+   * `fill-extrusion`/`symbol`/`circle`/`heatmap` (`kind: "feature"`) rebuild
+   * via their existing `runtime.update()`, which already rebuilds from
+   * cached tiles against whatever `projection` is live when it resolves.
+   * `line`/`contour` need no action here — `StrokeLayerRuntime.stamp()`
+   * reads `projection.project` FRESH on every render already (never
+   * cached — see its own doc), so they reproject for free on the
+   * `scene.rerender()` `applyProjectionFrame` ends with. `model` layers
+   * carry raw, already-world-space polygons with no projection dependency
+   * at all, and `background` is a flat CSS color.
+   */
+  function reprojectGeometry(): void {
+    for (const state of layerStates.values()) {
+      if (state.kind === "raster") state.runtime.reproject();
+      else if (state.kind === "feature") void state.runtime.update();
+    }
+  }
+
+  /** Plain-tuple camera framing — see {@link applyProjectionFrame}'s doc for why this, not a re-derived {@link framingFor} result, is what a transition's `from` side is captured as. */
+  interface CameraFraming {
+    readonly rotX: number;
+    readonly rotY: number;
+    readonly target: Vec3;
+    readonly zoom: number;
+  }
+
+  /**
+   * Applies transition fraction `t` between endpoint projection `to` and a
+   * `from` camera framing, for the CURRENT `view`: reassigns the closure
+   * `projection` (an exact endpoint reference at `t<=0`/`t>=1`,
+   * `glyphMapProjectionTransition`'s blend strictly between), blends camera
+   * framing between `fromFraming` and `to`'s OWN `framingFor` result,
+   * reprojects mesh geometry, and repaints.
+   *
+   * `fromFraming` is a caller-supplied PLAIN TUPLE — captured ONCE by
+   * `setProjection`, from the LIVE camera at the moment a transition starts
+   * — rather than re-derived here via `framingFor(from, view)` on every
+   * frame. Interrupting an in-flight transition with a second
+   * `setProjection` call means `from` (the closure `projection` at that
+   * moment) can ITSELF be a `glyphMapProjectionTransition` blend, which
+   * deliberately exposes neither `cameraForCenter` nor a meaningful
+   * `project(lon,lat,0)` "home" anchor of its own (`transition.ts`'s doc) —
+   * `framingFor` would then silently take the SHEET branch and compute a
+   * framing that has nothing to do with where the camera is actually
+   * pointing (measured: a -35.4deg pitch / -50.5deg yaw / x0.0637 zoom snap
+   * in the very next frame after an interrupt — J4, AGENTS.md-adjacent bug
+   * list, "worst single jump"). The camera itself never lies about where it
+   * currently is, interrupted or not, so `setProjection` reads it directly
+   * instead of asking a projection object to reconstruct it.
+   *
+   * This also fixes a second, independently-reported jump (J5): even a
+   * NON-interrupted `setProjection`'s first frame used to set `camera.zoom`
+   * from `computeZoomForSpan(view, from)` — a fresh recomputation — rather
+   * than the camera's actual live `zoom`, which can already have drifted
+   * from what that recomputation gives (e.g. after a drag shifts
+   * `view.center`'s latitude — the same "view/camera round-trip is not the
+   * identity" root cause `applyDrag` never re-syncing `camera.zoom` also
+   * produces elsewhere). Reading the live camera directly is correct in
+   * BOTH cases: settled OR interrupted, it is always the true starting
+   * pose.
+   *
+   * `rotX`/`rotY`/`zoom` are lerped as plain numbers (a globe endpoint's
+   * `rotY` wrapping through ±180° near the antimeridian is a known, accepted
+   * simplification — out of scope for this slice); `target` is lerped
+   * component-wise since it's always either `[0,0,0]` (orbit) or a finite
+   * world point (sheet), never `NaN`.
+   */
+  /**
+   * World units per DEGREE of longitude at the view centre — `null` if the
+   * projection has no position there, or a degenerate one.
+   *
+   * `alongParallel` picks the axis, and INTERPOLATES between them (log
+   * space) rather than switching: `1` samples along the parallel, `0` along
+   * the meridian, anything between is the geometric mean weighted toward
+   * one. That is what a transition needs, because the two endpoints can
+   * disagree about which axis their own `camera.zoom` frames — an orbit
+   * projection fits the meridian, every sheet fits the parallel — and the
+   * two differ by `1 / cos(lat)`.
+   *
+   * Deliberately NOT `computeZoomForSpan` itself: that function BRANCHES on
+   * the orbit capability, and a transition blend exposes no such capability,
+   * so the same surface would be measured one way at `t=0` (the endpoint
+   * object) and the other way one frame later (the blend) — measured as a
+   * 1.88x zoom snap on the first frame after a drag to 61N. Here the axis
+   * weight is a continuous function of `t` supplied by the caller, so the
+   * measure never jumps.
+   */
+  function centerDegreeScale(proj: GlyphMapProjection, alongParallel: number): number | null {
+    const [lon, lat] = view.center;
+    const eps = 1e-4;
+    const rate = (dLon: number, dLat: number): number | null => {
+      const a = proj.project(lon - dLon, lat - dLat, 0);
+      const b = proj.project(lon + dLon, lat + dLat, 0);
+      for (let i = 0; i < 3; i++) if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null;
+      const s = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / (2 * eps);
+      return Number.isFinite(s) && s > 0 ? s : null;
+    };
+    const parallel = rate(eps, 0);
+    if (parallel === null) return null;
+    if (alongParallel >= 1) return parallel;
+    const meridian = rate(0, eps);
+    if (meridian === null) return null;
+    if (alongParallel <= 0) return meridian;
+    return Math.exp(Math.log(meridian) + (Math.log(parallel) - Math.log(meridian)) * alongParallel);
+  }
+
+  /**
+   * WHICH axis `computeZoomForSpan` frames `view.span` along, as a 0..1
+   * number so a transition can interpolate between two projections that
+   * disagree: `1` = the parallel (every sheet), `0` = the meridian (an orbit
+   * projection — the globe, whose meridian chord is the only
+   * latitude-invariant one, see `computeZoomForSpan`'s own doc).
+   */
+  function fitAxisOf(proj: GlyphMapProjection): number {
+    return proj.cameraForCenter && proj.centerForCamera ? 0 : 1;
+  }
+
+  /**
+   * `camera.zoom` for transition fraction `t`, scheduled so that APPARENT
+   * SIZE — `worldScale x zoom`, here read at the view centre as screen units
+   * per degree of longitude — moves log-linearly from the flight's start
+   * value to its end value.
+   *
+   * Lerping the two endpoints' zooms linearly (what this used to do) is only
+   * right when the two endpoints share a world scale, because no blend's
+   * world scale is linear in `t`: the plain lerp path's is `lerp(sFrom, sTo,
+   * t)`, the unwrap's is reciprocal. Multiply a linear zoom ramp by either
+   * and the product is not paced by `t` at all — it sits near one end for
+   * almost the whole flight and resolves over the last few percent. Measured
+   * on the `/maps` defaults: globe -> equirectangular put 91% of its
+   * wide-shape travel into the final tenth of the flight (the reported "it
+   * unwraps and makes a zoom jump at the end"), and equirectangular <->
+   * orthographic — 57x apart in world scale — inflated apparent size 15.7x
+   * mid-flight before collapsing again ("change between Mercator and the
+   * other flat ones and they zoom in and zoom out").
+   *
+   * Dividing a paced apparent size by the live surface's own measured scale
+   * cancels ANY schedule, including a future projection pair's, instead of
+   * asking every blend path to pre-cancel a linear ramp.
+   *
+   * Both endpoints stay EXACT — `t<=0` is the live camera's own zoom (J5's
+   * whole point: the camera never lies about where it is) and `t>=1` is
+   * `to`'s own framing, byte-identical to a `durationMs: 0` call — and they
+   * are returned directly rather than via the formula so that exactness is
+   * structural rather than a floating-point coincidence. An unmeasurable
+   * scale anywhere (a cropped centre) degrades to the old linear lerp.
+   */
+  function transitionZoom(
+    from: GlyphMapProjection,
+    to: GlyphMapProjection,
+    t: number,
+    fromFraming: CameraFraming,
+    toFraming: CameraFraming,
+  ): number {
+    if (t <= 0) return fromFraming.zoom;
+    if (t >= 1) return toFraming.zoom;
+    const axisFrom = fitAxisOf(from);
+    const axisTo = fitAxisOf(to);
+    const scaleFrom = centerDegreeScale(from, axisFrom);
+    const scaleTo = centerDegreeScale(to, axisTo);
+    const scaleNow = centerDegreeScale(projection, axisFrom + (axisTo - axisFrom) * t);
+    if (scaleFrom === null || scaleTo === null || scaleNow === null) return lerp(fromFraming.zoom, toFraming.zoom, t);
+    const apparentFrom = scaleFrom * fromFraming.zoom;
+    const apparentTo = scaleTo * toFraming.zoom;
+    if (!(apparentFrom > 0) || !(apparentTo > 0)) return lerp(fromFraming.zoom, toFraming.zoom, t);
+    // Log-linear, not linear: apparent size is a multiplicative quantity (the
+    // same reason `flyTo` interpolates `span` in log space), so a linear ramp
+    // between two values an order of magnitude apart spends almost the whole
+    // flight at the larger one.
+    const apparent = Math.exp(lerp(Math.log(apparentFrom), Math.log(apparentTo), t));
+    return apparent / scaleNow;
+  }
+
+  function applyProjectionFrame(from: GlyphMapProjection, to: GlyphMapProjection, t: number, fromFraming: CameraFraming): void {
+    // `anchor` is what ENGAGES the globe<->sheet UNWRAP path (transition.ts's
+    // `GlyphMapProjectionTransitionOptions.anchor` doc): the surface is
+    // anchored ON the view centre, which is exactly where the linearly-lerped
+    // `camera.target` below already points. Only a caller knows that, so the
+    // unwrap deliberately does not default to `[0, 0]` — passing this is the
+    // switch-on, and without it an orbit<->sheet pair silently keeps the plain
+    // lerp (measured to bulge apparent size 49.6x at t=0.5).
+    projection = t >= 1 ? to : t <= 0 ? from : glyphMapProjectionTransition(from, to, t, { anchor: view.center });
+    // Whether the SHEET night term applies is a property of the live
+    // projection, so a projection swap can add or remove the sun's only
+    // reason to hold the shared cell hook (see `syncStrokeHookInstalled`).
+    syncStrokeHookInstalled();
+    const toFraming = framingFor(to, view);
+    camera.rotX = lerp(fromFraming.rotX, toFraming.rotX, t);
+    camera.rotY = lerp(fromFraming.rotY, toFraming.rotY, t);
+    camera.target = lerp3(fromFraming.target, toFraming.target, t);
+    camera.zoom = transitionZoom(from, to, t, fromFraming, toFraming);
+    reprojectGeometry();
+    applyKeyLight();
+    scene.rerender();
+    syncNearSide();
+  }
+
+  // ── ONE camera-motion loop ────────────────────────────────────────────
+  //
+  // Every kind of continuous camera motion this widget has — inertial drag
+  // glide, `flyTo`, and `setProjection`'s blend — advances here, and the loop
+  // issues AT MOST ONE `scene.rerender()` per displayed frame. Two competing
+  // animation loops would be a worse bug than the one this fixes.
+  //
+  // The rule it enforces is the point: INPUT EVENTS ONLY ACCUMULATE STATE;
+  // THE FRAME RENDERS. A trackpad emits 60-120 pointer/wheel events per
+  // second, each arriving in its OWN task, and glyphcss coalesces renders on
+  // a MICROTASK — which drains at the end of EVERY task. So before this loop
+  // N pointer events inside one displayed frame bought N complete grid
+  // renders, all but the last of them thrown away unpainted. Measured on this
+  // package's own bench (`bench/maps-render/mapsBench.mjs`, continuous drag,
+  // two synthesized pointer events per displayed frame): 1.96 renders per
+  // displayed frame and 42.1 ms of main-thread time per frame.
+  //
+  // Camera/view STATE still updates synchronously inside each input handler.
+  // It is cheap pure math, `getView()`/`camera.zoom` must not lag the gesture
+  // for a caller reading them between events (the rule `applyWheel` already
+  // followed), and the view<->camera round-trip invariants are asserted
+  // immediately after firing 30 synchronous `pointermove`s with no frame in
+  // between. Only the RENDER is deferred to the frame.
+  //
+  // The loop STOPS when nothing is moving — a static map runs no frames.
+
+  interface FlyState {
+    readonly fromLon: number; readonly fromLat: number; readonly fromSpan: number;
+    readonly toLon: number; readonly toLat: number; readonly toSpan: number;
+    readonly bow: number;
+    readonly duration: number;
+    startTime: number | null;
+    readonly settle: () => void;
+  }
+
+  interface ProjectionAnimState {
+    readonly from: GlyphMapProjection;
+    readonly to: GlyphMapProjection;
+    readonly fromFraming: CameraFraming;
+    readonly duration: number;
+    startTime: number | null;
+    readonly settle: () => void;
+  }
+
+  let destroyed = false;
+  let motionRafId: number | null = null;
+  let motionLastTime = 0;
+  /** An input handler mutated camera/view and the frame has not rendered it yet. */
+  let motionDirty = false;
+  let glideVx = 0, glideVy = 0, gliding = false;
+  let flight: FlyState | null = null;
+  let projectionAnim: ProjectionAnimState | null = null;
+
+  function motionActive(): boolean {
+    return motionDirty || gliding || flight !== null || projectionAnim !== null;
+  }
+
+  function requestMotionFrame(): void {
+    // No rAF (SSR, a bare jsdom): stay exactly as synchronous as this widget
+    // was before the loop existed rather than silently never rendering.
+    if (typeof requestAnimationFrame === "undefined") { motionStep(motionLastTime + 16, true); return; }
+    if (motionRafId !== null) return;
+    motionRafId = requestAnimationFrame((now) => { motionRafId = null; motionStep(now, false); });
+  }
+
+  function markMotionDirty(): void {
+    motionDirty = true;
+    requestMotionFrame();
+  }
+
+  function cancelMotionFrame(): void {
+    if (motionRafId !== null) {
+      if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(motionRafId);
+      motionRafId = null;
+    }
+  }
+
+  /**
+   * Stops the inertial glide and any flight IN PLACE. Nothing is re-derived
+   * and nothing snaps: both only ever write `view`/`camera` per frame, so
+   * whatever the camera holds at this instant simply becomes the new
+   * starting point for whatever takes over. This is the hand-over rule for
+   * a drag, a wheel, a `setView`/`fitBounds`, or a second `flyTo`.
+   */
+  function cancelCameraGlide(): void {
+    gliding = false;
+    glideVx = 0; glideVy = 0;
+    if (flight) { const f = flight; flight = null; f.settle(); }
+  }
+
+  const easeInOutQuad = (u: number): number => (u < 0.5 ? 2 * u * u : 1 - ((-2 * u + 2) ** 2) / 2);
+
+  function advanceFlight(now: number): void {
+    const f = flight!;
+    if (f.startTime === null) f.startTime = now;
+    const u = f.duration <= 0 ? 1 : Math.min(1, (now - f.startTime) / f.duration);
+    const e = easeInOutQuad(u);
+    // Span in LOG space — a zoom is multiplicative, so a linear lerp spends
+    // almost the whole flight at the wide end — times a mid-arc bow that
+    // pulls the camera OUT and back IN, so a cross-globe flight never skims
+    // the surface at final detail (see `flyTo`'s doc).
+    const span = Math.exp(Math.log(f.fromSpan) + (Math.log(f.toSpan) - Math.log(f.fromSpan)) * e)
+      * (1 + (f.bow - 1) * Math.sin(Math.PI * e));
+    applyViewState({
+      center: [f.fromLon + (f.toLon - f.fromLon) * e, f.fromLat + (f.toLat - f.fromLat) * e],
+      span,
+    });
+    emitViewChange("move");
+    if (u >= 1) { flight = null; f.settle(); }
+  }
+
+  function advanceProjectionAnim(now: number): void {
+    const a = projectionAnim!;
+    if (a.startTime === null) a.startTime = now;
+    const t = a.duration <= 0 ? 1 : Math.min(1, (now - a.startTime) / a.duration);
+    applyProjectionFrame(a.from, a.to, t, a.fromFraming);
+    if (t >= 1) { projectionAnim = null; a.settle(); }
+  }
+
+  function motionStep(now: number, synchronous: boolean): void {
+    if (destroyed) return;
+    const dt = synchronous ? 16 : Math.min(64, Math.max(1, motionLastTime > 0 ? now - motionLastTime : 16));
+    motionLastTime = now;
+    let moved = motionDirty;
+    motionDirty = false;
+
+    if (flight) {
+      advanceFlight(now);
+      moved = true;
+    } else if (gliding) {
+      // Exponential decay, frame-rate independent: a dropped frame decays by
+      // exactly as much as the two frames it replaced would have.
+      const dx = glideVx * dt, dy = glideVy * dt;
+      const decay = Math.exp(-dt / GLYPH_MAP_GLIDE_TAU_MS);
+      glideVx *= decay; glideVy *= decay;
+      applyDragState(dx, dy);
+      emitViewChange("move");
+      if (Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) { gliding = false; glideVx = 0; glideVy = 0; }
+      moved = true;
+    }
+
+    if (projectionAnim) {
+      // Runs LAST and does its own repaint: it owns camera framing outright,
+      // reading whatever `view` the flight/glide above just produced, so the
+      // two compose instead of fighting over `camera`.
+      advanceProjectionAnim(now);
+      moved = true;
+    } else if (moved) {
+      // A drag/glide rotated the camera; a headlight has to follow it in the
+      // SAME frame or it is just a dark side that moves one frame late. Safe
+      // to write here specifically because the synchronous `rerender()` on
+      // the next line supersedes the microtask render `setOptions` queues.
+      applyKeyLight();
+      scene.rerender();
+      syncNearSide();
+    }
+
+    // Detail settles when MOTION stops, not when the pointer goes up: every
+    // moving frame re-arms the 180ms debounce, so a glide or a flight fetches
+    // once at rest instead of at every waypoint.
+    if (moved) scheduleTileUpdate();
+    if (motionActive()) requestMotionFrame();
+  }
+
+  function setProjection(target: GlyphMapProjection, setOpts: GlyphMapSetProjectionOptions = {}): Promise<void> {
+    // Hand over in place from whatever is currently moving the camera.
+    if (projectionAnim) { const prev = projectionAnim; projectionAnim = null; prev.settle(); }
+    cancelCameraGlide();
+    const from = projection;
+    // The DESTINATION's cover limit decides this flight's end span, applied
+    // ONCE here, before the flight starts, and never re-applied mid-flight
+    // (`limitProjection` returns `target` for its whole duration, so a
+    // mid-flight wheel clamps to the same ceiling). Two endpoints can have
+    // very different limits — a globe has none at all — and clamping at the
+    // END instead would snap exactly at `t = 1`. Clamping here cannot snap:
+    // `fromFraming` below is the LIVE camera, untouched by this, so `t = 0`
+    // is unchanged and `transitionZoom` paces the whole change across the
+    // flight as ordinary apparent-size travel.
+    view = clampViewToCover(view, target);
+    // Captured ONCE, from the LIVE camera, right here — see
+    // `applyProjectionFrame`'s doc (J4/J5) for why this must never be
+    // re-derived from `from` (a projection reference, possibly mid-blend)
+    // on every animation frame.
+    const fromFraming: CameraFraming = {
+      rotX: camera.rotX,
+      rotY: camera.rotY,
+      target: [...camera.target] as Vec3,
+      zoom: camera.zoom,
+    };
+    const duration = Math.max(0, setOpts.durationMs ?? GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS);
+    if (from === target || duration === 0 || typeof requestAnimationFrame === "undefined") {
+      applyProjectionFrame(from, target, 1, fromFraming);
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      projectionAnim = { from, to: target, fromFraming, duration, startTime: null, settle: resolve };
+      requestMotionFrame();
+    });
+  }
+
+  function flyTo(target: GlyphMapFlyToTarget, flyOpts: GlyphMapFlyToOptions = {}): Promise<void> {
+    // Live state is the start — never the previous flight's origin, and never
+    // anything re-derived. An interrupted flight therefore cannot snap.
+    cancelCameraGlide();
+    const fromLon = view.center[0], fromLat = view.center[1], fromSpan = view.span;
+    let toLon = fromLon, toLat = fromLat, toSpan = fromSpan;
+    if (target.bounds) {
+      const framed = framingForBounds(target.bounds);
+      toLon = framed.center[0]; toLat = framed.center[1]; toSpan = framed.span;
+    } else {
+      if (target.center) { toLon = target.center[0]; toLat = target.center[1]; }
+      if (target.span !== undefined) toSpan = target.span;
+    }
+    // Shorter longitude arc: flying from 170 to -170 is 20 degrees east, not
+    // 340 degrees west.
+    let dLon = toLon - fromLon;
+    while (dLon > 180) dLon -= 360;
+    while (dLon < -180) dLon += 360;
+    toLon = fromLon + dLon;
+    const duration = Math.max(0, flyOpts.durationMs ?? GLYPH_MAP_FLY_TO_DEFAULT_MS);
+    const bow = Math.max(1, flyOpts.bow ?? GLYPH_MAP_FLY_TO_MAX_BOW);
+    if (duration === 0 || typeof requestAnimationFrame === "undefined"
+      || !(fromSpan > 0) || !(toSpan > 0)) {
+      setView({ center: [toLon, toLat], span: toSpan });
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      flight = { fromLon, fromLat, fromSpan, toLon, toLat, toSpan, bow, duration, startTime: null, settle: resolve };
+      requestMotionFrame();
+    });
+  }
+
   // ── View mutation ────────────────────────────────────────────────────
 
   let tileUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1299,7 +4734,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // alone, is intentional and mirrors `line`'s own gate exactly — not
         // an oversight to "fix" by dropping the condition.
         else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void state.runtime.update();
-        else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) void state.runtime.update();
+        // A `fill-extrusion`'s mesh is camera-INDEPENDENT: its far-side wall
+        // cull is re-applied per rendered frame from `nearSideSyncs`, not
+        // baked in at build time, so a static source has nothing to redo as
+        // the globe turns and this stays the plain provider-only condition
+        // every other layer kind uses. Rebuilding it on the view change too
+        // would cost a full re-triangulation (measured 13.7ms on the real z0
+        // admin_0 tile) for a picture the cull has already produced.
+        else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) {
+          void state.runtime.update();
+        }
       }
     }, 180);
   }
@@ -1309,20 +4753,46 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { ...view, cols: o.cols ?? view.cols, rows: o.rows ?? view.rows };
   }
 
-  function setView(partial: Partial<GlyphMapView>): void {
+  /**
+   * The view/camera half of `setView` with no repaint and no event — the
+   * shared state mutation an input handler, an animation frame, and the
+   * public `setView` all need, so none of them can drift from the others.
+   * Returns whether the span changed (which decides `"zoom"` vs `"move"`).
+   */
+  function applyViewState(partial: Partial<GlyphMapView>): boolean {
     const spanChanged = partial.span !== undefined && partial.span !== view.span;
-    view = { ...view, ...partial, bounds: partial.bounds };
+    // Clamped here rather than in `setView` alone so every caller of the
+    // shared mutation gets it: `setView`, `fitBounds`, a `flyTo` frame, and
+    // the URL-hydrated constructor view all land covered instead of
+    // letterboxed (`clampViewToCover`).
+    view = clampViewToCover({ ...view, ...partial, bounds: partial.bounds });
     syncCameraToView(view);
+    return spanChanged;
+  }
+
+  /**
+   * A programmatic move WINS IMMEDIATELY: it cancels any inertial glide or
+   * flight in place (nothing snaps — see `cancelCameraGlide`) and renders
+   * synchronously, so a caller that sets a view and then reads the output
+   * gets that view, never a frame of some earlier gesture still finishing.
+   * Deliberately NOT queued behind, blended with, or ignored during a
+   * gesture: an explicit "go here" has no useful notion of "later".
+   */
+  function setView(partial: Partial<GlyphMapView>): void {
+    cancelCameraGlide();
+    const spanChanged = applyViewState(partial);
+    applyKeyLight();
     scene.rerender();
     scheduleTileUpdate();
-    syncMarkers();
+    syncNearSide();
     emitViewChange(spanChanged ? "zoom" : "move");
   }
 
   function setTilt(t: number): void {
     tilt = t;
-    if (!isOrbitProjection) {
+    if (!isOrbitProjection()) {
       camera.rotX = tilt;
+      applyKeyLight();
       scene.rerender();
       return;
     }
@@ -1330,21 +4800,33 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // so a tilt change composes correctly with wherever the camera already
     // is, exactly like `syncCameraToView` does on `setView`/`fitBounds`.
     syncCameraToView(view);
+    applyKeyLight();
     scene.rerender();
-    syncMarkers();
+    syncNearSide();
   }
 
   function getTilt(): number {
     return tilt;
   }
 
-  function fitBounds(bounds: GlyphMapBounds): void {
+  /** The centre/span that frames `bounds` — shared by `fitBounds` and `flyTo({ bounds })` so the two can never frame the same box differently. */
+  function framingForBounds(bounds: GlyphMapBounds): { readonly center: readonly [number, number]; readonly span: number } {
     const spanFromWidth = bounds.east - bounds.west;
-    const spanFromHeight = (bounds.north - bounds.south) * (view.cols / view.rows);
-    setView({
+    // `getView()`'s live `cols`/`rows` — the raw `view.cols`/`.rows` are
+    // frozen wherever `setView` last left them (AGENTS.md's root-cause doc),
+    // so this aspect ratio silently used a stale grid shape once cols/rows
+    // changed live (autoSize, or a caller poking `scene.setOptions` directly).
+    const { cols: liveCols, rows: liveRows } = getView();
+    const spanFromHeight = (bounds.north - bounds.south) * (liveCols / liveRows);
+    return {
       center: [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2],
       span: Math.max(spanFromWidth, spanFromHeight),
-    });
+    };
+  }
+
+  function fitBounds(bounds: GlyphMapBounds): void {
+    const framed = framingForBounds(bounds);
+    setView({ center: framed.center, span: framed.span });
   }
 
   // ── Controls: pan/orbit drag + wheel zoom ───────────────────────────
@@ -1361,65 +4843,176 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return [(dxPx * by - dyPx * bx) / det, (-dxPx * ay + dyPx * ax) / det];
   }
 
-  function pixelsPerWorldUnit(grid: ProjectionGrid): number {
-    const a = camera.project([0, 0, 0], grid.cols, grid.rows, grid.cellAspect, grid);
-    const b = camera.project([0, 0, 1], grid.cols, grid.rows, grid.cellAspect, grid);
-    return Math.hypot((b[0] - a[0]) * grid.cellWidth, (b[1] - a[1]) * grid.cellHeight) || 1;
+  /**
+   * CSS px per world unit, PERPENDICULAR to the view (screen-plane
+   * movement) — for an orthographic camera this is exactly `camera.zoom`
+   * (AGENTS.md's numeric conventions: `screenPxX = worldX * zoom`,
+   * isotropic in the screen plane), a constant independent of camera
+   * orientation.
+   *
+   * The prior implementation instead measured the on-screen PROJECTED
+   * LENGTH of the hard-coded WORLD Z AXIS (`camera.project([0,0,1]) -
+   * camera.project([0,0,0])`) — a basis vector with no relationship to the
+   * screen-plane direction actually being dragged. That length is
+   * `zoom * |sin(camera.rotX)|` under `createGlyphOrthographicCamera`, which
+   * goes to ZERO exactly when the view axis aligns with world Z
+   * (`camera.rotX = 0 | 180`), giving `applyDrag`'s orbit branch a
+   * `1 / |sin(rotX)|` sensitivity that diverges at `lat = tilt - 90` (J1,
+   * AGENTS.md-adjacent bug list) — measured 140deg of latitude jump from a
+   * single 5px drag at the page's default tilt. Reading `camera.zoom`
+   * directly has no such singularity: it never depends on the camera's
+   * current orientation at all.
+   */
+  function pixelsPerWorldUnit(): number {
+    return camera.zoom || 1;
   }
 
-  function applyDrag(dxPx: number, dyPx: number): void {
+  /**
+   * The state half of a drag: view + camera only, no repaint, no event.
+   * Called synchronously per `pointermove` (state must not lag the gesture)
+   * and once per frame by the inertial glide.
+   */
+  function applyDragState(dxPx: number, dyPx: number): void {
     const grid = projectionGrid();
-    if (isOrbitProjection && projection.cameraForCenter && projection.centerForCamera) {
+    if (isOrbitProjection() && projection.cameraForCenter && projection.centerForCamera) {
       // Grab-and-drag semantics (verified against `centerForCamera`): drag
       // RIGHT must decrease centre longitude and drag DOWN must increase
       // centre latitude, so the world follows the cursor, matching the
       // sheet branch below and every other map library. `centerForCamera`
       // measures `rotY +10 -> lon +10` and `rotX +10 -> lat -10`, so both
       // increments are negated relative to the raw pixel delta.
-      const degPerPx = (1 / pixelsPerWorldUnit(grid)) * (180 / Math.PI);
+      const degPerPx = (1 / pixelsPerWorldUnit()) * (180 / Math.PI);
       camera.rotY -= dxPx * degPerPx;
       camera.rotX -= dyPx * degPerPx;
+      // UNCLAMPED (was `clamp(trueRotX, 90 - 89.999, 90 + 89.999)`): that
+      // clamp existed only to keep `centerForCamera`'s latitude away from
+      // exactly ±90, where `computeZoomForSpan`'s OLD ±90-clamped meridian
+      // sample degenerated to a near-zero chord (measured `camera.zoom` in
+      // the millions at lat 89.99) — the J2a/J7 fix above (removing that
+      // SAMPLE clamp so `computeZoomForSpan` reads a genuine, unclamped,
+      // always-finite chord through and past a pole) already eliminated
+      // that degeneracy (verified: `camera.zoom` is bit-stable across lat
+      // 89..130 on a fixed span/tilt). With no zoom hazard left to guard
+      // against, clamping `trueRotX` at the pole is a SHEET-map convention
+      // with no reason to apply to an orbit projection: `centerForCamera`'s
+      // own `n = (sinRotX*cosRotY, sinRotX*sinRotY, cosRotX)` parametrization
+      // is exactly periodic and well-defined for ANY real `trueRotX` — going
+      // PAST the pole (`trueRotX` crossing 0 or 180) is not an edge case to
+      // special-case, it is the SAME rotation continuing, and it correctly
+      // reflects `centerForCamera`'s returned longitude by 180deg while
+      // latitude turns back down from the pole (verified:
+      // `cos` is even, so `nz` — and so `lat` — is identical at `trueRotX`
+      // and `-trueRotX`, while `nx`/`ny` — and so `lon` — both flip sign).
+      // Clamping it froze `view.center.lat` at 89.999 and silently ate every
+      // further "drag north" pixel once reached — the reported "capped at
+      // zoom 0 near the pole" bug: not a zoom issue at all, an unclamp-need
+      // orbit issue. `camera.rotY` (longitude) was ALREADY unclamped and
+      // already periodic the same way; this makes `rotX` consistent with it
+      // instead of a special case. No epsilon guard is needed in its place:
+      // `centerForCamera` already clamps its OWN `asin` input to `[-1, 1]`
+      // for float noise, and `Math.atan2(0, 0)` (exactly at a pole) is `0`,
+      // not `NaN` — there is no live division or trig domain error here.
+      const trueRotX = camera.rotX - tilt;
+      // The drag is the ONLY thing that can put the camera on the
+      // non-canonical preimage branch (`trueRotX` outside `[0, 180]`, i.e.
+      // past a pole), so it is also what has to record which branch that is
+      // — `view.center` below is a 2-to-1 collapse and cannot carry it. See
+      // `orbitRotation`'s own doc (J8) for what re-deriving it instead costs.
+      orbitRotation = { rotX: trueRotX, rotY: camera.rotY };
       // Subtract `tilt` back out before inverting — see `setTilt`'s doc:
       // `camera.rotX` here is `trueRotX + tilt`, and `centerForCamera` must
       // see `trueRotX` alone or a nonzero tilt would drift `view.center`'s
       // latitude by `tilt` degrees on every drag.
-      view = { ...view, center: projection.centerForCamera(camera.rotX - tilt, camera.rotY), bounds: undefined };
+      view = { ...view, center: projection.centerForCamera(trueRotX, camera.rotY), bounds: undefined };
     } else {
       const delta = screenToWorldDelta(dxPx, dyPx, grid);
       if (!delta) return;
       const t = camera.target;
-      const [lonRaw, latRaw] = projection.unproject([t[0] - delta[0], t[1] - delta[1], t[2]]);
+      // COVER, not contain: the proposed centre is clamped in WORLD space so
+      // the VISIBLE WINDOW stays inside the map's own projected extent —
+      // clamping the centre into `projection.domain` (what this used to do,
+      // and what the `d.west`/`d.south` clamp below is now only a backstop
+      // for) stops the centre leaving the map but still lets the map's EDGE
+      // come inside the viewport, showing background beyond it.
+      const box = coverApplies(projection) ? projectedDomainBox(projection) : null;
+      const proposed = box
+        ? clampWorldToCover(t[0] - delta[0], t[1] - delta[1], box, camera.zoom, grid)
+        : ([t[0] - delta[0], t[1] - delta[1]] as const);
+      const result = tryUnproject(projection, [proposed[0], proposed[1], t[2]]);
+      if (!result) return;
+      const [lonRaw, latRaw] = result;
       const d = projection.domain;
       const lon = clamp(lonRaw, d.west, d.east);
       const lat = clamp(latRaw, d.south, d.north);
       view = { ...view, center: [lon, lat], bounds: undefined };
       camera.target = projection.project(lon, lat, 0);
     }
-    scene.rerender();
-    syncMarkers();
+  }
+
+  function applyDrag(dxPx: number, dyPx: number): void {
+    applyDragState(dxPx, dyPx);
+    // Keep hotspot hemisphere-visibility synced to the camera THE INSTANT it
+    // moves, not only once the widget's own deferred motion frame gets
+    // around to it. `syncNearSide()` was previously reachable only from
+    // inside `motionStep`/`setView`/etc — every one of THIS widget's own
+    // render call sites. But `map.scene` is a documented escape hatch
+    // (AGENTS.md) any caller may reach into directly, and `/maps` does
+    // exactly that: `MapsWorkbench.tsx`'s own `pointerup` handler calls
+    // `map.scene.rerender()` synchronously (to settle an `interactiveDownscale`
+    // font-size change) immediately after this widget's OWN `pointerup`
+    // handler has already applied the final drag delta but BEFORE the
+    // deferred motion frame that would otherwise call `syncNearSide()` has
+    // run. That raw `rerender()` re-stages glyphcss's own `display` from the
+    // fresh camera (so an on-grid-but-far-side symbol becomes `display: ""`)
+    // but never touches `opacity`/`visibility` — the channels `syncNearSide()`
+    // owns — so a symbol crossed to the far side by THIS drag increment
+    // stayed visibly shown at its stale near-side opacity until the next
+    // motion frame corrected it: a one-frame flicker on every release into
+    // an inertial glide. Calling it here, synchronously, closes that window
+    // for ANY external caller, not just this one — the DOM is never more
+    // than one drag increment stale.
+    syncNearSide();
+    markMotionDirty();
     emitViewChange("move");
   }
 
-  function applyWheel(deltaY: number): void {
-    const domainWidth = Math.min(360, projection.domain.east - projection.domain.west) || 360;
-    const delta = deltaY * 0.001;
-    view = { ...view, span: clamp(view.span * (1 + delta), minSpan, domainWidth), bounds: undefined };
+  /**
+   * A macOS trackpad emits 60-120 wheel events/s including the inertial
+   * tail, so a flick can queue far more render work than one animation frame
+   * can retire. The span still moves synchronously per event — `getView()`
+   * must not lag the gesture, and the wheel-step tests read it immediately —
+   * while the REPAINT is coalesced onto the shared motion loop, so a burst
+   * of wheel events inside one displayed frame costs exactly one render.
+   *
+   * The span is applied outright rather than eased toward a target: an eased
+   * `view.span` would make `getView().span` disagree with the gesture the
+   * caller just made and would feed tile LOD a value the user never asked
+   * for. The smoothness comes from frame coalescing, not from lag.
+   */
+  function applyWheel(deltaY: number, deltaMode: number): void {
+    const normalized = glyphMapNormalizeWheelDelta(deltaY, deltaMode);
+    // An explicit zoom takes over from a glide or a flight in place.
+    cancelCameraGlide();
+    view = clampViewToCover({ ...view, span: clamp(view.span * Math.exp(GLYPH_MAP_WHEEL_ZOOM_K * normalized), minSpan, maxViewSpan()), bounds: undefined });
     syncCameraToView(view);
-    scene.rerender();
-    syncMarkers();
+    markMotionDirty();
     emitViewChange("zoom");
   }
 
   let activePointerId: number | null = null;
   let lastClientX = 0, lastClientY = 0;
+  let lastMoveTime = 0;
   let dragTotalPx = 0;
   let didDrag = false;
 
   function onPointerDown(e: PointerEvent): void {
     if (!controlsDrag || activePointerId !== null) return;
+    // Grabbing the map stops it dead, from wherever it currently is.
+    cancelCameraGlide();
     activePointerId = e.pointerId;
     lastClientX = e.clientX;
     lastClientY = e.clientY;
+    lastMoveTime = 0;
     dragTotalPx = 0;
     didDrag = false;
     // Capture on the stable host, NOT e.target — colored output rewrites
@@ -1436,7 +5029,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     lastClientY = e.clientY;
     dragTotalPx += Math.abs(dx) + Math.abs(dy);
     if (dragTotalPx > 3) didDrag = true;
+    // Fling velocity, exponentially smoothed in px/ms so one jittery sample
+    // can't launch the camera. `now - lastMoveTime` is floored at one frame:
+    // two pointer events in the same millisecond would otherwise divide by
+    // ~0 and report an enormous velocity.
+    const now = nowMs();
+    if (lastMoveTime > 0) {
+      const dt = Math.max(4, now - lastMoveTime);
+      const mix = GLYPH_MAP_GLIDE_VELOCITY_MIX;
+      glideVx = glideVx * (1 - mix) + (dx / dt) * mix;
+      glideVy = glideVy * (1 - mix) + (dy / dt) * mix;
+    }
+    lastMoveTime = now;
     applyDrag(dx, dy);
+    // Same self-healing debounce `onWheel` already relies on: each call
+    // re-arms `scheduleTileUpdate`'s 180ms timer, so a live drag never
+    // churns tiles (every move defers the fetch again) but genuinely
+    // settles 180ms after the LAST move — including a drag that never
+    // sees `pointerup`/`pointercancel` (lost capture, an interrupted
+    // gesture) since it no longer depends on that event firing at all.
+    // With inertia the glide keeps re-arming it too, so "settled" means
+    // motion actually stopped, not "the pointer went up".
+    scheduleTileUpdate();
   }
 
   function onPointerUp(e: PointerEvent): void {
@@ -1454,14 +5068,43 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
       emit({ type: "click", lngLat, originalEvent: e });
     }
+    // Release into an inertial glide when the gesture was actually moving.
+    // A stale velocity from a drag that PAUSED before release must not fling:
+    // if the last move is older than a couple of frames, there is no throw.
+    const sinceLastMove = lastMoveTime > 0 ? nowMs() - lastMoveTime : Infinity;
+    const speed = Math.hypot(glideVx, glideVy);
+    if (didDrag && controlsDrag && sinceLastMove <= 60 && speed > GLYPH_MAP_GLIDE_MIN_PX_PER_MS
+      && typeof requestAnimationFrame !== "undefined") {
+      const cap = Math.min(1, GLYPH_MAP_GLIDE_MAX_PX_PER_MS / speed);
+      glideVx *= cap; glideVy *= cap;
+      gliding = true;
+      requestMotionFrame();
+    } else {
+      glideVx = 0; glideVy = 0;
+    }
     didDrag = false;
     scheduleTileUpdate();
   }
 
+  // THE WIDGET OWNS THE GESTURE (P1 "a1" fix): the widget never called
+  // `scene.setInteracting()` for any gesture, so a wheel-zoom render never
+  // engaged glyphcss's own `interactiveDownscale` mechanism regardless of
+  // whether the host page configured it. `onWheel` now drives it directly,
+  // settling back to full detail on a short timer — the SAME 180ms
+  // `scheduleTileUpdate` already debounces on, kept as its own timer (not
+  // reused) so a concurrent drag gesture's own `setInteracting` calls can't
+  // race this one into settling early.
+  let wheelInteractingTimer: ReturnType<typeof setTimeout> | null = null;
   function onWheel(e: WheelEvent): void {
     if (!controlsWheel) return;
     e.preventDefault();
-    applyWheel(e.deltaY);
+    scene.setInteracting(true);
+    if (wheelInteractingTimer !== null) clearTimeout(wheelInteractingTimer);
+    wheelInteractingTimer = setTimeout(() => {
+      wheelInteractingTimer = null;
+      scene.setInteracting(false);
+    }, 180);
+    applyWheel(e.deltaY, e.deltaMode);
     scheduleTileUpdate();
   }
 
@@ -1473,9 +5116,26 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   // ── Initial mount ─────────────────────────────────────────────────────
 
+  // A view can arrive from anywhere — a shared link's URL state, a saved
+  // preset, a caller's own arithmetic — so the constructor's own view is
+  // clamped on READ exactly like every later mutation, rather than rendering
+  // one letterboxed frame that only a first gesture would correct.
+  view = clampViewToCover(view);
   syncCameraToView(view);
+  // `"fixed"` (the default) writes nothing here, so a map that never asks
+  // for a headlight is byte-identical to before this option existed.
+  applyKeyLight();
   scene.rerender();
   for (const layer of opts.layers ?? []) addLayer(layer);
+  // A sun requested at construction installs its hook, starts its timer and
+  // resolves its first position now — never one tick late. `"off"` (the
+  // default) touches nothing at all, which is what keeps a sun-less map
+  // byte-identical to before this option existed.
+  if (sunMode !== "off") {
+    syncStrokeHookInstalled();
+    syncSunTimer();
+    applySun();
+  }
   void Promise.allSettled(initialLoadPromises).then(() => {
     mapLoaded = true;
     emit({ type: "load" });
@@ -1489,6 +5149,23 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     fitBounds,
     setTilt,
     getTilt,
+    setSun,
+    getSun: () => ({
+      mode: sunMode,
+      date: sunManualAt,
+      tickMs: sunTickMs,
+      twilightDeg: sunTwilightDeg,
+      nightOpacity: sunNightOpacity,
+      nightColor: sunNightColor,
+      nightLevels: sunNightLevels,
+    }),
+    getSunDirection: () => sunDirection(),
+    setKeyLight,
+    getKeyLight: () => keyLightMode,
+    getKeyLightDirection: () => keyLightDirection(),
+    getSubsolarPoint: () => (sunMode === "off" ? null : glyphMapSubsolarPoint(sunAt())),
+    setProjection,
+    flyTo,
     project,
     unproject,
     addLayer,
@@ -1505,15 +5182,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     off(type, handler) {
       listeners.get(type)?.delete(handler as GlyphMapEventHandler<GlyphMapEvent>);
     },
+    getMaxSpan: () => maxViewSpan(),
     resize(): void {
       scene.fit();
+      // The host's SHAPE decides which axis binds the cover limit, so a
+      // resize can make the current span (or centre) illegal — re-clamp
+      // before re-syncing rather than waiting for the next gesture.
+      view = clampViewToCover(view);
       syncCameraToView(view);
+      applyKeyLight();
       scene.rerender();
       scheduleTileUpdate();
-      syncMarkers();
+      syncNearSide();
     },
     destroy(): void {
+      destroyed = true;
+      // Every in-flight animation resolves rather than hanging a caller
+      // awaiting `flyTo`/`setProjection` on a widget that is going away.
+      cancelCameraGlide();
+      if (projectionAnim) { const prev = projectionAnim; projectionAnim = null; prev.settle(); }
+      cancelMotionFrame();
+      if (sunTimer !== null) { clearInterval(sunTimer); sunTimer = null; }
       if (tileUpdateTimer !== null) clearTimeout(tileUpdateTimer);
+      if (wheelInteractingTimer !== null) clearTimeout(wheelInteractingTimer);
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerup", onPointerUp);
@@ -1524,7 +5215,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
       layerStates.clear();
       layerOrder.length = 0;
-      markerSyncs.clear();
+      nearSideSyncs.clear();
       listeners.clear();
       scene.destroy();
     },

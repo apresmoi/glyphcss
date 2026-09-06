@@ -263,3 +263,50 @@ describe("stampGlyphMapContour — requireSurface (hidden-terrain degrade)", () 
     }
   });
 });
+
+describe("stampGlyphMapContour — elevation window (minElevation/maxElevation)", () => {
+  /** One row of five cells with an explicit per-cell elevation, all covered. */
+  function rowGrid(values: readonly number[]): CellGrid {
+    return makeGrid(values.length, 1, () => 0);
+  }
+
+  it("does not ink a cell below the floor, even when a level crosses between it and its neighbour", () => {
+    // A sea cliff: cell 1 is 4 km under water, cell 2 is 2 km up. The 1,000 m
+    // level crosses BETWEEN them, and the crossing scan reads a cell's RIGHT
+    // neighbour — so the ink lands on the ocean cell unless the window gates
+    // it. Filtering the level list alone cannot catch this: 1,000 is itself
+    // legitimately inside the window.
+    const values = [-5000, -4000, 2000, 3000, 4000];
+    const elevationAt = (col: number) => values[col];
+
+    const unwindowed = rowGrid(values);
+    stampGlyphMapContour(unwindowed, elevationAt, { levels: [1000] });
+    expect(unwindowed.char[1]).not.toBe(" ");
+
+    const windowed = rowGrid(values);
+    stampGlyphMapContour(windowed, elevationAt, { levels: [1000], minElevation: 0 });
+    expect(windowed.char.every((c) => c === " ")).toBe(true);
+  });
+
+  it("does not ink a cell above the ceiling, and leaves the in-window side of the same crossing alone", () => {
+    // Ascending ramp: the 2,500 m level crosses between cells 2 (2,000) and 3
+    // (3,000), and the ink lands on cell 2 — inside a 2,600 m ceiling, so it
+    // stays. Cell 3's own crossing (3,500, between 3,000 and 4,000) is above
+    // the ceiling and goes.
+    const values = [0, 1000, 2000, 3000, 4000];
+    const grid = rowGrid(values);
+    stampGlyphMapContour(grid, (col) => values[col], { levels: [2500, 3500], maxElevation: 2600 });
+    expect(grid.char[2]).not.toBe(" ");
+    expect(grid.char[3]).toBe(" ");
+  });
+
+  it("omitting both bounds is byte-identical to the pre-window stamp", () => {
+    const values = [-5000, -4000, 2000, 3000, 4000];
+    const a = rowGrid(values);
+    const b = rowGrid(values);
+    stampGlyphMapContour(a, (col) => values[col], { levels: [1000, 3500], color: "#0af" });
+    stampGlyphMapContour(b, (col) => values[col], { levels: [1000, 3500], color: "#0af", minElevation: undefined, maxElevation: undefined });
+    expect(b.char).toEqual(a.char);
+    expect(b.color).toEqual(a.color);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { glyphMapClipPolyline } from "./clip";
+import { glyphMapClipPolyline, glyphMapSplitAtAntimeridian } from "./clip";
 import type { GlyphMapLonLat } from "./simplify";
 
 describe("glyphMapClipPolyline — open lines", () => {
@@ -113,5 +113,44 @@ describe("glyphMapClipPolyline — cross-tile seam continuity (the coordinator's
     // appear, bit-identical, from the east side too.
     const eastLats = new Set(eastBoundaryPts.map((p) => p[1]));
     for (const p of westBoundaryPts) expect(eastLats.has(p[1])).toBe(true);
+  });
+});
+
+describe("glyphMapSplitAtAntimeridian", () => {
+  it("returns a polyline with no seam jump BY IDENTITY (every non-wrapping ring bakes byte-identically)", () => {
+    const line: GlyphMapLonLat[] = [[-170, 10], [0, 12], [170, 14]];
+    const out = glyphMapSplitAtAntimeridian(line, false);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(line); // identity, not a copy
+  });
+
+  it("cuts the 359-degree jump a +-180-duplicating source writes, keeping the real geometry on both sides", () => {
+    // Natural Earth's Russia shape: the east lobe ends at 179.9 and the ring
+    // continues at -180 on the far side of the seam.
+    const line: GlyphMapLonLat[] = [[170, 69], [179.9, 69], [-180, 68.9], [-175, 68.8]];
+    const out = glyphMapSplitAtAntimeridian(line, false);
+    expect(out).toEqual([
+      [[170, 69], [179.9, 69]],
+      [[-180, 68.9], [-175, 68.8]],
+    ]);
+  });
+
+  it("cuts a closed ring only at the seam, rejoining the run through the ring's own repeated start vertex", () => {
+    // Start point (0, 0) is arbitrary authoring order, not a geometric
+    // feature — the ring must come back as ONE run wrapping through it.
+    const ring: GlyphMapLonLat[] = [[0, 0], [179, 5], [-180, 6], [-90, 3], [0, 0]];
+    const out = glyphMapSplitAtAntimeridian(ring, true);
+    expect(out).toEqual([[[-180, 6], [-90, 3], [0, 0], [179, 5]]]);
+  });
+
+  it("drops a run left with fewer than two points (a lone vertex draws nothing and clips to nothing)", () => {
+    const line: GlyphMapLonLat[] = [[179, 5], [-180, 5], [-179, 5]];
+    const out = glyphMapSplitAtAntimeridian(line, false);
+    expect(out).toEqual([[[-180, 5], [-179, 5]]]);
+  });
+
+  it("leaves a legitimately long segment alone at exactly 180 degrees (the threshold is strict)", () => {
+    const line: GlyphMapLonLat[] = [[-90, 0], [90, 0]];
+    expect(glyphMapSplitAtAntimeridian(line, false)[0]).toBe(line);
   });
 });

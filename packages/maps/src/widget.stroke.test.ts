@@ -100,6 +100,89 @@ describe("createGlyphMap — line layer (end-to-end through the real rasterizer)
   });
 });
 
+const INK_GLYPHS = new Set(["‾", "▔", "-", "_", "▏", "|", "▕"]);
+
+describe("createGlyphMap — a stroke layer crossing a raster layer's own per-mesh detail grid (density > 1)", () => {
+  // Regression for a real defect: a `raster` layer mounted with `density >
+  // 1` pops its mesh into its OWN silhouette-fitted `<pre>` (AGENTS.md's
+  // per-mesh detail layers) and gets blanked out of the shared base grid by
+  // cross-layer occlusion. Before this fix, `composedTransformCells` early-
+  // returned on any detail grid ("strokes are base-grid-only"), so a
+  // `line`/`contour` layer's ink never reached that `<pre>` at all — a
+  // border/contour crossing a raster layer at density > 1 silently
+  // vanished across that layer's ENTIRE footprint, with no error.
+  //
+  // Two SEPARATE uniform-elevation raster layers (rather than one mesh with
+  // internal elevation variance) is a deliberate choice: `glyphMapPolygons`
+  // bakes elevation into vertex Z linearly per quad, so a single mesh
+  // straddling a hard elevation step renders a genuinely SMOOTH ramp across
+  // the transition quad's own screen footprint — real geometry, not a
+  // stroke-routing artifact, but it makes the exact col/row where the ramp
+  // crosses this test's occlusion bias impossible to predict without
+  // duplicating glyphcss's own rasterizer math. Two uniform meshes sidestep
+  // that entirely: each one's own detail grid has NO internal elevation
+  // variance, so its occlusion behavior is unambiguous — "ridge" uniformly
+  // occludes its whole grid, "flat" uniformly does not.
+  it("ink reaches the detail <pre> and is genuinely depth-tested there — occluded under a nearer mesh, visible over a flush one", async () => {
+    const { host, map } = mount();
+    const line: GlyphMapVectorFeature = { id: "equator", rings: [[[-18, 0], [18, 0]]] };
+    const source: GlyphMapVectorFeatureCollection = { features: [line] };
+    map.addLayer({ type: "line", id: "border", source, color: "#ff0000" });
+    // Uniformly raised well above the line's own (zero) elevation — occludes
+    // its whole own detail grid.
+    map.addLayer({
+      type: "raster", id: "ridge",
+      source: makeTile({ west: -6, east: 6, south: -20, north: 20 }, 4, 4, 2_000_000),
+      density: 3,
+    });
+    // Uniformly flush with the line's own elevation — occludes nothing.
+    map.addLayer({
+      type: "raster", id: "flat",
+      source: makeTile({ west: 8, east: 18, south: -20, north: 20 }, 4, 4, 0),
+      density: 3,
+    });
+    await vi.waitFor(() => expect(map.scene.output.textContent ?? "").not.toBe(""));
+    await new Promise((r) => setTimeout(r, 50));
+    map.scene.rerender();
+
+    const details = Array.from(host.querySelectorAll("pre.glyph-output--detail"));
+    expect(details).toHaveLength(2);
+
+    // Before this fix, BOTH would read 0 (the early return never stamped
+    // anything into any detail grid) — the "flat" grid showing real ink is
+    // what proves the fix actually routes into detail grids, not merely
+    // that occlusion still works somewhere. Assert over the SET rather than
+    // picking a detail <pre> by mesh id — raster layers don't carry a
+    // `GlyphMeshTransform.id` (`mountTile` never sets one), so there is no
+    // `data-glyph-mesh-id` to key off; the point is that exactly one of the
+    // two detail grids has zero ink (occluded by "ridge") and the other has
+    // real ink (flush with "flat"), regardless of which DOM order they
+    // mounted in.
+    const rowsWithInk = (text: string): number[] =>
+      text.split("\n").map((line, row) => ([...line].some((c) => INK_GLYPHS.has(c)) ? row : -1)).filter((row) => row >= 0);
+    const detailRows = details.map((p) => rowsWithInk(p.textContent ?? ""));
+    expect(detailRows).toContainEqual([]);
+
+    // The affine's translation (`e`/`f`) is what a broken fix could drop
+    // without an existence-only check ever noticing: the line's own swept
+    // path is far wider than either detail grid, so SOME of it lands
+    // in-bounds under almost any offset, and both meshes here are uniform
+    // in elevation (deliberately, to sidestep a real, unrelated rasterizer
+    // property — see this describe block's own doc), so occlusion doesn't
+    // discriminate position either. A single flat 1-cell-wide line at a
+    // fixed latitude DOES pin an exact row, though: with the affine correct
+    // it lands at exactly ONE row in the "flat" grid, and — as measured
+    // against the real renderer — that row is always 39 (this line crosses
+    // the mesh at its own mid-height; a translation bug that drops `f`
+    // measurably shifts this to row 36 instead).
+    const visible = detailRows.find((rows) => rows.length > 0);
+    expect(visible).toEqual([39]);
+
+    map.destroy();
+    host.remove();
+  });
+});
+
 describe("createGlyphMap — contour layer (end-to-end)", () => {
   it("draws contour ink for a field with real variation", () => {
     const { host, map } = mount();
@@ -168,12 +251,18 @@ describe("createGlyphMap — contour layer backed by a GlyphMapProvider (re-deri
       const north = 90 - y * 90;
       const cols = 8, rows = 8;
       const elevation = new Float32Array((cols + 1) * (rows + 1));
-      // Offset by tile so two different tiles produce genuinely different
-      // contour crossings, not a translated copy of the same pattern.
+      // Per-tile OFFSET *and* per-tile GRADIENT. An offset alone is not
+      // enough: every tile would then carry the same affine ramp, and `levels:
+      // 4` resolves against the mosaic's own range, so two tiles would produce
+      // the identical set of evenly spaced parallel contours and the "the
+      // output changed" assertion below would have no content of its own to
+      // test (it passed only on quantization noise from a since-removed
+      // cell-centered field derivation). Varying the gradient DIRECTION per
+      // tile makes the two contour patterns genuinely different shapes.
       const base = (x + 1) * 1000 + (y + 1) * 137;
       for (let row = 0; row <= rows; row++) {
         for (let col = 0; col <= cols; col++) {
-          elevation[row * (cols + 1) + col] = base + col * 80 + row * 53;
+          elevation[row * (cols + 1) + col] = base + col * 80 * (x + 1) + row * 53 * (y + 1);
         }
       }
       return { bounds: { west, east: west + 90, south: north - 90, north }, cols, rows, elevation, source: "test-provider", sampler: "nearest" };
@@ -276,24 +365,58 @@ describe("createGlyphMap — layer density (uniform field, per-type behavior)", 
     host.remove();
   });
 
-  it("line layer density !== 1 throws — reserved, not implemented", () => {
+  it("a density-3 contour gets a viewport overlay three times finer than density-1 terrain, while a co-routed stroke stays occluded behind a ridge", async () => {
     const { host, map } = mount();
-    expect(() => map.addLayer({ type: "line", source: { features: [] }, density: 2 })).toThrow(RangeError);
-    map.destroy();
-    host.remove();
-  });
+    const terrain = makeTile({ west: -18, east: 18, south: -18, north: 18 }, 8, 8, 0);
+    const ridge = makeTile({ west: -5, east: 5, south: -18, north: 18 }, 4, 4, 2_000_000);
+    map.addLayer({ type: "raster", id: "terrain", source: terrain, density: 1 });
+    map.addLayer({ type: "raster", id: "ridge", source: ridge, density: 1 });
 
-  it("contour layer density !== 1 throws — reserved, not implemented", () => {
-    const { host, map } = mount();
     const field: GlyphMapField = {
-      bounds: { west: -1, east: 1, south: -1, north: 1 },
-      cols: 2, rows: 2,
-      values: new Float32Array(4),
-      noData: new Uint8Array(4),
+      bounds: { west: -18, east: 18, south: -18, north: 18 },
+      cols: 36, rows: 36,
+      values: Float32Array.from({ length: 36 * 36 }, (_, index) => index % 36),
+      noData: new Uint8Array(36 * 36),
       kind: "continuous",
-      min: 0, max: 1,
+      min: 0, max: 35,
     };
-    expect(() => map.addLayer({ type: "contour", source: field, levels: [0.5], density: 3 })).toThrow(RangeError);
+    // Level 24 crosses at lon 6 (`values[col] = col`, field bounds -18..18
+    // over 36 cols, so col == lon + 18): just east of the ridge's own east
+    // edge (lon 5) and short of the east-flank assertion's own window
+    // (lon 8..15) below. `stampGlyphMapContour` is intentionally NOT
+    // depth-tested against a nearer occluding mesh (`stroke.ts`'s own doc:
+    // "this needs no depth test of its own... not an independent 3D object
+    // that could be nearer or farther than the terrain" — pinned by
+    // `stroke.test.ts`'s "skips cells with no rendered surface" suite), so a
+    // level whose crossing landed UNDER the ridge would draw right through
+    // it regardless of occlusion — a false failure of the LINE layer's own
+    // occlusion assertion below, not a defect in either layer. Level 24
+    // keeps the contour's own ink out of all three checked windows so this
+    // test isolates what its own name describes: the CO-ROUTED LINE's
+    // occlusion, on an overlay the contour merely shares.
+    map.addLayer({ type: "contour", id: "contours", source: field, levels: [24], density: 3, color: "#00aaff" });
+    map.addLayer({
+      type: "line",
+      id: "equator",
+      source: { features: [{ rings: [[[-16, 0], [16, 0]]] }] },
+      density: 3,
+      color: "#ff0000",
+    });
+
+    await vi.waitFor(() => expect(host.querySelector("pre[data-glyph-overlay-density='3']")).not.toBeNull());
+    map.scene.rerender();
+
+    const overlay = host.querySelector("pre[data-glyph-overlay-density='3']") as HTMLPreElement;
+    const overlayRows = (overlay.textContent ?? "").split("\n");
+    expect(overlayRows).toHaveLength(24 * 3);
+    expect(overlayRows[0]).toHaveLength(60 * 3);
+
+    const equator = overlayRows[12 * 3] ?? "";
+    const colFor = (lon: number) => Math.round(((lon + 20) / 40) * 60 * 3);
+    expect([...equator.slice(colFor(-15), colFor(-8))].some((char) => INK_GLYPHS.has(char))).toBe(true);
+    expect([...equator.slice(colFor(-3), colFor(3))].some((char) => INK_GLYPHS.has(char))).toBe(false);
+    expect([...equator.slice(colFor(8), colFor(15))].some((char) => INK_GLYPHS.has(char))).toBe(true);
+
     map.destroy();
     host.remove();
   });

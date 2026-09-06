@@ -53,13 +53,38 @@ describe("createGlyphMap — visibility (acceptance gate 1)", () => {
     }
   });
 
+  /**
+   * `visibility`, not `display`: `display` is glyphcss's OWN hotspot channel
+   * (`stageHotspots` re-stages it for every hotspot on every committed
+   * render, from an on-grid test that knows nothing about hemispheres), so a
+   * far-side `display: "none"` written here survived only until the next
+   * commit — and `scene.addHotspot()` schedules one. See `widget.ts`'s
+   * `setHotspotNearSide`.
+   */
   it("addMarker hides the marker element itself on the far hemisphere", () => {
     const { host, map } = mount({ center: [0, 0], span: 60, cols: 80, rows: 40 });
     try {
       const near = map.addMarker({ at: [0, 0] });
       const far = map.addMarker({ at: [180, 0] });
-      expect(near.el.style.display).not.toBe("none");
-      expect(far.el.style.display).toBe("none");
+      expect(near.el.style.visibility).not.toBe("hidden");
+      expect(far.el.style.visibility).toBe("hidden");
+    } finally {
+      map.destroy();
+      host.remove();
+    }
+  });
+
+  it("the far-side marker STAYS hidden across a committed render, not just until the next one", async () => {
+    const { host, map } = mount({ center: [0, 0], span: 60, cols: 80, rows: 40 });
+    try {
+      const near = map.addMarker({ at: [0, 0] });
+      const far = map.addMarker({ at: [180, 0] });
+      // `addHotspot` schedules a coalesced render; let it (and any follow-up)
+      // actually commit before asking again.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      map.scene.rerender();
+      expect(near.el.style.visibility).not.toBe("hidden");
+      expect(far.el.style.visibility).toBe("hidden");
     } finally {
       map.destroy();
       host.remove();

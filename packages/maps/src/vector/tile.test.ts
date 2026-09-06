@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { decodeGlyphMapTopoJsonArcs, glyphMapTopoJsonFeatures, type TopoJsonTopology } from "./topology";
 import { glyphMapSimplifyArc, glyphMapSimplifyArcs, type GlyphMapLonLat } from "./simplify";
 import { glyphMapBuildVectorTile, glyphMapDecodeVectorTile, glyphMapVectorTileBounds } from "./tile";
-import { glyphMapQuantizeErrorDeg } from "./quantize";
+import { GLYPH_MAP_VECTOR_TILE_EXTENT, glyphMapEncodeQuantizedLine, glyphMapQuantizeErrorDeg } from "./quantize";
+import { glyphMapClipPolyline } from "./clip";
 import type { GlyphMapVectorFeature } from "./types";
 
 /**
@@ -162,5 +163,101 @@ describe("cross-tile seam continuity — end-to-end through the real bake pipeli
     expect(eastBoundaryPts.length).toBeGreaterThan(0);
     const eastLats = new Set(eastBoundaryPts.map((p) => p[1]));
     for (const p of westBoundaryPts) expect(eastLats.has(p[1])).toBe(true);
+  });
+});
+
+/**
+ * Points are the data path for `symbol`/`circle`/`heatmap`, and they used to
+ * fall out of the bake silently: `glyphMapClipPolyline` clips SEGMENTS, and a
+ * one-point ring has none, so it correctly returns `[]` for a point — which
+ * `glyphMapBuildVectorTile` then read as "this feature doesn't touch the
+ * tile" and dropped. Every baked pyramid was therefore point-free no matter
+ * what went in.
+ */
+describe("glyphMapBuildVectorTile — point features", () => {
+  const ZURICH: readonly [number, number] = [8.548064, 47.381934];
+  const places: GlyphMapVectorFeature[] = [
+    { id: "zurich", geometryType: "point", properties: { name: "Zurich", pop_max: 1_108_000 }, rings: [[ZURICH]] },
+  ];
+
+  it("keeps a point in the tile that contains it, with its properties and geometry type", () => {
+    // z2/x2 spans lon 0..90, z2/y0 spans lat 45..90 — the tile Zurich is in.
+    const bounds = glyphMapVectorTileBounds(2, 2, 0);
+    expect(ZURICH[0]).toBeGreaterThanOrEqual(bounds.west);
+    expect(ZURICH[0]).toBeLessThan(bounds.east);
+
+    const decoded = glyphMapDecodeVectorTile(glyphMapBuildVectorTile({ places }, 2, 2, 0, { source: "test", simplify: "z2" }));
+    expect(decoded.layers.places).toHaveLength(1);
+    const feature = decoded.layers.places[0];
+    expect(feature.geometryType).toBe("point");
+    expect(feature.properties?.name).toBe("Zurich");
+    expect(feature.rings).toHaveLength(1);
+    expect(feature.rings[0]).toHaveLength(1);
+    // Quantization is the only error: at most half a step on the wider axis.
+    const tolerance = glyphMapQuantizeErrorDeg(bounds);
+    expect(Math.abs(feature.rings[0][0][0] - ZURICH[0])).toBeLessThanOrEqual(tolerance);
+    expect(Math.abs(feature.rings[0][0][1] - ZURICH[1])).toBeLessThanOrEqual(tolerance);
+  });
+
+  it("does not duplicate a point into a neighbouring tile", () => {
+    for (const [x, y] of [[1, 0], [3, 0], [2, 1], [0, 0]] as const) {
+      const tile = glyphMapBuildVectorTile({ places }, 2, x, y, { source: "test", simplify: "z2" });
+      expect(Object.keys(tile.layers)).toHaveLength(0);
+    }
+  });
+
+  it("gives a point sitting exactly on a shared tile edge to exactly one tile", () => {
+    // The z2 x=1|x=2 seam is lon 0; the y=1|y=2 seam is lat 0.
+    const onSeam: GlyphMapVectorFeature[] = [{ geometryType: "point", properties: {}, rings: [[[0, 0]]] }];
+    const owners = ([[1, 1], [2, 1], [1, 2], [2, 2]] as const)
+      .filter(([x, y]) => Object.keys(glyphMapBuildVectorTile({ p: onSeam }, 2, x, y, { source: "t", simplify: "z2" }).layers).length > 0);
+    expect(owners).toHaveLength(1);
+  });
+
+  it("keeps a point on the world's own outer edge, which has no neighbouring tile to hand it to", () => {
+    const corner: GlyphMapVectorFeature[] = [{ geometryType: "point", properties: {}, rings: [[[180, -90]]] }];
+    const tile = glyphMapBuildVectorTile({ p: corner }, 1, 1, 1, { source: "t", simplify: "z1" });
+    expect(tile.layers.p).toHaveLength(1);
+  });
+});
+
+describe("glyphMapBuildVectorTile — antimeridian-spanning source rings", () => {
+  /** The Natural Earth shape: real geometry only near +-180, joined by one 359-degree planar jump. */
+  const seam: GlyphMapVectorFeature[] = [{
+    id: "seam",
+    geometryType: "polygon",
+    properties: {},
+    rings: [[[170, 70], [179, 70], [-180, 70], [-172, 70], [-172, 74], [170, 74], [170, 70]]],
+  }];
+
+  it("puts nothing in a tile the feature never reaches, instead of one full-width chord per tile", () => {
+    // z3 columns x=2..5 span lon -90..90 — the feature has no vertex there.
+    // Before the fix each of these carried a single 45-degree-wide segment
+    // at lat 70, which is the polar ring the live page showed.
+    for (const x of [2, 3, 4, 5]) {
+      const tile = glyphMapBuildVectorTile({ admin0: seam }, 3, x, 0, { source: "t", simplify: "z3" });
+      expect(`x=${x}: ${JSON.stringify(Object.keys(tile.layers))}`).toBe(`x=${x}: []`);
+    }
+  });
+
+  it("still bakes the feature's real geometry on both sides of the seam", () => {
+    for (const x of [0, 7]) {
+      const tile = glyphMapBuildVectorTile({ admin0: seam }, 3, x, 0, { source: "t", simplify: "z3" });
+      expect(tile.layers.admin0?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it("bakes a feature with no seam jump byte-identically (the split is a no-op for ordinary geometry)", () => {
+    const ring: GlyphMapLonLat[] = [[-20, 40], [20, 40], [20, 60], [-20, 60], [-20, 40]];
+    const plain: GlyphMapVectorFeature[] = [{ id: "plain", geometryType: "polygon", properties: {}, rings: [ring] }];
+    const bounds = glyphMapVectorTileBounds(2, 1, 1);
+    // The expectation is rebuilt from the PRE-FIX formula itself — clip the
+    // whole ring against the box and quantize, with no antimeridian step —
+    // rather than pinning whatever the current code happens to emit.
+    const expected = glyphMapClipPolyline(ring, bounds, true)
+      .map((frag) => glyphMapEncodeQuantizedLine(frag, bounds, GLYPH_MAP_VECTOR_TILE_EXTENT));
+    expect(expected.length).toBeGreaterThan(0);
+    const tile = glyphMapBuildVectorTile({ admin0: plain }, 2, 1, 1, { source: "t", simplify: "z2" });
+    expect(tile.layers.admin0?.[0].lines).toEqual(expected);
   });
 });

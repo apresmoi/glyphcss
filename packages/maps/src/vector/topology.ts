@@ -121,18 +121,29 @@ function pushGeometry(
   switch (geom.type) {
     case "Polygon": {
       const p = geom as TopoJsonPolygon;
+      const rings = p.arcs.map((ring) => resolveRing(ring, decodedArcs));
       out.push({
         id: p.id !== undefined ? String(p.id) : undefined,
         properties: p.properties,
-        rings: p.arcs.map((ring) => resolveRing(ring, decodedArcs)),
+        geometryType: "polygon",
+        rings,
+        // TopoJSON's own `[outer, ...holes]` grouping, carried through
+        // instead of discarded. `rings` stays FLAT and in source order —
+        // that is what the `line` path walks, and it is unchanged.
+        polygons: [rings],
       });
       return;
     }
     case "MultiPolygon": {
       const mp = geom as TopoJsonMultiPolygon;
-      const rings: GlyphMapLonLat[][] = [];
-      for (const poly of mp.arcs) for (const ring of poly) rings.push(resolveRing(ring, decodedArcs));
-      out.push({ id: mp.id !== undefined ? String(mp.id) : undefined, properties: mp.properties, rings });
+      const polygons = mp.arcs.map((poly) => poly.map((ring) => resolveRing(ring, decodedArcs)));
+      out.push({
+        id: mp.id !== undefined ? String(mp.id) : undefined,
+        properties: mp.properties,
+        geometryType: "polygon",
+        rings: polygons.flat(),
+        polygons,
+      });
       return;
     }
     case "LineString": {
@@ -140,6 +151,7 @@ function pushGeometry(
       out.push({
         id: ls.id !== undefined ? String(ls.id) : undefined,
         properties: ls.properties,
+        geometryType: "line",
         rings: [resolveRing(ls.arcs, decodedArcs)],
       });
       return;
@@ -149,6 +161,7 @@ function pushGeometry(
       out.push({
         id: mls.id !== undefined ? String(mls.id) : undefined,
         properties: mls.properties,
+        geometryType: "line",
         rings: mls.arcs.map((line) => resolveRing(line, decodedArcs)),
       });
       return;

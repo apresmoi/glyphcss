@@ -190,6 +190,36 @@ which is what makes exact parity (below) possible. `glyphMapPolygons(tile,
 projection, opts?)` builds one quad per tile cell, skipping any quad with a
 corner outside the projection's valid window.
 
+`opts.resolution` (`{ cols, rows }`) builds a COARSER mesh than the tile's
+baked grid — a tile that only covers 20×10 glyph cells on screen does not
+need 16,200 quads. Output grid line `i` samples source vertex
+`round(i * total / count)`, so the first and last lines land exactly on the
+tile's own boundary for any count, `resolution` matching the tile's own
+`cols`/`rows` is byte-identical to omitting it, and a request larger than
+the tile clamps rather than upsampling. Elevation is point-sampled at the
+retained vertices. **Resolve one resolution per pyramid LEVEL, not per
+tile**: two tiles built at the same resolution sample the identical source
+vertices along their shared edge, so the edge is exactly shared; tiles at
+different resolutions do not, and the T-junction gap shows as a tear.
+`createGlyphMap` does this for you — target-LOD tiles get one quad per glyph
+cell, the transient fallback tier is built 2× coarser, and the permanent
+never-black floor is capped to a glimpse-only 32 quads per axis whenever it
+is not itself the target level.
+
+`opts.elevationBias` (metres) offsets every vertex's POSITION along the
+projection's own elevation axis without touching the elevation `color` is
+handed, so a biased mesh is the same map at a different radius rather than a
+differently-classified one. `createGlyphMap` uses it to sink any tier that is
+not the target LOD: all three tiers are opaque meshes in ONE scene, so a
+coarse quad straddling a coast — whose chord runs linearly from the sea floor
+up to the summit — otherwise sits kilometres above the fine tier's own sea
+floor, wins the shared depth test over open ocean and paints it in the colour
+of a block that is mostly land. Measured on the real ETOPO1 pyramid over the
+Peru–Chile trench at 486 of 4,462 sea cells in a land band; with the sink the
+combined render is cell-for-cell identical to the target tier alone. Raising
+the floor's own resolution does not fix it (231 stolen cells even at 2°
+quads) — a backstop has to be *behind*, not merely finer.
+
 A tile whose bounds straddle the antimeridian (`bounds.east > 180`, an
 "unwrapped" authoring convention — e.g. `{ west: 170, east: 190 }` for
 170°E–170°W) must be split BEFORE projecting, or its quads bridge the whole
@@ -200,8 +230,35 @@ resample.
 `website/scripts/bake-geo-tiles.mjs` bakes this schema from ETOPO1: `--fixture`
 writes the small vendored parity fixture at `fixtures/geo-tile-parity.json`
 (a few KB — CI needs no ETOPO1 to run the parity gate); `--tiles` writes the
-full z0/z1 pyramid to `website/public/data/geo-tiles/` (gitignored —
-regenerable, and at full resolution not small enough to vendor).
+full z0-z4 global pyramid (341 tiles, ~11 MB) to `website/public/data/
+geo-tiles/` (gitignored — regenerable, and at full resolution not small
+enough to vendor), plus a curated z5-z7 overlay for Switzerland under
+`geo-tiles/curated/`. Tiles are `{z}/{x}_{y}.bin` — a raw little-endian
+int16 payload, not JSON — decoded with the root-exported
+`glyphMapDecodeGeoTileInt16(bytes, meta)`; `manifest.json` records
+`format: "int16"`/`version: 2` (a reader must gate on both) and, when a
+curated overlay exists, a `curated` entry per level (`{ name, zoom, bounds,
+tiles }`, `tiles` the real `"x_y"` keys at that level).
+
+Past a global pyramid's affordable depth, `glyphMapCuratedProvider(base,
+curated)` wraps a base `GlyphMapProvider` with one or more DEEPER zoom
+levels that only have real tiles inside a curated place's bounds — every
+other tile at those depths degrades to the deepest ancestor tile that
+actually exists (another curated level, or the base's own max zoom), never
+blank, never a throw:
+
+```ts
+import { glyphMapCuratedProvider } from "@glyphcss/maps";
+
+const provider = glyphMapCuratedProvider(baseGeoTilesProvider, [
+  { zoom: z5Zoom, tiles: new Set(["17_11"]), loadTile: (x, y) => fetchCuratedTile(5, x, y) },
+  { zoom: z6Zoom, tiles: new Set(["35_23"]), loadTile: (x, y) => fetchCuratedTile(6, x, y) },
+]);
+```
+
+`website/src/lib/geoTilesProvider.ts` is the reference caller — it wraps its
+base provider unconditionally, and an empty/absent `curated` manifest field
+returns `base` unchanged, so there's exactly one reader code path either way.
 
 **Exact parity, honestly reported.** `src/parity.test.ts` projects that
 vendored fixture through `glyphMapGlobe` and compares it, vertex for vertex,
@@ -255,6 +312,29 @@ on a projection's `id`:
   pan-with-domain-clamp, with no `if (projection is globe)` anywhere in
   `widget.ts`.
 
+### Cover, not contain
+
+A SHEET projection (no `cameraForCenter` — equirectangular, Mercator,
+orthographic) always FILLS the viewport: no page background around its edges
+at any zoom or pan position. `map.getMaxSpan()` is the live ceiling every
+span path clamps to — the widest view that still covers, computed from the
+projection's own projected `domain` extent against the host's real pixel
+shape and the camera `tilt`, so it moves when any of those do. A pan is
+clamped in world space so the visible WINDOW stays inside that extent, not
+just the centre. Both are selected by capability: an ORBIT projection (the
+globe) legitimately floats in space and is exempt, and an explicit `maxSpan`
+is the documented opt-out — it means "overview margin around the whole
+projection", which is precisely what cover removes.
+
+Where a map genuinely cannot fill an axis (a `minSpan` floor holding the view
+wider than cover would like — a Mercator cropped to a narrow `maxLat` in a
+very tall viewport), that axis is CENTRED rather than pinned to an edge: one
+fixed point, so a drag against it settles instead of oscillating. And the
+guarantee is over the extent's bounding BOX, so orthographic's disc still
+leaves the viewport's four corners uncovered — filling those would mean
+cropping to the disc's inscribed rectangle and putting the hemisphere's limb
+out of reach.
+
 **Two bugs fixed rather than ported** from `website/src/pages/examples/{world,flatmap}.astro`,
 the two hand-rolled pages this widget replaces:
 
@@ -286,6 +366,210 @@ only geometry-producing layer kind this slice implements (MapLibre's
 vocabulary is slices 5/6's own addition to `GlyphMapLayer`, not typed
 speculatively ahead of them).
 
+### Per-layer render mode
+
+A map is not one picture in one mode: terrain reads as `solid` while an
+administrative overlay reads as `ink`. Every MESH-BACKED layer — `raster`,
+`fill`, `fill-extrusion`, `heatmap`, `model` — carries an optional
+`renderMode` that passes straight through to glyphcss's per-mesh
+`GlyphMeshTransform.mode`:
+
+```ts
+map.addLayer({ type: "raster", source: reliefProvider, /* solid, the scene's own mode */ });
+map.addLayer({ type: "fill", source: adminProvider, renderMode: "ink" });
+```
+
+Omitted — or set to the mode the scene is already rendering in — the layer
+stays in the shared base grid: one rasterizer pass, byte identical. A
+genuinely different mode pops that layer's mesh into its own `<pre>` and
+costs a full extra pass, so it is a per-LAYER choice, not a per-mesh one. A
+`wireframe`/`ink` layer is additionally mounted `transparent`, because those
+modes paint edges only and an opaque claim over the layer's whole footprint
+would erase the terrain the outline is drawn over.
+
+`line` and `contour` layers have no `renderMode` and never will: they own no
+mesh, are stamped into the cell grid after rasterization, and already emit
+oriented stroke glyphs by construction. `symbol`/`circle` mount DOM hotspots
+rather than geometry, so they carry none either.
+
+### Per-layer glyph palette
+
+The same argument, one axis over: a map is no more one picture in one
+character ramp than it is in one mode. The same five mesh-backed layer types
+carry an optional `glyphPalette` that routes to glyphcss's per-mesh
+`GlyphMeshTransform.glyphPalette`, and `line`/`contour`/`symbol`/`circle`
+carry none for the same reasons as above (glyphcss documents `glyphPalette`
+as a no-op for a post-raster stroke path).
+
+```ts
+map.addLayer({ type: "raster", source: reliefProvider, colors: terrainRamp });
+map.addLayer({ type: "fill-extrusion", source: adminProvider, glyphPalette: "blocks" });
+```
+
+`glyphPalette` is the CHARACTER ramp — which glyphs carry the shade. It is a
+different axis from a `raster` layer's `colors`, which is the elevation-band
+COLOUR ramp; the two compose.
+
+Omitted — or set to the ramp the scene is already on — the layer stays in the
+shared base grid: one pass, byte identical. A genuinely different ramp costs a
+full extra rasterizer pass at the base cell size (no extra detail), and an
+opaque one additionally turns on the whole-scene occlusion id-map raster.
+
+That "same ramp is free" escape lives in this package rather than in glyphcss
+on purpose. glyphcss's `isDetailMesh` separates on any non-null per-mesh
+`glyphPalette`, because an unrecognized name resolves to the default ramp and
+so two DIFFERENT names can mean one ramp. Two EQUAL names cannot: they always
+resolve to one ramp, known or not, which is exactly the comparison this
+package makes before setting the per-mesh option at all. The scene's palette
+is read live at mount; changing it afterwards through the `map.scene` escape
+hatch does not re-evaluate already-mounted meshes — re-add the layer, which is
+how every other per-layer appearance change here already works.
+
+### Contour elevation window
+
+A `contour` layer's `levels` resolves against whatever range the mounted
+mosaic actually has, and ETOPO1's is roughly -10,900 m to +8,300 m — so a
+count-based `levels` spends most of its lines on the abyssal plains and
+leaves land with a handful. `minElevation`/`maxElevation` (metres, both
+optional, both omitted by default and byte-identical there) are a floor and
+a ceiling:
+
+```ts
+map.addLayer({ type: "contour", source: reliefProvider, levels: 8, minElevation: 0 });                    // land only
+map.addLayer({ type: "contour", source: reliefProvider, levels: { interval: 250 }, maxElevation: 0 });    // bathymetry only
+map.addLayer({ type: "contour", source: reliefProvider, levels: 6, minElevation: 0, maxElevation: 2000 }); // the foothills
+```
+
+Two numbers rather than a land/sea MODE, doing strictly more — and
+sidestepping having to define "land" at all: the Caspian and the Dead Sea sit
+below a `0` floor exactly like anywhere else.
+
+Both halves happen, because either alone is a half-fix.
+
+- **Levels are chosen within the window.** A count `N` spreads its lines
+  evenly across the window ∩ the mosaic's own range — the part that actually
+  fixes the crowding. An explicit array and an `{ interval }`'s absolute
+  multiples are CLIPPED instead, never renumbered: an interval's whole point
+  is that its lines sit at fixed elevations and do not crawl as you pan, which
+  re-deriving them from the window's edges would undo.
+- **Ink is clipped to the window.** No cell whose own elevation is outside it
+  inks, even where a level legitimately crosses between it and a neighbour.
+  The crossing scan reads a cell's right/down neighbours, so on a sea cliff —
+  one cell at -5,000 m, the next at +2,000 m — a 1,000 m level crosses BETWEEN
+  them and the ink lands on the ocean cell. Filtering the level list cannot
+  catch that; the level is legitimately inside the window.
+
+Levels stay computed across the WHOLE mounted mosaic, window included, so
+neighbouring tiles can never resolve different level sets and tear at the
+seams. An EMPTY window (floor above ceiling, or one the visible field never
+enters) renders nothing and is not an error — the layer stays mounted and
+starts drawing again as soon as the view brings terrain inside it.
+`getContourFieldRange(id)` keeps reporting the field's own DATA range, never
+the windowed one: a UI needs the data range to bound its floor/ceiling
+controls, and a clipped report would let those controls shrink onto their own
+last value and never widen back.
+
+### Contour labels
+
+`labels: true` on a `contour` layer prints the elevation on the lines
+themselves. Off by default, and byte-identical to before the option existed
+while off — no extra buffer is allocated and no extra pass runs.
+
+```ts
+map.addLayer({ type: "contour", source: reliefProvider, levels: { interval: 500 }, labels: true });
+map.addLayer({ type: "contour", source: reliefProvider, levels: { interval: 500 }, labels: true, labelEvery: 10 });
+```
+
+What it keeps from paper cartography, and what a character grid forces it to
+change:
+
+- **Index contours only.** `labelEvery` (default 5, the USGS convention)
+  labels every Nth line, not every line. Which lines that picks is anchored to
+  ABSOLUTE elevation wherever the level list itself is: with
+  `{ interval: 500 }` and the default, the labelled lines are the multiples of
+  2,500 m, and they stay so as you pan — exactly as an interval's own lines
+  do. `glyphMapContourIndexLevels(levels, step, every)` is that rule, exported.
+- **The label breaks its own line.** The number sits in a gap, with the ink
+  restored to the terrain glyph underneath it on both sides — ArcGIS's "break
+  lines under text", not a number painted over a rule. Only cells this layer
+  inked *with this label's own level* are restored, so a different contour
+  crossing the label keeps its ink and the relief underneath is never
+  punched through.
+- **Placement is chosen, not periodic.** A label is only offered where the
+  contour runs near-horizontally on screen, stays locally straight across the
+  label's own width, sits over terrain for its whole run, and clears the map
+  edge. Repetition and crowd control come from the same greedy declutter the
+  `symbol` layer uses (`glyphMapDeclutterLabels`, with a padded box).
+- **Orientation is dropped, and the convention behind it is kept by
+  selection.** A cell is one character: there is no rotated text, so "aligned
+  with the line, top of the number uphill" cannot be reproduced. Instead the
+  placement gate *selects* for the case where a horizontal label already lies
+  along its line. That is ArcGIS's own "Centered horizontal" contour style.
+  The tempting inversion — label where the contour is STEEP on screen, so a
+  horizontal label crosses it in one cell — is worse: contours are locally
+  parallel, so where one runs vertically its neighbours are separated
+  horizontally and the label ploughs through every one of them.
+
+Labels inherit the elevation window and the globe horizon from the ink they
+are derived from: a level outside `minElevation`/`maxElevation` has no ink and
+so no label, and no label (nor any part of one) is placed past the limb.
+
+### `fill`/`fill-extrusion` on a curved projection
+
+`glyphMapVectorPolygons` triangulates a polygon in lon/lat with earcut, which
+joins boundary vertices tens of degrees apart — and on a globe the flat face
+emitted for such a triangle is a CHORD, not the surface. Measured on the
+baked Natural Earth pyramid this repo ships: a z1 tile produced a face with a
+1.922-radius edge (96% of the sphere's own diameter) whose centroid sat 0.575
+of a radius inside the globe, and the z0 tile produced faces whose plane was
+tangent at the ANTIPODE — an "outward" normal aimed straight back at the
+camera from the far hemisphere. Rendered, that is a straight line drawn
+through the world plus far-side geography showing over the near side.
+
+Every face is therefore refined until the projection is locally affine across
+it. The test is asked of the PROJECTION, never of a projection id: split an
+edge while its projected midpoint misses the projected endpoints' midpoint by
+more than 3% of the chord. An affine projection (`glyphMapEquirectangular`)
+answers "no split" with an exact zero deviation, so the flat path is
+untouched, face for face. The split verdict is a pure function of the edge's
+own two endpoints, so two faces sharing an edge always agree and refinement
+cannot leave a T-junction. A face whose normal still lands more than 26
+degrees off the projection's local "up" after refinement is a degenerate
+sliver — three nearly collinear points have an ill-conditioned plane whatever
+their spacing — and is dropped: its facing is numerical noise, which is
+exactly what leaked far-side ink, and its area is negligible.
+
+Refined cap faces then carry the surface's own outward normal, so the
+rasterizer's backface cull removes the far hemisphere for free, with no
+view-dependent state. An extrusion's WALLS cannot work that way — a wall is a
+vertical curtain whose normal is tangential, so roughly half of a far-side
+ring's walls genuinely face the camera through the globe and no winding makes
+them back-facing. Only a near-side predicate can answer that, and it is
+camera-dependent — so it is applied per rendered frame rather than baked into
+the geometry. `glyphMapVectorMesh` is the camera-independent build: it returns
+`{ polygons, walls }`, where each entry of `walls` names a wall face's index
+into `polygons`, its two ring endpoints in lon/lat, and both the elevations it
+spans (`elev` = the feature's base, `elevTop` = base + height), and
+`glyphMapVectorCullWalls(mesh, visible)` drops a wall only when NONE of those
+four corners is on the visible side. A wall is a quad and is visible if any
+part of it is: on a globe a point at height `h` clears the limb from
+`acos(r / (r + h))` of extra arc, so a tall extrusion's base can be past the
+limb while its top — and most of its wall band — is still in view. That is why
+`glyphMapGlobe`'s own `visible` is horizon-aware rather than a plain
+centre-plane test; a centre-plane verdict is radially scale-invariant, so
+asking about the top elevation alone would return the base's answer.
+`glyphMapVectorPolygons` is just that mesh's `polygons`.
+
+The widget (which owns the camera) builds the predicate from
+`projection.visible` and re-culls on every camera change, alongside the same
+hemisphere check that hides a far-side symbol. Baking the verdict in at build
+time instead meant a mesh rebuilt on the widget's 180ms tile debounce — which
+every moving frame re-arms — so through a drag and its inertial glide an
+extrusion the camera had turned to face drew its roof and none of its sides,
+then popped them in once motion stopped. Re-culling is also much cheaper than
+rebuilding: on the baked z0 Natural Earth tile (177 countries, 2,058 wall
+faces) 0.5ms against 13.7ms.
+
 ## PMTiles / MVT vector sources
 
 `glyphMapPMTilesProvider(urlOrSource)` range-reads a self-hosted PMTiles
@@ -304,6 +588,77 @@ Full archives and extracts outside `packages/maps/fixtures/pmtiles/` are
 gitignored. Review fixture size before committing and keep committed extracts
 to a few megabytes total. This uses the downloadable ODbL basemap, not the
 hosted Protomaps API.
+
+## Real-sun lighting
+
+`glyphMapSubsolarPoint(date)` is the pure, clock-free solar position — the
+lon/lat where the sun is directly overhead, from NOAA's standard formulation
+including the equation of time (worth up to ±16 minutes, i.e. ~±4° of
+longitude, so it is not optional). The caller passes the instant; nothing in
+this module reads a clock.
+
+`createGlyphMap`'s `sun` option turns that into light:
+
+```ts
+const map = createGlyphMap(host, { view, projection, sun: { mode: "realtime" } });
+map.setSun({ mode: "manual", date: Date.UTC(2024, 5, 21, 12) });
+map.getSunDirection();   // the light's source vector, or null on a sheet
+map.getSubsolarPoint();  // where the sun is right now
+map.on("sun", (e) => console.log(e.subsolar));
+```
+
+- `"off"` (default) — the widget never touches lighting: no light write, no
+  timer, no cell hook. Byte-identical to a map built before this existed.
+- `"realtime"` — the sun's true current position, re-resolved every
+  `GLYPH_MAP_SUN_TICK_MS` (30 s) so the terminator keeps advancing on its own
+  at 0.25° of longitude per minute. Snapped immediately when the mode is
+  entered; the timer is cleared by `destroy()`.
+- `"manual"` — pinned to one instant. No timer.
+
+**Two mechanisms, chosen by projection capability.** An ORBIT projection (the
+globe — `cameraForCenter` present) is a real sphere, so the sun is a real
+directional light: the widget writes `directionalLight.direction` as the
+outward unit vector at the subsolar point and leaves `intensity`/`color`
+alone, and Lambert shading draws the terminator. A SHEET projection has one
+surface normal everywhere, where a directional light can only dim the whole
+map — so it instead gets a per-cell day/night term (`stampGlyphMapNight`)
+stamped through the same single `transformCells` hook `line`/`contour` share.
+That term darkens colour only, never the glyph, and is therefore invisible
+under `useColors: false`.
+
+`GLYPH_MAP_NIGHT_LEVELS` quantizes the sheet terminator's darkness for cost,
+not for looks: see its doc for the measured spans/ms table.
+
+## Camera-following key light (`keyLight`)
+
+Turning the sun off does NOT mean "everything lit" — the key light is still a
+fixed direction, so a globe keeps a lit half and a dark half that merely stops
+tracking the clock. `keyLight: "headlight"` is the mode that actually delivers
+it:
+
+```ts
+const map = createGlyphMap(host, { view, projection, keyLight: "headlight" });
+map.setKeyLight("fixed");        // hand the direction back to the consumer
+map.getKeyLightDirection();      // whichever owner is live (sun, headlight), or null
+glyphMapHeadlightDirection(rotX, rotY);  // the pure vector, degrees in
+```
+
+- `"fixed"` (default) — the widget never writes `directionalLight.direction`.
+  Byte-identical to a map built before this existed.
+- `"headlight"` — the direction is the camera's own view axis,
+  `n = (sin rotX·cos rotY, sin rotX·sin rotY, cos rotX)`, rewritten whenever
+  the camera moves. glyphcss's `direction` points from the surface *toward*
+  the light, and that is the sign here: the whole visible face is lit, with no
+  terminator anywhere, while Lambert still varies per face so **terrain relief
+  stays legible**. (Pure ambient also removes the terminator — and flattens
+  every face to one shade, which is why it is not what this does.)
+
+Like the sun it writes `direction` only; `intensity`/`color` stay yours. **The
+sun outranks it**: with `sun.mode` set to `"realtime"`/`"manual"` on an orbit
+projection the sun owns the direction and the headlight waits. Compose your
+own key-light write from `getKeyLightDirection()`, not `getSunDirection()` —
+the latter is `null` while a headlight is on, so reading it would clobber the
+headlight with your own vector.
 
 ## Scope
 
@@ -324,7 +679,6 @@ layers, markers, `project`/`unproject`, and `GlyphMapProjection`'s
 
 Current vector layers are `fill`, `line`, `symbol`, `circle`, `heatmap`,
 `fill-extrusion`, `model`, and `contour`, backed by the same vector-provider
-interface for TopoJSON and PMTiles/MVT. Not yet: projection transitions,
-day/night, and motion export.
+interface for TopoJSON and PMTiles/MVT. Not yet: motion export.
 No React/Vue surface — nothing in the plan forces one yet. See
 `.plan/MAPS.md` for the full plan.

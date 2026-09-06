@@ -48,6 +48,115 @@ function vertexIndex(tile: GlyphMapGeoTile, col: number, row: number): number {
 }
 
 /**
+ * Bilinear elevation at an arbitrary geographic point, read from the tile's
+ * own VERTEX grid — the surface {@link glyphMapPolygons} actually builds, so
+ * an annotation of the terrain (a `contour` layer, a heatmap's ground-hugging
+ * relief) reads exactly the field the terrain draws. NaN outside `bounds`.
+ *
+ * Why this and not `glyphMapFieldValueAt` over a cell-centered field derived
+ * from the same tile: adjacent tiles SHARE their edge vertex row/column (the
+ * vertex-centered schema exists for precisely that reason — see this file's
+ * header), so at a shared boundary both neighbours interpolate the SAME
+ * values and agree exactly. A cell-centered derivation throws that away: its
+ * outermost samples sit half a cell INSIDE the tile, so a band one cell wide
+ * straddling every shared boundary has no sample on either side and each
+ * neighbour flat-extrapolates its own edge cell instead. The two
+ * extrapolations differ by one cell of terrain gradient, so the sampled field
+ * STEPS at every tile edge — measured at 39 m across a meridian boundary and
+ * 59 m across a parallel one on a gentle synthetic terrain, and a contour
+ * inks wherever the field steps across a level, so the step draws a line
+ * along the boundary that the terrain does not have. On the real z3 pyramid
+ * those boundaries are the parallels 67.5/45/22.5 and eight meridians, which
+ * read at a pole as concentric octagons.
+ *
+ * Interpolation is over the QUAD the point falls in, so a point exactly on
+ * the tile's own east/south edge resolves to the last vertex column/row
+ * rather than falling off the end.
+ */
+export function glyphMapGeoTileElevationAt(tile: GlyphMapGeoTile, lon: number, lat: number): number {
+  const { west, east, south, north } = tile.bounds;
+  if (lon < west || lon > east || lat < south || lat > north) return NaN;
+  const fx = ((lon - west) / (east - west)) * tile.cols;
+  const fy = ((north - lat) / (north - south)) * tile.rows;
+  const c0 = Math.min(tile.cols - 1, Math.max(0, Math.floor(fx)));
+  const r0 = Math.min(tile.rows - 1, Math.max(0, Math.floor(fy)));
+  const tx = fx - c0;
+  const ty = fy - r0;
+  const e = tile.elevation;
+  const a = e[vertexIndex(tile, c0, r0)]!;
+  const b = e[vertexIndex(tile, c0 + 1, r0)]!;
+  const c = e[vertexIndex(tile, c0, r0 + 1)]!;
+  const d = e[vertexIndex(tile, c0 + 1, r0 + 1)]!;
+  return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+}
+
+/** Min/max over a tile's vertex elevations — the range an annotation of THIS tile is scaled against. */
+export function glyphMapGeoTileElevationRange(tile: GlyphMapGeoTile): { readonly min: number; readonly max: number } {
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < tile.elevation.length; i++) {
+    const v = tile.elevation[i]!;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
+/**
+ * Shape/provenance metadata a baked int16 tile carries OUTSIDE its binary
+ * payload — a manifest entry (`GlyphMapProviderZoomLevel`) plus this tile's
+ * own `x`/`y` already determine `bounds`/`cols`/`rows`, so a reader builds
+ * this from the manifest rather than the payload repeating it.
+ */
+export interface GlyphMapGeoTileInt16Meta {
+  readonly bounds: GlyphMapBounds;
+  readonly cols: number;
+  readonly rows: number;
+  readonly source: string;
+  readonly sampler: string;
+  readonly attribution?: readonly GlyphMapAttribution[];
+}
+
+/**
+ * Decodes a baked `{z}/{x}_{y}.bin` payload (`website/scripts/
+ * bake-geo-tiles.mjs`'s `"int16"` format) into a {@link GlyphMapGeoTile}.
+ *
+ * The payload is nothing but `(cols + 1) * (rows + 1)` little-endian int16
+ * elevation samples, row-major, in the SAME order `bakeGeoTile`'s loop
+ * produces (`row * (cols + 1) + col`) — no header, no length prefix, since
+ * the manifest already carries `cols`/`rows` and the byte length is exactly
+ * derivable from them. ETOPO1's own `z` variable is NetCDF int32 whole
+ * metres in `[-10898, 8271]` (measured against the full source grid), which
+ * int16's `[-32768, 32767]` range holds losslessly with ~3x headroom — this
+ * decoder trusts that range rather than re-validating it per sample.
+ *
+ * Pure and browser-safe: takes raw bytes, never fetches. Throws a
+ * `RangeError` naming the expected vs. actual sample count when the byte
+ * length doesn't match `meta.cols`/`meta.rows` — a stale manifest/payload
+ * pairing (a level bumped in one but not the other) must fail loudly, not
+ * silently decode a garbled or truncated grid.
+ */
+export function glyphMapDecodeGeoTileInt16(bytes: ArrayBuffer | ArrayBufferView, meta: GlyphMapGeoTileInt16Meta): GlyphMapGeoTile {
+  const buf = ArrayBuffer.isView(bytes)
+    ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    : new DataView(bytes);
+  const vcols = meta.cols + 1;
+  const vrows = meta.rows + 1;
+  const expectedSamples = vcols * vrows;
+  const expectedBytes = expectedSamples * 2;
+  if (buf.byteLength !== expectedBytes) {
+    const actualSamples = buf.byteLength % 2 === 0 ? `${buf.byteLength / 2} samples` : "not a whole number of int16 samples";
+    throw new RangeError(
+      `glyphcss/maps: geo-tile int16 payload has ${buf.byteLength} bytes (${actualSamples}), expected ${expectedBytes} bytes (${expectedSamples} samples) for a ${meta.cols}x${meta.rows}-quad tile.`,
+    );
+  }
+  const elevation = new Float32Array(expectedSamples);
+  for (let i = 0; i < expectedSamples; i++) {
+    elevation[i] = buf.getInt16(i * 2, true);
+  }
+  return { bounds: meta.bounds, cols: meta.cols, rows: meta.rows, elevation, source: meta.source, sampler: meta.sampler, attribution: meta.attribution };
+}
+
+/**
  * A tile whose bounds straddle the antimeridian (`bounds.east > 180`, an
  * "unwrapped" continuous-longitude authoring convention — e.g. `west: 170,
  * east: 190` for a tile spanning 170°E to 170°W) projects to two disjoint

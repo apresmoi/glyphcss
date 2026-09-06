@@ -49,13 +49,17 @@ export {
   glyphMapOrthographic,
 } from "./projection";
 export type { GlyphMapD3RawOptions, GlyphMapD3RawProjection, GlyphMapProjection } from "./projection";
-export { glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
-export type { GlyphMapGeoTile } from "./tile";
+export { glyphMapProjectionTransition } from "./transition";
+export type { GlyphMapProjectionTransitionOptions } from "./transition";
+export { glyphMapDecodeGeoTileInt16, glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
+export type { GlyphMapGeoTile, GlyphMapGeoTileInt16Meta } from "./tile";
 export { glyphMapPolygons } from "./mesh";
 export type { GlyphMapPolygonsOptions } from "./mesh";
 
-export { glyphMapDegreesPerCell, glyphMapTargetLOD } from "./provider";
+export { glyphMapDegreesPerCell, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
 export type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
+export { glyphMapCuratedProvider } from "./curated";
+export type { GlyphMapCuratedRasterTiles } from "./curated";
 
 // ── Vector core (MAPS.md §13 slice 5) ──────────────────────────────────
 export {
@@ -65,7 +69,7 @@ export {
 export type { TopoJsonGeometry, TopoJsonTopology, TopoJsonTransform } from "./vector/topology";
 export { glyphMapAreaThresholdDeg, glyphMapCellEpsilonDeg, glyphMapSimplifyArc, glyphMapSimplifyArcs } from "./vector/simplify";
 export type { GlyphMapLonLat } from "./vector/simplify";
-export { glyphMapClipPolyline } from "./vector/clip";
+export { glyphMapClipPolygonGroup, glyphMapClipPolyline, glyphMapSplitAtAntimeridian } from "./vector/clip";
 export {
   GLYPH_MAP_VECTOR_TILE_EXTENT,
   glyphMapDecodeQuantizedLine,
@@ -87,12 +91,49 @@ export type {
   GlyphMapVectorSource,
   GlyphMapVectorTile,
 } from "./vector/types";
-export { stampGlyphMapContour, stampGlyphMapPolyline, GLYPH_MAP_STROKE_DEPTH_BIAS, GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE } from "./stroke";
-export type { GlyphMapContourOptions, GlyphMapStampOptions, GlyphMapStrokeVertex } from "./stroke";
-export { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons } from "./layers";
+export {
+  stampGlyphMapContour,
+  stampGlyphMapContourLabels,
+  stampGlyphMapPolyline,
+  GLYPH_MAP_STROKE_DEPTH_BIAS,
+  GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE,
+  GLYPH_MAP_CONTOUR_LABEL_GAP_CELLS,
+  GLYPH_MAP_CONTOUR_LABEL_MIN_HORIZONTALITY,
+  GLYPH_MAP_CONTOUR_LABEL_MIN_SUPPORT,
+  GLYPH_MAP_CONTOUR_LABEL_SCORE_BUCKETS,
+} from "./stroke";
+export {
+  GLYPH_MAP_NIGHT_LEVELS,
+  GLYPH_MAP_NIGHT_OPACITY,
+  GLYPH_MAP_SUN_TWILIGHT_DEG,
+  glyphMapDaylightFactor,
+  glyphMapSolarAltitudeSin,
+  glyphMapSubsolarPoint,
+  glyphMapSunDirection,
+  stampGlyphMapNight,
+} from "./sun";
+export type { GlyphMapNightOptions, GlyphMapSolarPosition } from "./sun";
+export type {
+  GlyphMapContourLabelCandidate,
+  GlyphMapContourLabelOptions,
+  GlyphMapContourLabelPlan,
+  GlyphMapContourOptions,
+  GlyphMapStampOptions,
+  GlyphMapStrokeVertex,
+} from "./stroke";
+export {
+  glyphMapDeclutterLabels,
+  glyphMapPointHeatmap,
+  glyphMapVectorCullWalls,
+  glyphMapVectorMesh,
+  glyphMapVectorPolygons,
+  type GlyphMapVectorMesh,
+  type GlyphMapVectorMeshOptions,
+  type GlyphMapVectorWall,
+} from "./layers";
 export type { GlyphMapLabelCandidate } from "./layers";
 
-export { createGlyphMap, glyphMapContourIntervalLevels } from "./widget";
+export { createGlyphMap, glyphMapContourIndexLevels, glyphMapContourIntervalLevels, glyphMapHeadlightDirection, glyphMapNormalizeWheelDelta, GLYPH_MAP_CONTOUR_LABEL_EVERY, GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y, GLYPH_MAP_SUN_TICK_MS, GLYPH_MAP_WHEEL_DELTA_MODE_SCALE, GLYPH_MAP_WHEEL_ZOOM_K, GLYPH_MAP_FLY_TO_DEFAULT_MS, GLYPH_MAP_FLY_TO_MAX_BOW } from "./widget";
 export type {
   GlyphMapBackgroundLayer,
   GlyphMapClickEvent,
@@ -101,11 +142,14 @@ export type {
   GlyphMapCircleLayer,
   GlyphMapEvent,
   GlyphMapEventHandler,
+  GlyphMapFlyToOptions,
+  GlyphMapFlyToTarget,
   GlyphMapHandle,
   GlyphMapLayer,
   GlyphMapFillLayer,
   GlyphMapFillExtrusionLayer,
   GlyphMapHeatmapLayer,
+  GlyphMapKeyLightMode,
   GlyphMapLineLayer,
   GlyphMapLoadEvent,
   GlyphMapMarkerHandle,
@@ -115,6 +159,11 @@ export type {
   GlyphMapProjectResult,
   GlyphMapRasterLayer,
   GlyphMapRasterSource,
+  GlyphMapSetProjectionOptions,
+  GlyphMapSunEvent,
+  GlyphMapSunMode,
+  GlyphMapSunOptions,
+  GlyphMapSunState,
   GlyphMapSymbolLayer,
   GlyphMapViewEvent,
 } from "./widget";

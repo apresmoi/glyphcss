@@ -69,6 +69,28 @@ describe("glyphMapSimplifyArc", () => {
     expect(poleOut.length).toBe(3); // kept near the pole
   });
 
+  it("collapses a CLOSED, exactly-collinear ring to its two identical endpoints", () => {
+    // Natural Earth 50m's Antarctica leads its mainland group with a
+    // 257-vertex pole edge: every vertex at lat -89.999, first == last.
+    // Every interior triangle has area EXACTLY 0, so no threshold — however
+    // small the cos(lat) correction makes it near the pole — can save a
+    // point, and VW never removes an arc endpoint. Both endpoints of a
+    // closed arc are the same point, so the honest VW answer is that one
+    // point twice.
+    //
+    // This is deliberately NOT patched with a minimum-vertex floor: a floor
+    // resurrects the ring as a well-formed but still zero-area outline,
+    // which is worse than dropping it (measured: Antarctica's baked area
+    // goes NEGATIVE, and small islands whose whole shape is sub-epsilon come
+    // back as triangles across the pyramid). Recognising a ring that bounds
+    // no area is the CONSUMER's job — see `glyphMapClipPolygonGroup`.
+    const ring: GlyphMapLonLat[] = [[-180, -89.999]];
+    for (let k = 1; k < 256; k++) ring.push([180 - (k * 360) / 256, -89.999]);
+    ring.push([-180, -89.999]);
+    const out = glyphMapSimplifyArc(ring, 0.25);
+    expect(out).toEqual([[-180, -89.999], [-180, -89.999]]);
+  });
+
   it("arcs of length <= 2 pass through unchanged", () => {
     const arc: GlyphMapLonLat[] = [[0, 0], [1, 1]];
     expect(glyphMapSimplifyArc(arc, 100)).toEqual(arc);

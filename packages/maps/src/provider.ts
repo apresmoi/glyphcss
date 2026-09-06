@@ -23,6 +23,35 @@ export interface GlyphMapProviderZoomLevel {
   /** A tile's own quad resolution at this zoom (matches the {@link GlyphMapGeoTile}s this level serves — `tile.cols`/`tile.rows`). Needed to compute this level's NATIVE degrees-per-glyph-cell resolution. */
   readonly tileCols: number;
   readonly tileRows: number;
+  /**
+   * OPTIONAL: the geographic extent this level can serve — absent means the
+   * provider's whole domain. `glyphMapTileRangeForLevel` uses it to restrict
+   * a tile sweep before the per-tile visibility test, so it MUST include
+   * fallback coverage as well as physically stored tiles. A curated wrapper
+   * that serves misses through global ancestor tiles therefore has global
+   * effective coverage and must leave this absent.
+   */
+  readonly bounds?: GlyphMapBounds;
+}
+
+/**
+ * The inclusive tile-index range a sweep should enumerate at `level` —
+ * `[0, cols-1] x [0, rows-1]` when `level.bounds` is absent, or restricted
+ * to the index range that box covers (same `-180 + x·tileLonSpan` equal-
+ * angle addressing every geo-tile pyramid in this package shares). Falls
+ * back to the full range on a degenerate result (an inverted or empty
+ * intersection) rather than silently sweeping zero tiles.
+ */
+export function glyphMapTileRangeForLevel(level: GlyphMapProviderZoomLevel): { readonly x0: number; readonly x1: number; readonly y0: number; readonly y1: number } {
+  const full = { x0: 0, x1: level.cols - 1, y0: 0, y1: level.rows - 1 };
+  const b = level.bounds;
+  if (!b) return full;
+  const x0 = Math.max(0, Math.floor((b.west + 180) / level.tileLonSpan));
+  const x1 = Math.min(level.cols - 1, Math.floor((b.east + 180) / level.tileLonSpan));
+  const y0 = Math.max(0, Math.floor((90 - b.north) / level.tileLatSpan));
+  const y1 = Math.min(level.rows - 1, Math.floor((90 - b.south) / level.tileLatSpan));
+  if (x1 < x0 || y1 < y0) return full;
+  return { x0, x1, y0, y1 };
 }
 
 /**
@@ -51,6 +80,19 @@ export interface GlyphMapProvider {
   bounds(z: number, x: number, y: number): GlyphMapBounds;
   /** Fetch (or synchronously build) tile `(x, y)`'s data at zoom `z`. May be called more than once for the same tile — cache it yourself if that matters, or rely on the caller's own cache (`createGlyphMap` never calls this twice for a tile it has already cached). */
   loadTile(z: number, x: number, y: number): Promise<GlyphMapGeoTile>;
+  /**
+   * OPTIONAL: resolves what tile `loadTile(z, x, y)` will ACTUALLY return,
+   * without fetching. A provider that degrades a miss to an ancestor tile
+   * (`glyphMapCuratedProvider`) implements this so a caller sweeping many
+   * `(x, y)` candidates at one zoom can recognize, before fetching or
+   * mounting anything, that several of them resolve to the SAME underlying
+   * tile — `createGlyphMap`'s raster tile-diff loop keys its cache/mount
+   * set by this identity instead of the requested address, so two sibling
+   * misses that both degrade to one ancestor mount that ancestor's mesh
+   * once, not twice. A provider without this capability is assumed to
+   * resolve every request to itself (no degradation to dedupe).
+   */
+  resolveTile?(z: number, x: number, y: number): { readonly z: number; readonly x: number; readonly y: number };
 }
 
 /**
