@@ -57,11 +57,13 @@ const POLYGON_SOURCE_LAYER = "admin0";
 /**
  * The tilt a search flight levels to.
  *
- * Identical in value and in reason to {@link MAP_OSM_FLY_TILT} (`mapsOsm.ts`,
- * where the arithmetic is written out): on an ORBIT projection `tilt` adds an
- * ABSOLUTE pitch to `cameraForCenter` while the field of view shrinks with the
- * zoom, so a flight into place scale that kept the page's default 40 degrees
- * arrives with the destination thousands of rows off the grid. A search box
+ * On an ORBIT projection `tilt` adds an ABSOLUTE pitch to `cameraForCenter`
+ * while the field of view shrinks with the zoom, so a flight into place scale
+ * that kept the page's default 40 degrees arrives with the destination
+ * thousands of rows off the grid — measured at row −22,775 of a 63-row grid
+ * for a 0.11° span (`widget.osm.test.ts` pins the arithmetic against the real
+ * widget). This is now the page's ONLY camera flight; the OSM card's used to
+ * be the other, and went with the 4 km extract that needed it. A search box
  * that flies somewhere the reader cannot see is worse than no search box, so
  * every flight from here levels — unconditionally, rather than on a
  * span-and-projection threshold whose right value differs per projection, per
@@ -274,15 +276,14 @@ export function mapSearchFlyTarget(result: MapSearchResult): GlyphMapFlyToTarget
  *
  * The order matters and the pairing matters. `tilt` is page state as well as
  * widget state on /maps (the Dock's own slider shows it), so `onTilt` writes
- * the page's copy while `setTilt` writes the widget's — exactly what
- * `flyToOsm` does, and for the same reason. Both happen BEFORE the flight, so
+ * the page's copy while `setTilt` writes the widget's. Both happen BEFORE the flight, so
  * no frame of the flight is rendered at a pitch that would carry the
  * destination off the grid.
  *
  * This is a function rather than three lines inside the component because
  * `MapsWorkbench.tsx` cannot be mounted under this vitest config, and the
  * levelling is the part of this feature with a history of going wrong
- * (`mapsOsm.ts`'s {@link MAP_SEARCH_FLY_TILT} note) — so it lives where a
+ * ({@link MAP_SEARCH_FLY_TILT}'s own note) — so it lives where a
  * test driving the REAL widget can call it and then ask `map.project()`
  * whether the destination is actually on screen.
  */

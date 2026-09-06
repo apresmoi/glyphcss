@@ -293,32 +293,10 @@
   font-size: 11px;
   text-align: right;
 }
-/* The OSM card's coverage row keeps its own third column for the "fly"
-   button, instead of letting the value span 2/4 the way every other info row
-   does — the row states a condition AND offers its remedy, and separating
-   them onto two rows would put a verb on a line with no subject. */
-.maps-layer-card .maps-layer-body .maps-layer-action-row .maps-layer-info-value {
-  grid-column: 2 / 3;
-}
-/* "no data in view" is a normal state for a small extract, not an error —
-   amber (the page's own text colour), never red. */
+/* A tile that did not arrive is a THINNER frame, not an error — amber (the
+   page's own text colour), never red. */
 .maps-layer-info-warn {
   color: rgba(255, 232, 184, 0.55);
-}
-.maps-layer-card .maps-layer-body .maps-layer-action {
-  grid-column: 3 / 4;
-  justify-self: end;
-  font: inherit;
-  font-size: 11px;
-  padding: 1px 8px;
-  color: rgba(255, 232, 184, 0.94);
-  background: rgba(255, 232, 184, 0.08);
-  border: 1px solid rgba(255, 232, 184, 0.24);
-  border-radius: 3px;
-  cursor: pointer;
-}
-.maps-layer-card .maps-layer-body .maps-layer-action:hover {
-  background: rgba(255, 232, 184, 0.16);
 }
 /* A GATED row — the Dock's `.controller.disabled`: the whole row at
    `opacity: 0.5` with its name dimmed to 0.38, and the value input

@@ -4,10 +4,7 @@ import {
   glyphMapContourIntervalLevels,
   GlyphMapClassifiers,
   type GlyphMapAttribution,
-  type GlyphMapBounds,
   type GlyphMapHandle,
-  glyphMapProtomapsLayers,
-  type GlyphMapProtomapsExtract,
   type GlyphMapProvider,
   type GlyphMapVectorProvider,
   type GlyphMapView,
@@ -23,13 +20,11 @@ import { createPlaceTilesProvider } from "../../lib/placeTilesProvider";
 import { createCountryTilesProvider, COUNTRY_PRIORITY_PROPERTY, COUNTRY_PRIORITY_RANGE } from "../../lib/countryTilesProvider";
 import {
   MAP_OSM_DEFAULT_ON,
-  MAP_OSM_FLY_TILT,
   MAP_OSM_SUBLAYERS,
-  createOsmExtract,
-  mapOsmCoverage,
-  mapOsmExtentLabel,
-  mapOsmExtractSummary,
-  mapOsmFlyToTarget,
+  createOsmSource,
+  mapOsmLayers,
+  mapOsmMissingTilesLabel,
+  mapOsmSourceLabel,
 } from "./mapsOsm";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
@@ -165,14 +160,23 @@ export default function MapsWorkbench() {
   const [vectorProvider, setVectorProvider] = useState<(GlyphMapVectorProvider & { readonly simplify?: string }) | null>(null);
   const [placeProvider, setPlaceProvider] = useState<GlyphMapVectorProvider | null>(null);
   const [countryProvider, setCountryProvider] = useState<GlyphMapVectorProvider | null>(null);
-  // The vendored OpenStreetMap (Protomaps) extract. Loaded lazily — the page
-  // should not pay 150 KB for a layer nobody turned on — and deliberately
-  // NOT a `GlyphMapVectorProvider`: the archive is Web Mercator addressed
-  // while every pyramid this widget sweeps is equal-angle, and it is two
-  // tiles at one zoom, so there is no LOD ladder for a provider to select
-  // across (`vector/protomaps.ts`'s own doc has the arithmetic).
-  const [osmExtract, setOsmExtract] = useState<GlyphMapProtomapsExtract | null>(null);
-  const [osmError, setOsmError] = useState<string | null>(null);
+  // OpenStreetMap: OpenFreeMap's planet, swept on demand like every other
+  // provider on this page. Constructed once and eagerly — building it opens
+  // no connection and reads no manifest (`vector/openfreemap.ts` uses the
+  // service's documented `latest` alias precisely so there is no round trip),
+  // so there is nothing to defer and no loading state to render. Tiles are
+  // fetched by the widget's own sweep, only for layers that are mounted.
+  const osmMissingTiles = useRef(0);
+  const [osmMissing, setOsmMissing] = useState<string | null>(null);
+  const osmSource = useMemo(
+    () => createOsmSource({
+      onError: () => {
+        osmMissingTiles.current += 1;
+        setOsmMissing(mapOsmMissingTilesLabel(osmMissingTiles.current));
+      },
+    }),
+    [],
+  );
   const [showOsm, setShowOsm] = useState(false);
   const [osmSublayers, setOsmSublayers] = useState<Record<string, boolean>>(
     () => Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, MAP_OSM_DEFAULT_ON.includes(s.id)])),
@@ -333,7 +337,6 @@ export default function MapsWorkbench() {
   const [maxSpan, setMaxSpan] = useState(360);
   const [degPerCell, setDegPerCell] = useState(0);
   const [viewGrid, setViewGrid] = useState<{ readonly cols: number; readonly rows: number }>({ cols: 160, rows: 64 });
-  const [osmInCoverage, setOsmInCoverage] = useState(false);
 
   const [palette, setPalette] = useState<MapPaletteName>(initial.palette);
 
@@ -441,20 +444,6 @@ export default function MapsWorkbench() {
   }
 
   /**
-   * Fly to the extract, LEVEL. `tilt` is set on both the page (so the Dock's
-   * own slider agrees) and the widget, because a city-scale flight that kept
-   * the page's default 40 degrees would arrive with the destination far off
-   * the grid — see `MAP_OSM_FLY_TILT`.
-   */
-  const flyToOsm = useCallback((bounds: GlyphMapBounds) => {
-    const map = mapRef.current;
-    if (!map) return;
-    setTilt(MAP_OSM_FLY_TILT);
-    map.setTilt(MAP_OSM_FLY_TILT);
-    void map.flyTo(mapOsmFlyToTarget(bounds));
-  }, []);
-
-  /**
    * The search overlay's two hooks into the page.
    *
    * The index is built from the SAME providers the layers already use, held
@@ -484,8 +473,10 @@ export default function MapsWorkbench() {
   }, []);
 
   /**
-   * Fly to a search result, LEVEL — same discipline as `flyToOsm` above and
-   * for the same reason (`mapsSearch.ts`'s `MAP_SEARCH_FLY_TILT`). The
+   * Fly to a search result, LEVEL: `tilt` adds an ABSOLUTE camera pitch on an
+   * orbit projection while the field of view shrinks with the zoom, so at city
+   * scale the page's default 40 degrees puts the destination thousands of rows
+   * off the grid (`mapsSearch.ts`'s `MAP_SEARCH_FLY_TILT`). The
    * levelling and the flight both live in `flyToMapSearchResult` so a test
    * driving the real widget can assert, via `map.project()`, that the
    * destination actually lands on the grid.
@@ -531,11 +522,8 @@ export default function MapsWorkbench() {
     model: extraLayerInputs("model"),
     osm: {
       visible: showOsm, onVisible: setShowOsm,
-      summary: osmExtract ? mapOsmExtractSummary(osmExtract) : null,
-      extent: osmExtract ? mapOsmExtentLabel(osmExtract.bounds) : null,
-      error: osmError,
-      inCoverage: osmInCoverage,
-      onFlyTo: () => { if (osmExtract) flyToOsm(osmExtract.bounds); },
+      source: mapOsmSourceLabel(osmSource),
+      missing: osmMissing,
       sublayers: MAP_OSM_SUBLAYERS.map((spec) => ({ id: spec.id, label: spec.label, on: osmSublayers[spec.id] ?? false })),
       onSublayer: (id, on) => setOsmSublayers((prev) => ({ ...prev, [id]: on })),
       density: osmDensity, onDensity: setOsmDensity,
@@ -615,8 +603,6 @@ export default function MapsWorkbench() {
   exaggerationRef.current = exaggeration;
   const sunRef = useRef({ mode: sunMode, day: sunDay, hour: sunHour });
   sunRef.current = { mode: sunMode, day: sunDay, hour: sunHour };
-  const osmBoundsRef = useRef<GlyphMapBounds | null>(null);
-  osmBoundsRef.current = osmExtract?.bounds ?? null;
 
   // ── Load the baked ETOPO1 tile provider once. ──────────────────────────
   useEffect(() => {
@@ -801,14 +787,6 @@ export default function MapsWorkbench() {
       const deg = v.span / v.cols;
       setDegPerCell(deg);
       setViewGrid((prev) => (prev.cols === v.cols && prev.rows === v.rows ? prev : { cols: v.cols, rows: v.rows }));
-      // OSM coverage is asked of the WIDGET, not of `v.center`: `tilt`
-      // rotates an orbit projection's camera by an absolute angle while the
-      // field of view shrinks with the zoom, so at city scale the centre is
-      // thousands of rows off the grid and a geographic box comparison would
-      // report "in view" for a frame that draws none of the data
-      // (`mapOsmCoverage`'s own doc).
-      const osmBounds = osmBoundsRef.current;
-      setOsmInCoverage(osmBounds !== null && mapOsmCoverage(osmBounds, (p) => map.project(p), v.cols, v.rows).inCoverage);
       if (provider) {
         const zooms = [...provider.zooms].sort((a, b) => a.z - b.z);
         let chosen = zooms[0]?.z ?? 0;
@@ -1128,60 +1106,29 @@ export default function MapsWorkbench() {
 
   // ── The OpenStreetMap card.
   //
-  //    Loaded LAZILY, on first enable: the archive is 150 KB and a reader who
-  //    never opens the card should not pay for it.
+  //    Mount/unmount the mapped layers on the shared OpenFreeMap source. The
+  //    widget's own sweep then streams whatever the current view is looking
+  //    at, so there is nothing to preload and nowhere to fly to: enabling the
+  //    card over the Pacific draws the Pacific.
   //
-  //    Its extent is the whole design problem — a ~4 km box at zoom 12 on a
-  //    page that opens on the globe — so enabling the card FLIES to the
-  //    extract. Without that the toggle's honest outcome is "nothing visibly
-  //    happened", which is indistinguishable from a broken layer. The card's
-  //    own `extent`/`coverage` rows carry the standing explanation; this is
-  //    just the one-time "here is where it is". ───────────────────────────
-  useEffect(() => {
-    if (!showOsm || osmExtract || osmError) return;
-    let cancelled = false;
-    createOsmExtract()
-      .then((e) => { if (!cancelled) setOsmExtract(e); })
-      .catch((err: unknown) => { if (!cancelled) setOsmError(err instanceof Error ? err.message : String(err)); });
-    return () => { cancelled = true; };
-  }, [showOsm, osmExtract, osmError]);
-
-  // Fly ONLY on the enable edge, never on a sublayer toggle or a re-render —
-  // a flight that re-triggered while the reader is panning would fight them
-  // for the camera.
-  const osmFlownFor = useRef<GlyphMapProtomapsExtract | null>(null);
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !showOsm || !osmExtract) return;
-    if (osmFlownFor.current === osmExtract) return;
-    osmFlownFor.current = osmExtract;
-    flyToOsm(osmExtract.bounds);
-  }, [showOsm, osmExtract, flyToOsm]);
-  useEffect(() => { if (!showOsm) osmFlownFor.current = null; }, [showOsm]);
-
-  // Mount/unmount the mapped layers. `glyphMapProtomapsLayers` hands back
-  // ready-to-mount layers whose `source` already carries the ODbL
-  // OpenStreetMap credit, so `map.getAttributions()` picks the credit up from
-  // the mounted layer itself — nothing here writes an attribution string.
+  //    `mapOsmLayers` hands back ready-to-mount layers whose `source` already
+  //    carries the ODbL OpenStreetMap credit, so `map.getAttributions()`
+  //    picks the credit up from the mounted layer itself — nothing here
+  //    writes an attribution string. ────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     for (const { id } of MAP_OSM_SUBLAYERS) map.removeLayer(id);
-    if (showOsm && osmExtract) {
-      const wanted = MAP_OSM_SUBLAYERS.filter((s) => osmSublayers[s.id]).map((s) => s.id);
-      for (const layer of glyphMapProtomapsLayers(osmExtract, {
-        include: wanted,
-        densities: Object.fromEntries(wanted.map((id) => [id, osmDensity])),
-      })) {
-        map.addLayer(layer);
-      }
+    if (showOsm) {
+      const enabled = MAP_OSM_SUBLAYERS.filter((s) => osmSublayers[s.id]).map((s) => s.id);
+      for (const layer of mapOsmLayers(osmSource, { enabled, density: osmDensity })) map.addLayer(layer);
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
     // `provider`/`vectorProvider` are dependencies for the same reason the
     // borders and demo-layer effects list them: those two are what rebuild
     // the widget instance, and a rebuilt widget has no layers on it.
-  }, [showOsm, osmExtract, osmSublayers, osmDensity, provider, vectorProvider]);
+  }, [showOsm, osmSource, osmSublayers, osmDensity, provider, vectorProvider]);
 
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,

@@ -1,111 +1,138 @@
 /**
- * The OSM card's coverage arithmetic.
+ * The /maps page's OpenStreetMap SOURCE.
  *
- * The vendored Protomaps extract is Zürich at zoom 12 — roughly 4 km across.
- * The /maps page opens on the whole world. So the honest presentation problem
- * is not "does the layer render" but "does the reader know WHY it renders
- * nothing when they are looking at the Pacific". These are the two pure
- * pieces of that: where the extract lands on the CURRENT frame, and where a
- * "show me the data" flight should go.
- *
- * Coverage asks the widget's own projector rather than comparing geographic
- * boxes, and the third test here is why: `tilt` rotates an orbit projection's
- * CAMERA by an absolute angle while the field of view shrinks with the zoom,
- * so at city scale the page's default 40° tilt puts `view.center` thousands
- * of rows off the grid. A box comparison would report "in view" for a frame
- * that draws none of the data.
+ * The page used to fetch one vendored 150 KB Protomaps extract of Zürich and
+ * present a whole apparatus around the fact that its data covered four square
+ * kilometres of a globe-scale page. It now mounts OpenFreeMap's planet
+ * pyramid, so the questions worth pinning are different ones: is the source
+ * the PROVIDER (swept on demand) rather than a fixed archive URL, does the
+ * default point at OpenFreeMap's own public hosting rather than at anyone's
+ * private infrastructure, does a self-hosted URL still get in, and does the
+ * page pay for one tile fetch per tile rather than one per mounted layer.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  MAP_OSM_FLY_PADDING,
-  MAP_OSM_FLY_TILT,
-  MAP_OSM_MIN_VIEW_FRACTION,
-  mapOsmCoverage,
-  mapOsmFlyToTarget,
-  type MapOsmProject,
+  GLYPH_MAP_OPENFREEMAP_ATTRIBUTION,
+  GLYPH_MAP_OPENFREEMAP_TILE_URL,
+  GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
+  glyphMapMercatorTileRange,
+} from "@glyphcss/maps";
+import {
+  MAP_OSM_DEFAULT_ON,
+  MAP_OSM_SOURCE_LAYERS,
+  MAP_OSM_SUBLAYERS,
+  createOsmSource,
+  mapOsmMissingTilesLabel,
+  mapOsmSourceLabel,
 } from "./mapsOsm";
 
-/** The vendored archive's own header bbox — `packages/maps/fixtures/pmtiles/zurich-z12.pmtiles`. */
-const ZURICH = { west: 8.52, east: 8.56, south: 47.36, north: 47.39 };
+/** Bytes that decode to nothing, so a test can count requests without caring what came back. */
+const EMPTY = new Uint8Array(0).buffer;
 
-const COLS = 160;
-const ROWS = 64;
-
-/** A flat, untilted projector: the same aspect-locked mapping an equirectangular view uses. */
-function flatProjector(centerLon: number, centerLat: number, span: number): MapOsmProject {
-  const latSpan = (span * ROWS) / COLS;
-  return ([lon, lat]) => {
-    const col = ((lon - centerLon) / span + 0.5) * COLS;
-    const row = (0.5 - (lat - centerLat) / latSpan) * ROWS;
-    return { col, row, visible: col >= 0 && col < COLS && row >= 0 && row < ROWS };
-  };
-}
-
-describe("mapOsmCoverage", () => {
-  it("is not coverage on a whole-world view — the extract is a fiftieth of one cell", () => {
-    const c = mapOsmCoverage(ZURICH, flatProjector(0, 0, 360), COLS, ROWS);
-    // It IS on screen. That is exactly why "on screen" is not the test.
-    expect(c.onScreen).toBe(true);
-    expect(c.screenFraction).toBeLessThan(MAP_OSM_MIN_VIEW_FRACTION);
-    expect(c.inCoverage).toBe(false);
+describe("createOsmSource", () => {
+  it("is the OpenFreeMap planet PROVIDER, not a fixed archive to be fetched whole", () => {
+    const source = createOsmSource();
+    // A provider: the widget sweeps it per view. An extract would have had
+    // `features`/`sources` and no `loadTile` at all.
+    expect(typeof source.loadTile).toBe("function");
+    expect(source.zooms.map((l) => l.z)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    // Web Mercator addressing, declared as a capability — without it the
+    // sweep would index `y` through latitude and request tiles the service
+    // does not hold (`vector/mercator.ts`).
+    expect(source.tileRange).toBe(glyphMapMercatorTileRange);
   });
 
-  it("is coverage once the view is framed on the extract", () => {
-    const c = mapOsmCoverage(ZURICH, flatProjector(8.54, 47.375, 0.06), COLS, ROWS);
-    expect(c.onScreen).toBe(true);
-    expect(c.screenFraction).toBeGreaterThan(0.5);
-    expect(c.inCoverage).toBe(true);
+  it("defaults to OpenFreeMap's own public hosting, never a bucket of someone else's", async () => {
+    const fetchTile = vi.fn(async (_url: string) => EMPTY);
+    await createOsmSource({ fetchTile }).loadTile(12, 2145, 1434);
+    expect(fetchTile.mock.calls[0][0]).toBe("https://tiles.openfreemap.org/planet/latest/12/2145/1434.pbf");
+    expect(GLYPH_MAP_OPENFREEMAP_TILE_URL).toContain("tiles.openfreemap.org");
   });
 
-  it("is not coverage when a close-in view sits beside the extract", () => {
-    expect(mapOsmCoverage(ZURICH, flatProjector(9.2, 47.375, 0.06), COLS, ROWS).inCoverage).toBe(false);
-    expect(mapOsmCoverage(ZURICH, flatProjector(8.54, 48.2, 0.06), COLS, ROWS).inCoverage).toBe(false);
+  it("takes a self-hosted archive URL as an OPT-IN, keeping OpenFreeMap the default", async () => {
+    const fetchTile = vi.fn(async (_url: string) => EMPTY);
+    const source = createOsmSource({ tileUrl: "/tiles/planet/{z}/{x}/{y}.pbf", fetchTile });
+    await source.loadTile(3, 4, 5);
+    expect(fetchTile.mock.calls[0][0]).toBe("/tiles/planet/3/4/5.pbf");
   });
 
-  it("is not coverage when the camera is pointed away, even though the view CENTRE is the extract", () => {
-    // What a tilted orbit projection actually answers at city scale: the
-    // point is geometrically fine and lands thousands of rows off the grid.
-    const tilted: MapOsmProject = () => ({ col: 67.5, row: -22775.5, visible: false });
-    const c = mapOsmCoverage(ZURICH, tilted, COLS, ROWS);
-    expect(c.onScreen).toBe(false);
-    expect(c.inCoverage).toBe(false);
+  it("carries the ODbL credit the mounted layers derive their attribution from", () => {
+    expect(createOsmSource().attribution).toEqual(GLYPH_MAP_OPENFREEMAP_ATTRIBUTION);
+    expect(createOsmSource().attribution?.map((a) => a.name)).toContain("OpenStreetMap contributors");
   });
 
-  it("reports nothing at all when the projector answers NaN (the far hemisphere)", () => {
-    const behind: MapOsmProject = () => ({ col: NaN, row: NaN, visible: false });
-    expect(mapOsmCoverage(ZURICH, behind, COLS, ROWS)).toEqual({ onScreen: false, screenFraction: 0, inCoverage: false });
+  it("decodes only the source layers the card can actually render", async () => {
+    // A z14 city tile carries thousands of housenumbers and street-name
+    // labels this page has no row for; decoding them is pure cost.
+    for (const name of MAP_OSM_SOURCE_LAYERS) expect(GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS).toContain(name);
+    expect(MAP_OSM_SOURCE_LAYERS).not.toContain("housenumber");
+    expect(MAP_OSM_SOURCE_LAYERS).not.toContain("transportation_name");
+    expect([...MAP_OSM_SOURCE_LAYERS].sort()).toEqual(
+      [...new Set(MAP_OSM_SUBLAYERS.map((s) => s.sourceLayer))].sort(),
+    );
   });
 
-  it("is coverage when the view straddles the extract's edge", () => {
-    expect(mapOsmCoverage(ZURICH, flatProjector(8.555, 47.375, 0.06), COLS, ROWS).inCoverage).toBe(true);
+  /**
+   * Every mounted layer runs its OWN tile sweep with its OWN cache
+   * (`widget.ts`'s `createFeatureLayerRuntime`), so N enabled rows on one
+   * provider are N requests for the SAME tile in the same tick. Deduping
+   * in-flight requests is what keeps "one tile at a world view" true of the
+   * network rather than only of the sweep.
+   */
+  it("asks the network once for a tile several mounted layers want at the same time", async () => {
+    const fetchTile = vi.fn(async () => { await Promise.resolve(); return EMPTY; });
+    const source = createOsmSource({ fetchTile });
+    const tiles = await Promise.all([source.loadTile(0, 0, 0), source.loadTile(0, 0, 0), source.loadTile(0, 0, 0)]);
+    expect(fetchTile).toHaveBeenCalledTimes(1);
+    // Each caller still gets a real tile, not a shared mutable one.
+    for (const tile of tiles) expect(tile.bounds.west).toBeCloseTo(-180, 6);
+  });
+
+  it("re-asks once the earlier request has settled, so nothing is pinned in memory forever", async () => {
+    const fetchTile = vi.fn(async () => EMPTY);
+    const source = createOsmSource({ fetchTile });
+    await source.loadTile(0, 0, 0);
+    await source.loadTile(0, 0, 0);
+    expect(fetchTile).toHaveBeenCalledTimes(2);
+  });
+
+  it("degrades quietly on a failing tile and reports it through onError", async () => {
+    const onError = vi.fn();
+    const source = createOsmSource({ onError, fetchTile: async () => { throw new Error("504 Gateway Timeout"); } });
+    const tile = await source.loadTile(9, 1, 1);
+    expect(tile.layers).toEqual({});
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][1]).toEqual({ z: 9, x: 1, y: 1 });
   });
 });
 
-describe("mapOsmFlyToTarget", () => {
-  it("frames the extract's own box, padded so its edges are not on the screen edge", () => {
-    const target = mapOsmFlyToTarget(ZURICH);
-    expect(target.bounds.west).toBeLessThan(ZURICH.west);
-    expect(target.bounds.east).toBeGreaterThan(ZURICH.east);
-    expect(target.bounds.south).toBeLessThan(ZURICH.south);
-    expect(target.bounds.north).toBeGreaterThan(ZURICH.north);
-    // Padding is a FRACTION of the extract, not a fixed number of degrees —
-    // a fixed one would swamp a 0.04-degree box and be invisible on a large one.
-    const padLon = (ZURICH.east - ZURICH.west) * MAP_OSM_FLY_PADDING;
-    expect(target.bounds.west).toBeCloseTo(ZURICH.west - padLon, 10);
-    expect(target.bounds.east).toBeCloseTo(ZURICH.east + padLon, 10);
+describe("what the card says about the source", () => {
+  it("names the service, the schema and the zoom ladder — all read off the provider", () => {
+    expect(mapOsmSourceLabel(createOsmSource())).toBe("OpenFreeMap · OpenMapTiles · z0–14");
   });
 
-  it("lands somewhere `mapOsmCoverage` then agrees is in coverage", () => {
-    const { bounds } = mapOsmFlyToTarget(ZURICH);
-    const project = flatProjector(
-      (bounds.west + bounds.east) / 2,
-      (bounds.south + bounds.north) / 2,
-      bounds.east - bounds.west,
-    );
-    expect(mapOsmCoverage(ZURICH, project, COLS, ROWS).inCoverage).toBe(true);
+  it("says nothing at all while every tile is arriving", () => {
+    expect(mapOsmMissingTilesLabel(0)).toBeNull();
   });
 
-  it("levels the tilt — a city-scale flight that kept 40 degrees would arrive off screen", () => {
-    expect(MAP_OSM_FLY_TILT).toBe(0);
+  it("says how many tiles are missing when some are — the layer is thinner, not broken", () => {
+    expect(mapOsmMissingTilesLabel(1)).toBe("1 tile unavailable");
+    expect(mapOsmMissingTilesLabel(7)).toBe("7 tiles unavailable");
+  });
+});
+
+describe("which rows the card offers", () => {
+  it("offers one row per OpenMapTiles spec, defaulting to the ones with data at world scale", () => {
+    const ids = MAP_OSM_SUBLAYERS.map((s) => s.id);
+    expect(ids).toContain("omt-roads");
+    expect(ids).toContain("omt-water");
+    expect(ids).toContain("omt-buildings");
+    // Protomaps' vocabulary is gone with the extract — this is the
+    // OpenMapTiles schema now, and the ids are not interchangeable.
+    expect(ids.every((id) => id.startsWith("omt-"))).toBe(true);
+    for (const id of MAP_OSM_DEFAULT_ON) expect(ids).toContain(id);
+    // `building` starts at z13 and `transportation` at z4, so a default-on
+    // buildings row would draw nothing on the page's own opening view.
+    expect(MAP_OSM_DEFAULT_ON).not.toContain("omt-buildings");
   });
 });

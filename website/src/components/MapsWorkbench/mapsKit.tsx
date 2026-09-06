@@ -888,31 +888,25 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
 /**
  * The OpenStreetMap card's inputs.
  *
- * Every other card on this page draws data that covers the whole globe. This
- * one does not: the shipped Protomaps archive is a reviewed ~4 km extract of
- * Zürich at zoom 12 (`packages/maps/fixtures/pmtiles/zurich-z12.pmtiles`,
- * self-hosted — see `mapsOsm.ts` on why nothing here points at Protomaps'
- * own buckets). A world-scale OSM pyramid is gigabytes and is deliberately
- * not baked.
+ * This card used to carry three rows and a button that existed only because
+ * its DATA was a vendored ~4 km extract of Zürich on a page that opens on the
+ * globe: what the extract held, what box it covered, whether the view was
+ * currently on that box, and a flight to it. The source is now OpenFreeMap's
+ * whole planet, swept on demand (`mapsOsm.ts`), so there is no box to be
+ * outside of and nowhere in particular to fly to — all four are gone rather
+ * than kept as controls that would state a coverage limit that no longer
+ * exists.
  *
- * So the card owes the reader three facts rather than one, and all three are
- * rows, not a tooltip: WHAT the extract holds (`summary`), WHAT BOX it covers
- * (`extent`), and whether the view is currently ON that box (`inCoverage`) —
- * with `onFlyTo` one click away. Enabling the card also flies there, so the
- * toggle produces a visible result instead of nothing at all.
+ * What is left is one provenance row and, only while it is true, one line
+ * saying that some tiles did not arrive.
  */
 export interface OsmLayerInputs {
   visible: boolean; onVisible: (v: boolean) => void;
-  /** `null` until the archive resolves. */
-  summary: string | null;
-  /** `null` until the archive resolves. */
-  extent: string | null;
-  /** Shown in place of `summary` when the archive failed to load — never an empty card. */
-  error: string | null;
-  /** Whether the CURRENT view is looking at enough of the extract to see it (`mapOsmInCoverage`). */
-  inCoverage: boolean;
-  onFlyTo: () => void;
-  /** One row per mapped Protomaps layer (`GLYPH_MAP_PROTOMAPS_LAYERS`). */
+  /** Where the data comes from — service, schema and zoom ladder, read off the provider (`mapOsmSourceLabel`). */
+  source: string;
+  /** `null` when every tile arrived; otherwise how many did not (`mapOsmMissingTilesLabel`). */
+  missing: string | null;
+  /** One row per mapped OpenMapTiles layer (`GLYPH_MAP_OPENMAPTILES_LAYERS`). */
   sublayers: readonly { readonly id: string; readonly label: string; readonly on: boolean }[];
   onSublayer: (id: string, on: boolean) => void;
   density: number; onDensity: (v: number) => void;
@@ -1220,32 +1214,29 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
       {extra("Fill extrusion", fillExtrusion)}
       {extra("Model", model)}
       <LayerCard label="OpenStreetMap" visible={osm.visible} onVisible={osm.onVisible}>
-        <InfoRow label="data" value={osm.error ?? osm.summary ?? "loading\u2026"} />
-        <InfoRow label="extent" value={osm.extent ?? "\u2014"} />
+        <InfoRow label="source" value={osm.source} />
         {/*
-          The one row that is not provenance: it answers "why is nothing
-          drawing", which for this layer is the expected state rather than a
-          fault. The button beside it is the fix, not a separate feature.
+          Only while it is true. A tile that 404s or times out leaves that
+          region without data for the frame and the rest of the view intact,
+          so this says how many are missing rather than letting a thinner
+          render read as a broken layer.
         */}
-        <div
-          className="maps-layer-info-row maps-layer-action-row"
-          title="Coverage \u2014 the shipped OSM extract covers a few square kilometres of Z\u00fcrich at zoom 12. Outside that box the archive has no data at all; this row says whether the current view is on it."
-        >
-          <span>coverage</span>
-          <span className={osm.inCoverage ? "maps-layer-info-value" : "maps-layer-info-value maps-layer-info-warn"}>
-            {osm.inCoverage ? "in view" : "no data in view"}
-          </span>
-          <button type="button" className="maps-layer-action" onClick={osm.onFlyTo} title="Fly the map to the extract's own extent.">
-            fly
-          </button>
-        </div>
+        {osm.missing === null ? null : (
+          <div
+            className="maps-layer-info-row"
+            title="Tiles the service did not return this frame. That region simply has no data right now; everything else still drew."
+          >
+            <span>tiles</span>
+            <span className="maps-layer-info-value maps-layer-info-warn">{osm.missing}</span>
+          </div>
+        )}
         {osm.sublayers.map((s) => (
           <BoolRow
             key={s.id}
             label={s.label}
             value={s.on}
             onChange={(v) => osm.onSublayer(s.id, v)}
-            title={`${s.label} \u2014 the Protomaps basemap layer this maps onto (OpenStreetMap data, ODbL).`}
+            title={`${s.label} \u2014 the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
           />
         ))}
         <DensityRow label="OpenStreetMap" density={osm.density} onDensity={osm.onDensity} enabled={true} />

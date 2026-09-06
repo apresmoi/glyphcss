@@ -1,173 +1,165 @@
 /**
- * The /maps page's OpenStreetMap slice: loading the self-hosted Protomaps
- * extract, and the coverage arithmetic the rail card needs to be HONEST about
- * what that extract holds.
+ * The /maps page's OpenStreetMap slice: the source it mounts, and the two
+ * strings the rail card shows about it.
  *
- * ## Hosting
+ * ## The source is the planet, on demand
  *
- * The shipped archive is the reviewed extract vendored at
- * `packages/maps/fixtures/pmtiles/zurich-z12.pmtiles`, copied into
- * `public/data/osm/` by `scripts/copy-osm-fixture.mjs` at dev/build time (the
- * same one-source-of-truth copy `copy-skill.mjs` does). Protomaps ask people
- * to SELF-HOST rather than read from their buckets, and their public demo
- * bucket 404s, so no default here points at anyone else's infrastructure.
- * {@link createOsmExtract} accepts a caller-supplied URL for a self-hosted
- * archive of your own; that is opt-in and never a default.
+ * This page used to fetch ONE vendored 150 KB Protomaps archive — a reviewed
+ * ~4 km extract of Zürich at zoom 12 — read it whole, and then spend a whole
+ * card explaining that its data covered four square kilometres of a page that
+ * opens on the globe: an extent row, a live in/out-of-coverage row, and a
+ * "fly there" button whose only job was to make the toggle produce a visible
+ * result. All three existed because the DATA was wrong, not because the
+ * presentation was.
  *
- * The archive is fetched WHOLE (150 KB) rather than by HTTP range request.
- * Ranges are the right transport for a large hosted pyramid and the wrong one
- * for an extract smaller than the round-trips it takes to page in — and they
- * additionally need the host to honour `Range`, which a static dev server or
- * a `file://` page may not.
+ * The data is now {@link glyphMapOpenFreeMapProvider}: OpenFreeMap's whole
+ * planet, OpenMapTiles schema, z0–z14, served with no API key and no
+ * registration (`packages/maps/src/vector/openfreemap.ts` documents the
+ * endpoint and how each fact about it was verified). It is a
+ * `GlyphMapVectorProvider`, so the widget's existing sweep — tile cache,
+ * in-flight guard, 180 ms gesture-gated debounce, LOD by degrees-per-cell —
+ * streams whatever the current view is looking at. Panning to Osaka now
+ * shows Osaka, so the extent/coverage/fly apparatus is gone with the extract
+ * that needed it.
  *
- * ## Coverage
+ * Nothing here points at anyone's private infrastructure: OpenFreeMap
+ * explicitly offers this hosting publicly, which is why it is the default.
+ * {@link MapOsmSourceOptions.tileUrl} is the opt-in for a planet you host
+ * yourself (OpenFreeMap publish Btrfs/MBTiles images for exactly that), and
+ * it takes the same `{z}/{x}/{y}` template every other OpenMapTiles endpoint
+ * does.
  *
- * The extract is a ~4 km box at one zoom. The page opens on the whole world.
- * Three things together keep that from reading as "the layer is broken":
- *  1. enabling the card FLIES to the extract, levelling the tilt on the way
- *     ({@link mapOsmFlyToTarget}, {@link MAP_OSM_FLY_TILT}), so the toggle
- *     produces a visible result rather than nothing;
- *  2. the card states the extent permanently, as a fact about the data;
- *  3. a live in/out-of-coverage line says whether the CURRENT view is on the
- *     data ({@link mapOsmCoverage}), so panning away explains itself.
+ * ## Why the loader is wrapped
+ *
+ * Every mounted layer runs its OWN tile sweep with its OWN cache
+ * (`widget.ts`'s `createFeatureLayerRuntime`), and this card mounts up to ten
+ * layers on ONE provider. Their sweeps run in the same tick, so without
+ * deduplication a world view costs one request per ENABLED ROW for the very
+ * same `0/0/0`. {@link createOsmSource} therefore shares in-flight requests
+ * by address. In-flight only, never a retained cache: each layer runtime
+ * already retains what it fetched, so a second cache here would pin the
+ * whole panned-over planet in memory to save a hit the browser's own HTTP
+ * cache already absorbs.
+ *
+ * ## Failure
+ *
+ * A tile that 404s, times out or arrives undecodable resolves EMPTY — that
+ * region has no data this frame, the rest of the frame is unaffected, and
+ * the layer never blanks (the provider's own contract; `openfreemap.test.ts`
+ * pins all three cases). {@link MapOsmSourceOptions.onError} is how the card
+ * still gets to say so instead of the reader guessing.
  */
 import {
-  glyphMapPMTilesBufferSource,
-  glyphMapProtomapsExtract,
-  GLYPH_MAP_PROTOMAPS_LAYERS,
-  type GlyphMapBounds,
-  type GlyphMapProtomapsExtract,
+  GLYPH_MAP_OPENMAPTILES_LAYERS,
+  glyphMapOpenFreeMapProvider,
+  glyphMapOpenMapTilesLayers,
+  type GlyphMapVectorProvider,
+  type GlyphMapVectorTile,
 } from "@glyphcss/maps";
 
-/** Where `scripts/copy-osm-fixture.mjs` puts the vendored extract. Self-hosted, from this repo — never a third-party bucket. */
-export const MAP_OSM_ARCHIVE_URL = "/data/osm/zurich-z12.pmtiles";
-
-/** Human name for the shipped extract, used wherever the card names its data. */
-export const MAP_OSM_EXTRACT_LABEL = "Zürich";
-
-/** Fraction of the extract's own size added as margin when flying to it, so its edges are not flush with the viewport edge. */
-export const MAP_OSM_FLY_PADDING = 0.35;
+/** The card's rows, in the order the OpenMapTiles schema mapping declares them (ground → water → lines → buildings → labels). */
+export const MAP_OSM_SUBLAYERS = GLYPH_MAP_OPENMAPTILES_LAYERS.map((spec) => ({
+  id: spec.id,
+  label: spec.label,
+  type: spec.type,
+  sourceLayer: spec.sourceLayer,
+}));
 
 /**
- * The tilt the OSM flight levels to.
+ * The OpenMapTiles source layers this page can render — derived from the
+ * rows above rather than listed, so a row and its data can never drift apart.
  *
- * `tilt` ADDS to the projection's base orientation, so on an orbit
- * projection it rotates the CAMERA rather than the scene — and a rotation is
- * an absolute angle while the field of view shrinks with the zoom. At the
- * page's default 40 degrees the view centre is still on screen at span 360,
- * lands off the grid by span 40, and by the ~0.07 degrees this extract needs
- * it is more than twenty thousand rows off a 63-row grid. A flight into city
- * scale that kept the tilt would arrive with the destination nowhere near the
- * viewport, which is exactly the "the layer is broken" reading the flight
- * exists to prevent.
+ * Passing them narrows DECODING: a z14 city tile also carries every house
+ * number and every street-name label, and nothing on this page has a row for
+ * either.
  */
-export const MAP_OSM_FLY_TILT = 0;
+export const MAP_OSM_SOURCE_LAYERS: readonly string[] = [...new Set(MAP_OSM_SUBLAYERS.map((s) => s.sourceLayer))];
 
 /**
- * How much of the viewport the extract must span before it counts as "in
- * coverage". Being on screen is not the question a reader is asking: a
- * whole-world view does project Zürich onto a cell, and at span 360 over 160
- * columns the entire extract is a fiftieth of ONE CELL — present, and
- * invisible. A twentieth of the viewport is roughly the point at which the
- * data is a shape rather than a speck.
+ * Which rows start on.
+ *
+ * `water`, `boundary` and `place` carry data from z0 and `transportation`
+ * from z4, so these draw something on the page's own opening view. `building`
+ * starts at z13 — a default-on buildings row would be an empty layer at every
+ * scale the page opens at, which is the exact "did I break it" reading this
+ * card spent its previous life apologising for.
  */
-export const MAP_OSM_MIN_VIEW_FRACTION = 0.05;
+export const MAP_OSM_DEFAULT_ON: readonly string[] = ["omt-water", "omt-waterways", "omt-roads", "omt-boundaries"];
 
-/** What {@link GlyphMapHandle.project} answers for one lon/lat — taken as a function so this stays pure and testable. */
-export type MapOsmProject = (lngLat: readonly [number, number]) => { readonly col: number; readonly row: number; readonly visible: boolean };
-
-/** Where the extract lands on the CURRENT frame: whether any of it is on the grid, and how much of the grid it spans. */
-export interface MapOsmCoverage {
-  readonly onScreen: boolean;
-  /** The extract's projected extent as a fraction of the viewport, on its larger axis. `0` when nothing projects. */
-  readonly screenFraction: number;
-  readonly inCoverage: boolean;
+export interface MapOsmSourceOptions {
+  /**
+   * `{z}/{x}/{y}` tile template. Omitted = OpenFreeMap's public planet. Set
+   * it to serve a planet you host yourself; that is opt-in and never a
+   * default.
+   */
+  readonly tileUrl?: string;
+  /** Transport seam — injected by tests, and where a self-hosted deployment would add a timeout or an auth header. */
+  readonly fetchTile?: (url: string, z: number, x: number, y: number) => Promise<ArrayBuffer>;
+  /** Called once per tile that failed to load or decode. The tile still resolves empty. */
+  readonly onError?: (error: unknown, tile: { readonly z: number; readonly x: number; readonly y: number }) => void;
 }
 
-/**
- * Ask the WIDGET where the extract is, rather than comparing geographic
- * boxes. `view.center` is not where an orbit projection is pointing once
- * `tilt` is nonzero (see {@link MAP_OSM_FLY_TILT}), so a box comparison would
- * cheerfully report "in view" for a frame that renders none of the data —
- * the one thing this row exists not to do. `project` already folds in the
- * projection, the camera, the tilt and the grid bounds.
- */
-export function mapOsmCoverage(
-  bounds: GlyphMapBounds,
-  project: MapOsmProject,
-  cols: number,
-  rows: number,
-): MapOsmCoverage {
-  // A 3x3 lattice over the extract: corners catch a box straddling the edge
-  // of the visible hemisphere, the centre catches a box smaller than the
-  // sampling step.
-  const lons = [bounds.west, (bounds.west + bounds.east) / 2, bounds.east];
-  const lats = [bounds.south, (bounds.south + bounds.north) / 2, bounds.north];
-  let onScreen = false;
-  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (const lon of lons) {
-    for (const lat of lats) {
-      const p = project([lon, lat]);
-      if (!Number.isFinite(p.col) || !Number.isFinite(p.row)) continue;
-      if (p.visible) onScreen = true;
-      minCol = Math.min(minCol, p.col); maxCol = Math.max(maxCol, p.col);
-      minRow = Math.min(minRow, p.row); maxRow = Math.max(maxRow, p.row);
-    }
-  }
-  if (!Number.isFinite(minCol)) return { onScreen: false, screenFraction: 0, inCoverage: false };
-  const screenFraction = Math.max((maxCol - minCol) / cols, (maxRow - minRow) / rows);
-  return { onScreen, screenFraction, inCoverage: onScreen && screenFraction >= MAP_OSM_MIN_VIEW_FRACTION };
-}
+/** The page's OSM source: OpenFreeMap's planet, decoded to this page's rows, with one network request per tile per tick. */
+export function createOsmSource(opts: MapOsmSourceOptions = {}): GlyphMapVectorProvider {
+  const provider = glyphMapOpenFreeMapProvider({
+    layers: MAP_OSM_SOURCE_LAYERS,
+    ...(opts.tileUrl === undefined ? {} : { tileUrl: opts.tileUrl }),
+    ...(opts.fetchTile === undefined ? {} : { fetchTile: opts.fetchTile }),
+    ...(opts.onError === undefined ? {} : { onError: opts.onError }),
+  });
 
-/** The `flyTo` target that frames an extract: its own box plus a proportional margin. */
-export function mapOsmFlyToTarget(bounds: GlyphMapBounds): { readonly bounds: GlyphMapBounds } {
-  const padLon = (bounds.east - bounds.west) * MAP_OSM_FLY_PADDING;
-  const padLat = (bounds.north - bounds.south) * MAP_OSM_FLY_PADDING;
+  const inFlight = new Map<string, Promise<GlyphMapVectorTile>>();
   return {
-    bounds: {
-      west: bounds.west - padLon,
-      east: bounds.east + padLon,
-      south: bounds.south - padLat,
-      north: bounds.north + padLat,
+    ...provider,
+    loadTile(z, x, y) {
+      const key = `${z}/${x}_${y}`;
+      const held = inFlight.get(key);
+      if (held) return held;
+      const pending = provider.loadTile(z, x, y).finally(() => { inFlight.delete(key); });
+      inFlight.set(key, pending);
+      return pending;
     },
   };
 }
 
-/** Which mapped layers the card offers, and which are on by default — roads and water are what "OSM" means to a reader. */
-export const MAP_OSM_DEFAULT_ON: readonly string[] = ["osm-roads", "osm-water", "osm-waterway", "osm-buildings"];
-
-/** The card's sublayer rows, in the order the schema mapping declares them. */
-export const MAP_OSM_SUBLAYERS = GLYPH_MAP_PROTOMAPS_LAYERS.map((spec) => ({
-  id: spec.id,
-  label: spec.label,
-  type: spec.type,
-}));
+export interface MapOsmLayerOptions {
+  /** Which {@link MAP_OSM_SUBLAYERS} rows are on. Order and membership come straight from the card. */
+  readonly enabled: readonly string[];
+  /** The card's one density slider, applied to every enabled row (glyphcss's per-mesh detail resolution / stroke overlay density). */
+  readonly density: number;
+}
 
 /**
- * Fetch and decode the self-hosted Protomaps extract.
+ * The layers the card's current state mounts, all sharing ONE source.
  *
- * `url` defaults to {@link MAP_OSM_ARCHIVE_URL}, this repo's own copy. Passing
- * another URL is the documented opt-in for an archive you host yourself.
+ * Every layer built here carries the provider's own attribution, so
+ * `map.getAttributions()` picks the ODbL credit up from the mounted layer
+ * itself — the page writes no attribution string anywhere.
  */
-export async function createOsmExtract(url: string = MAP_OSM_ARCHIVE_URL): Promise<GlyphMapProtomapsExtract> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(
-      `glyphcss website: failed to load the OSM extract at ${url} (${res.status}). Run "node website/scripts/copy-osm-fixture.mjs" first.`,
-    );
-  }
-  return glyphMapProtomapsExtract(glyphMapPMTilesBufferSource(await res.arrayBuffer(), url));
+export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOptions) {
+  return glyphMapOpenMapTilesLayers(source, {
+    include: opts.enabled,
+    densities: Object.fromEntries(opts.enabled.map((id) => [id, opts.density])),
+  });
 }
 
-/** One-line provenance for the card: what the extract holds, in the reader's terms. */
-export function mapOsmExtractSummary(extract: GlyphMapProtomapsExtract): string {
-  const layers = Object.keys(extract.sources).length;
-  const features = Object.values(extract.sources).reduce((n, s) => n + s.features.length, 0);
-  return `${MAP_OSM_EXTRACT_LABEL} · z${extract.zoom} · ${layers} layers · ${features.toLocaleString("en-US")} features`;
+/** The card's one provenance row — every part of it read off the provider, so it cannot describe a source the page is not mounting. */
+export function mapOsmSourceLabel(source: GlyphMapVectorProvider): string {
+  const zooms = source.zooms.map((l) => l.z);
+  const min = Math.min(...zooms);
+  const max = Math.max(...zooms);
+  return `OpenFreeMap · OpenMapTiles · z${min}–${max}`;
 }
 
-/** The extent line the card shows permanently — outside this box the archive has no data at all. */
-export function mapOsmExtentLabel(bounds: GlyphMapBounds): string {
-  const f = (v: number) => v.toFixed(2);
-  return `${f(bounds.west)},${f(bounds.south)} → ${f(bounds.east)},${f(bounds.north)}`;
+/**
+ * What to say when tiles did not arrive — `null` when none failed, which is
+ * the normal case and gets no row at all.
+ *
+ * Missing tiles are a THINNER frame, not a broken layer: the rest of the view
+ * drew from the tiles that did arrive. The row says how many so the reader
+ * can tell a patchy render from a bug in the page.
+ */
+export function mapOsmMissingTilesLabel(missing: number): string | null {
+  if (missing <= 0) return null;
+  return `${missing} tile${missing === 1 ? "" : "s"} unavailable`;
 }

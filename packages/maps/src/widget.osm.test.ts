@@ -131,9 +131,9 @@ describe("real OSM geometry reaches the grid", () => {
 });
 
 /**
- * Why the /maps page's OSM flight levels the tilt (`MAP_OSM_FLY_TILT`,
- * `website/src/components/MapsWorkbench/mapsOsm.ts`) rather than keeping the
- * page's default 40 degrees.
+ * Why every /maps camera flight levels the tilt (`MAP_SEARCH_FLY_TILT`,
+ * `website/src/components/MapsWorkbench/mapsSearch.ts`) rather than keeping
+ * the page's default 40 degrees.
  *
  * `tilt` ADDS to the projection's base orientation, so on an ORBIT
  * projection it rotates the camera by an ABSOLUTE angle while the field of

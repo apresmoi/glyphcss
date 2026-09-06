@@ -22,14 +22,17 @@ import {
 import { MAP_OSM_SUBLAYERS } from "./mapsOsm";
 
 /**
- * The OSM card is the one card on this page whose DATA DOES NOT COVER THE
- * VIEW. The vendored Protomaps extract is Zürich at zoom 12 — about 4 km —
- * and the page opens on the whole world, so a toggle that silently draws
- * nothing is the default outcome and is indistinguishable from a bug.
+ * The OSM card after the source became OpenFreeMap's planet.
  *
- * The card therefore has to say three things, and this file asserts all
- * three: what the extract holds, what box it covers, and whether the CURRENT
- * view is on that box — with a flight to it one click away.
+ * It used to be the one card whose DATA DID NOT COVER THE VIEW — a vendored
+ * ~4 km Zürich extract on a page that opens on the globe — and it carried an
+ * extent row, a live in/out-of-coverage row and a "fly there" button to
+ * explain and remedy that. All four are gone with the extract: there is no
+ * box to be outside of, so a coverage row could only ever lie.
+ *
+ * What is asserted here is what replaced them: one provenance row read off
+ * the provider, a missing-tiles line that exists ONLY when tiles are actually
+ * missing, and a toggle per OpenMapTiles layer.
  */
 
 let root: Root | null = null;
@@ -43,12 +46,9 @@ function extra(overrides: Partial<ExtraLayerInputs> = {}): ExtraLayerInputs {
 function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
   return {
     visible: true, onVisible: noop,
-    summary: "Zürich · z12 · 8 layers · 3,908 features",
-    extent: "8.52,47.36 → 8.56,47.39",
-    error: null,
-    inCoverage: true,
-    onFlyTo: noop,
-    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "osm-roads" })),
+    source: "OpenFreeMap · OpenMapTiles · z0–14",
+    missing: null,
+    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads" })),
     onSublayer: noop,
     density: 1, onDensity: noop,
     ...overrides,
@@ -112,30 +112,30 @@ afterEach(() => {
 });
 
 describe("LayersPanel — the OpenStreetMap card", () => {
-  it("states what the extract holds and the exact box it covers", () => {
+  it("states where the data comes from — service, schema and zoom ladder", () => {
+    expect(infoRows(render()).get("source")).toBe("OpenFreeMap · OpenMapTiles · z0–14");
+  });
+
+  it("has no extent or coverage row at all — the source is the planet", () => {
     const rows = infoRows(render());
-    expect(rows.get("data")).toBe("Zürich · z12 · 8 layers · 3,908 features");
-    expect(rows.get("extent")).toBe("8.52,47.36 → 8.56,47.39");
+    expect(rows.has("extent")).toBe(false);
+    expect(rows.has("coverage")).toBe(false);
+    // And no button offering to fly somewhere the data supposedly is.
+    expect(card(render()).querySelector("button.maps-layer-action")).toBeNull();
   });
 
-  it("says the view is ON the data when it is", () => {
-    expect(infoRows(render()).get("coverage")).toBe("in view");
+  it("says nothing about tiles while every tile is arriving", () => {
+    expect(infoRows(render()).has("tiles")).toBe(false);
   });
 
-  it("says the view is OFF the data when it is — the whole-world default", () => {
-    expect(infoRows(render({ inCoverage: false })).get("coverage")).toBe("no data in view");
+  it("says how many tiles are missing when some are", () => {
+    const rows = infoRows(render({ missing: "3 tiles unavailable" }));
+    expect(rows.get("tiles")).toBe("3 tiles unavailable");
+    const value = card(render({ missing: "3 tiles unavailable" })).querySelector(".maps-layer-info-value.maps-layer-info-warn");
+    expect(value?.textContent).toBe("3 tiles unavailable");
   });
 
-  it("offers a flight to the extract, and calls it", () => {
-    const onFlyTo = vi.fn();
-    const host = render({ inCoverage: false, onFlyTo });
-    const button = card(host).querySelector<HTMLButtonElement>("button.maps-layer-action");
-    expect(button).toBeTruthy();
-    act(() => { button!.click(); });
-    expect(onFlyTo).toHaveBeenCalledTimes(1);
-  });
-
-  it("carries one toggle per mapped layer, reflecting which are on", () => {
+  it("carries one toggle per mapped OpenMapTiles layer, reflecting which are on", () => {
     const host = render();
     const rows = Array.from(card(host).querySelectorAll(".maps-layer-bool-row"));
     const labels = rows.map((r) => r.querySelector("span")?.textContent);
@@ -146,12 +146,12 @@ describe("LayersPanel — the OpenStreetMap card", () => {
     expect(places!.querySelector<HTMLInputElement>("input")!.checked).toBe(false);
   });
 
-  it("reports a load failure in place of the summary rather than an empty card", () => {
-    const rows = infoRows(render({ summary: null, extent: null, error: "404 at /data/osm/zurich-z12.pmtiles" }));
-    expect(rows.get("data")).toBe("404 at /data/osm/zurich-z12.pmtiles");
-  });
-
-  it("says it is still loading before the archive resolves", () => {
-    expect(infoRows(render({ summary: null, extent: null })).get("data")).toBe("loading…");
+  it("routes a sublayer toggle back to the page", () => {
+    const onSublayer = vi.fn();
+    const host = render({ onSublayer });
+    const buildings = Array.from(card(host).querySelectorAll(".maps-layer-bool-row"))
+      .find((r) => r.querySelector("span")?.textContent === "Buildings");
+    act(() => { buildings!.querySelector<HTMLInputElement>("input")!.click(); });
+    expect(onSublayer).toHaveBeenCalledWith("omt-buildings", true);
   });
 });

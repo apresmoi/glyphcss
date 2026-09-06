@@ -66,8 +66,7 @@ function inputs(): LayersFolderInputs {
     // by this file's assertions (`LayersPanel.osm.test.tsx` owns that card).
     osm: {
       visible: false, onVisible: noop,
-      summary: null, extent: null, error: null,
-      inCoverage: false, onFlyTo: noop,
+      source: "OpenFreeMap · OpenMapTiles · z0–14", missing: null,
       sublayers: [], onSublayer: noop,
       density: 1, onDensity: noop,
     },
