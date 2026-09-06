@@ -581,14 +581,27 @@ Labels inherit the elevation window and the globe horizon from the ink they
 are derived from: a level outside `minElevation`/`maxElevation` has no ink and
 so no label, and no label (nor any part of one) is placed past the limb.
 
-### Extrusion heights are true metres
+### Extrusion heights are true metres, and extrusions stand on the terrain
 
 A `fill-extrusion`'s height (`heightProperty` x `heightScale`, or the flat
 `height`) is a REAL measured quantity and renders at true scale whatever the
-projection's terrain `exaggeration` is. Its BASE is not exempt: the ground a
-structure stands on is wherever the exaggerated relief puts it, so only the
-height on top of that base is true-scale. Without the split, a view at
-`/maps`' own default `exaggeration: 24` drew a 20 m OSM building 480 m tall.
+projection's terrain `exaggeration` is. Without the split, a view at `/maps`'
+own default `exaggeration: 24` drew a 20 m OSM building 480 m tall.
+
+The GROUND an extrusion stands on is not exempt, and it does not come from the
+feature at all: it is the terrain elevation under the footprint, read from the
+tiles the mounted `raster` layers actually have up, and it rides the
+`exaggeration` exactly like the relief mesh it is standing on. With no `raster`
+layer mounted the ground is the datum and nothing extra runs. One ground per
+polygon group, sampled at its own mean lon/lat: a structure is rigid, so its
+cap stays planar and its walls stay planar quads.
+
+`baseOffsetProperty` (default `min_height`) is the other half of what used to
+be a single absolute `base`, and it is a STRUCTURE measurement — how far up its
+own footing the drawn part starts, in TRUE metres above that ground, with the
+same exemption the height has. Feeding `min_height` in as a terrain elevation
+was the defect: with a `raster` layer mounted, every extrusion was planted at
+sea level, and a 60 m building over 400 m of ground drew not one cell.
 
 For a deliberately stylised skyline, scale the metres: `heightScale: 24` means
 "24 metres of extrusion per metre of building". There is no separate

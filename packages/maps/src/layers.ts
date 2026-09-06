@@ -376,17 +376,50 @@ export interface GlyphMapVectorMeshOptions {
    * a 20 m building 480 m tall and a 60 m block taller than anything on
    * Earth.
    *
-   * {@link base} is deliberately NOT exempt: that is a terrain elevation, and
-   * the ground a structure stands on is wherever the exaggerated relief puts
-   * it. Exempting the base instead — or as well — buries every extrusion
-   * inside the terrain it should be standing on.
+   * {@link groundElevation} is deliberately NOT exempt: that is a terrain
+   * elevation, and the ground a structure stands on is wherever the
+   * exaggerated relief puts it. Exempting the ground instead — or as well —
+   * buries every extrusion inside the terrain it should be standing on.
+   * {@link baseOffset}, which is a structure measurement like this one, IS
+   * exempt.
    *
    * A caller who WANTS a stylised skyline scales the metres it hands back
    * (`GlyphMapFillExtrusionLayer.heightScale` is exactly that knob).
    */
   readonly height?: (feature: GlyphMapVectorFeature) => number;
-  /** The feature's base elevation in metres on the terrain's own (exaggerated) axis — see {@link height}. */
-  readonly base?: (feature: GlyphMapVectorFeature) => number;
+  /**
+   * The TERRAIN elevation in metres under this piece of the feature — the
+   * ground it is planted on, on the terrain's own (exaggerated) axis, exactly
+   * as {@link glyphMapPolygons} lifts the relief mesh. Omitted (the default)
+   * = the datum, which is what a map with no terrain under it correctly
+   * renders and is byte-identical to not asking at all.
+   *
+   * Called ONCE per polygon GROUP, with that group's outer-ring mean lon/lat
+   * — the same representative point {@link glyphMapVectorMesh} already asks
+   * the projection for "up" at. A structure is RIGID: one ground per piece
+   * keeps its cap planar and its walls planar quads, and keeps
+   * {@link GlyphMapVectorWall}'s two elevations the scalars the horizon cull
+   * re-projects. Sampling per VERTEX instead would shear the cap over any
+   * slope and leave a wall no single pair of elevations describes.
+   *
+   * A non-finite answer discards the group, like any other vertex the
+   * projection cannot place ("crop, don't clamp").
+   */
+  readonly groundElevation?: (feature: GlyphMapVectorFeature, lon: number, lat: number) => number;
+  /**
+   * The feature's own base offset in TRUE METRES above {@link groundElevation}
+   * — OSM's `min_height`, i.e. how far up its own footing the drawn part of
+   * the structure starts.
+   *
+   * A STRUCTURE measurement, not a terrain one, so it takes exactly the
+   * exemption {@link height} takes ({@link glyphMapTrueScaleElevation}) and
+   * for the same reason: they are the same quantity in the same unit, one
+   * measured from the footing and one from the top of the offset. Feeding it
+   * onto the terrain axis instead — which is what a single absolute `base`
+   * did — draws a 20 m podium 480 m tall at `/maps`' default
+   * `exaggeration: 24`, the identical defect the height exemption fixed.
+   */
+  readonly baseOffset?: (feature: GlyphMapVectorFeature) => number;
 }
 
 /**
@@ -407,11 +440,17 @@ export interface GlyphMapVectorWall {
   readonly polygon: number;
   readonly a: readonly [lon: number, lat: number];
   readonly b: readonly [lon: number, lat: number];
-  /** The wall's BASE elevation — the feature's own `base`. */
+  /**
+   * The wall's BASE elevation, on the PROJECTION's own elevation axis — the
+   * ground under this piece of the feature plus its true-metre
+   * {@link GlyphMapVectorMeshOptions.baseOffset}. Like {@link elevTop} it is
+   * an AXIS elevation, so a wall standing on a mountain reaches the horizon
+   * from that mountain's own height, exactly as the relief mesh under it does.
+   */
   readonly elev: number;
   /**
    * The wall's TOP elevation, on the PROJECTION's own elevation axis — i.e.
-   * `base` plus the true-metre height converted by
+   * {@link elev} plus the true-metre height converted by
    * {@link glyphMapTrueScaleElevation}, not the raw metre count. It is fed
    * straight back through `project()` by {@link glyphMapVectorCullWalls}, so
    * it has to be the elevation the cap was built at: a raw true-metre number
@@ -477,12 +516,12 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
   const project: Project = (lon, lat, elev) => projection.project(lon, lat, elev);
   for (const feature of features) {
     const groups = feature.polygons ?? feature.rings.map((ring) => [ring]);
-    const base = options.base?.(feature) ?? 0;
     // TRUE metres, converted onto this projection's own (exaggerated)
-    // elevation axis — see {@link GlyphMapVectorMeshOptions.height}. `base`
-    // is deliberately NOT converted: it is a terrain elevation and belongs
-    // wherever the exaggerated relief under this feature is.
+    // elevation axis — see {@link GlyphMapVectorMeshOptions.height}. The
+    // GROUND below is deliberately NOT converted: it is a terrain elevation
+    // and belongs wherever the exaggerated relief under this feature is.
     const height = glyphMapTrueScaleElevation(options.height?.(feature) ?? 0, projection);
+    const baseOffset = glyphMapTrueScaleElevation(options.baseOffset?.(feature) ?? 0, projection);
     const color = options.color?.(feature);
     for (const group of groups) {
       const rings: LonLat[][] = [];
@@ -495,6 +534,13 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       }
       if (!rings.length) continue;
 
+      // ONE ground per group, at the outer ring's own mean lon/lat — see
+      // `groundElevation`'s doc for why a rigid structure gets one and not one
+      // per vertex. The mean is computed once and reused for `groupUp` below,
+      // which asks the projection about that same point.
+      const centre = ringMean(rings[0]);
+      const base = (options.groundElevation?.(feature, centre[0], centre[1]) ?? 0) + baseOffset;
+
       const bottom = rings.map((ring) => ring.map(([lon, lat]) => projection.project(lon, lat, base)));
       // `height === 0` reuses the bottom verbatim rather than reprojecting it;
       // a non-finite `height` (a feature whose height attribute isn't a number)
@@ -506,7 +552,7 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       if (bottom.some((ring) => ring.some((v) => !finite(v))) || top.some((ring) => ring.some((v) => !finite(v)))) continue;
 
       const capElev = base + height;
-      const up = groupUp(projection, rings[0], capElev);
+      const up = groupUp(projection, rings[0], centre, capElev);
       const flip = up !== null && dot(ringNormal(top[0]), up) < 0;
 
       // earcut indexes the rings concatenated in this same order, so `capLonLat`
@@ -575,9 +621,19 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
  * normal describes the interior. Vertex 0 is the fallback for a mean point the
  * projection rejects (a ring straddling a valid-window edge).
  */
-function groupUp(projection: GlyphMapProjection, ring: readonly LonLat[], elev: number): Vec3 | null {
+function groupUp(projection: GlyphMapProjection, ring: readonly LonLat[], mean: LonLat, elev: number): Vec3 | null {
+  return localUpDirection(projection, mean[0], mean[1], elev)
+    ?? localUpDirection(projection, ring[0][0], ring[0][1], elev);
+}
+
+/**
+ * A ring's mean lon/lat — its one representative point, shared by
+ * {@link groupUp} and by the ground probe {@link glyphMapVectorMesh} hands
+ * {@link GlyphMapVectorMeshOptions.groundElevation}, so a group is lit and
+ * planted at the same place.
+ */
+function ringMean(ring: readonly LonLat[]): LonLat {
   let lon = 0, lat = 0;
   for (const [x, y] of ring) { lon += x; lat += y; }
-  return localUpDirection(projection, lon / ring.length, lat / ring.length, elev)
-    ?? localUpDirection(projection, ring[0][0], ring[0][1], elev);
+  return [lon / ring.length, lat / ring.length];
 }

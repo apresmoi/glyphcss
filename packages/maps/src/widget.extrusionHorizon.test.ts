@@ -98,9 +98,10 @@ function nearSideAt(lonCenter: number): (lon: number, lat: number, elev: number)
   };
 }
 
-function survivingWalls(feature: GlyphMapVectorFeature, visible: (lon: number, lat: number, elev: number) => boolean): number {
+function survivingWalls(feature: GlyphMapVectorFeature, visible: (lon: number, lat: number, elev: number) => boolean, groundM = 0): number {
   const mesh = glyphMapVectorMesh([feature], projection, {
     height: (f) => Number(f.properties?.height ?? 0),
+    groundElevation: () => groundM,
   });
   expect(mesh.walls.length).toBeGreaterThan(0);
   const kept = glyphMapVectorCullWalls(mesh, visible);
@@ -130,6 +131,22 @@ describe("fill-extrusion walls survive their base going over the horizon", () =>
 
   it("still drops a wall whose top is also past the horizon", () => {
     expect(survivingWalls(FAR_SIDE, visible)).toBe(0);
+  });
+
+  it("reaches further round the globe when it is standing on a mountain, and no further than that", () => {
+    // Planting an extrusion on the terrain moves BOTH of a wall's elevations,
+    // so the horizon reach it buys is the same `acos(r / (r + h))` the height
+    // buys — the ground's metres and the structure's metres are the same
+    // metres once they are on the projection's axis. At `exaggeration: 1` on a
+    // `radius: 1` globe, 1,200 km of ground under a 1,200 km wall extends the
+    // reach from 122.7° to 133.4°, and this box sits inside that gap.
+    const ON_A_MOUNTAIN = box(126, 132);
+    expect(survivingWalls(ON_A_MOUNTAIN, visible)).toBe(0);
+    expect(survivingWalls(ON_A_MOUNTAIN, visible, WALL_HEIGHT_M)).toBeGreaterThan(0);
+    // And not one wall further: a genuinely far-side extrusion is still
+    // dropped whole, mountain or no mountain — planting is not a licence to
+    // draw past the limb.
+    expect(survivingWalls(FAR_SIDE, visible, WALL_HEIGHT_M)).toBe(0);
   });
 
   it("leaves a near-side extrusion's walls exactly as they were", () => {

@@ -638,7 +638,29 @@ export interface GlyphMapFillExtrusionLayer {
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
-  readonly heightProperty?: string; readonly baseProperty?: string;
+  readonly heightProperty?: string;
+  /**
+   * The property carrying this feature's own base OFFSET in TRUE METRES above
+   * the ground — OSM's `min_height` (the default), i.e. how far up its own
+   * footing the drawn part of a structure starts, the way a tower begins at
+   * the top of a podium.
+   *
+   * It is NOT a ground elevation, and naming it `baseOffsetProperty` rather
+   * than `baseProperty` is the point: the GROUND an extrusion stands on comes
+   * from the terrain under it (the mounted `raster` layers' own tiles), never
+   * from a feature attribute. Feeding `min_height` in as an absolute terrain
+   * elevation conflated two different quantities and, with any raster layer
+   * mounted, planted every building at sea level — a 60 m block over 400 m of
+   * ground drew not one cell.
+   *
+   * Being a STRUCTURE measurement it takes the same exemption from the
+   * terrain's `exaggeration` that {@link height} takes; the ground under it
+   * does not (see `glyphMapVectorMesh`'s `groundElevation`).
+   *
+   * NOT scaled by {@link heightScale}: that converts a `heightProperty`'s own
+   * units into metres, and this is already metres.
+   */
+  readonly baseOffsetProperty?: string;
   /**
    * Flat extrusion height in TRUE METRES for every feature with no usable
    * {@link heightProperty} value — rendered at true scale whatever the
@@ -3004,6 +3026,36 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * Everything MOUNTED ON the terrain, re-planted when the terrain under it
+   * moves — today just `fill-extrusion` layers, whose base is the ground
+   * elevation `groundElevationSampler` reads off the mounted `raster` tiles.
+   *
+   * A separate registry from `nearSideSyncs` because it is driven by a
+   * different event: not the camera (every frame) but the mounted TILE SET (a
+   * finer tier arriving, a raster layer added or removed), which is exactly
+   * when a ground reading can change and no more often. A `fill-extrusion` on
+   * a STATIC source is never rebuilt by `scheduleTileUpdate` at all — its mesh
+   * is camera-independent by design — so without this a building mounted
+   * before its terrain landed would stand at the datum forever.
+   *
+   * Coalesced onto a microtask: one raster update mounts tiles across several
+   * turns and calls `scene.rerender()` at each, and each listener re-probes
+   * before it rebuilds anything, so the extra notifications cost a tile lookup
+   * per group and stop there.
+   */
+  const groundChangeSyncs = new Set<() => void>();
+  let groundChangeQueued = false;
+  function notifyGroundChanged(): void {
+    if (groundChangeQueued || groundChangeSyncs.size === 0) return;
+    groundChangeQueued = true;
+    queueMicrotask(() => {
+      groundChangeQueued = false;
+      if (destroyed) return;
+      for (const sync of groundChangeSyncs) sync();
+    });
+  }
+
+  /**
    * Hide/show a hotspot for the NEAR/FAR-hemisphere reason, on a CSS channel
    * glyphcss does not own.
    *
@@ -3423,7 +3475,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             if (tile) { activeHandles.set(key, mountTile(tile, activeFraction, "fine")); mountedNow = true; }
           }
         }
-        if (mountedNow) scene.rerender();
+        if (mountedNow) { scene.rerender(); notifyGroundChanged(); }
 
         // Fallback is fetched and mounted as its OWN phase, awaited BEFORE
         // the fine tier's own fetch — not merged into one `Promise.all`
@@ -3448,6 +3500,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             }
           }
           scene.rerender();
+          notifyGroundChanged();
         }
 
         const missingFine = [...desired].filter((key) => !tileCache.has(key));
@@ -3487,6 +3540,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         }
 
         scene.rerender();
+        // The mounted tile set is final for this update — anything standing
+        // ON this terrain re-reads the ground it is planted on.
+        notifyGroundChanged();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -3503,6 +3559,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         disposeMeshes();
         staticHandles = mountTile(layer.source, 1, "fine");
         scene.rerender();
+        notifyGroundChanged();
       }
     }
 
@@ -4153,7 +4210,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (handles.length) handles[0].setPolygons(polygons);
       else if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
     }
-    const runtime = createFeatureLayerRuntime(layer.source, (features) => {
+    /**
+     * The features this layer last built from, and the ground probe answers
+     * that build used — `{lon, lat, ground}` per polygon GROUP, in build
+     * order, recorded by the `groundElevation` callback itself so nothing here
+     * has to know how `glyphMapVectorMesh` groups rings.
+     *
+     * Together they are what `syncGround` needs to notice that the terrain
+     * under a mounted extrusion has moved (a finer tier arrived, a raster
+     * layer was added or removed) and rebuild it — a `fill-extrusion` on a
+     * STATIC source is otherwise never rebuilt at all, so without this a
+     * building mounted before its terrain landed would stay at the datum for
+     * the life of the map.
+     */
+    let lastFeatures: readonly GlyphMapVectorFeature[] = [];
+    let groundProbes: { lon: number; lat: number; ground: number }[] = [];
+    /** Whether the last build had any terrain to read at all — a raster layer arriving or leaving is itself a ground change, and no probe can report it. */
+    let builtOnTerrain = false;
+    function build(features: readonly GlyphMapVectorFeature[]): void {
+      lastFeatures = features;
       for (const handle of handles) handle.dispose();
       handles = [];
       culledAt = "";
@@ -4161,25 +4236,66 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (layer.type === "fill" && layer.colorProperty && layer.colors) return layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color;
         return layer.color;
       };
+      // Resolved ONCE per build, like `line`'s own per-stamp resolution: it
+      // walks the mounted layer list. `null` = no `raster` layer mounted, and
+      // then no `groundElevation` option is passed at all — the datum, and
+      // byte-identical to before extrusions were planted on terrain.
+      //
+      // A `fill` is deliberately NOT planted: it is a flat overlay drawn on
+      // the datum (a shaded country, a lake), not a structure standing on the
+      // ground, and its own mesh carries no walls to stand on.
+      const groundAt = layer.type === "fill-extrusion" ? groundElevationSampler() : null;
+      groundProbes = [];
+      builtOnTerrain = groundAt !== null;
       mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
         color,
         height: layer.type === "fill-extrusion" ? (f) => {
           const raw = Number(f.properties?.[layer.heightProperty ?? "height"]);
           return Number.isFinite(raw) ? raw * (layer.heightScale ?? 1) : layer.height ?? 0;
         } : undefined,
-        base: layer.type === "fill-extrusion" ? (f) => Number(f.properties?.[layer.baseProperty ?? "min_height"] ?? 0) : undefined,
+        groundElevation: groundAt ? (_f, lon, lat) => {
+          const ground = groundAt(lon, lat);
+          groundProbes.push({ lon, lat, ground });
+          return ground;
+        } : undefined,
+        // TRUE metres above that ground — a structure offset, not an
+        // elevation. See `GlyphMapFillExtrusionLayer.baseOffsetProperty`.
+        // Unparseable (OSM tags carry "20 m" and worse) reads as no offset,
+        // exactly as an unparseable height reads as the flat fallback, rather
+        // than NaN-ing the whole feature out of the render.
+        baseOffset: layer.type === "fill-extrusion" ? (f) => {
+          const raw = Number(f.properties?.[layer.baseOffsetProperty ?? "min_height"] ?? 0);
+          return Number.isFinite(raw) ? raw : 0;
+        } : undefined,
       });
       const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;
       const polygons = nearSide ? glyphMapVectorCullWalls(mesh, nearSide) : [...mesh.polygons];
       if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
       if (nearSide) culledAt = cameraCullKey();
       scene.rerender();
-    }, 2, layer.sourceLayer, layer.filter);
+    }
+    /**
+     * Re-plant this layer when — and only when — the ground actually moved.
+     * Re-probing the recorded points costs one tile lookup per group and
+     * nothing else; a rebuild (measured 13.7ms on the real z0 admin_0 tile)
+     * runs only on a real difference, so the steady state of a map whose
+     * terrain is settled is free.
+     */
+    function syncGround(): void {
+      if (layer.type !== "fill-extrusion") return;
+      const groundAt = groundElevationSampler();
+      const moved = (groundAt !== null) !== builtOnTerrain
+        || (groundAt !== null && groundProbes.some((p) => groundAt(p.lon, p.lat) !== p.ground));
+      if (moved) build(lastFeatures);
+    }
+    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter);
     nearSideSyncs.add(syncWalls);
+    if (layer.type === "fill-extrusion") groundChangeSyncs.add(syncGround);
     return {
       update: runtime.update,
       dispose() {
         nearSideSyncs.delete(syncWalls);
+        groundChangeSyncs.delete(syncGround);
         runtime.dispose();
         mesh = null;
         for (const h of handles) h.dispose();
@@ -4802,7 +4918,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function removeLayer(id: string): void {
     const state = layerStates.get(id);
     if (!state) return;
-    if (state.kind === "raster") state.runtime.dispose();
+    if (state.kind === "raster") {
+      state.runtime.dispose();
+      // Its tiles were the ground under every mounted extrusion; with them
+      // gone the honest base is the datum again.
+      notifyGroundChanged();
+    }
     else if (state.kind === "feature") state.runtime.dispose();
     else if (state.kind === "model") state.handle.dispose();
     else if (state.kind === "line" || state.kind === "contour") {

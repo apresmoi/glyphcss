@@ -1341,8 +1341,8 @@ does NOT share this code (it goes through `glyphMapPointHeatmap` plus
 `glyphMapPolygons`, which has always carried the per-quad probe), and neither
 does `model` (caller-authored `Polygon[]`, passed straight through).
 
-**An extrusion's HEIGHT is exempt from the terrain's `exaggeration`; its BASE
-is not.** Every vertical quantity in the package went through one conversion,
+**An extrusion's HEIGHT is exempt from the terrain's `exaggeration`; the
+GROUND it stands on is not.** Every vertical quantity in the package went through one conversion,
 `reliefZ` = `(metres / GLYPH_MAP_EARTH_RADIUS_M) * exaggeration`, and `/maps`
 defaults `exaggeration` to 24 because true-scale relief is invisible at planet
 scale (Everest is 0.14% of Earth's radius). A `fill-extrusion`'s
@@ -1355,17 +1355,18 @@ measured quantity, so `glyphMapVectorMesh` now converts `options.height`
 through `glyphMapTrueScaleElevation(metres, projection)` (`metres /
 projection.exaggeration`) before adding it to the base.
 
-The BASE deliberately keeps the terrain's factor. The ground a structure
-stands on is wherever the exaggerated relief puts it, so de-exaggerating the
-base as well sinks every extrusion into the terrain it should be standing on —
-at exaggeration 24 a base of 1,000 m would sit 24x below the relief around it.
-Exempting the base *instead* of the height gets both halves wrong at once.
+The GROUND deliberately keeps the terrain's factor. The ground a structure
+stands on is wherever the exaggerated relief puts it, so de-exaggerating it as
+well sinks every extrusion into the terrain it should be standing on — at
+exaggeration 24 a ground of 1,000 m would sit 24x below the relief around it.
+Exempting the ground *instead* of the height gets both halves wrong at once.
 `layers.extrusionHeight.test.ts` pins the split from both sides: the world
 height is bit-identical at exaggeration 1 and 24 while terrain at the same
 metre count is 24x taller, and the base ring's world Z is exactly
-`project(lon, lat, base)`. Mutating the fix to divide the base instead prints
-`expected 0.0001569612305760477 to be 0.003767069533825145` for the base
-clause and `expected 1 to be close to 24` for the globe's radial clause.
+`project(lon, lat, ground)`. Mutating the fix to divide the ground instead
+prints `expected 0.0001569612305760477 to be 0.003767069533825145` for the
+ground clause and `expected 1 to be close to 24` for the globe's radial
+clause.
 
 `GlyphMapProjection.exaggeration` had to become READABLE for this. `project`
 is the package's one elevation conversion, and the factor is not recoverable
@@ -1431,6 +1432,98 @@ typing a bigger number.
   relief they must clear or avoid z-fighting against; that coupling is the
   point.
 
+### An extrusion stands on the terrain, and `min_height` is not a ground
+
+Stating the ground's exaggeration is only half a contract; the other half is
+where the ground comes from. It used to come from the FEATURE: one `base`
+option, fed `min_height ?? 0`, treated as an absolute elevation on the terrain
+axis. With any `raster` layer mounted that plants every structure at SEA LEVEL,
+and at `/maps`' own OSM view (globe, `exaggeration: 24`, 40 degree tilt, 4.8 m
+per cell, ground at 400 m) a 60 m building drew **not one cell** — 9,600 world
+metres underground — while a `line` at the same place still drew, because
+`stroke.ts` had already been taught the ground offset. `widget
+.extrusionGround.test.ts`'s first clause is that measurement; removing the
+planting prints `expected 0 to be greater than 0`.
+
+**`min_height` is a STRUCTURE measurement, not a terrain one, and the two were
+being conflated.** OSM's `min_height` is metres above a building's own footing
+— a tower starting at the top of a podium — in exactly the unit `height` is
+in. So a single absolute `base` was carrying two different quantities at once,
+and it took the wrong side of the exemption for both: it exaggerated the
+structure offset (a 20 m podium drawn 480 m up at 24x — the identical defect
+the height exemption had just fixed) while providing no ground at all. The
+split is therefore into the two quantities:
+
+- `GlyphMapVectorMeshOptions.groundElevation(feature, lon, lat)` — the TERRAIN
+  under this piece, on the exaggerated axis, exactly like the relief mesh;
+- `GlyphMapVectorMeshOptions.baseOffset(feature)` — TRUE metres above that,
+  through `glyphMapTrueScaleElevation`, exactly like `height`.
+
+On the layer, `baseProperty` became `baseOffsetProperty` (still defaulting to
+`min_height`). A rename rather than a silent re-interpretation: the quantity
+changed, and there are no BC shims here. It is NOT scaled by `heightScale`,
+which converts a `heightProperty`'s own units into metres and has nothing to
+convert here.
+
+**ONE ground per polygon GROUP, at its outer ring's mean lon/lat** — the same
+representative point `groupUp` already asks the projection about, now computed
+once (`ringMean`) and shared. A structure is RIGID: one ground per piece keeps
+its cap planar, its walls planar quads, and `GlyphMapVectorWall`'s two
+elevations the scalars `glyphMapVectorCullWalls` re-projects. Per-VERTEX ground
+would shear the cap over any slope, leave a wall no single pair of elevations
+describes, and cost a tile lookup per refined vertex instead of per piece.
+
+**The widget answers it with `groundElevationSampler` — the same one the
+strokes use, not a second sampler**: the mounted `raster` layers' own tiles,
+finest tier first, topmost layer first, `null` when no raster layer is mounted
+at all. `null` means no `groundElevation` option is passed, the ground is the
+datum, and the render is byte-identical to before planting existed (pinned as a
+frame hash captured at `9191e4b`). A `fill` is deliberately NOT planted: it is
+a flat overlay on the datum, and it has no walls to stand on.
+
+**Staleness had to be answered, because a `fill-extrusion` on a STATIC source
+is never rebuilt.** Its mesh is camera-independent by design, so
+`scheduleTileUpdate` skips it — which is right for the camera and wrong for the
+ground, since a building mounted while its terrain is still in flight would
+stand at the datum for the life of the map (and be buried by the terrain that
+arrives under it). `groundChangeSyncs` is the answer: the raster runtime calls
+`notifyGroundChanged()` wherever its MOUNTED tile set changes, each listener
+re-probes the points its own last build recorded, and only a real difference
+triggers a rebuild. A registry separate from `nearSideSyncs` because the event
+is different — the tile set, not the camera — and coalesced onto a microtask
+since one raster update mounts across several turns.
+
+Measured on the vendored Zurich Protomaps extract (`fixtures/pmtiles/
+zurich-z12.pmtiles`, its `buildings` layer: 8 features, 469 polygon groups,
+7,768 polygons, real MVT geometry, median of nine interleaved runs): the
+planting adds **+0.02 ms to a 2.6 ms mesh rebuild** (~0.9%), and the re-probe
+pass that runs per terrain change costs **0.013 ms** for all 469 groups.
+Nothing runs per frame — the retained mesh is re-culled exactly as before.
+
+**The horizon cull holds, and gets better.** `elev` and `elevTop` are both AXIS
+elevations, so planting raises both by the ground: a wall on a mountain reaches
+past the limb from that mountain's own `acos(r / (r + h))`, which is what the
+terrain under it does too. `widget.extrusionHorizon.test.ts` pins both
+directions — a box at 126-132 degrees is dropped whole at the datum and keeps
+walls when planted on 1,200 km of ground (122.7 degrees of reach becomes
+133.4), while a genuinely far-side box is still dropped whole with the same
+mountain under it. Planting is not a licence to draw past the limb.
+
+**What planting does NOT fix, and must not be confused with.** Under a TILTED
+camera, anything standing on exaggerated relief is displaced by that relief's
+own parallax: at `exaggeration: 24` and 4.8 m per cell, 400 m of ground moves a
+building's image about 2,000 rows up the screen — off any viewport — while a
+`line` layer, whose vertices are stamped at elevation zero, does not move at
+all. That is a true statement about 24x relief seen at an angle, not a
+regression this introduced (the terrain mesh has always been displaced by
+exactly the same amount; a uniform terrain simply makes it unobservable), and
+it is why `widget.extrusionGround.test.ts` measures visibility in PLAN view —
+where an orthographic camera's view axis is the local radial, so a lift at the
+view centre moves nothing sideways — and measures the base elevation itself on
+a tilted camera with small grounds, as a displacement that is exactly linear in
+the ground under it (5 m and 10 m of ground move the image 8 and 16 rows, and
+the row EXTENT is unchanged, because the height is still true metres).
+
 **On a CURVED projection those faces are refined until the projection is
 locally affine across each one, and an extrusion's walls are culled against
 `projection.visible`.** earcut triangulates in lon/lat and will join boundary
@@ -1473,8 +1566,10 @@ only a near-side predicate can answer that, and it is CAMERA-dependent.
 mesh.** `glyphMapVectorMesh(features, projection, opts)` is the camera-
 INDEPENDENT build: it returns `{ polygons, walls }`, where `walls` reports each
 wall face's index into `polygons`, its two ring endpoints in lon/lat, and BOTH
-the elevations it spans (`elev` = the feature's own base, `elevTop` = base +
-height — per-feature, since `heightProperty`/`baseProperty` vary), and
+the AXIS elevations it spans (`elev` = the ground under that piece plus its
+true-metre base offset, `elevTop` = that plus the true-metre height — per
+group, since `heightProperty`/`baseOffsetProperty` and the terrain under a
+footprint all vary), and
 `glyphMapVectorCullWalls(mesh, visible)` then drops a wall when NONE of those
 four (endpoint x base/top) corners passes the predicate. A wall is a quad, not
 a segment, and it is visible if ANY part of it is: on a globe a point at height
