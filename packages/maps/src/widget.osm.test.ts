@@ -131,16 +131,18 @@ describe("real OSM geometry reaches the grid", () => {
 });
 
 /**
- * Why every /maps camera flight levels the tilt (`MAP_SEARCH_FLY_TILT`,
- * `website/src/components/MapsWorkbench/mapsSearch.ts`) rather than keeping
- * the page's default 40 degrees.
+ * Why a /maps camera flight no longer has to LEVEL the tilt.
  *
- * `tilt` ADDS to the projection's base orientation, so on an ORBIT
- * projection it rotates the camera by an ABSOLUTE angle while the field of
- * view shrinks with the zoom. That is fine at a global view and fatal at
- * city scale, which is the only scale a city extract is legible at. This
- * pins the arithmetic: if the widget's tilt semantics ever change, the
- * website's levelling can be revisited, and this goes red first.
+ * This block used to pin the opposite arithmetic — `tilt` added an ABSOLUTE
+ * pitch to the projection's base orientation about the GLOBE'S CENTRE while
+ * the field of view shrank with the zoom, so a flight into city scale at the
+ * page's default 40 degrees arrived with the destination row -22,775 of a
+ * 63-row grid, and `MAP_SEARCH_FLY_TILT` levelled every flight to 0 to
+ * survive it. `tilt` now pitches about the SURFACE POINT under the view
+ * centre (`widget.tiltPivot.test.ts`), so the centre is at the centre of the
+ * grid at every span and every pitch, and the levelling has nothing left to
+ * guard. City scale is kept as the case, because it is the only scale a city
+ * extract is legible at and the scale the old model failed hardest at.
  */
 describe("tilt on an orbit projection at city scale", () => {
   function centreCell(span: number, tilt: number) {
@@ -152,26 +154,26 @@ describe("tilt on an orbit projection at city scale", () => {
       tilt,
     });
     const p = map.project([8.54, 47.375]);
+    const applied = map.getTilt();
     map.destroy();
     host.remove();
-    return p;
+    return { ...p, applied };
   }
 
-  it("keeps the view centre on the grid at a global span, and walks it off as the span shrinks", () => {
-    expect(centreCell(360, 40).visible).toBe(true);
-    expect(centreCell(40, 40).visible).toBe(false);
-    // The span this extract needs. The centre is not merely off screen, it is
-    // hundreds of viewports away — no amount of padding recovers it.
-    const cityScale = centreCell(0.109, 40);
-    expect(cityScale.visible).toBe(false);
-    expect(Math.abs(cityScale.row)).toBeGreaterThan(63 * 100);
+  it("is exactly on the grid centre at every span, tilted or levelled", () => {
+    for (const span of [360, 40, 0.109]) {
+      for (const tilt of [0, 40]) {
+        const p = centreCell(span, tilt);
+        expect(p.visible).toBe(true);
+        expect(p.row).toBeCloseTo(31.5, 6);
+        expect(p.col).toBeCloseTo(67.5, 6);
+      }
+    }
   });
 
-  it("is exactly on the grid centre at every span once the tilt is levelled", () => {
-    for (const span of [360, 40, 0.109]) {
-      const p = centreCell(span, 0);
-      expect(p.visible).toBe(true);
-      expect(p.row).toBeCloseTo(31.5, 6);
-    }
+  it("keeps the full 40 degrees of pitch at city scale — the ceiling only binds at planet scale", () => {
+    expect(centreCell(0.109, 40).applied).toBe(40);
+    expect(centreCell(40, 40).applied).toBe(40);
+    expect(centreCell(360, 40).applied).toBeLessThan(40);
   });
 });

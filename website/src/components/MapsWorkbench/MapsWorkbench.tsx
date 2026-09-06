@@ -3,6 +3,7 @@ import {
   createGlyphMap,
   glyphMapContourIntervalLevels,
   GlyphMapClassifiers,
+  GLYPH_MAP_MAX_TILT,
   type GlyphMapAttribution,
   type GlyphMapHandle,
   type GlyphMapProvider,
@@ -83,8 +84,10 @@ import {
 } from "./mapsKit";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_DEFAULT, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
+import { MapTiltReset } from "./MapTiltReset";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
 import { MAPS_CONTOUR_WINDOW_OFF, readInitialMapsState, writeMapsUrlState, type MapCharMode, type MapColorEncoding } from "./mapsUrlState";
+import { mapTiltResetValue, readMapViewState } from "./mapsView";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "../InstrumentWorkbench/instrument-workbench.css";
 import "./maps-workbench.css";
@@ -335,6 +338,11 @@ export default function MapsWorkbench() {
   const [tilt, setTilt] = useState(initial.tilt);
   const [lod, setLod] = useState(0);
   const [maxSpan, setMaxSpan] = useState(360);
+  // The pitch CEILING the widget will honour at the live view's own scale
+  // (`getMaxTilt`) — ~21 degrees at a whole-world span, 85 by city scale. It
+  // moves with every wheel notch, so like `maxSpan` it is re-read per sync
+  // and never taken once (`mapsView.ts`).
+  const [maxTilt, setMaxTilt] = useState(GLYPH_MAP_MAX_TILT);
   const [degPerCell, setDegPerCell] = useState(0);
   const [viewGrid, setViewGrid] = useState<{ readonly cols: number; readonly rows: number }>({ cols: 160, rows: 64 });
 
@@ -473,18 +481,16 @@ export default function MapsWorkbench() {
   }, []);
 
   /**
-   * Fly to a search result, LEVEL: `tilt` adds an ABSOLUTE camera pitch on an
-   * orbit projection while the field of view shrinks with the zoom, so at city
-   * scale the page's default 40 degrees puts the destination thousands of rows
-   * off the grid (`mapsSearch.ts`'s `MAP_SEARCH_FLY_TILT`). The
-   * levelling and the flight both live in `flyToMapSearchResult` so a test
-   * driving the real widget can assert, via `map.project()`, that the
-   * destination actually lands on the grid.
+   * Fly to a search result, KEEPING the reader's pitch — `tilt` pitches about
+   * the surface point under the view centre, so the destination lands at the
+   * centre of the grid at whatever pitch is in force (`mapsSearch.ts`'s
+   * `flyToMapSearchResult`, which is where a test driving the real widget
+   * asserts it via `map.project()`).
    */
   const flyToSearchResult = useCallback((result: MapSearchResult) => {
     const map = mapRef.current;
     if (!map) return;
-    void flyToMapSearchResult(map, result, { onTilt: setTilt });
+    void flyToMapSearchResult(map, result);
   }, []);
 
   const layersFolderInputs: LayersFolderInputs = {
@@ -778,13 +784,21 @@ export default function MapsWorkbench() {
     }
     function syncViewState(): void {
       const v = map.getView();
-      setCenterLon(v.center[0]);
-      setCenterLat(v.center[1]);
-      setSpan(v.span);
+      // Every field off ONE readout of the live widget (`mapsView.ts`), so
+      // the Dock can never show a number the camera does not have. `tilt` in
+      // particular is read back rather than assumed: the widget clamps it to
+      // the view's own horizon ceiling, and the Ctrl+drag / right-drag pitch
+      // GESTURE moves it without this page writing it at all.
+      const r = readMapViewState(map);
+      setCenterLon(r.centerLon);
+      setCenterLat(r.centerLat);
+      setSpan(r.span);
       // Re-read every sync, not once: the cover ceiling moves with the
-      // projection, the tilt and the host's shape.
-      setMaxSpan(map.getMaxSpan());
-      const deg = v.span / v.cols;
+      // projection, the tilt and the host's shape. Same for the pitch ceiling.
+      setMaxSpan(r.maxSpan);
+      setTilt(r.tilt);
+      setMaxTilt(r.maxTilt);
+      const deg = r.degPerCell;
       setDegPerCell(deg);
       setViewGrid((prev) => (prev.cols === v.cols && prev.rows === v.rows ? prev : { cols: v.cols, rows: v.rows }));
       if (provider) {
@@ -907,8 +921,12 @@ export default function MapsWorkbench() {
     // frame (the widget clamps up front so nothing snaps at the end), so the
     // slider's range has to follow it there, not only once it lands.
     void map.setProjection(projection, projectionChanged ? {} : { durationMs: 0 })
-      .then(() => setMaxSpan(map.getMaxSpan()));
+      .then(() => { setMaxSpan(map.getMaxSpan()); setMaxTilt(map.getMaxTilt()); setTilt(map.getTilt()); });
     setMaxSpan(map.getMaxSpan());
+    // A sheet has no limb, so crossing to or from the globe moves the pitch
+    // ceiling by up to 64 degrees — and with it the applied pitch.
+    setMaxTilt(map.getMaxTilt());
+    setTilt(map.getTilt());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectionId, exaggeration]);
 
@@ -1220,6 +1238,15 @@ export default function MapsWorkbench() {
     mapRef.current?.setTilt(value);
   }, []);
 
+  /**
+   * The on-map "Level" control's action. It reads the projection family
+   * live rather than closing over one, and it writes through `onTilt` so the
+   * Dock's slider and the widget can never disagree about what happened.
+   */
+  const onLevelTilt = useCallback(() => {
+    onTilt(mapTiltResetValue(isOrbitProjectionId(projectionIdRef.current)));
+  }, [onTilt]);
+
   // ── Center/span sliders -> imperative `map.setView()`. ─────────────────
   const onCenter = useCallback((lon: number, lat: number) => {
     setCenterLon(lon);
@@ -1374,6 +1401,7 @@ export default function MapsWorkbench() {
           {providerError && <div className="maps-error">Couldn&apos;t load terrain data: {providerError}</div>}
           <StatsOverlay anchor="top-left" container={stageHost} />
           <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} />
+          <MapTiltReset tilt={tilt} isOrbitProjection={isOrbitProjectionId(projectionId)} onReset={onLevelTilt} />
           <div className="synth-export-bar">
             <button type="button" className="gw-code-panel__action" onClick={handleCopyAscii} title="Copy the rendered ASCII map to the clipboard">
               {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
@@ -1409,7 +1437,7 @@ export default function MapsWorkbench() {
         <Dock id="maps-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <MapsDockFolders
             projectionId={projectionId} onProjectionId={setProjectionId}
-            centerLon={centerLon} centerLat={centerLat} span={span} maxSpan={maxSpan} tilt={tilt}
+            centerLon={centerLon} centerLat={centerLat} span={span} maxSpan={maxSpan} tilt={tilt} maxTilt={maxTilt}
             lod={lod} degPerCell={degPerCell}
             onCenter={onCenter} onSpan={onSpanChange} onTilt={onTilt}
             charMode={charMode} charModeReason={charModeReason}
@@ -1472,7 +1500,7 @@ interface RenderingPartial {
 
 function MapsDockFolders(props: {
   projectionId: MapProjectionId; onProjectionId: (id: MapProjectionId) => void;
-  centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; lod: number; degPerCell: number;
+  centerLon: number; centerLat: number; span: number; maxSpan: number; tilt: number; maxTilt: number; lod: number; degPerCell: number;
   onCenter: (lon: number, lat: number) => void; onSpan: (v: number) => void; onTilt: (v: number) => void;
   charMode: MapCharMode; charModeReason: string | null;
   wireframeJunctions: boolean; hiddenLines: "show" | "hide"; solidWeightRamp: boolean;
@@ -1489,7 +1517,7 @@ function MapsDockFolders(props: {
   const gui = useDockGui();
 
   useViewFolder(gui, {
-    centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt,
+    centerLon: props.centerLon, centerLat: props.centerLat, span: props.span, maxSpan: props.maxSpan, tilt: props.tilt, maxTilt: props.maxTilt,
     isOrbitProjection: props.projectionId === "globe", lod: props.lod, degPerCell: props.degPerCell,
     onCenter: props.onCenter, onSpan: props.onSpan, onTilt: props.onTilt,
   });

@@ -1292,20 +1292,18 @@ describe("createGlyphMap — deep tile sweep candidate bound (a2)", () => {
  *    MERIDIAN so zoom stays latitude-invariant — the same world-chord
  *    half-extent needs MORE than `halfSpanDeg` degrees of longitude away
  *    from the equator (up to `1 / cos(lat)`, worse toward the poles).
- * 2. The box was always centered at `view.center`, but `tilt` ADDS to
- *    `cameraForCenter(lon, lat)`'s own pitch — at a high base latitude
- *    (where `cameraForCenter`'s own pitch is already large) a moderate
- *    `tilt` can shift the screen's actual sub-observer point well away
- *    from `view.center` entirely. Measured for this exact repro: `view
- *    .center` [1, 66.4] itself projects to row -46 on an 80-row grid (off
- *    the TOP of the screen), while the camera actually shows roughly
- *    lon [-20, 20] / lat [10, 40] — nowhere near [1, 66.4]. Defect 1 alone
- *    (a `1 / cos(lat)`-widened box still centered at [1, 66.4]) would not
- *    have caught this; the true visible window is a different PLACE, not
- *    just a wider one.
+ * 2. The box was always a SYMMETRIC band around `view.center`, but a
+ *    tilted camera's visible window is not symmetric: pitching about the
+ *    surface point reaches much further toward the horizon than away from
+ *    it, so the window's shape follows the pitch and not the span. (Before
+ *    the surface-point pivot landed, this was worse still — `tilt` swung the
+ *    camera about the GLOBE'S centre and carried `view.center` itself to row
+ *    -46 of an 80-row grid, so the window was a different PLACE entirely.
+ *    That displacement is gone; the asymmetry is not, and it is what the
+ *    sweep's unprojected screen samples exist to measure.)
  */
 describe("createGlyphMap — deep tile sweep candidate bound at high latitude + tilt on a globe (b3)", () => {
-  it("sweeps edge tiles the camera can actually see once tilt shifts the visible window away from view.center, not just a band around the (now off-screen) center", async () => {
+  it("sweeps edge tiles the camera can actually see under a tilt at high latitude, not just a symmetric band around view.center", async () => {
     const tileLonSpan = 360 / 128;
     const tileLatSpan = 180 / 128;
     const boundsXY = new Set<string>();
@@ -1342,17 +1340,27 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
     await vi.waitFor(() => expect(boundsXY.size).toBeGreaterThan(0));
     await new Promise((r) => setTimeout(r, 250)); // past scheduleTileUpdate's debounce
 
-    // Ground truth from the widget's OWN camera/projection (`project()`,
-    // a completely separate code path from the fix's `unprojectSphere`
-    // sampling) — not a hand-derived expectation. `view.center` itself is
-    // off-screen under this tilt; these two points near the east/west
-    // edges of what's ACTUALLY visible are not.
-    const east = map.project([19, 39]);
-    const west = map.project([-19, 39]);
+    // Ground truth from the widget itself, never hand-derived: the lon/lat
+    // under two cells near the east and west edges of the middle row, and
+    // then `project()` — a completely separate code path from the sweep's
+    // own `unprojectSphere` sampling — confirming they really are on screen.
+    // Reading the EDGE cells is what keeps this sensitive to defect 1: at
+    // lat 66.4 a viewport-width of screen is ~1/cos(lat) times the span in
+    // LONGITUDE, so these two land far outside any box built from `span`
+    // alone.
+    const eastEdge = map.unproject([158, 40]);
+    const westEdge = map.unproject([2, 40]);
+    expect(eastEdge).not.toBeNull();
+    expect(westEdge).not.toBeNull();
+    expect(Math.abs(eastEdge![0] - westEdge![0])).toBeGreaterThan(34.4);
+    const east = map.project(eastEdge!);
+    const west = map.project(westEdge!);
     expect(east.visible).toBe(true);
     expect(west.visible).toBe(true);
-    const eastKey = `${Math.floor((19 + 180) / tileLonSpan)}_${Math.floor((90 - 39) / tileLatSpan)}`;
-    const westKey = `${Math.floor((-19 + 180) / tileLonSpan)}_${Math.floor((90 - 39) / tileLatSpan)}`;
+    const key = (ll: readonly [number, number]) =>
+      `${Math.floor((ll[0] + 180) / tileLonSpan)}_${Math.floor((90 - ll[1]) / tileLatSpan)}`;
+    const eastKey = key(eastEdge!);
+    const westKey = key(westEdge!);
 
     expect(boundsXY.has(eastKey)).toBe(true);
     expect(loadedXY.has(eastKey)).toBe(true);
@@ -1570,7 +1578,10 @@ describe("createGlyphMap — setProjection (animated projection transition, MAPS
     const { host, map } = mountFlat({ tilt: 0 });
     const globe = glyphMapGlobe({ radius: 1, exaggeration: 0 });
     await map.setProjection(globe, { durationMs: 0 });
-    expect(map.scene.camera.target).toEqual([0, 0, 0]);
+    // The camera pivots about the SURFACE POINT under the view centre, so an
+    // orbit endpoint's target is that point (`[1, 0, 0]` for centre `[0, 0]`
+    // on a unit sphere), never the globe's own centre — `setTilt`'s doc.
+    expect(map.scene.camera.target).toEqual(globe.project(0, 0, 0));
     // A second call with the SAME object the projection already settled on
     // is a same-endpoint no-op — resolves immediately, no throw.
     await expect(map.setProjection(globe, { durationMs: 150 })).resolves.toBeUndefined();

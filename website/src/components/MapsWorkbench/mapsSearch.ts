@@ -55,23 +55,6 @@ const PLACE_SOURCE_LAYER = "places";
 const POLYGON_SOURCE_LAYER = "admin0";
 
 /**
- * The tilt a search flight levels to.
- *
- * On an ORBIT projection `tilt` adds an ABSOLUTE pitch to `cameraForCenter`
- * while the field of view shrinks with the zoom, so a flight into place scale
- * that kept the page's default 40 degrees arrives with the destination
- * thousands of rows off the grid — measured at row −22,775 of a 63-row grid
- * for a 0.11° span (`widget.osm.test.ts` pins the arithmetic against the real
- * widget). This is now the page's ONLY camera flight; the OSM card's used to
- * be the other, and went with the 4 km extract that needed it. A search box
- * that flies somewhere the reader cannot see is worse than no search box, so
- * every flight from here levels — unconditionally, rather than on a
- * span-and-projection threshold whose right value differs per projection, per
- * grid shape and per centre.
- */
-export const MAP_SEARCH_FLY_TILT = 0;
-
-/**
  * The span a POINT result is framed at, in degrees of longitude.
  *
  * Six degrees is ~660 km at the equator. The choice is bounded from below by
@@ -271,29 +254,29 @@ export function mapSearchFlyTarget(result: MapSearchResult): GlyphMapFlyToTarget
 }
 
 /**
- * Everything a selected result does to the map, in one place: LEVEL the tilt,
- * then fly.
+ * Everything a selected result does to the map, in one place: fly to it.
  *
- * The order matters and the pairing matters. `tilt` is page state as well as
- * widget state on /maps (the Dock's own slider shows it), so `onTilt` writes
- * the page's copy while `setTilt` writes the widget's. Both happen BEFORE the flight, so
- * no frame of the flight is rendered at a pitch that would carry the
- * destination off the grid.
+ * It used to LEVEL the camera to 0 first. That existed for exactly one
+ * reason — `tilt` swung the camera about the GLOBE'S centre, so an
+ * unlevelled flight into place scale arrived with the destination thousands
+ * of rows off a 63-row grid (measured at row −22,775 for a 0.11° span). Now
+ * that `tilt` pitches about the surface point UNDER the view centre
+ * (`@glyphcss/maps`' `setTilt`, `widget.tiltPivot.test.ts`), the destination
+ * is at the CENTRE of the grid at every pitch and every span, so the
+ * levelling bought nothing and only took the reader's own pitch away from
+ * them on every search — which, now that pitch is a GESTURE rather than a
+ * slider nobody found, is a real loss.
  *
- * This is a function rather than three lines inside the component because
- * `MapsWorkbench.tsx` cannot be mounted under this vitest config, and the
- * levelling is the part of this feature with a history of going wrong
- * ({@link MAP_SEARCH_FLY_TILT}'s own note) — so it lives where a
- * test driving the REAL widget can call it and then ask `map.project()`
- * whether the destination is actually on screen.
+ * Still a function rather than two lines inside the component because
+ * `MapsWorkbench.tsx` cannot be mounted under this vitest config: this is
+ * where a test driving the REAL widget can call it and then ask
+ * `map.project()` whether the destination actually landed on screen.
  */
 export function flyToMapSearchResult(
-  map: Pick<GlyphMapHandle, "setTilt" | "flyTo">,
+  map: Pick<GlyphMapHandle, "flyTo">,
   result: MapSearchResult,
-  opts: { readonly onTilt?: (tilt: number) => void; readonly durationMs?: number } = {},
+  opts: { readonly durationMs?: number } = {},
 ): Promise<void> {
-  opts.onTilt?.(MAP_SEARCH_FLY_TILT);
-  map.setTilt(MAP_SEARCH_FLY_TILT);
   return map.flyTo(mapSearchFlyTarget(result), opts.durationMs === undefined ? {} : { durationMs: opts.durationMs });
 }
 

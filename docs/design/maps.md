@@ -353,26 +353,28 @@ samples, never `view.center`.** The projected 3x3 sample grid over a tile's
 own bounds only proves a tile visible when one of ITS samples lands on
 screen, which misses the opposite containment case — a small, zoomed-in
 viewport sitting entirely inside a much LARGER tile. That complement used to
-be "does the tile contain `view.center`", resting on the premise that "the
-view's own geographic CENTRE always projects to dead-centre of the viewport
-by construction". **The premise is false for an ORBIT projection under a
-nonzero `tilt`**: `tilt` is ADDITIONAL camera pitch on top of
-`cameraForCenter(lon, lat)`, and `applyDrag` subtracts it back out of
-`camera.rotX` before calling `centerForCamera` — deliberately, so `view.center`
-stays uncontaminated by pitch ("Camera tilt (slice 5)" below) — which places
-`view.center` exactly `tilt` degrees of latitude away from the point actually
-at screen centre. `/maps` ships `tilt: 40`.
+be "does the tile contain a SINGLE point", and one point is never enough: a
+22.5-degree tile against a 3-degree viewport straddles it whenever that point
+lands within a viewport-width of a tile edge, and Switzerland sits 0.8 degrees
+from its own curated tile's south edge. (When this was found, the single point
+was `view.center`, and it was doubly wrong: `tilt` then swung the camera about
+the globe's CENTRE, so `view.center` was 40 degrees of latitude from the point
+actually on screen. That displacement is gone — `tilt` pitches about the
+surface point under `view.center` now, "Camera tilt" below — but the straddle
+is not, and it is what these samples exist for. A pitch also makes the visible
+window ASYMMETRIC, reaching much further toward the horizon than away from it,
+so no box centred on `view.center` describes it either.)
 
 Reported as "the border layer disappears at z > 6", and it bit exactly where
 one pyramid stops deepening while the view keeps shrinking. The borders
 pyramid tops out at its curated z4 (22.5x11.25-degree tiles) while terrain
 continues to a curated z7, so `glyphMapTargetLOD` correctly pinned borders at
 z4 and, past terrain's z6, no z4 tile had a sample of its OWN on screen
-either — the complement then rescued the tile containing `view.center` 40
-degrees away and dropped the tile the viewport was actually showing. Measured
-on the real baked pyramids at `view.center` `[8.2, 86.5]` / `tilt: 40` /
-160x64 (screen centre on Switzerland, terrain at z7): the border sweep's only
-desired tile was `4/8_0`, and border ink was 0 at spans 3, 1.5 and 0.8.
+either — the complement then rescued a tile nobody could see and dropped the
+tile the viewport was actually showing. Measured on the real baked pyramids at
+`tilt: 40` / 160x64 (screen centre on Switzerland, terrain at z7): the border
+sweep's only desired tile was `4/8_0`, and border ink was 0 at spans 3, 1.5
+and 0.8.
 Terrain never showed the symptom because its curated z5/z6/z7 tiles are small
 enough that their own samples do land on screen, which is why the threshold
 tracked the RASTER LOD readout the user was reading.
@@ -384,20 +386,14 @@ and threaded exactly like `grid`. A tile containing one of those points
 covers a point that is genuinely on screen, so accepting it is a true
 positive by construction — not the over-approximation `candidateTileRange`'s
 min/max box deliberately is, which is why the box could not be reused here (it
-would accept the whole candidate range and mount up to 49 tiles per level). A
-single point, even the correct screen centre, is NOT enough: a 22.5-degree
-tile against a 3-degree viewport straddles it whenever the centre lands within
-a viewport-width of a tile edge, and Switzerland sits 0.8 degrees from its own
-curated tile's south edge. Nine points suffice because the two tests are
+would accept the whole candidate range and mount up to 49 tiles per level). Nine points suffice because the two tests are
 complementary — any tile small enough to slip between the viewport samples has
 its own 3x3 samples land on screen. Nothing unprojecting (a
 `setProjection` blend, whose `unproject` throws by design; a degenerate camera
 basis; a viewport wholly off the globe) falls back to `[view.center]`, the
 exact pre-existing behaviour, never an empty set. Sheet projections are
 affected too and for the same reason — a huge tile straddling the viewport but
-not containing its centre was dropped there as well — though `view.center` IS
-the screen centre for a sheet (the camera orbits its own `target`), so only the
-straddle case changes. After the fix, same real-data fixture: 502 / 195 / 90
+not containing its centre was dropped there as well. After the fix, same real-data fixture: 502 / 195 / 90
 ink cells at spans 3 / 1.5 / 0.8, and the off-screen polar tile is no longer
 fetched at ANY zoom (it was being fetched and mounted at spans 40, 12 and 6
 too). Gate: `widget.tiltedTileCulling.test.ts`, which asserts both the
@@ -593,10 +589,19 @@ every other projection-aware branch in `widget.ts` follows, never identity.
 A sheet endpoint's framing is `{ rotX: tilt, rotY: 0, target:
 project(lon,lat,0) }`; an orbit endpoint's is `{ rotX:
 cameraForCenter(...).rotX + tilt, rotY: cameraForCenter(...).rotY, target:
-[0,0,0] }` — so a flat↔globe transition blends pan-based and orbit-based
-navigation into one continuous camera move. `rotX`/`rotY`/`target` are
-lerped linearly; **`camera.zoom` is NOT** — see "Zoom is scheduled on
-apparent size" below. Mesh geometry reprojects every
+project(lon,lat,0) }` — the SAME target on both sides, since both pivot about
+the surface point under the view centre ("Camera tilt" below), so a flat↔globe
+transition blends pan-based and orbit-based navigation into one continuous
+camera move and its target travels between two real surface points rather than
+out through the world origin. `rotX`/`rotY`/`target` are lerped linearly
+strictly BETWEEN the endpoints — at `t <= 0` and `t >= 1` the endpoint framing
+is assigned verbatim, because `a + (b − a)·1` is not `b` in floating point and
+the parity gate wants the flight to settle bit-for-bit on what a plain
+construction would produce. Each endpoint's pitch is clamped to ITS OWN
+ceiling (a globe and a sheet at one view have completely different limbs), and
+the applied pitch is carried in the framing so `applyDragState` can subtract
+back out exactly what a mid-flight pose added. **`camera.zoom` is NOT**
+lerped — see "Zoom is scheduled on apparent size" below. Mesh geometry reprojects every
 frame too: a `raster` layer's cached tiles are disposed and remounted
 against the newly-blended projection (no refetch), `fill`/`fill-extrusion`/
 `symbol`/`circle`/`heatmap` rebuild from their own cached tiles the same
@@ -935,24 +940,186 @@ exposes no `cameraForCenter`, so a globe->sheet flight would read as a sheet
 from its first blended frame and start clamping a view the globe endpoint is
 entitled to.
 
-**Camera tilt (slice 5) is unified across sheet and orbit projections.**
-`GlyphMapOptions.tilt` / `GlyphMapHandle.setTilt(tilt)`/`getTilt()` mean
-"additional camera pitch on top of whatever the projection's own base
-orientation is": a SHEET projection has no view-driven base orientation, so
-`tilt` there IS the total `camera.rotX` (default `40`, unchanged). An ORBIT
-projection (the globe) has a view-driven base orientation —
-`cameraForCenter(lon, lat)` — that `tilt` now ADDS to (default `0`, i.e.
-head-on, byte-identical to every pre-slice-5 globe render). This is NOT a
-third rotational degree of freedom: composing an extra `rotateX(tilt)`
-after `cameraForCenter`'s own rotation is mathematically identical to
-shifting `rotX` by `tilt` (both rotations share the same post-`rotY` local
-X axis, and rotations about one axis commute/add — `rotateVec3Voxcss`,
-`packages/glyphcss/src/api/createGlyphCamera.ts`). What makes it a genuine
-"pitch independent of `view.center`" rather than silent re-centering at a
-different latitude is bookkeeping: `applyDrag`'s orbit branch subtracts
-`tilt` back out of `camera.rotX` before calling `centerForCamera`, so
-`view.center` (and anything derived from it — markers, `fitBounds`, tile
-LOD) is never contaminated by a nonzero tilt.
+**Camera tilt pitches about the SURFACE POINT under the view centre — one
+rule at both scales and for both projection families.** `GlyphMapOptions.tilt`
+/ `GlyphMapHandle.setTilt`/`getTilt`/`getMaxTilt` are "pitch about the surface
+point under `view.center`, with the pivot distance equal to the camera's
+altitude": Google Earth's and Cesium's model. `map.project(getView().center)`
+therefore lands at the centre of the grid at every pitch and every span, and
+the two feels the user asked for fall out of the ONE rule with no mode switch
+and no threshold — zoomed out the pivot is far below the camera relative to
+the view, so pitching swings the globe and the limb comes into frame
+tangentially; zoomed in the pivot is directly beneath, so pitching reads as
+raising your head off the ground, which is what makes 3D buildings legible.
+
+Under glyphcss's ORTHOGRAPHIC camera the pivot's distance along the view axis
+is unobservable — `createGlyphCamera.ts`'s `project` is `R·(v − target)`, so
+shifting `target` along the view axis moves depth by a constant and col/row by
+nothing at all. The "pivot at the camera's altitude" clause is therefore
+degenerate here and the model reduces EXACTLY to "the surface point stays at
+screen centre", i.e. `camera.target = projection.project(lon, lat, 0)`. That
+is what a SHEET projection has always done, so ONE implementation serves both:
+a plane is the degenerate case of the same rule, its `tilt` is still the total
+`camera.rotX` (default `40`), and its pose is byte-identical (pinned exactly
+in `widget.tiltPivot.test.ts` — the four numbers `rotX`/`rotY`/`target`/`zoom`
+fully determine an orthographic render). An ORBIT projection's `tilt` still
+ADDS to `cameraForCenter(lon, lat)`'s own pitch (default `0`, head-on); only
+the PIVOT changed. It is still not a third rotational degree of freedom:
+composing an extra `rotateX(tilt)` after `cameraForCenter`'s rotation is
+identical to shifting `rotX` by `tilt` (both share the post-`rotY` local X
+axis — `rotateVec3Voxcss`, `packages/glyphcss/src/api/createGlyphCamera.ts`).
+`applyDragState` re-anchors the pivot on the centre the drag just produced and
+subtracts the APPLIED pitch back out of `camera.rotX` before calling
+`centerForCamera`, so `view.center` reports the point the viewer is looking at
+and nothing derived from it (markers, `fitBounds`, tile LOD) is contaminated.
+
+*What this replaced, and what it cost.* Before this, an orbit `tilt` swung the
+camera about the GLOBE'S CENTRE with `camera.target = [0, 0, 0]`, so the
+NUMBER in `view.center` stayed stable while the PICTURE was `tilt` degrees of
+latitude away. Measured at the page's default `tilt: 40` on a 140x63 grid:
+`project(getView().center)` landed at row 11.9 of 63 at a 140-degree span, row
+−33.3 at 40 degrees, row −827.9 at 3 degrees and row −23,405 at 0.11 degrees.
+Six separate defects on this branch traced to it (half the map not loading,
+the pole unreachable, borders vanishing at deep zoom, shared links describing
+the wrong place, curated tiles never fetched, the OSM layer flying to Zurich
+and rendering Cameroon), and three artefacts existed only because of it:
+`widget.osm.test.ts`'s "walks it off as the span shrinks" block (which PINNED
+the arithmetic and has been inverted in place), the doc premises in
+`viewportGeoSamples`/`orbitCandidateGeoBounds`/`widget.tiltedTileCulling.test
+.ts` (the FAILURES those guard — a 22.5-degree tile whose own 3x3 samples all
+miss a 3-degree viewport, and a `1/cos(lat)`-wide window at high latitude —
+are untouched by the pivot and still guarded; only the premises were
+rewritten and the harnesses re-aimed), and `/maps`' own
+`MAP_SEARCH_FLY_TILT = 0` levelling, which is now dead page code. One real
+change fell out of it: a transition's endpoint framings are now assigned
+VERBATIM at `t <= 0`/`t >= 1` instead of through the lerp, because
+`a + (b − a)·1` is not `b` in floating point — invisible while an orbit
+endpoint's target was the exact `[0, 0, 0]`, an ulp once it is a real surface
+point, and the "settles EXACTLY on the target" parity gate caught it.
+
+**The pitch ceiling is the HORIZON ANGLE at the view's own scale.**
+`GlyphMapHandle.getMaxTilt()` is `asin(R / (R + h))` capped at
+`GLYPH_MAP_MAX_TILT` (85), where `R` is the datum's distance from the world
+origin (`|proj.project(lon, lat, 0)|` — the SAME origin-centred sphere
+`glyphMapGlobe.visible` already assumes when it takes `depthOf([0,0,0])` as
+its reference plane) and `h` is the frame's world-space HALF-HEIGHT,
+`(rows·cellHeight/2) / zoom`. That is the textbook horizon angle: the
+half-angle of the cone of rays tangent to a sphere of radius `R` from a point
+at altitude `h` is exactly where a view direction stops intersecting the
+surface. The one modelling choice is `h`: an orthographic camera has no
+altitude, so the view supplies the only length it has — its own frame's
+half-height (equivalently, the altitude of the perspective camera that would
+show the same ground straight down through a 90-degree vertical field). Any
+other field of view rescales `h` by a constant and slides the whole curve;
+`h` itself is the parameter-free member of that family. The numerator
+`rows·cellHeight` is the host's rendered pixel height, so the ceiling is
+invariant to `cols`/`rows`/cell size exactly as `camera.zoom` is, and is
+gated the same way. `widget.tiltPivot.test.ts` re-derives it independently
+through the PUBLIC surface — at pitch 0 the world point under the top-centre
+cell sits exactly `h` from the view axis, measured via `map.unproject` +
+`projection.project`, never from this arithmetic — and matches to 3 decimals
+at three spans.
+
+The shape is what the geometry demands, and it is what the requirement asked
+for: ~21 degrees at a 360-degree span on a 16:7 grid (where the reported
+"80 degrees of pitch aims the camera past the limb at empty space" lives),
+~50 at 40 degrees, ~67 at 12, and the 85-degree cap by city scale — so the
+page's default 40 is untouched at every scale a city or region is read at and
+binds only at planet scale. The cap is not taste either: at exactly 90 degrees
+the camera is edge-on, an orthographic projection collapses the surface to one
+row of cells, and `sheetScreenScale` divides by a vertical extent going to
+zero. A SHEET has no limb — a plane is intersected by every ray short of
+edge-on — so its ceiling is the cap alone at every span, chosen by CAPABILITY
+(`isOrbit`) and never by `proj.id`.
+
+Two rejected alternatives. (1) The forced orthographic criterion — "the top
+ray of the parallel bundle must still hit the sphere", `sin t <= 1 − h/R` — is
+exactly derivable with no modelling choice at all, and wrong for the
+requirement: it returns 0 for every view where the globe already fits in the
+frame (`h >= R`), forbidding precisely the tangential-limb swing the zoomed-out
+regime is supposed to give. (2) "The disc must stay framed", `sin t <= |1 −
+h/R|`, is symmetric and continuous but returns ~53 degrees at a world view,
+where the globe is shoved to the bottom of the screen and ~89% of the upper
+frame is empty — the failure the ceiling exists to prevent. The clamp is
+non-destructive: `tiltRequest` keeps what the caller asked for and only the
+APPLIED pitch is clamped, so a zoom out that lowers the ceiling does not
+destroy the request and zooming back in restores the full pitch. `getTilt()`
+reports the applied pitch — the readout describes the picture — and the widget
+holds `appliedTilt` as state rather than re-deriving it, because a projection
+transition poses the camera at a lerp of two endpoints' pitches that no single
+`maxTiltFor` call could reproduce, and `applyDragState` must subtract back out
+exactly what was added.
+
+**The pitch GESTURE: Ctrl+drag and right-button drag, 0.5 deg/px.** Pitch
+existed only as `setTilt`, and on `/maps` that meant one slider inside a
+collapsible Dock that the reader never opened — the feature was shipped and
+unreachable. `controls.tilt` (default `true`, its own opt-out beside `drag`
+and `wheel`) binds the pitch to the gesture Google Maps, Mapbox, MapLibre and
+Cesium all converged on, so it is the one hands already have; on macOS
+Ctrl+click IS the secondary click, so the two conditions are the same gesture
+arriving under two names and both are accepted. `GLYPH_MAP_TILT_DRAG_DEG_PER_PX`
+is MapLibre's own `pitchRate`: at half a degree per pixel the whole usable
+range (85 degrees, the widest ceiling this widget ever offers) is 170px — one
+flick, never a repeated stroke — while a pixel of tremor is half a degree
+rather than a visible jump.
+
+Three decisions inside it. (1) The gesture goes through `applyTiltState`, the
+STATE half split out of `setTilt` for exactly the reason `applyDragState` is
+split out of `applyDrag`: `getTilt()` must not lag the gesture for a caller
+reading it between events, while the REPAINT is coalesced onto the one motion
+loop — `markMotionDirty()`, never a second `scene.rerender()` path (gated:
+20 synchronous `pointermove`s render nothing and still report the exact live
+pitch). (2) The delta accumulates from `appliedTilt`, NOT from `tiltRequest`.
+The two differ only above the view's own ceiling, and accumulating from the
+request there gives the gesture DEAD TRAVEL: at a whole-world span (ceiling
+~21) a request left at 85 by a close-in gesture needs 128px of downward drag
+before the picture moves at all. Reading the applied pitch makes the gesture
+relative to what the reader can actually see, which is what direct
+manipulation has to be — and it costs nothing observable elsewhere, because a
+zoom never rewrites `tiltRequest`, so the remembered-request behaviour above
+survives intact (both halves gated in `widget.tiltGesture.test.ts`). (3) No
+inertia. A pitch that kept moving after the hand stopped would coast into the
+horizon ceiling and sit there, and there is nothing physical about an angle to
+justify the momentum; a tilt gesture also never emits `click` (a secondary or
+modified press is not a map click) and `preventDefault`s its own `pointerdown`
+so the stroke cannot start a text selection. `contextmenu` is suppressed over
+the host whenever the gesture is enabled — on some platforms the native menu
+appears on `mousedown`, i.e. before the drag has moved a pixel, which would
+make the right-button half unusable rather than merely untidy.
+
+*Bearing is NOT part of this and is not expressible today.* Bearing is
+rotation about the VIEW axis (the compass heading; north no longer up, with
+`view.center` unchanged) — a THIRD angle. `camera.rotY` is not it: it orbits
+the globe and moves `view.center`'s longitude, which is navigation. The Euler
+path composes exactly `RotZ(rotY)` then `RotX(rotX)`
+(`createGlyphCamera.ts`'s `rotateVec3Voxcss`), a 2-parameter subset of SO(3),
+and `cameraForCenter` returns only `{rotX, rotY}`. The route that does NOT
+require a core change is `GlyphCamera.mat` + `useMat` — a public, documented
+9-element row-major rotation matrix that `project()` already honours — with
+`useMat` left `false` at bearing 0 so every existing gate and byte-identity
+claim is untouched. What that route still has to settle, all of it audited
+while shipping the pitch half: the orbit drag branch writes `camera.rotY`/
+`camera.rotX` from raw pixel deltas and would need `[dx, dy]` rotated by
+`-bearing` first; the TAA history camera in glyphcss's `rasterize.ts` rebuilds
+a camera from `rotX`/`rotY` and drops `mat`/`useMat`, so `temporalBlend` would
+reproject against an unrotated frame (a glyphcss-side fix, outside this
+package); the sheet cover clamp's world-space box is axis-aligned while the
+visible window would become a rotated rect. Three things that look like they
+would break do NOT: `glyphMapHeadlightDirection` is bearing-INVARIANT (a roll
+about the view axis does not move that axis), `maxTiltFor` reads only a radius
+and a half-height, and every unproject-derived footprint —
+`unprojectSphere`'s Newton on `camera.project`, `sheetUnprojector`'s
+three-probe basis, `viewportGeoSamples` and `orbitCandidateGeoBounds` — is
+derived from SCREEN cells rather than from an axis-aligned lon/lat window
+around `view.center`, so the tile sweep follows a bearing for free and cannot
+under-cover at 45 degrees. `chirality.test.ts` needs no parameterizing: it
+pins the zero-bearing frame, which stays byte-identical. Label placement
+follows for free as well and needs no change: the contour labels' "near
+horizontal, locally straight" test is a SCREEN criterion measured on the
+projected polyline, and `glyphMapDeclutterLabels` arbitrates in screen space,
+so both rotate with the picture. If bearing becomes view state it appends to
+`mapsUrlState`'s token-keyed schema like `tilt` does — an appended field needs
+no version bump, only a token and a default.
 
 **`cameraForCenter` is a 2-to-1 inverse, and the widget remembers which
 preimage it is on.** `centerForCamera`'s parametrization
@@ -970,9 +1137,11 @@ branch: same view AXIS, but 180° of ROLL about it, which point-REFLECTS the
 whole screen (measured at `tilt: 0` — lon −150/lat 78 col 45.6 → 74.4, lon
 −180/lat 88 row 52.5 → 7.5), and because `tilt` is ADDED to whichever branch
 was picked (`camera.rotX = rotX + tilt`) a nonzero tilt makes the two
-different AXES outright (measured at the page default `tilt: 40` — rotX
-28.663 → 51.337, rotY 0 → −180, carrying lon 0/lat 60 clean off screen, row
-33.2 → −107.0). `widget.ts` therefore holds the true (tilt-free)
+different AXES outright (at the page default `tilt: 40`, lon 0/lat 60 — rotX
+28.663 → 51.337, rotY 0 → −180; with the surface-point pivot `view.center`
+itself stays at screen centre through the flip, so the picture rolls and
+re-pitches about it rather than leaving the grid, but it is the same
+unrequested jump). `widget.ts` therefore holds the true (tilt-free)
 `orbitRotation` the camera is actually on — recorded by `applyDrag`, the only
 thing that can reach the non-canonical branch — and `orbitRotationFor` reuses
 it whenever it still frames the requested centre, re-deriving the canonical
@@ -1815,14 +1984,16 @@ coverage limit that no longer exists. What replaced them is one provenance row
 provider) and a `tiles` line that appears ONLY while tiles are actually
 missing.
 
-The tilt lesson the flight taught is not lost with it: `tilt` adds to the
-projection's base orientation, so on an orbit projection it rotates the CAMERA
-by an absolute angle while the field of view shrinks with the zoom, and at the
-~0.11° a city view needs, the page's default 40° puts the view centre at row
-−22,775 of a 63-row grid. The page's remaining camera flight — search
-(`mapsSearch.ts`'s `MAP_SEARCH_FLY_TILT`) — levels the tilt for exactly that
-reason and asserts the destination is on the grid via `map.project()`
-(`mapsSearch.flyTilt.test.ts`).
+The tilt lesson the flight taught has since been fixed at the source rather
+than worked around. `tilt` used to swing the camera about the globe's CENTRE,
+so at the ~0.11° a city view needs, the page's default 40° put the view centre
+at row −22,775 of a 63-row grid; it now pitches about the surface point under
+`view.center` ("Camera tilt" above), so the destination is at the centre of
+the grid at every span and pitch. `MAP_SEARCH_FLY_TILT = 0` and the levelling
+in `flyToMapSearchResult` are therefore dead page code — the flight can keep
+the reader's pitch. `mapsSearch.flyTilt.test.ts`'s assertion (the destination
+is on the grid, via `map.project()` against the real widget) is the part worth
+keeping, and it holds at any pitch now.
 
 **Failure.** A tile that 404s, times out or arrives undecodable resolves EMPTY
 rather than rejecting: the sweep awaits a `Promise.all` over every missing

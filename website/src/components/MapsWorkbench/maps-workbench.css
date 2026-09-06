@@ -510,3 +510,46 @@
     max-height: min(38vh, 240px);
   }
 }
+
+/* On-map pitch readout + reset ("Level"). Chrome ON the map, the way every
+   map product puts its compass there, because the Dock's Tilt slider is
+   exactly what readers did not find. Right edge of the top row: `.maps-search`
+   owns the centre and `.maps-error` spans the full width above both
+   (z-index 22), so this sits at the same z-index as the search box and never
+   collides with it. Rendered only while the camera is off-level
+   (`MapTiltReset.tsx`), so it costs nothing on the view most readers keep. */
+.maps-tilt-reset {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  right: 12px;
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.maps-tilt-reset:hover,
+.maps-tilt-reset:focus-visible {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* The angle carries the same orange the Dock uses for a live value, so the
+   readout reads as state and the word next to it reads as the action. */
+.maps-tilt-reset__angle {
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+}
+.maps-tilt-reset__label {
+  color: rgba(255, 232, 184, 0.62);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}

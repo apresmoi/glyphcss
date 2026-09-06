@@ -1,25 +1,27 @@
 // @vitest-environment happy-dom
 /**
  * The load-bearing half of /maps search, driven through the REAL widget:
- * selecting a result must put the searched point ON THE GRID.
+ * selecting a result must put the searched point ON THE GRID, and must do it
+ * WITHOUT taking the reader's pitch away.
  *
  * The assertion is `map.project()`, never a comparison of geographic
- * coordinates. On an ORBIT projection `tilt` adds an ABSOLUTE camera pitch,
- * so `view.center` being exactly the searched lon/lat says nothing at all
- * about whether that point is rendered — which is precisely the trap
- * `mapsOsm.ts` documents and `widget.osm.test.ts` pins for the OSM flight.
+ * coordinates: `view.center` being exactly the searched lon/lat is a
+ * statement about a number, not about what is rendered.
  *
- * The second case is the control: the identical flight WITHOUT levelling,
- * at the page's own default tilt, so the test states what levelling buys
- * rather than merely asserting a constant is zero.
+ * A flight used to level the camera to 0 first, because `tilt` swung the
+ * camera about the GLOBE'S centre and an unlevelled flight into place scale
+ * arrived at row −22,775 of a 63-row grid. `tilt` now pitches about the
+ * surface point under the view centre (`widget.tiltPivot.test.ts`), so the
+ * levelling bought nothing — and with pitch reachable as a GESTURE, silently
+ * flattening the map on every search is a real loss. These cases are what
+ * makes deleting it safe: they fly at the page's own default pitch and
+ * demand the destination land dead centre anyway.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { createGlyphMap, glyphMapGlobe, type GlyphMapHandle } from "@glyphcss/maps";
 import {
-  MAP_SEARCH_FLY_TILT,
   MAP_SEARCH_POINT_SPAN,
   flyToMapSearchResult,
-  mapSearchFlyTarget,
   type MapSearchResult,
 } from "./mapsSearch";
 
@@ -60,37 +62,25 @@ afterEach(() => {
 });
 
 describe("selecting a search result lands the target on the grid", () => {
-  it("flies to a city and puts it on screen, having levelled the tilt", async () => {
+  it("flies to a city, lands it dead centre, and KEEPS the reader's pitch", async () => {
     const map = orbitMap(PAGE_TILT);
-    const tilts: number[] = [];
-    await flyToMapSearchResult(map, TOKYO, { durationMs: 0, onTilt: (t) => tilts.push(t) });
+    await flyToMapSearchResult(map, TOKYO, { durationMs: 0 });
 
-    // The page's own copy of `tilt` was written too, so the Dock's slider
-    // agrees with the camera.
-    expect(tilts).toEqual([MAP_SEARCH_FLY_TILT]);
     expect(map.getView().span).toBeCloseTo(MAP_SEARCH_POINT_SPAN, 6);
 
+    // This used to land at row ~430 of a 63-row grid (nearly seven screens
+    // below the bottom edge), and at more than twenty thousand rows off for
+    // the page's old 0.07-degree OSM flight, because `tilt` swung the camera
+    // about the GLOBE'S CENTRE by an absolute angle while the field of view
+    // shrank with the zoom.
     const at = map.project(TOKYO.lngLat);
     expect(at.visible).toBe(true);
-    expect(at.col).toBeGreaterThanOrEqual(0);
-    expect(at.col).toBeLessThanOrEqual(COLS);
-    expect(at.row).toBeGreaterThanOrEqual(0);
-    expect(at.row).toBeLessThanOrEqual(ROWS);
-  });
+    expect(at.col).toBeCloseTo(COLS / 2, 6);
+    expect(at.row).toBeCloseTo(ROWS / 2, 6);
 
-  it("would land hundreds of rows off the grid without the levelling", async () => {
-    const map = orbitMap(PAGE_TILT);
-    // The same flight, minus the one thing `flyToMapSearchResult` does first.
-    await map.flyTo(mapSearchFlyTarget(TOKYO), { durationMs: 0 });
-
-    // Measured: row ~430 on a 63-row grid, i.e. nearly seven screens below
-    // the bottom edge. (The page's own OSM flight, at its 0.07-degree extract
-    // span, is off by more than twenty thousand rows — the error grows as the
-    // span shrinks, because `tilt` is an absolute angle and the field of view
-    // is not.)
-    const at = map.project(TOKYO.lngLat);
-    expect(at.visible).toBe(false);
-    expect(Math.abs(at.row - ROWS / 2)).toBeGreaterThan(ROWS * 5);
+    // ...and the flight left the pitch alone. A search that flattens the map
+    // undoes the reader's own Ctrl+drag every time they look something up.
+    expect(map.getTilt()).toBe(PAGE_TILT);
   });
 
   it("frames a country by its bounds and keeps its extremes on the grid", async () => {
@@ -98,8 +88,13 @@ describe("selecting a search result lands the target on the grid", () => {
     await flyToMapSearchResult(map, BRAZIL, { durationMs: 0 });
 
     // A bounds flight is wider than the point span, so this also proves the
-    // levelling is not merely papering over one particular zoom.
+    // result is not an artefact of one particular zoom.
     expect(map.getView().span).toBeGreaterThan(MAP_SEARCH_POINT_SPAN);
+    // The pitch is still the reader's, not zeroed. It arrives clamped to the
+    // horizon ceiling at this wider span — the request itself is remembered,
+    // so zooming back in restores the full 40 (`widget.tiltGesture.test.ts`).
+    expect(map.getTilt()).toBeCloseTo(Math.min(PAGE_TILT, map.getMaxTilt()), 9);
+    expect(map.getTilt()).toBeGreaterThan(0);
     for (const corner of [
       [BRAZIL.bounds!.west, BRAZIL.bounds!.south],
       [BRAZIL.bounds!.east, BRAZIL.bounds!.north],

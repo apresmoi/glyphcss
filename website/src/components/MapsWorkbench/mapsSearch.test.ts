@@ -24,7 +24,6 @@ import {
 } from "@glyphcss/maps";
 import {
   MAP_SEARCH_BOUNDS_PADDING,
-  MAP_SEARCH_FLY_TILT,
   MAP_SEARCH_POINT_SPAN,
   buildMapSearchIndex,
   loadMapSearchIndex,
@@ -180,10 +179,6 @@ describe("mapSearchFlyTarget", () => {
     expect(target.span).toBe(MAP_SEARCH_POINT_SPAN);
     expect(target.center?.[0]).toBeCloseTo(6.1, 6);
     expect(target.center?.[1]).toBeCloseTo(49.8, 6);
-  });
-
-  it("levels the tilt — the flight tilt is zero", () => {
-    expect(MAP_SEARCH_FLY_TILT).toBe(0);
   });
 });
 

@@ -33,6 +33,7 @@ import {
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
 import { useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
+import { mapTiltSliderRange } from "./mapsView";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // ── Projections ────────────────────────────────────────────────────────────
@@ -1552,6 +1553,7 @@ export interface ViewFolderInputs {
   span: number;
   maxSpan: number;
   tilt: number;
+  maxTilt: number;
   isOrbitProjection: boolean;
   lod: number;
   degPerCell: number;
@@ -1561,7 +1563,7 @@ export interface ViewFolderInputs {
 }
 
 export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): void {
-  const { centerLon, centerLat, span, maxSpan, tilt, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt } = inputs;
+  const { centerLon, centerLat, span, maxSpan, tilt, maxTilt, isOrbitProjection, lod, degPerCell, onCenter, onSpan, onTilt } = inputs;
   const folder = useFolder(parent, "View", { open: true });
   useSlider(folder, "Center lon", { min: -180, max: 180, step: 0.1 }, centerLon, (v) => onCenter(v, centerLat));
   useSlider(folder, "Center lat", { min: -90, max: 90, step: 0.1 }, centerLat, (v) => onCenter(centerLon, v));
@@ -1576,13 +1578,18 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
   }, [spanCtrl, maxSpan]);
   // `tilt` is unified across both navigation modes (widget.ts's
   // `GlyphMapHandle.setTilt` doc) as "additional pitch on top of the
-  // projection's own base orientation" — a flat sheet has no view-driven
-  // base, so its range is the absolute iso pitch (5..89, unchanged from
-  // before orbit tilt existed); the globe's base orientation already comes
-  // from `view.center`, so its tilt is a signed offset on top of that
-  // (head-on at 0, tilts either direction).
-  const tiltRange = isOrbitProjection ? { min: -70, max: 70, step: 1 } : { min: 5, max: 89, step: 1 };
-  useSlider(folder, "Tilt °", tiltRange, tilt, onTilt);
+  // projection's own base orientation" — see `mapTiltSliderRange` for why
+  // the two families keep different SHAPES and why the ceiling is the
+  // widget's own live `getMaxTilt()` rather than the literal it replaced.
+  // Pushed onto the raw controller for the same reason `maxSpan` is: the
+  // range is read once at creation, and this one moves with every wheel
+  // notch (~21 degrees at a whole-world span, 85 by city scale).
+  const tiltRange = mapTiltSliderRange(isOrbitProjection, maxTilt);
+  const tiltCtrl = useSlider(folder, "Tilt °", tiltRange, tilt, onTilt);
+  useEffect(() => {
+    tiltCtrl?.raw.min(tiltRange.min);
+    tiltCtrl?.raw.max(tiltRange.max);
+  }, [tiltCtrl, tiltRange.min, tiltRange.max]);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 

@@ -156,7 +156,7 @@ export function MapSearchBox({ loadIndex, onSelect }: MapSearchBoxProps) {
           autoComplete="off"
           spellCheck={false}
           placeholder="Search a place or country"
-          title="Fly to a country or city. Natural Earth's own 242 admin-0 label points and 1,251 populated places; the flight levels the map's tilt so the destination lands on screen."
+          title="Fly to a country or city. Natural Earth's own 242 admin-0 label points and 1,251 populated places."
           value={query}
           onFocus={() => { ensureIndex(); setOpen(true); }}
           onChange={(e) => { ensureIndex(); setQuery(e.target.value); setOpen(true); setActive(-1); }}

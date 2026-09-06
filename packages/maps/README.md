@@ -312,6 +312,43 @@ on a projection's `id`:
   pan-with-domain-clamp, with no `if (projection is globe)` anywhere in
   `widget.ts`.
 
+### Camera pitch
+
+`tilt` pitches the camera ABOUT THE SURFACE POINT UNDER THE VIEW CENTRE, with
+the pivot distance equal to the camera's altitude — the Google Earth / Cesium
+model. `map.project(map.getView().center)` therefore lands at the centre of
+the grid at every pitch and every span, and the two feels fall out of the one
+rule with no threshold: zoomed out the pivot is far below the camera relative
+to the view, so pitching swings the globe and the limb comes into frame
+tangentially; zoomed in the pivot is directly beneath, so pitching reads as
+raising your head off the ground. Under the orthographic camera the pivot's
+distance along the view axis is unobservable, so this reduces exactly to
+"`camera.target` is the projected view centre" — which is what a sheet
+projection has always done, so a plane is the degenerate case of the same
+rule.
+
+`map.getMaxTilt()` is the live ceiling `setTilt` clamps to, and `getTilt()`
+reports the pitch the camera actually has. It is the HORIZON ANGLE at the
+view's own scale, `asin(R / (R + h))` for the frame's world half-height `h`
+— small at planet scale (~21 degrees on a 360-degree span, where 80 degrees
+would aim past the limb at empty space) and rising to `GLYPH_MAP_MAX_TILT`
+(85) as the surface goes locally flat. A sheet has no limb, so its ceiling is
+that cap at every span. The request is remembered unclamped, so zooming back
+in restores the full pitch.
+
+**Ctrl+drag — or a right-button drag — pitches the camera**, vertically, at
+`GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5) degrees per pixel: the binding Google
+Maps, Mapbox and MapLibre all use, and MapLibre's own rate. Plain drag keeps
+its meaning (pan on a sheet, orbit on the globe). `controls.tilt` (default
+`true`) is its own opt-out alongside `controls.drag`/`controls.wheel`, and
+while it is enabled the widget suppresses the host's context menu so the
+right-button half is usable. The gesture clamps live to `getMaxTilt()` as the
+zoom changes it, carries no inertia, and shares the widget's one animation
+frame with every other gesture — at most one render per displayed frame.
+
+There is no BEARING (rotation about the view axis). `camera.rotY` orbits the
+globe and moves the centre's longitude; that is navigation, not a heading.
+
 ### Cover, not contain
 
 A SHEET projection (no `cameraForCenter` — equirectangular, Mercator,

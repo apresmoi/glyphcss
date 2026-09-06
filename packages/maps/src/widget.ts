@@ -1008,7 +1008,16 @@ export interface GlyphMapOptions {
   readonly view: GlyphMapView;
   readonly projection: GlyphMapProjection;
   readonly layers?: readonly GlyphMapLayer[];
-  readonly controls?: { readonly drag?: boolean; readonly wheel?: boolean };
+  /**
+   * Per-gesture opt-outs. Each defaults to `true`.
+   *
+   * `tilt` is the Ctrl+drag / right-button-drag PITCH gesture — its own
+   * surface, independent of `drag`: a map that pins its centre (`drag:
+   * false`) may still want the reader to be able to look across it, and a
+   * map that must never leave its one pitch can keep panning. See
+   * {@link GLYPH_MAP_TILT_DRAG_DEG_PER_PX}.
+   */
+  readonly controls?: { readonly drag?: boolean; readonly wheel?: boolean; readonly tilt?: boolean };
   /** Forwarded to the underlying `createGlyphScene` as-is. Default `false` — `view.cols`/`view.rows` are the authoritative grid (MAPS.md §3b: the view, not host pixels, owns the grid shape); `true` lets host resize drive `cols`/`rows` the way both example pages did. */
   readonly autoSize?: boolean;
   /** Smallest `view.span` (degrees) reachable by wheel-zoom or `setView`. Default `0.001`. */
@@ -1027,18 +1036,15 @@ export interface GlyphMapOptions {
    */
   readonly maxSpan?: number;
   /**
-   * Camera pitch, degrees. Meaning is unified across both navigation modes
-   * as "additional rotation on top of whatever the projection's own base
-   * orientation is" — a SHEET projection (no `cameraForCenter`) has no
-   * view-driven base orientation, so `tilt` there IS the total `camera.rotX`
-   * (default `40`, unchanged from before this option applied to orbit too).
-   * An ORBIT projection (the globe) has a view-driven base orientation —
-   * `cameraForCenter(lon, lat)` — that `tilt` now ADDS to (default `0`,
-   * i.e. head-on, byte-identical to every render before this option applied
-   * here): see {@link GlyphMapHandle.setTilt} for why this is coherent
-   * rather than aliasing `view.center` (drag/pan subtracts `tilt` back out
-   * before calling `centerForCamera`, so the reported center is unaffected
-   * by a nonzero tilt).
+   * Camera pitch, degrees — a rotation ABOUT THE SURFACE POINT UNDER THE
+   * VIEW CENTRE, so `view.center` stays at the centre of the grid at every
+   * pitch and every span. See {@link GlyphMapHandle.setTilt} for the model
+   * and {@link GlyphMapHandle.getMaxTilt} for the ceiling it is clamped to.
+   *
+   * A SHEET projection (no `cameraForCenter`) has no view-driven base
+   * orientation, so `tilt` there IS the total `camera.rotX` (default `40`).
+   * An ORBIT projection (the globe) has one — `cameraForCenter(lon, lat)` —
+   * that `tilt` ADDS to (default `0`, i.e. head-on).
    */
   readonly tilt?: number;
   /** Forwarded to `createGlyphScene`, merged UNDER the widget's own `camera`/`cols`/`rows`/`autoSize` — this is how shading, `colorEncoding`, shadows, etc. compose (MAPS.md §9: "no new scene concepts"). */
@@ -1099,29 +1105,70 @@ export interface GlyphMapHandle {
   getMaxSpan(): number;
   fitBounds(bounds: GlyphMapBounds): void;
   /**
-   * Live camera pitch — see {@link GlyphMapOptions.tilt} for the unified
-   * meaning. Works for both sheet and orbit (globe) projections: for a
-   * sheet this sets `camera.rotX` directly (the same escape hatch the
-   * website used before this existed); for the globe it stores an offset
-   * added on top of `cameraForCenter(lon, lat)` every time the camera is
-   * re-synced (`setView`/`fitBounds`/`resize`), and `applyDrag`'s orbit
-   * branch subtracts it back out before calling `centerForCamera` — so
-   * `view.center` (and anything derived from it: markers, `fitBounds`,
-   * tile LOD) is never contaminated by a nonzero tilt. There is no third
-   * rotational degree of freedom being invented here: composing an extra
-   * `rotateX(tilt)` after `cameraForCenter`'s own rotation is mathematically
-   * identical to shifting `rotX` by `tilt` (both rotations share the same
-   * post-`rotY` local X axis, and rotations about one axis commute/add —
-   * `rotateVec3Voxcss` in glyphcss's camera, `packages/glyphcss/src/api/
-   * createGlyphCamera.ts`). What makes this a GENUINE "pitch independent of
-   * `view.center`" rather than just "silently re-centering at a different
-   * latitude" is bookkeeping: the widget keeps `tilt` and the true
-   * view-driven `rotX` separate and only ever composes them at the render
-   * boundary, so every public read of `view.center` stays exactly what the
-   * caller asked for.
+   * Live camera pitch. ONE rule at both scales and for both projection
+   * families: PITCH ABOUT THE SURFACE POINT UNDER THE VIEW CENTRE, with the
+   * pivot distance equal to the camera's altitude — what Google Earth and
+   * Cesium do. `map.project(map.getView().center)` therefore lands at the
+   * centre of the grid at every pitch and every span
+   * (`widget.tiltPivot.test.ts`), and the two regimes fall out of the one
+   * rule with no mode switch and no threshold: zoomed OUT the pivot is far
+   * below the camera relative to the view, so pitching swings the globe and
+   * the limb comes into frame tangentially; zoomed IN the pivot is directly
+   * beneath, so pitching reads as raising your head off the ground, which is
+   * what makes 3D buildings legible.
+   *
+   * Under glyphcss's ORTHOGRAPHIC camera the pivot's distance along the view
+   * axis is unobservable — the camera has no position, only an orientation
+   * and the world point at screen centre (`createGlyphCamera.ts`'s
+   * `project` is `R * (v - target)`, so a shift of `target` along the view
+   * axis moves depth by a constant and col/row by nothing at all). The
+   * "pivot at the camera's altitude" clause is therefore degenerate here and
+   * the model reduces EXACTLY to "the surface point stays at screen centre",
+   * i.e. `camera.target = projection.project(lon, lat, 0)`. That is what a
+   * SHEET projection has always done, so one implementation serves both and
+   * the sheet path is untouched — a plane is the degenerate case of the same
+   * rule, and its `tilt` is still the total `camera.rotX`.
+   *
+   * There is no third rotational degree of freedom being invented: composing
+   * an extra `rotateX(tilt)` after `cameraForCenter`'s own rotation is
+   * mathematically identical to shifting `rotX` by `tilt` (both rotations
+   * share the same post-`rotY` local X axis, and rotations about one axis
+   * add — `rotateVec3Voxcss`, `packages/glyphcss/src/api/
+   * createGlyphCamera.ts`); only the PIVOT changed. `applyDragState` still
+   * subtracts the applied pitch back out before calling `centerForCamera`,
+   * so `view.center` reports the point the viewer is looking at rather than
+   * the camera's own axis.
+   *
+   * The request is CLAMPED to {@link getMaxTilt}, so `getTilt()` can report
+   * less than what was passed at a wide view. The request itself is
+   * remembered: zooming back in restores the full pitch rather than making
+   * the caller re-ask for it.
    */
   setTilt(tilt: number): void;
+  /** The pitch the camera actually has right now — the {@link setTilt} request clamped to {@link getMaxTilt}. */
   getTilt(): number;
+  /**
+   * The steepest pitch this view can hold, degrees, positive.
+   *
+   * DERIVED, not tuned. The pitch at which a view direction stops
+   * intersecting a sphere of radius `R` from a camera at altitude `h` is the
+   * HORIZON ANGLE — the half-angle of the cone of rays tangent to the
+   * sphere, `asin(R / (R + h))`. An orthographic camera has no altitude, so
+   * the view supplies the only length it has: the world-space half-height of
+   * its own frame, `h = (rows * cellHeight / 2) / zoom`, which is half the
+   * host's rendered pixel height over `camera.zoom` and so is invariant to
+   * `cols`/`rows`/cell size exactly as `camera.zoom` itself is. (Equivalently
+   * it is the altitude of the perspective camera that would show the same
+   * ground straight down through a 90-degree vertical field.)
+   *
+   * The shape is what the geometry demands: at planet scale `h >> R` and the
+   * limit is small (a 360-degree span on a 16:7 grid gives ~21 degrees — 80
+   * degrees there aims the camera past the limb at empty space); as the view
+   * narrows `h -> 0`, the surface is locally flat, and the limit rises to
+   * {@link GLYPH_MAP_MAX_TILT}. A SHEET projection has no limb at all, so
+   * its ceiling is that flat-surface cap at every span.
+   */
+  getMaxTilt(): number;
   /**
    * Turn real-sun lighting on/off and tune it. A partial merge over the
    * current state — `setSun({ mode: "realtime" })` leaves every other field
@@ -1313,6 +1360,36 @@ function lerp(a: number, b: number, t: number): number {
 function lerp3(a: Vec3, b: Vec3, t: number): Vec3 {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 }
+
+/**
+ * The pitch ceiling on a LOCALLY FLAT surface, degrees — the value
+ * {@link GlyphMapHandle.getMaxTilt}'s horizon angle approaches as the view
+ * narrows, and the constant ceiling for a projection with no limb at all
+ * (every sheet).
+ *
+ * Not a taste value: at exactly 90 degrees the camera is edge-on to the
+ * surface, an orthographic projection collapses it to a single row of cells,
+ * and the cover math (`sheetScreenScale`, which measures the real screen
+ * basis) divides by a vertical extent going to zero. 85 degrees keeps a real
+ * surface in frame — its vertical foreshortening is `cos(85) = 0.087`, so a
+ * sheet still needs ~11.5x the span to cover, which `maxViewSpan` already
+ * measures rather than assumes.
+ */
+export const GLYPH_MAP_MAX_TILT = 85;
+
+/**
+ * Degrees of pitch per pixel of vertical travel in the tilt GESTURE
+ * (Ctrl+drag / right-button drag).
+ *
+ * Half a degree per pixel is MapLibre's and Mapbox's own `pitchRate`, and it
+ * is the right number here for the same reason it is there: it puts the whole
+ * usable range inside one comfortable gesture. The widest ceiling this widget
+ * ever offers is {@link GLYPH_MAP_MAX_TILT} (85), so head-on to fully pitched
+ * is 170px of travel — a short flick of the wrist, never a repeated stroke —
+ * while still being fine enough that a single pixel of hand tremor moves the
+ * camera by half a degree rather than by a visible jump.
+ */
+export const GLYPH_MAP_TILT_DRAG_DEG_PER_PX = 0.5;
 
 /** {@link GlyphMapHandle.setProjection}'s default animation length, ms. */
 const GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS = 600;
@@ -1518,6 +1595,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
   const controlsDrag = opts.controls?.drag ?? true;
   const controlsWheel = opts.controls?.wheel ?? true;
+  const controlsTilt = opts.controls?.tilt ?? true;
   /**
    * A FUNCTION, not a one-time `const` — `projection` can change under
    * `setProjection`, and a strictly-interior transition blend deliberately
@@ -1540,10 +1618,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   let view: GlyphMapView = opts.view;
-  let tilt = opts.tilt ?? (isOrbitProjection() ? 0 : 40);
+  /**
+   * The pitch the CALLER asked for, unclamped. What the camera actually gets
+   * is this clamped to {@link maxTiltFor} — kept apart so a zoom out that
+   * lowers the ceiling does not destroy the request, and zooming back in
+   * restores the full pitch instead of making the caller re-ask.
+   */
+  let tiltRequest = opts.tilt ?? (isOrbitProjection() ? 0 : 40);
+  /**
+   * The pitch currently BAKED INTO `camera.rotX` — the single source for
+   * every reader of "what pitch does the camera have": `getTilt()`, and
+   * `applyDragState`'s subtraction before `centerForCamera`.
+   *
+   * Held as state rather than recomputed from `tiltRequest` at each use
+   * because the two must not be able to disagree by a hair. The ceiling is a
+   * function of the live view, and a projection TRANSITION poses the camera
+   * at a lerp between two endpoints' pitches that no single call to
+   * `maxTiltFor` could reproduce — subtracting a re-derived value there
+   * would drift `view.center` on the next drag.
+   */
+  let appliedTilt = 0;
 
   /**
-   * Declared HERE, beside `tilt` and the camera rather than down in the sun
+   * Declared HERE, beside the pitch state and the camera rather than down in the sun
    * block that reads it, because `applyKeyLight` runs from the construction
    * render — a `let` in the sun block would be in its temporal dead zone at
    * that point.
@@ -1572,9 +1669,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * at tilt 0: lon -150/lat 78 col 45.6 -> 74.4; lon -180/lat 88 row 52.5 ->
    * 7.5) — and because `tilt` is ADDED to whichever branch was picked
    * (`camera.rotX = rotX + tilt`), a nonzero tilt makes them different AXES
-   * outright (measured at the page default tilt 40: rotX 28.663 -> 51.337,
-   * rotY 0 -> -180, carrying lon 0/lat 60 clean off screen, row 33.2 ->
-   * -107.0). That is the reported "scroll closer to the pole, then zoom out
+   * outright (at the page default tilt 40, lon 0 / lat 60: rotX 28.663 ->
+   * 51.337, rotY 0 -> -180 — the surface-point pivot keeps `view.center`
+   * itself at screen centre through the flip, so the whole picture rolls
+   * and re-pitches about it instead of leaving the grid, but it is the same
+   * unrequested jump). That is the reported "scroll closer to the pole, then zoom out
    * and it jumps around" — the flip discharges on the FIRST wheel notch
    * after the drag, because that is the next `syncCameraToView`.
    */
@@ -1582,7 +1681,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   const camera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
   if (!isOrbitProjection()) {
-    camera.rotX = tilt;
+    // A sheet's ceiling is the flat-surface cap and nothing else, so this
+    // needs no measured grid — which the host may not have yet at
+    // construction time anyway.
+    appliedTilt = clamp(tiltRequest, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT);
+    camera.rotX = appliedTilt;
     camera.rotY = 0;
   }
 
@@ -1753,28 +1856,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * a true positive by construction, never an over-approximation of the
    * kind `candidateTileRange`'s min/max box deliberately is.
    *
-   * `view.center` is NOT one of these points, and substituting it was a real
-   * defect (reported as "the border layer disappears at z > 6"). The premise
-   * it rested on — "the view's own geographic CENTRE always projects to
-   * dead-centre of the viewport by construction" — is false for an ORBIT
-   * projection under a nonzero `tilt`: `tilt` is ADDITIONAL camera pitch on
-   * top of `cameraForCenter(lon, lat)`, and `applyDrag` subtracts it back
-   * out of `camera.rotX` before calling `centerForCamera` (so `view.center`
-   * stays uncontaminated by pitch — "Camera tilt" in AGENTS.md), which puts
-   * `view.center` exactly `tilt` degrees of latitude away from the point at
-   * screen centre. `/maps` ships `tilt: 40`. The consequence was worst
-   * exactly where a pyramid stops deepening while the view keeps shrinking:
-   * the borders pyramid tops out at its curated z4 (22.5x11.25 degree
-   * tiles), so past terrain's z6 no tile of it had a sample of its OWN on
-   * screen either, the complement rescued the tile containing `view.center`
-   * 40 degrees away, and the layer inked nothing at all.
+   * A SINGLE point is not enough, and substituting `view.center` for these
+   * nine was a real defect (reported as "the border layer disappears at
+   * z > 6"). `view.center` does now project to dead centre of the viewport
+   * by construction — `tilt` pitches about the surface point under it
+   * ({@link GlyphMapHandle.setTilt}) — but that only makes it the CENTRE
+   * sample, never the set: a 22.5 degree tile against a 3 degree viewport
+   * straddles the viewport whenever the centre lands within a
+   * viewport-width of a tile edge (Switzerland sits 0.8 degrees from its own
+   * curated tile's south edge), so the corners and edge midpoints are what
+   * keep the neighbouring tile from being dropped. That was the reported
+   * failure's real mechanism, and it is untouched by the pivot: the borders
+   * pyramid tops out at its curated z4, so past terrain's z6 no tile of it
+   * had a sample of its OWN on screen either.
    *
-   * A single point (even the correct screen centre) is not enough: a 22.5
-   * degree tile against a 3 degree viewport straddles the viewport whenever
-   * the centre lands within a viewport-width of a tile edge — Switzerland
-   * sits 0.8 degrees from its own curated tile's south edge — so the corners
-   * and edge midpoints are what keep the neighbouring tile from being
-   * dropped. Nine points is also enough BECAUSE the two tests are
+   * Deriving them from the SCREEN also keeps them right under a pitch, where
+   * the visible window is not a symmetric box around the centre at all — it
+   * reaches much further toward the horizon than away from it, by exactly as
+   * much as the pitch says. Nine points is enough BECAUSE the two tests are
    * complementary: any tile small enough to slip between these samples has
    * its own 3x3 samples land on screen and is caught by the primary test.
    *
@@ -1889,15 +1988,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * `view.span` are not enough on their own: `computeZoomForSpan` samples
    * `span` along the MERIDIAN so zoom stays latitude-invariant, so a plain
    * `view.span`-based box under-covers longitude by up to `1 / cos(lat)`
-   * toward the poles; and `GlyphMapOptions.tilt` adds ADDITIONAL camera
-   * pitch on top of `cameraForCenter(lon, lat)`'s own orientation ("Camera
-   * tilt" above), which — especially at a high base latitude, where
-   * `cameraForCenter`'s own pitch is already large — can shift the screen's
-   * actual sub-observer point well away from `view.center` entirely (found
-   * live: `view.center` [1, 66.4] + `tilt: 40` shows lon [-20, 20] / lat
-   * [10, 40], nowhere near [1, 66.4] at all). Deriving the box from real
-   * unprojected screen samples is correct under both effects at once, with
-   * no separate cos(lat) formula or tilt bookkeeping needed.
+   * toward the poles; and `GlyphMapOptions.tilt` pitches the camera about
+   * the surface point under `view.center`, which keeps the centre on screen
+   * but makes the window ASYMMETRIC — it reaches much further toward the
+   * horizon than away from it, so no box centred on `view.center` describes
+   * it. Deriving the box from real unprojected screen samples is correct
+   * under both effects at once, with no separate cos(lat) formula or tilt
+   * bookkeeping needed.
    *
    * `null` (nothing on screen unprojects, or `isOrbitProjection()` is
    * false) tells `candidateTileRange` to fall back to its existing
@@ -1986,7 +2083,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * use for this view" for both transition endpoints independently of
    * whatever `projection` currently holds mid-blend.
    */
-  function computeZoomForSpan(v: GlyphMapView, proj: GlyphMapProjection = projection): number {
+  function computeZoomForSpan(v: GlyphMapView, proj: GlyphMapProjection = projection, grid: ProjectionGrid = projectionGrid()): number {
     const [lon, lat] = v.center;
     const fullDomainSpan = domainWidth(proj);
     const requestedSpan = Math.max(v.span, 1e-6);
@@ -2093,12 +2190,53 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // (cols same, cellWidth halved) silently multiply `camera.zoom` by
     // exactly 2 on the NEXT view->camera sync (AGENTS.md's "the view/camera
     // round-trip is not the identity" root cause).
-    const grid = projectionGrid();
     const sampledZoom = (grid.cols * grid.cellWidth) / (halfWorldSpan * 2);
     // Beyond the complete geographic domain there is no new edge to sample.
     // Continue the span scale linearly: 720° frames a 360° world at half
     // size, creating a real overview margin instead of pinning the camera.
     return sampledZoom * (sampledSpan / requestedSpan);
+  }
+
+  // ── PITCH: the ceiling, and the pitch actually applied ─────────────────
+
+  /**
+   * The steepest pitch `v` can hold under `proj`, degrees — the public
+   * {@link GlyphMapHandle.getMaxTilt}'s implementation, where its derivation
+   * is written out. In one line: the HORIZON ANGLE `asin(R / (R + h))` at
+   * the view's own scale, capped at {@link GLYPH_MAP_MAX_TILT}.
+   *
+   * `h` is the frame's world-space HALF-HEIGHT, `(rows * cellHeight / 2) /
+   * zoom`. That numerator is the host's rendered pixel height (`grid.rows *
+   * grid.cellHeight` recovers it by the same construction `computeZoomForSpan`
+   * relies on for the width), so — like `camera.zoom` itself, and gated the
+   * same way — the ceiling is invariant to `cols`/`rows`/cell size for a
+   * fixed host and span.
+   *
+   * `R` is read from the projection: `|proj.project(lon, lat, 0)|`, the
+   * datum's distance from the world origin. That is the SAME origin-centred
+   * sphere `glyphMapGlobe.visible` already assumes when it takes
+   * `depthOf([0, 0, 0])` as its reference plane, so this introduces no new
+   * assumption about an orbit projection's world frame.
+   *
+   * A SHEET has no limb — a plane is intersected by every ray short of
+   * edge-on — so its ceiling is the flat-surface cap alone, and the check is
+   * a CAPABILITY question (`isOrbit`), never `proj.id`. A degenerate measure
+   * (zero radius, a non-finite zoom before the first sync) degrades to the
+   * same cap rather than throwing or pinning the camera head-on.
+   */
+  function maxTiltFor(proj: GlyphMapProjection, v: GlyphMapView, zoom: number, grid: ProjectionGrid): number {
+    if (!isOrbit(proj)) return GLYPH_MAP_MAX_TILT;
+    const world = proj.project(v.center[0], v.center[1], 0);
+    const radius = Math.hypot(world[0], world[1], world[2]);
+    const halfHeight = ((grid.rows * grid.cellHeight) / 2) / zoom;
+    if (!(radius > 0) || !(halfHeight > 0) || !Number.isFinite(halfHeight)) return GLYPH_MAP_MAX_TILT;
+    return Math.min(GLYPH_MAP_MAX_TILT, (Math.asin(radius / (radius + halfHeight)) * 180) / Math.PI);
+  }
+
+  /** The pitch to actually pose the camera at for `(proj, v)`: the caller's request, clamped to {@link maxTiltFor}. */
+  function tiltFor(proj: GlyphMapProjection, v: GlyphMapView, zoom: number, grid: ProjectionGrid): number {
+    const max = maxTiltFor(proj, v, zoom, grid);
+    return clamp(tiltRequest, -max, max);
   }
 
   // ── COVER, NOT CONTAIN (sheet projections only) ───────────────────────
@@ -2186,7 +2324,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * below is exact.
    */
   function sheetScreenScale(grid: ProjectionGrid): { readonly perWorldX: number; readonly perWorldY: number } {
-    coverProbeCamera.rotX = tilt;
+    // A sheet's pitch is the flat-surface cap and nothing more (`maxTiltFor`),
+    // so this needs no view: it is exactly the pose `framingFor`'s sheet
+    // branch and `setTilt`'s sheet branch install on the live camera.
+    coverProbeCamera.rotX = clamp(tiltRequest, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT);
     coverProbeCamera.rotY = 0;
     coverProbeCamera.zoom = 1;
     coverProbeCamera.target = [0, 0, 0];
@@ -2404,16 +2545,31 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function syncCameraToView(v: GlyphMapView): void {
     const [lon, lat] = v.center;
+    // ONE grid for the whole sync (two `getBoundingClientRect`s, this file's
+    // standing rule), and the zoom BEFORE the pitch: the pitch ceiling is a
+    // function of `camera.zoom`, so deriving it from the zoom this sync is
+    // about to install — rather than the one still on the camera — is what
+    // keeps the sync idempotent across a span change.
+    const grid = projectionGrid();
+    const zoom = computeZoomForSpan(v, projection, grid);
+    const pitch = tiltFor(projection, v, zoom, grid);
     if (projection.cameraForCenter) {
       const { rotX, rotY } = orbitRotationFor(projection, lon, lat);
       orbitRotation = { rotX, rotY };
-      camera.rotX = rotX + tilt;
+      camera.rotX = rotX + pitch;
       camera.rotY = rotY;
-      camera.target = [0, 0, 0];
+      // The PIVOT: the surface point under the view centre, not the globe's
+      // centre — `setTilt`'s doc for the model. At `pitch: 0` this is on the
+      // view axis, so it moves depth by a constant and col/row by nothing.
+      camera.target = projection.project(lon, lat, 0);
     } else {
+      // A sheet's `camera.rotX` IS its pitch and is written by `setTilt`/
+      // construction, never here — the sheet pose is byte-identical to
+      // before this model existed.
       camera.target = projection.project(lon, lat, 0);
     }
-    camera.zoom = computeZoomForSpan(v);
+    appliedTilt = pitch;
+    camera.zoom = zoom;
   }
 
   // ── project()/unproject() ────────────────────────────────────────────
@@ -4358,9 +4514,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * `cameraForCenter` nor a meaningful `project(lon,lat,0)` "this is home"
    * anchor of its own.
    */
-  function framingFor(proj: GlyphMapProjection, v: GlyphMapView): { readonly rotX: number; readonly rotY: number; readonly target: Vec3; readonly zoom: number } {
+  function framingFor(proj: GlyphMapProjection, v: GlyphMapView): CameraFraming {
     const [lon, lat] = v.center;
-    const zoom = computeZoomForSpan(v, proj);
+    const grid = projectionGrid();
+    const zoom = computeZoomForSpan(v, proj, grid);
+    // The ENDPOINT's own ceiling, not the live projection's: a globe and a
+    // sheet at the same view have completely different limbs (the sheet has
+    // none), so asking `proj` is the same capability discipline every other
+    // branch in this file follows.
+    const pitch = tiltFor(proj, v, zoom, grid);
     if (proj.cameraForCenter) {
       // `orbitRotationFor`, not `proj.cameraForCenter` directly — same
       // 2-to-1-inverse reason `syncCameraToView` uses it (J8): re-deriving
@@ -4368,9 +4530,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // frames would make a transition's very first frame lerp toward a
       // 180deg roll flip the camera never asked for.
       const { rotX, rotY } = orbitRotationFor(proj, lon, lat);
-      return { rotX: rotX + tilt, rotY, target: [0, 0, 0], zoom };
+      return { rotX: rotX + pitch, rotY, target: proj.project(lon, lat, 0), zoom, tilt: pitch };
     }
-    return { rotX: tilt, rotY: 0, target: proj.project(lon, lat, 0), zoom };
+    return { rotX: pitch, rotY: 0, target: proj.project(lon, lat, 0), zoom, tilt: pitch };
   }
 
   /**
@@ -4400,6 +4562,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     readonly rotY: number;
     readonly target: Vec3;
     readonly zoom: number;
+    /**
+     * The pitch component OF `rotX` — carried alongside it because a
+     * transition poses the camera at a lerp of two endpoints' pitches, and
+     * `applyDragState` must subtract back out exactly what was added. There
+     * is no way to recover it from `rotX` alone: on an orbit endpoint `rotX`
+     * is `cameraForCenter(...).rotX + tilt` and both terms are live.
+     */
+    readonly tilt: number;
   }
 
   /**
@@ -4563,10 +4733,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // reason to hold the shared cell hook (see `syncStrokeHookInstalled`).
     syncStrokeHookInstalled();
     const toFraming = framingFor(to, view);
-    camera.rotX = lerp(fromFraming.rotX, toFraming.rotX, t);
-    camera.rotY = lerp(fromFraming.rotY, toFraming.rotY, t);
-    camera.target = lerp3(fromFraming.target, toFraming.target, t);
-    camera.zoom = transitionZoom(from, to, t, fromFraming, toFraming);
+    // The endpoints are assigned VERBATIM rather than through the lerp, so a
+    // flight settles bit-for-bit on the framing a plain construction at the
+    // same view would have produced (the "settles EXACTLY on the target"
+    // parity gate in `widget.test.ts`). `a + (b - a) * 1` is not `b` in
+    // floating point: it was within an ulp while an orbit endpoint's target
+    // was the exact `[0, 0, 0]`, and is no longer once the target is a real
+    // surface point.
+    const framing = t >= 1 ? toFraming : t <= 0 ? fromFraming : null;
+    camera.rotX = framing ? framing.rotX : lerp(fromFraming.rotX, toFraming.rotX, t);
+    camera.rotY = framing ? framing.rotY : lerp(fromFraming.rotY, toFraming.rotY, t);
+    camera.target = framing ? ([...framing.target] as Vec3) : lerp3(fromFraming.target, toFraming.target, t);
+    camera.zoom = framing ? framing.zoom : transitionZoom(from, to, t, fromFraming, toFraming);
+    // `rotX` above is a lerp of two endpoint poses, so the pitch baked into
+    // it is the lerp of their pitches — recorded, not re-derived, so a drag
+    // landing mid-flight subtracts back out exactly what was added.
+    appliedTilt = framing ? framing.tilt : lerp(fromFraming.tilt, toFraming.tilt, t);
     reprojectGeometry();
     applyKeyLight();
     scene.rerender();
@@ -4761,6 +4943,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       rotY: camera.rotY,
       target: [...camera.target] as Vec3,
       zoom: camera.zoom,
+      tilt: appliedTilt,
     };
     const duration = Math.max(0, setOpts.durationMs ?? GLYPH_MAP_PROJECTION_TRANSITION_DEFAULT_MS);
     if (from === target || duration === 0 || typeof requestAnimationFrame === "undefined") {
@@ -4877,25 +5060,47 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     emitViewChange(spanChanged ? "zoom" : "move");
   }
 
-  function setTilt(t: number): void {
-    tilt = t;
+  /**
+   * The STATE half of a pitch change: `tiltRequest`/`appliedTilt` and the
+   * camera pose, no repaint and no event. Returns `true` when the projection
+   * has a view-driven base orientation, i.e. when the caller still owes a
+   * `syncNearSide()`.
+   *
+   * Split out of {@link setTilt} for the same reason `applyDragState` is
+   * split out of `applyDrag`: the tilt GESTURE has to update state
+   * synchronously per `pointermove` (a caller reading `getTilt()` between
+   * events must not see a stale value) while the REPAINT is coalesced onto
+   * the one motion loop. Two entry points, one model.
+   */
+  function applyTiltState(t: number): boolean {
+    tiltRequest = t;
     if (!isOrbitProjection()) {
-      camera.rotX = tilt;
-      applyKeyLight();
-      scene.rerender();
-      return;
+      appliedTilt = clamp(tiltRequest, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT);
+      camera.rotX = appliedTilt;
+      return false;
     }
-    // Re-derive rotX from the CURRENT view center (not the drag delta path)
-    // so a tilt change composes correctly with wherever the camera already
-    // is, exactly like `syncCameraToView` does on `setView`/`fitBounds`.
+    // Re-derive rotX AND the pivot from the CURRENT view center (not the drag
+    // delta path) so a tilt change composes correctly with wherever the
+    // camera already is, exactly like `syncCameraToView` does on
+    // `setView`/`fitBounds`.
     syncCameraToView(view);
+    return true;
+  }
+
+  function setTilt(t: number): void {
+    const orbit = applyTiltState(t);
     applyKeyLight();
     scene.rerender();
-    syncNearSide();
+    if (orbit) syncNearSide();
   }
 
   function getTilt(): number {
-    return tilt;
+    return appliedTilt;
+  }
+
+  function getMaxTilt(): number {
+    const grid = projectionGrid();
+    return maxTiltFor(projection, view, computeZoomForSpan(view, projection, grid), grid);
   }
 
   /** The centre/span that frames `bounds` — shared by `fitBounds` and `flyTo({ bounds })` so the two can never frame the same box differently. */
@@ -5001,18 +5206,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // `centerForCamera` already clamps its OWN `asin` input to `[-1, 1]`
       // for float noise, and `Math.atan2(0, 0)` (exactly at a pole) is `0`,
       // not `NaN` — there is no live division or trig domain error here.
-      const trueRotX = camera.rotX - tilt;
+      const trueRotX = camera.rotX - appliedTilt;
       // The drag is the ONLY thing that can put the camera on the
       // non-canonical preimage branch (`trueRotX` outside `[0, 180]`, i.e.
       // past a pole), so it is also what has to record which branch that is
       // — `view.center` below is a 2-to-1 collapse and cannot carry it. See
       // `orbitRotation`'s own doc (J8) for what re-deriving it instead costs.
       orbitRotation = { rotX: trueRotX, rotY: camera.rotY };
-      // Subtract `tilt` back out before inverting — see `setTilt`'s doc:
-      // `camera.rotX` here is `trueRotX + tilt`, and `centerForCamera` must
-      // see `trueRotX` alone or a nonzero tilt would drift `view.center`'s
-      // latitude by `tilt` degrees on every drag.
-      view = { ...view, center: projection.centerForCamera(trueRotX, camera.rotY), bounds: undefined };
+      // Subtract the APPLIED pitch back out before inverting — see
+      // `setTilt`'s doc: `camera.rotX` here is `trueRotX + appliedTilt`, and
+      // `centerForCamera` must see `trueRotX` alone or a nonzero tilt would
+      // drift `view.center`'s latitude by that many degrees on every drag.
+      const center = projection.centerForCamera(trueRotX, camera.rotY);
+      view = { ...view, center, bounds: undefined };
+      // Re-anchor the PIVOT on the new centre, so the point the drag just
+      // brought to screen centre STAYS at screen centre (`setTilt`'s model).
+      // Without this the pitch would keep swinging about the surface point
+      // the gesture started on, and `view.center` would walk off the grid
+      // again — the same displacement, one gesture at a time.
+      camera.target = projection.project(center[0], center[1], 0);
     } else {
       const delta = screenToWorldDelta(dxPx, dyPx, grid);
       if (!delta) return;
@@ -5066,6 +5278,43 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * The tilt gesture's per-`pointermove` step: `dyPx` pixels of vertical
+   * travel become pitch. Drag UP (negative `dyPx`) pitches the camera up off
+   * the surface — the direction every map library agrees on, because the
+   * horizon follows the hand.
+   *
+   * The delta accumulates from `appliedTilt`, NOT from `tiltRequest`. The two
+   * differ only where the request is above the view's own ceiling, and
+   * accumulating from the request there would give the gesture DEAD TRAVEL:
+   * at a whole-world span (ceiling ~21) a request left at 85 by a close-in
+   * gesture would need 128px of downward drag before the picture moved at
+   * all. Reading the applied pitch makes the gesture relative to what the
+   * reader can actually see, which is what a direct-manipulation control has
+   * to be. The remembered-request behaviour is untouched everywhere it is
+   * observable — a zoom out never rewrites `tiltRequest`, so a pitch asked
+   * for close in still survives the trip out and back
+   * (`widget.tiltGesture.test.ts`).
+   */
+  function applyTiltDrag(dyPx: number): void {
+    // An explicit pitch takes over from a glide or a flight in place, exactly
+    // as a pan or a wheel notch does.
+    cancelCameraGlide();
+    const orbit = applyTiltState(clamp(
+      appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX,
+      -GLYPH_MAP_MAX_TILT,
+      GLYPH_MAP_MAX_TILT,
+    ));
+    // The camera turned, so the near/far hemisphere verdict every marker and
+    // symbol carries is now one increment stale — the same window `applyDrag`
+    // closes here rather than at the deferred motion frame, and for the same
+    // reason (`map.scene` is a documented escape hatch a host may repaint
+    // through at any time).
+    if (orbit) syncNearSide();
+    markMotionDirty();
+    emitViewChange("move");
+  }
+
+  /**
    * A macOS trackpad emits 60-120 wheel events/s including the inertial
    * tail, so a flick can queue far more render work than one animation frame
    * can retire. The span still moves synchronously per event — `getView()`
@@ -5093,9 +5342,36 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let lastMoveTime = 0;
   let dragTotalPx = 0;
   let didDrag = false;
+  /**
+   * Which gesture the live pointer is driving. Decided ONCE at
+   * `pointerdown` from the modifier/button then held for the whole gesture:
+   * a reader who releases Ctrl mid-drag is still pitching, not suddenly
+   * panning the map out from under the stroke.
+   */
+  let gestureMode: "pan" | "tilt" = "pan";
+
+  /**
+   * Ctrl+drag and right-button drag pitch the camera. This is the binding
+   * Google Maps, Mapbox and MapLibre all converged on, so it is the one
+   * hands already have. On macOS Ctrl+click IS the secondary click, so the
+   * two conditions are the same gesture arriving under two names and both
+   * have to be accepted.
+   */
+  function isTiltGesture(e: PointerEvent): boolean {
+    return controlsTilt && (e.ctrlKey || e.button === 2);
+  }
 
   function onPointerDown(e: PointerEvent): void {
-    if (!controlsDrag || activePointerId !== null) return;
+    if (activePointerId !== null) return;
+    const tilting = isTiltGesture(e);
+    if (!tilting && !controlsDrag) return;
+    gestureMode = tilting ? "tilt" : "pan";
+    // Suppress the compatibility mousedown a tilt gesture would otherwise
+    // produce, which starts a text selection over the <pre> and (with the
+    // right button) primes a native drag. The pan path is left alone: it has
+    // never needed this, and `.glyph-output`'s own `user-select: none`
+    // already covers it.
+    if (tilting) e.preventDefault();
     // Grabbing the map stops it dead, from wherever it currently is.
     cancelCameraGlide();
     activePointerId = e.pointerId;
@@ -5118,6 +5394,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     lastClientY = e.clientY;
     dragTotalPx += Math.abs(dx) + Math.abs(dy);
     if (dragTotalPx > 3) didDrag = true;
+    if (gestureMode === "tilt") {
+      // No fling velocity is accumulated: pitch has no inertia. A camera
+      // that kept pitching after the hand stopped would coast straight into
+      // the horizon ceiling and sit there, and there is nothing physical
+      // about an angle to justify the momentum in the first place.
+      applyTiltDrag(dy);
+      scheduleTileUpdate();
+      return;
+    }
     // Fling velocity, exponentially smoothed in px/ms so one jittery sample
     // can't launch the camera. `now - lastMoveTime` is floored at one frame:
     // two pointer events in the same millisecond would otherwise divide by
@@ -5146,6 +5431,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (activePointerId !== e.pointerId) return;
     activePointerId = null;
     try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (gestureMode === "tilt") {
+      // A secondary/modified press is not a map click and never flings: both
+      // of the branches below belong to the pan gesture only.
+      gestureMode = "pan";
+      didDrag = false;
+      glideVx = 0; glideVy = 0;
+      scheduleTileUpdate();
+      return;
+    }
     if (!didDrag) {
       const outputRect = scene.output.getBoundingClientRect();
       const grid = projectionGrid();
@@ -5197,11 +5491,26 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scheduleTileUpdate();
   }
 
+  /**
+   * The right button drives the pitch gesture, so the native menu it would
+   * otherwise raise has to go — it appears on `mousedown` on some platforms,
+   * i.e. before the drag has moved a single pixel, which would make the
+   * gesture unusable rather than merely untidy. Suppressed for the whole
+   * host whenever the gesture is enabled (Mapbox and MapLibre both do
+   * exactly this on their canvas); `controls: { tilt: false }` gives the
+   * menu back along with the gesture.
+   */
+  function onContextMenu(e: Event): void {
+    if (!controlsTilt) return;
+    e.preventDefault();
+  }
+
   host.addEventListener("pointerdown", onPointerDown);
   host.addEventListener("pointermove", onPointerMove);
   host.addEventListener("pointerup", onPointerUp);
   host.addEventListener("pointercancel", onPointerUp);
   host.addEventListener("wheel", onWheel, { passive: false });
+  host.addEventListener("contextmenu", onContextMenu);
 
   // ── Initial mount ─────────────────────────────────────────────────────
 
@@ -5238,6 +5547,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     fitBounds,
     setTilt,
     getTilt,
+    getMaxTilt,
     setSun,
     getSun: () => ({
       mode: sunMode,
@@ -5299,6 +5609,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       host.removeEventListener("pointerup", onPointerUp);
       host.removeEventListener("pointercancel", onPointerUp);
       host.removeEventListener("wheel", onWheel);
+      host.removeEventListener("contextmenu", onContextMenu);
       for (const state of layerStates.values()) {
         if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
       }

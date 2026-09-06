@@ -11,26 +11,24 @@
  * It did. `isBoundsVisible`'s complement case — "a SMALL, zoomed-in viewport
  * sitting entirely INSIDE a LARGE tile, where none of the tile's sparse
  * samples has to be on-screen for the tile to still cover the visible area"
- * — was answered by testing whether the tile contains `view.center`, on the
- * premise that "the view's own geographic CENTRE always projects to
- * dead-centre of the viewport by construction". That premise is FALSE for an
- * ORBIT projection under a nonzero `tilt`: `tilt` is additional camera pitch
- * on top of `cameraForCenter(lon, lat)`, and `applyDrag` subtracts it back
- * out of `camera.rotX` before calling `centerForCamera`, so `view.center` is
- * exactly `tilt` degrees of latitude away from the point actually at screen
- * centre. `/maps` ships `tilt: 40` by default.
+ * — was answered by testing whether the tile contains a SINGLE point. A
+ * 22.5 x 11.25 degree z4 tile against a 3-degree viewport straddles that
+ * viewport whenever the point lands within a viewport-width of a tile edge,
+ * and Switzerland sits 0.8 degrees from its own curated tile's south edge:
+ * the tile the viewport actually shows was dropped, and border ink was 0.
+ * `viewportGeoSamples`' nine points — corners and edge midpoints, not just a
+ * centre — are what fixed it, and are what this pins.
  *
- * Consequences, measured through this harness before the fix (span 3, a
- * 160x64 grid, terrain resolving z7): the border sweep's only desired tile
- * was `4/8_0` — the z4 tile containing `view.center` up at latitude 86.5,
- * 40 degrees off-screen — while `4/8_3`, the tile the viewport actually
- * shows, was dropped because at 22.5x11.25 degrees it is far larger than the
- * 3-degree viewport and none of its own 3x3 samples lands on screen. Border
- * ink: 0.
- *
- * Terrain never showed the symptom because its curated z5/z6/z7 tiles are
- * small enough that their own samples do land on screen — which is exactly
- * why the threshold tracked the RASTER LOD readout the user was reading.
+ * `TILT` is the page's own default pitch and is load-bearing here: it is what
+ * makes the visible window asymmetric rather than a neat box around the view
+ * centre, so the complement has to derive its points from the SCREEN. (This
+ * file was originally written against a much cruder failure — `tilt` swung
+ * the camera about the globe's centre, so `view.center` was 40 degrees of
+ * latitude away from the point on screen and the complement rescued a tile
+ * nobody could see. `tilt` now pitches about the surface point under the view
+ * centre, `widget.tiltPivot.test.ts`, so the two agree and this harness
+ * frames the place directly; the large-tile/small-viewport failure it guards
+ * is untouched by that and is still the assertion below.)
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
@@ -52,7 +50,7 @@ const BASE_FONT_PX = 16;
 const TILT = 40;
 /** Switzerland: real terrain has a curated z5-z7 overlay here, and the Swiss/Italian border crosses it. */
 const PLACE = { west: 5.9, east: 10.5, south: 45.8, north: 47.9 };
-/** The lon/lat the VIEWPORT CENTRE shows. `view.center` sits `TILT` degrees north of it (see this file's doc). */
+/** The lon/lat the VIEWPORT CENTRE shows — which, with the surface-point pivot, IS `view.center`. */
 const SCREEN_CENTRE: readonly [number, number] = [8.2, 46.5];
 
 const EMPTY_RECT = { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
@@ -159,7 +157,7 @@ function makeVectorProvider(): { provider: GlyphMapVectorProvider; requested: st
   };
 }
 
-/** The z4 tile the VIEWPORT actually shows (not the one `view.center` sits in). */
+/** The z4 tile the VIEWPORT actually shows — far larger than the viewport, so none of its own 3x3 samples lands on screen. */
 function screenCentreVectorTileKey(): string {
   const lvl = level(4);
   return `4/${Math.floor((SCREEN_CENTRE[0] + 180) / lvl.tileLonSpan)}_${Math.floor((90 - SCREEN_CENTRE[1]) / lvl.tileLatSpan)}`;
@@ -189,13 +187,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/**
- * `view.center` is `TILT` degrees NORTH of `SCREEN_CENTRE` because
- * `cameraForCenter(lon, lat)` gives `rotX = 90 - lat` and `tilt` is added on
- * top, putting the sub-observer point at `lat - tilt`. This is the state a
- * user reaches by dragging the globe to `SCREEN_CENTRE` with the page's
- * default pitch; the test asserts it rather than assuming it.
- */
+/** The state a user reaches by dragging the globe to `SCREEN_CENTRE` with the page's default pitch. */
 async function mountAtSpan(span: number): Promise<{
   map: ReturnType<typeof createGlyphMap>;
   host: HTMLElement;
@@ -210,7 +202,7 @@ async function mountAtSpan(span: number): Promise<{
   const raster = makeRasterProvider();
   const vector = makeVectorProvider();
   const map = createGlyphMap(host, {
-    view: { center: [SCREEN_CENTRE[0], SCREEN_CENTRE[1] + TILT], span, cols: COLS, rows: ROWS },
+    view: { center: [SCREEN_CENTRE[0], SCREEN_CENTRE[1]], span, cols: COLS, rows: ROWS },
     projection: glyphMapGlobe({ exaggeration: 24 }),
     tilt: TILT,
   });
@@ -242,14 +234,14 @@ describe("createGlyphMap — a tilted orbit view keeps drawing borders past the 
     it(`inks the border at span ${span} (terrain z${expectedRasterLod}, borders pinned at their own z4)`, async () => {
       const { map, host, rasterLod, vectorLod, ink, vectorRequested } = await mountAtSpan(span);
 
-      // The premise: the viewport really is showing SCREEN_CENTRE, and
-      // `view.center` really is off-screen — otherwise this test would pass
-      // for the wrong reason.
+      // The premise: the viewport really is showing SCREEN_CENTRE, under a
+      // real pitch — otherwise this test would pass for the wrong reason.
       const centre = map.unproject([COLS / 2, ROWS / 2]);
       expect(centre).not.toBeNull();
       expect(centre![0]).toBeCloseTo(SCREEN_CENTRE[0], 1);
       expect(centre![1]).toBeCloseTo(SCREEN_CENTRE[1], 1);
-      expect(map.project(map.getView().center).visible).toBe(false);
+      expect(map.project(map.getView().center).visible).toBe(true);
+      expect(map.getTilt()).toBe(TILT);
 
       expect(rasterLod).toBe(expectedRasterLod);
       expect(vectorLod).toBe(4);
