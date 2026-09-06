@@ -60,6 +60,15 @@ function inputs(contour: Partial<LayersFolderInputs["contour"]>): LayersFolderIn
     heatmap: mesh,
     fillExtrusion: mesh,
     model: mesh,
+    // The OSM card's inputs — required by `LayersFolderInputs`, and not read
+    // by this file's assertions (`LayersPanel.osm.test.tsx` owns that card).
+    osm: {
+      visible: false, onVisible: () => {},
+      summary: null, extent: null, error: null,
+      inCoverage: false, onFlyTo: () => {},
+      sublayers: [], onSublayer: () => {},
+      density: 1, onDensity: () => {},
+    },
   };
 }
 

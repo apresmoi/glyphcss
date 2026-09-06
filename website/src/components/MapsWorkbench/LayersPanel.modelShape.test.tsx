@@ -62,6 +62,15 @@ function inputs(): LayersFolderInputs {
       renderMode: MAP_SCENE_RENDER_MODE, onRenderMode: noop,
       shape: { value: MAP_MODEL_SHAPE_DEFAULT, options: MAP_MODEL_SHAPE_OPTIONS, title: "", onChange: noop },
     }),
+    // The OSM card's inputs — required by `LayersFolderInputs`, and not read
+    // by this file's assertions (`LayersPanel.osm.test.tsx` owns that card).
+    osm: {
+      visible: false, onVisible: noop,
+      summary: null, extent: null, error: null,
+      inCoverage: false, onFlyTo: noop,
+      sublayers: [], onSublayer: noop,
+      density: 1, onDensity: noop,
+    },
   };
 }
 

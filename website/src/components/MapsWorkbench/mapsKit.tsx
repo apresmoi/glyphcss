@@ -659,6 +659,30 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * A boolean row — same `[ ]`/`[x]` idiom as `LayerCard`'s own visibility
+ * checkbox (`.layer-group-check`, itself a reproduction of the Dock's
+ * `.controller.boolean` checkbox), landed in the card body's shared 3-column
+ * grid rather than hand-rolled: the name in column 1, the checkbox spanning
+ * the widget/value columns (2/4) like a `<select>` row with no separate
+ * readout of its own.
+ */
+function BoolRow({ label, value, onChange, title }: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  title: string;
+}) {
+  return (
+    <label className="maps-layer-bool-row" title={title}>
+      <span>{label}</span>
+      <span className="layer-group-check maps-layer-bool-check">
+        <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      </span>
+    </label>
+  );
+}
+
 export interface BackgroundLayerInputs {
   color: string; onColor: (v: string) => void;
 }
@@ -710,6 +734,13 @@ export interface ContourLayerInputs {
   fieldRange: { readonly min: number; readonly max: number } | null;
   /** The resulting line count for the CURRENTLY resolved field, read-only — `null` while off or before the first tile resolves. */
   lineCount: number | null;
+  /**
+   * `GlyphMapContourLayer.labels` — prints the elevation on every INDEX
+   * contour (every `labelEvery`th line, in a gap in the line, restoring the
+   * underlying terrain glyph either side). `labelEvery` stays fixed at the
+   * library default (5) rather than getting its own control.
+   */
+  labels: boolean; onLabels: (v: boolean) => void;
   density: number; onDensity: (v: number) => void;
 }
 
@@ -731,6 +762,44 @@ export function contourWindowTrack(
   // A degenerate (flat) field would otherwise give a zero-width track, which
   // renders as an unusable slider rather than an empty one.
   return max > min ? { min, max } : { min, max: min + step };
+}
+
+/**
+ * The `GlyphMapContourLayer` mount options MapsWorkbench.tsx's own contour
+ * effect passes to `map.addLayer`, minus `type`/`id`/`source` (which come
+ * from a constant and the shared terrain provider, not page state). Pulled
+ * out as a pure function — rather than left inline in the effect body —
+ * purely so the omit-when-off behaviour of `minElevation`/`maxElevation`/
+ * `labels` has something directly testable: `MapsWorkbench.tsx` itself can't
+ * be mounted in this standalone vitest config (`mapsAtlasWiring.repro.test.tsx`'s
+ * doc has the reason — `CodePanel` pulls in `@glyphcss/core`, which
+ * `website/package.json` never declares). Each end/flag is OMITTED, not
+ * passed as a sentinel, when unset — so an untouched control mounts exactly
+ * the layer this page mounted before that control existed.
+ */
+export function buildContourLayerMountOptions(opts: {
+  interval: number;
+  color: string;
+  density: number;
+  minElevation: number | null;
+  maxElevation: number | null;
+  labels: boolean;
+}): {
+  levels: { interval: number };
+  color: string;
+  density: number;
+  minElevation?: number;
+  maxElevation?: number;
+  labels?: true;
+} {
+  return {
+    levels: { interval: opts.interval },
+    color: opts.color,
+    density: opts.density,
+    ...(opts.minElevation === null ? {} : { minElevation: opts.minElevation }),
+    ...(opts.maxElevation === null ? {} : { maxElevation: opts.maxElevation }),
+    ...(opts.labels ? { labels: true } : {}),
+  };
 }
 
 /**
@@ -816,6 +885,39 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
   );
 }
 
+/**
+ * The OpenStreetMap card's inputs.
+ *
+ * Every other card on this page draws data that covers the whole globe. This
+ * one does not: the shipped Protomaps archive is a reviewed ~4 km extract of
+ * Zürich at zoom 12 (`packages/maps/fixtures/pmtiles/zurich-z12.pmtiles`,
+ * self-hosted — see `mapsOsm.ts` on why nothing here points at Protomaps'
+ * own buckets). A world-scale OSM pyramid is gigabytes and is deliberately
+ * not baked.
+ *
+ * So the card owes the reader three facts rather than one, and all three are
+ * rows, not a tooltip: WHAT the extract holds (`summary`), WHAT BOX it covers
+ * (`extent`), and whether the view is currently ON that box (`inCoverage`) —
+ * with `onFlyTo` one click away. Enabling the card also flies there, so the
+ * toggle produces a visible result instead of nothing at all.
+ */
+export interface OsmLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  /** `null` until the archive resolves. */
+  summary: string | null;
+  /** `null` until the archive resolves. */
+  extent: string | null;
+  /** Shown in place of `summary` when the archive failed to load — never an empty card. */
+  error: string | null;
+  /** Whether the CURRENT view is looking at enough of the extract to see it (`mapOsmInCoverage`). */
+  inCoverage: boolean;
+  onFlyTo: () => void;
+  /** One row per mapped Protomaps layer (`GLYPH_MAP_PROTOMAPS_LAYERS`). */
+  sublayers: readonly { readonly id: string; readonly label: string; readonly on: boolean }[];
+  onSublayer: (id: string, on: boolean) => void;
+  density: number; onDensity: (v: number) => void;
+}
+
 export interface LayersFolderInputs {
   background: BackgroundLayerInputs;
   terrain: TerrainLayerInputs;
@@ -823,6 +925,7 @@ export interface LayersFolderInputs {
   contour: ContourLayerInputs;
   fill: ExtraLayerInputs; symbol: ExtraLayerInputs; circle: ExtraLayerInputs;
   heatmap: ExtraLayerInputs; fillExtrusion: ExtraLayerInputs; model: ExtraLayerInputs;
+  osm: OsmLayerInputs;
 }
 
 /**
@@ -972,7 +1075,7 @@ export interface ExtraLayerInputs {
   glyphPalette?: MapLayerGlyphPalette; onGlyphPalette?: (v: MapLayerGlyphPalette) => void;
 }
 
-export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model }: LayersFolderInputs) {
+export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model, osm }: LayersFolderInputs) {
   const extra = (label: string, value: ExtraLayerInputs) => <LayerCard label={label} visible={value.visible} onVisible={value.onVisible}>
     <ColorRow value={value.color} onChange={value.onColor} />
     {value.dataset && (
@@ -1102,6 +1205,12 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
           title="Ceiling — highest elevation contoured. A ceiling of 0m gives bathymetry alone; floor 0 with ceiling 2000 gives the foothills. Drag to the far right for no ceiling."
         />
         <InfoRow label="lines" value={contour.lineCount === null ? "—" : String(contour.lineCount)} />
+        <BoolRow
+          label="labels"
+          value={contour.labels}
+          onChange={contour.onLabels}
+          title="Labels — print the elevation on every 5th contour, in a gap in the line."
+        />
         <DensityRow label="Contour" density={contour.density} onDensity={contour.onDensity} enabled={true} />
       </LayerCard>
       {extra("Fill", fill)}
@@ -1110,6 +1219,37 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
       {extra("Heatmap", heatmap)}
       {extra("Fill extrusion", fillExtrusion)}
       {extra("Model", model)}
+      <LayerCard label="OpenStreetMap" visible={osm.visible} onVisible={osm.onVisible}>
+        <InfoRow label="data" value={osm.error ?? osm.summary ?? "loading\u2026"} />
+        <InfoRow label="extent" value={osm.extent ?? "\u2014"} />
+        {/*
+          The one row that is not provenance: it answers "why is nothing
+          drawing", which for this layer is the expected state rather than a
+          fault. The button beside it is the fix, not a separate feature.
+        */}
+        <div
+          className="maps-layer-info-row maps-layer-action-row"
+          title="Coverage \u2014 the shipped OSM extract covers a few square kilometres of Z\u00fcrich at zoom 12. Outside that box the archive has no data at all; this row says whether the current view is on it."
+        >
+          <span>coverage</span>
+          <span className={osm.inCoverage ? "maps-layer-info-value" : "maps-layer-info-value maps-layer-info-warn"}>
+            {osm.inCoverage ? "in view" : "no data in view"}
+          </span>
+          <button type="button" className="maps-layer-action" onClick={osm.onFlyTo} title="Fly the map to the extract's own extent.">
+            fly
+          </button>
+        </div>
+        {osm.sublayers.map((s) => (
+          <BoolRow
+            key={s.id}
+            label={s.label}
+            value={s.on}
+            onChange={(v) => osm.onSublayer(s.id, v)}
+            title={`${s.label} \u2014 the Protomaps basemap layer this maps onto (OpenStreetMap data, ODbL).`}
+          />
+        ))}
+        <DensityRow label="OpenStreetMap" density={osm.density} onDensity={osm.onDensity} enabled={true} />
+      </LayerCard>
     </div>
   );
 }

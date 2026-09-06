@@ -4,10 +4,13 @@
    to the map surface: drag cursor/touch handling on the host (same fix
    `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
    a `<pre>` that rewrites its own contents every frame), the rail's Layers
-   cards, marker labels, and the provider-load error banner. Places/"Jump to"
-   was removed entirely, not relocated (user ask: "remove the places from
-   the left sidebar" plus "remove the jump to from the right sidebar") — the
-   rail is Layers only now. The Projection picker used to live here too
+   cards, marker labels, the provider-load error banner, and the place-search
+   overlay. The rail's old Places/"Jump to" list was removed entirely (user
+   ask: "remove the places from the left sidebar" plus "remove the jump to
+   from the right sidebar") and the rail is Layers only; search came back
+   later as chrome ON the map instead — `.maps-search` at the foot of this
+   file, top-centre, the way a map's search box is everywhere else. The
+   Projection picker used to live here too
    (`.maps-projection-picker`); it now portals inline into the Dock
    (`mapsKit.tsx`'s `MapsProjectionControls`), styled entirely by the shared
    `.dock-subcell`/`.dock-subcell-label` rules in instrument-workbench.css —
@@ -25,12 +28,15 @@
   cursor: grabbing;
 }
 
+/* Above `.maps-search` (z-index 20), which shares the top edge: when terrain
+   fails to load, the banner explaining why must not be painted over by the
+   search box. */
 .maps-error {
   position: absolute;
   left: 12px;
   right: 12px;
   top: 12px;
-  z-index: 20;
+  z-index: 22;
   padding: 10px 14px;
   background: rgba(30, 8, 8, 0.9);
   border: 1px solid rgba(248, 113, 113, 0.4);
@@ -159,6 +165,7 @@
 .maps-layer-card .maps-layer-body .maps-layer-select-row,
 .maps-layer-card .maps-layer-body .maps-layer-color-row,
 .maps-layer-card .maps-layer-body .maps-layer-info-row,
+.maps-layer-card .maps-layer-body .maps-layer-bool-row,
 .maps-layer-background-row .maps-layer-color-row {
   display: grid;
   grid-template-columns: 45% minmax(0, 1fr) 60px;
@@ -183,8 +190,19 @@
    `.controller.option`/`.controller.disabled`, whose `.widget` takes all of
    the row after `.name`. */
 .maps-layer-card .maps-layer-body .maps-layer-select-row .gx-select,
-.maps-layer-card .maps-layer-body .maps-layer-info-value {
+.maps-layer-card .maps-layer-body .maps-layer-info-value,
+.maps-layer-card .maps-layer-body .maps-layer-bool-check {
   grid-column: 2 / 4;
+}
+/* The checkbox itself — `.layer-group-check` (instrument-workbench.css)
+   already supplies the `[ ]`/`[x]` pseudo-content idiom shared with
+   `LayerCard`'s own visibility checkbox; this only cancels its flex gap
+   (nothing else sits in the widget) and lets it sit at the row's own 11px,
+   matching every other row in this grid rather than that rule's 11px+cursor
+   defaults meant for a header label immediately next to its own checkbox. */
+.maps-layer-card .maps-layer-body .maps-layer-bool-check {
+  gap: 0;
+  cursor: default;
 }
 /* The value input. The shared base already gives it the Dock's colour,
    weight, right alignment and dotted underline; what is left is the 5px
@@ -275,6 +293,33 @@
   font-size: 11px;
   text-align: right;
 }
+/* The OSM card's coverage row keeps its own third column for the "fly"
+   button, instead of letting the value span 2/4 the way every other info row
+   does — the row states a condition AND offers its remedy, and separating
+   them onto two rows would put a verb on a line with no subject. */
+.maps-layer-card .maps-layer-body .maps-layer-action-row .maps-layer-info-value {
+  grid-column: 2 / 3;
+}
+/* "no data in view" is a normal state for a small extract, not an error —
+   amber (the page's own text colour), never red. */
+.maps-layer-info-warn {
+  color: rgba(255, 232, 184, 0.55);
+}
+.maps-layer-card .maps-layer-body .maps-layer-action {
+  grid-column: 3 / 4;
+  justify-self: end;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(255, 232, 184, 0.08);
+  border: 1px solid rgba(255, 232, 184, 0.24);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.maps-layer-card .maps-layer-body .maps-layer-action:hover {
+  background: rgba(255, 232, 184, 0.16);
+}
 /* A GATED row — the Dock's `.controller.disabled`: the whole row at
    `opacity: 0.5` with its name dimmed to 0.38, and the value input
    stripped of its underline rather than dimmed a second time (lil-gui's
@@ -333,4 +378,157 @@
   border: 1px solid rgba(5, 7, 12, 0.85);
   box-sizing: border-box;
   opacity: 0.75;
+}
+
+/* ── Place search — an OVERLAY on the map, top centre ────────────────────
+   Not a header bar and not in the document flow: the same overlay idiom as
+   the gallery's `.dn-floating-controls` (`position: absolute`, an
+   `--overlay-*` inset, `z-index: 20`, `pointer-events: auto`) and this
+   page's own `.synth-export-bar` (bottom-left, `--overlay-left`), with
+   `left: 50%` + a translate where those take an edge inset. The `--overlay-*`
+   variables come from `.dn-root` (gallery-workbench.css), which
+   `InstrumentShell` is.
+
+   The element covers only its own box, so every drag and wheel gesture
+   outside it still reaches the map — there is no transparent full-viewport
+   layer here to swallow them. Inside it, `pointer-events: auto` is explicit
+   for the same reason `.dn-floating-controls` states it: these controls sit
+   over a surface whose whole job is to capture the pointer.
+
+   Skin is the Dock's, matching the layer cards next door: a translucent
+   amber fill on the page's own near-black, an amber border that turns cyan
+   on focus, an orange marker glyph, 11px names at
+   rgba(255, 232, 184, 0.94) with the dim 0.70 for secondary text, and the
+   readout cyan (#38bdf8) for the one number a row carries. */
+.maps-search {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+.maps-search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.maps-search-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* The Dock's own orange marker (`.gx-select::after`'s caret colour), used
+   here as the prompt character — a magnifier glyph has no counterpart
+   anywhere else on this page, and the surface is a terminal. */
+.maps-search-glyph {
+  color: #f97316;
+  font-size: 11px;
+  line-height: 1;
+}
+.maps-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 1px 0;
+}
+.maps-search-input::placeholder {
+  color: rgba(255, 232, 184, 0.38);
+}
+.maps-search-clear {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.maps-search-clear:hover {
+  color: rgba(255, 232, 184, 0.94);
+}
+.maps-search-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+/* Three columns for the three things that tell two same-named results apart:
+   the name, the country/continent it is in, and its own prominence. Same
+   left-to-right reading as a Dock row (name, widget, value), and the value
+   column is the Dock's cyan. */
+.maps-search-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.07);
+}
+.maps-search-option:last-child {
+  border-bottom: none;
+}
+.maps-search-option.is-active {
+  background: rgba(56, 189, 248, 0.14);
+}
+.maps-search-name,
+.maps-search-context,
+.maps-search-metric {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.maps-search-name {
+  color: rgba(255, 232, 184, 0.94);
+  letter-spacing: 0.02em;
+}
+.maps-search-context {
+  color: rgba(255, 232, 184, 0.55);
+}
+.maps-search-metric {
+  text-align: right;
+  font-size: 10px;
+}
+.maps-search-metric--place {
+  color: #38bdf8;
+}
+.maps-search-metric--country {
+  color: rgba(255, 232, 184, 0.45);
+}
+.maps-search-note {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: rgba(255, 232, 184, 0.55);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+}
+
+@media (max-width: 760px) {
+  /* Clear of the mobile tab bar's own chrome; still centred, still an
+     overlay. */
+  .maps-search {
+    width: calc(100% - 24px);
+  }
+  .maps-search-list {
+    max-height: min(38vh, 240px);
+  }
 }

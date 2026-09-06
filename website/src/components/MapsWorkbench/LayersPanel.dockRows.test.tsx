@@ -62,6 +62,15 @@ function inputs(overrides: Partial<LayersFolderInputs> = {}): LayersFolderInputs
     },
     fill: mesh, symbol: extra(), circle: extra(),
     heatmap: mesh, fillExtrusion: mesh, model: mesh,
+    // The OSM card's inputs — required by `LayersFolderInputs`, and not read
+    // by this file's assertions (`LayersPanel.osm.test.tsx` owns that card).
+    osm: {
+      visible: false, onVisible: () => {},
+      summary: null, extent: null, error: null,
+      inCoverage: false, onFlyTo: () => {},
+      sublayers: [], onSublayer: () => {},
+      density: 1, onDensity: () => {},
+    },
     ...overrides,
   };
 }
@@ -149,8 +158,10 @@ describe("/maps layer cards — the Dock's control rows", () => {
 
   it("still renders every select, checkbox and read-only row the cards had", () => {
     const host = mount();
-    expect(host.querySelectorAll(".maps-layer-card").length).toBe(9);
-    expect(host.querySelectorAll('.maps-layer-head input[type="checkbox"]').length).toBe(9);
+    // Terrain, Borders, Contour, Fill, Symbol, Circle, Heatmap, Fill
+    // extrusion, Model, OpenStreetMap. (Background is a bare row, not a card.)
+    expect(host.querySelectorAll(".maps-layer-card").length).toBe(10);
+    expect(host.querySelectorAll('.maps-layer-head input[type="checkbox"]').length).toBe(10);
     expect(host.querySelectorAll(".maps-layer-select-row .gx-select select").length).toBeGreaterThan(0);
     expect(Array.from(host.querySelectorAll(".maps-layer-info-value")).map((n) => n.textContent))
       .toEqual(["nearest", "vw", "8"]);
