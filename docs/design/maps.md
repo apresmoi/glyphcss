@@ -2580,27 +2580,60 @@ Real time and Manual were never affected: the sun writes a real outward vector
 at the subsolar point, which is not the view axis, so shadows worked in those
 modes all along.
 
-### Separation was NOT implicated, but it remains a real limit
+### Separation WAS the blocker, at the DEFAULTS the reader had moved off
 
-Shadows are BASE-GRID only, so the obvious second suspect was a layer popping
-into its own `<pre>`. It is not what happened: every `/maps` density default
-is `1`, `glyphMapMeshTransform` drops a `glyphPalette` that matches the
-scene's, the extrusion layer's default `renderMode` IS the scene's mode, and
-`isDetailMesh` treats `density === 1` as no separation. The OSM layers built
-by `glyphMapOpenMapTilesLayers` carry no `renderMode` or `glyphPalette` at
-all. So nothing separated, and the whole layer stack was in the base grid.
+The headlight fix above was correct and did not make a shadow appear, because
+the link that reported it was not in a headlight mode at all. Decoded with the
+real codec (`mapsUrlState.mapsCodec`), `?m=p3x6-yrbivy6-klok9s4-9v9t21dE1v21jn2j26xh223b218D1L18O21fQ1t`
+is: globe, Buenos Aires (`-58.381591, -34.603929`), span `0.00167` deg, tilt
+49, bearing 44, exaggeration 24, sun **manual** (day 249, hour 18.75 UTC),
+shadows **on**, `layerMask 8` — the OSM card and NOTHING else, so no terrain,
+no borders, and neither of the standalone `fill-extrusion`/`model` demo layers
+— `osmMask 51` (landcover, landuse, roads, buildings), and **`osmDensity
+2.9`**. `mapKeyLightForSunMode` returns `"fixed"` here twice over (manual sun,
+and shadows on), so the headlight was never in play; the manual sun at that
+instant stands ~32 degrees above Buenos Aires, well clear of the ~10-degree
+altitude where shadows start to dither.
 
-The limit is real anyway and worth stating plainly rather than papering over:
-**shadows cannot cross `<pre>`s, and that is architectural.** Each detail pass
-renders with `shadow: undefined` and its own grid; the cross-layer occlusion
-id-map exists to resolve DEPTH ownership between passes, not to carry a
-light-space depth buffer between them. Making a detail layer receive would
-mean building the shadow map once per transaction and threading it into every
-pass — mechanically possible — but making one CAST would additionally require
-the shadow map to be built after every mesh's world geometry is known, which
-is the one thing the per-layer pass structure does not guarantee. On `/maps`
-this surfaces as: raising any layer's density slider above 1 turns that
-layer's shadows off.
+`2.9` is the whole story. The OSM card gives its ten rows ONE density slider
+(`mapOsmLayers` fans it out over every enabled row), and `density !== 1` is
+exactly what `isDetailMesh` separates on — so moving that one slider separated
+the `omt-buildings` `fill-extrusion` that CASTS and the `omt-landuse` /
+`omt-landcover` `fill`s that RECEIVE, in the same gesture. The base grid was
+then left holding neither, and the shadow pass ran over an empty stage.
+Measured on the fixture in `widget.shadowDensity.test.ts`: **535 changed cells
+at `density: 1`, exactly 0 at `2.9`** — the toggle was not weak, it was inert.
+
+The fix is in glyphcss and is described in AGENTS.md's "Shadows": the shadow
+map is now built once per frame from every `castShadow` mesh in the SCENE
+(`GlyphShadowCasters`) and shared across the frame's passes through a
+`GlyphShadowMapCache`, so a detail layer casts onto the base grid, the base
+grid casts into a detail layer, and two detail layers cast onto each other.
+The earlier note here claimed casting out of a detail layer would need the map
+built "after every mesh's world geometry is known, which the per-layer pass
+structure does not guarantee". That was wrong: `doRenderTransaction` already
+applies every mesh's transform in one loop BEFORE it splits base from detail,
+so the world geometry of the whole scene is in hand at exactly the point the
+caster set has to be assembled. Collecting it there costs one extra walk of
+the caster polygons and no extra shadow-map rasterization.
+
+On the reported configuration the count is now **4,469** changed cells, all of
+them in the landuse layer's own output grid and none on the building that
+threw them (a lone convex tower has nothing of its own to shadow, so a count
+there would be acne — the clause `widget.shadow.test.ts` makes for the base
+grid, restated for a detail grid).
+
+**What still cannot receive is a STAMP.** `line` and `contour` are not meshes:
+they are painted into the `CellGrid` by the composed `transformCells` hook
+after shading, and the stamp writes the layer's flat colour (`grid.color[idx]
+= color`). The shadow term is consumed inside `scanFillTriangle` when the
+cell's final colour is computed and nothing per-cell survives it that a hook
+could read — the requirement-gated `shade` buffer is the LIGHT term, not an
+occlusion fraction. So a building shadows the landuse under it and never the
+road running past it. That is architectural, it is visible, and it is recorded
+here rather than left for a reader to discover; closing it means a new
+requirement-gated per-cell shadow buffer on `CellGrid`, which is a feature and
+not a wire.
 
 ### The glyphcss defect this uncovered, and the fix
 
@@ -2630,13 +2663,13 @@ removing it is a public break and was not taken here.
 
 ### What it looks like, and what it costs
 
-Shadows are BASE-GRID only: `doRenderTransaction` pushes cast/receive flags
-only for meshes that stay in the shared grid, and every detail pass renders
-with `shadow: undefined`. A layer separated by its own `density`, `renderMode`
-or `glyphPalette` therefore neither casts nor receives — on `/maps` that means
-raising "OSM density" turns the buildings' shadows off. See "Separation was
-NOT implicated" above for why this was not the cause of the reported
-invisibility, and why it is architectural rather than a missing wire.
+Shadows cross `<pre>`s: `doRenderTransaction` collects every `castShadow`
+mesh's world polygons in the same loop that applies transforms — before base
+and detail are split — and hands that one set, plus one shared built map, to
+the base pass and to every detail pass. A layer separated by its own
+`density`, `renderMode` or `glyphPalette` casts and receives like any other,
+which is what `/maps`' single "OSM density" slider needs. See "Separation WAS
+the blocker" above for the measurement.
 
 **Low sun**, measured on a 60 m block over flat ground at 140x63, ~4.8 m per
 column (shadow cells = the cells a render changed when the shadow was switched

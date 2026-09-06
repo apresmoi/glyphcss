@@ -65,7 +65,7 @@ import { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "../styles
 import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss, type GlyphFontAtlas } from "../render/fontAtlas";
 import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type GlyphAtlasPaletteQuantizer } from "../render/paletteQuantize";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowCasters, GlyphShadowMapCache, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 export interface GlyphSceneOptions {
@@ -1254,6 +1254,24 @@ export function createGlyphScene(
     const globalPolygonOffsets = new Map<number, number>();
     const semanticPolygons: Polygon[] = [];
     const baseCullParts: Polygon[][] = [];
+    // The WHOLE SCENE's casters, base grid and detail grids alike.
+    //
+    // A mesh separates into its own `<pre>` for reasons that have nothing to
+    // do with shadows — a `density`, a private `mode`, `glyphPalette`,
+    // `ambientIntensity`, `transparent` — and until this existed that also
+    // silently took it out of the shadow map, because the map was built from
+    // whichever polygons the pass in hand happened to hold. A building given
+    // a density stopped casting; the ground given one stopped receiving.
+    // Both are collected here instead, ONCE, and the same set is handed to
+    // the base pass and to every detail pass, so the light and its
+    // light-space volume are properties of the SCENE and not of an output
+    // grid. Built only when shadows are actually on: with `shadow`
+    // undefined this stays empty and every pass takes the exact path it took
+    // before (`shadowCasters` is then never supplied at all).
+    const shadowsOn = options.shadow != null;
+    const sceneShadowCasterPolygons: Polygon[] = [];
+    const sceneShadowCasterFlags: boolean[] = [];
+    let anySceneShadowCaster = false;
     for (const entry of meshes.values()) {
       const transformed = applyTransform(entry.polygons, entry.transform);
       globalPolygonOffsets.set(entry.id, semanticPolygons.length);
@@ -1262,6 +1280,13 @@ export function createGlyphScene(
       // under ~100k, throws at 200k+).
       for (const polygon of transformed) semanticPolygons.push(polygon);
       transformedByEntry.set(entry.id, transformed);
+      if (shadowsOn && (entry.transform.castShadow ?? false)) {
+        anySceneShadowCaster = true;
+        for (const polygon of transformed) {
+          sceneShadowCasterPolygons.push(polygon);
+          sceneShadowCasterFlags.push(true);
+        }
+      }
       // Meshes with their own cell metrics render in a separate, finer <pre>.
       if (isDetailMesh(entry.transform)) { detailEntries.push(entry); continue; }
       const cast = entry.transform.castShadow ?? false;
@@ -1280,6 +1305,14 @@ export function createGlyphScene(
         depthBiases.push(bias);
       }
     }
+    // One caster set and one built map per frame, shared by every pass. The
+    // cache is a plain holder the rasterizer fills on first use; passing the
+    // same one to N passes is what keeps the whole-scene set from costing N
+    // shadow-map rasterizations.
+    const sceneShadowCasters: GlyphShadowCasters | undefined = anySceneShadowCaster
+      ? { polygons: sceneShadowCasterPolygons, flags: sceneShadowCasterFlags }
+      : undefined;
+    const sceneShadowMapCache: GlyphShadowMapCache | undefined = sceneShadowCasters ? {} : undefined;
 
     // Validate every semantic prerequisite before allocating a winner buffer,
     // projecting geometry, creating detail DOM, or assigning any output.
@@ -1474,6 +1507,7 @@ export function createGlyphScene(
       depthEpsilon: options.depthEpsilon,
       temporalBlend: options.temporalBlend,
       shadow: options.shadow,
+      ...(sceneShadowCasters === undefined ? {} : { shadowCasters: sceneShadowCasters, shadowMapCache: sceneShadowMapCache }),
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
@@ -1563,6 +1597,8 @@ export function createGlyphScene(
       semanticLineage,
       globalPolygonOffsets,
       transformedByEntry,
+      sceneShadowCasters,
+      sceneShadowMapCache,
     );
     renderViewportOverlayLayers(allPolygons, opaqueDetailEntries, baseGrid, transformedByEntry);
 
@@ -2068,6 +2104,23 @@ export function createGlyphScene(
     return ids;
   }
 
+  /**
+   * Per-polygon `receiveShadow` for a detail group, in the order `tp`
+   * concatenates — read per MEMBER, not from the group's shared transform:
+   * `receiveShadow` is not one of the layer-level options a group's members
+   * are required to agree on (it does not change how the group rasterizes,
+   * only how each surface in it is shaded), so a group can legitimately hold
+   * a receiver beside a non-receiver.
+   */
+  function detailReceiveShadowFlags(group: DetailGroup, memberPolys: readonly Polygon[][]): boolean[] {
+    const flags: boolean[] = [];
+    for (let m = 0; m < group.members.length; m++) {
+      const receive = group.members[m]!.transform.receiveShadow ?? false;
+      for (let i = 0; i < memberPolys[m]!.length; i++) flags.push(receive);
+    }
+    return flags;
+  }
+
   /** Global (scene-order) polygon indexes for a detail group's own `tp`. */
   function detailSemanticIndexes(
     group: DetailGroup,
@@ -2097,6 +2150,11 @@ export function createGlyphScene(
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
     transformedByEntry: ReadonlyMap<number, Polygon[]>,
+    // The scene's whole caster set and the frame's shared built map — see
+    // the collection loop in `render()`. Both undefined whenever shadows are
+    // off or nothing casts, which is what keeps this path byte-identical.
+    sceneShadowCasters: GlyphShadowCasters | undefined,
+    sceneShadowMapCache: GlyphShadowMapCache | undefined,
   ): void {
     const effectsActive = activePreparedEffects !== null;
     const nextLayers = new Map<number, DetailLayerState>();
@@ -2348,7 +2406,20 @@ export function createGlyphScene(
           supersample: 1,
           depthEpsilon: options.depthEpsilon,
           temporalBlend: 0,
-          shadow: undefined,
+          // A detail grid RECEIVES like any other: the caster set is the
+          // scene's (base + every detail group), so the ground under a
+          // building darkens whether or not either of them was given its own
+          // density. `shadowCasters` is supplied only when the scene has a
+          // caster AND `shadow` is set, so with shadows off this whole block
+          // collapses to the `shadow: undefined` it replaced.
+          ...(sceneShadowCasters === undefined
+            ? { shadow: undefined }
+            : {
+                shadow: options.shadow,
+                shadowCasters: sceneShadowCasters,
+                shadowMapCache: sceneShadowMapCache,
+                receiveShadowFlags: detailReceiveShadowFlags(group, memberPolys),
+              }),
           retainShade: retainBaseShade,
           retainWorldPosition,
           retainNormal,

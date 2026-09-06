@@ -859,9 +859,14 @@ orthographic camera's screen position is the component perpendicular to that
 axis, so every shadow lands in its own caster's cells. Turn the headlight off
 when you want shadows.
 
-Shadows are drawn in the base grid only: a layer separated into its own
-`<pre>` by a per-mesh `density`, `renderMode` or `glyphPalette` neither casts
-nor receives. Cost is a flat +2.5 to +3.0 ms per render on `bench/maps-render`
+Shadows cross output grids. glyphcss builds one shadow map per frame from
+every caster in the SCENE and shares it across the base pass and every detail
+pass, so a layer separated into its own `<pre>` by a per-mesh `density`,
+`renderMode` or `glyphPalette` casts and receives like any other — raising a
+layer's density no longer switches its shadows off. What still cannot receive
+is a `line` or `contour`: those are stamped into the cell grid after shading
+and keep their flat colour, so a building shadows the ground under it and
+never the road beside it. Cost is a flat +2.5 to +3.0 ms per render on `bench/maps-render`
 at 140x63 with buildings mounted (the casters receiving as well is inside that
 measurement's noise), and shadows stay solid down to roughly 10 degrees of sun
 altitude — below that the shadow map's finite resolution dithers the edge.

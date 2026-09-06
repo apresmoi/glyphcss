@@ -146,6 +146,19 @@ interface GlyphMapMeshAppearance {
  * (a flat overlay on the datum) and `heatmap` (whose relief hugs the terrain)
  * — PLUS the casters themselves. A `line`/`contour`/`symbol`/`circle` layer
  * owns no mesh and cannot be either.
+ *
+ * A per-layer `density` does NOT take a layer out of this. It used to: a
+ * `density !== 1` separates the mesh into its own `<pre>` (glyphcss's
+ * `isDetailMesh`), and the shadow map was built per PASS, so `/maps`' one
+ * OSM density slider separated the buildings that cast and the landuse that
+ * receives in a single gesture and the whole feature went silently inert
+ * (measured: 535 changed cells at `density: 1`, 0 at `2.9`). glyphcss now
+ * builds one map per frame from every caster in the SCENE and shares it
+ * across the frame's passes (AGENTS.md's "Shadows"), so the choice of
+ * density and the choice of shadows are independent again. What is still
+ * outside the mechanism is a STAMP: `line`/`contour` are painted into the
+ * cell grid after shading and keep their flat colour, so a building shadows
+ * the landuse under it and never the road beside it.
  */
 export const GLYPH_MAP_SHADOW_CASTERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["fill-extrusion", "model"]);
 export const GLYPH_MAP_SHADOW_RECEIVERS: ReadonlySet<GlyphMapLayer["type"]> = new Set<GlyphMapLayer["type"]>(["raster", "fill", "heatmap", "fill-extrusion", "model"]);

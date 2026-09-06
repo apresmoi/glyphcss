@@ -1833,10 +1833,33 @@ function rasterizeSolid(
 
   // Build shadow map (null when shadows are disabled or no casters).
   // Zero cost when scene.shadow is undefined.
+  //
+  // The caster set is the WHOLE SCENE's when the caller supplies one
+  // (`RasterizeContext.shadowCasters`), not this pass's own polygons: a mesh
+  // that separated into its own detail grid is still a caster onto every
+  // other grid, and one light must produce one light-space volume for all of
+  // them. With no override this is `(polygons, castShadowFlags)` — the
+  // single-pass behaviour, bit for bit.
   const shadowOpts = scene.shadow;
-  const shadowMap: ShadowMapData | null = (shadowOpts != null && castShadowFlags.length > 0)
-    ? buildShadowMap(polygons, castShadowFlags, lx, ly, lz)
-    : null;
+  const casterPolygons = scene.shadowCasters?.polygons ?? polygons;
+  const casterFlags = scene.shadowCasters?.flags ?? castShadowFlags;
+  const shadowMapCache = scene.shadowMapCache;
+  let shadowMap: ShadowMapData | null = null;
+  if (shadowOpts != null && casterFlags.length > 0) {
+    // The map is a pure function of (caster set, light direction), both
+    // frame-constant and scene-level, so a frame's second and later passes
+    // reuse the first one's instead of re-rasterizing every caster per
+    // output grid.
+    if (shadowMapCache?.built === true) {
+      shadowMap = (shadowMapCache.map ?? null) as ShadowMapData | null;
+    } else {
+      shadowMap = buildShadowMap(casterPolygons, casterFlags, lx, ly, lz);
+      if (shadowMapCache !== undefined) {
+        shadowMapCache.built = true;
+        shadowMapCache.map = shadowMap;
+      }
+    }
+  }
   const shadowOpacity = shadowOpts?.opacity ?? 0.25;
   const shadowLift = shadowOpts?.lift ?? 0.05;
   const shadowColorHex = shadowOpts?.color ?? "#000000";
@@ -3360,8 +3383,8 @@ function scanFillShadowTriangle(
  * lightDepth (+ bias lift) is less than the stored maximum caster depth at that texel.
  */
 function buildShadowMap(
-  polygons: Polygon[],
-  castFlags: boolean[],
+  polygons: readonly Polygon[],
+  castFlags: readonly boolean[],
   lx: number, ly: number, lz: number,  // normalized source vector toward light
 ): ShadowMapData | null {
   // Build an orthonormal basis for the light view.

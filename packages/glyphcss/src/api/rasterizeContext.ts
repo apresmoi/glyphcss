@@ -9,7 +9,7 @@ import type { TransformCells, GlyphColorEncoding } from "../render/cells";
 import type { GlyphAtlasPaletteInput, GlyphAtlasPaletteSource } from "../render/paletteQuantize";
 import { GLYPH_FONT_ATLAS, type GlyphFontAtlas } from "../render/fontAtlas";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowCasters, GlyphShadowMapCache, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 /**
  * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
@@ -376,6 +376,28 @@ export interface RasterizeContextOptions {
    */
   temporalBlend?: number;
   shadow?: GlyphShadowOptions;
+  /**
+   * The caster set the shadow MAP is built from, when it is not this pass's
+   * own `polygons`/`castShadowFlags`.
+   *
+   * A scene's casters are not all in one pass: a mesh carrying its own
+   * `density`, `mode`, `glyphPalette`, `ambientIntensity` or `transparent`
+   * rasterizes into its own detail grid (`isDetailMesh`), and a shadow map
+   * built per pass would then see only the casters that pass happens to
+   * hold. Every pass of one frame is handed the SAME whole-scene caster set
+   * here, so a detail layer casts onto the base grid, the base grid casts
+   * into a detail layer, and two detail layers cast onto each other — one
+   * light, one volume, one map. Omitted = this pass's own polygons, which is
+   * the single-pass behaviour exactly.
+   */
+  shadowCasters?: GlyphShadowCasters;
+  /**
+   * Per-frame holder so every pass shares ONE built shadow map instead of
+   * re-rasterizing the whole caster set per output grid. Purely a cache: the
+   * map is a pure function of ({@link shadowCasters}, light direction), both
+   * of which are frame-constant and scene-level. Omitted = build per pass.
+   */
+  shadowMapCache?: GlyphShadowMapCache;
   /** Per-polygon cast flag (parallel to `polygons` array). True = this poly's mesh has castShadow. */
   castShadowFlags?: boolean[];
   /** Per-polygon receive flag (parallel to `polygons` array). True = this poly's mesh has receiveShadow. */
@@ -581,6 +603,10 @@ export interface RasterizeContext {
   supersample: number;
   temporalBlend: number;
   shadow: GlyphShadowOptions | undefined;
+  /** Whole-scene caster set — see {@link RasterizeContextOptions.shadowCasters}. */
+  shadowCasters?: GlyphShadowCasters;
+  /** Shared per-frame shadow map — see {@link RasterizeContextOptions.shadowMapCache}. */
+  shadowMapCache?: GlyphShadowMapCache;
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
   depthBiases?: number[];
@@ -726,6 +752,8 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     supersample: opts.supersample ?? 1,
     temporalBlend: opts.temporalBlend ?? 0,
     shadow: opts.shadow,
+    ...(opts.shadowCasters === undefined ? {} : { shadowCasters: opts.shadowCasters }),
+    ...(opts.shadowMapCache === undefined ? {} : { shadowMapCache: opts.shadowMapCache }),
     castShadowFlags: opts.castShadowFlags ?? [],
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
     retainShade: opts.retainShade ?? false,

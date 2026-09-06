@@ -36,6 +36,31 @@ export interface GlyphShadowOptions {
 }
 
 /**
+ * The whole-scene caster set one frame's shadow map is built from.
+ *
+ * `flags` is parallel to `polygons`; a polygon with a falsy flag is present
+ * only so the two arrays can be built in one walk and is never rasterized
+ * into the map. This is a RENDER-PATH structure, not a public authoring one:
+ * a scene assembles it across the base grid and every detail grid so one
+ * light and one light-space volume serve all of them.
+ */
+export interface GlyphShadowCasters {
+  readonly polygons: readonly Polygon[];
+  readonly flags: readonly boolean[];
+}
+
+/**
+ * A one-frame holder for the built shadow map, shared across a frame's
+ * passes. The map is opaque here on purpose — its shape is the rasterizer's
+ * private business; the only contract is that the same holder handed to two
+ * passes of the same frame makes the second one free.
+ */
+export interface GlyphShadowMapCache {
+  built?: boolean;
+  map?: unknown;
+}
+
+/**
  * One step of a `solidWeightRamp` (solid-mode-only, see
  * {@link RasterizeContextOptions.solidWeightRamp}): a single (glyph,
  * font-weight) pair, positioned by measured ink coverage rather than by

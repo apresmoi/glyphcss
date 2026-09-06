@@ -29,7 +29,7 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { MapsShadowControls, MapsSunControls } from "./mapsKit";
+import { MapsShadowControls, MapsSunControls, mapShadowCasterReason } from "./mapsKit";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -37,26 +37,28 @@ let guiHost: HTMLElement | null = null;
 let gui: GUI | null = null;
 const noop = () => {};
 
-function Harness({ shadows, onShadows }: { shadows: boolean; onShadows: (on: boolean) => void }) {
+function Harness({ shadows, onShadows, casterReason }: { shadows: boolean; onShadows: (on: boolean) => void; casterReason?: string | null }) {
   return (
     <>
       {/* The reading order is Sun then Shadows, so the JSX order is the
           reverse — see this file's header. */}
-      <MapsShadowControls folder={gui} shadows={shadows} onShadows={onShadows} />
+      <MapsShadowControls folder={gui} shadows={shadows} onShadows={onShadows} casterReason={casterReason} />
       <MapsSunControls folder={gui} mode="off" day={172} hour={12} onMode={noop} onDay={noop} onHour={noop} />
     </>
   );
 }
 
-function render(shadows: boolean, onShadows: (on: boolean) => void = noop): HTMLElement {
+function render(shadows: boolean, onShadows: (on: boolean) => void = noop, casterReason?: string | null): HTMLElement {
   container = document.createElement("div");
   guiHost = document.createElement("div");
   document.body.append(container, guiHost);
   gui = new GUI({ container: guiHost });
   root = createRoot(container);
-  act(() => { root!.render(<Harness shadows={shadows} onShadows={onShadows} />); });
+  act(() => { root!.render(<Harness shadows={shadows} onShadows={onShadows} casterReason={casterReason} />); });
   return guiHost;
 }
+
+const note = (host: HTMLElement) => host.querySelector<HTMLElement>(".maps-shadow-note")?.textContent ?? null;
 
 /** The `.dock-subcell` row whose label reads `label`. */
 function subcell(host: HTMLElement, label: string): HTMLElement {
@@ -106,5 +108,54 @@ describe("Lighting folder — Shadows", () => {
     act(() => { buttons[1]!.click(); });
     act(() => { buttons[0]!.click(); });
     expect(seen).toEqual([true, false]);
+  });
+});
+
+describe("mapShadowCasterReason — the Shadows toggle says when it would draw nothing", () => {
+  const NONE = {} as const;
+  const NO_OSM = {} as const;
+
+  it("names a reason on the page's DEFAULT layer set, where nothing can cast", () => {
+    // Terrain + borders is what /maps opens on, and neither casts: terrain is
+    // deliberately excluded (`GLYPH_MAP_SHADOW_CASTERS`) and a border is a
+    // stamped stroke with no mesh at all. So the default map is exactly the
+    // case where the toggle is inert, and it has to say so.
+    const reason = mapShadowCasterReason(NONE, false, NO_OSM);
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("Buildings");
+  });
+
+  it("goes quiet as soon as something that stands up is mounted", () => {
+    expect(mapShadowCasterReason({ "fill-extrusion": true }, false, NO_OSM)).toBeNull();
+    expect(mapShadowCasterReason({ model: true }, false, NO_OSM)).toBeNull();
+    expect(mapShadowCasterReason(NONE, true, { "omt-buildings": true })).toBeNull();
+  });
+
+  it("still warns when the OSM card is on but its Buildings row is not — the reported link's own shape", () => {
+    // `?m=...O21f...` mounts landcover, landuse, roads and buildings. With
+    // buildings alone switched off, the same card mounts two `fill`s and a
+    // `line` — receivers and a stamp, and nothing that casts.
+    expect(mapShadowCasterReason(NONE, true, { "omt-landuse": true, "omt-roads": true })).not.toBeNull();
+    // ...and the card being OFF does not let its armed Buildings row count.
+    expect(mapShadowCasterReason(NONE, false, { "omt-buildings": true })).not.toBeNull();
+  });
+});
+
+describe("Lighting folder — the Shadows row's inert-state note", () => {
+  it("is absent while shadows are OFF, however empty the map is", () => {
+    // Nothing is inert yet, so a caveat here would be noise.
+    expect(note(render(false, noop, mapShadowCasterReason({}, false, {})))).toBeNull();
+  });
+
+  it("appears under the row once shadows are ON and nothing can cast", () => {
+    const host = render(true, noop, mapShadowCasterReason({}, false, {}));
+    expect(note(host)).toContain("Nothing mounted casts");
+    // Still in the Lighting folder, still directly under Sun — the note must
+    // not have displaced the row it qualifies.
+    expect(labels(host)).toEqual(["Sun", "Shadows"]);
+  });
+
+  it("is absent with shadows ON and a caster mounted", () => {
+    expect(note(render(true, noop, mapShadowCasterReason({ "fill-extrusion": true }, false, {})))).toBeNull();
   });
 });

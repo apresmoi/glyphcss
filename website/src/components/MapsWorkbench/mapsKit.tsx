@@ -1511,6 +1511,41 @@ const SHADOW_TOGGLE = ([
 }));
 
 /**
+ * Why the Shadows toggle would draw NOTHING right now, or `null` when it
+ * would draw something. The reader's own layer state is the whole input.
+ *
+ * A shadow needs a layer that stands UP off the ground
+ * (`GLYPH_MAP_SHADOW_CASTERS` — `fill-extrusion` and `model`), and the page's
+ * DEFAULT layer set has none: terrain never casts by design (the relief
+ * system keeps a global floor tier mounted, so 256 shadow-map texels would
+ * span the Earth) and borders are stamped strokes that own no mesh. So a
+ * reader on the default map who turns Shadows on gets an extra pass and no
+ * pixel of difference — the exact dead control the Azimuth/Elev rows already
+ * dim themselves for (`mapDirectionLocked`), stated the same way: not by
+ * disabling the toggle, which would hide the feature from someone about to
+ * mount a caster, but by saying what is missing.
+ *
+ * A per-layer DENSITY is deliberately NOT part of this. It used to switch the
+ * feature off silently (glyphcss's shadow map was built per output grid, so a
+ * layer separated by its own density stopped casting AND receiving); the
+ * shadow map is now built from every caster in the scene and shared across
+ * the frame's passes, so a density is orthogonal again and there is nothing
+ * to warn about.
+ *
+ * Pure, so it is testable without mounting the Dock.
+ */
+export function mapShadowCasterReason(
+  extraVisible: Readonly<Record<string, boolean>>,
+  osmOn: boolean,
+  osmSublayers: Readonly<Record<string, boolean>>,
+): string | null {
+  if (extraVisible["fill-extrusion"] === true) return null;
+  if (extraVisible.model === true) return null;
+  if (osmOn && osmSublayers["omt-buildings"] === true) return null;
+  return "Nothing mounted casts: turn on OpenStreetMap → Buildings, or the Extrusion or Model layer. Terrain never casts, and borders own no mesh.";
+}
+
+/**
  * The cast-shadow toggle, in the SAME Dock Lighting folder and through the
  * same `extras` seam as {@link MapsSunControls} — because it is the same
  * subject. A shadow is thrown by the key light, so a reader who has just set
@@ -1522,23 +1557,31 @@ const SHADOW_TOGGLE = ([
  * JSX: `useDockSlot(folder, { position: "top" })` inserts each slot before the
  * folder's current first child, so the LAST one mounted ends up first.
  */
-export function MapsShadowControls({ folder, shadows, onShadows }: {
+export function MapsShadowControls({ folder, shadows, onShadows, casterReason }: {
   folder: GUI | null;
   shadows: boolean;
   onShadows: (on: boolean) => void;
+  /** {@link mapShadowCasterReason} — shown under the row while shadows are ON and nothing can cast. */
+  casterReason?: string | null;
 }) {
   const slot = useDockSlot(folder, { position: "top", className: "dock-subcell-slot" });
   if (!slot) return null;
+  // Only while the toggle is ON: with shadows off there is nothing inert to
+  // explain, and a permanent caveat under an off switch is noise.
+  const note = shadows ? casterReason ?? null : null;
   return createPortal(
-    <div className="dock-subcell">
-      <span className="dock-subcell-label">Shadows</span>
-      <IconToggle
-        groupTitle="Shadows — whether standing geometry (OSM buildings, the model layer) casts onto the ground under it. Off by default: it is a second pass, and it needs a layer that stands up off the ground to draw anything at all."
-        options={SHADOW_TOGGLE}
-        value={shadows ? "on" : "off"}
-        onChange={(v) => onShadows(v === "on")}
-      />
-    </div>,
+    <>
+      <div className="dock-subcell">
+        <span className="dock-subcell-label">Shadows</span>
+        <IconToggle
+          groupTitle="Shadows — whether standing geometry (OSM buildings, the model layer) casts onto the ground under it. Off by default: it is a second pass, and it needs a layer that stands up off the ground to draw anything at all."
+          options={SHADOW_TOGGLE}
+          value={shadows ? "on" : "off"}
+          onChange={(v) => onShadows(v === "on")}
+        />
+      </div>
+      {note === null ? null : <p className="maps-shadow-note">{note}</p>}
+    </>,
     slot,
   );
 }

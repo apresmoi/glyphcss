@@ -560,3 +560,15 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+
+/* The Shadows row's "nothing mounted casts" note (`mapShadowCasterReason`).
+   Same register as `.maps-search-note` — a quiet line UNDER the control it
+   qualifies, not a badge on it — because the toggle stays live on purpose: a
+   reader about to mount a buildings layer must still be able to arm it. Only
+   rendered while shadows are ON; a caveat under an off switch is noise. */
+.dn-floating-controls .lil-gui .maps-shadow-note {
+  margin: 2px 0 4px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(255, 232, 184, 0.5);
+}

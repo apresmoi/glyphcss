@@ -70,6 +70,7 @@ import {
   mapSunManualInstant,
   MapsProjectionControls,
   MapsShadowControls,
+  mapShadowCasterReason,
   MapsSunControls,
   paletteColorsFor,
   useViewFolder,
@@ -1572,6 +1573,7 @@ export default function MapsWorkbench() {
             lighting={lighting}
             onUpdateLighting={(partial) => setLighting((l) => ({ ...l, ...partial }))}
             sunMode={sunMode} sunDay={sunDay} sunHour={sunHour} shadows={shadows} onShadows={setShadows}
+            shadowCasterReason={mapShadowCasterReason(extraVisible, showOsm, osmSublayers)}
             onSunMode={(mode) => {
               // Entering manual SEEDS the day/hour from the real clock, so
               // the sun stays where it was instead of jumping to whatever
@@ -1624,6 +1626,8 @@ function MapsDockFolders(props: {
   onUpdateLighting: (partial: Partial<MapLighting>) => void;
   sunMode: MapSunMode; sunDay: number; sunHour: number;
   shadows: boolean; onShadows: (on: boolean) => void;
+  /** {@link mapShadowCasterReason} — why the Shadows toggle would draw nothing, or `null`. */
+  shadowCasterReason: string | null;
   onSunMode: (mode: MapSunMode) => void;
   onSunDay: (day: number) => void;
   onSunHour: (hour: number) => void;
@@ -1724,7 +1728,7 @@ function MapsDockFolders(props: {
             {/* Rendered FIRST so it lands BELOW the Sun row — each top slot
                 is inserted before the folder's current first child, so the
                 last one mounted ends up first. */}
-            <MapsShadowControls folder={folder} shadows={props.shadows} onShadows={props.onShadows} />
+            <MapsShadowControls folder={folder} shadows={props.shadows} onShadows={props.onShadows} casterReason={props.shadowCasterReason} />
             <MapsSunControls
               folder={folder}
               mode={props.sunMode}
