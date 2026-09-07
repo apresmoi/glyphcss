@@ -14,7 +14,7 @@
  * | rivers vs lakes | both in `water` | `waterway` (lines) vs `water` (polygons) |
  * | admin boundaries | `boundaries`, `kind` | `boundary`, `admin_level` (NUMBER — no `class` at all) |
  * | landmass | `earth` polygon | none; `landcover`/`landuse` are the ground |
- * | building height | `height` | `render_height` |
+ * | building height | `height` | `render_height` (+ `render_min_height`) |
  * | place ranking | `population` | `rank` |
  *
  * A single "OSM schema" adapter over both would have to branch on all seven
@@ -132,10 +132,28 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly color: string;
   /** `fill-extrusion` only. */
   readonly heightProperty?: string;
+  /** `fill-extrusion` only — the property carrying the part's own base, on the SAME datum as {@link heightProperty}. */
+  readonly baseOffsetProperty?: string;
+  /** `fill-extrusion` only — texture the walls with the built-in generated facade tile. */
+  readonly facade?: boolean;
+  /** `fill-extrusion` only — deterministic per-footprint tone around {@link color}. */
+  readonly colorVariation?: number;
   /** `symbol` only. */
   readonly textProperty?: string;
   readonly priorityProperty?: string;
 }
+
+/**
+ * How far a building's tone may wander from the buildings row's own
+ * {@link GLYPH_MAP_OPENMAPTILES_LAYERS} colour, `0`..`1`.
+ *
+ * `0.5` is half of `glyphMapVaryColor`'s own maximum swing (±14% of the full
+ * channel range). The job is that a building SEPARATES from the one beside
+ * it, which on a character grid needs only enough spread for two adjacent
+ * depth-winning cells to differ; the whole row still has to read as one
+ * material, and a city painted across the full solid reads as confetti.
+ */
+export const GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION = 0.5;
 
 /**
  * The default mapping, ordered back-to-front the way a basemap draws:
@@ -154,6 +172,19 @@ export interface GlyphMapOpenMapTilesLayerSpec {
  *    only. Undifferentiated, `boundary` inks every county line in Europe at
  *    z12 and reads as noise, exactly the failure `protomaps.ts` documents
  *    for undifferentiated `roads`.
+ *  - **The `building` row opts into all three appearance options by
+ *    default** (`baseOffsetProperty`, `facade`, `colorVariation`), because
+ *    on THIS schema each of them is answering a defect rather than adding a
+ *    style. `render_min_height` is a second column the schema already
+ *    carries and dropping it draws every part of a stepped structure from
+ *    the ground: measured on the live `14/8296/5636`, the Eiffel Tower is
+ *    35 parts spanning `0 → 3 m` up to `300 → 330 m`, and ignoring the base
+ *    collapses them into nested boxes standing on the pavement. A facade is
+ *    what stops a block of flat-roofed boxes reading as two tones and a
+ *    wedge at eye height, and the per-footprint tone is what stops a
+ *    neighbourhood reading as one silhouette. None of the three is a taste
+ *    knob a caller would be expected to find, and a caller who disagrees
+ *    still owns the returned layer objects.
  *  - **No `housenumber`, `aeroway`, `aerodrome_label` or `park` row.** The
  *    first three are z10+/z14 detail with no readable form on a character
  *    grid; `park`'s `class` is free text (real values in the fixture include
@@ -168,7 +199,11 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
   { id: "omt-roads", label: "Roads", type: "line", sourceLayer: "transportation", geometry: "line", color: "#e8c988" },
   {
     id: "omt-buildings", label: "Buildings", type: "fill-extrusion", sourceLayer: "building",
-    geometry: "polygon", color: "#94a3b8", heightProperty: "render_height",
+    geometry: "polygon", color: "#94a3b8",
+    heightProperty: "render_height",
+    baseOffsetProperty: "render_min_height",
+    facade: true,
+    colorVariation: GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
   },
   {
     id: "omt-boundaries", label: "Boundaries", type: "line", sourceLayer: "boundary",
@@ -250,7 +285,13 @@ export function glyphMapOpenMapTilesLayers(
         out.push({ type: "fill", ...common });
         break;
       case "fill-extrusion":
-        out.push({ type: "fill-extrusion", ...common, heightProperty: spec.heightProperty });
+        out.push({
+          type: "fill-extrusion", ...common,
+          heightProperty: spec.heightProperty,
+          ...(spec.baseOffsetProperty === undefined ? {} : { baseOffsetProperty: spec.baseOffsetProperty }),
+          ...(spec.facade === undefined ? {} : { facade: spec.facade }),
+          ...(spec.colorVariation === undefined ? {} : { colorVariation: spec.colorVariation }),
+        });
         break;
       case "symbol":
         out.push({ type: "symbol", ...common, textProperty: spec.textProperty, priorityProperty: spec.priorityProperty });

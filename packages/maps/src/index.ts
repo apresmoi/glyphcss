@@ -97,6 +97,7 @@ export {
 } from "./vector/openfreemap";
 export type { GlyphMapOpenFreeMapOptions } from "./vector/openfreemap";
 export {
+  GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
   glyphMapOpenMapTilesAdminLevel,

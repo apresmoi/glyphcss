@@ -367,7 +367,21 @@ export function glyphMapVectorPolygons(features: readonly GlyphMapVectorFeature[
 }
 
 export interface GlyphMapVectorMeshOptions {
-  readonly color?: (feature: GlyphMapVectorFeature) => string | undefined;
+  /**
+   * This piece's colour. Called once per polygon GROUP, not once per feature,
+   * and `part` is that group's own anchor (its outer ring's first vertex, as
+   * the source gave it).
+   *
+   * Per GROUP because a vector tile is free to emit every attribute-identical
+   * feature as one multipolygon, and OpenMapTiles' `building` layer does: the
+   * vendored real OpenFreeMap tile `14/8579/5736` carries 1,991 building
+   * footprints in 50 features. A per-feature call therefore cannot give two
+   * neighbouring buildings two colours, which is the whole job of
+   * `GlyphMapFillExtrusionLayer.colorVariation`. A callback that ignores
+   * `part` — every colour-by-attribute one — is unaffected and still returns
+   * one colour for the whole feature.
+   */
+  readonly color?: (feature: GlyphMapVectorFeature, part: readonly [number, number]) => string | undefined;
   /**
    * The feature's extrusion height in TRUE METRES, rendered at true scale
    * whatever the projection's terrain `exaggeration` is
@@ -547,7 +561,6 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
     const heightMetres = options.height?.(feature) ?? 0;
     const height = glyphMapTrueScaleElevation(heightMetres, projection);
     const baseOffset = glyphMapTrueScaleElevation(options.baseOffset?.(feature) ?? 0, projection);
-    const color = options.color?.(feature);
     for (const group of groups) {
       const rings: LonLat[][] = [];
       for (let r = 0; r < group.length; r++) {
@@ -558,6 +571,12 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
         rings.push(signedArea2(ring) >= 0 === wantCcw ? [...ring] : [...ring].reverse());
       }
       if (!rings.length) continue;
+
+      // This group's anchor is its outer ring's first vertex AS THE SOURCE
+      // GAVE IT, read before the winding normalisation above rather than off
+      // `rings[0][0]`: that normalisation reverses a ring, so the normalised
+      // first vertex is not a stable identity and the raw one is.
+      const color = options.color?.(feature, group[0]?.[0] ?? rings[0][0]);
 
       // ONE ground per group, at the outer ring's own mean lon/lat — see
       // `groundElevation`'s doc for why a rigid structure gets one and not one

@@ -6,10 +6,12 @@
  * out of the live OpenFreeMap service**, not out of the published schema
  * docs — `fixtures/openfreemap/tilejson.json` is
  * `https://tiles.openfreemap.org/planet` with the ~90 `name:<lang>` fields
- * stripped, and `fixtures/openfreemap/z0-0-0.mvt` /
- * `fixtures/openfreemap/z12-2145-1434.mvt` are two real tiles it served. A
- * schema drift therefore shows up here as a red test rather than as an empty
- * layer.
+ * stripped, and `fixtures/openfreemap/z0-0-0.mvt`,
+ * `fixtures/openfreemap/z12-2145-1434.mvt` and
+ * `fixtures/openfreemap/z14-8579-5736.mvt` are three real tiles it served
+ * (`building` starts at z13, so the third is the only one that can say
+ * anything about a building at all). A schema drift therefore shows up here
+ * as a red test rather than as an empty layer.
  *
  * This is a DIFFERENT schema from `protomaps.ts`'s, not a variant of it:
  * OpenMapTiles discriminates on `class` where Protomaps uses `kind`, splits
@@ -24,6 +26,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { glyphMapDecodeMVT } from "./pmtiles";
 import {
+  GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
   glyphMapOpenMapTilesAdminLevel,
@@ -31,6 +34,8 @@ import {
   glyphMapOpenMapTilesFeatureFilter,
   glyphMapOpenMapTilesLayers,
 } from "./openmaptiles";
+import type { GlyphMapFillExtrusionLayer } from "../widget";
+import { glyphMapFeatureSeed, glyphMapVaryColor } from "../facade";
 import { GLYPH_MAP_OPENFREEMAP_ATTRIBUTION } from "../attribution";
 import { glyphMapOpenFreeMapProvider, GLYPH_MAP_OPENFREEMAP_TILE_URL } from "./openfreemap";
 
@@ -73,6 +78,12 @@ describe("the service's own TileJSON", () => {
     // A building's height is `render_height`, NOT Protomaps' `height`.
     expect(Object.keys(fields("building"))).toContain("render_height");
     expect(Object.keys(fields("building"))).not.toContain("height");
+    // And its BASE is a second column of the same kind. Both are Numbers on
+    // one datum (metres above the ground), which is what lets the buildings
+    // row draw a stepped structure instead of stacking every part on the
+    // pavement.
+    expect(fields("building").render_height).toBe("Number");
+    expect(fields("building").render_min_height).toBe("Number");
     // A boundary has no `class` at all — it discriminates on a NUMBER.
     expect(fields("boundary").admin_level).toBe("Number");
     expect(Object.keys(fields("boundary"))).not.toContain("kind");
@@ -136,6 +147,39 @@ describe("real decoded tiles", () => {
     expect(new Set(z12.waterway.map((f) => f.geometryType))).toEqual(new Set(["line"]));
   });
 
+  it("z14 Zurich is the first level that holds buildings at all, and every one carries BOTH height columns", () => {
+    const layers = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
+    expect(Object.keys(layers)).toContain("building");
+    const buildings = layers.building;
+    expect(buildings.length).toBe(50);
+    // Not "usually present" — the schema mapping reads them unconditionally.
+    expect(buildings.every((f) => typeof f.properties?.render_height === "number")).toBe(true);
+    expect(buildings.every((f) => typeof f.properties?.render_min_height === "number")).toBe(true);
+  });
+
+  it("emits attribute-identical buildings as ONE multipolygon, which is why a colour is seeded per FOOTPRINT", () => {
+    // The measurement behind `glyphMapFeatureSeed`'s `part` argument and
+    // behind `glyphMapVectorMesh` resolving a colour per polygon GROUP. If a
+    // seed were per FEATURE, this tile's 1,991 buildings would be painted in
+    // at most 50 tones and its largest single feature would paint 400-odd of
+    // them identically — the "they all look the same" the variation exists
+    // to fix.
+    const buildings = mvt("z14-8579-5736.mvt", 14, 8579, 5736).building;
+    const footprints = buildings.reduce((n, f) => n + (f.polygons?.length ?? f.rings.length), 0);
+    expect(footprints).toBe(1991);
+    expect(footprints / buildings.length).toBeGreaterThan(20);
+    expect(Math.max(...buildings.map((f) => f.polygons?.length ?? f.rings.length))).toBeGreaterThan(100);
+  });
+
+  it("carries real non-zero `render_min_height` — stepped structures are data, not a hypothetical", () => {
+    const buildings = mvt("z14-8579-5736.mvt", 14, 8579, 5736).building;
+    const stepped = buildings.filter((f) => Number(f.properties?.render_min_height) > 0);
+    expect(stepped.length).toBe(8);
+    // Every one of them is a genuine band: it starts above the ground and
+    // ends above where it starts, so `height - base` is a real thickness.
+    expect(stepped.every((f) => Number(f.properties?.render_height) > Number(f.properties?.render_min_height))).toBe(true);
+  });
+
   it("reads a boundary's numeric admin_level, which is the only thing distinguishing a country from a state", () => {
     const z0 = mvt("z0-0-0.mvt", 0, 0, 0);
     expect(z0.boundary.map(glyphMapOpenMapTilesAdminLevel)).toEqual([2, 2]);
@@ -193,6 +237,73 @@ describe("GLYPH_MAP_OPENMAPTILES_LAYERS", () => {
     const building = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.type === "fill-extrusion")!;
     expect(building.heightProperty).toBe("render_height");
   });
+
+  it("reads the building's BASE too — the second column this schema carries", () => {
+    const building = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.type === "fill-extrusion")!;
+    expect(building.baseOffsetProperty).toBe("render_min_height");
+  });
+
+  it("opens the buildings row with a facade and a per-footprint tone", () => {
+    const building = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.type === "fill-extrusion")!;
+    expect(building.facade).toBe(true);
+    expect(building.colorVariation).toBe(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION);
+    expect(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION).toBeGreaterThan(0);
+    expect(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION, measured on the real tile's own footprints", () => {
+  /** Redmean — the same perceptual distance `colorTolerance` coalesces runs on. */
+  const rgb = (hex: string) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)] as const;
+  function redmean(a: string, b: string): number {
+    const [r1, g1, b1] = rgb(a);
+    const [r2, g2, b2] = rgb(b);
+    const rm = (r1 + r2) / 2;
+    return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
+  }
+  const BASE = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.type === "fill-extrusion")!.color;
+  /** Every footprint's own anchor and seed, so "adjacent" below means geographically adjacent. */
+  const parts = mvt("z14-8579-5736.mvt", 14, 8579, 5736).building.flatMap((f) =>
+    (f.polygons ?? f.rings.map((r) => [r])).flatMap((g) => {
+      const a = g[0]?.[0];
+      return a ? [{ lon: a[0], lat: a[1], seed: glyphMapFeatureSeed(f, a) }] : [];
+    }),
+  ).slice(0, 400);
+
+  /** Share of footprints whose NEAREST neighbour is a distinguishably different tone, and the widest excursion from the row's own colour. */
+  function judge(amount: number): { separable: number; spread: number } {
+    const colors = parts.map((p) => glyphMapVaryColor(BASE, p.seed, amount));
+    let separable = 0;
+    for (let i = 0; i < parts.length; i++) {
+      let best = -1, bd = Infinity;
+      for (let j = 0; j < parts.length; j++) {
+        if (i === j) continue;
+        const d = (parts[i]!.lon - parts[j]!.lon) ** 2 + (parts[i]!.lat - parts[j]!.lat) ** 2;
+        if (d < bd) { bd = d; best = j; }
+      }
+      // ~40 redmean is about where two greys stop reading as two greys.
+      if (best >= 0 && redmean(colors[i]!, colors[best]!) > 40) separable++;
+    }
+    return { separable: separable / parts.length, spread: Math.max(...colors.map((c) => redmean(c, BASE))) };
+  }
+
+  it("separates most adjacent buildings, which a narrower range does not", () => {
+    // The reason the row opts in at all. Measured on 400 real footprints:
+    // 0.15 separates 6% of neighbours (the block still reads as one mass) and
+    // the shipped value separates 88%.
+    expect(judge(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION).separable).toBeGreaterThan(0.8);
+    expect(judge(0.15).separable).toBeLessThan(0.2);
+  });
+
+  it("and still reads as ONE material, which a wider range does not", () => {
+    // The other side of it, and the reason this is not simply `1`. Redmean
+    // spans ~765 across the whole gamut; the shipped value keeps every
+    // building within ~14% of the row's own colour (105), while `1` reaches
+    // 209 — a city of unrelated colours — to separate 95% instead of 88%.
+    const shipped = judge(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION);
+    expect(shipped.spread).toBeLessThan(0.16 * 765);
+    expect(judge(1).spread).toBeGreaterThan(shipped.spread * 1.8);
+  });
 });
 
 describe("glyphMapOpenMapTilesLayers", () => {
@@ -209,6 +320,28 @@ describe("glyphMapOpenMapTilesLayers", () => {
     const roads = built.find((l) => l.id === "omt-roads")!;
     expect(roads.type).toBe("line");
     expect(roads.sourceLayer).toBe("transportation");
+  });
+
+  it("forwards the buildings row's three appearance options onto the built layer", () => {
+    // The row can declare them and the builder can still drop them on the
+    // floor — which is exactly what happened to `render_min_height` for the
+    // life of this mapping. Assert the BUILT layer, not the spec.
+    const built = glyphMapOpenMapTilesLayers(provider(), { include: ["omt-buildings"] })[0];
+    expect(built.type).toBe("fill-extrusion");
+    const buildings = built as GlyphMapFillExtrusionLayer;
+    expect(buildings.heightProperty).toBe("render_height");
+    expect(buildings.baseOffsetProperty).toBe("render_min_height");
+    expect(buildings.facade).toBe(true);
+    expect(buildings.colorVariation).toBe(GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION);
+  });
+
+  it("leaves the options off every row that is not the buildings row", () => {
+    for (const layer of glyphMapOpenMapTilesLayers(provider())) {
+      if (layer.type === "fill-extrusion") continue;
+      expect(layer).not.toHaveProperty("facade");
+      expect(layer).not.toHaveProperty("colorVariation");
+      expect(layer).not.toHaveProperty("baseOffsetProperty");
+    }
   });
 
   it("honours include order, colour overrides and per-layer density", () => {

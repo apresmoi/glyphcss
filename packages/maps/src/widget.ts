@@ -743,9 +743,9 @@ export interface GlyphMapFillExtrusionLayer {
   readonly heightProperty?: string;
   /**
    * The property carrying this feature's own base OFFSET in TRUE METRES above
-   * the ground — OSM's `min_height` (the default), i.e. how far up its own
-   * footing the drawn part of a structure starts, the way a tower begins at
-   * the top of a podium.
+   * the ground — OSM's `min_height` (the default) or OpenMapTiles'
+   * `render_min_height`, i.e. how far up its own footing the drawn part of a
+   * structure starts, the way a tower begins at the top of a podium.
    *
    * It is NOT a ground elevation, and naming it `baseOffsetProperty` rather
    * than `baseProperty` is the point: the GROUND an extrusion stands on comes
@@ -759,8 +759,26 @@ export interface GlyphMapFillExtrusionLayer {
    * terrain's `exaggeration` that {@link height} takes; the ground under it
    * does not (see `glyphMapVectorMesh`'s `groundElevation`).
    *
-   * NOT scaled by {@link heightScale}: that converts a `heightProperty`'s own
-   * units into metres, and this is already metres.
+   * **This and {@link heightProperty} share ONE datum: both are measured from
+   * the ground, and the drawn wall band spans base → height** — MapLibre's
+   * own `fill-extrusion-base`/`fill-extrusion-height` pair, and OSM's own
+   * `min_height`/`height` pair, where a `building:part` tagged
+   * `min_height=115, height=277` is the piece of the structure BETWEEN those
+   * two elevations. So this layer converts to `glyphMapVectorMesh`'s own
+   * primitive (a thickness measured up from the offset) by SUBTRACTING, and
+   * `max(0, …)` clamps the degenerate rows real data carries — measured, 5 of
+   * 629 non-zero `render_min_height` features across five live OpenFreeMap
+   * z14 city tiles have `render_height` below their own base.
+   *
+   * Adding instead is what makes a stepped structure grow rather than stack:
+   * the Eiffel Tower's 35 OpenMapTiles parts would put its 24 m spire section
+   * (`115 → 277 m`) at 115 → 392 m and its summit (`300 → 330 m`) at
+   * 300 → 630 m.
+   *
+   * Scaled by {@link heightScale} exactly as {@link heightProperty} is: under
+   * one datum the two are the same quantity in the same frame, so a stylised
+   * 3x skyline has to move a part's base and its top together or the part
+   * detaches from the one below it.
    */
   readonly baseOffsetProperty?: string;
   /**
@@ -781,9 +799,10 @@ export interface GlyphMapFillExtrusionLayer {
    * and the conversion belongs to the layer rather than to the baked data,
    * which has to serve more than one view scale.
    *
-   * Applied to the property value only. The flat {@link height} fallback is
-   * already metres and is NOT scaled, so a layer with no `heightProperty` is
-   * untouched by this.
+   * Applied to the property values only — {@link heightProperty} AND
+   * {@link baseOffsetProperty}, which share one datum and so have to move
+   * together. The flat {@link height} fallback is already metres and is NOT
+   * scaled, so a layer with no `heightProperty` is untouched by this.
    *
    * This is ALSO the deliberate opt-in for a stylised skyline, and the reason
    * there is no second "extrusion exaggeration" option beside it. Extrusion
@@ -849,9 +868,11 @@ export interface GlyphMapFillExtrusionLayer {
    *
    * A crowd of buildings drawn in one colour is one silhouette; giving each its
    * own tone is the cheapest separation available on this layer, because it is
-   * a colour and not a second rasterizer pass. Seeded from the feature's own
+   * a colour and not a second rasterizer pass. Seeded from each FOOTPRINT's own
    * identity ({@link glyphMapFeatureSeed}), so a building keeps its colour
-   * across re-tiles, pans and projection changes.
+   * across re-tiles, pans and projection changes — and, on a real OSM pyramid
+   * that merges attribute-identical buildings into ONE multipolygon feature,
+   * so that two neighbours get two colours at all.
    */
   readonly colorVariation?: number;
 }
@@ -936,6 +957,28 @@ export function glyphMapContourIndexLevels(levels: readonly number[], step: numb
 }
 
 export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer | GlyphMapFillLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer | GlyphMapFillExtrusionLayer | GlyphMapModelLayer;
+
+/**
+ * A feature's TOP, in true metres above the ground it stands on — the
+ * `heightProperty` value in the layer's own units, or the flat
+ * {@link GlyphMapFillExtrusionLayer.height} fallback when the property is
+ * missing or unparseable (OSM tags carry `"20 m"` and worse, and one bad row
+ * must not NaN a whole building out of the render).
+ */
+function extrusionTopMetres(layer: GlyphMapFillExtrusionLayer, feature: GlyphMapVectorFeature): number {
+  const raw = Number(feature.properties?.[layer.heightProperty ?? "height"]);
+  return Number.isFinite(raw) ? raw * (layer.heightScale ?? 1) : layer.height ?? 0;
+}
+
+/**
+ * A feature's BASE, on the same datum {@link extrusionTopMetres} reads — true
+ * metres above the ground, not a terrain elevation. See
+ * {@link GlyphMapFillExtrusionLayer.baseOffsetProperty}.
+ */
+function extrusionBaseMetres(layer: GlyphMapFillExtrusionLayer, feature: GlyphMapVectorFeature): number {
+  const raw = Number(feature.properties?.[layer.baseOffsetProperty ?? "min_height"] ?? 0);
+  return Number.isFinite(raw) ? raw * (layer.heightScale ?? 1) : 0;
+}
 
 /**
  * `GlyphTransformCellsLayer.cellToSceneGrid`'s own shape: the affine mapping
@@ -4913,9 +4956,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       handles = [];
       culledAt = "";
       const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
-      const color = (feature: GlyphMapVectorFeature) => {
+      // `part` is the polygon GROUP's own anchor, and the variation is seeded
+      // from it rather than from the feature: a real OSM pyramid emits every
+      // attribute-identical building as ONE multipolygon (50 features carrying
+      // 1,991 footprints in the vendored `14/8579/5736`), so a per-feature seed
+      // paints a whole neighbourhood one tone — see `glyphMapFeatureSeed`. A
+      // colour-by-attribute is a property of the feature and ignores it.
+      const color = (feature: GlyphMapVectorFeature, part: readonly [number, number]) => {
         if (layer.type === "fill" && layer.colorProperty && layer.colors) return layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color;
-        if (variation > 0 && layer.color) return glyphMapVaryColor(layer.color, glyphMapFeatureSeed(feature), variation);
+        if (variation > 0 && layer.color) return glyphMapVaryColor(layer.color, glyphMapFeatureSeed(feature, part), variation);
         return layer.color;
       };
       // Registered on the SCENE, not fetched: the tile is generated in plain JS
@@ -4935,10 +4984,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       builtOnTerrain = groundAt !== null;
       mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
         color,
-        height: layer.type === "fill-extrusion" ? (f) => {
-          const raw = Number(f.properties?.[layer.heightProperty ?? "height"]);
-          return Number.isFinite(raw) ? raw * (layer.heightScale ?? 1) : layer.height ?? 0;
-        } : undefined,
+        // Both callbacks read the SAME two numbers, so they are resolved by
+        // one helper: `heightProperty` and `baseOffsetProperty` are both
+        // measured from the ground (see `baseOffsetProperty`'s own doc), and
+        // the mesh primitive wants a thickness measured up from the offset.
+        height: layer.type === "fill-extrusion"
+          ? (f) => Math.max(0, extrusionTopMetres(layer, f) - extrusionBaseMetres(layer, f))
+          : undefined,
         groundElevation: groundAt ? (_f, lon, lat) => {
           const ground = groundAt(lon, lat);
           groundProbes.push({ lon, lat, ground });
@@ -4949,10 +5001,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // Unparseable (OSM tags carry "20 m" and worse) reads as no offset,
         // exactly as an unparseable height reads as the flat fallback, rather
         // than NaN-ing the whole feature out of the render.
-        baseOffset: layer.type === "fill-extrusion" ? (f) => {
-          const raw = Number(f.properties?.[layer.baseOffsetProperty ?? "min_height"] ?? 0);
-          return Number.isFinite(raw) ? raw : 0;
-        } : undefined,
+        baseOffset: layer.type === "fill-extrusion" ? (f) => extrusionBaseMetres(layer, f) : undefined,
         facade,
       });
       const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;

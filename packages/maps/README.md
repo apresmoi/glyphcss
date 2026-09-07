@@ -598,12 +598,23 @@ layer mounted the ground is the datum and nothing extra runs. One ground per
 polygon group, sampled at its own mean lon/lat: a structure is rigid, so its
 cap stays planar and its walls stay planar quads.
 
-`baseOffsetProperty` (default `min_height`) is the other half of what used to
-be a single absolute `base`, and it is a STRUCTURE measurement — how far up its
-own footing the drawn part starts, in TRUE metres above that ground, with the
-same exemption the height has. Feeding `min_height` in as a terrain elevation
-was the defect: with a `raster` layer mounted, every extrusion was planted at
-sea level, and a 60 m building over 400 m of ground drew not one cell.
+`baseOffsetProperty` (default `min_height`; OpenMapTiles calls it
+`render_min_height`) is the other half of what used to be a single absolute
+`base`, and it is a STRUCTURE measurement — how far up its own footing the
+drawn part starts, in TRUE metres above that ground, with the same exemption
+the height has. Feeding `min_height` in as a terrain elevation was the defect:
+with a `raster` layer mounted, every extrusion was planted at sea level, and a
+60 m building over 400 m of ground drew not one cell.
+
+It shares ONE datum with `heightProperty`: both are measured from the ground,
+and the drawn band spans base → height — MapLibre's `fill-extrusion-base` /
+`fill-extrusion-height`, and OSM's own `min_height` / `height`, where a
+`building:part` tagged `min_height=115, height=277` *is* the piece between
+those two elevations. So the two are subtracted, not added, and clamped at
+zero for the degenerate rows real data carries. Adding makes a stepped
+structure grow rather than stack: the Eiffel Tower is 35 OpenMapTiles parts,
+and adding would put its `115 → 277 m` shaft at 115 → 392 m. `heightScale`
+scales both.
 
 For a deliberately stylised skyline, scale the metres: `heightScale: 24` means
 "24 metres of extrusion per metre of building". There is no separate
@@ -628,9 +639,21 @@ An untextured flat-roofed box gives ONE Lambert value per face, so at eye level
 a block of them is two tones and a wedge and the solid ramp dithers each face
 into `=+=+=+=`. `facade: true` textures every WALL with window bays across and
 floor bands up, derived from that wall's own length in metres and the feature's
-own height — which is what turns that dither into structure. Measured on the
-real 900 m / 3,005-building Zurich extract at 140x63: **+0.96 ms a frame (3.25
--> 4.21), mean glyph run length 1.83 -> 2.99.**
+own height — which is what turns that dither into structure. Measured through
+the real renderer at 140x63, standing 12 m from a real 81 m Zurich wall:
+**+2.2 ms a frame (2.0 → 4.2), mean glyph run length 1.34 → 1.96.** In an
+orbit view it costs +0.1–0.2 ms, because there are barely any walls in the
+picture — the cost is paid where it buys something.
+
+The tile's levels are a MODULATION and the pier is the identity (255), so a
+facade only ever takes light away and an untextured reading is exactly the
+layer's own colour. The window sits at 140 for two measured reasons: a texel
+multiplies the cell's *intensity*, so a darker one drops wall cells below the
+level at which the rasterizer prints anything (the 58 this shipped with
+deleted 1,523 wall cells across twenty street-level viewpoints — a facade
+punching holes in a building), and the pier/window ratio is also what aliases,
+because a 3.6 m bay is under one character cell wide past ~60 m. At 4.3:1 the
+facade made a wall *noisier* than no facade at all.
 
 It reads in a MONOCHROME render, which is the point: glyphcss folds a texel's
 luminance into the glyph, not only into the colour, so the window rhythm arrives
@@ -647,10 +670,14 @@ Pass an object for your own rhythm or your own texture key:
 `facade: { texture, bayMetres, floorMetres }` (defaults 3.6 m and 3.2 m). Caps
 stay untextured: a roof is edge-on from a street and already reads from above.
 
-`colorVariation` (0..1) nudges each feature's colour deterministically around
-`color`, seeded from the feature's own id — or, when the source carries none,
-its own first ring vertex, so a building keeps its colour across re-tiles, pans
-and projection changes. Three independent channel offsets rather than a
+`colorVariation` (0..1) nudges each FOOTPRINT's colour deterministically
+around `color`, seeded from the feature's own id plus that footprint's own
+first ring vertex, so a building keeps its colour across re-tiles, pans and
+projection changes. Per footprint rather than per feature because a real OSM
+pyramid emits every attribute-identical building as one multipolygon — 50
+features carrying 1,991 buildings in one vendored Zurich z14 tile, one of them
+carrying 400-odd — so a per-feature seed paints a whole neighbourhood in a
+single tone, which is the thing it exists to fix. Three independent channel offsets rather than a
 lightness ramp, so neighbours separate across the colour solid instead of
 bunching along one line through it. It is a colour, not a second rasterizer
 pass, so it is the cheapest separation this layer has.

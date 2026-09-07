@@ -25,9 +25,31 @@ const PX = 12;
 // part that matters on a character grid — the cell INTENSITY, which is what
 // picks the glyph. So a window row survives `useColors: false` as a change of
 // CHARACTER, not merely of colour, and a facade reads in a monochrome render.
-const V_PIER = 250;      // the wall between two windows
-const V_SPANDREL = 232;  // the band under a window, and the floor line
-const V_WINDOW = 58;     // glass
+//
+// They are a MODULATION, not a palette, and the three constraints that fix
+// them were all measured at eye height against the real vendored Zürich tile
+// (five standing points x four distances, 10-200 m; the original values were
+// chosen against an ORBIT view, before walk mode existed):
+//
+//  - **The pier is the identity (255).** Anything lower darkens the whole
+//    wall, so a facade would change a building's colour as well as its
+//    texture; at 255 the untextured reading IS the layer's own colour and the
+//    texture only ever takes light away.
+//  - **The window must stay ABOVE the ink threshold.** At the original 58
+//    (0.23 of the surface) a window's cells fell out of the render entirely —
+//    1,519 blank cells across those twenty viewpoints, i.e. the facade was
+//    punching holes in the building rather than texturing it. At 140 not one
+//    cell is lost.
+//  - **Contrast is what aliases.** A bay is 3.6 m, so beyond ~60 m it is under
+//    one cell wide and the rasterizer point-samples it; the wider the gap
+//    between pier and window, the more violently that alternates. 4.3:1 turned
+//    a far wall into salt-and-pepper (mean glyph run 1.34 with no facade at
+//    all, 1.28 with it — the facade was making the wall NOISIER); 1.8:1 puts
+//    the window on its own ramp step, so it paints as a RUN of one glyph
+//    against the pier's, and the same twenty viewpoints go to 2.06.
+const V_PIER = 255;      // the wall between two windows — the identity
+const V_SPANDREL = 215;  // the band under a window, and the floor line
+const V_WINDOW = 140;    // glass
 
 let cached: TextureSampler | null = null;
 
@@ -116,11 +138,28 @@ function hash32(s: string): number {
  * (MVT does), and otherwise its first ring vertex — which is a property of the
  * GEOMETRY, so a feature keeps its colour across re-tiles, re-mounts and
  * projection changes exactly as an id would.
+ *
+ * `part` is one polygon GROUP's own anchor (its outer ring's first vertex),
+ * and supplying it is what makes a per-feature colour usable on a real OSM
+ * pyramid. A vector tile is free to emit every attribute-identical feature as
+ * ONE multipolygon, and OpenMapTiles' `building` layer does exactly that:
+ * measured on the vendored real OpenFreeMap tile `14/8579/5736`, 50 features
+ * carry 1,991 separate building footprints, and on a live `14/8580/5737`
+ * (Zürich old town) ONE feature carries 2,437 of them. Seeded per FEATURE, a
+ * whole neighbourhood therefore takes a single tone and the variation does
+ * nothing at all — the exact "they all look the same" it exists to fix. The
+ * anchor is a property of the GEOMETRY, so a part keeps its colour across
+ * re-tiles and re-mounts for the same reason the feature fallback does.
+ *
+ * Omitting `part` is the feature-level seed, unchanged.
  */
-export function glyphMapFeatureSeed(feature: GlyphMapVectorFeature): string {
-  if (feature.id !== undefined) return feature.id;
-  const first = feature.rings[0]?.[0];
-  return first ? `${first[0].toFixed(6)},${first[1].toFixed(6)}` : "";
+export function glyphMapFeatureSeed(feature: GlyphMapVectorFeature, part?: readonly [number, number]): string {
+  const own = feature.id !== undefined ? feature.id : lonLatKey(feature.rings[0]?.[0]);
+  return part ? `${own}#${lonLatKey(part)}` : own;
+}
+
+function lonLatKey(point: readonly [number, number] | undefined): string {
+  return point ? `${point[0].toFixed(6)},${point[1].toFixed(6)}` : "";
 }
 
 function hexToRgb(hex: string): [number, number, number] | null {

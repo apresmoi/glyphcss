@@ -3586,3 +3586,178 @@ After the fix the picture behaves like a picture, on the same 300 m block:
 7,341 at +45° and 1,831 at the +84° neck limit — rising as the block fills the
 frame, then falling as its top passes overhead. Roads hold 140 cells at every
 pitch from −10° to +10°. Gate: `widget.walkPitch.test.ts`.
+
+## The OSM buildings row: `render_min_height`, the facade, and a per-footprint tone
+
+The report was "the buildings all look the same". Three things already existed
+and were not wired to `GLYPH_MAP_OPENMAPTILES_LAYERS`' `building` row; wiring
+them found a fourth (the facade's own tile was tuned in the wrong view) and a
+fifth (a per-feature colour seed cannot work on this schema at all).
+
+### `render_min_height` is real data, and it was being thrown away
+
+The row set `heightProperty: "render_height"` and nothing else. The service's
+own TileJSON declares `render_min_height` as a second `Number` beside it, and
+every feature in a real tile carries both — measured on five live z14 city
+tiles fetched for this work:
+
+| tile | buildings | non-zero `render_min_height` |
+|---|---|---|
+| Zürich `14/8580/5737` | 82 | 9 (11%) |
+| Manhattan `14/4824/6157` | 1,488 | 272 (18%) |
+| Paris centre `14/8298/5636` | 150 | 59 (39%) |
+| Paris Eiffel `14/8296/5636` | 68 | 22 (32%) |
+| London `14/8186/5448` | 510 | 267 (52%) |
+
+The vendored fixture `fixtures/openfreemap/z14-8579-5736.mvt` (Zürich, 50
+features) has 8. So this is not a hypothetical: 11–52% of a city tile's
+features are parts of a stepped mass whose base was being discarded, and the
+whole mass was drawn from the pavement.
+
+The clearest single example, read out of the live Eiffel tile: the tower is
+**35 parts**, `0 → 3 m` up to `300 → 330 m` — four legs `4 → 58`, the first
+platform `57 → 61` (99 × 99 m), four legs `57 → 116`, the second platform
+`115 → 120` (53 × 53 m), a `115 → 277 m` shaft and a `300 → 330 m` summit.
+With the base dropped, every one of those is drawn from the ground and the
+tower is a solid nest of boxes.
+
+### The two properties share ONE datum, and it had never been decided
+
+`glyphMapVectorMesh`'s primitive is a thickness measured up from the offset
+(`base = ground + baseOffset`, `top = base + height`), which is the right
+primitive and is pinned by `layers.extrusionHeight.test.ts`. But at the LAYER
+level both OSM and OpenMapTiles measure height and base from the same ground:
+a `building:part` tagged `min_height=115, height=277` *is* the piece between
+those two elevations, exactly as MapLibre's `fill-extrusion-base` /
+`fill-extrusion-height` pair. So the layer subtracts. Adding — which is what
+the untested composition did — makes a stepped structure GROW rather than
+stack: the Eiffel shaft would run 115 → 392 m and its summit 300 → 630 m.
+
+`max(0, …)` clamps the degenerate rows real data carries: 5 of the 629
+non-zero features across those five tiles have `render_height` below their own
+base. `heightScale` scales both, since under one datum they are the same
+quantity in the same frame.
+
+Nothing shipping exercised the pairing before (the Protomaps buildings layer
+carries only `height`), so this was a decision, not a break.
+
+### A per-FEATURE colour seed cannot separate anything on this schema
+
+`colorVariation` was seeded from `glyphMapFeatureSeed(feature)`. On a real OSM
+pyramid that is close to useless, because the tiler emits every
+attribute-identical building as ONE multipolygon:
+
+| tile | features | footprints | largest single feature |
+|---|---|---|---|
+| Zürich `14/8579/5736` (vendored) | 50 | 1,991 | 400+ |
+| Zürich `14/8580/5737` | 82 | 3,582 | **2,437** |
+| Paris centre | 150 | 5,228 | 1,265 |
+| Manhattan | 1,488 | 4,835 | 268 |
+
+2,437 buildings in one tone is the report. So `glyphMapVectorMesh` now
+resolves `color` once per polygon GROUP rather than once per feature, handing
+the callback that group's own anchor (its outer ring's first vertex, read
+BEFORE the winding normalisation, which reverses rings), and
+`glyphMapFeatureSeed` takes it as an optional second argument. A
+colour-by-attribute callback ignores it and is unchanged.
+
+### The range, chosen on real footprints rather than by eye
+
+`GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION = 0.5`. Measured over 400
+real footprints from the vendored tile, "separable" being a redmean distance
+above 40 between a footprint and its nearest geographic neighbour:
+
+| amount | neighbours separable | widest excursion from the row colour (redmean) |
+|---|---|---|
+| 0.15 | 6% | 31 |
+| 0.25 | 46% | 52 |
+| 0.35 | 73% | 73 |
+| **0.5** | **88%** | **105** |
+| 0.7 | 93% | 146 |
+| 1.0 | 95% | 209 |
+
+0.5 is the knee. Past it each extra point of separation costs roughly twice
+the spread, and redmean spans ~765 over the whole gamut, so 105 keeps every
+building inside ~14% of the row's own colour — one material — while 209 is a
+city of unrelated colours.
+
+### The facade was tuned in the wrong view
+
+`facade.ts` was authored and measured against an ORBIT view; walk mode did not
+exist yet, and eye height is the view the reader judges it in. Measured there
+— five standing points from the vendored tile × four distances (12/30/90/200 m),
+through the real widget and the real rasterizer:
+
+| window level | mean run vs no facade | viewpoints improved | wall cells DELETED |
+|---|---|---|---|
+| 58 (as shipped) | **0.71x** | 0 / 20 | **1,523** |
+| 80 | 0.81x | 8 / 20 | 0 |
+| 100 | 0.72x | 2 / 20 | 0 |
+| 120 | 0.74x | 5 / 20 | 0 |
+| **140** | **0.88x** | **10 / 20** | **0** |
+
+Two separate defects, both from the same constant. A texel MULTIPLIES the
+cell's intensity, so a window at 58/255 = 0.23 of the surface put wall cells
+below the level at which the rasterizer prints anything: the facade was
+punching holes in buildings. And the pier/window ratio is what ALIASES — a
+3.6 m bay is under one character cell wide past ~60 m, and the rasterizer
+point-samples — so 4.3:1 turned a far wall into salt-and-pepper and made it
+measurably noisier than no facade at all.
+
+The pier also moved 250 → 255, so it is the identity: a facade now only ever
+takes light away, and an untextured reading is exactly the layer's own colour.
+
+At 12 m from a real 81 m wall the difference is visible directly. Before, a
+window band rendered as ` . . . . ` and `.......` — gaps in the wall. After,
+it renders as `::::::::::` against `-===-===` piers, and the bay rhythm is
+countable. The rhythm holds from 3 m (windows 17–25 cells wide) to 90 m;
+`GLYPH_MAP_FACADE_BAY_METRES` (3.6) and `GLYPH_MAP_FACADE_FLOOR_METRES` (3.2)
+were checked across that range and left alone.
+
+Caps stay untextured, and that is now asserted end to end: a top-down frame
+over the real tile is byte-identical with the facade on and off.
+
+### The one existing assertion that had to move
+
+`widget.facade.test.ts` carried `meanRun(facade) > meanRun(flat) * 1.3` on a
+camera at which one 3.6 m bay is **1.4 character cells** wide — under the rate
+at which the rasterizer samples the texture. What that threshold actually
+rewarded was therefore the AMPLITUDE of the aliasing, not the presence of
+structure, and the only tile that cleared it was the 58 that deletes 1,523
+wall cells on real data. Every low-contrast candidate was tried against it,
+including a full-width floor band (which is constant in `u` and so cannot
+alias horizontally, and which does clear the threshold at 2.79) — but the band
+renders as a third dither at eye height and looks worse in the view that
+matters.
+
+So the margin moved rather than weakened: it is asserted at the same 1.3x in
+`widget.osmBuildings.test.ts`, 12 m from the real 81 m wall (1.34 untextured,
+1.96 with the facade), and `widget.facade.test.ts` gained the
+scene-independent guarantee the old threshold could not express — texturing a
+wall may not REMOVE it.
+
+### Cost, measured separately
+
+Through the real renderer at 140×63 over the vendored tile's 1,991 footprints,
+five passes, warm:
+
+| | mesh build | render, street level | render, orbit |
+|---|---|---|---|
+| none | 17.6–19.7 ms | 1.90–2.07 ms | ~2.0 ms |
+| + facade | +1.5 ms | **4.01–4.57 ms** | +0.1–0.2 ms |
+| + `colorVariation` | +1.5 ms | 1.92–2.15 ms (free) | free |
+| + `baseOffsetProperty` | free | 1.84–2.04 ms (free) | free |
+| all three | ~20.9 ms | 3.77–3.85 ms | +0.4 ms |
+
+The facade is the whole cost and it is scale-dependent in the favourable
+direction: it is paid where walls dominate the picture and is nearly free
+where they do not. No span rule is needed, and the schema makes the point
+anyway — `building` has `minzoom: 13`, so at any view where this row draws at
+all the reader is at city scale.
+
+### Defaults, not controls
+
+All three are on by default for the `omt-buildings` row and none gets a
+control. Each answers a defect rather than adding a style, `colorVariation`
+and the base are free, and the facade at ~2 ms is worth it at the only scale
+the row exists at. A caller who disagrees owns the returned layer objects.

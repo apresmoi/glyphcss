@@ -132,6 +132,11 @@ function meanRun(host: HTMLElement): number {
   return runs ? total / runs : 0;
 }
 
+/** Cells carrying a character — the wall's own coverage. */
+function ink(host: HTMLElement): number {
+  return [...text(host)].filter((c) => c !== " " && c !== "\n").length;
+}
+
 function colorSet(host: HTMLElement): Set<string> {
   const html = Array.from(host.querySelectorAll("pre")).map((pre) => pre.innerHTML).join("");
   return new Set([...html.matchAll(/color:\s*(#[0-9a-fA-F]{3,6})/g)].map((m) => m[1]!.toLowerCase()));
@@ -148,6 +153,17 @@ describe("fill-extrusion facade", () => {
     expect(glyphSet(textured.host).size).toBeGreaterThan(glyphSet(flat.host).size);
   });
 
+  // The mean-glyph-RUN margin that used to sit in this file has moved to
+  // `widget.osmBuildings.test.ts`, over the real vendored OpenFreeMap tile at
+  // a street distance, and is asserted there at the same 1.3x strength. It
+  // could not stay: this camera puts one 3.6 m bay at 1.4 character cells,
+  // under the rate at which the rasterizer samples the texture, so the
+  // quantity the threshold rewarded was the AMPLITUDE of the aliasing rather
+  // than the presence of structure — and measured on real data the only tile
+  // that cleared it here was one that deleted 1,523 wall cells at eye height
+  // (see the coverage test below). The claim did not weaken; it moved to a
+  // view in which it is testable.
+
   it("changes the frame at all — the texture really reaches the rasterizer", () => {
     // The failure this guards is silent in every intermediate layer: the mesh
     // carries UVs, the scene renders, and nothing samples because the pixels
@@ -155,15 +171,18 @@ describe("fill-extrusion facade", () => {
     expect(text(mount({ facade: true }).host)).not.toBe(text(mount({}).host));
   });
 
-  it("replaces the ramp's per-cell dither with real STRUCTURE", () => {
-    // The honest legibility claim, and the one the FPV render study warned is
-    // easy to fake: a flat wall is one Lambert value, which the solid ramp
-    // dithers into `=+=+=+=+=` — maximum transition density, zero information.
-    // A facade turns that into RUNS (a pier, a window, a pier), so mean run
-    // length is the metric that separates structure from noise. Measured here:
-    // 1.83 flat, 2.99 with the facade.
-    const flat = meanRun(mount({}).host);
-    expect(meanRun(mount({ facade: true }).host)).toBeGreaterThan(flat * 1.3);
+  it("never takes a cell OUT of a wall", () => {
+    // The guarantee that replaced this file's original mean-run threshold, and
+    // the reason it had to: a texel is a MULTIPLIER on the cell's own
+    // intensity, so a dark enough window drops the cell below the level at
+    // which the rasterizer prints anything and the facade punches HOLES in the
+    // building. The tile shipped that way — measured through this same widget
+    // on the real vendored OpenFreeMap tile, at five street-level standing
+    // points and four distances, it deleted 1,523 wall cells.
+    //
+    // Scene-independent, which the run threshold was not: whatever the ramp,
+    // the camera or the Lambert value, texturing a wall may not remove it.
+    expect(ink(mount({ facade: true }).host)).toBe(ink(mount({}).host));
   });
 
   it("forwards the bay/floor rhythm rather than always using the default", () => {

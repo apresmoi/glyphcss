@@ -82,6 +82,34 @@ describe("glyphMapFacadeTexture", () => {
     expect(Math.max(...levels) - Math.min(...levels)).toBeGreaterThan(100);
   });
 
+  it("makes the PIER the identity, so a facade only ever takes light away", () => {
+    // A texel multiplies the cell's own colour and its intensity. If the
+    // brightest level were below 255 the whole wall would be darker with the
+    // facade on than off, so `facade` would be changing a building's COLOUR
+    // as well as its texture; at 255 the untextured reading is exactly the
+    // layer's own colour.
+    const { data } = glyphMapFacadeTexture();
+    const levels = new Set<number>();
+    for (let i = 0; i < data.length; i += 4) levels.add(data[i]!);
+    expect(Math.max(...levels)).toBe(255);
+  });
+
+  it("keeps the darkest level well above the render's ink floor", () => {
+    // The defect this replaced: a window at 58/255 = 0.23 of the surface put
+    // its cells below the threshold at which the rasterizer prints anything,
+    // so the facade punched HOLES in walls (1,519 cells across twenty
+    // street-level viewpoints on the real Zürich tile). The ratio is also
+    // what aliases: a 3.6 m bay is under one cell wide past ~60 m, so the
+    // wider the pier/window gap the more violently a far wall alternates.
+    const { data } = glyphMapFacadeTexture();
+    const levels = new Set<number>();
+    for (let i = 0; i < data.length; i += 4) levels.add(data[i]!);
+    const darkest = Math.min(...levels);
+    expect(darkest / Math.max(...levels)).toBeGreaterThan(0.5);
+    // ...but still a real modulation, not a flat tile that would change nothing.
+    expect(darkest / Math.max(...levels)).toBeLessThan(0.7);
+  });
+
   it("is fully opaque, so it never withholds coverage from a cell", () => {
     const { data } = glyphMapFacadeTexture();
     for (let i = 3; i < data.length; i += 4) expect(data[i]).toBe(255);
