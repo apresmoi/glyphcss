@@ -112,11 +112,23 @@ export const GLYPH_MAP_WALK_NEAR_M = 0.5;
  */
 export const GLYPH_MAP_WALK_FAR_M = 400;
 
-/** Walking pace, metres per second. Brisk human walking is ~1.4 m/s; a little over that reads right when each frame is a fresh render. */
-export const GLYPH_MAP_WALK_SPEED_M_PER_S = 1.6;
+/**
+ * Walking pace, metres per second.
+ *
+ * NOT a real walking pace, deliberately. Anatomical walking is ~1.4 m/s and
+ * shipping that read as glacial: a first-person camera has none of the
+ * peripheral flow, head motion or body sense that make 1.4 m/s feel like
+ * walking to a body that is actually doing it, so the only motion cue left
+ * is how fast the scene changes — and through a 70 deg lens at a 400 m
+ * horizon, that is nearly nothing. Games have always paid the same tax and
+ * settled around the same place (Half-Life 3.3 m/s, Minecraft 4.3); this
+ * sits there rather than at the anthropometric number, which is honest
+ * about being a CAMERA speed, not a gait.
+ */
+export const GLYPH_MAP_WALK_SPEED_M_PER_S = 6;
 
-/** Multiplier while a Shift key is held — a jog, not a teleport, so the tile sweep keeps up. */
-export const GLYPH_MAP_WALK_RUN_MULTIPLIER = 4;
+/** Multiplier while a Shift key is held — crossing the 400 m horizon in ~22 s, still well inside what the tile sweep keeps up with (3.2 m per 180 ms debounce). */
+export const GLYPH_MAP_WALK_RUN_MULTIPLIER = 3;
 
 /**
  * The camera pitch that looks along the LOCAL HORIZONTAL, in the widget's

@@ -53,7 +53,7 @@ export interface MapWalkButtonProps {
 
 const ENTER_TITLE =
   "Walk — stand on the ground at eye height (1.7 m) under a real perspective camera. "
-  + "Click the map to look around, WASD or the arrow keys to walk, Shift to jog, Esc to release the mouse. "
+  + "Click the map to look around, WASD or the arrow keys to walk, Shift to run, Esc to release the mouse. "
   + "Leaving puts the view back exactly where it was.";
 
 /**
@@ -80,7 +80,7 @@ function WalkerIcon() {
 export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButtonProps) {
   const gated = !walking && reason !== null;
   const title = walking
-    ? `Walking. ${budget}. Click the map to look around, WASD or the arrow keys to walk, Shift to jog, Esc to release the mouse. Click here to come back up.`
+    ? `Walking. ${budget}. Click the map to look around, WASD or the arrow keys to walk, Shift to run, Esc to release the mouse. Click here to come back up.`
     : gated
       ? reason!
       : ENTER_TITLE;
@@ -93,7 +93,7 @@ export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButt
       {walking && (
         <p className="maps-walk__legend">
           <span><kbd>WASD</kbd> walk</span>
-          <span><kbd>Shift</kbd> jog</span>
+          <span><kbd>Shift</kbd> run</span>
           <span><kbd>click</kbd> look</span>
           <span><kbd>Esc</kbd> release</span>
           {/* The horizon and its tile cost stay on screen, where they were in
