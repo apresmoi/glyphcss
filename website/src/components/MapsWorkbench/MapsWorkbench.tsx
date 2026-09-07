@@ -88,7 +88,7 @@ import {
   type MapProjectionId,
   type MapSunMode,
 } from "./mapsKit";
-import { mapWalkBudgetLabel, mapWalkReason } from "./mapsWalk";
+import { mapWalkBudgetLabel, mapWalkLinkEntry, mapWalkReason } from "./mapsWalk";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
@@ -225,11 +225,31 @@ export default function MapsWorkbench() {
     () => mapsOsmDensityRecordFromTuple(initial.osmDensities),
   );
   /**
-   * Street-level walk mode. Deliberately NOT part of the URL state: it is a
-   * MODE a reader steps into and back out of, and a shared link that dropped
-   * someone at eye height in a street would hide the map they were sent.
+   * Street-level walk mode — and, from a shared link, the pose to open it at.
+   *
+   * The mode itself is one URL flag (`mapsUrlState.ts`'s `MapsUrlState.walk`,
+   * token `w`); the walker's POSITION, HEADING and PITCH need no tokens of
+   * their own, because walk mode reuses `view.center`, `bearing` and
+   * `getTilt()` — all three already synced out of the widget by
+   * `syncViewState` on the `move` events a walk step and a look both emit,
+   * and so already in the link. `mapWalkLinkEntry` re-runs the entry gate
+   * against the link's OWN view, so a link asking to walk somewhere the mode
+   * is not permitted opens the ordinary map instead of throwing.
    */
-  const [walkOn, setWalkOn] = useState(false);
+  const walkLink = useMemo(
+    () => mapWalkLinkEntry({ walk: initial.walk, projectionId: initial.projection, span: initial.span, tilt: initial.tilt }),
+    [initial],
+  );
+  const [walkOn, setWalkOn] = useState(walkLink.walking);
+  /**
+   * The link's own pitch, applied ONCE, immediately after the widget enters
+   * walk mode — `setWalk` stands the walker up looking at the horizon and
+   * discards whatever pitch the camera had, which is right for a reader
+   * stepping down off the map and wrong for a link that already knows which
+   * way the sender was looking. Consumed on first entry, so a later manual
+   * Walk click gets the widget's own horizon, not a stale link's pitch.
+   */
+  const linkWalkTiltRef = useRef<number | null>(walkLink.tilt);
   const [attributions, setAttributions] = useState<readonly GlyphMapAttribution[]>([]);
 
   // ── Per-layer visibility + density + own controls (left-rail "Layers"
@@ -1422,12 +1442,40 @@ export default function MapsWorkbench() {
     const map = mapRef.current;
     if (!map) return;
     if (walkOn && walkGateReason === null) {
-      if (!map.getWalk()) map.setWalk({});
+      if (!map.getWalk()) {
+        map.setWalk({});
+        // The link's pitch, when this page load has one to restore. Pushed
+        // into React state by hand because `map.setTilt` deliberately emits
+        // no view-change event (`widget.ts`'s `applyTiltState` doc — the
+        // gesture owns the repaint), so `syncViewState` would not otherwise
+        // hear about it.
+        //
+        // Re-applied on EVERY entry the link's walk survives, not just the
+        // first, because the widget is REBUILT when `vectorProvider` lands
+        // after `provider` — and a rebuild is a fresh `createGlyphMap` whose
+        // `setWalk` stands the walker back up at the horizon regardless. So
+        // one-shotting it here would restore the pitch onto a map that is
+        // about to be thrown away. The ref is cleared when walk mode is
+        // LEFT (below), so a manual re-entry gets the widget's own horizon.
+        const linkTilt = linkWalkTiltRef.current;
+        if (linkTilt !== null) {
+          map.setTilt(linkTilt);
+          setTilt(map.getTilt());
+        }
+      }
       return;
     }
+    linkWalkTiltRef.current = null;
     if (map.getWalk()) map.setWalk(null);
     if (walkOn) setWalkOn(false);
-  }, [walkOn, walkGateReason]);
+    // `provider`/`vectorProvider` are dependencies for the reason the OSM
+    // mount effect above lists them: EITHER resolving rebuilds the widget
+    // (`map.destroy()` + a fresh `createGlyphMap`), and a rebuilt map is not
+    // walking. Without them a link that opens in walk mode would run this
+    // once against a `mapRef` that is still null — the terrain provider
+    // resolves after mount — and never again, since `walkOn` and
+    // `walkGateReason` are both already at their final values.
+  }, [walkOn, walkGateReason, provider, vectorProvider]);
 
   // ── Center/span sliders -> imperative `map.setView()`. ─────────────────
   const onCenter = useCallback((lon: number, lat: number) => {
@@ -1539,13 +1587,20 @@ export default function MapsWorkbench() {
       contourLabels,
       extrusionRenderMode: extraRenderMode["fill-extrusion"],
       modelRenderMode: extraRenderMode.model,
+      // Walk mode rides this same coalesced write rather than adding a
+      // second one: a walk step and a look both emit the widget's `move`,
+      // which `syncViewState` already collapses to one React push per
+      // animation frame, and `writeUrlParam` rate-limits below that. So the
+      // walker's own pose (center/bearing/tilt above) reaches the URL by the
+      // path every other camera change already takes.
+      walk: walkOn,
     });
     // `layerAmount` is depended on by its two persisted ENTRIES, never as a
     // whole: a magnitude slider changes that object's identity, and re-running
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

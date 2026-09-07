@@ -74,6 +74,59 @@ export function mapWalkAvailable(gate: MapWalkGate): boolean {
   return mapWalkReason(gate) === null;
 }
 
+/**
+ * What a shared LINK's walk state means for the page it lands on.
+ *
+ * A link carries one walk flag and the pose the walker already had — the
+ * position, heading and pitch every /maps link has always carried, because
+ * walk mode reuses `view.center`, `bearing` and `getTilt()` rather than
+ * adding state of its own (`mapsUrlState.ts`'s `MapsUrlState.walk`). This
+ * turns that pair into the page's opening state, and it is where the two
+ * things a link cannot be trusted about are settled:
+ *
+ *  1. **The gate is re-run against the link's OWN view**, never assumed.
+ *     `map.setWalk` throws a `RangeError` on a flat sheet, and the altitude
+ *     clause is what makes the mode geometrically safe at all — so a link
+ *     that asks for a walk somewhere it is not permitted (hand-edited, or
+ *     written before a projection change) opens the ordinary map instead.
+ *     Degrading is the whole contract: never a throw, never a mode the gate
+ *     forbids.
+ *  2. **The pitch has to be handed back after entry.** The widget's
+ *     `setWalk` stands the walker up looking at the horizon
+ *     (`tiltRequest = appliedTilt = GLYPH_MAP_WALK_HORIZON_TILT_DEG`),
+ *     discarding whatever pitch the camera had — right for a reader stepping
+ *     down off the map, wrong for a link that already knows which way the
+ *     sender was looking. {@link MapWalkEntry.tilt} is that pitch, in the
+ *     widget's own `tilt` units and unconverted (while walking `getTilt()`
+ *     IS the pitch, 90 being the horizontal), for the caller to apply with
+ *     `map.setTilt` once walk mode is live. The widget owns the clamp into
+ *     the neck's range; this owns only the value.
+ */
+export interface MapWalkLink {
+  /** The link's `walk` flag (`MapsUrlState.walk`). */
+  readonly walk: boolean;
+  readonly projectionId: MapProjectionId;
+  /** The link's `span`, degrees — while walking this is the walker's own footprint, so it is inside the gate by construction. */
+  readonly span: number;
+  /** The link's `tilt`, degrees, in the widget's units — the walker's pitch measured from 90. */
+  readonly tilt: number;
+}
+
+/** {@link mapWalkLinkEntry}'s verdict. */
+export interface MapWalkEntry {
+  /** Whether the page opens in walk mode. */
+  readonly walking: boolean;
+  /** The pitch to re-apply once walk mode is live, or `null` when the page is not entering it. */
+  readonly tilt: number | null;
+}
+
+export function mapWalkLinkEntry(link: MapWalkLink): MapWalkEntry {
+  if (!link.walk || !mapWalkAvailable({ projectionId: link.projectionId, span: link.span })) {
+    return { walking: false, tilt: null };
+  }
+  return { walking: true, tilt: link.tilt };
+}
+
 /** A span in degrees as a distance a reader can picture. */
 export function formatWalkSpan(spanDeg: number): string {
   const metres = spanDeg * (Math.PI / 180) * 6_371_000;

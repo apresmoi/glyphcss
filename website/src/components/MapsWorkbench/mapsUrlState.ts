@@ -151,6 +151,29 @@ export interface MapsUrlState {
    */
   extrusionRenderMode: MapLayerRenderMode;
   modelRenderMode: MapLayerRenderMode;
+
+  /**
+   * Street-level WALK mode (`GlyphMapHandle.setWalk`) — whether the link puts
+   * the reader ON the ground rather than above the map.
+   *
+   * ONE flag, and that is the whole of it: a walker's POSE needs no token of
+   * its own because walk mode reuses the widget's existing camera state
+   * rather than adding any (`packages/maps/src/walk.ts`'s
+   * `GLYPH_MAP_WALK_HORIZON_TILT_DEG` doc says so outright). `view.center` IS
+   * where the walker stands ({@link centerLon}/{@link centerLat}), `bearing`
+   * IS the heading they face ({@link bearing}), `getTilt()` IS their pitch
+   * measured from the horizontal's 90 ({@link tilt}), and `view.span` is
+   * pinned to the walker's own footprint while walking ({@link span}) — all
+   * four already written by the page's existing view sync, per walk step and
+   * per look. A second position/heading/pitch token would duplicate a field
+   * that already round-trips.
+   *
+   * Restoring is GATED, never trusted: `mapsWalk.ts`' `mapWalkLinkEntry`
+   * degrades a link that asks for a walk at a view where the mode is not
+   * permitted (a flat sheet, or too far out) back to the ordinary map, since
+   * `setWalk` itself throws on the first of those.
+   */
+  walk: boolean;
 }
 
 // ── Layer-content wire lists and their bitfields ──────────────────────────
@@ -314,6 +337,9 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   contourLabels: false,
   extrusionRenderMode: MAP_SCENE_RENDER_MODE,
   modelRenderMode: MAP_SCENE_RENDER_MODE,
+  // Off, so a link that carries no `w` opens the map — which is what every
+  // link ever shared describes, and what a reader expects a map link to be.
+  walk: false,
 };
 
 // `"orthographic"` (index 3) was a real, offered `MapProjectionId` before
@@ -490,6 +516,26 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    the RETIRED `terrainRenderMode` token that `mapsCodecLegacyV2` still
   //    decodes.
   { key: "osmDensities", token: "M", type: { kind: "floatTuple", length: MAPS_OSM_DENSITY_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.osmDensities },
+  // ── WALK MODE. Appended after `M`, and for the sixth time with the same
+  //    consequence: the codec is TOKEN-keyed, so a link carrying no `w`
+  //    decodes to `false` — the map above the ground, which is every link
+  //    ever shared. No version bump: nothing was retired, and `M` still
+  //    decodes with its existing rules.
+  //
+  //    LAST for the reason `M`'s own doc gives — `decodePacked` stops at the
+  //    first token it does not recognize, so a link written here and opened
+  //    by a not-yet-updated build strands only what is ordered after it, and
+  //    there is nothing after it. `M` was that token until now, which is why
+  //    this goes AFTER it rather than before.
+  //
+  //    `w` (not `W`, which is `fillDensity`): the token map is
+  //    case-sensitive, the same clause `M`/`m` already carry.
+  //
+  //    Deliberately NOT joined by a walk POSITION, HEADING or PITCH token —
+  //    see `MapsUrlState.walk`. Nor by the walk OPTIONS (eye height, FOV,
+  //    speed, horizon): the page offers no control for any of them, so a
+  //    token would encode a constant.
+  { key: "walk", token: "w", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.walk },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";
