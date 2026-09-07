@@ -13,6 +13,11 @@
  * anything about a building at all). A schema drift therefore shows up here
  * as a red test rather than as an empty layer.
  *
+ * Two more tiles are vendored for flags none of those three carries at all:
+ * `z4-1-6-maritime.mvt` (the one `maritime: 1` boundary line) and
+ * `z14-3851-6772-hide3d.mvt` (Houston: `hide_3d: true` on 3 of 153
+ * buildings). Each is named for the flag it is the only witness to.
+ *
  * This is a DIFFERENT schema from `protomaps.ts`'s, not a variant of it:
  * OpenMapTiles discriminates on `class` where Protomaps uses `kind`, splits
  * water polygons (`water`) from watercourse lines (`waterway`) into two
@@ -30,11 +35,14 @@ import {
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
   glyphMapOpenMapTilesAdminLevel,
+  glyphMapOpenMapTilesBrunnel,
   glyphMapOpenMapTilesClass,
   glyphMapOpenMapTilesFeatureFilter,
+  glyphMapOpenMapTilesFlag,
   glyphMapOpenMapTilesLayers,
 } from "./openmaptiles";
 import type { GlyphMapFillExtrusionLayer } from "../widget";
+import type { GlyphMapVectorFeature } from "./types";
 import { glyphMapFeatureSeed, glyphMapVaryColor } from "../facade";
 import { GLYPH_MAP_OPENFREEMAP_ATTRIBUTION } from "../attribution";
 import { glyphMapOpenFreeMapProvider, GLYPH_MAP_OPENFREEMAP_TILE_URL } from "./openfreemap";
@@ -369,7 +377,11 @@ describe("glyphMapOpenMapTilesLayers", () => {
     // The same source layer name never feeds both: `water` is polygons,
     // `waterway` is lines, and each row selects its own.
     expect(z12[water.sourceLayer!].filter(water.filter!).length).toBeGreaterThan(0);
-    expect(z12[waterway.sourceLayer!].filter(waterway.filter!)).toHaveLength(11);
+    // All 11 of the tile's watercourses are lines the row's geometry filter
+    // keeps; 2 of them are `brunnel: tunnel` culverts the row now hides, so
+    // what reaches the grid is 9.
+    expect(z12[waterway.sourceLayer!].filter((f) => f.geometryType === "line")).toHaveLength(11);
+    expect(z12[waterway.sourceLayer!].filter(waterway.filter!)).toHaveLength(9);
   });
 });
 
@@ -386,5 +398,174 @@ describe("GLYPH_MAP_OPENFREEMAP_ATTRIBUTION", () => {
       expect(tilejson.attribution).toContain(url);
       expect(GLYPH_MAP_OPENFREEMAP_ATTRIBUTION.some((a) => a.url?.includes(url))).toBe(true);
     }
+  });
+});
+
+/**
+ * The three flags below are the schema's own answer to "is this thing
+ * actually on the surface, and is this line actually a border" — and until
+ * they were read, the mapping drew a subway line as a street, an EEZ line as
+ * the France-Germany border, and a block outline over the buildings inside
+ * it. Each block asserts the count on a REAL tile, so the fix cannot be
+ * satisfied by setting an option.
+ */
+describe("`brunnel` — the flag that says a road is not on the surface", () => {
+  it("is written the way the mapping reads it, on real features", () => {
+    const z14 = { transportation: mvt("z14-8579-5736.mvt", 14, 8579, 5736).transportation.filter((f) => f.geometryType === "line") };
+    const brunnels = new Set(z14.transportation.map(glyphMapOpenMapTilesBrunnel));
+    // Absent is the common case — the field is simply not written for a
+    // surface road, so "not a tunnel" can never be a `!== "tunnel"` on a
+    // required column.
+    expect(brunnels).toEqual(new Set([undefined, "bridge", "tunnel"]));
+    expect(z14.transportation.filter((f) => glyphMapOpenMapTilesBrunnel(f) === "tunnel")).toHaveLength(47);
+    expect(z14.transportation.filter((f) => glyphMapOpenMapTilesBrunnel(f) === "bridge")).toHaveLength(98);
+  });
+
+  it("takes tunnels out and leaves bridges in — 47 of Zurich Hardbrucke's 605 lines, 54 of the z12 tile's 1,911", () => {
+    const drop = glyphMapOpenMapTilesFeatureFilter({ geometry: "line", excludeBrunnel: ["tunnel"] });
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736).transportation;
+    expect(z14.filter(drop)).toHaveLength(558);
+    expect(z14.filter(drop).filter((f) => glyphMapOpenMapTilesBrunnel(f) === "bridge")).toHaveLength(98);
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434).transportation;
+    expect(z12.filter(drop)).toHaveLength(1857);
+  });
+
+  it("is the SAME defect on a waterway, and the fixture is nearly half culvert", () => {
+    // 13 of 27 — a culverted stream drawn on the surface is a river running
+    // through a building, which is why the waterways row carries the axis too.
+    const drop = glyphMapOpenMapTilesFeatureFilter({ geometry: "line", excludeBrunnel: ["tunnel"] });
+    expect(mvt("z14-8579-5736.mvt", 14, 8579, 5736).waterway.filter(drop)).toHaveLength(14);
+    expect(mvt("z12-2145-1434.mvt", 12, 2145, 1434).waterway.filter(drop)).toHaveLength(9);
+  });
+});
+
+describe("glyphMapOpenMapTilesFlag — one reader for a schema that writes its flags two ways", () => {
+  it("reads the NUMBER form (`maritime`, `disputed`) and the BOOLEAN form (`hide_3d`) alike", () => {
+    // Measured, not assumed: `boundary.maritime`/`disputed` arrive as 0/1
+    // numbers and are present on every feature, while `building.hide_3d`
+    // arrives as a real `true` and is absent otherwise. A reader that only
+    // knew one writing would silently keep half the features it was asked
+    // to drop.
+    const maritime = mvt("z4-1-6-maritime.mvt", 4, 1, 6).boundary;
+    expect(maritime.every((f) => typeof f.properties?.maritime === "number")).toBe(true);
+    expect(maritime.filter((f) => glyphMapOpenMapTilesFlag(f, "maritime"))).toHaveLength(1);
+    expect(maritime.filter((f) => glyphMapOpenMapTilesFlag(f, "disputed"))).toHaveLength(0);
+
+    const houston = mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772).building;
+    const hidden = houston.filter((f) => glyphMapOpenMapTilesFlag(f, "hide_3d"));
+    expect(hidden).toHaveLength(3);
+    expect(hidden.every((f) => f.properties?.hide_3d === true)).toBe(true);
+    // `0` is written, not absent, and it is NOT set.
+    expect(mvt("z0-0-0.mvt", 0, 0, 0).boundary.filter((f) => glyphMapOpenMapTilesFlag(f, "maritime"))).toHaveLength(0);
+  });
+});
+
+describe("boundaries: an EEZ line across open ocean is not a border a reader expects drawn", () => {
+  const drawn = () => glyphMapOpenMapTilesFeatureFilter({
+    geometry: "line", maxAdminLevel: 2, excludeFlags: ["maritime", "disputed"],
+  });
+
+  it("drops the maritime line the z4 tile exists to witness", () => {
+    // 4/1/6 holds exactly one boundary feature: an `admin_level: 2` line with
+    // `maritime: 1`. Under the old table it was drawn in the same weight as
+    // a land border; there is now nothing left to draw in that tile.
+    const z4 = mvt("z4-1-6-maritime.mvt", 4, 1, 6).boundary;
+    expect(z4.filter(glyphMapOpenMapTilesFeatureFilter({ geometry: "line", maxAdminLevel: 2 }))).toHaveLength(1);
+    expect(z4.filter(drawn())).toHaveLength(0);
+  });
+
+  it("drops the disputed line at world scale and keeps the undisputed one", () => {
+    // z0 is the negative for `maritime` (both lines are 0) and the positive
+    // for `disputed` (exactly one is 1), so the two axes cannot pass by
+    // accident on the same feature.
+    const z0 = mvt("z0-0-0.mvt", 0, 0, 0).boundary;
+    expect(z0.filter(glyphMapOpenMapTilesFeatureFilter({ geometry: "line", maxAdminLevel: 2 }))).toHaveLength(2);
+    expect(z0.filter(glyphMapOpenMapTilesFeatureFilter({ geometry: "line", maxAdminLevel: 2, excludeFlags: ["maritime"] }))).toHaveLength(2);
+    expect(z0.filter(glyphMapOpenMapTilesFeatureFilter({ geometry: "line", maxAdminLevel: 2, excludeFlags: ["disputed"] }))).toHaveLength(1);
+    expect(z0.filter(drawn())).toHaveLength(1);
+  });
+});
+
+describe("`hide_3d` — the schema saying 'do not extrude this outline'", () => {
+  it("drops the three Houston outlines and touches nothing in the Zurich tile", () => {
+    const drop = glyphMapOpenMapTilesFeatureFilter({ geometry: "polygon", excludeFlags: ["hide_3d"] });
+    const houston = mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772).building;
+    expect(houston).toHaveLength(153);
+    expect(houston.filter(drop)).toHaveLength(150);
+    // The three carry real heights (5 m, 40 m, 132 m) — they are not
+    // degenerate features a height filter would have caught anyway.
+    expect(houston.filter((f) => !drop(f)).map((f) => f.properties?.render_height).sort((a, b) => Number(a) - Number(b)))
+      .toEqual([5, 40, 132]);
+    // And the flag is genuinely rare: the Zurich tile carries none at all,
+    // so the axis is a no-op wherever the data does not ask for it.
+    const zurich = mvt("z14-8579-5736.mvt", 14, 8579, 5736).building;
+    expect(zurich.filter(drop)).toHaveLength(zurich.length);
+  });
+});
+
+describe("`service` and `indoor` — ways that are not the street network", () => {
+  it("drops driveways and parking aisles, which are car-park hatching", () => {
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736).transportation;
+    // 42 driveways + 30 parking aisles of the 164 `class: service` features.
+    const drop = glyphMapOpenMapTilesFeatureFilter({ geometry: "line", excludeService: ["driveway", "parking_aisle"] });
+    expect(z14.filter(drop)).toHaveLength(605 - 72);
+    expect(z14.filter(drop).every((f) => f.properties?.service !== "driveway")).toBe(true);
+    // `alley`, `yard`, `spur`, `siding` and `crossover` are real ways and stay.
+    expect(z14.filter(drop).filter((f) => f.properties?.service !== undefined)).toHaveLength(20);
+  });
+
+  it("drops indoor corridors, which are not streets at all", () => {
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736).transportation;
+    expect(z14.filter((f) => glyphMapOpenMapTilesFlag(f, "indoor"))).toHaveLength(4);
+    expect(z14.filter(glyphMapOpenMapTilesFeatureFilter({ geometry: "line", excludeFlags: ["indoor"] }))).toHaveLength(601);
+  });
+});
+
+/**
+ * The table's own defaults, measured through the BUILT layers rather than
+ * through a hand-made filter — the spec can declare an axis and the builder
+ * can still drop it on the floor, which is exactly what happened to
+ * `render_min_height` for the life of this mapping.
+ */
+describe("what the shipped table actually draws, on real tiles", () => {
+  const provider = () => glyphMapOpenFreeMapProvider();
+  const built = (id: string) => glyphMapOpenMapTilesLayers(provider(), { include: [id] })[0];
+  const kept = (id: string, layers: Record<string, readonly GlyphMapVectorFeature[]>) => {
+    const layer = built(id);
+    return (layers[layer.sourceLayer!] ?? []).filter(layer.filter!).length;
+  };
+
+  it("roads: 605 lines in the Zurich Hardbrucke tile become 497", () => {
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
+    expect(z14.transportation.filter((f) => f.geometryType === "line")).toHaveLength(605);
+    // 47 tunnels, then 59 more driveways/parking aisles that were not already
+    // tunnels, then 2 more indoor corridors: 17.9% of the row's ink.
+    expect(kept("omt-roads", z14)).toBe(497);
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    expect(kept("omt-roads", z12)).toBe(1857);
+  });
+
+  it("waterways: 27 become 14, because 13 of them are culverted", () => {
+    expect(kept("omt-waterways", mvt("z14-8579-5736.mvt", 14, 8579, 5736))).toBe(14);
+    expect(kept("omt-waterways", mvt("z12-2145-1434.mvt", 12, 2145, 1434))).toBe(9);
+  });
+
+  it("boundaries: the world view keeps the land border and loses the maritime and disputed ones", () => {
+    expect(kept("omt-boundaries", mvt("z0-0-0.mvt", 0, 0, 0))).toBe(1);
+    expect(kept("omt-boundaries", mvt("z4-1-6-maritime.mvt", 4, 1, 6))).toBe(0);
+  });
+
+  it("buildings: the three `hide_3d` Houston outlines are not extruded", () => {
+    expect(kept("omt-buildings", mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772))).toBe(150);
+    expect(kept("omt-buildings", mvt("z14-8579-5736.mvt", 14, 8579, 5736))).toBe(50);
+  });
+
+  it("leaves every other row's filter exactly as wide as it was", () => {
+    // The axes are opt-in per row: a row that does not name one keeps every
+    // feature its class/geometry/admin filter already kept.
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
+    expect(kept("omt-landcover", z14)).toBe(z14.landcover.filter((f) => f.geometryType === "polygon").length);
+    expect(kept("omt-water", z14)).toBe(z14.water.filter((f) => f.geometryType === "polygon").length);
+    expect(kept("omt-pois", z14)).toBe(z14.poi.filter((f) => f.geometryType === "point").length);
   });
 });

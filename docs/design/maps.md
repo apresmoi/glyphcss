@@ -2558,6 +2558,89 @@ blank layers that had nothing wrong with them. That region simply has no data
 this frame. `onError` is how the card still gets to say how many, instead of
 the reader guessing why a render looks thin.
 
+### The three flags that said we were drawing things that are not there
+
+The OpenMapTiles table read six properties and ignored the rest. Three of the
+ignored ones are not enrichment — they are the schema stating that a feature
+is **not on the surface**, and ignoring them made the render wrong rather than
+plain. Each is now a default exclusion on the row it belongs to
+(`GLYPH_MAP_OPENMAPTILES_LAYERS`), and all three are table edits: no new
+widget capability, no new machinery, `GlyphMapFeatureFilter` was already on
+every vector-source layer.
+
+| flag | rows | measured on the vendored tiles |
+|---|---|---|
+| `brunnel: "tunnel"` | `omt-roads`, `omt-waterways` | roads 605 → 558 (z14 Zürich Hardbrücke) and 1,911 → 1,857 (z12); waterways **27 → 14** and 11 → 9 |
+| `maritime` / `disputed` | `omt-boundaries` | the z0 world tile's two `admin_level: 2` lines → **1**; `z4-1-6-maritime.mvt`'s one line → **0** |
+| `hide_3d` | `omt-buildings` | Houston `14/3851/6772`: 153 → **150**; the Zürich tile carries none, so the axis is a no-op there |
+
+**Tunnels are hidden, not dimmed, and bridges stay drawn.** A tunnel is not
+visible from the street, and this renderer has limited colour to spend on
+subtlety — a dimmed tunnel would need a per-feature line colour, which is a
+widget capability rather than a table edit. The scale is the argument: 14.8%
+of z14 road features across ten live city tiles carry `brunnel`, and **29.5%
+of the drawn road LENGTH in a Manhattan tile is underground**. On a waterway
+it is worse per tile than on a road — 13 of the vendored z14 tile's 27
+watercourses are culverts, i.e. a stream drawn running through a building.
+Bridges are the other half of the same field and are the case a reader most
+wants to see, so `excludeBrunnel` is a value list rather than a boolean.
+
+**Maritime and disputed boundaries are off by default, and that IS a visible
+change to the world view.** Of the boundary lines a world view actually drew
+(`admin_level ≤ 2`, geometry `line`, sampled over z0/z2/z4×7/z5/z6), 46.3%
+were `maritime: 1` and 44.4% `disputed: 1` — roughly half the world's border
+ink was an EEZ line across open ocean in the same weight as the
+France–Germany land border. An EEZ line is not a border a reader expects
+drawn, and a disputed line is a claim rather than a border. The two axes are
+separately gated by the two fixtures precisely because they could otherwise
+pass on the same feature: `z4-1-6-maritime.mvt` is `maritime: 1` and
+`disputed: 0`, `z0-0-0.mvt` is `maritime: 0` on both its lines and
+`disputed: 1` on exactly one.
+
+**`hide_3d` is the schema saying "its parts are mapped separately".** It is
+small — 1.46% of features over eight city tiles — but where it fires it is a
+block outline extruded over the individually-mapped buildings inside it: 15
+such outlines swallowed 71 shorter buildings, and a live Munich case is a
+22 m outline containing buildings at 4 m and 11 m. None of the three vendored
+tiles carried the flag at all, which is why Houston is now vendored. The
+broader building-overlap picture (60–78% of footprints have another
+footprint's centroid inside them) is genuine OSM overlap and a depth-test
+outcome, not a data bug — `hide_3d` fixes only the 1.5% the data itself flags.
+
+**One reader for two writings.** `boundary.maritime` and `boundary.disputed`
+arrive as `0`/`1` NUMBERS present on every feature; `building.hide_3d` and
+`transportation.indoor` arrive as a real `true`/`1` and are ABSENT otherwise.
+So neither "the property exists" nor "the property is `true`" is the test —
+`glyphMapOpenMapTilesFlag` is falsiness, and it covers both writings exactly.
+Both mutations go red: pinning it to `=== true` breaks six tests, pinning it
+to `=== 1` breaks three.
+
+**The one declutter judgement, stated as one.** The roads row also drops
+`service: driveway`/`parking_aisle` (72 of the vendored z14 tile's 605 lines)
+and `indoor` ways (4). These are correct ways that exist; a car-park aisle is
+hatching and an indoor corridor is not a street, but unlike the three flags
+above this is cartography rather than a correctness fix, and it is labelled
+that way in the table's own comment. It is one array to revert.
+
+**What it costs the reader, measured through the real rasterizer**
+(`widget.osmFilters.test.ts`, the vendored z14 tile mounted as a static
+collection at 140×63): the roads row inks **3,351 → 3,160 cells, −191, −5.7%**.
+The ink falls by much less than the 605 → 497 feature count (−17.9%) because a
+tunnel is a long feature drawn mostly under other geometry; the tunnel
+features alone ink 155 cells and the bridges 377. Fewer cells is strictly
+cheaper, so nothing here needs a bench.
+
+**What is NOT in this slice.** `transportation.layer` (14.2% of z14 features,
+−5…+4) makes the visible road at a grade separation arbitrary and able to flip
+between frames as tiles land in a different order — that needs a per-layer
+feature ORDER, which is a widget capability, not a table edit. Road hierarchy
+by `class` (path 22.6% / minor 22.3% / motorway 2.6%, all in one colour) and
+taking `rail`/`transit`/`ferry` out of the roads row both need a per-feature
+line colour for the same reason: the table alone can only DELETE those classes,
+which trades one wrong picture for a missing one, or add an eleventh row, which
+would move the `/maps` URL codec's append-only sublayer bitfield and its
+fixed-length density tuple. Both are deliberately left to the row-colour work.
+
 ### One density PER ROW, and the two opposite costs behind it
 
 The card mounts one layer per OpenMapTiles row and used to hand all ten of

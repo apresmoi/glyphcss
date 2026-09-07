@@ -84,6 +84,36 @@ export function glyphMapOpenMapTilesAdminLevel(feature: GlyphMapVectorFeature): 
   return typeof value === "number" ? value : undefined;
 }
 
+/**
+ * Whether a way is carried over or under whatever it crosses — `"bridge"` or
+ * `"tunnel"`, and `undefined` for the overwhelmingly common surface case (the
+ * field is simply not written).
+ *
+ * It is a first-class reader for the same reason `class` is: nothing else in
+ * this schema says a line is not visible from the street. Ignoring it drew
+ * subway lines, road tunnels and culverted streams as ordinary surface
+ * features — 14.8% of z14 road features across ten city tiles, and 29.5% of
+ * the drawn road LENGTH in a Manhattan tile.
+ */
+export function glyphMapOpenMapTilesBrunnel(feature: GlyphMapVectorFeature): string | undefined {
+  const value = feature.properties?.brunnel;
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Whether one of the schema's boolean-ish flags is set on a feature.
+ *
+ * The schema writes them TWO ways, measured on real tiles rather than
+ * assumed: `boundary.maritime` and `boundary.disputed` arrive as `0`/`1`
+ * NUMBERS present on every feature, while `building.hide_3d` and
+ * `transportation.indoor` arrive as a real `true`/`1` and are ABSENT
+ * otherwise. So neither "the property exists" nor "the property is `true`"
+ * is the test — falsiness is, and it covers both writings exactly.
+ */
+export function glyphMapOpenMapTilesFlag(feature: GlyphMapVectorFeature, name: string): boolean {
+  return Boolean(feature.properties?.[name]);
+}
+
 export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   /** Keep only these `class` values. Omitted/empty = every class. */
   readonly classes?: readonly string[];
@@ -93,11 +123,21 @@ export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   readonly minAdminLevel?: number;
   /** Keep only boundaries at or below this administrative importance (`admin_level <= max`); `2` is "international borders only". */
   readonly maxAdminLevel?: number;
+  /** Drop features whose {@link glyphMapOpenMapTilesBrunnel} is one of these. `["tunnel"]` takes a subway line off the surface and leaves the bridge over it drawn. */
+  readonly excludeBrunnel?: readonly string[];
+  /** Drop features whose `service` is one of these — `driveway`/`parking_aisle` is car-park hatching rather than street network. */
+  readonly excludeService?: readonly string[];
+  /** Drop features carrying any of these flags set, read through {@link glyphMapOpenMapTilesFlag}: `maritime`, `disputed`, `indoor`, `hide_3d`. */
+  readonly excludeFlags?: readonly string[];
 }
 
 /** A {@link GlyphMapFeatureFilter} over the OpenMapTiles discriminators. Every axis omitted = keeps everything. */
 export function glyphMapOpenMapTilesFeatureFilter(opts: GlyphMapOpenMapTilesFeatureFilterOptions): GlyphMapFeatureFilter {
-  const classes = opts.classes && opts.classes.length > 0 ? new Set(opts.classes) : null;
+  const set = (values?: readonly string[]) => (values && values.length > 0 ? new Set(values) : null);
+  const classes = set(opts.classes);
+  const brunnels = set(opts.excludeBrunnel);
+  const services = set(opts.excludeService);
+  const flags = opts.excludeFlags && opts.excludeFlags.length > 0 ? opts.excludeFlags : null;
   const { geometry, minAdminLevel, maxAdminLevel } = opts;
   const checksAdmin = minAdminLevel !== undefined || maxAdminLevel !== undefined;
   return (feature) => {
@@ -105,6 +145,17 @@ export function glyphMapOpenMapTilesFeatureFilter(opts: GlyphMapOpenMapTilesFeat
     if (classes) {
       const cls = glyphMapOpenMapTilesClass(feature);
       if (cls === undefined || !classes.has(cls)) return false;
+    }
+    if (brunnels) {
+      const brunnel = glyphMapOpenMapTilesBrunnel(feature);
+      if (brunnel !== undefined && brunnels.has(brunnel)) return false;
+    }
+    if (services) {
+      const service = feature.properties?.service;
+      if (typeof service === "string" && services.has(service)) return false;
+    }
+    if (flags) {
+      for (const flag of flags) if (glyphMapOpenMapTilesFlag(feature, flag)) return false;
     }
     if (checksAdmin) {
       const level = glyphMapOpenMapTilesAdminLevel(feature);
@@ -129,6 +180,12 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly classes?: readonly string[];
   readonly minAdminLevel?: number;
   readonly maxAdminLevel?: number;
+  /** Default `brunnel` exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeBrunnel}. */
+  readonly excludeBrunnel?: readonly string[];
+  /** Default `service` exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeService}. */
+  readonly excludeService?: readonly string[];
+  /** Default flag exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeFlags}. */
+  readonly excludeFlags?: readonly string[];
   readonly color: string;
   /** `fill-extrusion` only. */
   readonly heightProperty?: string;
@@ -172,6 +229,26 @@ export const GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION = 0.5;
  *    only. Undifferentiated, `boundary` inks every county line in Europe at
  *    z12 and reads as noise, exactly the failure `protomaps.ts` documents
  *    for undifferentiated `roads`.
+ *  - **Three rows drop features the schema itself flags as not-there.** A
+ *    `brunnel: tunnel` way is not visible from the street, so the roads and
+ *    waterways rows draw the bridge and hide the tunnel: 47 of the vendored
+ *    z14 tile's 605 road lines, 13 of its 27 waterways, and 29.5% of the
+ *    drawn road LENGTH in a Manhattan tile. A `maritime` boundary is an EEZ
+ *    line across open ocean and a `disputed` one is a claim rather than a
+ *    border, and together they are 46.3%/44.4% of the admin-level-2 lines a
+ *    world view draws — half the world's border ink was an ocean line in the
+ *    same weight as the France-Germany border. A `hide_3d` building outline
+ *    is the schema saying "its parts are mapped separately", so extruding it
+ *    swallows the shorter buildings inside it (15 outlines swallowing 71
+ *    buildings across eight city tiles). None of these is a taste knob: each
+ *    one is the mapping drawing a thing where the data says it is not.
+ *  - **The roads row also drops `service: driveway`/`parking_aisle` and
+ *    `indoor` ways.** These ARE drawn somewhere by someone — this is the one
+ *    declutter judgement in the table rather than a correctness fix — but a
+ *    car-park aisle is hatching and an indoor corridor is not a street, and
+ *    they are 72 and 4 of the vendored z14 tile's 605 lines. A caller who
+ *    wants them back rebuilds the row's filter through
+ *    {@link glyphMapOpenMapTilesFeatureFilter}, which is exported for it.
  *  - **The `building` row opts into all three appearance options by
  *    default** (`baseOffsetProperty`, `facade`, `colorVariation`), because
  *    on THIS schema each of them is answering a defect rather than adding a
@@ -195,19 +272,30 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
   { id: "omt-landcover", label: "Land cover", type: "fill", sourceLayer: "landcover", geometry: "polygon", color: "#3b5c43" },
   { id: "omt-landuse", label: "Land use", type: "fill", sourceLayer: "landuse", geometry: "polygon", color: "#4a4f3a" },
   { id: "omt-water", label: "Water", type: "fill", sourceLayer: "water", geometry: "polygon", color: "#2c5c8f" },
-  { id: "omt-waterways", label: "Waterways", type: "line", sourceLayer: "waterway", geometry: "line", color: "#5aa9e6" },
-  { id: "omt-roads", label: "Roads", type: "line", sourceLayer: "transportation", geometry: "line", color: "#e8c988" },
+  {
+    id: "omt-waterways", label: "Waterways", type: "line", sourceLayer: "waterway",
+    geometry: "line", excludeBrunnel: ["tunnel"], color: "#5aa9e6",
+  },
+  {
+    id: "omt-roads", label: "Roads", type: "line", sourceLayer: "transportation",
+    geometry: "line",
+    excludeBrunnel: ["tunnel"],
+    excludeService: ["driveway", "parking_aisle"],
+    excludeFlags: ["indoor"],
+    color: "#e8c988",
+  },
   {
     id: "omt-buildings", label: "Buildings", type: "fill-extrusion", sourceLayer: "building",
     geometry: "polygon", color: "#94a3b8",
     heightProperty: "render_height",
     baseOffsetProperty: "render_min_height",
+    excludeFlags: ["hide_3d"],
     facade: true,
     colorVariation: GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
   },
   {
     id: "omt-boundaries", label: "Boundaries", type: "line", sourceLayer: "boundary",
-    geometry: "line", maxAdminLevel: 2, color: "#c084fc",
+    geometry: "line", maxAdminLevel: 2, excludeFlags: ["maritime", "disputed"], color: "#c084fc",
   },
   {
     id: "omt-places", label: "Places", type: "symbol", sourceLayer: "place",
@@ -266,6 +354,9 @@ export function glyphMapOpenMapTilesLayers(
       geometry: spec.geometry,
       minAdminLevel: spec.minAdminLevel,
       maxAdminLevel: spec.maxAdminLevel,
+      excludeBrunnel: spec.excludeBrunnel,
+      excludeService: spec.excludeService,
+      excludeFlags: spec.excludeFlags,
     });
     const color = opts.colors?.[spec.id] ?? spec.color;
     const density = opts.densities?.[spec.id];

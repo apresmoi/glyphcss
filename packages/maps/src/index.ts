@@ -101,8 +101,10 @@ export {
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
   glyphMapOpenMapTilesAdminLevel,
+  glyphMapOpenMapTilesBrunnel,
   glyphMapOpenMapTilesClass,
   glyphMapOpenMapTilesFeatureFilter,
+  glyphMapOpenMapTilesFlag,
   glyphMapOpenMapTilesLayers,
 } from "./vector/openmaptiles";
 export type {
