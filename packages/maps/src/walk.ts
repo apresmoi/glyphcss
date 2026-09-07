@@ -20,13 +20,26 @@
  * interface change to a heavily-tested capability that serves a camera walk
  * mode does not use.
  *
+ * Nor is it merely a degraded answer under the walk camera — it is a WRONG
+ * one, and the reported "when I raise the camera the whole rendering
+ * disappears". Its `axial` term is a difference of camera DEPTHS compared
+ * against a WORLD length, which is only dimensionally legal for the
+ * orthographic camera it was derived for; the CSS-perspective camera's depth
+ * is `r_z * BASE_TILE - distance`, so `axial` comes out as
+ * `-BASE_TILE * sin(pitch)` and a tenth of a degree of looking UP is enough
+ * for it to place the pavement underfoot outside the globe's own silhouette.
+ * The widget's `nearSideVisible` carries the measurements.
+ *
  * Walk mode does not need it. Over the few hundred metres a walker can see,
  * the Earth is locally flat: the visibility question reduces to "is this
  * within `far` metres of where I am standing", which is
  * {@link glyphMapWalkFootprint} and {@link glyphMapWalkWithinHorizon} — two
  * closed-form tests with no camera in them at all. So the widget branches on
- * "walk mode is active", `projection.visible` is never consulted while it
- * is, and the orthographic path is untouched.
+ * "walk mode is active" in ONE place (`nearSideVisible`, which every point
+ * consumer goes through), `projection.visible` is never consulted for a POINT
+ * while it is, and the orthographic path is untouched. The one deliberate
+ * exception is the tile sweep's `isBoundsVisible`, which tests a 2.4 km BOX
+ * rather than a point and is pitch-invariant either way.
  *
  * ## The lens
  *

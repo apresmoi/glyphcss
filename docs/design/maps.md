@@ -3275,3 +3275,76 @@ the same true distance — measured 1.0154x at 10°, 1.0642x at 20°, 1.1547x at
 30°, **1.2208x at the 35° edge**, matching `1/cos` exactly. That is correct
 projection and the classic wide-angle look; `GLYPH_MAP_WALK_FOV_DEG` is the
 only lever on it.
+
+### Fixed: raising the view blanked the frame
+
+Reported as "when I raise the camera the whole rendering / buildings disappear".
+It is one expression, and it is `glyphMapGlobe.visible()` — consulted by four
+of the widget's five point consumers while a positioned PERSPECTIVE camera is
+installed.
+
+That test computes `axial = depthOf(world) - depthOf(origin)`, accepts
+`axial >= 0` as "in front of the sphere's centre plane", and otherwise asks
+whether the point falls outside the silhouette CYLINDER of radius `radius`
+about the view axis (`|world|² - axial² >= radius²`). Both halves assume the
+ORTHOGRAPHIC camera's own depth — the raw rotated `z`, in the same WORLD units
+as `|world|`, which is what makes the comparison dimensionally legal at all.
+The walk camera's `project()[2]` is `r_z * BASE_TILE - distance`, i.e. **50×**
+that; and its eye is ON the sphere rather than infinitely far from it, so
+"behind the centre plane" stops meaning "round the back of the world" and
+starts meaning "the view axis is tilted up by anything at all".
+
+Measured through the real camera at the default walk entry (radius 1, so
+`axial` is comparable to 1), for the ground 80 m in front of the walker:
+
+| camera tilt | pitch | `axial` | `|world|² - axial² - 1` | verdict |
+|---|---|---|---|---|
+| 88 | −2° | +1.7443 | −3.043 | true (first clause) |
+| 90 | 0° | −6.278e−4 | −3.94e−7 | **false** |
+| 90.1 | +0.1° | −8.789e−2 | −7.73e−3 | false |
+| 95 | +5° | −4.3584 | −18.996 | false |
+
+`axial` is `-BASE_TILE · sin(pitch)`, so five degrees of looking up places the
+pavement under the walker's feet four and a third EARTH RADII off the view
+axis. Every consumer of the verdict then rejects everything at once, which is
+why the whole picture goes rather than a piece of it.
+
+Two consequences, both measured at 140×63:
+
+- **Buildings.** A 300 m block 80 m ahead painted 4,900 cells at every pitch up
+  to +0.01° and **0** from +0.1° up — a cliff, not a fade. It survived level
+  pitch only by accident: a wall is kept when ANY of its four corners passes,
+  and at pitch 0 a corner 300 m up has `|world|² - 1 = +9.4e-5` against an
+  `axial²` of 3.9e-7, so the TOP corners carried it.
+- **Roads.** A ground-level `line` has no such margin (`|world|` is exactly
+  `radius` at the datum, so the test needs `axial === 0` EXACTLY). A road 30 m
+  in front of the walker painted 140 cells at 2° of down pitch and **0** at the
+  DEFAULT entry pitch — walk mode shipped with its roads already missing.
+
+The same expression is wrong in the other direction too, which is what
+disqualifies it as a far-field cull rather than merely mis-scaling it: looking
+DOWN, `axial >= 0` accepts every distance, and a block six horizons away
+painted 24 cells at 10° of down pitch.
+
+**The fix** is the branch `walk.ts`'s header has always described and only
+`project()` actually had: one predicate, `nearSideVisible(lon, lat, world,
+grid)`, which answers `glyphMapWalkWithinHorizon` while walking and
+`projection.visible` otherwise. All five point consumers route through it —
+`project()`, `visibleStrokeRuns`, `unprojectSphere`, marker/point-hotspot sync,
+and `nearSidePredicate` (the wall cull). `glyphMapGlobe.visible()` itself is
+untouched; `widget.farSideFill.test.ts` and `widget.farSideStroke.test.ts` are
+the orthographic contract and go red (5 clauses, 238/258/122/2,114/46 leaked
+cells) the moment the branch leaks out of walk mode.
+
+`isBoundsVisible` deliberately does NOT route through it. It tests a tile's
+BOX, not a point, and a z14 tile is 2.4 km across, so a 400 m disc would reject
+the very tile the walker stands on. Measured, the sweep is pitch-invariant
+either way: terrain painted the same 4,340 cells before and after a look up
+past the horizon, and the walk footprint reaches the sweep through `view.span`
+(`glyphMapWalkSpan`) exactly as it always has.
+
+After the fix the picture behaves like a picture, on the same 300 m block:
+4,900 cells level, 5,040 at +1°, 5,740 at +5°, 6,580 at +10°, 8,511 at +30°,
+7,341 at +45° and 1,831 at the +84° neck limit — rising as the block fills the
+frame, then falling as its top passes overhead. Roads hold 140 cells at every
+pitch from −10° to +10°. Gate: `widget.walkPitch.test.ts`.

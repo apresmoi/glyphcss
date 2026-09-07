@@ -2322,6 +2322,61 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * "Can the reader see the world at this lon/lat at all?" — the ONE near-side
+   * predicate every POINT consumer in this file goes through: stroke run
+   * clipping, `unprojectSphere`, `project()`, marker and point-feature
+   * hotspot sync, and a `fill-extrusion`'s wall cull.
+   *
+   * Off walk mode it is `projection.visible` and nothing else, byte for byte:
+   * a flat projection declares no capability (`project()` returning NaN is
+   * already its exclusion) and everything is on the near side.
+   *
+   * WALKING it is the LOCAL HORIZON instead, and that is not an optimisation
+   * — `glyphMapGlobe.visible()` is DERIVED FOR THE ORTHOGRAPHIC CAMERA and
+   * gives the wrong answer under a positioned perspective one, hard enough to
+   * blank the frame. It takes `axial = depthOf(world) - depthOf(origin)`,
+   * accepts `axial >= 0` as "in front of the sphere's centre plane", and
+   * otherwise asks whether the point falls outside the silhouette CYLINDER of
+   * radius `radius` about the view axis. Both halves want the orthographic
+   * camera's own depth — the raw rotated `z`, in the same WORLD units as
+   * `|world|`, which is what makes that comparison dimensionally legal. The
+   * walk camera's `project()[2]` is `r_z * BASE_TILE - distance`, i.e. 50x
+   * that; and its eye is ON the sphere, so "behind the centre plane" stops
+   * meaning "round the back of the world" and starts meaning "the view axis
+   * is tilted up by anything at all". Measured through the real camera at the
+   * default entry, for the pavement 80 m ahead (radius 1, so `axial` is
+   * comparable to 1): `+1.7443` at 2 deg of DOWN pitch (accepted by the first
+   * clause), `-6.3e-4` level, `-8.8e-2` at a tenth of a degree UP, `-4.36` at
+   * 5 deg — `-BASE_TILE * sin(pitch)`, so five degrees of looking up puts the
+   * ground under the walker's feet four and a third EARTH RADII off the view
+   * axis and every consumer rejects everything at once. That is the reported
+   * "when I raise the camera the whole rendering disappears", and it is a
+   * cliff rather than a fade: a 300 m block 80 m ahead painted 4,900 cells up
+   * to +0.01 deg and 0 from +0.1 deg (a wall survives while ANY corner
+   * passes, and at level pitch its 300 m top corners just barely do — a
+   * ground-level `line` has no such margin and was already dark at entry).
+   *
+   * `glyphMapGlobe.visible()` is deliberately NOT generalised (`walk.ts`'s
+   * header, and AGENTS.md's walk paragraph): its orthographic consumers are
+   * load-bearing and heavily tested, and over the few hundred metres a walker
+   * can see the Earth is locally flat, so the honest question there is
+   * "is this within `far` metres of where I am standing" — closed form, with
+   * no camera in it. `widget.farSideFill.test.ts` / `widget.farSideStroke.test.ts`
+   * are what go red if this branch ever leaks out of walk mode.
+   *
+   * `isBoundsVisible` deliberately does NOT route through here: it tests a
+   * tile's BOX, not a point, and a z14 tile is 2.4 km across, so a 400 m disc
+   * would reject the very tile the walker stands on. Measured, the sweep is
+   * unaffected by pitch either way — terrain paints the same 4,340 cells
+   * before and after a look up past the horizon — and the walk footprint
+   * reaches it through `view.span` (`glyphMapWalkSpan`) as it always has.
+   */
+  function nearSideVisible(lon: number, lat: number, world: Vec3, grid: ProjectionGrid): boolean {
+    if (walk) return glyphMapWalkWithinHorizon(view.center[0], view.center[1], lon, lat, walk.far);
+    return !projection.visible || projection.visible(world, (w) => depthOf(w, grid));
+  }
+
+  /**
    * Split one lon/lat polyline into the maximal runs that lie on the
    * projection's VISIBLE side, inserting a bisected limb vertex at every
    * crossing so a run reaches exactly the silhouette and stops.
@@ -2366,10 +2421,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   ): readonly (readonly (readonly [number, number])[])[] {
     const isVisible = projection.visible;
     if (!isVisible || ring.length === 0) return [ring];
-    const depth = (w: Vec3): number => depthOf(w, grid);
     const visibleAt = (lon: number, lat: number): boolean => {
       const world = projection.project(lon, lat, 0);
-      return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2]) && isVisible(world, depth);
+      return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
+        && nearSideVisible(lon, lat, world, grid);
     };
     const vis = ring.map(([lon, lat]) => visibleAt(lon, lat));
     if (vis.every((v) => v)) return [ring];
@@ -3294,14 +3349,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     const [col, row] = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
     const visible = Number.isFinite(col) && Number.isFinite(row)
-      // Walking, the horizon is local: `projection.visible` is derived for
-      // the orthographic camera and would call the pavement underfoot
-      // invisible (see `walk.ts`). The perspective camera's own near-plane
-      // rejection already returns NaN for anything behind the eye, so the
-      // on-grid test below plus the horizon disc is the whole verdict.
-      && (walk
-        ? glyphMapWalkWithinHorizon(view.center[0], view.center[1], lngLat[0], lngLat[1], walk.far)
-        : (!projection.visible || projection.visible(world, (w) => depthOf(w, grid))))
+      // Walking, the horizon is LOCAL — see `nearSideVisible`. The perspective
+      // camera's own near-plane rejection already returns NaN for anything
+      // behind the eye, so that plus the on-grid test below is the whole
+      // verdict.
+      && nearSideVisible(lngLat[0], lngLat[1], world, grid)
       && col >= 0 && col <= grid.cols && row >= 0 && row <= grid.rows;
     return { col, row, visible };
   }
@@ -3416,7 +3468,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const [c0, r0] = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
       if (Math.hypot(col - c0, row - r0) > 0.5) return null;
     }
-    if (projection.visible && !projection.visible(world, (w) => depthOf(w, grid))) return null;
+    if (!nearSideVisible(lon, lat, world, grid)) return null;
     lon = ((lon + 180) % 360 + 360) % 360 - 180;
     return [lon, lat];
   }
@@ -3558,7 +3610,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     function sync(): void {
       const grid = projectionGrid();
       const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-        && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)));
+        && nearSideVisible(lon, lat, world, grid);
       setHotspotNearSide(hotspot.el, visible);
     }
     sync();
@@ -4627,18 +4679,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * costs two `getBoundingClientRect()` calls.
    */
   /**
-   * WALK MODE needs no branch here and deliberately has none — measured, not
-   * assumed. `projection.visible` is derived for the orthographic camera,
-   * but under the walk camera its cylinder test already cuts a
-   * `fill-extrusion`'s far walls at street scale: a 300 m block on the view
-   * axis paints 4,590 cells at 80 m, 1,485 at 160 m, 480 at 400 m and
-   * ZERO from 800 m out, with or without a horizon predicate here. Adding
-   * one changed not a cell, so it is not shipped.
+   * WALK MODE reaches this through {@link nearSideVisible} like every other
+   * point consumer, and it is the site the reported blank was seen at: an
+   * extrusion wall's normal is TANGENTIAL, so this predicate is the only
+   * thing standing between a wall and the frame, and when it started
+   * answering "far side" for the whole world a tenth of a degree above the
+   * horizontal, the buildings went with it.
    *
-   * The far-field cull the walk needs is delivered where it costs nothing
-   * anyway: nothing outside the footprint is ever FETCHED, so for a provider
-   * source there is no far geometry to cull. `widget.walk.test.ts` pins the
-   * near-draws/far-does-not pair either way.
+   * It was previously argued to need no branch, on a measurement taken at
+   * LEVEL pitch only — where the cylinder test happens to cut a
+   * `fill-extrusion`'s far walls at roughly street scale (a 300 m block on
+   * the view axis painted 4,590 cells at 80 m, 480 at 400 m and zero from
+   * 800 m out) and so looked like a working far-field cull. It is not one:
+   * the same expression answers "visible" for EVERY distance the moment the
+   * lens tips down (a block six horizons away painted 24 cells at 10 degrees
+   * of down pitch), and "invisible" for every distance the moment it tips up.
+   * The local horizon is the cull, at every pitch and by construction.
    */
   function nearSidePredicate(): ((lon: number, lat: number, elev: number) => boolean) | undefined {
     const isVisible = projection.visible;
@@ -4647,7 +4703,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return (lon, lat, elev) => {
       const world = projection.project(lon, lat, elev);
       return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-        && isVisible(world, (w) => depthOf(w, grid));
+        && nearSideVisible(lon, lat, world, grid);
     };
   }
 
@@ -4853,7 +4909,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const world = projection.project(r.lon, r.lat, 0);
             const grid = projectionGrid();
             const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-              && (!projection.visible || projection.visible(world, (w) => depthOf(w, grid)));
+              && nearSideVisible(r.lon, r.lat, world, grid);
             setHotspotNearSide(r.handle.el, visible);
           });
           return;
