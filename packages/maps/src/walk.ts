@@ -87,8 +87,21 @@ const METRES_PER_DEGREE = 6_371_000 * DEG;
  */
 export const GLYPH_MAP_WALK_EYE_HEIGHT_M = 1.7;
 
-/** Horizontal field of view, degrees. A natural walking FOV; the parthenon example's own lens is 56 deg and reads slightly tight. */
-export const GLYPH_MAP_WALK_FOV_DEG = 70;
+/**
+ * Horizontal field of view, degrees — the parthenon example's own lens.
+ *
+ * 70 shipped first and was reported as "the buildings are not straight". The
+ * camera was measured innocent (a world vertical projects with dcol 0.000 at
+ * the centre AND both edges, at every bearing; the view axis is level to
+ * within two thousandths of a row; the picture is isotropic to 0.18%), so
+ * what the reader is seeing is the LENS being correct: a rectilinear
+ * projection magnifies an object at angle t off-axis by exactly 1/cos(t),
+ * which at 70 deg means 1.2208x at the frame edge. Nothing is bent — wide
+ * angle simply looks like that, and the only lever is the number itself.
+ * 56 deg puts the edge at 1.1126x, and it is the focal length the walkthrough
+ * this mode was modelled on already uses.
+ */
+export const GLYPH_MAP_WALK_FOV_DEG = 56;
 
 /**
  * Near plane, metres. Half a metre is closer than a walker can put their
@@ -119,7 +132,7 @@ export const GLYPH_MAP_WALK_FAR_M = 400;
  * shipping that read as glacial: a first-person camera has none of the
  * peripheral flow, head motion or body sense that make 1.4 m/s feel like
  * walking to a body that is actually doing it, so the only motion cue left
- * is how fast the scene changes — and through a 70 deg lens at a 400 m
+ * is how fast the scene changes — and through a 56 deg lens at a 400 m
  * horizon, that is nearly nothing. Games have always paid the same tax and
  * settled around the same place (Half-Life 3.3 m/s, Minecraft 4.3); this
  * sits there rather than at the anthropometric number, which is honest
