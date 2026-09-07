@@ -36,6 +36,7 @@ preview`.
 | `--at lon,lat,span` | re-base the timed scenarios here instead of the globe overview — how to price `drag`/`wheel` at a CITY view, where the layers a street-level reader has mounted actually exist |
 | `--walk-frames <n>` | displayed frames of held-W walking (default 400) |
 | `--walk-far <m>` | the walker's local horizon, applied through the widget's own `setWalk` RECONFIGURE path once walk mode is live. The way to measure a view-distance ladder without rebuilding the package per rung — it re-pins `view.span`, re-poses the lens and re-sweeps the tiles, which is exactly what shipping a different `GLYPH_MAP_WALK_FAR_M` does |
+| `--walk-collision on\|off` | default `on`. `off` re-enters through the widget's own `setWalk({ collision: false })` so buildings stop being solid — the way to price walk-mode collision against the identical scene and the identical build |
 | `--walk-look <deg>` | heading applied per walking frame. **Use `0`.** Any other value drives the look through `map.setBearing`, which renders SYNCHRONOUSLY and adds a render per frame — the real mouselook path (`applyWalkLook`) only marks the frame dirty, so a non-zero value measures the harness, not the page |
 | `--no-fidelity` | skip the eight-waypoint digest. Cost-only runs while hunting a stall; never for a change that could move a pixel |
 

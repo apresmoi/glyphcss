@@ -53,8 +53,8 @@ export interface MapWalkButtonProps {
 
 const ENTER_TITLE =
   "Walk — stand on the ground at eye height (1.7 m) under a real perspective camera. "
-  + "Click the map to look around, WASD or the arrow keys to walk, Shift to run, Esc to release the mouse. "
-  + "Leaving puts the view back exactly where it was.";
+  + "Click the map to look around, WASD or the arrow keys to walk, Shift to run, G to walk through walls, Esc to release the mouse. "
+  + "Buildings are solid; everything else is not. Leaving puts the view back exactly where it was.";
 
 /**
  * The walker. A pegman in the page's own register: two strokes for the legs
@@ -80,7 +80,7 @@ function WalkerIcon() {
 export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButtonProps) {
   const gated = !walking && reason !== null;
   const title = walking
-    ? `Walking. ${budget}. Click the map to look around, WASD or the arrow keys to walk, Shift to run, Esc to release the mouse. Click here to come back up.`
+    ? `Walking. ${budget}. Click the map to look around, WASD or the arrow keys to walk, Shift to run, G to walk through walls, Esc to release the mouse. Click here to come back up.`
     : gated
       ? reason!
       : ENTER_TITLE;
@@ -94,6 +94,11 @@ export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButt
         <p className="maps-walk__legend">
           <span><kbd>WASD</kbd> walk</span>
           <span><kbd>Shift</kbd> run</span>
+          {/* Buildings are solid while walking, and a reader who ends up
+              somewhere they cannot get out of needs a way out that is not
+              "leave the mode". Held rather than toggled, like Shift, so the
+              legend can state it without the page having to mirror a state. */}
+          <span><kbd>G</kbd> ghost</span>
           <span><kbd>click</kbd> look</span>
           <span><kbd>Esc</kbd> release</span>
           {/* The horizon and its tile cost stay on screen, where they were in

@@ -181,6 +181,11 @@ const WALK_SETTLE_MS = Number(arg("walk-settle", 6000));
  *  page enters with the package default; this is how the distance-culling
  *  ladder is measured without rebuilding the package per rung. */
 const WALK_FAR_M = arg("walk-far", null);
+/** Whether BUILDINGS are solid while walking (`walkCollision.ts`). `off`
+ *  reconfigures the live walker through the same public `setWalk` path
+ *  `--walk-far` uses, which is what makes "with and without collision" one
+ *  build and one scene rather than two of each. */
+const WALK_COLLISION = arg("walk-collision", "on");
 /** Waypoints the fidelity digest is captured at: [lon, lat, span]. */
 const FIDELITY_STOPS = [
   [0, 20, 140], [90, 20, 140], [180, 20, 140], [-90, 20, 140],
@@ -654,12 +659,17 @@ if (!FIDELITY_ONLY) {
     tileMarkEnter = tileLog.length;
     await page.evaluate(() => window.__glyphMapsBench.setWalk(true));
     await page.waitForTimeout(WALK_SETTLE_MS);
-    if (WALK_FAR_M) {
-      // The RECONFIGURE branch of the public `setWalk`, not a private hook: it
-      // re-pins `view.span` to `glyphMapWalkSpan(far)`, re-poses the lens and
-      // re-sweeps the tiles, which is exactly what shipping a different
-      // constant would do.
-      await page.evaluate((f) => window.__glyphMapsBench.map().setWalk({ far: Number(f) }), String(WALK_FAR_M));
+    // The RECONFIGURE branch of the public `setWalk`, not a private hook: it
+    // re-pins `view.span` to `glyphMapWalkSpan(far)`, re-poses the lens and
+    // re-sweeps the tiles, which is exactly what shipping a different
+    // constant would do. ONE call, because that branch RE-RESOLVES the whole
+    // option set from defaults — a second call for `collision` would put
+    // `far` back where the page entered it, and vice versa.
+    const walkOverrides = {};
+    if (WALK_FAR_M) walkOverrides.far = Number(WALK_FAR_M);
+    if (WALK_COLLISION === "off") walkOverrides.collision = false;
+    if (Object.keys(walkOverrides).length) {
+      await page.evaluate((o) => window.__glyphMapsBench.map().setWalk(o), walkOverrides);
       await page.waitForTimeout(WALK_SETTLE_MS);
     }
     tileMark = tileLog.length;

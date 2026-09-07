@@ -76,6 +76,13 @@ import {
   type GlyphMapWalkOptions,
   type GlyphMapWalkState,
 } from "./walk";
+import {
+  createGlyphMapWalkCollisionIndex,
+  glyphMapWalkFootprints,
+  glyphMapWalkResolveStep,
+  type GlyphMapWalkCollisionIndex,
+  type GlyphMapWalkFootprint,
+} from "./walkCollision";
 import { glyphMapProjectionTransition } from "./transition";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
@@ -2090,6 +2097,47 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const walkHeldKeys = new Set<string>();
   /** Shift held: a jog. Tracked separately because it modifies rather than contributes an axis. */
   let walkRunning = false;
+  /**
+   * `g` held: GHOST. The collision model's defeat key, and the reason it is a
+   * HELD key rather than a toggle is that every other binding this mode has
+   * is momentary (`Shift` runs, `Esc` releases) and a momentary key needs no
+   * state on screen to be honest about — the legend can say what it does
+   * without the page having to mirror whether it is on.
+   *
+   * `g` collides with nothing: the movement bindings are WASD and the arrows,
+   * the modifier is Shift, and the exit is Esc.
+   */
+  let walkGhost = false;
+  /**
+   * Every mounted `fill-extrusion` layer's live footprint features — the
+   * COLLISION set, and the reason it is a set of callbacks rather than a
+   * flat array is that a layer rebuilds its own features whenever its tiles
+   * change and there is no event that says "some layer's features moved"
+   * except the rebuild itself.
+   *
+   * Only extrusions are in here. A `fill` (a park, a lake, landcover) is a
+   * flat overlay on the datum and walking across one is exactly what a reader
+   * expects to be able to do.
+   */
+  const walkCollisionSources = new Set<() => readonly GlyphMapVectorFeature[]>();
+  /**
+   * The built index, or `null` when it needs rebuilding — which is whenever a
+   * contributing layer rebuilt, mounted or unmounted, i.e. exactly when the
+   * mounted TILE SET changed.
+   *
+   * Built LAZILY, on the first step that asks for it, so a map that never
+   * walks pays a boolean assignment per layer rebuild and nothing else: no
+   * index is ever constructed, and the walk-off path is byte-identical.
+   */
+  let walkCollisionIndex: GlyphMapWalkCollisionIndex | null = null;
+  function invalidateWalkCollision(): void { walkCollisionIndex = null; }
+  function walkCollisionIndexNow(): GlyphMapWalkCollisionIndex {
+    if (walkCollisionIndex) return walkCollisionIndex;
+    const footprints: GlyphMapWalkFootprint[] = [];
+    for (const source of walkCollisionSources) footprints.push(...glyphMapWalkFootprints(source()));
+    walkCollisionIndex = createGlyphMapWalkCollisionIndex(footprints);
+    return walkCollisionIndex;
+  }
   /**
    * The state walk mode is holding for its exit, captured VERBATIM on entry.
    * The camera itself is not in here: `orthographicCamera` is never written
@@ -4857,6 +4905,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let builtOnTerrain = false;
     function build(features: readonly GlyphMapVectorFeature[]): void {
       lastFeatures = features;
+      // The mounted tile set moved: the walk collision index describes the
+      // OLD buildings and has to be thrown away. Rebuilt lazily on the next
+      // step, so a map that is not walking pays one assignment.
+      if (layer.type === "fill-extrusion") invalidateWalkCollision();
       for (const handle of handles) handle.dispose();
       handles = [];
       culledAt = "";
@@ -4926,11 +4978,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter);
     nearSideGeometrySyncs.add(syncWalls);
     if (layer.type === "fill-extrusion") groundChangeSyncs.add(syncGround);
+    // WALK collision: an extrusion's footprints are the only solid things in
+    // the scene. A CALLBACK over the layer's live feature list rather than a
+    // snapshot, so a tile arriving needs no re-registration — and the index
+    // itself is invalidated by `build` alone, since every path that gives a
+    // layer features (the first `update()`, a tile landing, and `dispose`'s
+    // own `rebuild([])`) goes through it. One invalidation site, not three.
+    const collisionSource = (): readonly GlyphMapVectorFeature[] => lastFeatures;
+    if (layer.type === "fill-extrusion") walkCollisionSources.add(collisionSource);
     return {
       update: runtime.update,
       dispose() {
         nearSideGeometrySyncs.delete(syncWalls);
         groundChangeSyncs.delete(syncGround);
+        // `runtime.dispose()` below re-runs `build([])`, which invalidates.
+        walkCollisionSources.delete(collisionSource);
         runtime.dispose();
         mesh = null;
         for (const h of handles) h.dispose();
@@ -6112,7 +6174,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!axis) return false;
     const w = walk!;
     const metres = w.speed * (walkRunning ? GLYPH_MAP_WALK_RUN_MULTIPLIER : 1) * (dtMs / 1000);
-    const center = glyphMapWalkStep(view.center[0], view.center[1], bearing, axis.forward * metres, axis.strafe * metres);
+    const wanted = glyphMapWalkStep(view.center[0], view.center[1], bearing, axis.forward * metres, axis.strafe * metres);
+    // The STEP is tested, not the position, and a blocked one SLIDES —
+    // `walkCollision.ts` owns the whole model. With no `fill-extrusion`
+    // mounted, with `collision: false`, or with the ghost key held, this is
+    // one branch and the geodesic step is used verbatim.
+    const center = w.collision && !walkGhost
+      ? glyphMapWalkResolveStep({ index: walkCollisionIndexNow(), from: view.center, to: wanted })
+      : wanted;
+    // A walker pressed into a wall has not moved, so the frame has nothing to
+    // repaint and the tile debounce has nothing to re-arm — returning `true`
+    // here would render the identical picture for as long as the key is held.
+    if (center[0] === view.center[0] && center[1] === view.center[1]) return false;
     view = { ...view, center, bounds: undefined };
     refreshWalkGround();
     syncCameraToView(view);
@@ -6130,6 +6203,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function onKeyDown(e: KeyboardEvent): void {
     if (!walk) return;
     if (e.key === "Shift") { walkRunning = true; return; }
+    // The collision defeat key. Held, not toggled — see `walkGhost`.
+    if (e.key.toLowerCase() === "g") { walkGhost = true; return; }
     if (!glyphMapWalkAxisForKey(e.key)) return;
     // Claimed only while walking, so the page keeps every one of these keys
     // (arrows scroll, `d`/`s` reach whatever the host bound them to) at all
@@ -6143,6 +6218,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function onKeyUp(e: KeyboardEvent): void {
     if (e.key === "Shift") { walkRunning = false; return; }
+    if (e.key.toLowerCase() === "g") { walkGhost = false; return; }
     walkHeldKeys.delete(e.key.toLowerCase());
   }
 
@@ -6154,6 +6230,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function onWalkBlur(): void {
     walkHeldKeys.clear();
     walkRunning = false;
+    walkGhost = false;
   }
 
   // ── WALK MODE: mouselook ──────────────────────────────────────────────
@@ -6523,6 +6600,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       walkRestore = null;
       walkHeldKeys.clear();
       walkRunning = false;
+      walkGhost = false;
       detachWalkInput();
       view = restore.view;
       tiltRequest = restore.tiltRequest;

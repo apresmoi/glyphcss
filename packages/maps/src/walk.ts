@@ -305,6 +305,17 @@ export interface GlyphMapWalkOptions {
   readonly speed?: number;
   /** Neck limit above/below the horizontal, degrees. Default {@link GLYPH_MAP_WALK_MAX_PITCH_DEG}. */
   readonly maxPitch?: number;
+  /**
+   * Do BUILDINGS block the walker? Default `true`.
+   *
+   * `false` is the same state the ghost key (`g`) holds momentarily —
+   * `walkCollision.ts` owns the model, and only a `fill-extrusion`'s
+   * footprints are ever solid. It is an option as well as a key because a
+   * consumer measuring the mode (the render bench does exactly this) needs
+   * to price the walk with and without it, and because a map with no street
+   * data mounted has nothing to collide with anyway.
+   */
+  readonly collision?: boolean;
 }
 
 /** {@link GlyphMapWalkOptions} with every default filled in — what the widget actually holds while walking. */
@@ -315,6 +326,7 @@ export interface GlyphMapResolvedWalkOptions {
   readonly far: number;
   readonly speed: number;
   readonly maxPitch: number;
+  readonly collision: boolean;
 }
 
 /** What `map.getWalk()` reports while walking (`null` when it is off). */
@@ -337,6 +349,7 @@ export function resolveGlyphMapWalkOptions(opts: GlyphMapWalkOptions = {}): Glyp
     far: opts.far ?? GLYPH_MAP_WALK_FAR_M,
     speed: opts.speed ?? GLYPH_MAP_WALK_SPEED_M_PER_S,
     maxPitch: opts.maxPitch ?? GLYPH_MAP_WALK_MAX_PITCH_DEG,
+    collision: opts.collision ?? true,
   };
 }
 

@@ -3152,8 +3152,9 @@ defect to chase here — `FPV_RENDER.md` measured the ribbons at +1.2 ms and
 identified them as what turns the lower third of the frame from a floor into a
 street.
 
-No COLLISION, on both spikes' recommendation. Walking through a building is
-acceptable for v1.
+Collision was out of scope on both spikes' recommendation and is now IN — see
+"Buildings are solid" below. What is still out is everything else being solid:
+a `fill` layer, terrain slope, and a structure's own `min_height`.
 
 The relief backstop tiers are NOT suppressed while walking, deliberately.
 They are sunk `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M` (20,000 m), and a point
@@ -3161,6 +3162,123 @@ They are sunk `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M` (20,000 m), and a point
 distance under ~63 km — so at street level the sink that exists to keep a
 backstop from occluding the target tier also keeps it entirely out of frame,
 for free and with no branch.
+
+### Buildings are solid (`walkCollision.ts`)
+
+Reported as "the buildings are not walls, it's like you can get through them".
+Collision had been cut from v1 twice on the spikes' recommendation; this is
+what shipping it turned out to need.
+
+**Only `fill-extrusion` footprints are solid.** A `fill` (landuse, landcover,
+water) is a flat overlay drawn on the datum, and walking across a park or over
+a lake surface is exactly what a reader expects to be able to do — making them
+solid would fence the walker into the road network on the strength of a
+colour. Terrain stays free-climb: there is no slope limit, deliberately.
+
+**The STEP is tested, not the position, and a blocked step SLIDES.** This is
+where the whole feel of the feature is. Cancelling a blocked step is correct
+and unusable: a street is a corridor of touchable surfaces, so the reader ends
+up glued to every wall they brush. The resolver instead drops the component of
+the step INTO the blocking wall and keeps the component ALONG it, which is
+what makes a corridor walkable and what lets a walker round an inside corner
+in one frame — measured on the synthetic fixture, a walker driven north-east
+into an east-west wall keeps 30 of the 52 m of east intent that a halt-on-
+contact model throws away.
+
+**A 0.3 m body radius.** A walker is a point to every other part of this mode,
+and a point stops with the EYE inside the wall's own face — which reads as the
+render tearing, not as an impact. 0.3 m puts the stop a shoulder's half-width
+short of the surface and stays clear of the 0.5 m near plane, so the wall the
+walker is stopped against is still drawn. It is deliberately SMALLER than a
+real body (~0.55 m): the narrowest passable gap is `2 * radius`, so 0.3 m
+keeps every alley that visibly looks walkable walkable.
+
+**Metres, never degrees.** A footprint is in lon/lat and a degree of longitude
+is `cos(latitude)` of a degree of latitude — 0.68 at Zürich, 0.5 at 60. Every
+distance is taken in a local metric frame pinned at the walker's own position
+(east metres, north metres), which is what makes the radius mean 0.3 m on both
+axes. `walkCollision.test.ts` pins it at latitude 60, where a degree-denominated
+test is exactly 2x wrong on one axis and right on the other.
+
+**A local index, rebuilt on the mounted tile set.** Point-in-polygon against
+every footprint in view, per frame, would hand back the frame time `abe22d2`
+and `55b9d80` recovered — at the 600 m horizon that is thousands of buildings.
+Footprints are filed into a uniform lon/lat bucket grid sized in METRES
+(`GLYPH_MAP_WALK_COLLISION_CELL_M` = 32) at the set's own mean latitude, so a
+query whose radius is one step plus a body touches one bucket, or four at a
+boundary. The index is invalidated at ONE site — `createMeshFeatureRuntime`'s
+`build`, which is the only path that gives a layer features (the first
+`update()`, a tile landing, and `dispose`'s own `rebuild([])` all go through
+it) — and rebuilt LAZILY on the next step, so a map that never walks pays one
+assignment per layer rebuild and never constructs an index at all. Registering
+at mount and invalidating at dispose were both built and DROPPED as provably
+redundant with that one site: each was mutation-tested and nothing went red.
+
+**Never trap the walker.** Tiles stream in while walking, so a building can
+appear around a walker already standing there, and a walker who cannot move is
+worse than one who walks through walls. Two rules, and BOTH are needed:
+
+1. If the step starts with the walker's own point inside a footprint,
+   collision is off for that step — every direction, including further IN.
+   Deleting this rule leaves the *centre* case working (from the middle of a
+   block, every direction reduces the distance to the nearest wall) and breaks
+   the off-centre one: standing 5 m inside the south edge, walking north
+   increases the distance to the nearest surface, so a "may only reduce
+   penetration" rule refuses it and the reader presses a key with nothing
+   happening. `widget.walkCollision.test.ts` walks that case explicitly.
+2. Otherwise a step is allowed whenever it REDUCES penetration, even if the
+   destination is still inside the body-radius shell. This is what lets a
+   walker standing 0.1 m from a wall that just appeared step away from it —
+   their point is outside the footprint, so rule 1 does not fire, and a plain
+   destination test would refuse every direction including the one leading
+   out.
+
+**Holes are holes.** A footprint is `[outer, ...holes]` — `glyphMapVectorMesh`'s
+own grouping, carried on a feature's `polygons` — and the inside test is an
+even-odd crossing count over EVERY ring, so a courtyard reads as open ground
+exactly as it renders. A source that lost hole ownership (flat `rings`) gives
+separate solids, which is a documented consequence rather than a surprise.
+
+**A step longer than a body is SUBDIVIDED**, into sub-steps of at most one
+radius, so a stalled tab coming back cannot tunnel a walker through a block.
+It is not a swept capsule; each sub-step is still a point-plus-radius test.
+
+**Known limitations, stated rather than discovered.** A footprint is solid
+from the ground UP whatever its `baseOffsetProperty` (OSM `min_height`) says,
+so an arcade, an overhang or a bridge deck starting 4 m up blocks a walker who
+could in reality walk under it — fixing it needs the walker's own elevation
+tested against a per-feature base, a second axis this model does not carry.
+Terrain is free-climb. A footprint spanning the antimeridian is filed by its
+raw lon/lat box and so simply does not collide.
+
+**The defeat key is `G`, held, not toggled.** It collides with nothing (the
+movement bindings are WASD and the arrows, the modifier is Shift, the exit is
+Esc), and holding rather than toggling is what lets `MapWalkButton`'s legend
+state it without the page having to mirror a state — the same shape `Shift`
+already has. A window blur releases it like every other held key.
+`GlyphMapWalkOptions.collision` (default `true`) is the same switch as an
+option, which is what the render bench prices the mode with and without.
+
+**Measured, and it is free.** `bench/maps-render --scenario walk --walk-look 0`,
+headed, 1440x900, 140x63, Zürich with the OSM water/roads/boundaries/buildings
+rows — the same 63k-polygon scene the horizon ladder above was measured on —
+run twice each way through the new `--walk-collision` flag: collision ON 47.6
+and 47.6 fps, OFF 48.3 and 45.5. The run-to-run spread is larger than the
+difference, base raster p50 moves 9.7-10.3 ms in both directions, and `polys`
+is 63,133-63,143 across all four. That is the index doing its job: a query is
+one bucket, and the rebuild happens on tile changes rather than on frames.
+A separate probe walked the real page 400 frames on eight headings with and
+without collision and compared END POSITIONS — 0.0-0.6 m apart on the four
+that run down the open street the scenario starts on, 3.5, 6.4, 16.0 and 25.0 m
+apart on the four that walk into the block, which is how the bench comparison
+is known to be between an active path and an inactive one rather than between
+two no-ops.
+
+Gates: `walkCollision.test.ts` (the model: stop distance, slide, corner, gap,
+narrow gap, escape from inside and from the shell, metres at latitude 60,
+holes, the index's neighbourhood) and `widget.walkCollision.test.ts` (the
+wiring: extrusions block, fills do not, buildings that stream in block,
+removing a layer frees the street, the ghost key, the option, blur).
 
 ### The `/maps` gate, and why it is not about layers
 
@@ -3181,9 +3299,9 @@ covering only its own box, in the bottom-right corner nothing else on the page
 claims. Unlike the compass it is ALWAYS rendered — the compass is FEEDBACK
 about a state the reader created, this is an ENTRANCE, and an entrance nobody
 can find is not one, which was the whole complaint. While walking it becomes
-the way out and carries the keys (`WASD` / `Shift` / `click` / `Esc`, the
-parthenon's own sidebar legend, needed here because pointer lock hides the
-cursor) plus the horizon and tile-budget readout the Dock used to hold. Tilt
+the way out and carries the keys (`WASD` / `Shift` / `G` / `click` / `Esc`, the
+parthenon's own sidebar legend plus the collision defeat key, needed here
+because pointer lock hides the cursor) plus the horizon and tile-budget readout the Dock used to hold. Tilt
 and Bearing stay in the View folder and keep meaning something while walking
 (the walker's pitch and heading), which is what the old placement argument was
 really about.

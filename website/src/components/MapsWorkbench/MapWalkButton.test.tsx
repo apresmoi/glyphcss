@@ -145,6 +145,10 @@ describe("MapWalkButton — entering and leaving", () => {
     expect(legend.textContent).toMatch(/shift/i);
     expect(legend.textContent).toMatch(/look/i);
     expect(legend.textContent).toMatch(/esc/i);
+    // The collision defeat key: buildings are solid while walking, and the
+    // way through them has to be discoverable from the same legend the other
+    // bindings are.
+    expect(legend.textContent).toMatch(/ghost/i);
   });
 
   it("keeps the horizon and its tile budget on screen while walking", () => {
