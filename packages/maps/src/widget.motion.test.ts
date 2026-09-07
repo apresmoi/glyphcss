@@ -130,6 +130,112 @@ describe("createGlyphMap — one render per displayed frame", () => {
   });
 });
 
+/**
+ * The second half of the same rule, and the one that actually shipped broken:
+ * a scene WRITE placed after the frame's `scene.rerender()` arms a render the
+ * `rerender()` cannot supersede.
+ *
+ * `rerender()` bumps `renderGeneration` and clears `pendingRender`, so every
+ * microtask render armed BEFORE it is cancelled — which is why
+ * `applyKeyLight()`'s `setOptions` is free. `syncNearSide()` ran AFTER it, and
+ * for a `fill-extrusion` layer that sweep calls `syncWalls`, which re-culls
+ * the far-side walls and hands the survivors to `handle.setPolygons()`. That
+ * arms a second, full, never-superseded render on the same task's microtask
+ * checkpoint — so every camera-moving frame with buildings mounted rasterized
+ * the WHOLE scene twice and threw the first one away unpainted. Measured on
+ * the real /maps page at street level in Zurich (1440x900, 140x63, headed,
+ * OpenStreetMap water/roads/boundaries/buildings): 1.65 renders per displayed
+ * frame and 33.7 fps, against 1.00 and 49.6 with the sweep moved ahead of the
+ * render.
+ *
+ * The painted picture is unchanged: the second render was the painted one and
+ * it used exactly the cull the sweep now feeds the first.
+ */
+describe("createGlyphMap — a camera-moving frame renders ONCE with a fill-extrusion mounted", () => {
+  /** A box squarely on the near hemisphere of the default view, tall enough to have real walls. */
+  const BUILDING = {
+    geometryType: "polygon" as const,
+    properties: { render_height: 400_000 },
+    rings: [[[-6, 16], [6, 16], [6, 26], [-6, 26], [-6, 16]] as [number, number][]],
+    polygons: [[[[-6, 16], [6, 16], [6, 26], [-6, 26], [-6, 16]] as [number, number][]]],
+  };
+
+  it("does not render a second time for the wall cull the same frame already installed", async () => {
+    const { host, map } = mount();
+    await frame();
+    map.addLayer({
+      type: "fill-extrusion", id: "buildings", source: { features: [BUILDING] },
+      color: "#c8a05a", heightProperty: "render_height",
+    });
+    await frame();
+    await wait(60);
+    await frame();
+
+    let renders = 0;
+    const previous = globalThis.__glyphRenderStage;
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "base-validate") renders++; };
+    try {
+      const before = map.getView().center[0];
+      firePointer(host, "pointerdown", 400, 300);
+      firePointer(host, "pointermove", 460, 300);
+      await frame();
+      // The frame really did move the camera, so `syncWalls` really did have a
+      // new cull key to answer — without this the count below is vacuous.
+      expect(map.getView().center[0]).not.toBe(before);
+      // Drain the microtask checkpoint the second render would land on.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(renders).toBe(1);
+      firePointer(host, "pointerup", 460, 300);
+    } finally {
+      globalThis.__glyphRenderStage = previous;
+    }
+    map.destroy();
+    host.remove();
+  });
+
+  it("a trackpad BURST inside one frame still costs one render, not one per event", async () => {
+    // The input-handler half. `applyDrag` sweeps the near-side verdict
+    // synchronously per `pointermove` to close a one-frame opacity flicker;
+    // when that sweep also re-culled walls it wrote to the scene from inside
+    // the handler, and glyphcss's microtask coalescer drains at the end of
+    // EVERY task — so a 12-event burst bought 12 extra full renders that the
+    // deferred motion frame could not supersede.
+    const { host, map } = mount();
+    await frame();
+    map.addLayer({
+      type: "fill-extrusion", id: "buildings", source: { features: [BUILDING] },
+      color: "#c8a05a", heightProperty: "render_height",
+    });
+    await frame();
+    await wait(60);
+    await frame();
+
+    let renders = 0;
+    const previous = globalThis.__glyphRenderStage;
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "base-validate") renders++; };
+    try {
+      firePointer(host, "pointerdown", 400, 300);
+      for (let i = 1; i <= 12; i++) {
+        firePointer(host, "pointermove", 400 + i * 6, 300 + i * 3);
+        // Each event is its own task, exactly as a trackpad delivers them —
+        // which is what drains a microtask checkpoint after each one.
+        await Promise.resolve();
+      }
+      expect(renders).toBe(0);
+      await frame();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(renders).toBe(1);
+      firePointer(host, "pointerup", 472, 336);
+    } finally {
+      globalThis.__glyphRenderStage = previous;
+    }
+    map.destroy();
+    host.remove();
+  });
+});
+
 describe("createGlyphMap — inertial glide", () => {
   it("keeps moving after pointerup, then stops on its own", async () => {
     const { host, map } = mount();

@@ -3,6 +3,7 @@ import {
   createGlyphMap,
   glyphMapContourIntervalLevels,
   glyphMapNormalizeBearing,
+  glyphMapTrueScaleElevation,
   GlyphMapClassifiers,
   GLYPH_MAP_MAX_TILT,
   type GlyphMapAttribution,
@@ -790,6 +791,36 @@ export default function MapsWorkbench() {
       // page never renders.
       setDemoLayer: (id: string, on: boolean) => setExtraVisible((old) => ({ ...old, [id]: on })),
       setDemoDataset: (id: string, dataset: string) => setPointDataset((old) => ({ ...old, [id]: dataset as PointDataset })),
+      // The OpenStreetMap card, driven the way a reader drives it: the card's
+      // own switch, its per-row switches, and its per-row density. No URL
+      // state reaches the row set as a LIST (the link carries a bitfield), and
+      // the walk scenario has to be able to price one row at a time.
+      setOsm: (on: boolean) => setShowOsm(on),
+      setOsmSublayers: (ids: readonly string[]) =>
+        setOsmSublayers(Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, ids.includes(s.id)]))),
+      setOsmDensities: (value: number) => setOsmDensities(mapOsmDensityRecord(value)),
+      // ONE row's density. The master gesture above writes all ten, which
+      // conflates the two costs a reader can spend here — a `line` row buys a
+      // full-viewport overlay grid, a mesh row buys a separated detail pass —
+      // so attributing either needs the rows moved apart.
+      setOsmDensityRow: (id: string, value: number) =>
+        setOsmDensities((old) => ({ ...old, [id]: value })),
+      // Street-level walk mode, through the page's OWN toggle rather than
+      // `map.setWalk` directly, so the React gate (`mapWalkReason`) and the
+      // auto-exit are exercised exactly as a reader's click exercises them.
+      setWalk: (on: boolean) => setWalkOn(on),
+      getWalk: () => mapRef.current?.getWalk() ?? null,
+      // `map.project` answers for the DATUM only (elevation 0), so nothing
+      // public can ask where a point 30 m up lands — which is exactly the
+      // question a "the buildings are not straight" report is. This rebuilds
+      // the same projection the widget was constructed with and exposes the
+      // two conversions a caller needs: `elevM` is TERRAIN metres (the
+      // exaggerated axis) and `trueM` is a STRUCTURE height in true metres
+      // (`glyphMapTrueScaleElevation`, the extrusion's own exemption).
+      worldAt: (lon: number, lat: number, elevM: number, trueM = 0) => {
+        const proj = buildMapProjection(projectionIdRef.current, exaggerationRef.current);
+        return proj.project(lon, lat, elevM + glyphMapTrueScaleElevation(trueM, proj));
+      },
     };
     return () => { delete w.__glyphMapsBench; };
   }, []);

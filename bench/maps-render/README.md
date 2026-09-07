@@ -22,7 +22,7 @@ preview`.
 | `--viewport WxH` | default `1440x900` |
 | `--expect-grid CxR` | required grid shape, default `140x63` — a **gate**, see below |
 | `--encoding spans\|atlas` | default `spans`; the page's own default is `atlas` |
-| `--scenario orbit\|drag\|wheel\|flyto\|all` | default `all` |
+| `--scenario orbit\|drag\|wheel\|flyto\|walk\|all` | default `all` |
 | `--headed` | real GPU. Headless software-renders and inflates raster/paint |
 | `--fidelity-only` | digest only |
 | `--query <qs>` | extra query appended to `/maps/?bench=1` (e.g. `m=p1m2`, the page's own URL-state param) — drives page state no scenario covers, such as a layer's own render mode |
@@ -30,6 +30,44 @@ preview`.
 | `--demo-layer <ids>` | comma-separated ids of the page's own demo layer cards (`fill`, `symbol`, `circle`, `heatmap`, `fill-extrusion`, `model`) to switch on before measuring — the only honest way to price a layer whose `source` is a live provider object |
 | `--demo-dataset <pairs>` | `id=dataset` pairs (e.g. `symbol=places`) selecting which baked point dataset a demo layer reads, through the same seam |
 | `--json <file>` | full result, including per-waypoint digests |
+| `--osm <ids>` | comma-separated OpenStreetMap ROW ids to switch on (`""` switches the card off). The link carries a bitfield, not a list, so `--query` cannot reach one row |
+| `--osm-density <n>` | the card's master slider — one density written across every row |
+| `--osm-density-row <id=n,…>` | ONE row's density. The only way to tell a stroke overlay grid's cost from a separated detail pass's, since the master writes all ten |
+| `--at lon,lat,span` | re-base the timed scenarios here instead of the globe overview — how to price `drag`/`wheel` at a CITY view, where the layers a street-level reader has mounted actually exist |
+| `--walk-frames <n>` | displayed frames of held-W walking (default 400) |
+| `--walk-look <deg>` | heading applied per walking frame. **Use `0`.** Any other value drives the look through `map.setBearing`, which renders SYNCHRONOUSLY and adds a render per frame — the real mouselook path (`applyWalkLook`) only marks the frame dirty, so a non-zero value measures the harness, not the page |
+| `--no-fidelity` | skip the eight-waypoint digest. Cost-only runs while hunting a stall; never for a change that could move a pixel |
+
+## `walk`: the fifth scenario
+
+Street-level walk mode is the page's own keyboard mode, so it does not go
+through `__benchDriveEvents` — a held key is one event, not a burst, and the
+widget's motion loop integrates `dt` per rAF for as long as it is down. The
+scenario puts the view where the walk gate admits it (Zürich, `span 0.02`),
+enters through the page's OWN pegman toggle rather than `map.setWalk`, holds
+`w`, and keeps measuring for 1.2 s after the release so the post-motion tile
+settle lands inside the window. The blank guard is skipped there and only there:
+a street-level frame legitimately has sky in it, and sky is blank cells.
+
+## A HANG IS A DISTRIBUTION, NOT A MEAN
+
+Every scenario now reports **p50 / p95 / p99 / max** for three sample series
+alongside the averages, because a 16 ms mean frame with a 400 ms p99 is exactly
+the "it goes slow and then stalls" report and no average can show it:
+
+- `frame gap ms` — the interval between consecutive displayed frames. Vsync is
+  on, so 16.7 ms is the floor and every multiple of it is a dropped frame.
+- `render burst ms` — one full render pass, from `base-validate` to the
+  microtask that closes it.
+- `base raster ms` — glyphcss's own per-render probe.
+
+Plus the browser's own `longtask` entries (count, total, worst, top six) —
+the only signal that separates "the render is slow" from "something else ran"
+— and a JS heap timeline sampled from Node on a wall clock, so the samples keep
+landing across a main-thread stall. Chromium is launched with
+`--enable-precise-memory-info`; without it `performance.memory` is bucketed and
+a growth question cannot be answered.
+
 
 ## What it measures, and why each choice matters
 
@@ -266,3 +304,41 @@ while still leaving ~1.3 quads per painted cell, and the principled version is
 to make `reliefFractionForLevel` projection-aware so it stops paying the `pi`
 factor a globe imposes and a flat sheet does not. Either changes the rendered
 picture, so neither is a lossless optimization and neither is taken here.
+
+## Where the /maps frame goes at street level (and the double render that was in it)
+
+Measured 1440x900, `astro preview`, `spans`, grid `140x63`, Zürich at
+`span 0.02`, OpenStreetMap `water`/`roads`/`boundaries`/`buildings`.
+
+A scene write placed AFTER a frame's own `scene.rerender()` arms a second, full,
+never-superseded render — `rerender()` supersedes only what was armed ahead of
+it. The widget's `syncNearSide()` was on the wrong side in all nine of its
+render paths, and a `fill-extrusion`'s wall cull writes polygons; the same sweep
+also ran per `pointermove`, so a trackpad bought a render per EVENT.
+
+| scenario | before | after |
+|---|---|---|
+| `walk` | 38.5 fps, **1.72** renders/frame | **58.7 fps**, 0.87 |
+| `drag --at 8.5417,47.3769,0.02` | 11.8 fps, **2.98** renders/frame | **28.8 fps**, 1.00 |
+
+Frame gap p50/p95/p99: walk 32.9/33.9/49.8 -> **16.7/17.4/33.4** ms; drag
+83.3/100/100.6 -> **33.3/50/50.4** ms. Output unchanged — the superseded render
+was the one being thrown away.
+
+What is left is geometry, not waste: **6.9 polygons per glyph cell**
+(61,063 in the base pass over 8,820 cells; terrain alone is 16,840 and
+buildings add 43,607), `base-raster` 9.3 ms of an 11.0 ms render.
+
+**What a density above 1 costs, in a real browser.** Each DISTINCT stroke
+density is a full-viewport overlay grid with its own depth pass: **+9 ms per
+render**, linear in the grid COUNT (one 58.4 -> 40.6 fps, three 58.4 -> 21.4).
+One opaque separated detail mesh is worse — **+24 ms per render**,
+`detail-project` alone 20.7 ms, 58.4 -> 21.7 fps — because `computeOcclusionIds`
+rasterizes the whole scene into the shared id-map once per render. The card's
+one master slider at 2x reaches 18.3 fps and 251 long tasks worst 454 ms.
+
+**The single stall**, at the defaults: 117 ms of blocked main thread exactly
+302 ms after the movement key is released — the 180 ms `scheduleTileUpdate`
+debounce plus the frame it lands in. Nothing over 40 ms happens while the key
+is down. **No memory growth**: three minutes of walking sawtooths 79-422 MB and
+ends where it started, renders/frame 0.97.

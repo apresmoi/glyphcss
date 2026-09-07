@@ -3121,3 +3121,157 @@ back out of, and a shared link that dropped someone at eye height would hide
 the map they were sent. The gate is recomputed from live state, so switching
 projection or flying out while walking auto-exits — which costs nothing,
 because leaving restores the pre-walk view exactly.
+
+## The frame budget, and the double render that was in it
+
+Reported as "it goes slow as fk ... the fps drop and the hang", most acutely in
+walk mode. It was two different things and only one of them was a defect.
+
+Everything below is measured in a REAL browser — `bench/maps-render`, headed
+Chromium, `astro preview` (not the dev server), `--encoding spans`,
+1440x900, grid gate `140x63` held on every row, Zürich at `span 0.02` with the
+OpenStreetMap card's `water` / `roads` / `boundaries` / `buildings` rows on.
+
+### The defect: a scene write placed after the frame's own render
+
+`createGlyphScene`'s `rerender()` supersedes a queued microtask render — it
+bumps `renderGeneration` and clears `pendingRender` — so a scene write BEFORE
+it costs nothing and the identical write AFTER it arms a second, full,
+never-superseded render on that same task's microtask checkpoint. The widget
+knew this for `applyKeyLight` (its comment said so) and had `syncNearSide()` on
+the wrong side of the line in all nine of its render paths. For a
+`fill-extrusion` layer that sweep calls `syncWalls`, which re-culls the
+far-side walls and hands the survivors to `handle.setPolygons()`.
+
+Worse, `applyDrag`/`applyOrient` ran the same sweep synchronously per
+`pointermove` — added to close a one-frame `opacity` flicker on symbols — so
+with buildings mounted a trackpad bought a whole grid render PER EVENT.
+
+Attributed rather than guessed: a probe inside `scheduleRender` reported
+exactly two arms per walking frame, `applyKeyLight → setOptions` (superseded)
+and `syncNearSide → syncWalls → setPolygons` (not).
+
+| | before | after |
+|---|---|---|
+| walk, W held | 38.5 fps, **1.72** renders/frame, task 23.7 ms | **58.7 fps**, 0.87, task 13.9 ms |
+| drag at street level | 11.8 fps, **2.98** renders/frame, task 85.3 ms | **28.8 fps**, 1.00, task 34.8 ms |
+| walk frame gap p50 / p95 / p99 | 32.9 / 33.9 / 49.8 ms | **16.7 / 17.4 / 33.4 ms** |
+| drag frame gap p50 / p95 / p99 | 83.3 / 100 / 100.6 ms | **33.3 / 50 / 50.4 ms** |
+
+The painted picture is unchanged: the second render was the painted one and it
+used exactly the cull the first now gets.
+
+The fix is an ORDERING plus a SPLIT. `syncNearSide()` moved ahead of
+`scene.rerender()` everywhere; the sweep split into `syncNearSideDom` (the
+`opacity`/`visibility` channels, what an input handler runs — it cannot arm a
+render) and `syncNearSideGeometry` (the wall cull). `map.scene` is a documented
+escape hatch a host may repaint through at any time, and
+`widget.extrusionWalls.test.ts` pins that one `pointermove` across the limb
+followed by a raw `scene.rerender()` with NO frame awaited shows the wall band
+— so the handle's `scene` is a proxy whose `rerender` runs the geometry sweep
+first. That keeps the guarantee and still costs nothing, because the sweep is
+then immediately followed by the `doRender()` that supersedes it.
+
+Both halves are mutation-checked: putting the frame sweep back after
+`rerender()` fails at 2 renders for 1 frame, and letting the input handler
+sweep geometry again fails at 12 renders for a 12-event burst.
+
+### What the walk frame is actually spent on
+
+Zürich, 140x63 = 8,820 cells, one render:
+
+| mounted | base-pass polygons | base-raster | render burst | fps |
+|---|---|---|---|---|
+| terrain only | 16,840 | 3.46 ms | 3.8 ms | 60.0 |
+| + water / roads / boundaries | 17,456 | 5.37 ms | 5.7 ms | 59.8 |
+| + buildings | 61,063 | 9.31 ms | 11.0 ms | 58.2 |
+
+**6.9 polygons per glyph cell** with buildings on, against asciiQuake's 0.63 on
+the same renderer. Buildings alone are 43,607 of the 61,063. This is the
+mesh/product decision `bench/maps-render/README.md` already names for the
+globe, arriving at street level for a different reason: a 400 m horizon over a
+city is thousands of extruded footprints, and none of it is renderer waste.
+
+### The two things a reader can spend by accident, priced
+
+Both are pre-existing mechanisms and both are reachable from ONE slider on the
+OpenStreetMap card. Same scene, same walk, only the densities changed:
+
+| configuration | fps | render burst p50 | frame gap p50 / max | long tasks |
+|---|---|---|---|---|
+| every row at 1x (the default) | 58.4 | 11.2 ms | 16.7 / 116.7 ms | 1 (122 ms) |
+| `roads` at 2x — ONE stroke overlay grid | 40.6 | 20.1 ms | 17.1 / 183 ms | 1 (195 ms) |
+| three line rows at 2 / 2.1 / 2.2 — THREE grids | 21.4 | 30.2 ms | 50 / 366 ms | 162, worst 383 ms |
+| `buildings` at 2x — ONE separated OPAQUE detail mesh | 21.7 | 35.6 ms | 50 / 367 ms | 90, worst 375 ms |
+| the card's master slider at 2x (all ten rows) | 18.3 | 39.1 ms | 65.7 / 433 ms | 251, worst 454 ms |
+
+Each DISTINCT stroke density is a full-viewport overlay grid with its own depth
+pass and costs **+9 ms per render**, linear in the grid COUNT — which confirms
+the node/happy-dom ratio (27.4 ms for one, 63.4 for three) in a real browser.
+One opaque separated detail mesh is worse: **+24 ms per render**, `detail-project`
+alone 20.7 ms, because `computeOcclusionIds` rasterizes the whole scene into the
+shared id-map once per render. Neither is new and neither is a bug; what is new
+is that the card mounts up to ten layers and hands all of them to one slider,
+so a reader reaches 3.2x the frame cost in one gesture with no warning.
+
+### The hang, located
+
+Two different things wear the same word.
+
+**Sustained**: every configuration above with a density above 1 sits at
+50-67 ms per frame — hundreds of >50 ms long tasks, 15.2 s of blocked main
+thread in a 250-frame window at the master 2x.
+
+**A single stall**: at the defaults, walking blocks the main thread for
+**117 ms exactly 302 ms after the key is released** — the 180 ms
+`scheduleTileUpdate` debounce firing, plus the frame it lands in. Nothing over
+40 ms happens while the key is DOWN. It scales with what the sweep has to
+rebuild: 0 long tasks with no OpenStreetMap layer mounted, one of 57 ms with
+the line rows, one of 121 ms with buildings. Clicking the pegman costs the
+same kind of stall twice — 117 ms + 250 ms entering, 216 ms leaving.
+
+**Memory is not in it.** Three minutes of continuous walking: heap sawtooths
+between 79 and 422 MB and ends where it started (217 -> 206 MB), frame gap p50
+16.7 / p95 18.2 / p99 18.7 / max 116.7, renders/frame 0.97. No growth, one
+stall, and that stall is the tile settle above.
+
+### Killed: the tile-fetch storm
+
+`motionStep` calls `scheduleTileUpdate()` on every moved frame, so a held
+movement key re-arms the 180 ms debounce forever and the sweep never fires
+while walking. That is real and deliberate (the same clause keeps a glide or a
+flight from fetching at every waypoint), but it produces neither a storm nor a
+visible starvation at the distances a reader covers: two walks of 2.16 km each,
+one continuous and one letting go for 300 ms every 10 s, both issued **zero**
+tile requests while moving and zero after stopping — the footprint never leaves
+the mounted z14 ring. An unbounded walk would eventually outrun its data; that
+is a policy question, not a measured defect.
+
+### Killed: a metrics mismatch behind the walk camera's geometry
+
+Reported alongside as "the buildings are not straight ... walking with some
+weird angle". `glyphMapWalkLens` is solved against `grid.cols * grid.cellWidth`
+from the widget's own `projectionGrid()`, while the rasterizer projects with
+glyphcss's separately MEASURED monospace advance, and `resolveProjectionMetrics`
+falls back to `BASE_TILE / cellAspect` when none is supplied — so the two could
+in principle disagree on the real page while agreeing under
+`stubMonospaceMetrics`. Measured live, they do not: 7.82701 px against
+7.82668 px (0.004%), `centerCol` 70.2056 against 70.2086, and the fallback is
+never reached.
+
+The camera is right on every axis that was questioned. A 30 m world vertical
+projects with `dcol` **0.000** at the centre, at both frame edges, at bearing 0
+and at bearing 45 — no lean and no keystoning at all, which is what the CSS
+perspective model gives for a level camera. Horizontal FOV measures **69.84°**
+against the 70° asked. The picture is isotropic to **0.18%** (one true metre
+across is 39.1222 px, one true metre up is 39.0523 px, and the ratio is the
+same at 20 m, 80 m and 300 m). The camera is level: eye-height points at 60 m
+and 300 m land on rows 31.846 and 31.848, on the projection's own centre row
+(31.846).
+
+What IS there is the 70° lens itself. A rectilinear projection draws a 1 m
+object at the frame edge `1/cos(35°)` larger than the same object dead ahead at
+the same true distance — measured 1.0154x at 10°, 1.0642x at 20°, 1.1547x at
+30°, **1.2208x at the 35° edge**, matching `1/cos` exactly. That is correct
+projection and the classic wide-angle look; `GLYPH_MAP_WALK_FOV_DEG` is the
+only lever on it.

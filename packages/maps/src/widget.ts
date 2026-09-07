@@ -3458,8 +3458,38 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * re-arms (measured 681ms with 0 of 41 walls drawn).
    */
   const nearSideSyncs = new Set<() => void>();
-  function syncNearSide(): void {
+  /**
+   * The near-side sweeps that WRITE TO THE SCENE rather than to a DOM
+   * channel — today just a `fill-extrusion`'s wall cull, which hands the
+   * survivors to `handle.setPolygons()`.
+   *
+   * They are separated because a scene write ARMS A RENDER, and the two
+   * places this sweep is called from want opposite things from that.
+   * `applyDrag`/`applyOrient` call it from an INPUT HANDLER purely to close a
+   * one-frame flicker on `opacity`/`visibility`, and glyphcss coalesces
+   * renders on a microtask that drains at the end of every task — so a scene
+   * write there buys a full grid render PER POINTER EVENT and defeats the
+   * motion loop outright. The frame paths call it to install the geometry the
+   * render on the next line is about to rasterize, where the write is free
+   * because `rerender()` supersedes anything armed ahead of it.
+   *
+   * So an input handler sweeps {@link syncNearSideDom} and a frame sweeps
+   * {@link syncNearSide}. A wall cull deferred to the frame is not stale: the
+   * frame is the only thing that paints, and it re-culls before it does.
+   */
+  const nearSideGeometrySyncs = new Set<() => void>();
+  /** DOM channels only (`opacity`/`visibility`) — never a scene write, so it can never arm a render. */
+  function syncNearSideDom(): void {
     for (const sync of nearSideSyncs) sync();
+  }
+  /** The scene-geometry half alone. Only ever called immediately BEFORE a `scene.rerender()`, which supersedes the render it arms. */
+  function syncNearSideGeometry(): void {
+    for (const sync of nearSideGeometrySyncs) sync();
+  }
+  /** The whole sweep, DOM channels and scene geometry. Only ever called immediately BEFORE the frame's own `scene.rerender()`. */
+  function syncNearSide(): void {
+    syncNearSideDom();
+    syncNearSideGeometry();
   }
 
   /**
@@ -4775,12 +4805,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (moved) build(lastFeatures);
     }
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter);
-    nearSideSyncs.add(syncWalls);
+    nearSideGeometrySyncs.add(syncWalls);
     if (layer.type === "fill-extrusion") groundChangeSyncs.add(syncGround);
     return {
       update: runtime.update,
       dispose() {
-        nearSideSyncs.delete(syncWalls);
+        nearSideGeometrySyncs.delete(syncWalls);
         groundChangeSyncs.delete(syncGround);
         runtime.dispose();
         mesh = null;
@@ -5750,8 +5780,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     syncCameraBearing();
     reprojectGeometry();
     applyKeyLight();
-    scene.rerender();
     syncNearSide();
+    scene.rerender();
   }
 
   // ── ONE camera-motion loop ────────────────────────────────────────────
@@ -5913,12 +5943,26 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       moved = true;
     } else if (moved) {
       // A drag/glide rotated the camera; a headlight has to follow it in the
-      // SAME frame or it is just a dark side that moves one frame late. Safe
-      // to write here specifically because the synchronous `rerender()` on
-      // the next line supersedes the microtask render `setOptions` queues.
+      // SAME frame or it is just a dark side that moves one frame late.
+      //
+      // EVERYTHING THAT WRITES TO THE SCENE GOES BEFORE THE `rerender()`,
+      // and that ordering is the whole reason this frame renders ONCE.
+      // `rerender()` supersedes a queued microtask render (it bumps
+      // `renderGeneration` and clears `pendingRender`), so a scene write
+      // ahead of it is free and the same write AFTER it arms a second, full,
+      // never-superseded render that lands on this task's own microtask
+      // checkpoint. `applyKeyLight`'s `setOptions` was already on the right
+      // side; `syncNearSide` was not, and a `fill-extrusion` layer's
+      // `syncWalls` calls `setPolygons` — so every camera-moving frame with
+      // buildings mounted rendered the whole scene twice and threw the first
+      // one away. Measured at street level in Zurich (140x63, 1440x900,
+      // headed, OpenStreetMap water/roads/boundaries/buildings): renders per
+      // displayed frame 1.65 -> 1.00, 33.7 -> 49.6 fps. The PAINTED output is
+      // unchanged, because the second render is the one that was painted and
+      // it used exactly the cull this ordering now feeds the first.
       applyKeyLight();
-      scene.rerender();
       syncNearSide();
+      scene.rerender();
     }
 
     // Detail settles when MOTION stops, not when the pointer goes up: every
@@ -6242,9 +6286,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     cancelCameraGlide();
     const spanChanged = applyViewState(partial);
     applyKeyLight();
+    syncNearSide();
     scene.rerender();
     scheduleTileUpdate();
-    syncNearSide();
     emitViewChange(spanChanged ? "zoom" : "move");
   }
 
@@ -6279,8 +6323,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function setTilt(t: number): void {
     const orbit = applyTiltState(t);
     applyKeyLight();
-    scene.rerender();
     if (orbit) syncNearSide();
+    scene.rerender();
   }
 
   function getTilt(): number {
@@ -6322,9 +6366,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function setBearing(b: number): void {
     applyBearingState(b);
     applyKeyLight();
+    syncNearSide();
     scene.rerender();
     scheduleTileUpdate();
-    syncNearSide();
     emitViewChange("move");
   }
 
@@ -6369,9 +6413,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       camera = orthographicCamera;
       scene.setOptions({ camera });
       applyKeyLight();
+      syncNearSide();
       scene.rerender();
       scheduleTileUpdate();
-      syncNearSide();
       emitViewChange("zoom");
       return;
     }
@@ -6389,9 +6433,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       appliedTilt = tiltFor(projection, view, camera.zoom, projectionGrid());
       syncCameraToView(view);
       applyKeyLight();
+      syncNearSide();
       scene.rerender();
       scheduleTileUpdate();
-      syncNearSide();
       emitViewChange("zoom");
       return;
     }
@@ -6412,9 +6456,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     refreshWalkGround();
     syncCameraToView(view);
     applyKeyLight();
+    syncNearSide();
     scene.rerender();
     scheduleTileUpdate();
-    syncNearSide();
     emitViewChange("zoom");
   }
 
@@ -6656,7 +6700,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // an inertial glide. Calling it here, synchronously, closes that window
     // for ANY external caller, not just this one — the DOM is never more
     // than one drag increment stale.
-    syncNearSide();
+    //
+    // The DOM half ONLY: a scene write from an input handler arms a render
+    // that the deferred frame cannot supersede, which is one full grid render
+    // per pointer event (see `nearSideGeometrySyncs`). The wall cull rides the
+    // frame, where it is free.
+    syncNearSideDom();
     markMotionDirty();
     emitViewChange("move");
   }
@@ -6719,8 +6768,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // closes here rather than at the deferred motion frame, and for the same
     // reason (`map.scene` is a documented escape hatch a host may repaint
     // through at any time). ONE sweep and ONE event for the whole stroke
-    // increment, not one per axis.
-    if (orbit) syncNearSide();
+    // increment, not one per axis. DOM channels only, for the reason
+    // `applyDrag` states — an input handler must never write to the scene.
+    if (orbit) syncNearSideDom();
     markMotionDirty();
     emitViewChange("move");
   }
@@ -6991,9 +7041,42 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     emit({ type: "load" });
   });
 
+  /**
+   * `map.scene` is a documented escape hatch: a host may repaint through it at
+   * ANY time, including between two `pointermove`s of a drag this widget has
+   * only deferred the render for. `syncNearSideGeometry` — a `fill-extrusion`'s
+   * far-side wall cull — is the one near-side verdict baked into scene
+   * GEOMETRY rather than into a DOM channel, so an out-of-band repaint has to
+   * see the cull for the camera it is repainting, not the one from the last
+   * frame (`widget.extrusionWalls.test.ts` pins exactly that: one
+   * `pointermove` across the limb, no frame awaited, then a raw
+   * `scene.rerender()`).
+   *
+   * Running that sweep from the pointer handler instead is what this proxy
+   * replaces, and it was expensive out of all proportion: a scene write arms a
+   * microtask render, that checkpoint drains at the end of EVERY task, and a
+   * trackpad delivers 60-120 pointer events a second — so a drag over a city
+   * with buildings mounted rasterized the whole scene once per EVENT (measured
+   * on /maps at street level: 2.98 renders per displayed frame, 11.8 fps).
+   * Here the sweep runs immediately before `doRender()`, where `rerender()`
+   * supersedes whatever it armed and it therefore costs nothing.
+   *
+   * A host that repaints through `setOptions` rather than `rerender` still
+   * gets the previous frame's cull; that is one drag increment of a
+   * conservative visibility test, and it is not what any caller here does.
+   */
+  const publicScene = new Proxy(scene, {
+    get(target, key, receiver) {
+      if (key === "rerender") {
+        return () => { syncNearSideGeometry(); target.rerender(); };
+      }
+      return Reflect.get(target, key, receiver);
+    },
+  });
+
   return {
     host,
-    scene,
+    scene: publicScene,
     setView,
     getView,
     fitBounds,
@@ -7048,9 +7131,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       view = clampViewToCover(view);
       syncCameraToView(view);
       applyKeyLight();
+      syncNearSide();
       scene.rerender();
       scheduleTileUpdate();
-      syncNearSide();
     },
     destroy(): void {
       destroyed = true;

@@ -128,9 +128,26 @@ const DEMO_DATASETS = arg("demo-dataset", null);
  *  default 1 every tile stays in the base grid — so this is the only way to
  *  price anything about detail-layer grouping. */
 const TERRAIN_DENSITY = arg("terrain-density", null);
+/** Comma-separated OpenStreetMap ROW ids to switch on (`""` switches the card
+ *  off). No URL state reaches the row set as a list — the link carries a
+ *  bitfield — and the walk scenario has to be able to price one row at a time. */
+const OSM_ROWS = arg("osm", null);
+/** One density written across every OpenStreetMap row (the card's master gesture). */
+const OSM_DENSITY = arg("osm-density", null);
+/** `lon,lat,span` the timed scenarios are re-based to instead of `FLY_FROM` —
+ *  the way to price `orbit`/`drag`/`wheel` at a CITY view, where the layers a
+ *  street-level reader has mounted (buildings above all) actually exist. */
+const AT = arg("at", null);
+/** `id=density` pairs (comma-separated) setting ONE OpenStreetMap row's own
+ *  density — the only way to tell an overlay grid's cost from a separated
+ *  detail pass's, since the card's own slider writes all ten rows at once. */
+const OSM_DENSITY_ROWS = arg("osm-density-row", null);
 const JSON_OUT = arg("json", null);
 const HEADED = hasFlag("headed");
 const FIDELITY_ONLY = hasFlag("fidelity-only");
+/** Skip the eight-waypoint fidelity pass. For COST-ONLY runs while hunting a
+ *  stall — never for a change that could move a pixel. */
+const NO_FIDELITY = hasFlag("no-fidelity");
 
 /** Fraction of cells that must be non-blank for a sample to count. */
 const MIN_NONBLANK_RATIO = 0.2;
@@ -151,6 +168,14 @@ const WHEEL_DELTA = 60;
  *  span change at both ends, so tile LOD churns repeatedly mid-flight. */
 const FLY_FROM = [0, 20, 140];
 const FLY_TO = [8.2, 46.8, 6];
+/** Where the walk scenario stands: Zürich centre, at a span the walk gate admits. */
+const WALK_AT = [8.5417, 47.3769, 0.02];
+/** Displayed frames of held-W walking. */
+const WALK_FRAMES = Number(arg("walk-frames", 400));
+/** Degrees of heading applied per displayed frame while walking — the look half. `0` walks in a straight line. */
+const WALK_LOOK_DEG = Number(arg("walk-look", 0.15));
+/** How long to wait for street-level tiles between each walk setup step. */
+const WALK_SETTLE_MS = Number(arg("walk-settle", 6000));
 /** Waypoints the fidelity digest is captured at: [lon, lat, span]. */
 const FIDELITY_STOPS = [
   [0, 20, 140], [90, 20, 140], [180, 20, 140], [-90, 20, 140],
@@ -159,7 +184,10 @@ const FIDELITY_STOPS = [
 
 const { chromium } = await import("playwright");
 
-const browser = await chromium.launch({ headless: !HEADED });
+const browser = await chromium.launch({ headless: !HEADED,
+  // `performance.memory` is coarse (bucketed) without this; a growth question
+  // over a few minutes needs the real number.
+  args: ["--enable-precise-memory-info"] });
 const page = await browser.newPage({ viewport: { width: VW, height: VH } });
 const cdp = await page.context().newCDPSession(page);
 const errors = [];
@@ -191,6 +219,26 @@ if (DEMO_LAYERS) {
   // long enough that a shorter wait would price an empty layer.
   await page.waitForTimeout(4000);
 }
+if (OSM_ROWS !== null) {
+  await page.evaluate((ids) => {
+    window.__glyphMapsBench.setOsmSublayers(ids === "" ? [] : ids.split(","));
+    window.__glyphMapsBench.setOsm(ids !== "");
+  }, String(OSM_ROWS));
+  await page.waitForTimeout(5000);
+}
+if (OSM_DENSITY) {
+  await page.evaluate((d) => window.__glyphMapsBench.setOsmDensities(Number(d)), OSM_DENSITY);
+  await page.waitForTimeout(4000);
+}
+if (OSM_DENSITY_ROWS) {
+  await page.evaluate((pairs) => {
+    for (const pair of pairs.split(",")) {
+      const [id, value] = pair.split("=");
+      window.__glyphMapsBench.setOsmDensityRow(id.trim(), Number(value));
+    }
+  }, String(OSM_DENSITY_ROWS));
+  await page.waitForTimeout(4000);
+}
 if (TERRAIN_DENSITY) {
   await page.evaluate((d) => window.__glyphMapsBench.setTerrainDensity(Number(d)), TERRAIN_DENSITY);
   // The layer is removed and re-added on a density change, then its tiles
@@ -215,6 +263,7 @@ await page.evaluate(() => {
     const t = performance.now();
     B.stageMs[last] = (B.stageMs[last] || 0) + (t - lastT);
     B.renderMs += t - burstStart;
+    if (B.renderBursts) B.renderBursts.push(t - burstStart);
     last = null;
     closing = false;
   };
@@ -233,14 +282,43 @@ await page.evaluate(() => {
   };
   B.closeBurst = closeBurst;
 
-  const tick = () => { B.frames++; requestAnimationFrame(tick); };
+  // ── A HANG IS A DISTRIBUTION, NOT A MEAN. Every number above is an
+  //    average over the window, and an average frame of 16 ms with a p99 of
+  //    400 ms is exactly the "goes slow and then stalls" report — so the
+  //    frame INTERVALS, the per-render burst costs and the browser's own
+  //    long-task entries are all kept as samples, not accumulators.
+  B.frameGaps = [];
+  B.renderBursts = [];
+  B.longTasks = [];
+  B.heap = [];
+  let prevFrameT = 0;
+  const tick = (now) => {
+    B.frames++;
+    if (prevFrameT) B.frameGaps.push(now - prevFrameT);
+    prevFrameT = now;
+    requestAnimationFrame(tick);
+  };
   requestAnimationFrame(tick);
+  // `longtask` names the browser's own >50ms main-thread blocks, which is the
+  // only signal that distinguishes "the render is slow" from "something else
+  // ran". Guarded: the entry type is Chromium-only.
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) B.longTasks.push({ start: e.startTime, ms: e.duration });
+    }).observe({ entryTypes: ["longtask"] });
+  } catch { /* not supported — the gaps array still carries the stall */ }
 
   window.__benchReset = () => {
     B.stageCounts = {}; B.stageMs = {}; B.frames = 0; B.renders = 0; B.renderMs = 0;
+    B.frameGaps.length = 0; B.renderBursts.length = 0; B.longTasks.length = 0; B.heap.length = 0;
+    prevFrameT = 0;
     globalThis.__glyphPerf.raster.length = 0;
     globalThis.__glyphPerf.dom.length = 0;
     globalThis.__glyphPerf.polys.length = 0;
+  };
+  window.__benchHeapSample = () => {
+    const m = performance.memory;
+    if (m) B.heap.push({ t: performance.now(), used: m.usedJSHeapSize, total: m.totalJSHeapSize });
   };
   const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   window.__benchSnapshot = () => ({ frames: B.frames, renders: B.renders, renderMs: B.renderMs,
@@ -248,7 +326,10 @@ await page.evaluate(() => {
     basePolys: Math.round(mean(globalThis.__glyphPerf.polys)),
     baseRasterMs: mean(globalThis.__glyphPerf.raster),
     baseDomMs: mean(globalThis.__glyphPerf.dom),
-    basePasses: globalThis.__glyphPerf.polys.length });
+    basePasses: globalThis.__glyphPerf.polys.length,
+    frameGaps: B.frameGaps.slice(), renderBursts: B.renderBursts.slice(),
+    longTasks: B.longTasks.slice(), heap: B.heap.slice(),
+    rasterSamples: globalThis.__glyphPerf.raster.slice() });
   window.__benchGrid = () => {
     const pre = window.__glyphMapsBench.output();
     if (!pre) return null;
@@ -301,7 +382,7 @@ async function settledGrid(label) {
   throw new Error(`mapsBench: grid never settled at ${label} — a digest taken here would be a race, not a fidelity gate.`);
 }
 
-for (const [lon, lat, span] of FIDELITY_STOPS) {
+for (const [lon, lat, span] of (NO_FIDELITY ? [] : FIDELITY_STOPS)) {
   await page.evaluate(([a, b, c]) => window.__benchSetView(a, b, c), [lon, lat, span]);
   const g = await settledGrid(`stop ${lon},${lat},${span}`);
   minRatio = Math.min(minRatio, g.nonBlank / g.cells);
@@ -309,7 +390,7 @@ for (const [lon, lat, span] of FIDELITY_STOPS) {
 }
 const fidelity = createHash("sha256").update(domParts.join("|")).digest("hex").slice(0, 24);
 
-if (minRatio < MIN_NONBLANK_RATIO) {
+if (!NO_FIDELITY && minRatio < MIN_NONBLANK_RATIO) {
   console.error(`mapsBench: FAILED non-blank guard — min ratio ${(minRatio * 100).toFixed(1)}%`
     + ` (< ${MIN_NONBLANK_RATIO * 100}%). Numbers would be meaningless.`);
   await browser.close();
@@ -347,11 +428,12 @@ await page.evaluate(({ frames, perFrame }) => {
     requestAnimationFrame(frame);
   });
 
-  window.__benchOrbit = (degPerFrame) => new Promise((resolve) => {
-    let i = 0, lon = 0;
+  window.__benchOrbit = (degPerFrame, base) => new Promise((resolve) => {
+    let i = 0, lon = base ? base[0] : 0;
+    const lat = base ? base[1] : 20;
     const step = () => {
       lon = ((lon + degPerFrame + 180) % 360) - 180;
-      window.__glyphMapsBench.setView({ center: [lon, 20] });
+      window.__glyphMapsBench.setView({ center: [lon, lat] });
       if (++i >= frames) { resolve(); return; }
       requestAnimationFrame(step);
     };
@@ -392,6 +474,36 @@ await page.evaluate(({ frames, perFrame }) => {
   // Fly-to. Uses the widget's own `flyTo` when the build has one; otherwise the
   // per-frame `setView({ center, span })` a caller has to write today. Same
   // path, same waypoints, so before/after stay comparable.
+  // WALK. The one scenario whose input is the KEYBOARD, so it does not go
+  // through `__benchDriveEvents` (a held key is one event, not a burst): the
+  // widget's own motion loop integrates `dt` per rAF for as long as the key is
+  // down, which is exactly what a reader holding W does. The look half is
+  // synthesized as pointer-lock `mousemove`s at the same burst rate the other
+  // scenarios use, since that is the pointer path walk mode actually installs.
+  window.__benchWalk = (frames_, lookPxPerEvent) => new Promise((resolve) => {
+    const doc = document;
+    const down = new KeyboardEvent("keydown", { key: "w", bubbles: true, cancelable: true });
+    doc.dispatchEvent(down);
+    let f = 0;
+    const step = () => {
+      if (lookPxPerEvent) {
+        // Pointer lock cannot be granted to a synthesized event, so the look
+        // is driven through the widget's own public heading/pitch instead of
+        // a `mousemove` it would ignore — same state, same re-pose, same
+        // render, and it is honest about being a stand-in.
+        const map = window.__glyphMapsBench.map();
+        map.setBearing(map.getBearing() + lookPxPerEvent);
+      }
+      if (++f >= frames_) {
+        doc.dispatchEvent(new KeyboardEvent("keyup", { key: "w", bubbles: true }));
+        setTimeout(resolve, 1200); // catch the post-release tile settle in the window
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+
   window.__benchHasFlyTo = () => typeof window.__glyphMapsBench.map().flyTo === "function";
   window.__benchFlyTo = (from, to, durationMs) => {
     const map = window.__glyphMapsBench.map();
@@ -417,20 +529,41 @@ await page.evaluate(({ frames, perFrame }) => {
 }, { frames: MOTION_FRAMES, perFrame: EVENTS_PER_FRAME });
 
 const hasFlyTo = await page.evaluate(() => window.__benchHasFlyTo());
+/** Where a timed scenario starts from. `--at` overrides the globe overview. */
+const BASE_VIEW = AT ? String(AT).split(",").map(Number) : FLY_FROM;
 
-async function measure(name, run) {
-  await page.evaluate(([lon, lat, span]) => window.__glyphMapsBench.setView({ center: [lon, lat], span }), FLY_FROM);
-  await page.waitForTimeout(900);
+/** p50/p95/p99/max of a sample array — a mean cannot describe a stall. */
+function pct(a) {
+  if (!a || !a.length) return null;
+  const s = a.slice().sort((x, y) => x - y);
+  const at = (q) => s[Math.min(s.length - 1, Math.floor(q * s.length))];
+  return { n: s.length, p50: +at(0.5).toFixed(2), p95: +at(0.95).toFixed(2),
+           p99: +at(0.99).toFixed(2), max: +s[s.length - 1].toFixed(2) };
+}
+
+async function measure(name, run, opts = {}) {
+  if (!opts.keepView) {
+    await page.evaluate(([lon, lat, span]) => window.__glyphMapsBench.setView({ center: [lon, lat], span }), BASE_VIEW);
+    await page.waitForTimeout(AT ? 5000 : 900);
+  }
   const m0 = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((x) => [x.name, x.value]));
-  await page.evaluate(() => window.__benchReset());
+  await page.evaluate(() => { window.__benchReset(); window.__benchHeapSample(); });
+  // Heap is sampled from NODE on a wall-clock interval rather than in-page on
+  // a timer, so the samples keep landing across a main-thread stall — which is
+  // the exact window a growth question is asked about.
+  const heapTimer = setInterval(() => {
+    page.evaluate(() => window.__benchHeapSample()).catch(() => {});
+  }, 500);
   const wall0 = Date.now();
   await run();
+  clearInterval(heapTimer);
+  await page.evaluate(() => window.__benchHeapSample());
   const wall = (Date.now() - wall0) / 1000;
   const b = await page.evaluate(() => { window.__bench.closeBurst(); return window.__benchSnapshot(); });
   const m1 = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((x) => [x.name, x.value]));
 
   const guard = await page.evaluate(() => window.__benchGrid());
-  if (guard.nonBlank / guard.cells < MIN_NONBLANK_RATIO) {
+  if (!opts.skipBlankGuard && guard.nonBlank / guard.cells < MIN_NONBLANK_RATIO) {
     console.error(`mapsBench: grid went blank during "${name}"; discarding.`);
     await browser.close();
     process.exit(1);
@@ -462,6 +595,23 @@ async function measure(name, run) {
     basePolys: b.basePolys, basePasses: b.basePasses,
     baseRasterMs: +b.baseRasterMs.toFixed(3), baseDomMs: +b.baseDomMs.toFixed(3),
     stageMsPerRender, stageCounts: b.stages,
+    // The distribution, which is what a HANG lives in. `frameGap` is the
+    // interval between consecutive displayed frames (vsync on, so ~16.7 ms is
+    // the floor); `renderBurst` is one full render pass; `longTask` is the
+    // browser's own >50 ms main-thread block.
+    frameGapMs: pct(b.frameGaps),
+    renderBurstMs: pct(b.renderBursts),
+    baseRasterPct: pct(b.rasterSamples),
+    longTasks: {
+      count: b.longTasks.length,
+      totalMs: +b.longTasks.reduce((s, x) => s + x.ms, 0).toFixed(1),
+      worstMs: +Math.max(0, ...b.longTasks.map((x) => x.ms)).toFixed(1),
+      top: b.longTasks.slice().sort((x, y) => y.ms - x.ms).slice(0, 6).map((x) => +x.ms.toFixed(1)),
+    },
+    heapMB: b.heap.length
+      ? { start: +(b.heap[0].used / 1048576).toFixed(1), end: +(b.heap[b.heap.length - 1].used / 1048576).toFixed(1),
+          peak: +(Math.max(...b.heap.map((h) => h.used)) / 1048576).toFixed(1), samples: b.heap.length }
+      : null,
     grid, cells: guard.cells,
   };
 }
@@ -469,10 +619,30 @@ async function measure(name, run) {
 if (!FIDELITY_ONLY) {
   await cdp.send("Performance.enable");
   const want = (n) => SCENARIO === "all" || SCENARIO === n;
-  if (want("orbit")) await measure("orbit", () => page.evaluate((d) => window.__benchOrbit(d), ORBIT_DEG_PER_FRAME));
+  if (want("orbit")) await measure("orbit", () => page.evaluate(([d, base]) => window.__benchOrbit(d, base), [ORBIT_DEG_PER_FRAME, AT ? BASE_VIEW : null]));
   if (want("drag")) await measure("drag", () => page.evaluate(([r, t]) => window.__benchDrag(r, t), [DRAG_RADIUS_PX, DRAG_TURNS]));
   if (want("wheel")) await measure("wheel", () => page.evaluate((d) => window.__benchWheel(d), WHEEL_DELTA));
   if (want("flyto")) await measure("flyto", () => page.evaluate(([f, t]) => window.__benchFlyTo(f, t, 3000), [FLY_FROM, FLY_TO]));
+  if (want("walk")) {
+    // Walk mode is GATED on the globe and on `span <= 0.05`, so the scenario
+    // has to put the view where a reader has to put it before the pegman
+    // un-greys. Then it enters through the page's own toggle.
+    await page.evaluate(([lon, lat, span]) => window.__glyphMapsBench.setView({ center: [lon, lat], span }), WALK_AT);
+    await page.waitForTimeout(WALK_SETTLE_MS);
+    await page.evaluate(() => window.__glyphMapsBench.setWalk(true));
+    await page.waitForTimeout(WALK_SETTLE_MS);
+    const walking = await page.evaluate(() => window.__glyphMapsBench.getWalk());
+    if (!walking) {
+      console.error("mapsBench: walk mode never engaged — the gate refused. Numbers would be about the map, not the walk.");
+      await browser.close();
+      process.exit(1);
+    }
+    await measure("walk", () => page.evaluate(([f, look]) => window.__benchWalk(f, look), [WALK_FRAMES, WALK_LOOK_DEG]),
+      // The view is walk mode's own; resetting it to `FLY_FROM` would leave
+      // the mode. The blank guard is skipped because a street-level frame
+      // legitimately has sky in it, and sky is blank cells.
+      { keepView: true, skipBlankGuard: true });
+  }
 }
 result.flyToApi = hasFlyTo;
 
@@ -488,6 +658,12 @@ for (const [name, s] of Object.entries(result.scenarios)) {
   console.log(`         stage ms/render: ` + Object.entries(s.stageMsPerRender)
     .filter(([, v]) => v >= 0.02).map(([k, v]) => `${k} ${v}`).join("  "));
   console.log(`         base pass: polys ${s.basePolys}  raster ${s.baseRasterMs}ms  dom ${s.baseDomMs}ms  passes ${s.basePasses}`);
+  const d = (p) => (p ? `p50 ${p.p50}  p95 ${p.p95}  p99 ${p.p99}  max ${p.max}  (n ${p.n})` : "—");
+  console.log(`         frame gap ms:   ${d(s.frameGapMs)}`);
+  console.log(`         render burst ms:${d(s.renderBurstMs)}`);
+  console.log(`         base raster ms: ${d(s.baseRasterPct)}`);
+  console.log(`         long tasks: ${s.longTasks.count} totalling ${s.longTasks.totalMs}ms, worst ${s.longTasks.worstMs}ms  top ${s.longTasks.top.join(" ")}`);
+  if (s.heapMB) console.log(`         heap MB: start ${s.heapMB.start}  end ${s.heapMB.end}  peak ${s.heapMB.peak}  (${s.heapMB.samples} samples)`);
 }
 if (errors.length) console.log(`  page errors: ${errors.length} (first: ${errors[0]?.slice(0, 160)})`);
 if (JSON_OUT) { mkdirSync(dirname(path.resolve(JSON_OUT)), { recursive: true }); writeFileSync(JSON_OUT, JSON.stringify(result, null, 2)); }
