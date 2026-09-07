@@ -4180,3 +4180,98 @@ an unobstructed 40-frame drive is 55.000 m and a two-frame one is 17 m,
 bit-identical across runs — and four consecutive full-suite runs are green.
 The walks also keep `sky: false`, on its own merits: nothing in that file
 looks at a pixel.
+
+## Not fixed, because it is not what it looked like: "`glyphMapTargetLOD` skips z13"
+
+Reported as: the LOD picker steps **z14 → z12 at about a 4 km span**, so every
+building disappears in one step because the OpenMapTiles `building` source
+layer starts at z13. Investigated end to end; **the ladder does not skip a
+level**, and the gate that now says so is `widget.lodLadder.test.ts`.
+
+### What the ladder actually visits
+
+`glyphMapMercatorZooms(0, 14, 256)` declares a native resolution of
+`tileLonSpan / tileCols` = `1.40625 / 2^z` degrees per sample, strictly
+halving per level, and `glyphMapTargetLOD` chooses the coarsest level with
+`native(z) <= span / cols`. So level `z` owns exactly the octave
+`[cols·native(z), cols·native(z-1))` of view span — **every level, z13
+included, with no gap and no overlap**. At the `/maps` grid shape (140x63):
+
+```
+ z14 <  0.024033 deg      z13  0.024033 .. 0.048065      z12  0.048065 .. 0.096130
+```
+
+Measured three independent ways, all agreeing: the rule probed at both ends of
+all fifteen windows; the real widget sweep re-mounted across the span range
+(distinct `loadTile` zooms `14,13,12,…,0`, in order, none missing); and a
+**paced** wheel zoom-out through the real gesture path (`14, 13, 12`).
+
+The reported reading is a property of where two probes landed, not of the
+ladder. z13's octave is narrow ON THE GROUND: at Zurich's latitude
+(`cos 47.375 = 0.677`) it is **1.81 km to 3.62 km** of ground across the
+viewport. A probe at "a street view" and another at "about 4 km" straddle it
+and answer z14 and z12 — which is exactly the `[14, 12]` sequence the report
+describes, and exactly what the new gate prints when z13 is deleted from the
+declared ladder as a mutation.
+
+A skip IS possible, but only from a ladder that is not strictly monotonic in
+native resolution (a level baked at fewer samples per tile than its
+neighbours declares the same resolution as the level above it and becomes
+unreachable at every view). That hazard is demonstrated on a synthetic ladder
+in the same file and then excluded for the Mercator ladder and for this
+package's own equal-angle pyramids.
+
+### What is really happening, and it is the schema
+
+Buildings vanish at `span >= 0.048065 deg` (3.62 km of ground at Zurich)
+because that is the z13 → z12 step and **the tile at z12 carries no `building`
+layer at all** — `minzoom: 13`, read out of the vendored
+`fixtures/openfreemap/tilejson.json` by the test rather than quoted. Counted
+through the real `omt-buildings` row on a probe provider that mirrors only the
+depth rule: 36 of 36 footprints built at z14, 36 of 36 at z13 one part in 1e9
+under the boundary, **0 at z12** one part in 1e9 over it. Tile counts either
+side of that step are 4 (z13) and 2–4 (z12) — the step costs nothing and buys
+nothing; it just crosses the schema's floor.
+
+### Why the window is so much narrower than a raster map's, and what it would cost to widen it
+
+`glyphMapTargetLOD` compares the tile's generalisation size against
+`view.span / view.cols` — **character cells**. `tileResolution` 256 is the
+slippy-map tile's size in PIXELS. On `/maps` a cell is ~10.3 px wide
+(1440 / 140), so at any given view the picker lands ~3.4 levels shallower than
+the zoom those tiles were generalised for. Every OpenMapTiles `minzoom`
+therefore kicks in ~3.4 levels later than the schema intends: MapLibre at
+1440 px shows the same z13 building data across a ~19 km view; this shows it
+below 3.62 km.
+
+That is defensible for RESOLUTION — the output really is 140 cells wide, and
+one tile's worth of generalised detail per ~256 cells is the right amount of
+geometry for the grid. It is wrong for CONTENT, because a layer `minzoom` is a
+cartographic policy keyed to apparent scale, not to detail. The two live at
+different zooms for a vector basemap, and nothing in the current model
+separates them.
+
+Lowering `tileResolution` to the MapLibre-equivalent (`256 / pxPerCell` ≈ 25,
+i.e. one tile per ~256 px rather than per 256 cells) does widen the window,
+and the cost is prohibitive at the current sweep budget. Measured, same probe,
+140x63, tiles per sweep:
+
+| span (Zurich km) | `tileResolution` 256 | 32 | 25 |
+|---|---|---|---|
+| 0.048 (3.6) | z13, **4** | z14, 12 | z14, 12 |
+| 0.096 (7.2) | z12, **6** | z14, 35 | z14, 35 |
+| 0.190 (14.3) | z11, **4** | z14, **110** | z14, **110** |
+| 0.250 (18.9) | z10, **4** | z13, 63 | z13, 63 |
+| 0.490 (36.9) | z9, **4** | z12, 63 | z13, **169** |
+| 6.0 (452) | z6, **9** | z9, **110** | z9, **110** |
+| 90 (6785) | z2, **4** | z5, **135** | z5, **135** |
+
+20–40x the fetches, and past the ~100-tile sweep ceiling at most of the
+ladder — for a globe page that streams the planet on demand. So this is a
+product decision with a real price, not a bug fix, and it is NOT taken here.
+The cheaper shapes, if it is ever wanted, are: a per-LAYER LOD floor driven by
+the source's own declared `minzoom` (TileJSON already carries it, so it would
+be general rather than a building special case) which pays the deep-tile price
+only for the layers that need it; or keeping the last-loaded deeper tiles
+mounted across the step so buildings fade out with the view instead of
+vanishing at one span.
