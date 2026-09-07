@@ -1,0 +1,178 @@
+{
+  "recorded": "2026-09-07",
+  "query": "karl-liebknecht-strasse 29 berlin",
+  "view": {
+    "lon": 13.4,
+    "lat": 52.52,
+    "span": 0.5
+  },
+  "url": "https://photon.komoot.io/api/?q=karl-liebknecht-strasse+29+berlin&limit=6&lang=en&lat=52.52000&lon=13.40000&zoom=9&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 89274641,
+          "osm_key": "amenity",
+          "osm_value": "restaurant",
+          "type": "house",
+          "housenumber": "29",
+          "name": "Beast Berlin",
+          "street": "Karl-Liebknecht-Straße",
+          "locality": "Rosenthaler Vorstadt",
+          "district": "Mitte",
+          "city": "Berlin",
+          "country": "Germany",
+          "postcode": "10178",
+          "countrycode": "DE"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.4118534,
+            52.52429
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 1077038682,
+          "osm_key": "place",
+          "osm_value": "house",
+          "type": "house",
+          "housenumber": "29",
+          "street": "Karl-Liebknecht-Straße",
+          "locality": "Rosenthaler Vorstadt",
+          "district": "Mitte",
+          "city": "Berlin",
+          "country": "Germany",
+          "postcode": "10178",
+          "countrycode": "DE"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.4125265,
+            52.5248091
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 12561304083,
+          "osm_key": "amenity",
+          "osm_value": "fast_food",
+          "type": "house",
+          "housenumber": "29",
+          "name": "Pressecafé",
+          "street": "Karl-Liebknecht-Straße",
+          "locality": "Rosenthaler Vorstadt",
+          "district": "Mitte",
+          "city": "Berlin",
+          "country": "Germany",
+          "postcode": "10178",
+          "countrycode": "DE"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.4118753,
+            52.5242293
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 4870753096,
+          "osm_key": "place",
+          "osm_value": "house",
+          "type": "house",
+          "housenumber": "29",
+          "street": "Karl-Liebknecht-Straße",
+          "district": "Lindow",
+          "city": "Bernau bei Berlin",
+          "county": "Barnim",
+          "state": "Brandenburg",
+          "country": "Germany",
+          "postcode": "16321",
+          "countrycode": "DE"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.5829036,
+            52.6611828
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 242119195,
+          "osm_key": "building",
+          "osm_value": "detached",
+          "type": "house",
+          "housenumber": "29",
+          "street": "Karl-Liebknecht-Straße",
+          "district": "Bollensdorf",
+          "city": "Neuenhagen bei Berlin",
+          "county": "Märkisch-Oderland",
+          "state": "Brandenburg",
+          "country": "Germany",
+          "postcode": "15366",
+          "countrycode": "DE",
+          "extent": [
+            13.6903649,
+            52.5124143,
+            13.6905297,
+            52.5123143
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.6904438,
+            52.5123671
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 8047342035,
+          "osm_key": "place",
+          "osm_value": "house",
+          "type": "house",
+          "housenumber": "29",
+          "street": "Karl-Liebknecht-Straße",
+          "locality": "Neue Welt",
+          "district": "Alt-Rüdersdorf",
+          "city": "Rüdersdorf bei Berlin",
+          "county": "Märkisch-Oderland",
+          "state": "Brandenburg",
+          "country": "Germany",
+          "postcode": "15562",
+          "countrycode": "DE"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            13.8147981,
+            52.4697517
+          ]
+        }
+      }
+    ]
+  }
+}

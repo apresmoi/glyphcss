@@ -526,6 +526,49 @@
 .maps-search-metric--country {
   color: rgba(255, 232, 184, 0.45);
 }
+/* The seam between the two halves of the list, named. The reader must be able
+   to tell an instant, baked, offline row from one that came off the network a
+   moment ago — same register as a Dock folder heading, and a rule above it so
+   it reads as a divider rather than as a result. */
+.maps-search-group {
+  padding: 4px 8px 2px;
+  border-top: 1px solid rgba(255, 232, 184, 0.16);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.45);
+}
+.maps-search-group:first-child {
+  border-top: none;
+}
+/* An OSM row's metric is a WORD (`tower`, `street`), not a number, so it does
+   not take the readout cyan the population column has — that colour means
+   "measured value" everywhere else on this page. */
+.maps-search-metric--osm {
+  color: rgba(255, 232, 184, 0.45);
+  font-style: italic;
+}
+/* The egress disclosure and the OSM credit, in one line under the field.
+   Rendered from focus, before a single keystroke has left the machine, which
+   is the only time saying so is worth anything. Quieter than
+   `.maps-search-note` — it is standing text, not a status. */
+.maps-search-egress {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(255, 232, 184, 0.42);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.12);
+}
+.maps-search-egress a {
+  color: rgba(255, 232, 184, 0.68);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.maps-search-egress a:hover {
+  color: #38bdf8;
+}
 .maps-search-note {
   margin: 2px 0 0;
   padding: 4px 8px;

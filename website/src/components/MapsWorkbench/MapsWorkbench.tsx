@@ -94,6 +94,7 @@ import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
 import { MapWalkButton } from "./MapWalkButton";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
+import type { MapGeocodeView } from "./mapsGeocode";
 import {
   MAPS_CONTOUR_WINDOW_OFF,
   mapsLayerMaskFromVisibility,
@@ -580,6 +581,19 @@ export default function MapsWorkbench() {
     const map = mapRef.current;
     if (!map) return;
     void flyToMapSearchResult(map, result);
+  }, []);
+
+  /**
+   * Where the map is looking, for the geocoder's LOCATION BIAS
+   * (`mapsGeocode.ts`). Read off the live handle at REQUEST time rather than
+   * off this component's `centerLon`/`centerLat`/`span` state, so a request
+   * fired mid-drag biases on where the reader actually is; identity-stable, so
+   * it never re-arms the box's debounce. `null` before the widget exists is a
+   * legitimate answer — it simply drops the bias.
+   */
+  const getSearchView = useCallback((): MapGeocodeView | null => {
+    const view = mapRef.current?.getView();
+    return view ? { lon: view.center[0], lat: view.center[1], span: view.span } : null;
   }, []);
 
   /**
@@ -1673,7 +1687,7 @@ export default function MapsWorkbench() {
           <InstrumentViewport className="maps-viewport" elementRef={hostRef} />
           {providerError && <div className="maps-error">Couldn&apos;t load terrain data: {providerError}</div>}
           <StatsOverlay anchor="top-left" container={stageHost} />
-          <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} />
+          <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} getView={getSearchView} />
           <MapCompass tilt={tilt} bearing={bearing} isOrbitProjection={isOrbitProjectionId(projectionId)} onReset={onResetOrientation} />
           {/* Bottom right, the one map corner nothing else on this page
               claims — the entrance to street level, always present and

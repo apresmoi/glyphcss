@@ -1,0 +1,183 @@
+{
+  "recorded": "2026-09-07",
+  "query": "obelisco",
+  "view": {
+    "lon": -58.44,
+    "lat": -34.6,
+    "span": 0.5
+  },
+  "url": "https://photon.komoot.io/api/?q=obelisco&limit=6&lang=en&lat=-34.60000&lon=-58.44000&zoom=9&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1332861812,
+          "osm_key": "building",
+          "osm_value": "obelisk",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "Avenida Corrientes",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043AAJ",
+          "countrycode": "AR",
+          "extent": [
+            -58.3816695,
+            -34.6036779,
+            -58.3815897,
+            -34.6037407
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3816296,
+            -34.6037093
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 243180367,
+          "osm_key": "historic",
+          "osm_value": "memorial",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "Bulevar José C. Cardona - Florencio Sánchez",
+          "city": "Cardona",
+          "state": "Soriano",
+          "country": "Uruguay",
+          "postcode": "75200",
+          "countrycode": "UY",
+          "extent": [
+            -57.3725665,
+            -33.8734969,
+            -57.3724345,
+            -33.8736083
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -57.3724996,
+            -33.8735495
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 2642343843,
+          "osm_key": "shop",
+          "osm_value": "bakery",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "General Leandro Gómez",
+          "city": "Las Piedras",
+          "state": "Canelones",
+          "country": "Uruguay",
+          "postcode": "90200",
+          "countrycode": "UY"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -56.2150655,
+            -34.7252533
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 459217168,
+          "osm_key": "shop",
+          "osm_value": "bakery",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "Joaquín Torres García",
+          "city": "Las Piedras",
+          "state": "Canelones",
+          "country": "Uruguay",
+          "postcode": "90200",
+          "countrycode": "UY",
+          "extent": [
+            -56.2140719,
+            -34.7251521,
+            -56.2139101,
+            -34.7252295
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -56.2139907,
+            -34.7251978
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 2590668736,
+          "osm_key": "historic",
+          "osm_value": "memorial",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "Avenida Libertad",
+          "city": "Urdinarrain",
+          "county": "Distrito Pehuajó al Norte",
+          "state": "Entre Ríos Province",
+          "country": "Argentina",
+          "countrycode": "AR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.8856768,
+            -32.689566
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 6253932226,
+          "osm_key": "historic",
+          "osm_value": "memorial",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "San Martín",
+          "district": "San Carlos Sud",
+          "city": "San Carlos Sud",
+          "county": "Departamento Las Colonias",
+          "state": "Santa Fe",
+          "country": "Argentina",
+          "postcode": "S3017",
+          "countrycode": "AR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -61.1006702,
+            -31.7608123
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -69,13 +69,45 @@ const POLYGON_SOURCE_LAYER = "admin0";
  */
 export const MAP_SEARCH_POINT_SPAN = 6;
 
+/**
+ * The span a geocoded OpenStreetMap POINT result is framed at, degrees of
+ * longitude — the second floor {@link mapSearchFlyTarget} chooses between.
+ *
+ * {@link MAP_SEARCH_POINT_SPAN} is wrong for a landmark by four orders of
+ * AREA. Six degrees is ~660 km; on a 140-column grid that is ~4.8 km per
+ * character cell, and the Eiffel Tower's own OSM extent is 0.0024 degrees —
+ * one eighteenth of a single cell. A reader who searched a landmark would
+ * arrive somewhere the landmark is not merely small but literally sub-cell.
+ * Nor does the ARGUMENT behind the six degrees transfer: it is an argument
+ * about TERRAIN (the global relief pyramid's finest sample is 0.125 degrees,
+ * so a closer view only gains emptiness), and a landmark's subject is not the
+ * terrain — it is the buildings and streets, which come from OpenFreeMap at
+ * z14 and are at full detail here.
+ *
+ * 0.01 degrees is ~1.1 km, ~8 m per cell on that same grid: a block or two
+ * across, the scale at which a named building is a shape rather than a dot.
+ * It also sits inside `MAP_WALK_MAX_ENTRY_SPAN_DEG` (0.05, this page's own
+ * definition of "near the ground"), so a searched landmark arrives at a view
+ * the reader can step INTO walk mode from without zooming again.
+ *
+ * Like the other one it is a FLOOR: a result carrying a real `extent` wider
+ * than this is framed by that extent instead, through the same code path a
+ * country takes.
+ */
+export const MAP_SEARCH_OSM_SPAN = 0.01;
+
 /** Fraction of a country's own size added as margin when framing it, so its coasts are not flush with the viewport edge. Mirrors `MAP_OSM_FLY_PADDING`. */
 export const MAP_SEARCH_BOUNDS_PADDING = 0.15;
 
 /** How many results the list offers. */
 export const MAP_SEARCH_LIMIT = 8;
 
-export type MapSearchKind = "country" | "place";
+/**
+ * Where a result came from. `country`/`place` are the baked local pyramids;
+ * `osm` is a live geocoder row (`mapsGeocode.ts`) — the distinction the list
+ * shows the reader, and the one {@link mapSearchResultSpan} keys on.
+ */
+export type MapSearchKind = "country" | "place" | "osm";
 
 export interface MapSearchResult {
   /** Stable React key — the feature's own baked id, namespaced by kind. */
@@ -94,6 +126,12 @@ export interface MapSearchResult {
    * ordering against the real column rather than against a derived score.
    */
   readonly prominence: number;
+  /**
+   * The right-hand column's word, when the result can name itself better than
+   * a number can (`tower`, `street`, `obelisk`). Only a geocoder row carries
+   * one; a country states that it is one and a place states its population.
+   */
+  readonly metric?: string;
 }
 
 interface MapSearchEntry extends MapSearchResult {
@@ -156,7 +194,7 @@ export function mapSearchMatchScore(key: string, query: string): number {
  * so no arithmetic could order them against each other honestly; the kind
  * split is what makes the comparison well-defined at all.
  */
-const KIND_RANK: Record<MapSearchKind, number> = { country: 1, place: 0 };
+const KIND_RANK: Record<MapSearchKind, number> = { country: 1, place: 0, osm: -1 };
 
 /**
  * Rank the index against a query.
@@ -224,21 +262,40 @@ export function mapSearchFeatureBounds(feature: GlyphMapVectorFeature): GlyphMap
 }
 
 /**
+ * The smallest span this result may be framed at — the floor
+ * {@link mapSearchFlyTarget} both centres on and refuses to go inside.
+ *
+ * The ONE thing that differs between a country and a street corner, which is
+ * why there is one fly path and not two: a geocoder row is a building, a
+ * street or an address and gets {@link MAP_SEARCH_OSM_SPAN}; a baked country
+ * or place is a region and gets {@link MAP_SEARCH_POINT_SPAN}.
+ */
+export function mapSearchResultSpan(result: MapSearchResult): number {
+  return result.kind === "osm" ? MAP_SEARCH_OSM_SPAN : MAP_SEARCH_POINT_SPAN;
+}
+
+/**
  * Where a selected result flies to.
  *
- * A country with a real extent is framed by that extent plus a proportional
- * margin; everything else — every place, and every country the polygon
- * pyramid omits — is centred at {@link MAP_SEARCH_POINT_SPAN}. A country
- * SMALLER than that span takes the point span too: Luxembourg's own box is
- * 0.8 degrees wide, and framing it would land below the terrain pyramid's
- * native resolution for the same reason a city-block span would.
+ * A result with a real extent is framed by that extent plus a proportional
+ * margin; everything else — every baked place, every country the polygon
+ * pyramid omits, and every geocoder row that reported no extent — is centred
+ * at its own {@link mapSearchResultSpan}. A result SMALLER than that span
+ * takes the span too: Luxembourg's own box is 0.8 degrees wide and framing it
+ * would land below the terrain pyramid's native resolution, and one OSM way
+ * fragment of Avenida Corrientes is 130 m long, which would frame 130 m of
+ * asphalt instead of the street.
+ *
+ * This is deliberately ONE path for both halves of the list. The only thing a
+ * geocoder result changes is the floor.
  */
 export function mapSearchFlyTarget(result: MapSearchResult): GlyphMapFlyToTarget {
+  const floor = mapSearchResultSpan(result);
   const bounds = result.bounds;
   if (bounds) {
     const lonSpan = bounds.east - bounds.west;
     const latSpan = bounds.north - bounds.south;
-    if (Math.max(lonSpan, latSpan) >= MAP_SEARCH_POINT_SPAN) {
+    if (Math.max(lonSpan, latSpan) >= floor) {
       const padLon = lonSpan * MAP_SEARCH_BOUNDS_PADDING;
       const padLat = latSpan * MAP_SEARCH_BOUNDS_PADDING;
       return {
@@ -248,9 +305,9 @@ export function mapSearchFlyTarget(result: MapSearchResult): GlyphMapFlyToTarget
         },
       };
     }
-    return { center: [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2], span: MAP_SEARCH_POINT_SPAN };
+    return { center: [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2], span: floor };
   }
-  return { center: [result.lngLat[0], result.lngLat[1]], span: MAP_SEARCH_POINT_SPAN };
+  return { center: [result.lngLat[0], result.lngLat[1]], span: floor };
 }
 
 /**

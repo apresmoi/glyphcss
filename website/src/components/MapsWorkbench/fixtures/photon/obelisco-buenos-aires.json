@@ -1,0 +1,200 @@
+{
+  "recorded": "2026-09-07",
+  "query": "obelisco buenos aires",
+  "view": {
+    "lon": 0.0,
+    "lat": 0.0,
+    "span": 360.0
+  },
+  "url": "https://photon.komoot.io/api/?q=obelisco+buenos+aires&limit=6&lang=en&lat=0.00000&lon=0.00000&zoom=0&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1332861812,
+          "osm_key": "building",
+          "osm_value": "obelisk",
+          "type": "house",
+          "name": "Obelisco",
+          "street": "Avenida Corrientes",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043AAJ",
+          "countrycode": "AR",
+          "extent": [
+            -58.3816695,
+            -34.6036779,
+            -58.3815897,
+            -34.6037407
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3816296,
+            -34.6037093
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 4683530378,
+          "osm_key": "tourism",
+          "osm_value": "hotel",
+          "type": "house",
+          "housenumber": "1344",
+          "name": "Hotel Ibis Buenos Aires Obelisco",
+          "street": "Avenida Corrientes",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043ABN",
+          "countrycode": "AR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3858207,
+            -34.6041298
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1335823494,
+          "osm_key": "highway",
+          "osm_value": "footway",
+          "type": "street",
+          "name": "Pasaje Obelisco Sur",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043AAW",
+          "countrycode": "AR",
+          "extent": [
+            -58.3809031,
+            -34.604403,
+            -58.3808677,
+            -34.6044039
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3808854,
+            -34.6044034
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1335823497,
+          "osm_key": "highway",
+          "osm_value": "footway",
+          "type": "street",
+          "name": "Pasaje Obelisco Norte",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043AAY",
+          "countrycode": "AR",
+          "extent": [
+            -58.3823185,
+            -34.6030146,
+            -58.3822785,
+            -34.6030167
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3822985,
+            -34.6030157
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1299665834,
+          "osm_key": "highway",
+          "osm_value": "footway",
+          "type": "street",
+          "name": "Pasaje Obelisco Norte",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1009ABK",
+          "countrycode": "AR",
+          "extent": [
+            -58.3809536,
+            -34.6029529,
+            -58.380952,
+            -34.6029801
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3809528,
+            -34.6029665
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 11308940949,
+          "osm_key": "shop",
+          "osm_value": "kiosk",
+          "type": "house",
+          "housenumber": "327",
+          "name": "El Obelisco",
+          "street": "Buenos Aires",
+          "district": "Área Centro Este",
+          "city": "Neuquén",
+          "county": "Departamento Confluencia",
+          "state": "Neuquén",
+          "country": "Argentina",
+          "postcode": "Q8300",
+          "countrycode": "AR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -68.0574891,
+            -38.951507
+          ]
+        }
+      }
+    ]
+  }
+}

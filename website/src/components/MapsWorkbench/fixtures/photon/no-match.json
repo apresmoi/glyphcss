@@ -1,0 +1,15 @@
+{
+  "recorded": "2026-09-07",
+  "query": "zzzzqqqxxvv",
+  "view": {
+    "lon": 0.0,
+    "lat": 0.0,
+    "span": 360.0
+  },
+  "url": "https://photon.komoot.io/api/?q=zzzzqqqxxvv&limit=6&lang=en&lat=0.00000&lon=0.00000&zoom=0&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": []
+  }
+}
