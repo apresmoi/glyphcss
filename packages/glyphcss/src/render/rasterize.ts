@@ -2469,6 +2469,14 @@ function rasterizeSolid(
   // so it works for plain text AND colored spans; clearing depth lets the
   // supersample downsample skip the blanked subcells.
   const occ = scene.occlusion;
+  // Which cells belong to ANOTHER layer — the one fact `glyphBuf`/`depthBuf`
+  // cannot carry, since a blanked cell and an empty one are the same `" "` at
+  // `-Infinity`. See `CellGrid.occluded`. Allocated only when a shared id-map
+  // exists AND something will actually read it, so a scene with no detail
+  // layer, and one with no `transformCells` hook, both pay nothing — including
+  // the loop's own `myDepth === -Infinity` fast path, which stays exactly as
+  // it was whenever this buffer is absent.
+  let occludedBuf: Uint8Array | null = occ && scene.transformCells ? new Uint8Array(cols * rows) : null;
   if (occ) {
     const idm = occ.idMap, ocols = occ.cols, orows = occ.rows, myId = occ.layerId;
     // `foreignOnly` layers (transparent detail meshes under a foreign occluder)
@@ -2496,7 +2504,13 @@ function rasterizeSolid(
       for (let c = 0; c < cols; c++) {
         const idx = rowBase + c;
         const myDepth = depthBuf[idx]!;
-        if (myDepth === -Infinity) continue;
+        // Nothing of this pass's own here, so there is nothing to blank — but
+        // the cell may still BELONG to another layer, and `occluded` is an
+        // ownership answer rather than an "was erased" one (a base grid whose
+        // meshes all separated has no depth anywhere, and every cell a detail
+        // layer covers is still that layer's). Without the buffer this is the
+        // original fast path, unchanged.
+        if (myDepth === -Infinity && occludedBuf === null) continue;
         const refColF = occ.colScale * (c * invSS) + occ.colOffset;
         const refCol = Math.floor(refColF);
         if (refCol < 0 || refCol >= ocols) continue;
@@ -2506,6 +2520,10 @@ function rasterizeSolid(
         // (or empty) → keep; a layer never occludes itself. `foreignOnly` layers
         // blank solely under the foreign occluder's stamp.
         if (foreignOnly ? owner === GLYPH_FOREIGN_OCCLUDER_ID : (owner !== -1 && owner !== myId)) {
+          // Owned by another layer with nothing of ours to erase: record the
+          // ownership and stop. There is no local depth to refine against, and
+          // every buffer is already at its empty value.
+          if (myDepth === -Infinity) { occludedBuf![idx] = 1; continue; }
           // The foreign stamp (`setForeignOcclusion`) overwrites the id-map's
           // owner but NOT its depth — the retained depth there still belongs
           // to whatever local surface won the cell — and a scene stacked above
@@ -2523,6 +2541,7 @@ function rasterizeSolid(
           }
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
+          if (occludedBuf) occludedBuf[idx] = 1;
           if (shadeBuf) shadeBuf[idx] = NaN;
           if (colorBuf) colorBuf[idx] = null;
           if (worldPosBuf) {
@@ -2677,6 +2696,28 @@ function rasterizeSolid(
     // being a no-op alongside `temporalBlend` reprojection.
     finalWeight = null;
   }
+  // `occluded` at OUTPUT resolution (see `CellGrid.occluded`). Under
+  // supersampling a cell is only foreign-owned when NONE of its own subcells
+  // survived (`finalDepth === -Infinity`) and at least one of them was
+  // blanked: a cell that kept any of its own surface still has real content
+  // of its own for the hook to test against, and must not be treated as
+  // belonging to another layer over a partially covered edge.
+  if (occludedBuf && supersample > 1) {
+    const ds = new Uint8Array(outCols * outRows);
+    for (let r = 0; r < outRows; r++) {
+      for (let c = 0; c < outCols; c++) {
+        const o = r * outCols + c;
+        if (finalDepth[o] !== -Infinity) continue;
+        let any = 0;
+        for (let sy = 0; sy < supersample && !any; sy++) {
+          const base = (r * supersample + sy) * cols + c * supersample;
+          for (let sx = 0; sx < supersample; sx++) if (occludedBuf[base + sx]) { any = 1; break; }
+        }
+        ds[o] = any;
+      }
+    }
+    occludedBuf = ds;
+  }
   // Post-rasterize cell hook (M4 composition effects). No-op + byte-identical
   // when scene.transformCells is absent (block skipped entirely). Output-res
   // depth/surface fields share one representative winner after downsampling.
@@ -2694,6 +2735,7 @@ function rasterizeSolid(
       finalExitPos,
       finalWinnerMesh,
       finalObjectNormal,
+      occludedBuf,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;

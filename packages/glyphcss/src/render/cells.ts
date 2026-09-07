@@ -46,6 +46,29 @@ export interface CellGrid {
    */
   depth: Float64Array;
   /**
+   * `1` where CROSS-LAYER occlusion blanked this cell: a DIFFERENT output
+   * layer owns it in the scene's shared id-map, so whatever this pass drew
+   * here was erased in favour of the layer that actually paints it. `0`
+   * everywhere else, INCLUDING a cell that is simply empty.
+   *
+   * Present only when the pass ran with a shared occlusion id-map at all
+   * (`RasterizeContext.occlusion`), i.e. only once some opaque mesh has
+   * separated into its own `<pre>`. A scene with no detail layer never
+   * allocates it and is byte-identical without it.
+   *
+   * It exists because `char`/`depth` cannot tell the two cases apart —
+   * a blanked cell is `" "` at `-Infinity`, exactly what open sky is — and a
+   * `transformCells` hook that PAINTS (rather than recolours) needs to. Its
+   * rule is ownership, not depth: a stamp belongs in the grid whose layer
+   * owns the cell, and the hook runs over every one of the frame's grids, so
+   * the layer that does own it stamps there against its own real depth.
+   * `@glyphcss/maps`' `line`/`contour` stroke layers are the reference
+   * consumer — without this a road stamped into the BASE grid drew straight
+   * through a building that had left it for a `density` of its own, because
+   * the base pass's depth buffer holds no detail-layer geometry at all.
+   */
+  occluded?: Uint8Array;
+  /**
    * Final solid-mode shading scalar that selected the depth-winning glyph.
    * Values are clamped to `0..1`; empty cells are `NaN`. Present only when a
    * consumer requested retained shading data.
@@ -1033,6 +1056,7 @@ export function applyCellHook(
   objectExitSrc: Float32Array | null = null,
   winnerMeshSrc: Int32Array | null = null,
   objectNormalSrc: Float32Array | null = null,
+  occludedSrc: Uint8Array | null = null,
 ): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
   if (!hook) return { char, color, weight: weightSrc };
   const n = cols * rows;
@@ -1066,6 +1090,7 @@ export function applyCellHook(
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = albedoRgbSrc;
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;
   if (weightSrc !== null && weightSrc.length >= n) grid.weight = weightSrc;
+  if (occludedSrc !== null && occludedSrc.length >= n) grid.occluded = occludedSrc;
   const result = hook(grid) ?? grid;
   assertCellGridShape(result);
   if (result.cols !== cols || result.rows !== rows) {

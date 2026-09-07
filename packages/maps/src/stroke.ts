@@ -155,6 +155,32 @@ function surfaceSlope(d: number, back: number, forward: number): number {
  * missing the evidence, and manufacturing an allowance out of a single
  * difference is exactly what the slope scaling used to do everywhere.
  */
+/**
+ * Whether this cell belongs to a DIFFERENT output layer than the grid being
+ * stamped — glyphcss's cross-layer occlusion verdict, surfaced on
+ * {@link CellGrid.occluded} because nothing else in the grid can express it
+ * (a blanked cell is `" "` at `-Infinity`, byte for byte what open sky is).
+ *
+ * The depth test cannot answer this and never could: a grid's `depth` holds
+ * only the geometry of the pass that produced it, so a mesh that separated
+ * into its own `<pre>` — for a `density`, a private `renderMode`, a
+ * `glyphPalette` — is simply ABSENT from the base grid's buffer, at every
+ * allowance. That was the third "the roads are on top of the buildings"
+ * report: with `omt-buildings` alone at `1.7` and every other OSM row at `1`,
+ * all 23 cells of a road inside a 60 m footprint inked over base cells
+ * reading `-Infinity`, unchanged across `781486f` and its parent — the
+ * curvature allowance was never in the path.
+ *
+ * Skipping costs nothing: the composed hook stamps into EVERY grid the frame
+ * renders, so the cell is drawn by the layer that owns it, against that
+ * layer's own real depth. Undefined on every grid glyphcss rendered without a
+ * shared id-map (no detail layer in the scene), where this is byte-identical
+ * to the test not existing.
+ */
+function foreignOwned(grid: CellGrid, idx: number): boolean {
+  return grid.occluded !== undefined && grid.occluded[idx] === 1;
+}
+
 function curvature(d: number, back: number, forward: number): number {
   const a = Number.isFinite(back) ? d - back : NaN;
   const b = Number.isFinite(forward) ? forward - d : NaN;
@@ -201,6 +227,7 @@ export function stampGlyphMapPolyline(
       const rowI = Math.floor(row);
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) continue;
       const idx = rowI * grid.cols + colI;
+      if (foreignOwned(grid, idx)) continue;
       const depth = a.depth + (b.depth - a.depth) * t;
       const subCol = col - colI;
       const subRow = row - rowI;

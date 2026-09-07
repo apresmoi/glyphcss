@@ -1762,6 +1762,44 @@ layer, tier-following, and the unbroken run over a coarsened mesh),
 border ink now lands on the ridge's own row at every span, derived the same
 analytic way).
 
+#### The third report was not about the allowance at all
+
+`/maps?m=…M1a1a1a1a1a1h1a1a1a1a…w1` — "I can clearly see the roads above the
+buildings". The `M` token is the per-row OSM density tuple, and it reads nine
+rows at `1` and `omt-buildings` at `1.7`. That one number is the whole defect.
+
+A mesh-backed layer whose `density` differs from the scene's pops into its own
+`<pre>` (a glyphcss detail layer), while a `line` at `density: 1` is stamped
+by the composed hook into the BASE grid — and a base grid's `CellGrid.depth`
+holds the base pass's geometry and nothing else. The building was not merely
+forgiven by a too-generous allowance; it was **absent from the buffer the
+stroke tests against**, at every allowance and every building height.
+Measured on `widget.strokeDensityOcclusion.test.ts`' fixture (Zurich, 0.006
+degree span, 40 degree pitch, 140x63, a 60 m block on an 89 m footprint): all
+**23 of 23** road cells strictly inside the footprint inked, over base cells
+reading `-Infinity`, and **identically at `781486f` and at its parent
+`2d27c55`** — the curvature allowance neither caused nor could affect it. The
+three neighbouring pairings were already correct and are pinned beside it:
+both layers at `1` (0 cells), both at `1.7` (0 — a stroke with a density of
+its own goes to a meshless viewport overlay, whose depth pass is built from
+every opaque mesh in the scene), and buildings `1` with roads `1.7` (0).
+
+The fix is glyphcss's, not this package's, because only glyphcss knows the
+answer: its cross-layer occlusion pass already BLANKS exactly those base cells
+for belonging to the detail layer, it just could not say so — a blanked cell
+is `" "` at `-Infinity`, byte for byte what open sky is. `rasterize` now
+records the verdict on `CellGrid.occluded` (`docs/design/detail-layers.md`,
+"Cross-layer occlusion") and `stampGlyphMapPolyline` honours it: **a stamp
+paints a cell only in the grid whose layer owns it.** Nothing is lost, because
+the same composed hook runs over every grid the frame renders, so the owning
+layer stamps there against its own real depth — and the ink that used to
+double up in a detail layer's own `<pre>` outside its silhouette goes with it.
+
+`contour` was never exposed: its `requireSurface` gate already skips a cell
+whose depth is non-finite, which is exactly what a blanked cell reads as.
+
+Gate: `widget.strokeDensityOcclusion.test.ts`.
+
 **Contour needs none of this and is byte-identical.** A `contour` layer
 projects no vertex and runs no depth test at all: it samples per CELL
 (`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inks a level
