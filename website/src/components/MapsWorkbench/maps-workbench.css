@@ -730,3 +730,84 @@
   color: #f97316;
   font-variant-numeric: tabular-nums;
 }
+
+/* The plan-view MINIMAP — the fourth of this page's map overlays, in the same
+   register and the same stacking as `.maps-search` (top centre),
+   `.maps-compass` (top right) and `.maps-walk` (bottom right). It takes the
+   bottom LEFT, stacked directly above `.synth-export-bar` (12px + its own
+   34px row), which is the last corner with room; `.maps-attribution` keeps
+   the bottom centre.
+
+   `pointer-events: none` on the whole thing, which is the one place this
+   differs from its three siblings: they are controls and this is an
+   INSTRUMENT. It is not a map you drive (`MapMinimap.tsx` mounts it with
+   every control off), so a click on it belongs to the map underneath rather
+   than being swallowed by a 200px box sitting over the drag surface. */
+.maps-minimap {
+  position: absolute;
+  left: var(--overlay-left, 12px);
+  bottom: calc(12px + 34px);
+  z-index: 16;
+  pointer-events: none;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  background: rgba(5, 7, 12, 0.9);
+}
+/* Shrink-to-fit around the `<pre>`, so the cone's percentage width is a
+   percentage of the RENDERED grid rather than of some box the grid happens to
+   sit inside. `.glyph-scene` is `display: block` and the `<pre>` inside it is
+   `inline-block`, so an inline-block frame takes the grid's own width. */
+.maps-minimap__frame {
+  position: relative;
+  display: inline-block;
+  vertical-align: bottom;
+}
+/* 48x26 cells at a 7px cell is a ~202x182 px inset — `line-height: 1` comes
+   from glyphcss's own base styles, so the cell is one advance by one
+   font-size and this is the only number that sets the inset's size. */
+.maps-minimap__host {
+  font-size: 7px;
+}
+.maps-minimap__host .glyph-output {
+  color: rgba(226, 232, 240, 0.94);
+  cursor: default;
+}
+/* The view cone: the walker's own field of view and their own horizon, so its
+   width is `2 * far / span` of the inset and its half-angle is the walk
+   camera's FOV. It points straight UP and never rotates — the inset is
+   heading-up, so up IS where the reader is facing. */
+.maps-minimap__cone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  fill: rgba(56, 189, 248, 0.18);
+  stroke: rgba(56, 189, 248, 0.5);
+  stroke-width: 2;
+}
+/* The reader. The same orange the Dock uses for a value that is in force,
+   because that is what this is: a position, not a control. */
+.maps-minimap__here {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 0 1px rgba(5, 7, 12, 0.85);
+}
+
+/* Under the mobile breakpoint the drawers own the bottom edge and the map
+   surface is a fraction of its desktop size, where a fixed 202px inset is a
+   quarter of the picture rather than a corner of it. Dropped entirely, which
+   also destroys the widget behind it (`MapMinimap.tsx` mounts on `visible`)
+   — the same trade `.synth-export-bar` makes two breakpoint blocks up. */
+@media (max-width: 760px) {
+  .maps-minimap {
+    display: none;
+  }
+}

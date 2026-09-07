@@ -93,6 +93,8 @@ import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
 import { MapWalkButton } from "./MapWalkButton";
+import { MapMinimap } from "./MapMinimap";
+import { mapMinimapVisible } from "./mapsMinimap";
 import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type MapSearchResult } from "./mapsSearch";
 import type { MapGeocodeView } from "./mapsGeocode";
 import {
@@ -607,6 +609,15 @@ export default function MapsWorkbench() {
    * needing a refresh.
    */
   const walkGateReason = mapWalkReason({ projectionId, span });
+
+  /**
+   * Whether the plan-view inset is on screen (`mapsMinimap.ts`). Walking it
+   * always is; otherwise only once the main view is inside street scale,
+   * where an overview showing four times its area is worth a second widget.
+   * Live state, like `walkGateReason`, so it appears and disappears as the
+   * reader zooms.
+   */
+  const minimapOn = mapMinimapVisible({ walking: walkOn, span });
 
   const layersFolderInputs: LayersFolderInputs = {
     background: { color: backgroundColor, onColor: setBackgroundColor },
@@ -1695,6 +1706,20 @@ export default function MapsWorkbench() {
               `mapsKit.tsx`'s View folder carries the argument for why it is
               no longer a Dock row. */}
           <MapWalkButton walking={walkOn} reason={walkGateReason} budget={mapWalkBudgetLabel()} onToggle={setWalkOn} />
+          {/* Bottom left, above the export bar — the plan view that says WHERE
+              the street-level picture is. It owns a second `createGlyphMap`
+              off this page's ONE OSM source, and takes its pose from the same
+              rAF-throttled `syncViewState` state the Dock readouts do, gated
+              by `mapsMinimap.ts`'s update rule (`MapMinimap.tsx`). */}
+          <MapMinimap
+            visible={minimapOn}
+            walking={walkOn}
+            source={osmSource}
+            projectionId={projectionId}
+            centerLon={centerLon}
+            centerLat={centerLat}
+            bearing={bearing}
+          />
           <div className="synth-export-bar">
             <button type="button" className="gw-code-panel__action" onClick={handleCopyAscii} title="Copy the rendered ASCII map to the clipboard">
               {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
