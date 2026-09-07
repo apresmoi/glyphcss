@@ -311,7 +311,10 @@ describe("the card states what the choice costs", () => {
       sublayers: MAP_OSM_SUBLAYERS.map((s) => ({
         ...s,
         on: s.id !== "omt-boundaries",
-        density: s.id === "omt-waterways" ? 2 : s.id === "omt-roads" ? 3 : 4,
+        // Boundaries is the only row holding 4, and it is off. Every stroke
+        // row this test is not about sits at 1x, which asks for no overlay
+        // at all — so the count below is exactly waterways + roads.
+        density: s.id === "omt-waterways" ? 2 : s.id === "omt-roads" ? 3 : s.id === "omt-boundaries" ? 4 : 1,
       })),
     });
     expect(strokeGrids(host)).toBe("2 extra passes");

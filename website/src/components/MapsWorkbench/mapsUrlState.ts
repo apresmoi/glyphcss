@@ -117,10 +117,19 @@ export interface MapsUrlState {
    *
    * A tuple here, where the six per-LAYER densities above are one token
    * each, because the two have opposite common cases: those six are touched
-   * one at a time, while the master gesture writes all ten of these at once,
+   * one at a time, while the master gesture writes every one of these at once,
    * so a per-row token set would spend ten tokens to say what one says.
    */
   osmDensities: readonly number[];
+  /**
+   * The densities of the OSM rows PAST {@link osmDensities}' frozen ten,
+   * positionally over the tail of {@link MAPS_OSM_SUBLAYER_KEYS} — token
+   * `J`, width {@link MAPS_OSM_DENSITY_EXT_SLOTS}.
+   *
+   * A second token rather than a wider `M`: see
+   * {@link MAPS_OSM_DENSITY_EXT_SLOTS}.
+   */
+  osmDensitiesExt: readonly number[];
   fillDensity: number;
   extrusionDensity: number;
 
@@ -208,6 +217,11 @@ export const MAPS_LAYER_DEFAULT_ON: readonly MapsLayerKey[] = ["terrain", "borde
 export const MAPS_OSM_SUBLAYER_KEYS = [
   "omt-landcover", "omt-landuse", "omt-water", "omt-waterways", "omt-roads",
   "omt-buildings", "omt-boundaries", "omt-places", "omt-peaks", "omt-pois",
+  // Appended when `@glyphcss/maps` grew rows for three OpenMapTiles source
+  // layers it had never decoded (`park`, `aeroway`, `water_name`). Bits
+  // 10-12 of the same `O` int, which has 31 of them — so no existing link
+  // changes meaning, and a link written before this reads all three as OFF.
+  "omt-parks", "omt-aeroways", "omt-water-labels",
 ] as const;
 
 /** Wire order for the point-dataset enums — append-only for the same reason (`decodePackedEnum` resolves by index). */
@@ -251,21 +265,51 @@ export function mapsOsmSublayersFromMask(mask: number): Record<string, boolean> 
  * itself the wire format: appending an eleventh row and widening this in
  * place would make every already-shared `M` link decode the token AFTER it
  * as a density, and `decodePacked` would strand everything from there on.
- * `mapsUrlState.osmDensity.test.ts` asserts the two lists still match, so a
+ * `mapsUrlState.osmDensity.test.ts` asserts this width plus
+ * {@link MAPS_OSM_DENSITY_EXT_SLOTS} still covers the row list exactly, so a
  * package-side insertion goes red here — the same treatment
  * `MAPS_OSM_SUBLAYER_KEYS`' own cross-check gets — rather than quietly
  * rewriting every shared link. Growing past it means a NEW token (or a
- * version bump), not a wider one.
+ * version bump), not a wider one: that is what `J` is, and a fourteenth row
+ * means a third token on the same rule.
  */
 export const MAPS_OSM_DENSITY_SLOTS = 10;
 
-/** Pack the OSM card's per-row density record into {@link MapsUrlState.osmDensities}. A row the record does not carry packs at the 1x default. */
+/**
+ * The SECOND density tuple's frozen width (token `J`) — the OSM rows past
+ * {@link MAPS_OSM_DENSITY_SLOTS}.
+ *
+ * When `@glyphcss/maps` grew rows for `park`, `aeroway` and `water_name`,
+ * the row list went past `M`'s frozen ten. Widening `M` in place was never
+ * available: a `floatTuple` reads its declared width and then hands the
+ * cursor to the next token, so an eleven-slot `M` would read every
+ * already-shared ten-slot link's FOLLOWING token as a density and strand
+ * every field from there on. A NEW token instead leaves `M` meaning exactly
+ * what it always meant — the first ten rows, in the first ten rows' order —
+ * and costs a legacy link nothing, since it carries no `J` and every
+ * appended row therefore opens at 1x.
+ *
+ * Frozen at THREE rather than given headroom, for the reason `M` is frozen
+ * at ten: the width is the wire format either way, so spare slots would only
+ * move the same breakage to a fourteenth row while charging every `J`-
+ * carrying link for the empties. A fourteenth row means another token, and
+ * `mapsUrlState.osmDensity.test.ts` asserts the two widths sum to the row
+ * count so the breach is loud.
+ */
+export const MAPS_OSM_DENSITY_EXT_SLOTS = 3;
+
+/** Pack the FIRST ten rows' densities into {@link MapsUrlState.osmDensities}. A row the record does not carry packs at the 1x default. */
 export function mapsOsmDensitiesFromRecord(densities: Readonly<Record<string, number>>): number[] {
-  return MAPS_OSM_SUBLAYER_KEYS.map((key) => densities[key] ?? MAP_OSM_DEFAULT_DENSITY);
+  return MAPS_OSM_SUBLAYER_KEYS.slice(0, MAPS_OSM_DENSITY_SLOTS).map((key) => densities[key] ?? MAP_OSM_DEFAULT_DENSITY);
 }
-/** The inverse of {@link mapsOsmDensitiesFromRecord} — always a complete record over {@link MAPS_OSM_SUBLAYER_KEYS}. */
-export function mapsOsmDensityRecordFromTuple(tuple: readonly number[]): Record<string, number> {
-  return Object.fromEntries(MAPS_OSM_SUBLAYER_KEYS.map((key, i) => [key, tuple[i] ?? MAP_OSM_DEFAULT_DENSITY]));
+/** Pack the rows PAST the frozen ten into {@link MapsUrlState.osmDensitiesExt}. Same rule, second token. */
+export function mapsOsmDensitiesExtFromRecord(densities: Readonly<Record<string, number>>): number[] {
+  return MAPS_OSM_SUBLAYER_KEYS.slice(MAPS_OSM_DENSITY_SLOTS).map((key) => densities[key] ?? MAP_OSM_DEFAULT_DENSITY);
+}
+/** The inverse of the two packers — always a complete record over {@link MAPS_OSM_SUBLAYER_KEYS}, from both tokens together. */
+export function mapsOsmDensityRecordFromTuple(tuple: readonly number[], ext: readonly number[] = []): Record<string, number> {
+  const all = [...tuple.slice(0, MAPS_OSM_DENSITY_SLOTS), ...ext];
+  return Object.fromEntries(MAPS_OSM_SUBLAYER_KEYS.map((key, i) => [key, all[i] ?? MAP_OSM_DEFAULT_DENSITY]));
 }
 
 /** The sentinel a `null` (unbounded) contour-window end packs as — see `MapsUrlState.contourFloor`. */
@@ -327,6 +371,7 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   contourDensity: 1,
   osmDensity: MAP_OSM_DEFAULT_DENSITY,
   osmDensities: Array(MAPS_OSM_DENSITY_SLOTS).fill(MAP_OSM_DEFAULT_DENSITY),
+  osmDensitiesExt: Array(MAPS_OSM_DENSITY_EXT_SLOTS).fill(MAP_OSM_DEFAULT_DENSITY),
   fillDensity: 1,
   extrusionDensity: 1,
   symbolDataset: POINT_DATASET_DEFAULTS.symbol,
@@ -536,6 +581,26 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    speed, horizon): the page offers no control for any of them, so a
   //    token would encode a constant.
   { key: "walk", token: "w", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.walk },
+  // ── The OSM rows PAST `M`'s frozen ten. Appended after `w`, and for the
+  //    seventh time with the same consequence: the codec is TOKEN-keyed, so
+  //    a link carrying no `J` decodes to every appended row at 1x, and `M`
+  //    still decodes character-for-character as it always did. No version
+  //    bump; nothing was retired.
+  //
+  //    LAST, for the reason `M` and `w` both give — `decodePacked` stops at
+  //    the first token it does not recognize, so a link written here and
+  //    opened by a not-yet-updated build strands only what is ordered after
+  //    it, and there is nothing after it. `w` was that token until now.
+  //
+  //    A NEW token rather than a wider `M`: a `floatTuple` reads its
+  //    declared width and hands the cursor on, so widening `M` would make
+  //    every already-shared `M` link decode the token AFTER it as a density.
+  //    See `MAPS_OSM_DENSITY_EXT_SLOTS`.
+  //
+  //    `J` (not `j`, which is `sunDay`): the token map is case-sensitive,
+  //    the same clause `M`/`m` and `w`/`W` already carry. It is the one
+  //    upper-case letter the schema had left.
+  { key: "osmDensitiesExt", token: "J", type: { kind: "floatTuple", length: MAPS_OSM_DENSITY_EXT_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.osmDensitiesExt },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";
@@ -626,6 +691,10 @@ export function readInitialMapsState(): MapsUrlState {
     // newer link carries beside it.
     osmDensities: decoded.osmDensities
       ?? Array(MAPS_OSM_DENSITY_SLOTS).fill(decoded.osmDensity ?? MAPS_URL_DEFAULTS.osmDensity),
+    // Same seeding rule, second token: a `Q`-only link meant one number
+    // applied to every enabled row, and the rows appended since are rows.
+    osmDensitiesExt: decoded.osmDensitiesExt
+      ?? Array(MAPS_OSM_DENSITY_EXT_SLOTS).fill(decoded.osmDensity ?? MAPS_URL_DEFAULTS.osmDensity),
   };
   // `decoded` can carry the retired `terrainRenderMode` key at runtime when
   // it came from `mapsCodecLegacyV1`/`mapsCodecLegacyV2` (both still decode

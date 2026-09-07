@@ -114,9 +114,101 @@ export function glyphMapOpenMapTilesFlag(feature: GlyphMapVectorFeature, name: s
   return Boolean(feature.properties?.[name]);
 }
 
+/**
+ * The `poi` classes that are STREET FURNITURE — a thing on a pavement, not a
+ * place anyone navigates to.
+ *
+ * They are 1,065 of the vendored Zurich z14 tile's 3,944 POIs (27.0%) and
+ * 570 of Houston's 2,001 (28.5%), and the layer draws every one of them as
+ * the same amber dot as a hospital. Read out of the tiles, not out of a
+ * category list: these are the furniture classes that actually appear in the
+ * real data at volume.
+ */
+export const GLYPH_MAP_OPENMAPTILES_POI_FURNITURE: readonly string[] = [
+  "waste_basket", "bicycle_parking", "gate", "bollard", "bench", "lift_gate",
+];
+
+/**
+ * The `poi` importance cut the POI row opens on — `rank <= 20`.
+ *
+ * `rank` is on 100% of the POIs in both vendored z14 tiles and counts 1 =
+ * most important, so it is a real ordering rather than a quota: a z12 tile
+ * whose 51 POIs are all stations ranked 1-7 keeps all 51, while a city tile
+ * keeps its top slice. With the furniture exclusion above it takes Zurich's
+ * 3,944 to 686 and Houston's 2,001 to 684 — and each of those was a
+ * positioned DOM hotspot `<div>`, so this is a frame-time saving as much as
+ * a legibility one.
+ */
+export const GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK = 20;
+
+/**
+ * `landcover.class` → colour. Seven values, measured across the vendored
+ * tiles (`grass`, `wood`, `farmland`, `sand`, `rock`, `wetland`, `ice`).
+ *
+ * `class` and not `subclass`: the latter is also on 100% of features but has
+ * 21+ values with no natural colour ordering (`flowerbed` beside
+ * `village_green` beside `scree`), while `class` is exactly the seven kinds
+ * of ground a terrain palette has distinct colours for. Anything not named
+ * here falls back to the row's own colour, so an unknown value is never a
+ * hole.
+ */
+export const GLYPH_MAP_OPENMAPTILES_LANDCOVER_COLORS: Readonly<Record<string, string>> = {
+  wood: "#2f4a35",
+  grass: "#57804a",
+  farmland: "#7a7a45",
+  wetland: "#3f6b66",
+  sand: "#c2b280",
+  rock: "#8a8a86",
+  ice: "#dbe9f2",
+};
+
+/**
+ * `landuse.class` → colour, bucketed. The ~20 values the real tiles carry
+ * collapse to five readable kinds of ground, because a character grid cannot
+ * carry twenty tints and because `library` and `kindergarten` are the same
+ * thing to a reader looking at a city block. Every key is witnessed in a
+ * decoded tile, never taken from the schema docs.
+ */
+export const GLYPH_MAP_OPENMAPTILES_LANDUSE_COLORS: Readonly<Record<string, string>> = {
+  // Where people live.
+  residential: "#5a5348", suburb: "#5a5348", neighbourhood: "#5a5348",
+  // Where they shop.
+  commercial: "#6b5340", retail: "#6b5340",
+  // Where the machinery is.
+  industrial: "#4d4d55", railway: "#4d4d55", bus_station: "#4d4d55",
+  // Institutions.
+  school: "#46596b", university: "#46596b", college: "#46596b", kindergarten: "#46596b",
+  library: "#46596b", hospital: "#46596b",
+  // Open ground people use.
+  pitch: "#3f5f42", playground: "#3f5f42", track: "#3f5f42", stadium: "#3f5f42",
+  zoo: "#3f5f42", theme_park: "#3f5f42", cemetery: "#3f5f42",
+};
+
+/**
+ * `water.class` → colour. Exactly the five values the vendored tiles carry,
+ * and the reason this one is not a nicety: 26 of the 33 water polygons in
+ * the vendored Houston z14 tile are `swimming_pool`, painted in the same
+ * blue as the Pacific. No key here is a value the schema docs promise and
+ * the tiles do not show — `openmaptiles.test.ts` re-derives the whole key
+ * set from the fixtures on every run.
+ */
+export const GLYPH_MAP_OPENMAPTILES_WATER_COLORS: Readonly<Record<string, string>> = {
+  ocean: "#1b3f66",
+  lake: "#2c5c8f",
+  river: "#3a72a8",
+  pond: "#41739c",
+  swimming_pool: "#4fb0d8",
+};
+
 export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   /** Keep only these `class` values. Omitted/empty = every class. */
   readonly classes?: readonly string[];
+  /** Drop these `class` values — the complement of {@link classes}, for a layer whose vocabulary is too long to enumerate but whose junk is not (see {@link GLYPH_MAP_OPENMAPTILES_POI_FURNITURE}). */
+  readonly excludeClasses?: readonly string[];
+  /** Keep only features at or above this importance, i.e. `rank <= max` — this schema's `rank` counts 1 = most important. A feature with no numeric `rank` is dropped, never silently kept, exactly as {@link minAdminLevel} treats a missing admin level. */
+  readonly maxRank?: number;
+  /** Keep only features carrying a non-empty value for every one of these properties. `["name"]` is what makes a label row a label row: a feature with nothing to print is not a symbol. */
+  readonly requireProperties?: readonly string[];
   /** Keep only this geometry — required to separate `water_name`'s point labels from its line labels, and `transportation`'s z14 polygon aprons from its lines. */
   readonly geometry?: "point" | "line" | "polygon";
   /** Keep only boundaries at or above this administrative importance (i.e. `admin_level >= min`). A feature with no `admin_level` is dropped, never silently kept. */
@@ -135,16 +227,32 @@ export interface GlyphMapOpenMapTilesFeatureFilterOptions {
 export function glyphMapOpenMapTilesFeatureFilter(opts: GlyphMapOpenMapTilesFeatureFilterOptions): GlyphMapFeatureFilter {
   const set = (values?: readonly string[]) => (values && values.length > 0 ? new Set(values) : null);
   const classes = set(opts.classes);
+  const excludedClasses = set(opts.excludeClasses);
   const brunnels = set(opts.excludeBrunnel);
   const services = set(opts.excludeService);
   const flags = opts.excludeFlags && opts.excludeFlags.length > 0 ? opts.excludeFlags : null;
-  const { geometry, minAdminLevel, maxAdminLevel } = opts;
+  const required = opts.requireProperties && opts.requireProperties.length > 0 ? opts.requireProperties : null;
+  const { geometry, minAdminLevel, maxAdminLevel, maxRank } = opts;
   const checksAdmin = minAdminLevel !== undefined || maxAdminLevel !== undefined;
   return (feature) => {
     if (geometry && feature.geometryType !== geometry) return false;
     if (classes) {
       const cls = glyphMapOpenMapTilesClass(feature);
       if (cls === undefined || !classes.has(cls)) return false;
+    }
+    if (excludedClasses) {
+      const cls = glyphMapOpenMapTilesClass(feature);
+      if (cls !== undefined && excludedClasses.has(cls)) return false;
+    }
+    if (maxRank !== undefined) {
+      const rank = feature.properties?.rank;
+      if (typeof rank !== "number" || rank > maxRank) return false;
+    }
+    if (required) {
+      for (const name of required) {
+        const value = feature.properties?.[name];
+        if (value === undefined || value === null || value === "") return false;
+      }
     }
     if (brunnels) {
       const brunnel = glyphMapOpenMapTilesBrunnel(feature);
@@ -178,6 +286,12 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly geometry: "point" | "line" | "polygon";
   /** Default `class` narrowing. Omitted = every class in the source layer; a caller narrows further through {@link GlyphMapOpenMapTilesLayersOptions.classes}. */
   readonly classes?: readonly string[];
+  /** Default `class` exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeClasses}. */
+  readonly excludeClasses?: readonly string[];
+  /** Default importance cut — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.maxRank}. */
+  readonly maxRank?: number;
+  /** Properties a feature must carry to be drawn at all — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.requireProperties}. */
+  readonly requireProperties?: readonly string[];
   readonly minAdminLevel?: number;
   readonly maxAdminLevel?: number;
   /** Default `brunnel` exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeBrunnel}. */
@@ -187,6 +301,10 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   /** Default flag exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeFlags}. */
   readonly excludeFlags?: readonly string[];
   readonly color: string;
+  /** `fill` only — the property whose value picks a colour out of {@link colors}, falling back to {@link color}. */
+  readonly colorProperty?: string;
+  /** `fill` only — the value → colour table {@link colorProperty} indexes. */
+  readonly colors?: Readonly<Record<string, string>>;
   /** `fill-extrusion` only. */
   readonly heightProperty?: string;
   /** `fill-extrusion` only — the property carrying the part's own base, on the SAME datum as {@link heightProperty}. */
@@ -197,6 +315,17 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly colorVariation?: number;
   /** `symbol` only. */
   readonly textProperty?: string;
+  /**
+   * `symbol` only — a label composed from SEVERAL of a feature's own
+   * properties, joined by a space in this order, with each missing or empty
+   * one simply left out.
+   *
+   * `mountain_peak` is what needs it: the tiles carry `name` on 100% of
+   * alpine peaks and `ele` on 98.9%, and `Matterhorn 4478` is one label a
+   * reader wants where `Matterhorn` alone throws away the only number the
+   * feature has. Wins over {@link textProperty} when both are set.
+   */
+  readonly textProperties?: readonly string[];
   readonly priorityProperty?: string;
 }
 
@@ -262,16 +391,69 @@ export const GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION = 0.5;
  *    neighbourhood reading as one silhouette. None of the three is a taste
  *    knob a caller would be expected to find, and a caller who disagrees
  *    still owns the returned layer objects.
- *  - **No `housenumber`, `aeroway`, `aerodrome_label` or `park` row.** The
- *    first three are z10+/z14 detail with no readable form on a character
- *    grid; `park`'s `class` is free text (real values in the fixture include
- *    `"Direttiva 92/43/CEE (Habitat)"`), so it has no vocabulary a filter UI
- *    could offer.
+ *  - **The three ground/water FILL rows colour by `class`.** `fill` already
+ *    carries `colorProperty` + `colors`, and without them this mapping
+ *    painted Antarctic ice, desert sand, bare rock and forest in one green
+ *    (`landcover`, seven classes) and a hotel swimming pool in the blue of
+ *    the Pacific (`water` — 26 of the 33 water polygons in the vendored
+ *    Houston z14 tile are `swimming_pool`). An unnamed class falls back to
+ *    the row's own colour, so the tables need not be exhaustive.
+ *  - **The `poi` row is throttled by `rank`.** 3,944 POIs in the vendored
+ *    Zurich z14 tile, every one of them a positioned DOM hotspot `<div>`,
+ *    27.0% of them street furniture. See
+ *    {@link GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK}.
+ *  - **`mountain_peak` is a labelled `symbol`, not a dot.** The layer is
+ *    100% named and 98.9% elevation-carrying in an alpine tile, and a
+ *    `circle` row discarded both. Priority is `ele`, not `rank`: this
+ *    schema's `rank` counts 1 = most prominent while
+ *    `glyphMapDeclutterLabels` keeps the LARGER number, so `rank` would keep
+ *    the least prominent peak of any overlapping pair.
+ *  - **Three rows for source layers this mapping never decoded at all** —
+ *    `park`, `aeroway`, `water_name`. They are APPENDED rather than filed
+ *    into the back-to-front draw order above, because `/maps`' URL state
+ *    packs the OSM row set as a positional bitfield over this list
+ *    (`MAPS_OSM_SUBLAYER_KEYS`) and an insertion silently reinterprets every
+ *    link ever shared. Appending is safe for all three: two are labels
+ *    (order-independent DOM hotspots) and `aeroway` is a stroke, stamped
+ *    after the roads it crosses, which is the right order anyway. A `fill`
+ *    row could NOT have been appended — fills sit coplanar on the datum, so
+ *    draw order resolves the tie, and a protected-area polygon appended last
+ *    would paint over the lake inside it. That is the reason `park` is a
+ *    label row and not a green wash, on top of the free-text `class` below.
+ *  - **`park` carries `name` and `rank` and a free-text `class`.** Real
+ *    values in the vendored JFK tile are `"State Park"` and
+ *    `"National Recreation Area"`; elsewhere `"Biosphärenreservat"` and
+ *    `"Réserve de la biosphère, aire de coopération"`. So the row narrows on
+ *    no class at all and keeps only NAMED points — 251 of 299 features in a
+ *    z6 tile over the eastern United States are named points, which is a
+ *    continent's national parks the map has never shown.
+ *  - **`water_name` mixes point and line geometry** in one source layer, so
+ *    its row filters to points: the vendored z12 tile's two lake labels are
+ *    both lines, and a hotspot would place them at their first vertex. At z0
+ *    it is the four oceans, which is the world view's only water label.
+ *  - **Still no `housenumber` or `aerodrome_label` row, on the data.**
+ *    `housenumber` is 635 features against 1,991 building footprints in the
+ *    vendored Zurich z14 tile, each of which would be a DOM hotspot, and it
+ *    is illegible at every span where they fit. `aerodrome_label` is 0
+ *    features in five of the six vendored tiles — including the JFK tile,
+ *    the one tile in the set that IS an airport.
  */
 export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSpec[] = [
-  { id: "omt-landcover", label: "Land cover", type: "fill", sourceLayer: "landcover", geometry: "polygon", color: "#3b5c43" },
-  { id: "omt-landuse", label: "Land use", type: "fill", sourceLayer: "landuse", geometry: "polygon", color: "#4a4f3a" },
-  { id: "omt-water", label: "Water", type: "fill", sourceLayer: "water", geometry: "polygon", color: "#2c5c8f" },
+  {
+    id: "omt-landcover", label: "Land cover", type: "fill", sourceLayer: "landcover",
+    geometry: "polygon", color: "#3b5c43",
+    colorProperty: "class", colors: GLYPH_MAP_OPENMAPTILES_LANDCOVER_COLORS,
+  },
+  {
+    id: "omt-landuse", label: "Land use", type: "fill", sourceLayer: "landuse",
+    geometry: "polygon", color: "#4a4f3a",
+    colorProperty: "class", colors: GLYPH_MAP_OPENMAPTILES_LANDUSE_COLORS,
+  },
+  {
+    id: "omt-water", label: "Water", type: "fill", sourceLayer: "water",
+    geometry: "polygon", color: "#2c5c8f",
+    colorProperty: "class", colors: GLYPH_MAP_OPENMAPTILES_WATER_COLORS,
+  },
   {
     id: "omt-waterways", label: "Waterways", type: "line", sourceLayer: "waterway",
     geometry: "line", excludeBrunnel: ["tunnel"], color: "#5aa9e6",
@@ -301,8 +483,33 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
     id: "omt-places", label: "Places", type: "symbol", sourceLayer: "place",
     geometry: "point", color: "#ffffff", textProperty: "name", priorityProperty: "rank",
   },
-  { id: "omt-peaks", label: "Peaks", type: "circle", sourceLayer: "mountain_peak", geometry: "point", color: "#fbbf24" },
-  { id: "omt-pois", label: "POIs", type: "circle", sourceLayer: "poi", geometry: "point", color: "#f59e0b" },
+  {
+    id: "omt-peaks", label: "Peaks", type: "symbol", sourceLayer: "mountain_peak",
+    geometry: "point", color: "#fbbf24",
+    requireProperties: ["name"], textProperties: ["name", "ele"], priorityProperty: "ele",
+  },
+  {
+    id: "omt-pois", label: "POIs", type: "circle", sourceLayer: "poi", geometry: "point",
+    color: "#f59e0b",
+    maxRank: GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK,
+    excludeClasses: GLYPH_MAP_OPENMAPTILES_POI_FURNITURE,
+  },
+  // ── Appended, never inserted. See the table's own doc: `/maps` packs this
+  //    list's order as a positional URL bitfield.
+  {
+    id: "omt-parks", label: "Protected areas", type: "symbol", sourceLayer: "park",
+    geometry: "point", color: "#86efac",
+    requireProperties: ["name"], textProperty: "name",
+  },
+  {
+    id: "omt-aeroways", label: "Airports", type: "line", sourceLayer: "aeroway",
+    geometry: "line", color: "#94a3b8",
+  },
+  {
+    id: "omt-water-labels", label: "Water labels", type: "symbol", sourceLayer: "water_name",
+    geometry: "point", color: "#93c5fd",
+    requireProperties: ["name"], textProperty: "name",
+  },
 ];
 
 export interface GlyphMapOpenMapTilesLayersOptions {
@@ -351,9 +558,12 @@ export function glyphMapOpenMapTilesLayers(
       : requested ?? spec.classes;
     const filter = glyphMapOpenMapTilesFeatureFilter({
       classes,
+      excludeClasses: spec.excludeClasses,
       geometry: spec.geometry,
       minAdminLevel: spec.minAdminLevel,
       maxAdminLevel: spec.maxAdminLevel,
+      maxRank: spec.maxRank,
+      requireProperties: spec.requireProperties,
       excludeBrunnel: spec.excludeBrunnel,
       excludeService: spec.excludeService,
       excludeFlags: spec.excludeFlags,
@@ -373,7 +583,11 @@ export function glyphMapOpenMapTilesLayers(
         out.push({ type: "line", ...common });
         break;
       case "fill":
-        out.push({ type: "fill", ...common });
+        out.push({
+          type: "fill", ...common,
+          ...(spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
+          ...(spec.colors === undefined ? {} : { colors: spec.colors }),
+        });
         break;
       case "fill-extrusion":
         out.push({
@@ -384,9 +598,25 @@ export function glyphMapOpenMapTilesLayers(
           ...(spec.colorVariation === undefined ? {} : { colorVariation: spec.colorVariation }),
         });
         break;
-      case "symbol":
-        out.push({ type: "symbol", ...common, textProperty: spec.textProperty, priorityProperty: spec.priorityProperty });
+      case "symbol": {
+        // A COMPOSED label is a function of the feature, so it is built here
+        // once per layer and handed to the widget rather than expressed as a
+        // second property name the widget would have to know how to join.
+        const parts = spec.textProperties;
+        const text = parts
+          ? (feature: GlyphMapVectorFeature) => parts
+              .map((name) => feature.properties?.[name])
+              .filter((value) => value !== undefined && value !== null && value !== "")
+              .join(" ")
+          : undefined;
+        out.push({
+          type: "symbol", ...common,
+          textProperty: spec.textProperty,
+          ...(text === undefined ? {} : { text }),
+          priorityProperty: spec.priorityProperty,
+        });
         break;
+      }
       case "circle":
         out.push({ type: "circle", ...common, radius: 1 });
         break;

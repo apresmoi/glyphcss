@@ -2641,6 +2641,168 @@ which trades one wrong picture for a missing one, or add an eleventh row, which
 would move the `/maps` URL codec's append-only sublayer bitfield and its
 fixed-length density tuple. Both are deliberately left to the row-colour work.
 
+### The additive half: three source layers, three colour tables, two throttles
+
+The flags above were subtractive — they stopped the mapping drawing things
+the data says are not there. This slice is the opposite: four kinds of data
+the service ships on every tile that reached no row at all. Ranked by what
+each is worth per line changed.
+
+**1. `class` on the three ground/water FILL rows.** `GlyphMapFillLayer`
+already carried `colorProperty` + `colors`, so this is a pure table edit with
+zero new machinery, and it is the largest visual gain in the slice. Before
+it, `landcover` painted glacier ice, desert sand, bare rock, wetland,
+farmland, grass and wood in ONE green, and `water` painted a hotel swimming
+pool in the blue of the Pacific. Measured on the vendored tiles:
+
+| row | tile | classes present | distinct colours before → after |
+|---|---|---|---|
+| `omt-landcover` | `z0-0-0` | `ice` ×11 (Antarctica, Greenland) | 1 → 1, but it is no longer forest green |
+| `omt-landcover` | Houston z14 | `grass` 116, `wood` 8, `sand` 2 | 1 → **3** |
+| `omt-landcover` | Zürich z12 | `grass` 20, `farmland` 11, `wood` 4 | 1 → **3** |
+| `omt-water` | Houston z14 | `swimming_pool` **26**, `lake` 5, `river` 2 | 1 → **3** |
+| `omt-landuse` | Zürich z12 | 14 classes | 1 → **5** (bucketed) |
+
+`landcover` keys on `class` (7 values), not `subclass` (21+, no natural
+colour ordering — `flowerbed` beside `village_green` beside `scree`).
+`landuse`'s ~20 classes collapse to five buckets, because a character grid
+cannot carry twenty tints and `library` and `kindergarten` are the same thing
+to a reader looking at a block. An unnamed class falls back to the row's own
+colour, so a schema addition is never a hole.
+
+The standing "read the live data, never the docs" rule applies to the table's
+VALUES too, and has a test: every key in the three tables must appear as a
+`class` on a real decoded feature in the vendored set, and `landcover`'s
+table must additionally be COMPLETE over what those tiles hold. `water.dock`
+and `landuse.quarter` were both written from the schema vocabulary, both went
+red on it, and both were removed rather than gated by a new fixture — an
+unwitnessed key is a key with no test, and the fallback already covers it.
+
+**2. `poi.rank`, the throttle the layer always had.** 3,944 POIs in the
+vendored Zürich z14 tile, **every one of them a positioned DOM hotspot
+`<div>`**, 27.0% of them street furniture (waste baskets, bollards, gates,
+bicycle stands — see `GLYPH_MAP_OPENMAPTILES_POI_FURNITURE`). `rank` is on
+100% of the POIs in both real z14 tiles and counts 1 = most important, so
+`rank <= 20` plus the furniture exclusion is an ORDERING, not a quota: Zürich
+3,944 → **686**, Houston 2,001 → **684**, and the z12 tile whose 51 POIs are
+all stations ranked 1–7 keeps all 51. This is the only change in the slice
+that makes a frame strictly cheaper.
+
+**3. `mountain_peak` → a labelled `symbol`.** The layer is 100% named and
+98.9% elevation-carrying in an alpine tile (92 peaks in `10/536/361`, 8 in
+the vendored Zürich z12), and the row drew a 1px amber dot and discarded
+both. Two things fell out of it:
+
+- `GlyphMapSymbolLayer.text` — a label built from the whole feature rather
+  than from one property name, so `Matterhorn 4478` is one label. A callback
+  and not a property list, for the reason `GlyphMapFeatureFilter` is one: the
+  joining rule belongs to whoever owns the schema. It is the slice's only new
+  widget capability, three lines, and every existing `textProperty` row is
+  untouched (`widget.symbolText.test.ts` pins both directions).
+- Priority is **`ele`, not `rank`**. `glyphMapDeclutterLabels` keeps the
+  LARGER priority and this schema's `rank` counts 1 = most prominent, so
+  feeding it `rank` keeps the LEAST prominent peak of any overlapping pair.
+  `ele` is both the right ordering and a column the tile already carries.
+  (`omt-places` has the same inversion and keeps it — that row is not in this
+  slice.)
+
+**4. Three source layers the mapping never decoded at all.** `park`,
+`aeroway`, `water_name`. Two of the six unmapped layers stay unmapped, on the
+data rather than on taste: `housenumber` is 635 features against 1,991
+building footprints in one vendored tile, each of which would be a DOM
+hotspot and none of which is legible at a span where they fit; and
+`aerodrome_label` is **0 features in five of the six vendored tiles,
+including the JFK tile — the one tile in the set that is an airport**.
+
+| row | source layer | shape | measured |
+|---|---|---|---|
+| `omt-parks` | `park` (z4–14) | `symbol`, points, named only | JFK z14: 9 features → **5** named points (`Bayswater Point State Park`). Live z6 US-East: 299 features, **251 named points** — a continent's national parks the map had never shown |
+| `omt-aeroways` | `aeroway` (z10–14) | `line` | JFK z14: 16 features → **13** (3 runways + 10 taxiways), all carrying `ref` (`13R/31L`, `K3`). The 3 polygons (apron, aerodrome, one polygonal runway) are what the geometry filter drops |
+| `omt-water-labels` | `water_name` (z0–14) | `symbol`, points | z0: the **four oceans** — the world view labelled no water at all. z14 Zürich: 13 lake names. The z12 tile's two lake labels are LINES and are dropped, since a hotspot would place them at their first vertex |
+
+`park.class` is confirmed FREE TEXT on the tiles themselves — `"State Park"`,
+`"National Recreation Area"`, `"Biosphärenreservat"`, `"Réserve de la
+biosphère, aire de coopération"` — so the row narrows on no class at all and
+keeps only what it can print.
+
+**Why all three are APPENDED rather than filed into the draw order.** The
+table is ordered back-to-front (ground → water → lines → buildings →
+labels), and `park` belongs with the ground. It cannot go there: `/maps`
+packs the OSM row set as a positional bitfield over this exact list
+(`MAPS_OSM_SUBLAYER_KEYS`), and an INSERTION silently reinterprets every link
+ever shared. Appending is harmless for a label row (DOM hotspots, order
+independent) and right for `aeroway` (a stroke stamped after the roads it
+crosses). It would NOT have been harmless for a `fill`: fills sit coplanar on
+the datum, so draw order resolves the tie, and a protected-area polygon
+appended last would paint over the lake inside it. That constraint and the
+free-text `class` point the same way, which is why `park` is a label row and
+not a green wash.
+
+**The URL codec, and why `M` did not grow.** Three appended rows took the
+card past `MAPS_OSM_DENSITY_SLOTS = 10`. `M` is a `floatTuple`, and a
+`floatTuple` reads its declared width and then hands the cursor to the next
+token — so the width IS the wire format, and an eleven-slot `M` would make
+every already-shared `M` link decode the FOLLOWING token as a density and
+strand every field from there on. The extra slots ride in a new token `J`
+(`MAPS_OSM_DENSITY_EXT_SLOTS = 3`), appended last in the field list for the
+reason `M` and `w` were: `decodePacked` stops at the first token it does not
+recognize, so a link written here and opened by an older build strands only
+what is ordered after it, and there is nothing. `J` is frozen at three rather
+than given headroom for the same reason `M` is frozen at ten — spare slots
+only move the same breakage to a fourteenth row while charging every
+`J`-carrying link for the empties — and
+`mapsUrlState.osmDensity.test.ts` asserts the two widths sum to the row count
+so a fourteenth row is loud. `J` and not `j` (`sunDay`); the token map is
+case-sensitive, the clause `M`/`m` and `w`/`W` already carry.
+
+**Which appended rows default on.** Only `omt-water-labels`, and the test is
+what a row DRAWS at the scale the page opens at: `water_name` starts at z0,
+so the opening globe gets the four ocean names. `park` starts at z4 and
+`aeroway` at z10, so both draw nothing there and start off, beside
+`landcover`/`landuse`, which are off for the same shape of reason. The
+inherent consequence, accepted where the append-only rule is documented: a
+link carrying an EXPLICIT `O` written before the row existed has that bit
+clear and opens the card without it, while a link carrying no `O` at all
+takes the new default. No link's RENDER changes either way — the OSM card
+itself is off by default, so a legacy link mounts no OSM layer at all.
+`mapsUrlState.legacyLayerLink.test.ts` pins both halves.
+
+**Measured** (`bench/maps-render`, `drag`, 1440x900, 140x63, `--encoding
+spans`, `--at 8.548,47.376,0.02` — a Zürich city view — every run on the same
+built page, rows switched on through the harness's own `--osm`):
+
+| card | fps | ms/render | OSM tile addresses |
+|---|---|---|---|
+| the four rows that were default-on | 60.3 | 12.85 | z0 1, z1 4, z3 9, z5 4, z7 4, **z14 6** |
+| the shipped default (those + `omt-water-labels`) | **59.4** | **13.05** | identical |
+| all ten pre-existing rows | 17.2 | 29.53 | identical |
+| all thirteen rows | **17.3** | **29.37** | identical |
+
+Two things fall out of it. The **tile count is invariant to the row count** —
+every run walks the same 28 OSM addresses — because `createOsmSource` shares
+in-flight requests by address, so N rows sweeping the same view is N decodes
+and one fetch. And the three appended rows **cost nothing measurable** even
+with all thirteen on (29.37 against 29.53 ms/render is inside the run-to-run
+spread); the one that defaults on costs ~0.2 ms/render.
+
+**The POI throttle could not be measured as a delta, because the unthrottled
+row does not finish.** The identical `drag` run with `--osm omt-pois` alone
+completes in ~90 s throttled (24.2 fps, 6.43 ms/render, 2.75 ms base-raster —
+the rest is hotspot work). With `GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK` and the
+furniture list removed and the package rebuilt, the same run was killed at 20
+minutes with the browser pinned at 100% CPU and no scenario output at all;
+the ten-row pre-change build failed the same way twice, at 15 and 30 minutes.
+That is 3,944 positioned hotspot `<div>`s per z14 tile across the 6 tiles this
+view mounts — ~23,700 — against ~4,100 after. The feature counts are the
+honest number here; the frame time is "it does not run".
+
+**Still not in this slice**, for the reason the section above gives:
+`transportation.layer` z-ordering, road hierarchy by `class`, splitting
+`rail`/`transit`/`ferry` out of the roads row — all three need a per-feature
+line colour or a feature ORDER, which is a widget capability. Street-name
+labels (`transportation_name`) need a line → label-anchor reduction and are
+last.
+
 ### One density PER ROW, and the two opposite costs behind it
 
 The card mounts one layer per OpenMapTiles row and used to hand all ten of

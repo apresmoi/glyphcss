@@ -34,6 +34,7 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 import {
   MAPS_PARAM,
   MAPS_URL_DEFAULTS,
+  mapsCodec,
   mapsLayerVisibilityFromMask,
   mapsOsmSublayersFromMask,
   readInitialMapsState,
@@ -73,10 +74,23 @@ function expectDefaultMapContent(state: MapsUrlState): void {
     terrain: true, borders: true, contour: false, osm: false,
     fill: false, symbol: false, circle: false, heatmap: false, "fill-extrusion": false, model: false,
   });
+  // The OSM card itself is OFF above, so none of this is mounted by any of
+  // these links — this is what the reader gets if they then switch the card
+  // on. `omt-water-labels` is `true` because `MAP_OSM_DEFAULT_ON` gained it
+  // when the mapping grew a `water_name` row, and none of these links
+  // carries an `O` token at all, so they take the schema default. That
+  // change was deliberate and is stated here rather than derived, exactly as
+  // this function's doc requires: the four rows that were on before are
+  // still on, and the two rows appended beside it (`omt-parks`,
+  // `omt-aeroways`) draw nothing at the scale these links open at and are
+  // off. `mapsUrlState.layers.test.ts` pins the other half — a link that
+  // carries an EXPLICIT `O` keeps all three appended rows off, since their
+  // bits were clear when it was written.
   expect(mapsOsmSublayersFromMask(state.osmMask)).toEqual({
     "omt-landcover": false, "omt-landuse": false, "omt-water": true, "omt-waterways": true,
     "omt-roads": true, "omt-buildings": false, "omt-boundaries": true, "omt-places": false,
     "omt-peaks": false, "omt-pois": false,
+    "omt-parks": false, "omt-aeroways": false, "omt-water-labels": true,
   });
   expect(state.terrainDensity).toBe(1);
   expect(state.borderDensity).toBe(1);
@@ -145,13 +159,34 @@ describe("/maps: real pre-existing links still decode to exactly what they decod
     expectDefaultMapContent(b);
   });
 
+  it("a link carrying an EXPLICIT O keeps every row appended after it was written switched OFF", () => {
+    // The other half of the append-only bitfield's consequence, and the one
+    // that has to be true for a shared link to keep describing the map it
+    // described: bits 10-12 were clear in every `O` ever written before
+    // `omt-parks`/`omt-aeroways`/`omt-water-labels` existed, so they decode
+    // off — including `omt-water-labels`, which the SCHEMA DEFAULT above
+    // turns on for a link that carries no `O` at all.
+    const explicitO = mapsCodec.encode({
+      ...MAPS_URL_DEFAULTS,
+      osmMask: (1 << 2) | (1 << 4), // water + roads, the mask such a link held
+    });
+    expect(explicitO).toContain("O");
+    setUrl(explicitO);
+    expect(mapsOsmSublayersFromMask(readInitialMapsState().osmMask)).toEqual({
+      "omt-landcover": false, "omt-landuse": false, "omt-water": true, "omt-waterways": false,
+      "omt-roads": true, "omt-buildings": false, "omt-boundaries": false, "omt-places": false,
+      "omt-peaks": false, "omt-pois": false,
+      "omt-parks": false, "omt-aeroways": false, "omt-water-labels": false,
+    });
+  });
+
   it("no new token collides with a token any of these links already carries", () => {
     // The concrete failure the append has to avoid: a new token that also
     // appears as a VALUE character mid-string is harmless (decoding is
     // positional once a field is entered), but a new token reusing an
     // existing field's letter would silently reinterpret it.
     const live = new Set(["p", "e", "x", "y", "s", "t", "P", "g", "c", "E", "u", "d", "S", "a", "v", "k", "K", "i", "A", "n", "j", "h", "b", "F", "C", "m"]);
-    for (const token of ["L", "O", "T", "B", "N", "Q", "W", "X", "Y", "Z", "H", "G", "I", "R", "U", "V"]) {
+    for (const token of ["L", "O", "T", "B", "N", "Q", "W", "X", "Y", "Z", "H", "G", "I", "R", "U", "V", "M", "w", "J"]) {
       expect(live.has(token)).toBe(false);
     }
   });

@@ -101,6 +101,7 @@ import {
   MAPS_CONTOUR_WINDOW_OFF,
   mapsLayerMaskFromVisibility,
   mapsLayerVisibilityFromMask,
+  mapsOsmDensitiesExtFromRecord,
   mapsOsmDensitiesFromRecord,
   mapsOsmDensityRecordFromTuple,
   mapsOsmMaskFromSublayers,
@@ -220,12 +221,12 @@ export default function MapsWorkbench() {
   // differently (a mesh row is free to differ, each distinct stroke density
   // is another viewport overlay grid — `mapsOsm.ts`'s `MapOsmLayerOptions
   // .densities`), so a reader can spend on the row they are reading. The
-  // record is the truth; the card's surviving master slider WRITES all ten
+  // record is the truth; the card's surviving master slider WRITES every one
   // (`mapOsmDensityRecord`) and READS as "mixed" when they disagree
   // (`mapOsmMasterDensity`). Restored from the link's `M` tuple, which
   // `readInitialMapsState` seeds from a legacy `Q` when the link predates it.
   const [osmDensities, setOsmDensities] = useState<Record<string, number>>(
-    () => mapsOsmDensityRecordFromTuple(initial.osmDensities),
+    () => mapsOsmDensityRecordFromTuple(initial.osmDensities, initial.osmDensitiesExt),
   );
   /**
    * Street-level walk mode — and, from a shared link, the pose to open it at.
@@ -844,7 +845,7 @@ export default function MapsWorkbench() {
       setOsmSublayers: (ids: readonly string[]) =>
         setOsmSublayers(Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, ids.includes(s.id)]))),
       setOsmDensities: (value: number) => setOsmDensities(mapOsmDensityRecord(value)),
-      // ONE row's density. The master gesture above writes all ten, which
+      // ONE row's density. The master gesture above writes every row, which
       // conflates the two costs a reader can spend here — a `line` row buys a
       // full-viewport overlay grid, a mesh row buys a separated detail pass —
       // so attributing either needs the rows moved apart.
@@ -1602,6 +1603,7 @@ export default function MapsWorkbench() {
       // different ones. `M` below carries the truth either way.
       osmDensity: mapOsmMasterDensity(osmDensities) ?? MAP_OSM_DEFAULT_DENSITY,
       osmDensities: mapsOsmDensitiesFromRecord(osmDensities),
+      osmDensitiesExt: mapsOsmDensitiesExtFromRecord(osmDensities),
       fillDensity: layerAmount.fillDensity,
       extrusionDensity: layerAmount.extrusionDensity,
       symbolDataset: pointDataset.symbol,

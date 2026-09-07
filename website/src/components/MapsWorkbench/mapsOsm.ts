@@ -32,8 +32,8 @@
  * ## Why the loader is wrapped
  *
  * Every mounted layer runs its OWN tile sweep with its OWN cache
- * (`widget.ts`'s `createFeatureLayerRuntime`), and this card mounts up to ten
- * layers on ONE provider. Their sweeps run in the same tick, so without
+ * (`widget.ts`'s `createFeatureLayerRuntime`), and this card mounts one layer
+ * per row on ONE provider. Their sweeps run in the same tick, so without
  * deduplication a world view costs one request per ENABLED ROW for the very
  * same `0/0/0`. {@link createOsmSource} therefore shares in-flight requests
  * by address. In-flight only, never a retained cache: each layer runtime
@@ -78,13 +78,29 @@ export const MAP_OSM_SOURCE_LAYERS: readonly string[] = [...new Set(MAP_OSM_SUBL
 /**
  * Which rows start on.
  *
- * `water`, `boundary` and `place` carry data from z0 and `transportation`
- * from z4, so these draw something on the page's own opening view. `building`
- * starts at z13 — a default-on buildings row would be an empty layer at every
- * scale the page opens at, which is the exact "did I break it" reading this
- * card spent its previous life apologising for.
+ * The test is what a row DRAWS at the scale the page opens at, not whether
+ * it is interesting. `water`, `boundary`, `place` and `water_name` carry
+ * data from z0 and `transportation` from z4, so these draw something on the
+ * page's own opening view. `building` starts at z13 — a default-on buildings
+ * row would be an empty layer at every scale the page opens at, which is the
+ * exact "did I break it" reading this card spent its previous life
+ * apologising for.
+ *
+ * `omt-water-labels` is the only one of the three rows appended with the
+ * `park`/`aeroway`/`water_name` mapping that passes it: the opening globe
+ * gets the four ocean names, and until it existed the world view labelled no
+ * water at all. `omt-parks` (`park`, z4+) and `omt-aeroways` (`aeroway`,
+ * z10+) draw nothing there and start off, beside `landcover`/`landuse`,
+ * which have the same shape of reason.
+ *
+ * One consequence of turning ANY row on by default, inherent to the
+ * append-only bitfield in `mapsUrlState.ts` and accepted there: a link
+ * carrying an explicit `O` written before the row existed has that bit
+ * clear, so it opens the card without the row, while a link carrying no `O`
+ * at all gets this list. No link's RENDER changes either way — the OSM card
+ * itself is off by default, so a legacy link mounts no OSM layer at all.
  */
-export const MAP_OSM_DEFAULT_ON: readonly string[] = ["omt-water", "omt-waterways", "omt-roads", "omt-boundaries"];
+export const MAP_OSM_DEFAULT_ON: readonly string[] = ["omt-water", "omt-waterways", "omt-roads", "omt-boundaries", "omt-water-labels"];
 
 export interface MapOsmSourceOptions {
   /**
@@ -138,7 +154,7 @@ export type MapOsmDensities = Readonly<Record<string, number>>;
 /**
  * A complete record with every row at `value`.
  *
- * This IS the master gesture: the card keeps one slider over all ten rows,
+ * This IS the master gesture: the card keeps one slider over every row,
  * and moving it OVERWRITES each of them rather than scaling the spread they
  * currently hold. A ratio was considered and rejected — the master's whole
  * job is "all of it, this dense", and a ratio makes that unreachable from

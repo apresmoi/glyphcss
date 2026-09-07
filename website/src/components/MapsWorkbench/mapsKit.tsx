@@ -548,7 +548,7 @@ export function DensityRow({ label, density, onDensity, enabled }: {
  * contract — a number in, a number out — is the right one for the eight
  * cards that have exactly one layer, and this is the only control on the
  * page standing for ten values at once. It reads `null` as "mixed" (it
- * cannot print a number that is wrong for nine of ten rows) while the
+ * cannot print a number that is wrong for every other row) while the
  * SLIDER still needs a position, which `sliderAt` supplies. Committing —
  * dragging or typing — always writes every row, which is the gesture this
  * control has always been.
@@ -561,7 +561,7 @@ function OsmMasterDensityRow({ density, sliderAt, onDensity }: {
   return (
     <label
       className="voice-slider maps-layer-slider"
-      title="OpenStreetMap density — every row at once. Moving this OVERWRITES all ten per-row densities below; it reads 'mixed' while they disagree."
+      title="OpenStreetMap density — every row at once. Moving this OVERWRITES every per-row density below; it reads 'mixed' while they disagree."
     >
       <span>density</span>
       <span className="voice-slider-track">
@@ -1079,7 +1079,7 @@ export interface OsmLayerInputs {
   /**
    * The MASTER's reading: the value every row shares, or `null` — "mixed" —
    * while they disagree (`mapOsmMasterDensity`). Committing it writes all
-   * ten rows; the card keeps it because the common gesture is still one
+   * every row; the card keeps it because the common gesture is still one
    * drag.
    */
   density: number | null;

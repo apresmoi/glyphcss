@@ -95,6 +95,10 @@ describe("mapsUrlState — walk", () => {
     const packed = mapsCodec.encode({ ...MAPS_URL_DEFAULTS, walk: true, osmDensities: [2, 1, 1, 1, 1, 1, 1, 1, 1, 1] });
     // `M` (the previous append) is present and `w1` is the tail: a bool
     // packs as one character, so this is the whole of "nothing follows it".
+    // `J` (the OSM rows past `M`'s ten) has since been appended AFTER `w`,
+    // and is what this now proves an older build stops at instead — this
+    // state leaves it at its default, so it costs no characters and `w1` is
+    // still the tail. `mapsUrlState.osmDensity.test.ts` owns `J`'s own half.
     expect(packed).toContain("M");
     expect(packed.endsWith("w1")).toBe(true);
   });

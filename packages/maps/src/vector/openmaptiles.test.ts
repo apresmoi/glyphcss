@@ -13,10 +13,16 @@
  * anything about a building at all). A schema drift therefore shows up here
  * as a red test rather than as an empty layer.
  *
- * Two more tiles are vendored for flags none of those three carries at all:
- * `z4-1-6-maritime.mvt` (the one `maritime: 1` boundary line) and
+ * Four more tiles are vendored, each for something none of those three
+ * carries at all, and each named for what it is the only witness to:
+ * `z4-1-6-maritime.mvt` (the one `maritime: 1` boundary line),
  * `z14-3851-6772-hide3d.mvt` (Houston: `hide_3d: true` on 3 of 153
- * buildings). Each is named for the flag it is the only witness to.
+ * buildings), `z14-4834-6165-aeroway.mvt` (JFK, 11.7 KB: the only aeroway
+ * LINES in the set — every other tile's `aeroway` features are `helipad`
+ * POLYGONS, so a runway row asserted on those would pass while drawing
+ * nothing) and `z8-60-96-peaks.mvt` (69 KB: 13 `mountain_peak` points of
+ * which 2 carry no `name`, the only real witness that the peaks row drops
+ * a feature it could not label).
  *
  * This is a DIFFERENT schema from `protomaps.ts`'s, not a variant of it:
  * OpenMapTiles discriminates on `class` where Protomaps uses `kind`, splits
@@ -32,8 +38,13 @@ import { describe, expect, it } from "vitest";
 import { glyphMapDecodeMVT } from "./pmtiles";
 import {
   GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
+  GLYPH_MAP_OPENMAPTILES_LANDCOVER_COLORS,
+  GLYPH_MAP_OPENMAPTILES_LANDUSE_COLORS,
   GLYPH_MAP_OPENMAPTILES_LAYERS,
+  GLYPH_MAP_OPENMAPTILES_POI_FURNITURE,
+  GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
+  GLYPH_MAP_OPENMAPTILES_WATER_COLORS,
   glyphMapOpenMapTilesAdminLevel,
   glyphMapOpenMapTilesBrunnel,
   glyphMapOpenMapTilesClass,
@@ -41,7 +52,7 @@ import {
   glyphMapOpenMapTilesFlag,
   glyphMapOpenMapTilesLayers,
 } from "./openmaptiles";
-import type { GlyphMapFillExtrusionLayer } from "../widget";
+import type { GlyphMapFillExtrusionLayer, GlyphMapFillLayer, GlyphMapSymbolLayer } from "../widget";
 import type { GlyphMapVectorFeature } from "./types";
 import { glyphMapFeatureSeed, glyphMapVaryColor } from "../facade";
 import { GLYPH_MAP_OPENFREEMAP_ATTRIBUTION } from "../attribution";
@@ -566,6 +577,331 @@ describe("what the shipped table actually draws, on real tiles", () => {
     const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
     expect(kept("omt-landcover", z14)).toBe(z14.landcover.filter((f) => f.geometryType === "polygon").length);
     expect(kept("omt-water", z14)).toBe(z14.water.filter((f) => f.geometryType === "polygon").length);
-    expect(kept("omt-pois", z14)).toBe(z14.poi.filter((f) => f.geometryType === "point").length);
+    // `omt-pois` stood here and no longer can: the POI row names `maxRank`
+    // and `excludeClasses` deliberately, and its own block below asserts the
+    // 3,944 -> 686 it produces on this very tile. `omt-places` is the row
+    // that still names no narrowing axis at all, so it carries the claim.
+    expect(kept("omt-places", z14)).toBe(z14.place.filter((f) => f.geometryType === "point").length);
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * The ADDITIVE half: data the tiles carry and the mapping never drew.
+ *
+ * Everything above this line is either a field the mapping always read or a
+ * flag it learned to STOP drawing. What follows is the opposite — four
+ * things the service ships on every tile that reached no row at all:
+ *
+ *   1. three whole source layers (`park`, `aeroway`, `water_name`),
+ *   2. the `class` column on the three ground/water FILL rows, which painted
+ *      glacier ice, desert sand and a hotel swimming pool in one colour
+ *      each,
+ *   3. `poi.rank`, the throttle the layer has always carried and never used,
+ *   4. `mountain_peak`'s `name` and `ele`, drawn as an anonymous dot.
+ *
+ * A sixth vendored tile arrives with this: `z14-4834-6165-aeroway.mvt`
+ * (JFK, 11.7 KB). It is the only witness to an aeroway LINE — every other
+ * vendored tile's `aeroway` features are `helipad` POLYGONS, so a runway row
+ * asserted on those would pass while drawing nothing.
+ *
+ * Two source layers stay unmapped ON THE DATA, not on taste.
+ * `aerodrome_label` is 1 feature in the JFK tile's own neighbourhood and 0
+ * in five of the six vendored tiles — including JFK itself, the one tile in
+ * the set that is an airport. `housenumber` is 635 features in the vendored
+ * Zurich z14 tile against 1,991 building footprints, each of which would be
+ * a positioned DOM hotspot.
+ */
+describe("`park` / `aeroway` / `water_name` — three source layers the mapping never decoded", () => {
+  const provider = () => glyphMapOpenFreeMapProvider();
+  const row = (id: string) => glyphMapOpenMapTilesLayers(provider(), { include: [id] })[0]!;
+
+  it("the six unmapped source layers are down to two, and each of the three new rows names one of them", () => {
+    const mapped = new Set(GLYPH_MAP_OPENMAPTILES_LAYERS.map((s) => s.sourceLayer));
+    expect([...GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS].filter((l) => !mapped.has(l)).sort())
+      .toEqual(["aerodrome_label", "housenumber", "transportation_name"]);
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === "omt-parks")!.sourceLayer).toBe("park");
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === "omt-aeroways")!.sourceLayer).toBe("aeroway");
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === "omt-water-labels")!.sourceLayer).toBe("water_name");
+  });
+
+  it("the three rows are APPENDED, because the /maps URL bitfield is positional over this list", () => {
+    // `MAPS_OSM_SUBLAYER_KEYS` (website) is bit-for-bit this list's order and
+    // is append-only: an INSERTION here silently reinterprets every shared
+    // link. The website's own cross-check asserts equality; this asserts the
+    // half that lives in the package.
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.slice(-3).map((s) => s.id))
+      .toEqual(["omt-parks", "omt-aeroways", "omt-water-labels"]);
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.slice(0, 10).map((s) => s.id)).toEqual([
+      "omt-landcover", "omt-landuse", "omt-water", "omt-waterways", "omt-roads",
+      "omt-buildings", "omt-boundaries", "omt-places", "omt-peaks", "omt-pois",
+    ]);
+  });
+
+  it("the aeroways row keeps JFK's 13 runway and taxiway LINES and drops its aprons", () => {
+    const jfk = mvt("z14-4834-6165-aeroway.mvt", 14, 4834, 6165);
+    expect(jfk.aeroway).toHaveLength(16);
+    const kept = jfk.aeroway.filter(row("omt-aeroways").filter!);
+    expect(kept).toHaveLength(13);
+    expect(kept.filter((f) => glyphMapOpenMapTilesClass(f) === "runway")).toHaveLength(3);
+    expect(kept.filter((f) => glyphMapOpenMapTilesClass(f) === "taxiway")).toHaveLength(10);
+    // The apron, the aerodrome outline and a runway drawn as a POLYGON are
+    // what the geometry filter is for — a `line` row cannot stamp them.
+    expect(jfk.aeroway.filter((f) => f.geometryType === "polygon")).toHaveLength(3);
+    // `ref` is on the wire for every one of them (`13R/31L`, `K3`), which is
+    // why this row is worth a fixture at all; nothing reads it yet.
+    expect(kept.every((f) => typeof f.properties?.ref === "string")).toBe(true);
+  });
+
+  it("the aeroways row draws nothing where a tile's only aeroway is a helipad polygon", () => {
+    const zurich = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
+    expect(zurich.aeroway).toHaveLength(1);
+    expect(zurich.aeroway.filter(row("omt-aeroways").filter!)).toHaveLength(0);
+  });
+
+  it("the parks row keeps the NAMED protected-area points, which is the only readable half of a free-text layer", () => {
+    const jfk = mvt("z14-4834-6165-aeroway.mvt", 14, 4834, 6165);
+    const kept = jfk.park.filter(row("omt-parks").filter!);
+    expect(jfk.park).toHaveLength(9);
+    expect(kept).toHaveLength(5);
+    expect(kept.every((f) => typeof f.properties?.name === "string")).toBe(true);
+    expect(kept.map((f) => f.properties!.name)).toContain("Bayswater Point State Park");
+    // And `class` is confirmed free text on this very tile — `"State Park"`
+    // and `"National Recreation Area"` are values, so no filter UI could
+    // offer a vocabulary and the row narrows on none.
+    expect(jfk.park.map(glyphMapOpenMapTilesClass)).toEqual(expect.arrayContaining(["State Park", "National Recreation Area"]));
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === "omt-parks")!.classes).toBeUndefined();
+  });
+
+  it("the parks and water-labels rows drop a nameless point, which a label row would place as an empty div", () => {
+    // SYNTHETIC, and stated as such: across the six vendored tiles and eight
+    // live ones sampled, every `park` and `water_name` POINT carries a name
+    // (251 of 251 park points in a z6 US tile, 4 of 4 ocean labels at z0).
+    // The clause is still each row's own — a label row with no text is an
+    // empty positioned `<div>` taking declutter space — and `mountain_peak`
+    // above is the case where real data exercises it.
+    const nameless = { geometryType: "point", properties: { class: "nature_reserve" }, rings: [[[0, 0]]] } as const;
+    const named = { geometryType: "point", properties: { class: "nature_reserve", name: "X" }, rings: [[[0, 0]]] } as const;
+    for (const id of ["omt-parks", "omt-water-labels"]) {
+      expect(row(id).filter!(nameless), id).toBe(false);
+      expect(row(id).filter!(named), id).toBe(true);
+    }
+  });
+
+  it("the parks row draws nothing from a tile whose parks are unnamed polygons", () => {
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    expect(z12.park).toHaveLength(3);
+    expect(z12.park.filter(row("omt-parks").filter!)).toHaveLength(0);
+  });
+
+  it("the water-labels row names the oceans at the world view, where the map labelled no water at all", () => {
+    const z0 = mvt("z0-0-0.mvt", 0, 0, 0);
+    const kept = z0.water_name.filter(row("omt-water-labels").filter!);
+    expect(kept.map((f) => f.properties!.name).sort()).toEqual([
+      "North Atlantic Ocean", "North Pacific Ocean", "South Atlantic Ocean", "South Pacific Ocean",
+    ]);
+    // z14 is the same row doing lake names.
+    const z14 = mvt("z14-8579-5736.mvt", 14, 8579, 5736);
+    expect(z14.water_name.filter(row("omt-water-labels").filter!)).toHaveLength(13);
+  });
+
+  it("the water-labels row drops the layer's LINE labels, which a hotspot cannot place", () => {
+    // `water_name` mixes point and line geometry in one source layer — the
+    // vendored z12 tile's two lake labels are both lines, and
+    // `createPointFeatureRuntime` would place them at their first vertex.
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    expect(z12.water_name).toHaveLength(2);
+    expect(z12.water_name.every((f) => f.geometryType === "line")).toBe(true);
+    expect(z12.water_name.filter(row("omt-water-labels").filter!)).toHaveLength(0);
+  });
+});
+
+describe("`class` colouring — glacier ice, desert sand and a swimming pool were one colour each", () => {
+  const provider = () => glyphMapOpenFreeMapProvider();
+  const row = (id: string) => glyphMapOpenMapTilesLayers(provider(), { include: [id] })[0]! as GlyphMapFillLayer;
+  /** What the widget resolves per feature (`widget.ts`'s `color` callback), reproduced exactly. */
+  const paint = (layer: GlyphMapFillLayer, f: GlyphMapVectorFeature) =>
+    (layer.colorProperty && layer.colors ? layer.colors[String(f.properties?.[layer.colorProperty])] : undefined) ?? layer.color!;
+  const distinct = (layer: GlyphMapFillLayer, feats: readonly GlyphMapVectorFeature[]) =>
+    new Set(feats.filter(layer.filter!).map((f) => paint(layer, f)));
+
+  it("paints z0's Antarctic and Greenland ICE as ice, not as forest", () => {
+    const z0 = mvt("z0-0-0.mvt", 0, 0, 0);
+    const layer = row("omt-landcover");
+    expect(z0.landcover).toHaveLength(11);
+    expect(new Set(z0.landcover.map(glyphMapOpenMapTilesClass))).toEqual(new Set(["ice"]));
+    expect(distinct(layer, z0.landcover).size).toBe(1);
+    // The whole point: it is no longer the row's own green.
+    expect(paint(layer, z0.landcover[0]!)).not.toBe(layer.color);
+  });
+
+  it("separates a real tile's ground classes instead of flattening them to one", () => {
+    const houston = mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772);
+    const zurich = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    const layer = row("omt-landcover");
+    // Houston: grass 116, wood 8, sand 2. Zurich z12: grass 20, farmland 11, wood 4.
+    expect(distinct(layer, houston.landcover).size).toBe(3);
+    expect(distinct(layer, zurich.landcover).size).toBe(3);
+    const landuse = row("omt-landuse");
+    expect(distinct(landuse, zurich.landuse).size).toBeGreaterThan(3);
+  });
+
+  it("stops painting a hotel swimming pool the blue of the Pacific", () => {
+    const houston = mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772);
+    const z0 = mvt("z0-0-0.mvt", 0, 0, 0);
+    const layer = row("omt-water");
+    // 26 of Houston's 33 water polygons are swimming pools.
+    const pools = houston.water.filter((f) => glyphMapOpenMapTilesClass(f) === "swimming_pool");
+    expect(pools).toHaveLength(26);
+    const ocean = z0.water.find((f) => glyphMapOpenMapTilesClass(f) === "ocean")!;
+    expect(paint(layer, pools[0]!)).not.toBe(paint(layer, ocean));
+    expect(distinct(layer, houston.water).size).toBe(3);
+  });
+
+  it("falls back to the row's own colour for a class the table does not name, so an unknown value is never a hole", () => {
+    const layer = row("omt-landcover");
+    const alien: GlyphMapVectorFeature = { geometryType: "polygon", properties: { class: "not-a-real-class" }, rings: [] };
+    expect(paint(layer, alien)).toBe(layer.color);
+  });
+
+  it("names no colour key the tiles do not actually carry — the tables are read from the data, not from the schema docs", () => {
+    // The standing rule for this service, applied to VALUES as well as to
+    // field names. Every key in the three tables has to appear as a `class`
+    // on a real decoded feature in the vendored set, so a key copied out of
+    // the published schema and never shipped goes red here.
+    const tiles = [
+      mvt("z0-0-0.mvt", 0, 0, 0),
+      mvt("z4-1-6-maritime.mvt", 4, 1, 6),
+      mvt("z12-2145-1434.mvt", 12, 2145, 1434),
+      mvt("z14-8579-5736.mvt", 14, 8579, 5736),
+      mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772),
+      mvt("z14-4834-6165-aeroway.mvt", 14, 4834, 6165),
+      mvt("z8-60-96-peaks.mvt", 8, 60, 96),
+    ];
+    const seen = (sourceLayer: string) =>
+      new Set(tiles.flatMap((t) => (t[sourceLayer] ?? []).map(glyphMapOpenMapTilesClass)));
+    for (const [sourceLayer, table] of [
+      ["landcover", GLYPH_MAP_OPENMAPTILES_LANDCOVER_COLORS],
+      ["landuse", GLYPH_MAP_OPENMAPTILES_LANDUSE_COLORS],
+      ["water", GLYPH_MAP_OPENMAPTILES_WATER_COLORS],
+    ] as const) {
+      const present = seen(sourceLayer);
+      for (const key of Object.keys(table)) expect(present.has(key), `${sourceLayer}.${key}`).toBe(true);
+    }
+    // And `landcover`'s table is COMPLETE over what the tiles hold, which is
+    // the claim "seven kinds of ground" rests on.
+    for (const cls of seen("landcover")) expect(Object.keys(GLYPH_MAP_OPENMAPTILES_LANDCOVER_COLORS)).toContain(cls);
+  });
+
+  it("leaves colorProperty off every row that is not a fill", () => {
+    for (const layer of glyphMapOpenMapTilesLayers(provider())) {
+      if (layer.type === "fill") continue;
+      expect(layer).not.toHaveProperty("colorProperty");
+      expect(layer).not.toHaveProperty("colors");
+    }
+  });
+});
+
+describe("`poi.rank` — the throttle the layer always carried", () => {
+  const provider = () => glyphMapOpenFreeMapProvider();
+  const pois = () => glyphMapOpenMapTilesLayers(provider(), { include: ["omt-pois"] })[0]!;
+
+  it("is on every feature of both real POI tiles, so the cap can drop an unranked one without losing anything", () => {
+    for (const [name, z, x, y] of [["z14-8579-5736.mvt", 14, 8579, 5736], ["z14-3851-6772-hide3d.mvt", 14, 3851, 6772]] as const) {
+      const poi = mvt(name, z, x, y).poi;
+      expect(poi.every((f) => typeof f.properties?.rank === "number")).toBe(true);
+    }
+  });
+
+  it("cuts the vendored Zurich tile's 3,944 hotspots to 686 — each one was a positioned DOM div", () => {
+    const poi = mvt("z14-8579-5736.mvt", 14, 8579, 5736).poi;
+    expect(poi).toHaveLength(3944);
+    const kept = poi.filter(pois().filter!);
+    expect(kept).toHaveLength(686);
+    expect(kept.every((f) => Number(f.properties!.rank) <= GLYPH_MAP_OPENMAPTILES_POI_MAX_RANK)).toBe(true);
+    // Not one waste basket, bollard or bicycle stand survives — 1,065 of the
+    // tile's POIs (27.0%) are street furniture, which says nothing about a
+    // place and is drawn as the same amber dot as a hospital.
+    expect(kept.some((f) => GLYPH_MAP_OPENMAPTILES_POI_FURNITURE.includes(glyphMapOpenMapTilesClass(f)!))).toBe(false);
+    expect(poi.filter((f) => GLYPH_MAP_OPENMAPTILES_POI_FURNITURE.includes(glyphMapOpenMapTilesClass(f)!))).toHaveLength(1065);
+  });
+
+  it("cuts Houston's 2,001 to 684 on the same two rules", () => {
+    const poi = mvt("z14-3851-6772-hide3d.mvt", 14, 3851, 6772).poi;
+    expect(poi).toHaveLength(2001);
+    expect(poi.filter(pois().filter!)).toHaveLength(684);
+  });
+
+  it("keeps a z12 tile's transport POIs whole, because the cap is a rank and not a quota", () => {
+    // All 51 of the vendored z12 tile's POIs are stations and ferry
+    // terminals ranked 1-7. A quota would have thrown some away.
+    const poi = mvt("z12-2145-1434.mvt", 12, 2145, 1434).poi;
+    expect(poi.filter(pois().filter!)).toHaveLength(51);
+  });
+});
+
+describe("`mountain_peak` — 92 named peaks per alpine tile, drawn as anonymous dots", () => {
+  const provider = () => glyphMapOpenFreeMapProvider();
+  const peaks = () => glyphMapOpenMapTilesLayers(provider(), { include: ["omt-peaks"] })[0]! as GlyphMapSymbolLayer;
+
+  it("is a labelled symbol row, not a circle", () => {
+    expect(peaks().type).toBe("symbol");
+  });
+
+  it("composes the name AND the elevation the tile carries, for every peak in the vendored tile", () => {
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    const layer = peaks();
+    const kept = z12.mountain_peak.filter(layer.filter!);
+    expect(kept).toHaveLength(8);
+    expect(kept.every((f) => typeof f.properties?.name === "string" && typeof f.properties?.ele === "number")).toBe(true);
+    const labels = kept.map((f) => layer.text!(f));
+    expect(labels).toContain("Adlisberg 701");
+    expect(labels).toContain("Zürichberg 676");
+    // Every label carries both halves — the join is not "name, and elevation
+    // when it happens to be there for the first one".
+    expect(labels.every((l) => /^\S.* \d+$/.test(l))).toBe(true);
+  });
+
+  it("ranks by ELEVATION, not by the schema's inverted `rank`", () => {
+    // `glyphMapDeclutterLabels` keeps the HIGHER priority, and OpenMapTiles'
+    // `rank` counts 1 = most prominent — so feeding it `rank` would keep the
+    // least prominent peak of any overlapping pair. `ele` is both the right
+    // ordering and a column the tile already carries.
+    const layer = peaks();
+    expect(layer.priorityProperty).toBe("ele");
+    const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
+    const kept = z12.mountain_peak.filter(layer.filter!);
+    const top = [...kept].sort((a, b) => Number(b.properties!.ele) - Number(a.properties!.ele))[0]!;
+    expect(layer.text!(top)).toBe("Guglen 708");
+  });
+
+  it("drops the two REAL unnamed peaks of `z8-60-96-peaks.mvt`, which a label row would place as empty divs", () => {
+    // The row was a `circle`, where a nameless peak is still a dot. As a
+    // `symbol` it would be an empty positioned `<div>` taking declutter
+    // space from a peak that HAS a name. This tile is the vendored witness:
+    // 13 peak points, 11 named, 2 not — and every one of the 13 carries an
+    // `ele`, so the name is the only thing separating them.
+    const z8 = mvt("z8-60-96-peaks.mvt", 8, 60, 96);
+    const layer = peaks();
+    expect(z8.mountain_peak).toHaveLength(13);
+    expect(z8.mountain_peak.every((f) => typeof f.properties?.ele === "number")).toBe(true);
+    const kept = z8.mountain_peak.filter(layer.filter!);
+    expect(kept).toHaveLength(11);
+    expect(kept.every((f) => layer.text!(f) !== "")).toBe(true);
+    expect(kept.map((f) => layer.text!(f))).toContain("Albany Hill 389");
+  });
+
+  it("still drops the z14 cliff LINES the layer is dominated by there", () => {
+    const layer = peaks();
+    const line: GlyphMapVectorFeature = { geometryType: "line", properties: { class: "cliff", name: "n", ele: 1 }, rings: [] };
+    expect(layer.filter!(line)).toBe(false);
+  });
+
+  it("falls back to whichever half a feature has, so a peak with no elevation is still named", () => {
+    const layer = peaks();
+    const nameless: GlyphMapVectorFeature = { geometryType: "point", properties: { name: "Büel" }, rings: [[[0, 0]]] };
+    expect(layer.text!(nameless)).toBe("Büel");
+    const anonymous: GlyphMapVectorFeature = { geometryType: "point", properties: { ele: 4478 }, rings: [[[0, 0]]] };
+    expect(layer.text!(anonymous)).toBe("4478");
   });
 });

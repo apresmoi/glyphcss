@@ -29,11 +29,13 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import {
+  MAPS_OSM_DENSITY_EXT_SLOTS,
   MAPS_OSM_DENSITY_SLOTS,
   MAPS_OSM_SUBLAYER_KEYS,
   MAPS_PARAM,
   MAPS_URL_DEFAULTS,
   mapsCodec,
+  mapsOsmDensitiesExtFromRecord,
   mapsOsmDensitiesFromRecord,
   mapsOsmDensityRecordFromTuple,
   readInitialMapsState,
@@ -58,7 +60,12 @@ describe("the wire list and the row list stay the same length", () => {
     // the same append-only one `MAPS_OSM_SUBLAYER_KEYS` already lives under
     // — this assertion is what makes the breach loud instead of silent.
     expect(MAPS_OSM_DENSITY_SLOTS).toBe(10);
-    expect(MAPS_OSM_SUBLAYER_KEYS).toHaveLength(MAPS_OSM_DENSITY_SLOTS);
+    // The row list DID outgrow it — three rows were appended when the
+    // mapping grew `park`/`aeroway`/`water_name`. `M` stayed ten wide (a
+    // wider one reinterprets every shared link) and the overflow rides in
+    // token `J`, so the invariant is that the two frozen widths still cover
+    // the row list exactly. Its own block below asserts `J`'s half.
+    expect(MAPS_OSM_SUBLAYER_KEYS).toHaveLength(MAPS_OSM_DENSITY_SLOTS + MAPS_OSM_DENSITY_EXT_SLOTS);
     expect(MAPS_URL_DEFAULTS.osmDensities).toHaveLength(MAPS_OSM_DENSITY_SLOTS);
   });
 
@@ -131,7 +138,7 @@ describe("a MIXED card round-trips", () => {
 });
 
 describe("a legacy Q-only link seeds every row", () => {
-  it("decodes an osmDensity-carrying link to all ten rows at that value", () => {
+  it("decodes an osmDensity-carrying link to every row at that value", () => {
     // Exactly what a link shared before `M` existed looks like: `Q` set, no
     // `M` anywhere.
     const legacy = mapsCodec.encode({ ...MAPS_URL_DEFAULTS, osmDensity: 2.9 });
@@ -140,7 +147,7 @@ describe("a legacy Q-only link seeds every row", () => {
 
     setUrl(legacy);
     const state = readInitialMapsState();
-    const record = mapsOsmDensityRecordFromTuple(state.osmDensities);
+    const record = mapsOsmDensityRecordFromTuple(state.osmDensities, state.osmDensitiesExt);
     for (const key of MAPS_OSM_SUBLAYER_KEYS) expect(record[key], key).toBeCloseTo(2.9, 6);
   });
 
@@ -172,5 +179,111 @@ describe("a legacy Q-only link seeds every row", () => {
     const record = mapsOsmDensityRecordFromTuple(state.osmDensities);
     expect(record["omt-roads"]).toBeCloseTo(2.9, 6);
     expect(record["omt-pois"]).toBeCloseTo(2.9, 6);
+  });
+});
+
+/**
+ * ── The ELEVENTH row and beyond: token `J`.
+ *
+ * `M` is a `floatTuple` of exactly {@link MAPS_OSM_DENSITY_SLOTS} slots, and
+ * a `floatTuple` reads its fixed width and then hands the cursor to the next
+ * token — so the width IS the wire format. Three new OSM rows (`omt-parks`,
+ * `omt-aeroways`, `omt-water-labels`) took the row list past ten. Widening
+ * `M` in place would make every already-shared `M` link decode the token
+ * AFTER it as a density and strand everything from there on, so the extra
+ * slots ride in a NEW token instead and `M` keeps meaning exactly what it
+ * meant: the first ten rows, in the first ten rows' order.
+ *
+ * Which is also why `J` is frozen at three rather than given headroom: an
+ * over-wide tuple would decode a shared link's following token as a density
+ * the moment anyone appended a fourteenth row, so the width and the row
+ * count are asserted EQUAL below and a fourteenth row means another token —
+ * loud, not silent.
+ */
+describe("token J — the OSM rows past the frozen ten", () => {
+  it("J's width and the rows past M's ten are the same number, and together they cover the row list exactly", () => {
+    expect(MAPS_OSM_DENSITY_SLOTS).toBe(10);
+    expect(MAPS_OSM_DENSITY_EXT_SLOTS).toBe(3);
+    expect(MAPS_OSM_SUBLAYER_KEYS).toHaveLength(MAPS_OSM_DENSITY_SLOTS + MAPS_OSM_DENSITY_EXT_SLOTS);
+    expect(MAPS_URL_DEFAULTS.osmDensitiesExt).toHaveLength(MAPS_OSM_DENSITY_EXT_SLOTS);
+    expect([...MAPS_URL_DEFAULTS.osmDensitiesExt]).toEqual(Array(MAPS_OSM_DENSITY_EXT_SLOTS).fill(1));
+  });
+
+  it("carries only the appended rows, and leaves M byte-for-byte what it was", () => {
+    // The property that makes this safe: moving a row that lives in `J`
+    // must not move one character of `M`, and vice versa.
+    const onlyExt = { ...mapOsmDensityRecord(1), "omt-aeroways": 2.5 };
+    expect([...mapsOsmDensitiesFromRecord(onlyExt)]).toEqual(Array(MAPS_OSM_DENSITY_SLOTS).fill(1));
+    expect(mapsOsmDensitiesExtFromRecord(onlyExt)[MAPS_OSM_SUBLAYER_KEYS.indexOf("omt-aeroways") - MAPS_OSM_DENSITY_SLOTS]).toBe(2.5);
+
+    const packed = mapsCodec.encode({ ...MAPS_URL_DEFAULTS, osmDensitiesExt: mapsOsmDensitiesExtFromRecord(onlyExt) });
+    expect(packed).toContain("J");
+    expect(packed).not.toContain("M");
+
+    const onlyBase = { ...mapOsmDensityRecord(1), "omt-roads": 3 };
+    const basePacked = mapsCodec.encode({ ...MAPS_URL_DEFAULTS, osmDensities: mapsOsmDensitiesFromRecord(onlyBase) });
+    expect(basePacked).toContain("M");
+    expect(basePacked).not.toContain("J");
+  });
+
+  it("round-trips a card that is mixed ACROSS the two tokens", () => {
+    const record = { ...mapOsmDensityRecord(1), "omt-roads": 3, "omt-parks": 2.2, "omt-water-labels": 1.7 };
+    const packed = mapsCodec.encode({
+      ...MAPS_URL_DEFAULTS,
+      osmDensities: mapsOsmDensitiesFromRecord(record),
+      osmDensitiesExt: mapsOsmDensitiesExtFromRecord(record),
+    });
+    setUrl(packed);
+    const state = readInitialMapsState();
+    const back = mapsOsmDensityRecordFromTuple(state.osmDensities, state.osmDensitiesExt);
+    expect(Object.keys(back).sort()).toEqual([...MAPS_OSM_SUBLAYER_KEYS].sort());
+    for (const key of MAPS_OSM_SUBLAYER_KEYS) expect(back[key], key).toBeCloseTo(record[key], 6);
+  });
+
+  it("an already-shared M link decodes character-for-character as it did, with the new rows at 1x", () => {
+    // A REAL ten-slot `M` string, captured from this codec before `J`
+    // existed: `M` followed by ten base36 densities, every row at 1x except
+    // `omt-roads` at 3.
+    const legacyM = "p3M1a1a1a1a1u1a1a1a1a1a";
+    setUrl(legacyM);
+    const state = readInitialMapsState();
+    const back = mapsOsmDensityRecordFromTuple(state.osmDensities, state.osmDensitiesExt);
+    expect(back["omt-roads"]).toBeCloseTo(3, 6);
+    for (const key of MAPS_OSM_SUBLAYER_KEYS) {
+      if (key === "omt-roads") continue;
+      expect(back[key], key).toBe(MAP_OSM_DEFAULT_DENSITY);
+    }
+  });
+
+  it("a legacy Q-only link seeds the appended rows too — one number applied to every enabled row is what that link meant", () => {
+    setUrl(mapsCodec.encode({ ...MAPS_URL_DEFAULTS, osmDensity: 2.9 }));
+    const state = readInitialMapsState();
+    const record = mapsOsmDensityRecordFromTuple(state.osmDensities, state.osmDensitiesExt);
+    for (const key of MAPS_OSM_SUBLAYER_KEYS) expect(record[key], key).toBeCloseTo(2.9, 6);
+  });
+
+  it("J is appended LAST, so a build that does not know it strands nothing", () => {
+    // `decodePacked` stops at the first unrecognized token. `J` is the final
+    // field in the schema, so an older build reading a `J`-carrying link
+    // decodes every other token first and then stops with nothing after it.
+    const packed = mapsCodec.encode({
+      ...MAPS_URL_DEFAULTS,
+      palette: "heat",
+      walk: true,
+      osmDensitiesExt: mapsOsmDensitiesExtFromRecord({ ...mapOsmDensityRecord(1), "omt-parks": 2 }),
+    });
+    // `w` (walk) was the schema's last field until now, and `P` (palette)
+    // is an early one — both are written before `J`, and the link still
+    // decodes in full.
+    for (const token of ["P", "w"]) expect(packed.indexOf(token)).toBeLessThan(packed.indexOf("J"));
+    const decoded = mapsCodec.decode(packed);
+    expect(decoded.palette).toBe("heat");
+    expect(decoded.walk).toBe(true);
+    // And truncating `J` off the end — which is exactly what a build that
+    // does not know the token sees — leaves every other field intact.
+    const truncated = mapsCodec.decode(packed.slice(0, packed.indexOf("J")));
+    expect(truncated.palette).toBe("heat");
+    expect(truncated.walk).toBe(true);
+    expect(truncated.osmDensitiesExt).toBeUndefined();
   });
 });

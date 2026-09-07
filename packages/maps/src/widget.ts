@@ -636,7 +636,22 @@ export interface GlyphMapSymbolLayer {
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
-  readonly textProperty?: string; readonly priorityProperty?: string; readonly minPriority?: number; readonly color?: string; readonly density?: number;
+  readonly textProperty?: string;
+  /**
+   * The label, built from the whole feature — wins over
+   * {@link textProperty} when both are set.
+   *
+   * A property NAME can only ever print one column, and a real label is
+   * often two: `mountain_peak` carries `name` on 100% of alpine peaks and
+   * `ele` on 98.9%, and `Matterhorn 4478` is one label a reader wants where
+   * `Matterhorn` alone discards the only number the feature has. A callback
+   * rather than a list of property names for the same reason
+   * {@link GlyphMapFeatureFilter} is one: the joining rule (separator,
+   * formatting, what to do with a missing half) belongs to whoever owns the
+   * schema, not to this widget.
+   */
+  readonly text?: (feature: GlyphMapVectorFeature) => string;
+  readonly priorityProperty?: string; readonly minPriority?: number; readonly color?: string; readonly density?: number;
 }
 export interface GlyphMapCircleLayer {
   readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
@@ -5073,7 +5088,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
         if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
         const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], 0) });
-        const label = layer.type === "symbol" ? String(feature.properties?.[layer.textProperty ?? "name"] ?? "") : "";
+        const label = layer.type !== "symbol" ? ""
+          : layer.text ? layer.text(feature)
+          : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
         handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
         handle.el.textContent = label;
         handle.el.style.color = layer.color ?? "";
