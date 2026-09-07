@@ -36,6 +36,14 @@ import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 /** Minimal camera shape needed to project for the occlusion depth pass. */
 interface ProjectCamera {
   project(v: Vec3, cols: number, rows: number, cellAspect: number, metrics?: GlyphProjectionMetrics): [number, number, number, number?];
+  /**
+   * Signed distance past the near plane, `> 0` visible — the same probe
+   * `rasterizeSolid` clips its triangles against. Optional because this
+   * interface is the minimum a caller must supply; an orthographic camera
+   * answers `+Infinity` everywhere, so a camera that omits it entirely is
+   * treated the same way and never clipped.
+   */
+  eyeDepth?(v: Vec3): number;
 }
 
 /**
@@ -183,6 +191,37 @@ export function computeOcclusionIds(
   const CONTOUR_K = 4;
   const contourK = groups.some((g) => g.occlusionContourPx !== undefined) ? CONTOUR_K : 1;
 
+  /**
+   * Project one vertex for the id-map, with the DEPTH the rest of the renderer
+   * means.
+   *
+   * `project()` returns two different depths: `[2]` is the linear eye-space
+   * `cssZ` and `[3]` is the screen-space-linear z-buffer (`1/denom`), and
+   * every paint path — `scanFillTriangle`'s calls, and therefore
+   * `CellGrid.depth` — uses `[3] ?? [2]`. An ORTHOGRAPHIC camera omits `[3]`
+   * entirely, so the two were the same number for as long as glyphcss had
+   * only orbit cameras and nothing here had to choose. Under a POSITIONED
+   * PERSPECTIVE camera they are different quantities in different units, and
+   * the id-map's retained depth is compared directly against a pass's own
+   * `depthBuf` by the sub-cell seam refinement in `rasterizeSolid` — so
+   * filling it with `[2]` made that comparison dimensionally meaningless and,
+   * measured on `@glyphcss/maps`' street-level walk, refused every blank:
+   * the sky dome read `267.44` (a z-buffer value) against a building's
+   * `-7.8e-5` (a `cssZ`), so the base grid was never occluded at all.
+   *
+   * Rewriting `[2]` in place rather than returning a fifth tuple keeps
+   * `fillDepthTri`'s own `z` and the perspective-correct `qa/qb/qc` (read off
+   * `[3]`) both right, allocates nothing beyond the array `project` already
+   * made, and is a no-op wherever `[3]` is absent.
+   */
+  const project = (v: Vec3, cols: number, rows: number, m: GlyphProjectionMetrics): [number, number, number, number?] => {
+    const p = rawCamera.project(v, cols, rows, cellAspect, m);
+    p[2] = p[3] ?? p[2];
+    return p;
+  };
+  const eyeDepthOf = typeof rawCamera.eyeDepth === "function" ? rawCamera.eyeDepth.bind(rawCamera) : null;
+  let eyeScratch = new Float64Array(8);
+
   /** Depth-raster every group into an id map at `outCols*scale × outRows*scale`. */
   const rasterInto = (scale: number, keepDepth: Float64Array | null = null): Int32Array => {
     const cols = outCols * scale, rows = outRows * scale;
@@ -225,24 +264,95 @@ export function computeOcclusionIds(
             if (s && samplerHasTransparency(s)) sampler = s;
           }
         }
-        const p0 = rawCamera.project(vs[0]!, cols, rows, cellAspect, scaledMetrics);
-        let prev = rawCamera.project(vs[1]!, cols, rows, cellAspect, scaledMetrics);
+        const p0 = project(vs[0]!, cols, rows, scaledMetrics);
+        let prev = project(vs[1]!, cols, rows, scaledMetrics);
+        // Near-plane distances, in the SAME order as `vs`. `+Infinity` when the
+        // camera declines the probe (and what an orthographic one answers
+        // anyway), so `straddles` is false and the whole clip below is dead
+        // code on every scene glyphcss had before positioned cameras existed.
+        // Written into one scratch buffer reused across every polygon of the
+        // raster: this loop already runs over the whole scene once per render
+        // (the +10.4 ms/frame a single separated layer costs), so a per-polygon
+        // array here would be a per-frame allocation on the orbit path too.
+        let eye: Float64Array | null = null;
+        if (eyeDepthOf !== null) {
+          if (eyeScratch.length < vs.length) eyeScratch = new Float64Array(vs.length);
+          for (let i = 0; i < vs.length; i++) eyeScratch[i] = eyeDepthOf(vs[i] as Vec3);
+          eye = eyeScratch;
+        }
         for (let k = 2; k < vs.length; k++) {
-          const cur = rawCamera.project(vs[k]!, cols, rows, cellAspect, scaledMetrics);
+          const cur = project(vs[k]!, cols, rows, scaledMetrics);
           // Fan triangle (v0, v[k-1], v[k]) — mirror the UV assignment
           // `rasterizeSolid`'s fan uses so both rasterizers sample the same
           // texel for the same screen cell.
-          const tex: DepthTexCtx | null = sampler !== null && polyUvs !== null
-            ? {
-                sampler,
-                ua: polyUvs[0]![0], va: polyUvs[0]![1],
-                ub: polyUvs[k - 1]![0], vb: polyUvs[k - 1]![1],
-                uc: polyUvs[k]![0], vc: polyUvs[k]![1],
-                qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
-                wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
-              }
+          const uvTri: [Vec2, Vec2, Vec2] | null = polyUvs !== null
+            ? [polyUvs[0]! as Vec2, polyUvs[k - 1]! as Vec2, polyUvs[k]! as Vec2]
             : null;
-          fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
+          const straddles = eye !== null && !(eye[0]! > 0 && eye[k - 1]! > 0 && eye[k]! > 0);
+          if (!straddles) {
+            const tex: DepthTexCtx | null = sampler !== null && uvTri !== null
+              ? {
+                  sampler,
+                  ua: uvTri[0][0], va: uvTri[0][1],
+                  ub: uvTri[1][0], vb: uvTri[1][1],
+                  uc: uvTri[2][0], vc: uvTri[2][1],
+                  qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
+                  wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
+                }
+              : null;
+            fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
+          } else {
+            // Straddles the near plane: clip to `eyeDepth > 0` and fan the
+            // result, exactly as `rasterizeSolid` does for the paint pass.
+            // Without this a polygon with ANY vertex behind the eye projects to
+            // NaN and drops out of the id-map entirely — so the layer that owns
+            // those cells never claims them and nothing is ever occluded there.
+            // A street-level camera stands INSIDE the geometry that surrounds
+            // it (the ground under the walker, the sky dome around them), which
+            // is the whole of what a walk frame is made of.
+            const tri: Vec3[] = [vs[0]! as Vec3, vs[k - 1]! as Vec3, vs[k]! as Vec3];
+            const triD = [eye![0]!, eye![k - 1]!, eye![k]!];
+            const cw: Vec3[] = [];
+            const cuv: Vec2[] | null = uvTri ? [] : null;
+            for (let e = 0; e < 3; e++) {
+              const nx = (e + 1) % 3;
+              const de = triD[e]!, dn = triD[nx]!;
+              if (de > 0) {
+                cw.push(tri[e]!);
+                if (cuv && uvTri) cuv.push(uvTri[e]!);
+              }
+              if ((de > 0) !== (dn > 0)) {
+                const t = de / (de - dn);
+                const ve = tri[e]!, vn = tri[nx]!;
+                cw.push([
+                  ve[0] + t * (vn[0] - ve[0]),
+                  ve[1] + t * (vn[1] - ve[1]),
+                  ve[2] + t * (vn[2] - ve[2]),
+                ] as Vec3);
+                if (cuv && uvTri) {
+                  const ue = uvTri[e]!, un = uvTri[nx]!;
+                  cuv.push([ue[0] + t * (un[0] - ue[0]), ue[1] + t * (un[1] - ue[1])]);
+                }
+              }
+            }
+            if (cw.length >= 3) {
+              const cp = cw.map((w) => project(w, cols, rows, scaledMetrics));
+              for (let f = 1; f < cw.length - 1; f++) {
+                const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
+                const tex: DepthTexCtx | null = sampler !== null && cuv !== null
+                  ? {
+                      sampler,
+                      ua: cuv[0]![0], va: cuv[0]![1],
+                      ub: cuv[f]![0], vb: cuv[f]![1],
+                      uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
+                      qa: qa[3] ?? 1, qb: qb[3] ?? 1, qc: qc[3] ?? 1,
+                      wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
+                    }
+                  : null;
+                fillDepthTri(qa, qb, qc, depth, idMap, g.id, cols, rows, priority, pri, tex);
+              }
+            }
+          }
           prev = cur;
         }
       }
@@ -417,7 +527,17 @@ function fillDepthTri(
   const inv = 1 / area;
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      const px = x + 0.5, py = y + 0.5;
+      // Sample where the PAINT rasterizer samples — `scanFillTriangle`'s
+      // integer `(col, row)`, not a cell centre. A depth/id map exists to say
+      // which cells another pass will actually cover, and testing coverage
+      // half a cell away from where that pass tests it makes the two disagree
+      // by a whole cell along every bottom and right silhouette edge,
+      // systematically (a face ending at `y = 32.2` paints row 32 and claimed
+      // only to row 31). The texel lookup below already sampled at `(x, y)`
+      // for exactly this reason; the inside test did not, and that residue is
+      // what let a stamped road survive along the base of a building that had
+      // separated into its own `<pre>`.
+      const px = x, py = y;
       const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
       const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
       const w2 = 1 - w0 - w1;
@@ -443,14 +563,11 @@ function fillDepthTri(
       if (tex !== null) {
         // Alpha-aware claim: a transparent texel does not cover this cell, so
         // it must not occlude the layer beneath (mirrors `scanFillTriangle`'s
-        // pre-depth-write coverage test). Sample at the PAINT rasterizer's
-        // sample point — integer (x, y), not this loop's (x+0.5, y+0.5)
-        // inside-test point — with fresh barycentric weights, so the id-map's
-        // claimed set and the paint path's covered set read the same texel
-        // for the same cell. Perspective-correct via q, affine under ortho.
-        const tw0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) * inv;
-        const tw1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) * inv;
-        const tw2 = 1 - tw0 - tw1;
+        // pre-depth-write coverage test). The weights are the inside test's
+        // own, which is the paint rasterizer's sample point, so the id-map's
+        // claimed set and the paint path's covered set read the same texel for
+        // the same cell. Perspective-correct via q, affine under ortho.
+        const tw0 = w0, tw1 = w1, tw2 = w2;
         let tu: number, tv: number;
         if (tex.qa !== 1 || tex.qb !== 1 || tex.qc !== 1) {
           const invQ = 1 / (tw0 * tex.qa + tw1 * tex.qb + tw2 * tex.qc);

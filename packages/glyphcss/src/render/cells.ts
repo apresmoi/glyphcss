@@ -397,6 +397,12 @@ export function cloneCellGrid(grid: CellGrid): CellGrid {
   if (grid.targetRgb) clone.targetRgb = new Uint32Array(grid.targetRgb.subarray(0, n));
   if (grid.surfaceUv) clone.surfaceUv = new Float32Array(grid.surfaceUv.subarray(0, n * 2));
   if (grid.weight) clone.weight = new Uint16Array(grid.weight.subarray(0, n));
+  // Cell OWNERSHIP travels with a durable copy like every buffer above it: the
+  // retained-effect pipeline snapshots each frame through here and then
+  // recomposes from that snapshot with no geometry render at all, so dropping
+  // `occluded` on the clone silently un-answered the question for every
+  // `transformCells` hook downstream of a mounted effect.
+  if (grid.occluded) clone.occluded = new Uint8Array(grid.occluded.subarray(0, n));
   return clone;
 }
 

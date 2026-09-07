@@ -1800,6 +1800,25 @@ whose depth is non-finite, which is exactly what a blanked cell reads as.
 
 Gate: `widget.strokeDensityOcclusion.test.ts`.
 
+**Walking, that fix was inert and the base grid was never blanked at all —
+both halves in glyphcss, both invisible to an orthographic camera.** The next
+report (`the roads are still on top of everything, the sky is also on top of
+everything`) came from the same OSM stack in WALK mode, and neither symptom
+had moved. Measured at the entry pose on a 60 m block 200 m ahead: the road
+inked all 140 of its base cells with the building separated against 109 with
+it in the base grid, and the dome painted all 4,480 of its cells against
+3,767. `docs/design/detail-layers.md` ("Cross-layer occlusion") holds the
+mechanisms — the id-map's sample point, its depth quantity, its missing
+near-plane clip, and the retained-effect compositor dropping `occluded` on the
+grid handed to the legacy hook, which is what made `a3b7c56` do nothing here
+(walk mode always mounts an effect, because the sky is a mesh-targeted
+appearance program). Nothing in this package changed. With all four closed,
+separating the building into its own `<pre>` leaves the base grid's sky and
+road cells EXACTLY as they are with the building in the base grid — 3,040 sky
+cells and 95 road cells either way, cell for cell.
+
+Gate: `widget.walkDetailOcclusion.test.ts`.
+
 **Contour needs none of this and is byte-identical.** A `contour` layer
 projects no vertex and runs no depth test at all: it samples per CELL
 (`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inks a level
