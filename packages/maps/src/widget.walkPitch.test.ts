@@ -223,11 +223,23 @@ describe("walk mode — raising the view", () => {
     });
     map.setWalk({});
     map.setBearing(0);
+    // The control: the identical scene with NO block in it. Walk mode paints
+    // a sky, so a street-level frame is never empty and counting ink would
+    // answer a question about the backdrop instead — the block's own
+    // contribution is what this is about, and "not one cell differs" is the
+    // stronger statement of it.
+    const control = mount(baseOpts());
+    control.map.setWalk({});
+    control.map.setBearing(0);
     for (const pitch of [-10, 0, 0.1, 5, 30]) {
       map.setTilt(GLYPH_MAP_WALK_HORIZON_TILT_DEG + pitch);
       map.scene.rerender();
-      expect(painted(map), `pitch ${pitch} deg`).toBe(0);
+      control.map.setTilt(GLYPH_MAP_WALK_HORIZON_TILT_DEG + pitch);
+      control.map.scene.rerender();
+      expect(map.scene.output.textContent ?? "", `pitch ${pitch} deg`)
+        .toBe(control.map.scene.output.textContent ?? "");
     }
+    control.done();
     done();
   });
 });

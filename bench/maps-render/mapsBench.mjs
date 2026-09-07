@@ -186,6 +186,10 @@ const WALK_FAR_M = arg("walk-far", null);
  *  `--walk-far` uses, which is what makes "with and without collision" one
  *  build and one scene rather than two of each. */
 const WALK_COLLISION = arg("walk-collision", "on");
+/** Whether walk mode paints its SKY (`sky.ts`). `off` re-enters through the same
+ *  public `setWalk` reconfigure path `--walk-far` uses, which is what makes
+ *  "with and without the sky" one build and one scene. */
+const WALK_SKY = arg("walk-sky", "on");
 /** Waypoints the fidelity digest is captured at: [lon, lat, span]. */
 const FIDELITY_STOPS = [
   [0, 20, 140], [90, 20, 140], [180, 20, 140], [-90, 20, 140],
@@ -668,6 +672,7 @@ if (!FIDELITY_ONLY) {
     const walkOverrides = {};
     if (WALK_FAR_M) walkOverrides.far = Number(WALK_FAR_M);
     if (WALK_COLLISION === "off") walkOverrides.collision = false;
+    if (WALK_SKY === "off") walkOverrides.sky = false;
     if (Object.keys(walkOverrides).length) {
       await page.evaluate((o) => window.__glyphMapsBench.map().setWalk(o), walkOverrides);
       await page.waitForTimeout(WALK_SETTLE_MS);

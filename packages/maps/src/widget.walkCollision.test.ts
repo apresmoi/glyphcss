@@ -22,6 +22,29 @@
  * loop's `dt` comes from the rAF timestamp — which is why the walking speed
  * below is absurd (the frames are ~2 ms apart here) and the assertions are
  * about where the walker ENDS UP rather than how long it took.
+ *
+ * That trap used to be a real one, and it is now closed rather than lived
+ * with. The motion loop's `dt` is `rAF timestamp - previous`, clamped to
+ * `[1, 64]` ms, and every distance below is `SPEED * dt`. Left on the wall
+ * clock the harness sits ON the 1 ms floor, so it is calibrated for frames
+ * that cost nothing — and a machine under load (a full-suite run, another
+ * test file in the same worker pool) pushes a frame to 10 or 60 ms and
+ * multiplies one step by up to 64. The two clauses with the tightest windows
+ * (a two-frame drive that has to stay short of `STREAM_WALL_M / 2`, and the
+ * slide's tangential travel) failed intermittently that way, on a build that
+ * changed nothing about collision.
+ *
+ * So `requestAnimationFrame` is STUBBED here with a clock that advances by
+ * exactly {@link RAF_STEP_MS} per frame, and `driveForward` waits on a plain
+ * macrotask instead of on a frame of its own. That reproduces the numbers
+ * this file was written against exactly — the first frame carries the loop's
+ * own 16 ms seed and every later one is the 1 ms floor, so an unobstructed
+ * 40-frame drive is 55 m and a two-frame one is 17 m — while making them the
+ * SAME numbers on every machine. No assertion moved.
+ *
+ * Every walk here also declines the SKY (`sky: false`): it is a backdrop and
+ * nothing in this file looks at a pixel, so its geometry and compositor pass
+ * are cost this file has no reason to pay.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
@@ -40,8 +63,15 @@ const METRES_PER_DEGREE = GLYPH_MAP_EARTH_RADIUS_M * (Math.PI / 180);
  * subdivided by the resolver into sub-steps well under a body radius.
  */
 const SPEED = 1000;
-/** Frames per drive — around 55 m of ground covered unobstructed, far past any wall below. */
+/** Frames per drive — 55 m of ground covered unobstructed, far past any wall below. */
 const FRAMES = 40;
+/**
+ * Milliseconds the stubbed frame clock advances per frame. `1` is the motion
+ * loop's own `dt` FLOOR (`Math.max(1, now - previous)`), which is where this
+ * harness's real frames already sat — so this pins the calibration the file
+ * was written against rather than choosing a new one.
+ */
+const RAF_STEP_MS = 1;
 
 const rect = (w: number, h: number) =>
   ({ width: w, height: h, top: 0, left: 0, right: w, bottom: h, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
@@ -97,10 +127,25 @@ const extrusion = (features: ReturnType<typeof building>[]): GlyphMapLayer => ({
   heightProperty: "render_height",
 });
 
+/**
+ * A frame clock that advances by exactly {@link RAF_STEP_MS} per FIRED
+ * callback. Installed per mount and torn down by `vi.unstubAllGlobals()`.
+ */
+let rafClock = 0;
+function stubDeterministicFrames(): void {
+  rafClock = 0;
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => setTimeout(() => {
+    rafClock += RAF_STEP_MS;
+    cb(rafClock);
+  }, 0) as unknown as number);
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => { clearTimeout(id as unknown as ReturnType<typeof setTimeout>); });
+}
+
 function mount(layers: GlyphMapLayer[] = []) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   stubMonospaceMetrics(host);
+  stubDeterministicFrames();
   const map = createGlyphMap(host, {
     projection: glyphMapGlobe(),
     view: { center: [...ZURICH] as [number, number], span: 0.01, cols: COLS, rows: ROWS },
@@ -117,7 +162,10 @@ function key(host: HTMLElement, type: "keydown" | "keyup", k: string): void {
 async function driveForward(host: HTMLElement, map: ReturnType<typeof createGlyphMap>, extra: string[] = [], frames = FRAMES): Promise<[number, number]> {
   for (const k of extra) key(host, "keydown", k);
   key(host, "keydown", "w");
-  for (let i = 0; i < frames; i++) await new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+  // A plain macrotask, NOT a frame of the test's own: the stubbed clock
+  // advances once per fired callback, so borrowing a frame here would double
+  // every `dt` and halve the calibration above.
+  for (let i = 0; i < frames; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
   key(host, "keyup", "w");
   for (const k of extra) key(host, "keyup", k);
   return eastNorth(map.getView().center);
@@ -125,6 +173,7 @@ async function driveForward(host: HTMLElement, map: ReturnType<typeof createGlyp
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   stubbedHosts.clear();
 });
 
@@ -147,7 +196,7 @@ describe("walk collision — buildings block", () => {
     // The control: without it, every assertion below could be satisfied by a
     // walker who simply never moves.
     const { map, host, done } = mount();
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, north] = await driveForward(host, map);
     expect(north).toBeGreaterThan(FREE_M);
@@ -156,7 +205,7 @@ describe("walk collision — buildings block", () => {
 
   it("STOPS a walker driven into a fill-extrusion, a body radius short of its wall", async () => {
     const { map, host, done } = mount([extrusion([building(-40, 40, WALL_M, 30)])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [east, north] = await driveForward(host, map);
     // Did not pass through — the reported defect, in one number.
@@ -174,7 +223,7 @@ describe("walk collision — buildings block", () => {
       source: { features: [building(-40, 40, WALL_M, 30)] },
       color: "#224422",
     }]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, north] = await driveForward(host, map);
     expect(north).toBeGreaterThan(FREE_M);
@@ -183,7 +232,7 @@ describe("walk collision — buildings block", () => {
 
   it("SLIDES along the wall when it is taken at an angle", async () => {
     const { map, host, done } = mount([extrusion([building(-200, 200, WALL_M, 30)])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(45);
     const [east, north] = await driveForward(host, map);
     // Against the wall...
@@ -201,7 +250,7 @@ describe("walk collision — buildings block", () => {
       building(-40, -0.6, WALL_M, 30),
       building(0.6, 40, WALL_M, 30),
     ])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, north] = await driveForward(host, map);
     // Out the far side of a 20 m deep block.
@@ -217,7 +266,7 @@ describe("walk collision — never trapped", () => {
     // "may only reduce penetration" rule refuses, which would leave the
     // reader pressing a key with nothing happening.
     const { map, host, done } = mount([extrusion([building(-30, 30, -5, 55)])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, north] = await driveForward(host, map);
     // Not merely "moved a bit": all the way out and well clear.
@@ -227,7 +276,7 @@ describe("walk collision — never trapped", () => {
 
   it("a building that arrives AROUND the walker still lets them leave", async () => {
     const { map, host, done } = mount();
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     // Mounted after the walk began, centred on the walker — the index has to
     // be invalidated for this to block anything at all, and the escape has to
@@ -242,7 +291,7 @@ describe("walk collision — never trapped", () => {
 describe("walk collision — the defeat key and the option", () => {
   it("passes through walls while `g` is held, and blocks again when it is released", async () => {
     const { map, host, done } = mount([extrusion([building(-40, 40, WALL_M, 30)])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, ghosted] = await driveForward(host, map, ["g"]);
     expect(ghosted).toBeGreaterThan(FREE_M);
@@ -257,7 +306,7 @@ describe("walk collision — the defeat key and the option", () => {
 
   it("a window BLUR releases the ghost key, like every other held key", async () => {
     const { map, host, done } = mount([extrusion([building(-40, 40, WALL_M, 30)])]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     key(host, "keydown", "g");
     host.ownerDocument!.defaultView!.dispatchEvent(new Event("blur"));
@@ -268,7 +317,7 @@ describe("walk collision — the defeat key and the option", () => {
 
   it("`collision: false` turns the whole model off", async () => {
     const { map, host, done } = mount([extrusion([building(-40, 40, WALL_M, 30)])]);
-    map.setWalk({ speed: SPEED, collision: false });
+    map.setWalk({ speed: SPEED, collision: false, sky: false });
     map.setBearing(0);
     expect(map.getWalk()!.collision).toBe(false);
     const [, north] = await driveForward(host, map);
@@ -322,7 +371,7 @@ describe("walk collision — the index follows the mounted layers", () => {
       type: "fill-extrusion", source, sourceLayer: "buildings",
       color: "#cccccc", heightProperty: "render_height",
     }]);
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
 
     // Two frames with the tile still in flight: the walker moves, which is
@@ -348,7 +397,7 @@ describe("walk collision — the index follows the mounted layers", () => {
   it("frees the street again when the building layer is removed", async () => {
     const { map, host, done } = mount();
     const id = map.addLayer(extrusion([building(-40, 40, WALL_M, 30)]));
-    map.setWalk({ speed: SPEED });
+    map.setWalk({ speed: SPEED, sky: false });
     map.setBearing(0);
     const [, blocked] = await driveForward(host, map);
     expect(blocked).toBeLessThan(STOPPED_MAX);

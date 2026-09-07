@@ -3813,3 +3813,204 @@ All three are on by default for the `omt-buildings` row and none gets a
 control. Each answers a defect rather than adding a style, `colorVariation`
 and the base are free, and the facade at ~2 ms is worth it at the only scale
 the row exists at. A caller who disagrees owns the returned layer objects.
+
+## The walk-mode sky (`sky.ts`)
+
+Asked for as "lets put the sky, shall we? we can use a similar method to the
+examples/parthenon — but lets not set clouds for now, the sky + sun is
+enough … only in FPV view ofc".
+
+### The sky is real geometry, and that is the whole design
+
+`website/src/pages/examples/parthenon.astro` builds one and it works. The
+idea taken whole is that the sky is a large INWARD HEMISPHERE added as an
+ordinary mesh. Everything else follows: the renderer projects it exactly like
+the terrain, so it is anchored to the world with zero camera math; it is
+occluded by whatever is nearer, so a building's roofline cuts into it for
+free; and it moves under a look the way the world does, because it is in the
+world. There is no sky pass, no "paint the cells above the horizon", no
+re-derived view axis.
+
+The cloud half of that page is deliberately absent.
+
+### Lambert had to be defeated, and the parthenon's escape does not port
+
+An inward hemisphere's normals face the viewer from above, so ordinary
+shading modulates the dome by wherever the key light points — a sky is not a
+lit surface. The parthenon's answer is an appearance program over the dome's
+own surface, and that is the answer here too.
+
+Where it differs is the discriminator. That page asks "am I on the dome" with
+`dist < SKY_R * 0.6` — distance from the WORLD ORIGIN — which is only
+meaningful because its world is centred on the camera. A map's origin is the
+centre of the Earth, and, crucially, **terrain beyond the dome radius
+genuinely renders**: the walk horizon (`glyphMapWalkWithinHorizon`) gates
+`fill-extrusion` walls, markers and point features, and nothing else. The
+raster relief mesh is never horizon-culled — it draws to the mounted tile's
+full extent, which on `/maps`' curated z7 pyramid is hundreds of kilometres.
+A distance test would therefore paint far terrain as sky.
+
+So the layer is MESH-TARGETED at the dome's own handle (AGENTS.md's
+"Per-object targeting"): `target.coverage` is exactly the cells whose depth
+winner is the dome, and no radius heuristic exists at all. That is also why
+the dome is mounted only in solid mode — mesh targeting reads `winnerMesh`,
+which is null elsewhere, and `worldPosition` is a hard requirement. A dome
+mounted where the program cannot run would be a Lambert-shaded hemisphere,
+i.e. the exact thing the program exists to prevent.
+
+`ambientIntensity` was never a candidate: per AGENTS.md it pops the mesh into
+its own `<pre>`, and one opaque separated layer makes `computeOcclusionIds`
+raster the whole scene per render — measured on this page at +10.4 ms/frame,
+more than the entire feature costs.
+
+### The radius, and the premise that turned out to be false
+
+The dome sits at `GLYPH_MAP_SKY_RADIUS_FRACTION` (0.98) × `far` — 588 m at
+the shipped 600 m horizon. The brief's reasoning was that everything past
+`far` is already culled, so a dome just inside it becomes the backdrop
+exactly where the world stops, with no depth-range fight.
+
+**Half of that is wrong and it was measured, not assumed.** Extrusion walls
+and point features do stop at `far`; the relief mesh does not. Rendered at
+`/maps`' default Zürich walk (1440×900, 140×63, OSM water/roads/boundaries/
+buildings, `exaggeration: 24`), of 8,820 cells the dome fills **1,903 that
+were blank** and takes over **678 that the distant exaggerated relief had
+painted** — a jagged green mass reaching a third of the way up the frame,
+replaced by sky and a clean horizon line.
+
+That is kept, on the argument that it is what makes it a sky rather than a
+wash in a small blank wedge, and that at `exaggeration: 24` the far field it
+replaces is a coarse stepped ramp rather than a legible hillside. It is a
+real change to what a walker sees and is recorded here as one. The lever if
+it is ever wanted the other way is the fraction: a dome beyond the mounted
+tile's own reach would occlude nothing, at the cost of the sky only appearing
+where geometry does not.
+
+The slack the fraction leaves is not spare — it is the re-centring budget
+(below), so the two numbers are one decision.
+
+### Re-centring: a rebuild, on the horizon's own test
+
+`glyphMapSkyRecentreDistanceM(far)` is `far * (1 - fraction)` = 12 m at the
+default, and `advanceWalk` re-centres when the walker leaves that radius —
+measured with `glyphMapWalkWithinHorizon` against the dome's own centre, i.e.
+the same great-circle test the horizon already uses. At 6 m/s that is one
+rebuild every two seconds, or two thirds of a second at a run.
+
+It re-centres by REBUILDING world-space polygons (`setPolygons`), not by
+`setTransform({ position })`, and that is not a style choice:
+`createGlyphScene.ts`'s `cullChunkCache` is keyed on the TRANSFORMED polygon
+array's identity, so an untransformed mesh gets the same array back from
+`applyTransform` every render and its pre-projection cull runs are built once,
+while a transformed one rebuilds them on every single render. A dome that
+followed the walker through a transform would pay per frame what it now pays
+per 12 m.
+
+A re-centre also re-probes the ground under the walker, so the rim follows
+the relief instead of staying at the elevation the walk was entered at.
+
+The test shrinks `far` to 12 m (dome radius 11.76 m) so that "walked clean
+out of the sky" is a handful of frames rather than 33 seconds of running.
+
+### The sun is the scene's own, and a headlight is not one
+
+The disc is drawn at the direction the frame was actually lit by, and the
+gradient is a function of that direction's ALTITUDE above the walker's local
+horizontal. Precedence: `sunDirection()` first (the widget's real NOAA solar
+vector, so sky and terminator can never disagree), then the consumer's own
+`scene.directionalLight.direction` — which is how `/maps`' Azimuth/Elev
+sliders reach the sky, through the `publicScene` proxy's `setOptions` so a
+reader standing still still gets a fresh sky.
+
+**A headlight is declined**, and this is the one place the sky departs from
+`getKeyLightDirection()`. A headlight IS the camera's view axis. Taken as a
+sun it glues a disc to the middle of the frame and makes the sky's altitude
+equal the reader's pitch. Measured on `/maps`' own default — Sun "Full" on an
+orbit projection, which `mapKeyLightForSunMode` resolves to a headlight — a
+level gaze put the light's altitude at −0.02° and rendered the entire sky at
+DUSK, at every hour of every day. The widget's own precedence note already
+carries the reason: a real sun is a statement about the world and a headlight
+one about the viewer, and a sky is part of the world. With no world sun the
+sky is plain daylight and draws no disc at all.
+
+### Banding, because a continuous ramp costs spans
+
+`stampGlyphMapNight` already paid for this lesson (1,679 spans / 9.40 ms
+against 123 / 1.00 ms for a continuous night ramp), and the sky is the
+largest flat region a street-level frame has. The gradient parameter is
+quantized into `GLYPH_MAP_SKY_BANDS` (32) steps, so each band is one colour
+and one glyph; a bearing keeps the horizon level, so the bands run along
+screen rows.
+
+Measured on the real page under `spans` encoding: the sky adds **1,903
+painted cells for 26 extra spans** (835 → 861), i.e. about 73 cells per span,
+and `commit-write` in the render bench is flat at 0.65 ms with and without.
+
+The glyph is picked from `GLYPH_MAP_SKY_RAMP` by the band colour's own Rec.
+601 luminance rather than by the band index, so a mono render
+(`useColors: false`) shows the same gradient and the same glow. The ramp
+contains no space: a blank cell is a hole, not a dark sky.
+
+### Cost
+
+`bench/maps-render --scenario walk --walk-look 0`, headed, 1440×900, 140×63,
+spans encoding, Zürich with the OpenStreetMap water/roads/boundaries/
+buildings rows on, three runs each through the widget's own
+`setWalk({ sky: false })` reconfigure (`--walk-sky off`) so both halves are
+the same build and the same scene:
+
+| | fps | base-raster ms/render | ms/render | commit-write | base polys |
+|---|---|---|---|---|---|
+| sky off | 41.8 | 10.37 | 13.49 | 0.65 | 61,647 |
+| sky on | 40.2 | 10.72 | 13.20 | 0.65 | 62,016 |
+
++0.35 ms of base raster (384 quads plus the compositor's pass over the grid),
+no commit-write cost at all, and about 1.6 fps of a 42 fps frame. The eight
+fidelity waypoints, which are all outside walk mode, hash identically with
+the sky on and off (`492cc3d90b4f2b7ba55cb7dd`) — the feature changes nothing
+a non-walking map renders.
+
+### The horizon seam
+
+The dome is centred on the walker's own GROUND point, not on the eye. On the
+eye its rim would sit exactly on the horizontal, leaving a sliver between the
+last terrain the picture holds (flat ground at radius `R` projects
+`atan(1.7 / R)` = 0.166° below the horizontal) and the first sky cell. On the
+ground the rim is that same 0.166° BELOW the horizontal, so it overlaps the
+terrain band by construction and whichever is nearer wins the ordinary depth
+test. Rendered, the join is one row: the last sky band and the first terrain
+row abut with no gap and no double-drawn line.
+
+### Two existing assertions had to change their METRIC, not their claim
+
+`widget.walk.test.ts`'s "draws the buildings inside the horizon and none of
+the ones past it" and `widget.walkPitch.test.ts`'s "still refuses everything
+past the local horizon, at every pitch" both measured total ink in the
+`<pre>` and asserted zero. A street-level frame now has a sky in it and is
+never empty, so ink stopped being the block's own contribution. Both now
+compare against the IDENTICAL scene with no block mounted — "the far block
+changes not one cell" — which is the same property stated more strictly.
+
+### And one latent flake, closed rather than lived with
+
+`widget.walkCollision.test.ts` drives real rAF frames and asserts METRES, and
+the motion loop's `dt` is the wall clock (`rAF now - previous`, clamped to
+`[1, 64]` ms). The harness sat ON the 1 ms floor, so it was calibrated for
+frames that cost nothing — and any machine load pushes a frame to 10 or 60 ms
+and multiplies one step by up to 64. Adding a test file to the maps worker
+pool was enough: two clauses with tight distance windows (a two-frame drive
+that must stay short of `STREAM_WALL_M / 2`, and the slide's tangential
+travel) began failing in roughly a third of full-suite runs, on a change that
+touched nothing about collision.
+
+Giving those walks `sky: false` did NOT fix it, which is what identified the
+cause correctly: the trigger is the added parallel load, not the sky's own
+render cost. `requestAnimationFrame` is now stubbed in that file with a clock
+that advances by exactly 1 ms per fired callback, and `driveForward` waits on
+a plain macrotask rather than borrowing a frame of its own (which would
+double every `dt`). That reproduces the file's own calibration exactly — the
+first frame carries the loop's 16 ms seed and the rest sit on the floor, so
+an unobstructed 40-frame drive is 55.000 m and a two-frame one is 17 m,
+bit-identical across runs — and four consecutive full-suite runs are green.
+The walks also keep `sky: false`, on its own merits: nothing in that file
+looks at a pixel.

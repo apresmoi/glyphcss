@@ -316,6 +316,18 @@ export interface GlyphMapWalkOptions {
    * data mounted has nothing to collide with anyway.
    */
   readonly collision?: boolean;
+  /**
+   * Is there a SKY? Default `true`.
+   *
+   * `sky.ts` owns what it is. This is the off switch, and it exists for the
+   * same reason `collision` does: the render bench has to be able to price
+   * the feature against the identical scene and the identical build
+   * (`--walk-sky off`), and a consumer compositing their own backdrop over
+   * the `<pre>` has to be able to decline this one. `false` mounts no dome
+   * and no appearance program at all, so it is byte-identical to a build
+   * without the feature.
+   */
+  readonly sky?: boolean;
 }
 
 /** {@link GlyphMapWalkOptions} with every default filled in — what the widget actually holds while walking. */
@@ -327,6 +339,7 @@ export interface GlyphMapResolvedWalkOptions {
   readonly speed: number;
   readonly maxPitch: number;
   readonly collision: boolean;
+  readonly sky: boolean;
 }
 
 /** What `map.getWalk()` reports while walking (`null` when it is off). */
@@ -350,6 +363,7 @@ export function resolveGlyphMapWalkOptions(opts: GlyphMapWalkOptions = {}): Glyp
     speed: opts.speed ?? GLYPH_MAP_WALK_SPEED_M_PER_S,
     maxPitch: opts.maxPitch ?? GLYPH_MAP_WALK_MAX_PITCH_DEG,
     collision: opts.collision ?? true,
+    sky: opts.sky ?? true,
   };
 }
 

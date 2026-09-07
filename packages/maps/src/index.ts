@@ -218,6 +218,33 @@ export type {
   GlyphMapWalkState,
 } from "./walk";
 export {
+  GLYPH_MAP_SKY_BANDS,
+  GLYPH_MAP_SKY_DAY,
+  GLYPH_MAP_SKY_DAY_DEG,
+  GLYPH_MAP_SKY_DUSK,
+  GLYPH_MAP_SKY_MESH_COLOR,
+  GLYPH_MAP_SKY_NIGHT,
+  GLYPH_MAP_SKY_NIGHT_DEG,
+  GLYPH_MAP_SKY_RADIUS_FRACTION,
+  GLYPH_MAP_SKY_RAMP,
+  GLYPH_MAP_SKY_RINGS,
+  GLYPH_MAP_SKY_SEGMENTS,
+  GLYPH_MAP_SKY_SUN_DISC_DEG,
+  GLYPH_MAP_SKY_SUN_GLOW_DEG,
+  glyphMapSkyDome,
+  glyphMapSkyEffect,
+  glyphMapSkyPalette,
+  glyphMapSkyParamsFor,
+  glyphMapSkyRecentreDistanceM,
+  glyphMapSkySunAltitude,
+} from "./sky";
+export type {
+  GlyphMapSkyDome,
+  GlyphMapSkyDomeOptions,
+  GlyphMapSkyPalette,
+  GlyphMapSkyParams,
+} from "./sky";
+export {
   GLYPH_MAP_WALK_BODY_RADIUS_M,
   GLYPH_MAP_WALK_COLLISION_CELL_M,
   createGlyphMapWalkCollisionIndex,

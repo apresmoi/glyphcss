@@ -611,7 +611,7 @@ describe("walk mode — the tile budget", () => {
     });
     const degFor = (m: number) => (m / GLYPH_MAP_EARTH_RADIUS_M) * (180 / Math.PI);
 
-    const paintedFor = (features: ReturnType<typeof block>[]): number => {
+    const renderFor = (features: ReturnType<typeof block>[]): string => {
       const { map, done } = mount({
         ...baseOpts(),
         layers: [{
@@ -624,13 +624,26 @@ describe("walk mode — the tile budget", () => {
       map.setWalk({});
       map.setBearing(0);
       map.scene.rerender();
-      const painted = (map.scene.output.textContent ?? "").replace(/[\s\n]/g, "").length;
+      const text = map.scene.output.textContent ?? "";
       done();
-      return painted;
+      return text;
     };
 
-    const inside = paintedFor([block(ZURICH[0], ZURICH[1] + degFor(GLYPH_MAP_WALK_FAR_M * 0.4), degFor(40))]);
-    const beyond = paintedFor([block(ZURICH[0], ZURICH[1] + degFor(GLYPH_MAP_WALK_FAR_M * 6), degFor(40))]);
+    // The metric is the cells the BLOCK adds over the identical scene with no
+    // block in it, not total ink: walk mode paints a sky, so a street-level
+    // frame is never empty and "ink" would answer a question about the
+    // backdrop. It is the stronger statement of the same property — a block
+    // past the horizon must change NOT ONE CELL.
+    const empty = renderFor([]);
+    const changedBy = (features: ReturnType<typeof block>[]): number => {
+      const text = renderFor(features);
+      let changed = 0;
+      for (let i = 0; i < Math.max(text.length, empty.length); i++) if (text[i] !== empty[i]) changed++;
+      return changed;
+    };
+
+    const inside = changedBy([block(ZURICH[0], ZURICH[1] + degFor(GLYPH_MAP_WALK_FAR_M * 0.4), degFor(40))]);
+    const beyond = changedBy([block(ZURICH[0], ZURICH[1] + degFor(GLYPH_MAP_WALK_FAR_M * 6), degFor(40))]);
 
     // The near block draws; the far one draws NOTHING. Measured across the
     // range, the same 300 m block paints 4,590 cells at 80 m, 1,485 at

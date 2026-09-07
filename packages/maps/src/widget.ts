@@ -45,6 +45,7 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, createGlyp
 import type {
   CellGrid,
   GlyphCamera,
+  GlyphEffectLayerHandle,
   GlyphHotspotHandle,
   GlyphMeshHandle,
   GlyphMeshTransform,
@@ -94,6 +95,15 @@ import { glyphMapFieldValueAt } from "./sample";
 import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
+import {
+  GLYPH_MAP_SKY_RADIUS_FRACTION,
+  glyphMapSkyDome,
+  glyphMapSkyEffect,
+  glyphMapSkyParamsFor,
+  glyphMapSkyRecentreDistanceM,
+  type GlyphMapSkyDome,
+  type GlyphMapSkyParams,
+} from "./sky";
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
 import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
@@ -5378,6 +5388,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function applyKeyLight(): boolean {
     if (destroyed) return false;
     const direction = keyLightDirection();
+    // BEFORE the early return: the sky's sun is whatever lit the frame, and
+    // the case where this widget owns no direction at all (`sun: "off"` plus
+    // `keyLight: "fixed"`, the defaults) is exactly the case that returns
+    // here — `skyLightDirection` falls back to the scene's own light there.
+    syncWalkSkyLight();
     if (!direction) return false;
     const current = scene.getOptions().directionalLight;
     const d = current?.direction;
@@ -6237,6 +6252,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (center[0] === view.center[0] && center[1] === view.center[1]) return false;
     view = { ...view, center, bounds: undefined };
     refreshWalkGround();
+    recentreWalkSky();
     syncCameraToView(view);
     emitViewChange("move");
     return true;
@@ -6247,6 +6263,144 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const sample = groundElevationSampler();
     const elevation = sample ? sample(view.center[0], view.center[1]) : 0;
     walkGroundElevation = Number.isFinite(elevation) ? elevation : 0;
+  }
+
+  // ── WALK MODE: the sky ────────────────────────────────────────────────
+  //
+  // `sky.ts` owns the geometry and the colour; this owns the LIFECYCLE, and
+  // there is deliberately nothing else to it. The dome is an ordinary opaque
+  // mesh in the base `<pre>` — no `density`, no `mode`, no `glyphPalette`,
+  // no `ambientIntensity` — so it separates nothing, adds no rasterizer pass
+  // and cannot switch on `computeOcclusionIds` (AGENTS.md's "Per-mesh detail
+  // layers": one opaque separated layer costs the whole scene a second
+  // raster per render, measured on this page at +10.4 ms/frame, which would
+  // be more than the entire feature). It casts and receives no shadow (both
+  // default false and neither is set). It is not a LAYER, so the tile sweep,
+  // `getAttributions()` and the collision index never see it.
+  //
+  // Mounted only in SOLID mode, because that is the only mode in which the
+  // appearance program can run at all: mesh targeting reads `winnerMesh`,
+  // which is null elsewhere, and `worldPosition` is a hard requirement. A
+  // dome mounted where the program is inactive would be a Lambert-shaded
+  // hemisphere — the exact thing `sky.ts`'s header exists to avoid.
+  let skyDome: GlyphMapSkyDome | null = null;
+  let skyMesh: GlyphMeshHandle | null = null;
+  let skyLayer: GlyphEffectLayerHandle<GlyphMapSkyParams> | null = null;
+
+  /**
+   * Where the sky's sun goes — a WORLD direction, or `null` when there is no
+   * sun in the world at all.
+   *
+   * {@link sunDirection} first: it is the widget's real solar vector, so the
+   * sky's disc and the terminator the same frame draws can never disagree,
+   * and it is what {@link keyLightDirection} would have answered anyway.
+   *
+   * Then the scene's own `directionalLight` — the vector every other surface
+   * in the frame was actually lit by, and the honest answer whenever the
+   * consumer owns the light (`/maps`' azimuth/elevation sliders reach the sky
+   * exactly here).
+   *
+   * A HEADLIGHT is deliberately excluded, and this is the one place the sky
+   * departs from `getKeyLightDirection()`. A headlight IS the camera's view
+   * axis, so taking it as a sun would glue a disc to the middle of the frame
+   * and swing the whole gradient from night to day as the reader looked down
+   * and up — measured on `/maps`' own default (Sun "Full" on an orbit
+   * projection, which `mapKeyLightForSunMode` resolves to a headlight): a
+   * level gaze put the light's altitude at -0.02 degrees and rendered the
+   * whole sky at DUSK, at every hour of every day. The widget's own precedence
+   * note already says why: a real sun is a statement about the WORLD and a
+   * headlight one about the VIEWER, and a sky is part of the world.
+   * `glyphMapSkyParamsFor(dome, null)` is then plain daylight with no disc.
+   */
+  function skyLightDirection(): Vec3 | null {
+    const sun = sunDirection();
+    if (sun) return sun;
+    if (keyLightMode === "headlight") return null;
+    const d = scene.getOptions().directionalLight?.direction;
+    return d ? [d[0], d[1], d[2]] : null;
+  }
+
+  function buildWalkSky(): GlyphMapSkyDome | null {
+    const w = walk;
+    if (!w) return null;
+    return glyphMapSkyDome({
+      projection,
+      at: view.center,
+      groundElevation: walkGroundElevation,
+      radiusM: w.far * GLYPH_MAP_SKY_RADIUS_FRACTION,
+    });
+  }
+
+  function mountWalkSky(): void {
+    if (!walk || !walk.sky || skyMesh) return;
+    if ((scene.getOptions().mode ?? "solid") !== "solid") return;
+    const dome = buildWalkSky();
+    if (!dome) return;
+    skyDome = dome;
+    skyMesh = scene.add(dome.polygons);
+    skyLayer = scene.addEffectLayer({
+      effect: glyphMapSkyEffect,
+      target: skyMesh,
+      blend: "over",
+      params: glyphMapSkyParamsFor(dome, skyLightDirection()),
+    });
+  }
+
+  function unmountWalkSky(): void {
+    if (skyLayer) { skyLayer.dispose(); skyLayer = null; }
+    if (skyMesh) { skyMesh.dispose(); skyMesh = null; }
+    skyDome = null;
+  }
+
+  /**
+   * Re-centre the dome on the walker — on the SAME test that decides they
+   * have travelled, and not once per frame.
+   *
+   * A re-centre is a rebuild (`setPolygons` on world-space vertices), which
+   * is what keeps the per-render cost at zero: an untransformed mesh gets
+   * the identical polygon array back from glyphcss's `applyTransform` every
+   * render, so its pre-projection cull runs are built ONCE and reused, while
+   * a `setTransform({ position })` would rebuild them every single render
+   * (`createGlyphScene.ts`'s `cullChunkCache` says so in as many words).
+   *
+   * So the rule is the horizon test the walk already owns
+   * (`glyphMapWalkWithinHorizon`) run against the dome's OWN centre, at the
+   * radius slack {@link glyphMapSkyRecentreDistanceM} derives — 12 m at the
+   * default `far`, i.e. one rebuild of 384 quads every two seconds of
+   * walking. The ground under the walker rides along: a re-centre re-probes
+   * it, so the rim follows the relief instead of staying at the elevation
+   * the walk was entered at.
+   */
+  function recentreWalkSky(): void {
+    const w = walk;
+    if (!w || !skyMesh || !skyDome) return;
+    const slack = glyphMapSkyRecentreDistanceM(w.far);
+    if (glyphMapWalkWithinHorizon(skyDome.at[0], skyDome.at[1], view.center[0], view.center[1], slack)) return;
+    const dome = buildWalkSky();
+    if (!dome) return;
+    skyDome = dome;
+    skyMesh.setPolygons(dome.polygons);
+    syncWalkSkyLight();
+  }
+
+  /**
+   * Push the live light into the sky's params, and NOTHING when it has not
+   * moved.
+   *
+   * The same discipline (and the same reason) as {@link applyKeyLight}'s own
+   * equality check: writing params schedules a coalesced effect transaction,
+   * and this is called from every camera-moving frame. No-op when walk mode
+   * is off, which is every map that is not walking.
+   */
+  function syncWalkSkyLight(): void {
+    if (!skyLayer || !skyDome) return;
+    const next = glyphMapSkyParamsFor(skyDome, skyLightDirection());
+    const p = skyLayer.params;
+    if (p.centerX === next.centerX && p.centerY === next.centerY && p.centerZ === next.centerZ
+      && p.upX === next.upX && p.upY === next.upY && p.upZ === next.upZ
+      && p.sunX === next.sunX && p.sunY === next.sunY && p.sunZ === next.sunZ
+      && p.altitude === next.altitude) return;
+    skyLayer.setParams(next);
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -6651,6 +6805,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       walkRunning = false;
       walkGhost = false;
       detachWalkInput();
+      unmountWalkSky();
       view = restore.view;
       tiltRequest = restore.tiltRequest;
       appliedTilt = restore.appliedTilt;
@@ -6677,6 +6832,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // A narrower neck can leave the live pitch outside it; `tiltFor`
       // clamps the REQUEST, so re-running the pose is the whole correction.
       appliedTilt = tiltFor(projection, view, camera.zoom, projectionGrid());
+      // `far` is the dome's own radius (times the fraction), so a reconfigure
+      // is a rebuild — the render bench's `--walk-far` ladder drives exactly
+      // this branch.
+      unmountWalkSky();
+      mountWalkSky();
       syncCameraToView(view);
       applyKeyLight();
       syncNearSide();
@@ -6700,6 +6860,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     attachWalkInput();
     view = { ...view, span: glyphMapWalkSpan(resolved.far), bounds: undefined };
     refreshWalkGround();
+    mountWalkSky();
     syncCameraToView(view);
     applyKeyLight();
     syncNearSide();
@@ -7316,6 +7477,23 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (key === "rerender") {
         return () => { syncNearSideGeometry(); target.rerender(); };
       }
+      // The escape hatch a consumer writes its own LIGHTING through — `/maps`
+      // does exactly that, on every azimuth/elevation/sun change. The walk
+      // sky's sun is that same vector, and a reader standing still moves
+      // nothing else that would refresh it, so a sky lit a frame behind the
+      // terrain it sits over is only avoidable here. The render-mode read is
+      // the same argument: the appearance program is solid-mode-only, so a
+      // mode written through this handle has to be able to take the dome
+      // down and put it back.
+      if (key === "setOptions") {
+        return (options: Partial<GlyphSceneOptions>) => {
+          target.setOptions(options);
+          if (walk) {
+            if ((target.getOptions().mode ?? "solid") === "solid") mountWalkSky(); else unmountWalkSky();
+          }
+          syncWalkSkyLight();
+        };
+      }
       return Reflect.get(target, key, receiver);
     },
   });
@@ -7401,6 +7579,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       keyTarget.removeEventListener("keyup", onKeyUp as EventListener);
       blurTarget?.removeEventListener("blur", onWalkBlur);
       detachWalkInput();
+      unmountWalkSky();
       for (const state of layerStates.values()) {
         if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
       }
