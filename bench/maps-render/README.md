@@ -35,6 +35,7 @@ preview`.
 | `--osm-density-row <id=n,…>` | ONE row's density. The only way to tell a stroke overlay grid's cost from a separated detail pass's, since the master writes all ten |
 | `--at lon,lat,span` | re-base the timed scenarios here instead of the globe overview — how to price `drag`/`wheel` at a CITY view, where the layers a street-level reader has mounted actually exist |
 | `--walk-frames <n>` | displayed frames of held-W walking (default 400) |
+| `--walk-far <m>` | the walker's local horizon, applied through the widget's own `setWalk` RECONFIGURE path once walk mode is live. The way to measure a view-distance ladder without rebuilding the package per rung — it re-pins `view.span`, re-poses the lens and re-sweeps the tiles, which is exactly what shipping a different `GLYPH_MAP_WALK_FAR_M` does |
 | `--walk-look <deg>` | heading applied per walking frame. **Use `0`.** Any other value drives the look through `map.setBearing`, which renders SYNCHRONOUSLY and adds a render per frame — the real mouselook path (`applyWalkLook`) only marks the frame dirty, so a non-zero value measures the harness, not the page |
 | `--no-fidelity` | skip the eight-waypoint digest. Cost-only runs while hunting a stall; never for a change that could move a pixel |
 
@@ -48,6 +49,17 @@ enters through the page's OWN pegman toggle rather than `map.setWalk`, holds
 `w`, and keeps measuring for 1.2 s after the release so the post-motion tile
 settle lands inside the window. The blank guard is skipped there and only there:
 a street-level frame legitimately has sky in it, and sky is blank cells.
+
+Every run also reports the **tile budget it actually spent**, split at the
+moment the walk scenario began: `before` (page load and the pre-walk view),
+`footprint` (what entering walk — and any `--walk-far` reconfigure — asked
+for), and `walked` (what the held-W traverse streamed on top). Counted off
+real network requests by zoom, distinct addresses only, so a cached tile is
+not double-counted: `osm` is an OpenFreeMap `{z}/{x}/{y}.pbf`, `geo`/`cur` a
+baked relief `{z}/{x}_{y}.bin`. It is the only honest answer to "how many
+tiles does this footprint cost" — the analytic formula in
+`website/.../mapsWalk.ts` is a bound, not a measurement, and the widget's own
+per-tile visibility test is what decides.
 
 ## A HANG IS A DISTRIBUTION, NOT A MEAN
 

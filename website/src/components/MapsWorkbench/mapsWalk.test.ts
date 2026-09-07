@@ -23,6 +23,7 @@ import {
   mapWalkReason,
   mapWalkTileBudget,
 } from "./mapsWalk";
+import { GLYPH_MAP_WALK_FAR_M, glyphMapWalkSpan } from "@glyphcss/maps";
 
 const READY = { projectionId: "globe" as const, span: 0.01 };
 
@@ -75,15 +76,30 @@ describe("mapWalkReason", () => {
 
 describe("the tile budget", () => {
   it("is a handful of tiles even at the densest level the page serves", () => {
-    // The 400 m horizon against z14's 0.011 deg tiles: a 2x2 block plus the
-    // ring a disc can straddle. The widget's own sweep was measured
-    // requesting exactly 4 deep tiles for this footprint on a z14-shaped
-    // RASTER pyramid (`widget.walk.test.ts`), so this bound is not a hopeful
-    // one — and a terrain walk on this page's own curated z7 relief (2.8 deg
-    // tiles) is one tile.
+    // The horizon against z14's 0.011 deg tiles: a small block plus the ring
+    // a disc can straddle. Not a hopeful bound — the widget's own sweep was
+    // measured on the real page requesting 1 z14 tile at 400 m, 3 at 800 and
+    // 6 at 1200 (`widget.walkHorizon.test.ts` pins the mechanism), against a
+    // page budget that is never more than 100 — and a terrain walk on this
+    // page's own curated z7 relief (2.8 deg tiles) is one tile.
     expect(mapWalkTileBudget()).toBeLessThanOrEqual(16);
     expect(mapWalkTileBudget()).toBeGreaterThanOrEqual(4);
-    expect(mapWalkTileBudget(400, 7)).toBeLessThanOrEqual(4);
+    expect(mapWalkTileBudget(GLYPH_MAP_WALK_FAR_M, 7)).toBeLessThanOrEqual(4);
+  });
+
+  it("admits a walk link taken at the shipped horizon", () => {
+    // The round trip a shared link makes: `setWalk` pins `view.span` to the
+    // walker's own footprint, the link carries that span, and the page
+    // re-runs this gate against it on arrival (`mapWalkLinkEntry`). Raise the
+    // horizon past where those two meet and the link silently opens the
+    // ordinary map instead of the walk it was taken in — no error, and no
+    // symptom at the sender's end. The package pins the collision itself
+    // (`walk.entryGate.test.ts`); this pins the PAGE's own gate against it.
+    const walkingSpan = glyphMapWalkSpan(GLYPH_MAP_WALK_FAR_M);
+    expect(mapWalkAvailable({ projectionId: "globe", span: walkingSpan })).toBe(true);
+    expect(walkingSpan).toBeLessThan(MAP_WALK_MAX_ENTRY_SPAN_DEG / 2);
+    // And the refusal is real, not vacuous.
+    expect(mapWalkAvailable({ projectionId: "globe", span: glyphMapWalkSpan(3000) })).toBe(false);
   });
 
   it("shows what the true geometric horizon would have cost", () => {
@@ -95,6 +111,10 @@ describe("the tile budget", () => {
   });
 
   it("states the horizon and the cost in one line", () => {
-    expect(mapWalkBudgetLabel()).toBe(`400 m · ≤${mapWalkTileBudget()} tiles at z${MAP_WALK_TILE_BUDGET_Z}`);
+    expect(mapWalkBudgetLabel()).toBe(
+      `${GLYPH_MAP_WALK_FAR_M} m · ≤${mapWalkTileBudget()} tiles at z${MAP_WALK_TILE_BUDGET_Z}`);
+    // The readout is the package's own number, never a literal restated here
+    // — the two drifting apart is a readout that lies about the horizon.
+    expect(mapWalkBudgetLabel().startsWith(`${GLYPH_MAP_WALK_FAR_M} m`)).toBe(true);
   });
 });

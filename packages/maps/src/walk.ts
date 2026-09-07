@@ -33,8 +33,9 @@
  * Walk mode does not need it. Over the few hundred metres a walker can see,
  * the Earth is locally flat: the visibility question reduces to "is this
  * within `far` metres of where I am standing", which is
- * {@link glyphMapWalkFootprint} and {@link glyphMapWalkWithinHorizon} — two
- * closed-form tests with no camera in them at all. So the widget branches on
+ * {@link glyphMapWalkWithinHorizon} (a point) and {@link
+ * glyphMapWalkBoundsWithinHorizon} (a tile's box) — two closed-form tests
+ * with no camera in them at all. So the widget branches on
  * "walk mode is active" in ONE place (`nearSideVisible`, which every point
  * consumer goes through), `projection.visible` is never consulted for a POINT
  * while it is, and the orthographic path is untouched. The one deliberate
@@ -127,16 +128,67 @@ export const GLYPH_MAP_WALK_NEAR_M = 0.5;
  * How far the walker can see, metres — the LOCAL horizon, and the whole
  * reason walk mode is affordable.
  *
- * A true geometric horizon at 1.7 m is 4.65 km, whose footprint is 36
- * OpenFreeMap z14 tiles — already at the edge of the widget's measured
- * budget (<= 24 at a city view, never more than 100), and every metre of
- * eye height makes it worse fast: 196 tiles at 10 m, 1,849 at 100 m. It is
- * also where the picture stops working: past ~400 m a building is a couple
- * of rows tall and the far field reads as an undifferentiated band, so this
- * bound is an AESTHETIC requirement that happens to also be the performance
- * one. 400 m at Zurich's latitude is a 4-tile footprint at z14.
+ * A true geometric horizon at 1.7 m is 4.65 km, and nothing near it is
+ * affordable: the visible ground area — and so the extruded-footprint count
+ * inside it — goes as `far^2`.
+ *
+ * 400 shipped first. Raising it was asked for ("there is too much distance
+ * culling, can't we render a bit more") and the honest answer needed two
+ * defects fixed first, because BOTH of them were the real distance limit and
+ * neither was this number:
+ *
+ *  1. The tile sweep kept exactly ONE tile while walking (`isBoundsVisible`'s
+ *     walk branch, which did not exist) — so buildings stopped at a straight
+ *     line 1.67 km across no matter what this constant said.
+ *  2. The tile LOD was keyed on the walk FOOTPRINT (`sweepLOD`, likewise) —
+ *     so at `far` beyond `9.54 * cols` metres the OpenStreetMap pyramid
+ *     dropped a level and the city was not coarsened but DELETED.
+ *
+ * With both fixed the curve is real and steep. Measured through
+ * `bench/maps-render --scenario walk`, headed Chromium on `astro preview`,
+ * 1440x900, grid 140x63, Zurich with the OpenStreetMap card's water / roads
+ * / boundaries / buildings rows on — the same scene `docs/design/maps.md`'s
+ * walk budget section uses:
+ *
+ * | far | base polygons | base-raster p50 | frame gap p50 / p95 | fps |
+ * |---|---|---|---|---|
+ * | 400 | 39,156 | 6.4 ms | 16.7 / 17.6 | 59.1 |
+ * | 500 | 59,556 | 9.3 ms | 16.7 / 33.5 | 46.3 |
+ * | 600 | 63,142 | 9.6 ms | 16.7 / 33.6 | 48.3 |
+ * | 700 | 66,925 | 9.9 ms | 16.7 / 33.4 | 48.5 |
+ * | 800 | 87,577 | 17.5 ms | 33.3 / 34.1 | 32.2 |
+ * | 1200 | 146,917 | 26.8 ms | 50.0 / 50.9 | 22.5 |
+ * | 2400 | 298,987 | 64.1 ms | 100 / 116.2 | 10.8 |
+ *
+ * 500-700 is ONE plateau (base-raster 9.3-9.9 ms), and 800 is the next tier
+ * (17.5 ms, and the first row whose MEDIAN frame is a dropped one). 600 sits
+ * inside the plateau with room: half again the distance, the median frame
+ * still lands on its vsync, and the 95th percentile at the two-vsync bound.
+ * Going to the plateau's own edge at 700 buys 17% more distance for none of
+ * that margin, on a scene whose polygon count depends on which city block
+ * the reader is standing in.
+ *
+ * A walk with only terrain mounted is FREE at every value on that ladder
+ * (16,792 polygons, 3.3 ms, 60.0 fps from 400 to 2400 unchanged): this
+ * page's relief pyramid stops at a curated z7 whose tiles are 2.8 deg
+ * across, so one tile already covers any horizon a walker can have. The
+ * constant is therefore paid for entirely by the city.
+ *
+ * It stays an AESTHETIC bound as well as a performance one, but a weaker one
+ * than the note this replaces claimed: rendered at 600 the far field is
+ * still individual blocks rather than a band, and the "past ~400 m it reads
+ * as an undifferentiated band" reading was taken through the one-tile clip
+ * above, where there was nothing out there to read.
+ *
+ * Bounded above, independently, by walk mode's own ENTRY GATE: `setWalk`
+ * pins `view.span` to {@link glyphMapWalkSpan} of this number, and a link
+ * written while walking carries that span back through
+ * {@link GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG}. They collide at 2,780 m, above
+ * which a shared walk link would silently refuse to enter the mode it was
+ * taken in. `walk.entryGate.test.ts` pins the two together so they cannot
+ * drift into that silently.
  */
-export const GLYPH_MAP_WALK_FAR_M = 400;
+export const GLYPH_MAP_WALK_FAR_M = 600;
 
 /**
  * Walking pace, metres per second.
@@ -145,15 +197,15 @@ export const GLYPH_MAP_WALK_FAR_M = 400;
  * shipping that read as glacial: a first-person camera has none of the
  * peripheral flow, head motion or body sense that make 1.4 m/s feel like
  * walking to a body that is actually doing it, so the only motion cue left
- * is how fast the scene changes — and through a 56 deg lens at a 400 m
- * horizon, that is nearly nothing. Games have always paid the same tax and
+ * is how fast the scene changes — and through a 56 deg lens at a horizon of
+ * a few hundred metres, that is nearly nothing. Games have always paid the same tax and
  * settled around the same place (Half-Life 3.3 m/s, Minecraft 4.3); this
  * sits there rather than at the anthropometric number, which is honest
  * about being a CAMERA speed, not a gait.
  */
 export const GLYPH_MAP_WALK_SPEED_M_PER_S = 6;
 
-/** Multiplier while a Shift key is held — crossing the 400 m horizon in ~22 s, still well inside what the tile sweep keeps up with (3.2 m per 180 ms debounce). */
+/** Multiplier while a Shift key is held — crossing the horizon in ~33 s, still well inside what the tile sweep keeps up with (3.2 m per 180 ms debounce). */
 export const GLYPH_MAP_WALK_RUN_MULTIPLIER = 3;
 
 /**
@@ -226,9 +278,12 @@ export const GLYPH_MAP_WALK_DRAG_DEG_PER_PX = 0.24;
  *
  * 0.05 deg is ~5.6 km across, ~40 m per cell on a 140-column grid. The number
  * comes from the walker's OWN horizon rather than from any one data source:
- * at eye height the visible footprint is `2 * far` = 800 m, so this is about
- * seven footprints across — close enough that most of what is on screen
- * survives the transition. Wider than that and stepping down discards every
+ * at eye height the visible footprint is `2 * far`
+ * ({@link glyphMapWalkSpan}), so this is a handful of footprints across —
+ * close enough that most of what is on screen survives the transition. It is
+ * also the hard ceiling on {@link GLYPH_MAP_WALK_FAR_M}, since `setWalk`
+ * pins the footprint into `view.span` and a shared walk link is re-gated
+ * against it; the two meet at 2,780 m. Wider than that and stepping down discards every
  * tile in frame, which reads as the map blanking rather than as a mode
  * changing. It is deliberately NOT justified by a tile pyramid's depth: walk
  * mode is a CAMERA mode, and a walk over relief has to be offered on the same
@@ -383,7 +438,8 @@ export function glyphMapWalkSpan(farM: number): number {
 /**
  * Is `(lon, lat)` inside the walker's LOCAL horizon?
  *
- * The per-point half of {@link glyphMapWalkFootprint} — what replaces
+ * The per-point half of the local horizon (the box half is {@link
+ * glyphMapWalkBoundsWithinHorizon}) — what replaces
  * `projection.visible` for wall culling and marker/hotspot visibility while
  * walking. Great-circle distance rather than the box, because a box test
  * would keep the corners: a wall at 1.41 x `far` diagonally away is exactly
@@ -405,6 +461,58 @@ export function glyphMapWalkWithinHorizon(
   const h = sinHalfPhi * sinHalfPhi + Math.cos(phi1) * Math.cos(phi2) * sinHalfLambda * sinHalfLambda;
   const distance = 2 * radiusM * Math.asin(Math.min(1, Math.sqrt(h)));
   return distance <= farM;
+}
+
+/** A lon/lat box, structurally `GlyphMapBounds` — restated here so this file stays free of the provider types. */
+export interface GlyphMapWalkBounds {
+  readonly west: number;
+  readonly east: number;
+  readonly south: number;
+  readonly north: number;
+}
+
+/**
+ * Does a lon/lat BOX come within the walker's LOCAL horizon?
+ *
+ * The tile-sweep half of {@link glyphMapWalkWithinHorizon}, and it has to be
+ * a BOX test rather than that function applied to a tile's sample points.
+ * A tile is enormously bigger than the horizon — an OpenFreeMap z14 tile is
+ * 1.67 km across against a few hundred metres of view — so every one of its
+ * corners, edges and even its centre can sit outside a `far`-metre disc while
+ * the walker is standing IN it. Testing points would therefore reject the
+ * tile under the walker's own feet, which is exactly the failure mode that
+ * kept `isBoundsVisible` on `projection.visible`; the DISTANCE TO THE BOX is
+ * zero there by construction, so the box test cannot make that mistake.
+ *
+ * Clamping the walker's own lon/lat into the box gives the box's nearest
+ * point, and the distance to it is then the ordinary great-circle one. Both
+ * clamps are what make it a box test: an unclamped latitude would measure to
+ * a corner and an unclamped longitude to an edge. `+-360` on the longitude
+ * covers a view centred just past the antimeridian against an "unwrapped"
+ * bounds box, the same convention `isBoundsVisible`'s own sample test uses.
+ *
+ * Generous by design at the margins (the clamped point is a lon/lat corner,
+ * not the true spherical nearest point of the box) — a sweep may enumerate a
+ * tile it did not strictly need, which costs a fetch, where the other error
+ * blanks the city.
+ */
+export function glyphMapWalkBoundsWithinHorizon(
+  walkerLon: number,
+  walkerLat: number,
+  bounds: GlyphMapWalkBounds,
+  farM: number,
+  radiusM = 6_371_000,
+): boolean {
+  const lat = Math.min(Math.max(walkerLat, bounds.south), bounds.north);
+  for (const shift of [0, 360, -360]) {
+    // Clamp the walker's own longitude into the box in the box's frame, then
+    // read the answer back in the walker's — so the nearest point is reported
+    // at a real longitude and `glyphMapWalkWithinHorizon`'s own `dLambda` is
+    // the true one.
+    const clamped = Math.min(Math.max(walkerLon + shift, bounds.west), bounds.east);
+    if (glyphMapWalkWithinHorizon(walkerLon, walkerLat, clamped - shift, lat, farM, radiusM)) return true;
+  }
+  return false;
 }
 
 /** One movement key's contribution, in the walker's own frame (`+forward` is ahead, `+strafe` is right). */

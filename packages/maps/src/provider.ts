@@ -168,6 +168,31 @@ export function glyphMapDegreesPerCell(view: GlyphMapView): number {
  * that type's own doc) works here UNCHANGED: the coordinator's "reuse the
  * LOD machinery... one visible-set computation serves both providers."
  */
+/**
+ * The DEEPEST level a provider ships.
+ *
+ * {@link glyphMapTargetLOD} answers "which level resolves at least one source
+ * quad per output cell", and that question needs a single degrees-per-cell to
+ * be meaningful. A street-level WALK has no such number — one output column
+ * subtends a fixed ARC, so the ground it covers is centimetres a few metres
+ * ahead and metres at the horizon — and the near field is the one the reader
+ * is standing in, so the honest answer there is always "the finest you have".
+ * `createGlyphMap`'s `sweepLOD` is the caller; its own doc carries what
+ * keying that on the view's footprint instead cost.
+ *
+ * Deliberately its own function rather than `glyphMapTargetLOD(p, 0)`: that
+ * reaches the same level only through the fall-through at the end of its
+ * loop, which is an implementation detail a future edit could move.
+ */
+export function glyphMapFinestLOD(provider: { readonly zooms: readonly GlyphMapProviderZoomLevel[] }): number {
+  if (provider.zooms.length === 0) {
+    throw new RangeError("glyphcss/maps: glyphMapFinestLOD requires a provider with at least one zoom level.");
+  }
+  let finest = provider.zooms[0].z;
+  for (const level of provider.zooms) if (level.z > finest) finest = level.z;
+  return finest;
+}
+
 export function glyphMapTargetLOD(provider: { readonly zooms: readonly GlyphMapProviderZoomLevel[] }, degPerCell: number): number {
   if (provider.zooms.length === 0) {
     throw new RangeError("glyphcss/maps: glyphMapTargetLOD requires a provider with at least one zoom level.");

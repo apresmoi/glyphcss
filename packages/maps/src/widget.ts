@@ -66,6 +66,7 @@ import {
   GLYPH_MAP_WALK_RUN_MULTIPLIER,
   glyphMapWalkAxis,
   glyphMapWalkAxisForKey,
+  glyphMapWalkBoundsWithinHorizon,
   glyphMapWalkLens,
   glyphMapWalkSpan,
   glyphMapWalkStep,
@@ -80,7 +81,7 @@ import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
 import { glyphMapPolygons, localUpDirection } from "./mesh";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
-import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
+import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
 import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
@@ -2542,12 +2543,65 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * `geoSamples` is hoisted the same way and for the same reason (its own
    * doc) — one unprojection pass per sweep, not one per candidate tile.
    */
+  /**
+   * Which zoom level a sweep should ask for.
+   *
+   * Off walk mode this is `glyphMapTargetLOD(provider, span/cols)` and
+   * nothing else, byte for byte.
+   *
+   * WALKING it is the provider's DEEPEST level, unconditionally, because
+   * `view.span` stops being a resolution the moment the camera is a
+   * positioned perspective one. `glyphMapWalkSpan` describes the horizon
+   * FOOTPRINT, which is what the tile sweep's window needs; but the picture
+   * inside it is not uniform — one output column subtends `fov / cols`
+   * degrees of ARC, which at the frame's nearest ground (a few metres, under
+   * a level 56 deg lens at 1.7 m) is CENTIMETRES per cell and at the horizon
+   * is metres. It is the near field the reader is standing in, and no tile
+   * pyramid resolves it, so "the finest level you have" is the honest answer
+   * to `glyphMapTargetLOD`'s own question rather than a special case of it.
+   *
+   * Keying on the footprint instead made the walker's data resolution a
+   * function of the WINDOW WIDTH, which is the defect this removes. The
+   * threshold is `span/cols >= level.tileLonSpan/level.tileCols`, i.e. a
+   * horizon of `9.54 * cols` metres for OpenFreeMap's z13/z14 boundary:
+   * measured on the real page, 1,336 m at a 1440x900 grid (140 cols) but
+   * only 468 m at a 390 px phone (49 cols), where the shipped 400 m horizon
+   * sits 15% under the cliff by luck. Crossing it does not blur the city, it
+   * DELETES it — rendered at Zurich with the buildings row on, `far: 2000`
+   * dropped to z13 and not one building was drawn.
+   */
+  function sweepLOD(source: { readonly zooms: readonly GlyphMapProviderZoomLevel[] }): number {
+    if (walk) return glyphMapFinestLOD(source);
+    // `getView()`, not the raw `view` — see `updateProvider`'s own note: a
+    // resize (or the density slider) never reaches the frozen `view.cols`.
+    return glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
+  }
+
   function isBoundsVisible(
     bounds: GlyphMapBounds,
     padCells: number,
     grid: ProjectionGrid,
     geoSamples: readonly (readonly [number, number])[],
   ): boolean {
+    // WALKING, the horizon is LOCAL and this is its BOX half — the same one
+    // predicate `nearSideVisible` is for points, and for the same reason:
+    // every camera-derived answer below is derived for the ORTHOGRAPHIC
+    // camera and is wrong under a positioned perspective one. Measured at
+    // Zurich with the OpenStreetMap card on, `candidateTileRange` offered 35
+    // z14 candidates and this function kept exactly ONE of them — the tile
+    // the walker stands in — because `viewportGeoSamples` cannot unproject a
+    // single screen point under the walk camera (so it degrades to
+    // `[view.center]`, which only ever lands in the walker's own tile) and
+    // `projection.visible` rejects the 3x3 corner probes of every neighbour.
+    // With buildings mounted that is the whole city clipped to one 1.67 km
+    // tile: a walker within `far` of any tile edge saw nothing across it,
+    // and no increase to `far` could reach past it.
+    //
+    // A BOX test is what makes this safe, and is exactly what the note this
+    // replaces warned a point test could not do: a tile is far bigger than
+    // the horizon, so its corners and centre can all sit outside a `far`
+    // disc while the walker stands in it — but its DISTANCE is zero there.
+    if (walk) return glyphMapWalkBoundsWithinHorizon(view.center[0], view.center[1], bounds, walk.far);
     for (const [sampleLon, sampleLat] of geoSamples) {
       if (sampleLat < bounds.south || sampleLat > bounds.north) continue;
       for (const lon of [sampleLon, sampleLon + 360, sampleLon - 360]) {
@@ -3872,8 +3926,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // slider) never reached `glyphMapDegreesPerCell` through the raw
         // field — LOD silently stayed pinned to whatever resolution was
         // requested at construction, regardless of a later density raise.
+        // The mesh RESOLUTION question is still the view's own
+        // degrees-per-cell — `reliefFractionForLevel` asks how many quads a
+        // cell deserves, not which level exists — so only the LOD moved.
         const degPerCell = glyphMapDegreesPerCell(getView());
-        const lod = glyphMapTargetLOD(provider, degPerCell);
+        const lod = sweepLOD(provider);
         const floorZ = Math.min(...provider.zooms.map((z) => z.z));
 
         // The floor tier's own mesh resolution, resolved BEFORE
@@ -4225,8 +4282,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       try {
         // `getView()`, not raw `view` — see the raster runtime's own
         // `updateProvider` doc for why.
+        // The mesh RESOLUTION question is still the view's own
+        // degrees-per-cell — `reliefFractionForLevel` asks how many quads a
+        // cell deserves, not which level exists — so only the LOD moved.
         const degPerCell = glyphMapDegreesPerCell(getView());
-        const lod = glyphMapTargetLOD(provider, degPerCell);
+        const lod = sweepLOD(provider);
         const level = provider.zooms.find((z) => z.z === lod);
         if (!level) return;
         const padCells = layer.padCells ?? 2;
@@ -4485,8 +4545,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       try {
         // `getView()`, not raw `view` — see the raster runtime's own
         // `updateProvider` doc for why.
+        // The mesh RESOLUTION question is still the view's own
+        // degrees-per-cell — `reliefFractionForLevel` asks how many quads a
+        // cell deserves, not which level exists — so only the LOD moved.
         const degPerCell = glyphMapDegreesPerCell(getView());
-        const lod = glyphMapTargetLOD(provider, degPerCell);
+        const lod = sweepLOD(provider);
         const level = provider.zooms.find((z) => z.z === lod);
         if (!level) return;
         const padCells = GLYPH_MAP_CONTOUR_PAD_CELLS;
@@ -4634,7 +4697,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (!isGlyphMapVectorProvider(source)) { rebuild(filter ? source.features.filter(filter) : source.features); return; }
       // `getView()`, not raw `view` — see the raster runtime's own
       // `updateProvider` doc for why.
-      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
+      const lod = sweepLOD(source);
       const level = source.zooms.find((z) => z.z === lod);
       if (!level) return;
       const desired: string[] = [];
@@ -4962,7 +5025,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         .find((l): l is GlyphMapRasterLayer => l !== null);
       const source = rasterLayer?.source;
       if (!source || !isGlyphMapProvider(source)) { mosaic = []; return; }
-      const lod = glyphMapTargetLOD(source, glyphMapDegreesPerCell(getView()));
+      const lod = sweepLOD(source);
       const level = source.zooms.find((z) => z.z === lod);
       if (!level) { mosaic = []; return; }
       const padCells = GLYPH_MAP_CONTOUR_PAD_CELLS;

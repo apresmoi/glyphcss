@@ -2992,44 +2992,155 @@ jump paths would have to be overridden, leaving only the input plumbing —
 which is the part reproduced above. What IS taken from it is its numbers and
 its shape: the look rate, the pitch clamp, and the pointer-lock model.
 
-### The horizon is capped at 400 m, and that cap is doing two jobs
+### The horizon is 600 m, and it was never the thing limiting the view
 
-`GLYPH_MAP_WALK_FAR_M` is 400. The TRUE geometric horizon at 1.7 m is 4.65 km,
-whose footprint is 36 OpenFreeMap z14 tiles — already at the edge of the
-widget's measured budget (<= 24 at a city view, never more than 100) — and
-every metre of eye height makes it worse fast: 196 tiles at 10 m, 1,849 at
-100 m, 5,625 at 300 m. It is also where the PICTURE stops working: past
-~400 m a building is a couple of rows tall and the far field collapses into an
-undifferentiated band. The performance bound and the aesthetic bound are the
-same number, which is why there is one constant and not two.
+`GLYPH_MAP_WALK_FAR_M` shipped at 400 and the report was "there is too much
+distance culling I think, can't we render a bit more". The honest answer
+needed two defects fixed first, because **both of them were the real distance
+limit and neither was this constant** — the ladder taken before they were
+fixed measured a scene that was clipped to one tile, and it says the opposite
+of the truth.
 
-Measured on a z14-shaped pyramid (2.4 km tiles) at the 400 m horizon: the
-sweep requests exactly FOUR deep tiles, the four under the walker.
+**Defect 1 — the sweep kept ONE tile.** `isBoundsVisible` is the per-tile
+authority. Its first half asks whether a tile contains one of the VIEWPORT's
+own unprojected sample points, and under the walk camera not one screen point
+unprojects (the same measurement `orbitCandidateGeoBounds` is dropped for), so
+`viewportGeoSamples` degrades to `[view.center]` — which only ever lands in
+the tile the walker is standing in. Its second half probes the tile's own 3x3
+corners through `projection.visible`, i.e. exactly the expression this
+document already establishes as WRONG under a positioned perspective camera.
+Measured on the real page at Zurich with the OSM card on: `candidateTileRange`
+offered 35 z14 candidates and `isBoundsVisible` kept **1**. That was invisible
+for as long as the only thing walked was the curated z7 relief pyramid, where
+one 2.8 deg tile IS the right answer; with buildings mounted it is the whole
+city clipped to one 1.67 km tile, so a walker within `far` of any tile edge
+saw nothing across it and no increase to `far` could reach past it.
 
-### Three visibility branches were built, measured, and DROPPED
+The fix is the horizon as a BOX — `glyphMapWalkBoundsWithinHorizon`, the
+walker's lon/lat clamped into the tile's box (both axes; and +-360 for the
+antimeridian) and the great-circle distance to that point. The old note argued
+a `far` DISC would reject the tile the walker stands on: true of a disc tested
+against the tile's own sample POINTS, and false of the distance to the BOX,
+which is zero there by construction. Measured after: 1 z14 tile at 400 m, 3 at
+800, 6 at 1200, 9 at 2000 — still an order under the page's <=100 budget.
 
-This is the part worth keeping. The obvious design gives walk mode its own
-local-horizon test everywhere `projection.visible` is consulted. Three of
-those four were built and then removed because they changed nothing:
+**Defect 2 — the LOD was keyed on the walk FOOTPRINT.** `view.span` is pinned
+to `glyphMapWalkSpan(far)` so tile LOD, the URL codec and the readouts keep
+working, and `glyphMapTargetLOD(provider, span / cols)` then read that as a
+RESOLUTION. It is not one under a perspective camera: one output column
+subtends a fixed ARC (`fov / cols`), so the ground it covers is centimetres a
+few metres ahead and metres at the horizon, and the near field is the one the
+reader is standing in. The consequence was that the walker's DATA LEVEL
+depended on the WINDOW WIDTH. The z13/z14 boundary sits where
+`span / cols >= tileLonSpan / tileCols`, i.e. at `9.54 * cols` metres:
+
+| viewport | grid cols | z14 holds while `far` < |
+|---|---|---|
+| 390x844 (phone) | 49 | 468 m |
+| 768x1024 | 59 | 563 m |
+| 1024x768 | 87 | 830 m |
+| 1440x900 | 140 | 1,336 m |
+| 2560x1440 | 283 | 2,701 m |
+
+The shipped 400 m cleared the phone's own cliff by 15% and nothing said so —
+a ~330 px map host would already have crossed it. And crossing it does not
+blur the city, it DELETES it: rendered at Zurich with the buildings row on,
+`far: 2000` dropped to z13 and not one building was drawn. So while walking
+the sweep asks for the provider's DEEPEST level (`glyphMapFinestLOD`) and
+nothing else. Gate for both: `widget.walkHorizon.test.ts`.
+
+### The distance ladder, measured after those two fixes
+
+`bench/maps-render --scenario walk --walk-look 0`, headed Chromium on `astro
+preview`, `--encoding spans`, 1440x900, grid gate 140x63, Zurich at
+`span 0.02`, the OSM card's `omt-water` / `omt-roads` / `omt-boundaries` /
+`omt-buildings` rows on — the same scene the walk budget section below uses.
+`--walk-far` drives the widget's own `setWalk` RECONFIGURE path, which is
+exactly what shipping a different constant does.
+
+| `far` | base polygons | base-raster p50 | render burst p50 | frame gap p50 / p95 / p99 | fps |
+|---|---|---|---|---|---|
+| 400 | 39,156 | 6.4 ms | 8.0 ms | 16.7 / 17.6 / 17.7 | **59.1** |
+| 500 | 59,556 | 9.3 ms | 11.8 ms | 16.7 / 33.5 / 34.1 | 46.3 |
+| 550 | 61,281 | 9.0 ms | 11.4 ms | 16.7 / 33.4 / 34.1 | 49.7 |
+| **600** | **63,141** | **9.5 ms** | **12.0 ms** | **16.7 / 33.5 / 34.3** | **48.5** |
+| 700 | 66,925 | 9.9 ms | 12.3 ms | 16.7 / 33.4 / 33.9 | 48.5 |
+| 800 | 87,577 | 17.5 ms | 21.0 ms | 33.3 / 34.1 / 50.1 | 32.2 |
+| 1000 | 113,037 | 19.1 ms | 23.6 ms | 33.3 / 50.0 / 50.7 | 29.0 |
+| 1200 | 146,917 | 26.8 ms | 32.4 ms | 50.0 / 50.9 / 66.7 | 22.5 |
+| 1600 | 213,703 | 40.8 ms | 49.3 ms | 66.7 / 83.9 / 100 | 14.8 |
+| 2400 | 298,987 | 64.1 ms | 74.5 ms | 100 / 116.2 / 117.4 | 10.8 |
+
+Three readings, and the third is the choice:
+
+1. **The cost is the AREA, not the distance.** Polygons roughly track `far^2`
+   in the near band (400 -> 500 is 1.52x against an area ratio of 1.56), which
+   is why the ladder is so much steeper than "a bit further".
+2. **500-700 is ONE plateau** (base-raster 9.0-9.9 ms), and 800 is the next
+   tier — 17.5 ms, and the first row whose MEDIAN frame is a dropped one. The
+   plateau's edge is scene-dependent, since the polygon count depends on which
+   block the reader is standing in.
+3. **600 sits inside the plateau with room.** Half again the distance; the
+   median frame still lands on its vsync (16.7 ms); the 95th percentile at the
+   two-vsync bound. Going to the plateau's own edge at 700 buys 17% more
+   distance for none of that margin.
+
+A walk with only terrain mounted is **free at every value on that ladder** —
+16,792 polygons, 3.2 ms, 60.0 fps, unchanged from 400 to 2400 — because this
+page's relief pyramid stops at a curated z7 whose 2.8 deg tiles already cover
+any horizon a walker can have, and its mesh resolution is a separate question
+from the LOD. The constant is paid for entirely by the city.
+
+**The aesthetic claim did not survive.** The old note said the cap was doing
+two jobs, the second being that "past ~400 m a building is a couple of rows
+tall and the far field collapses into an undifferentiated band". Rendered at
+600 with the tile clip fixed, the far field is still individual blocks with
+sky between them — the reading was taken through defect 1, where there was
+nothing out there to read. The constant is a PERFORMANCE cap now, and the
+picture is the thing it is buying.
+
+**Its own hard ceiling is the ENTRY GATE**, which is a separate bound and
+lower than anything the ladder would suggest. `setWalk` pins
+`view.span = glyphMapWalkSpan(far)`, and a walk link carries that span back
+through `GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG` (0.05 deg) when the page re-gates
+it on arrival (`mapWalkLinkEntry`). They collide at **2,780 m**, above which a
+shared walk link silently opens the ordinary map instead of the walk it was
+taken in — no error, and no symptom at the sender's end.
+`walk.entryGate.test.ts` pins that number and the shipped horizon's margin
+against it (600 m is 0.0108 deg, under a fifth of the gate).
+
+**Not shipped as a control.** A view-distance slider was considered and
+rejected: `far` is not a preference a reader can evaluate — the same number is
+free over terrain and halves the frame rate over a city, and the ladder above
+is a property of one scene at one grid size, so the control would offer a
+setting whose cost the reader cannot see until they have already paid it.
+`interactiveDownscale` (the page's "Drag density") is the lever that already
+exists for a heavy walk, and it is honest because it trades RESOLUTION, which
+is visible in the frame it changes.
+
+### Two visibility branches were built, measured, and DROPPED
+
+The obvious design gives walk mode its own local-horizon test everywhere
+`projection.visible` is consulted. Two of those were built and then removed
+because they changed nothing (the third, `isBoundsVisible`, was dropped on a
+measurement that did not generalise — see defect 1 above):
 
 - **`orbitCandidateGeoBounds`** — measured, all 49 of its screen samples fail
   to unproject under the walk camera, so it returns `null` and
   `candidateTileRange` falls back to its own `view.span` box — which walk mode
-  has ALREADY set to the footprint. The bound therefore reaches the sweep
-  through `view.span`, where every other consumer already reads it.
-- **`isBoundsVisible`** — with the footprint already bounding the candidate
-  range, a box-overlap branch here selected the same four tiles.
+  has ALREADY set to the footprint. The bound therefore reaches the candidate
+  RANGE through `view.span`, where every other consumer already reads it, and
+  `isBoundsVisible` is the per-tile authority over what that range offers.
 - **`nearSidePredicate`** (wall culling, markers) — `projection.visible`'s
   cylinder test already cuts a `fill-extrusion`'s far walls at street scale.
   Measured, a 300 m block on the view axis paints 4,590 cells at 80 m, 1,485
   at 160 m, 480 at 400 m and ZERO from 800 m out, identically with and without
   a horizon predicate. Adding one changed not a cell.
 
-The ONE that is load-bearing is `project()`: a point at 5x the horizon is on
-the near hemisphere AND squarely on grid, so `projection.visible` cannot
-reject it and the public projector would report it visible. Removing that
-branch turns `widget.walk.test.ts`'s horizon clause red; removing any of the
-other three turns nothing red, so they are not shipped.
+The ONE point consumer that is load-bearing is `project()`: a point at 5x the
+horizon is on the near hemisphere AND squarely on grid, so `projection.visible`
+cannot reject it and the public projector would report it visible. Removing
+that branch turns `widget.walk.test.ts`'s horizon clause red.
 
 ### What is NOT in scope, and why the ground is bare
 
@@ -3087,7 +3198,7 @@ Azimuth/Elev treatment, and Google's own greyed pegman:
    this gate is what stops a reader ever reaching it.
 2. **Already near the ground.** `GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG` = 0.05
    (~5.6 km, ~40 m per cell on this page's grid). At eye height the walker
-   sees 400 m, so entering from much further out discards everything on
+   sees a few hundred metres, so entering from much further out discards everything on
    screen, which reads as the map blanking rather than as a mode changing.
 
 **There is deliberately no clause about WHICH LAYERS ARE MOUNTED.** An
@@ -3102,14 +3213,20 @@ answers `null` — the datum, correct and not an error — for none. So walking 
 a ridge with only the relief mounted is the same code path as walking down a
 street, and `widget.walk.test.ts` pins the climb on a raster-only map.
 
-The tile cap is not an OpenStreetMap concern either: a ground-level footprint
-reaching the horizon costs the same over a mountain range as over a city, and
-the relief pyramid is swept by the same `view.span`. A terrain walk on this
-page's own curated z7 relief (2.8 deg tiles) is one tile; the walk overlay's
-horizon readout quotes the budget at z14, the densest level the page serves.
+The TILE cap is not an OpenStreetMap concern either: a ground-level footprint
+reaching the horizon is swept the same way over a mountain range as over a
+city. What the two do NOT share is the COST of the horizon — a terrain walk on
+this page's own curated z7 relief (2.8 deg tiles) is one tile and one mesh at
+any `far` on the ladder above, so `GLYPH_MAP_WALK_FAR_M` is paid for entirely
+by the extruded footprints inside it. The walk overlay's horizon readout
+quotes the budget at z14, the densest level the page serves.
 
 Gates: `widget.walk.test.ts` (entry, step, terrain, exit, footprint),
-`widget.walkLens.test.ts` (the FOV the camera actually produces, its
+`widget.walkHorizon.test.ts` (the tile sweep reaching across a tile edge, and
+the LOD not depending on the window width), `walk.entryGate.test.ts` (the
+horizon against the gate a shared walk link is re-run through, and the box
+half of the local horizon), `widget.walkLens.test.ts` (the FOV the camera
+actually produces, its
 width-invariance, the resize re-application, the near plane),
 `widget.walkLook.test.ts` (pointer-lock wiring, the look rate, the pitch
 clamp, and the eye that does not move), `mapsWalk.test.ts` (the gate),
@@ -3189,8 +3306,8 @@ Zürich, 140x63 = 8,820 cells, one render:
 **6.9 polygons per glyph cell** with buildings on, against asciiQuake's 0.63 on
 the same renderer. Buildings alone are 43,607 of the 61,063. This is the
 mesh/product decision `bench/maps-render/README.md` already names for the
-globe, arriving at street level for a different reason: a 400 m horizon over a
-city is thousands of extruded footprints, and none of it is renderer waste.
+globe, arriving at street level for a different reason: a few hundred metres of
+horizon over a city is thousands of extruded footprints, and none of it is renderer waste.
 
 ### The two things a reader can spend by accident, priced
 
@@ -3336,12 +3453,15 @@ untouched; `widget.farSideFill.test.ts` and `widget.farSideStroke.test.ts` are
 the orthographic contract and go red (5 clauses, 238/258/122/2,114/46 leaked
 cells) the moment the branch leaks out of walk mode.
 
-`isBoundsVisible` deliberately does NOT route through it. It tests a tile's
-BOX, not a point, and a z14 tile is 2.4 km across, so a 400 m disc would reject
-the very tile the walker stands on. Measured, the sweep is pitch-invariant
-either way: terrain painted the same 4,340 cells before and after a look up
-past the horizon, and the walk footprint reaches the sweep through `view.span`
-(`glyphMapWalkSpan`) exactly as it always has.
+`isBoundsVisible` does not route through `nearSideVisible` either — it takes
+the same horizon as a BOX rather than as a point (`glyphMapWalkBoundsWithinHorizon`).
+The distinction is the whole of it: a z14 tile is 2.4 km across, so a `far`
+DISC tested against the tile's own sample POINTS would reject the very tile the
+walker stands on, while the distance to the BOX is zero there by construction.
+Staying on `projection.visible` here — on the argument that the sweep is
+pitch-invariant either way, which it is (terrain painted the same 4,340 cells
+before and after a look up past the horizon) — was measured keeping 1 tile of
+35 once real city data was mounted. See "The horizon is 600 m" above.
 
 After the fix the picture behaves like a picture, on the same 300 m block:
 4,900 cells level, 5,040 at +1°, 5,740 at +5°, 6,580 at +10°, 8,511 at +30°,

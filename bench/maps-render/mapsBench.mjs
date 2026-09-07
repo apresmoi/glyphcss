@@ -176,6 +176,11 @@ const WALK_FRAMES = Number(arg("walk-frames", 400));
 const WALK_LOOK_DEG = Number(arg("walk-look", 0.15));
 /** How long to wait for street-level tiles between each walk setup step. */
 const WALK_SETTLE_MS = Number(arg("walk-settle", 6000));
+/** The walker's local horizon, metres, applied through the widget's OWN
+ *  `setWalk` RECONFIGURE path once walk mode is live (`walk.ts`'s `far`). The
+ *  page enters with the package default; this is how the distance-culling
+ *  ladder is measured without rebuilding the package per rung. */
+const WALK_FAR_M = arg("walk-far", null);
 /** Waypoints the fidelity digest is captured at: [lon, lat, span]. */
 const FIDELITY_STOPS = [
   [0, 20, 140], [90, 20, 140], [180, 20, 140], [-90, 20, 140],
@@ -192,6 +197,23 @@ const page = await browser.newPage({ viewport: { width: VW, height: VH } });
 const cdp = await page.context().newCDPSession(page);
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e.message)));
+/** Every `z/x/y` tile the page asks for, in order — the TILE BUDGET measured
+ *  rather than derived. A vector tile is `.../{z}/{x}/{y}.pbf` (OpenFreeMap,
+ *  Web Mercator) and a baked relief tile `.../{z}/{x}/{y}.bin` (equal-angle).
+ *  `tileMark` is the index the walk scenario starts at, so the footprint the
+ *  walker STANDS in is separable from what the walk streams in. */
+const tileLog = [];
+let tileMarkEnter = 0;
+let tileMark = 0;
+page.on("request", (r) => {
+  const url = r.url();
+  // OpenFreeMap (Web Mercator): `.../{z}/{x}/{y}.pbf`.
+  const v = /\/(\d+)\/(\d+)\/(\d+)\.pbf(\?|$)/.exec(url);
+  if (v) { tileLog.push({ kind: "osm", z: Number(v[1]), key: `osm:${v[1]}/${v[2]}/${v[3]}` }); return; }
+  // This page's baked relief pyramid (equal-angle): `.../geo-tiles[/curated]/{z}/{x}_{y}.bin`.
+  const t = /geo-tiles\/(?:curated\/)?(\d+)\/(\d+)_(\d+)\.bin(\?|$)/.exec(url);
+  if (t) tileLog.push({ kind: url.includes("/curated/") ? "cur" : "geo", z: Number(t[1]), key: `${url.includes("/curated/") ? "cur" : "geo"}:${t[1]}/${t[2]}/${t[3]}` });
+});
 
 await page.goto(`${URL_BASE}/maps/?bench=1${QUERY ? `&${QUERY}` : ""}`, { waitUntil: "load" });
 await page.waitForFunction(() => Boolean(window.__glyphMapsBench?.map()), null, { timeout: 60000 });
@@ -629,8 +651,18 @@ if (!FIDELITY_ONLY) {
     // un-greys. Then it enters through the page's own toggle.
     await page.evaluate(([lon, lat, span]) => window.__glyphMapsBench.setView({ center: [lon, lat], span }), WALK_AT);
     await page.waitForTimeout(WALK_SETTLE_MS);
+    tileMarkEnter = tileLog.length;
     await page.evaluate(() => window.__glyphMapsBench.setWalk(true));
     await page.waitForTimeout(WALK_SETTLE_MS);
+    if (WALK_FAR_M) {
+      // The RECONFIGURE branch of the public `setWalk`, not a private hook: it
+      // re-pins `view.span` to `glyphMapWalkSpan(far)`, re-poses the lens and
+      // re-sweeps the tiles, which is exactly what shipping a different
+      // constant would do.
+      await page.evaluate((f) => window.__glyphMapsBench.map().setWalk({ far: Number(f) }), String(WALK_FAR_M));
+      await page.waitForTimeout(WALK_SETTLE_MS);
+    }
+    tileMark = tileLog.length;
     const walking = await page.evaluate(() => window.__glyphMapsBench.getWalk());
     if (!walking) {
       console.error("mapsBench: walk mode never engaged — the gate refused. Numbers would be about the map, not the walk.");
@@ -645,6 +677,24 @@ if (!FIDELITY_ONLY) {
   }
 }
 result.flyToApi = hasFlyTo;
+// The tile budget, split at the moment the walk scenario began: `settled` is
+// what the walker's own footprint pulled standing still, `walked` what the
+// held-W traverse streamed on top of it.
+{
+  const tally = (rows) => {
+    const out = {};
+    for (const t of rows) {
+      const b = (out[`${t.kind}z${t.z}`] ??= new Set());
+      b.add(t.key);
+    }
+    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.size]).sort());
+  };
+  result.tiles = {
+    before: tally(tileLog.slice(0, tileMarkEnter)),
+    footprint: tally(tileLog.slice(tileMarkEnter, tileMark)),
+    walked: tally(tileLog.slice(tileMark)),
+  };
+}
 
 result.pageErrors = errors.slice(0, 5);
 await browser.close();
@@ -664,6 +714,12 @@ for (const [name, s] of Object.entries(result.scenarios)) {
   console.log(`         base raster ms: ${d(s.baseRasterPct)}`);
   console.log(`         long tasks: ${s.longTasks.count} totalling ${s.longTasks.totalMs}ms, worst ${s.longTasks.worstMs}ms  top ${s.longTasks.top.join(" ")}`);
   if (s.heapMB) console.log(`         heap MB: start ${s.heapMB.start}  end ${s.heapMB.end}  peak ${s.heapMB.peak}  (${s.heapMB.samples} samples)`);
+}
+if (result.tiles) {
+  const fmt = (o) => Object.entries(o).map(([k, v]) => `${k} ${v}`).join("  ") || "none";
+  console.log(`  tiles before:    ${fmt(result.tiles.before)}`);
+  console.log(`  tiles footprint: ${fmt(result.tiles.footprint)}`);
+  console.log(`  tiles walked:    ${fmt(result.tiles.walked)}`);
 }
 if (errors.length) console.log(`  page errors: ${errors.length} (first: ${errors[0]?.slice(0, 160)})`);
 if (JSON_OUT) { mkdirSync(dirname(path.resolve(JSON_OUT)), { recursive: true }); writeFileSync(JSON_OUT, JSON.stringify(result, null, 2)); }

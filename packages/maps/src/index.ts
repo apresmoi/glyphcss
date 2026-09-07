@@ -57,7 +57,7 @@ export type { GlyphMapGeoTile, GlyphMapGeoTileInt16Meta } from "./tile";
 export { glyphMapPolygons } from "./mesh";
 export type { GlyphMapPolygonsOptions } from "./mesh";
 
-export { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
+export { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, glyphMapTileRangeForLevel } from "./provider";
 export type { GlyphMapProvider, GlyphMapProviderZoomLevel, GlyphMapTileIndexRange, GlyphMapTileRangeStrategy } from "./provider";
 export { glyphMapCuratedProvider } from "./curated";
 export type { GlyphMapCuratedRasterTiles } from "./curated";
@@ -203,6 +203,7 @@ export {
   glyphMapWalkAxisForKey,
   glyphMapWalkLens,
   glyphMapWalkSpan,
+  glyphMapWalkBoundsWithinHorizon,
   glyphMapWalkStep,
   glyphMapWalkWithinHorizon,
   resolveGlyphMapWalkOptions,
@@ -210,6 +211,7 @@ export {
 export type {
   GlyphMapResolvedWalkOptions,
   GlyphMapWalkAxis,
+  GlyphMapWalkBounds,
   GlyphMapWalkLens,
   GlyphMapWalkOptions,
   GlyphMapWalkState,
