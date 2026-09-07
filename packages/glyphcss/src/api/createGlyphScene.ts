@@ -941,8 +941,18 @@ export function createGlyphScene(
     }
   }
 
-  function runLegacyCellHook(grid: CellGrid): CellGrid {
-    return options.transformCells?.(grid) ?? grid;
+  /**
+   * The user's `transformCells` hook on the EFFECTS path.
+   *
+   * `layer` is the same {@link GlyphTransformCellsLayer} the direct path
+   * binds through {@link withTransformCellsLayer} — it is not optional in
+   * practice and only reads that way because a retained output composed
+   * before this field existed cannot carry one. Dropping it here is what made
+   * a detail grid indistinguishable from the base grid for any hook that
+   * mounts an effect layer (`createGlyphScene.effectLayerIdentity.test.ts`).
+   */
+  function runLegacyCellHook(grid: CellGrid, layer: GlyphTransformCellsLayer | undefined): CellGrid {
+    return options.transformCells?.(grid, layer) ?? grid;
   }
 
   /**
@@ -972,7 +982,7 @@ export function createGlyphScene(
     // `retainGlyphEffectOutput` documents.
     const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
-    return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
+    return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects), currentEffectOutputMetadata.transformCellsLayer);
   };
 
   function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string, atlas = false): void {
@@ -996,7 +1006,7 @@ export function createGlyphScene(
     try {
       for (const output of retainedEffectOutputs.values()) {
         testRenderStage("effect-compose");
-        const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
+        const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared), output.metadata.transformCellsLayer);
         const attemptedEncoding = effectiveColorEncoding();
         const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette(), fontAtlas);
         // A generic effect program's realized glyph set is data-driven (the
@@ -1571,6 +1581,10 @@ export function createGlyphScene(
     // Hoisted so the effects metadata and the plain-hook layer tag can never
     // drift apart — both describe the SAME identity affine for the base grid.
     const baseCellToSceneGrid: readonly [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
+    // ONE tag for both paths — the effects metadata carries the same object
+    // the direct path binds, so a hook cannot be told a different thing about
+    // the same grid depending on whether an effect happens to be mounted.
+    const baseTransformCellsLayer: GlyphTransformCellsLayer = { detail: false, cellToSceneGrid: baseCellToSceneGrid };
     currentEffectOutputMetadata = effectsActive ? {
       id: "base",
       pre,
@@ -1578,11 +1592,12 @@ export function createGlyphScene(
       cellToSceneGrid: baseCellToSceneGrid,
       sceneGridSize: [options.cols, options.rows],
       localCellFootprint: [1, 1],
+      transformCellsLayer: baseTransformCellsLayer,
       ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
     } : null;
     // With no effect layer, preserve the direct legacy/no-hook byte path.
     ctx.transformCells = options.glyphOutput === "visible"
-      ? (effectsActive ? transformEffectCells : withTransformCellsLayer({ detail: false, cellToSceneGrid: baseCellToSceneGrid }))
+      ? (effectsActive ? transformEffectCells : withTransformCellsLayer(baseTransformCellsLayer))
       : undefined;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -2487,6 +2502,13 @@ export function createGlyphScene(
         // Hoisted so the effects metadata and the plain-hook layer tag can
         // never drift apart — both describe the SAME detail-grid affine.
         const detailCellToSceneGrid: readonly [number, number, number, number, number, number] = [1 / kx, 0, 0, 1 / ky, minC, minR];
+        // ONE tag for both paths — see the base grid's own note above.
+        const detailTransformCellsLayer: GlyphTransformCellsLayer = {
+          detail: true,
+          cellToSceneGrid: detailCellToSceneGrid,
+          ...(soleMeshName !== undefined ? { mesh: soleMeshName } : {}),
+          ...(shared.density !== undefined ? { density: shared.density } : {}),
+        };
         currentEffectOutputMetadata = effectsActive ? {
           id: `detail:${group.id}`,
           pre: dpre,
@@ -2494,15 +2516,11 @@ export function createGlyphScene(
           cellToSceneGrid: detailCellToSceneGrid,
           sceneGridSize: [options.cols, options.rows],
           localCellFootprint: [1 / kx, 1 / ky],
+          transformCellsLayer: detailTransformCellsLayer,
           ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
         } : null;
         ctx.transformCells = options.glyphOutput === "visible"
-          ? (effectsActive ? transformEffectCells : withTransformCellsLayer({
-              detail: true,
-              cellToSceneGrid: detailCellToSceneGrid,
-              ...(soleMeshName !== undefined ? { mesh: soleMeshName } : {}),
-              ...(shared.density !== undefined ? { density: shared.density } : {}),
-            }))
+          ? (effectsActive ? transformEffectCells : withTransformCellsLayer(detailTransformCellsLayer))
           : undefined;
         testRenderStage("detail-raster");
         const out = options.glyphOutput === "semantic"

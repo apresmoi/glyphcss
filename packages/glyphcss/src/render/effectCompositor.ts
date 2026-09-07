@@ -1,4 +1,4 @@
-import type { CellGrid } from "./cells";
+import type { CellGrid, GlyphTransformCellsLayer } from "./cells";
 import { cloneCellGrid, isSingleCellGlyph } from "./cells";
 import {
   GlyphEffectNoColor,
@@ -63,6 +63,17 @@ export interface GlyphEffectOutputMetadata {
   readonly sceneGridSize: readonly [number, number];
   readonly localCellFootprint: readonly [number, number];
   readonly worldToSceneScale?: number;
+  /**
+   * This output's identity as the legacy `transformCells` hook is told it —
+   * the SAME tag `withTransformCellsLayer` binds when no effect is mounted.
+   *
+   * It rides on the metadata rather than on a render-scoped variable because
+   * the hook runs on TWO paths: inside a full geometry render (where the
+   * live metadata is at hand) and again on every retained recompose, which
+   * iterates outputs that were retained frames earlier and has nothing else
+   * left to say which grid each one is.
+   */
+  readonly transformCellsLayer: GlyphTransformCellsLayer;
 }
 
 /**

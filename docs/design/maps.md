@@ -1819,6 +1819,32 @@ cells and 95 road cells either way, cell for cell.
 
 Gate: `widget.walkDetailOcclusion.test.ts`.
 
+**And the FIFTH report was the road again, because that gate read the wrong
+`<pre>`.** "The sky is now rightly culled behind the buildings, but I still see
+lines from the roads on top of the buildings", same link. The ink the reader
+was seeing had never been in the BASE grid at all — the gate above measured
+that grid cell for cell and was right about it. The stroke was landing in the
+BUILDINGS' own detail `<pre>`, which sits above the base one, at `1/density`
+of its real height: `createGlyphScene`'s retained-effect compositor called the
+legacy `transformCells` hook with the grid alone, dropping the
+`GlyphTransformCellsLayer` second argument, so `composedTransformCells` could
+not tell a detail grid from the base one and stamped every vertex through
+`GLYPH_MAP_IDENTITY_CELL_AFFINE` into a grid `1.7` times finer (and, for the
+same reason, never restored `cachedBaseCamera` for the duration of the detail
+call, so the depth it tested against was the detail fit's framing too). Walk
+mode always mounts an effect layer, so this was every street-level frame.
+Measured on the real page at the reported link: 551 base cells of road in the
+base `<pre>` at rows 37-44, and 86 more in the buildings' detail `<pre>` at
+rows the unseparated render paints solid building — 48 base cells' worth, ten
+to twenty rows above the road itself. Nothing in this package changed;
+`docs/design/detail-layers.md` holds the fix.
+
+Gate: `widget.walkStrokePlacement.test.ts` — the reported pairing (`omt-roads`
+at `1`, `omt-buildings` at `1.7`) on the vendored OpenFreeMap Zürich tile,
+composited across EVERY `<pre>` by each one's own declared geometry rather
+than off the base grid alone, against the road's own screen path measured with
+nothing in front of it. 265 misplaced base cells before, none after.
+
 **Contour needs none of this and is byte-identical.** A `contour` layer
 projects no vertex and runs no depth test at all: it samples per CELL
 (`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inks a level
