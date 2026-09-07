@@ -34,18 +34,48 @@
  * ever grows a perspective mode, even though it always resolves to index 2
  * today.
  *
- * **ONE allowance, and it is the ordinary coplanar-surface bias.**
+ * **The surface is RECONSTRUCTED at the stroke's own sub-cell position, and
+ * only what that cannot explain is forgiven.**
  *
- * SLOPE-SCALED, reusing the exact rationale (and the exact constant)
- * AGENTS.md's wireframe `hiddenLines: "hide"` pins: "a FLAT bias regresses
- * every convex mesh at every magnitude tried... a smooth surface's own
- * silhouette needs an allowance proportional to the local depth gradient,
- * not a constant one." A stroke lying flush on the surface reads the same
- * depth as it on a flat cell, but proportionally MORE on a steep one (a
- * mountain flank foreshortens a lot of world-space depth range into one
- * screen cell). This is the real discretization allowance and it is measured
- * from the grid itself, so it is scale-free — which is the whole reason it
- * is the only one a DRAPED stroke needs.
+ * Two different things separate a draped stroke's depth from the surface's,
+ * and they want opposite treatments:
+ *
+ * 1. A SAMPLING OFFSET, which is exactly computable and so is corrected
+ *    rather than forgiven. `grid.depth[idx]` was sampled by the rasterizer
+ *    at the cell CENTRE (`rasterize.ts`: `px = x + 0.5`); the stroke sits
+ *    wherever inside that cell its own geometry puts it. On any tilted view
+ *    a stroke lying flush on the surface therefore reads up to half a cell
+ *    of depth away from it for no reason but that, so the surface's own
+ *    local slope is used to evaluate it AT the stroke and the comparison is
+ *    made there.
+ * 2. FACETING, which is not computable from here and is what the allowance
+ *    is for: the drape reads the terrain FIELD (bilinear over a tile's full
+ *    vertex grid) while the terrain rasterizes from a COARSENED quad mesh
+ *    whose chord cuts under every rise inside a quad. The two are
+ *    near-coplanar, not coplanar.
+ *
+ * Faceting is a statement about the surface's ROUGHNESS, so the allowance
+ * scales with the SECOND difference of the depth buffer and not the first. A
+ * plane has none however steeply the camera foreshortens it, and that is the
+ * whole difference: scaling on the slope granted a full half cell of depth
+ * on flat ground under a tilt — measured on the vendored Zürich tile, one
+ * row of a horizontal surface is 1.73e-6 of depth at 60 degrees (~12 m),
+ * where a two-storey building stands only 1.06e-6 in front of the road
+ * beside it — so the allowance swallowed the building whole and the road
+ * drew straight through it. At `/maps`' own default 40 degree pitch every
+ * building of 6 m or under was drawn through, cell for cell, and a 60 m one
+ * was not: the height at which a real occluder became invisible was a
+ * function of nothing but the camera's pitch
+ * (`widget.strokeOcclusion.test.ts`).
+ *
+ * {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE} has a bound behind it
+ * rather than a tuning: for a locally quadratic surface BOTH remaining
+ * errors are one EIGHTH of the second difference — a linear reconstruction
+ * evaluated at most half a cell away departs by `f''·(1/2)²/2`, and a
+ * chord's greatest departure from a parabola through its own endpoints is
+ * `f''·L²/8` — and `0.25` is that doubled, because real relief is not
+ * quadratic and a three-point second difference is itself a noisy estimate
+ * of its curvature.
  *
  * **Two allowances died here, and each one's premise is worth keeping
  * written down.** Both existed only because a `line` vertex used to be
@@ -73,13 +103,13 @@
  * A draped stroke's own depth already IS the ground's depth, so there is
  * nothing left to forgive and no per-vertex offset to carry: what remains is
  * a surface and a curve lying on it, which is precisely the case the
- * slope-scaled bias was written for.
+ * reconstruction above was written for.
  */
 import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
 
-/** Same pinned constant as AGENTS.md's wireframe `hiddenLines: "hide"` slope-scaled bias (glyphcss `render/rasterize.ts`) — the identical class of problem (a stroke's own depth vs. a solid surface's depth, both subject to discretization noise proportional to local slope). */
-export const GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5;
+/** How much of the surface's own local CURVATURE — the second difference of the depth buffer at a cell — a draped stroke may read behind it before that surface is taken to occlude it. See this file's doc for the eighth this doubles. */
+export const GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE = 0.25;
 
 export interface GlyphMapStrokeVertex {
   readonly col: number;
@@ -92,27 +122,44 @@ export interface GlyphMapStampOptions {
   readonly color?: string;
   /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
   readonly depthBias?: number;
-  readonly depthSlopeScale?: number;
+  /** Overrides {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE}. */
+  readonly depthCurvatureScale?: number;
 }
 
-/** Local screen-space depth gradient of the SURFACE already in `grid` at cell `idx` — the finite-difference probe the slope-scaled bias reads, using whichever horizontal/vertical neighbor is available (an edge cell falls back to the one-sided difference). */
-function surfaceDepthGradient(grid: CellGrid, col: number, row: number): number {
-  const idx = row * grid.cols + col;
-  const d = grid.depth[idx];
-  if (!Number.isFinite(d)) return 0;
-  const left = col > 0 ? grid.depth[idx - 1] : NaN;
-  const right = col < grid.cols - 1 ? grid.depth[idx + 1] : NaN;
-  const up = row > 0 ? grid.depth[idx - grid.cols] : NaN;
-  const down = row < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN;
-  let gx = 0;
-  if (Number.isFinite(left) && Number.isFinite(right)) gx = (right - left) / 2;
-  else if (Number.isFinite(right)) gx = right - d;
-  else if (Number.isFinite(left)) gx = d - left;
-  let gy = 0;
-  if (Number.isFinite(up) && Number.isFinite(down)) gy = (down - up) / 2;
-  else if (Number.isFinite(down)) gy = down - d;
-  else if (Number.isFinite(up)) gy = d - up;
-  return Math.hypot(gx, gy);
+/**
+ * One axis of the surface's own screen-space depth slope at a cell, SIGNED
+ * and in depth units per cell — the ordinary central difference, falling back
+ * to whichever one-sided difference exists at an edge or beside an empty
+ * cell.
+ *
+ * This is no longer what the ALLOWANCE is built on (see {@link curvature});
+ * it is what evaluates the surface AT the stroke's own sub-cell position, so
+ * that the half cell between there and the cell centre `grid.depth` was
+ * sampled at is corrected rather than forgiven.
+ */
+function surfaceSlope(d: number, back: number, forward: number): number {
+  if (Number.isFinite(back) && Number.isFinite(forward)) return (forward - back) / 2;
+  if (Number.isFinite(forward)) return forward - d;
+  if (Number.isFinite(back)) return d - back;
+  return 0;
+}
+
+/**
+ * One axis of the surface's own SECOND difference at a cell — how much its
+ * two one-sided slopes disagree across it, in depth units per cell squared.
+ *
+ * This is what the allowance scales on, because the faceting it exists to
+ * forgive is a property of the surface's ROUGHNESS and not of how steeply
+ * the camera foreshortens it (see this file's doc). An edge cell has only
+ * one side and so reports no curvature at all rather than half of one: it is
+ * missing the evidence, and manufacturing an allowance out of a single
+ * difference is exactly what the slope scaling used to do everywhere.
+ */
+function curvature(d: number, back: number, forward: number): number {
+  const a = Number.isFinite(back) ? d - back : NaN;
+  const b = Number.isFinite(forward) ? forward - d : NaN;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.abs(a - b);
 }
 
 /**
@@ -125,10 +172,10 @@ function surfaceDepthGradient(grid: CellGrid, col: number, row: number): number 
  * requirement: the tangent must come from the geometry, not from the
  * segment happening to end there).
  *
- * A cell whose existing `grid.depth` is nearer than the stroke (by more
- * than the slope-scaled allowance) is left untouched — the terrain (or any
- * nearer mesh) occludes the line there, exactly like a normal solid-mode
- * depth test.
+ * A cell whose surface — reconstructed at the stroke's own sub-cell position
+ * — is nearer than the stroke by more than the curvature-scaled allowance is
+ * left untouched: the terrain (or any nearer mesh) occludes the line there,
+ * exactly like a normal solid-mode depth test.
  */
 export function stampGlyphMapPolyline(
   grid: CellGrid,
@@ -137,7 +184,7 @@ export function stampGlyphMapPolyline(
 ): void {
   const color = opts.color ?? null;
   const bias = opts.depthBias ?? 0;
-  const slopeScale = opts.depthSlopeScale ?? GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE;
+  const curvatureScale = opts.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE;
 
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
@@ -155,13 +202,21 @@ export function stampGlyphMapPolyline(
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) continue;
       const idx = rowI * grid.cols + colI;
       const depth = a.depth + (b.depth - a.depth) * t;
-      const surfaceDepth = grid.depth[idx];
-      if (Number.isFinite(surfaceDepth)) {
-        const allowed = bias + slopeScale * surfaceDepthGradient(grid, colI, rowI);
-        if (surfaceDepth - depth > allowed) continue; // occluded by nearer geometry
-      }
       const subCol = col - colI;
       const subRow = row - rowI;
+      const surfaceDepth = grid.depth[idx];
+      if (Number.isFinite(surfaceDepth)) {
+        // Correct the sampling offset, then forgive only the faceting — two
+        // different quantities, and only the second one is an allowance. See
+        // this file's doc.
+        const gx = surfaceSlope(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
+        const gy = surfaceSlope(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
+        const atStroke = surfaceDepth + gx * (subCol - 0.5) + gy * (subRow - 0.5);
+        const cx = curvature(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
+        const cy = curvature(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
+        const allowed = bias + curvatureScale * Math.hypot(cx, cy);
+        if (atStroke - depth > allowed) continue; // occluded by nearer geometry
+      }
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;

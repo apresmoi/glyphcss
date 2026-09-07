@@ -17,7 +17,7 @@
  * feeding the projection itself, the forgiveness has no premise left: a
  * draped stroke's own depth already is the ground's depth, so the second
  * projection per vertex and the margin both go, and the ordinary
- * slope-scaled coplanar bias is the whole allowance.
+ * coplanar allowance is the whole of it.
  *
  * THE EXPECTED ROW, ANALYTICALLY. `glyphMapGlobe.project(lon, lat, h)` is
  * `(1 + h·exaggeration / R_earth)` times `project(lon, lat, 0)` — purely
@@ -318,15 +318,20 @@ describe("createGlyphMap — a stroke is drawn on the ground under it", () => {
  * reads BEHIND that surface on a measurable fraction of its own cells, and a
  * depth test with no allowance drops every one of them.
  *
- * Measured on this fixture (a 3,800 m gaussian ridge plus 200 m of
- * tile-scale roughness, 720x360 tiles, the widget's own resolution ladder,
- * span 12 at 40 degrees of pitch): of 650 stamped samples, 147 read behind
- * the surface by up to 6.54e-4 world units, against a slope-scaled allowance
- * reaching 7.18e-3 at those same cells — 11x headroom. 125 are forgiven and
- * 22 are genuinely occluded (a rough peak really does stand in front of the
- * stroke on its far flank, which is the correct answer, not a defect to pad
- * away). With `GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE` mutated to `0` all 307 go
- * dark and the run breaks, which is what the assertion below reads.
+ * That allowance now scales on the surface's own CURVATURE rather than its
+ * slope, because faceting is a statement about ROUGHNESS and a plane has
+ * none however steeply the camera foreshortens it — scaling on the slope
+ * granted a full half cell of depth on flat ground under a tilt, which is
+ * also exactly the depth an ordinary building stands in front of the road
+ * beside it (`widget.strokeOcclusion.test.ts`). Only the roughness this
+ * fixture exists for is left, and this fixture is where it is real.
+ *
+ * Measured on it (a 3,800 m gaussian ridge plus 200 m of tile-scale
+ * roughness, 720x360 tiles, the widget's own resolution ladder, span 12 at
+ * 40 degrees of pitch): the border inks 72 cells across 61 consecutive
+ * columns. With `GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE` mutated to `0`, 16
+ * of those 72 go dark, the border survives in 52 columns and the run breaks
+ * in SIX places — which is what the assertion below reads.
  *
  * THE ROUGHNESS IS LOAD-BEARING in the fixture, not decoration: over the
  * pure gaussian this file first used, the coarse chord and the
@@ -406,7 +411,7 @@ describe("createGlyphMap — a draped stroke stays whole over a coarsened relief
   // genuinely stand in front of it, so "unbroken" is not the true statement
   // there and only a count would separate the two states; span 12 gives the
   // exact property with no threshold to tune.
-  it("inks an unbroken run across the ridge — the slope-scaled allowance is what keeps the mesh's own faceting from eating it", async () => {
+  it("inks an unbroken run across the ridge — the curvature-scaled allowance is what keeps the mesh's own faceting from eating it", async () => {
     const span = 12;
     const host = document.createElement("div");
     document.body.appendChild(host);

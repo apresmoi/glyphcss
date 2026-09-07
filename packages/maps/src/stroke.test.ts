@@ -67,50 +67,75 @@ describe("stampGlyphMapPolyline — gate 1: a border behind terrain is occluded 
 });
 
 /**
- * The slope-scaled allowance is the ONLY one a stroke gets, and this is the
- * gate that goes red without it.
+ * A draped stroke is compared against the surface RECONSTRUCTED at its own
+ * sub-cell position, and only the surface's own CURVATURE is then forgiven.
+ * These are the gates that go red without each half.
  *
- * A `line` is DRAPED on the ground field (`widget.ts`, bilinear over a
- * tile's full vertex grid) while the terrain under it is rasterized from a
- * COARSENED quad mesh, whose chord cuts under every rise inside a quad. The
- * two are therefore near-coplanar, not exactly coplanar, and the stroke
- * reads a little BEHIND the surface on a real fraction of its cells —
- * measured on a real relief pyramid at `/maps`' own pitch, 154 of 650
- * samples, by up to 1.63e-3 world units where the local screen-space depth
- * gradient offered 1.45e-2 (`widget.strokeDrape.test.ts`'s ridge fixture).
+ * A `line` is draped on the ground field (`widget.ts`, bilinear over a tile's
+ * full vertex grid) while the terrain under it is rasterized from a COARSENED
+ * quad mesh, whose chord cuts under every rise inside a quad. The two are
+ * therefore near-coplanar, not exactly coplanar, and the stroke reads a
+ * little BEHIND the surface on a real fraction of its cells — measured on a
+ * real relief pyramid at `/maps`' own pitch, 154 of 650 samples
+ * (`widget.strokeDrape.test.ts`'s ridge fixture).
  *
- * The allowance has to be PROPORTIONAL to that gradient, which is why it is
- * this and not a constant: the same faceting error foreshortens into one
- * screen cell in proportion to how steeply the surface is turning away, so
- * a fixed number is simultaneously too small on a flank and too large on a
- * plain. `0.5` is glyphcss's own wireframe `hiddenLines: "hide"` constant,
- * for the identical problem.
+ * But most of that gap was never faceting at all: `grid.depth` is sampled at
+ * the cell CENTRE and the stroke sits wherever inside the cell its geometry
+ * puts it, so on a tilted view a stroke lying FLUSH on the surface reads up
+ * to half a cell of depth away from it for that reason alone. Paying for it
+ * with a SLOPE-scaled allowance made the allowance a fraction of the depth
+ * one cell spans, which on flat ground under a tilt is metres — and so a road
+ * drew straight through every building shorter than that
+ * (`widget.strokeOcclusion.test.ts`). Reconstructing the surface where the
+ * stroke actually is removes that term instead of forgiving it, and what
+ * remains is proportional to the surface's roughness, which is its SECOND
+ * difference: a plane has none however steeply it is foreshortened.
  */
-describe("stampGlyphMapPolyline — the slope-scaled allowance, and its bound", () => {
-  /** A surface tilting away at `gradient` world-depth units per column. */
-  const sloped = (gradient: number) => makeGrid(10, 5, (col) => col * gradient);
+describe("stampGlyphMapPolyline — the reconstruction, the curvature allowance, and its bound", () => {
+  const GRADIENT = 1e-2;
+  /** A plane tilting away at `GRADIENT` per column. No curvature anywhere, so it grants no allowance at all. */
+  const plane = () => makeGrid(10, 5, (col) => col * GRADIENT);
+  /**
+   * The same plane with a one-cell zig-zag on it — the shortest wavelength a
+   * coarsened quad mesh cannot represent, and the only component that makes a
+   * draped stroke read behind the surface once the sampling offset is gone.
+   */
+  const rough = (amp: number) => makeGrid(10, 5, (col) => col * GRADIENT + (col % 2 ? amp : 0));
   const line = (depthAt: (col: number) => number): GlyphMapStrokeVertex[] => [
     { col: 1, row: 2, depth: depthAt(1) },
     { col: 8, row: 2, depth: depthAt(8) },
   ];
 
-  it("draws a stroke lying just behind a steep surface — the faceting a coarsened relief mesh always has", () => {
-    const gradient = 1e-2;
-    // A quarter of the local gradient behind the surface: inside the
-    // allowance (which is half of it), and about 30x the worst faceting
-    // error the real fixture produces relative to its own gradient.
-    const grid = sloped(gradient);
-    stampGlyphMapPolyline(grid, line((col) => col * gradient - 0.25 * gradient), { color: "#fff" });
-    expect(nonEmptyCells(grid)).toBeGreaterThan(4);
+  it("draws a stroke lying exactly ON a steep plane, at a sub-cell position half a cell from where the surface was sampled", () => {
+    // `grid.depth[c]` is the plane's depth at cell `c`'s CENTRE, so the same
+    // plane at this stroke's own position — the cell's left edge, half a cell
+    // back — is `GRADIENT / 2` further away, and that is exactly the stroke's
+    // depth here. It is FLUSH on the surface and every cell of it must draw.
+    // The plane has no curvature, so no allowance is available to cover the
+    // half cell: only reconstructing the surface where the stroke actually is
+    // can, and with that reconstruction dropped all eight cells go dark.
+    const grid = plane();
+    stampGlyphMapPolyline(grid, line((col) => (col - 0.5) * GRADIENT), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBe(8);
+  });
+
+  it("draws a stroke behind the RIDGES of a rough surface — the faceting a coarsened relief mesh always has", () => {
+    // The stroke follows the smooth trend the coarse mesh would carry while
+    // the surface carries the roughness, so it reads behind at every ridge
+    // cell, by 0.1x the local gradient against an allowance of 0.2x. That is
+    // the whole job of the curvature term: with the scale at 0 the four ridge
+    // cells go dark and this drops to 4.
+    const grid = rough(0.4 * GRADIENT);
+    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBe(8);
   });
 
   it("still occludes a stroke genuinely behind that same surface — the allowance is bounded, not a licence", () => {
-    const gradient = 1e-2;
-    // Twice the local gradient behind it: past the allowance, and the
-    // surface is really in front. A margin large enough to swallow this is
-    // the defect the flat 0.03 constant was.
-    const grid = sloped(gradient);
-    stampGlyphMapPolyline(grid, line((col) => col * gradient - 2 * gradient), { color: "#fff" });
+    // Twice the local gradient behind it: past the reconstruction and past
+    // the allowance, and the surface is really in front. A margin large
+    // enough to swallow this is the defect the flat 0.03 constant was.
+    const grid = plane();
+    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT - 2 * GRADIENT), { color: "#fff" });
     expect(nonEmptyCells(grid)).toBe(0);
   });
 });

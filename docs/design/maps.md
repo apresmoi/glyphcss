@@ -1659,20 +1659,72 @@ project()[2]` against `CellGrid.depth`, larger = nearer. The allowance before
 a nearer surface counts as OCCLUSION is now a SINGLE term — the ordinary
 coplanar-surface bias:
 
-**Slope-scaled** (`GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE = 0.5`, the SAME
-constant as wireframe `hiddenLines: "hide"`'s own slope-scaled bias above) —
-measured off the grid's own local depth gradient and therefore scale-free.
-It is not a formality: a stroke is draped on the ground FIELD
-(`glyphMapGeoTileElevationAt`, bilinear over a tile's full vertex grid) while
-the terrain under it is rasterized from a COARSENED quad mesh
-(`glyphMapPolygons`' per-level `resolution`), whose chord cuts under every
-rise inside a quad. The two are near-coplanar, not coplanar. Measured on a
-3,800 m ridge plus 200 m of tile-scale roughness at 720x360, span 12, 40
-degree pitch: of 650 stamped samples **147 read behind the surface**, by up
-to **6.54e-4** world units, against a slope-scaled allowance reaching
-**7.18e-3** at those same cells (11x headroom) — 125 forgiven, 22 genuinely
-occluded by a rough peak really standing in front, which is the correct
-answer rather than something to pad away. Mutated to `0`, all 307 go dark.
+**Reconstruct first, then forgive only the curvature.** Two different
+quantities separate a draped stroke's depth from the surface's, and only one
+of them is an allowance.
+
+1. **A SAMPLING OFFSET, which is corrected.** `CellGrid.depth` is written by
+   the rasterizer at the cell CENTRE (`rasterize.ts`: `px = x + 0.5`) while
+   the stroke sits wherever inside the cell its own geometry puts it, so on a
+   tilted view a stroke lying FLUSH on the surface reads up to half a cell of
+   depth away from it for that reason alone. `stroke.ts` evaluates the
+   surface at the stroke's own `(subCol, subRow)` using the grid's own local
+   slope and compares there.
+2. **FACETING, which is the allowance**
+   (`GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE = 0.25`). A stroke is draped on
+   the ground FIELD (`glyphMapGeoTileElevationAt`, bilinear over a tile's
+   full vertex grid) while the terrain under it is rasterized from a
+   COARSENED quad mesh (`glyphMapPolygons`' per-level `resolution`), whose
+   chord cuts under every rise inside a quad. The two are near-coplanar, not
+   coplanar.
+
+**The allowance scales on the surface's SECOND difference, not its first**,
+because faceting is a statement about ROUGHNESS and not about how steeply the
+camera foreshortens the surface: a plane has no curvature at any pitch.
+Scaling it on the SLOPE — the shipped `GLYPH_MAP_STROKE_DEPTH_SLOPE_SCALE =
+0.5` — therefore granted a full half cell of depth on FLAT GROUND under a
+tilt, which is metres, and that is the second reported "the roads are again
+showing on top of the buildings": measured on the vendored Zürich z14 tile,
+one row of a horizontal surface is 1.73e-6 of depth at a 60 degree pitch
+(~12 m) where a two-storey building stands only 1.06e-6 in front of the road
+beside it. At `/maps`' own default 40 degree pitch EVERY building of 6 m or
+under was drawn straight through — all 23 cells of the road inside its own
+footprint — while the 60 m tower `widget.strokeOcclusion.test.ts` pinned was
+ten times over the threshold and never failed. The height at which a real
+occluder became invisible was a function of the camera's PITCH and nothing
+else, which is exactly the dimension that test had fixed.
+
+`0.25` has a bound behind it rather than a tuning. For a locally quadratic
+surface BOTH remaining errors are one EIGHTH of the second difference — a
+linear reconstruction evaluated at most half a cell away departs by
+`f''·(1/2)²/2`, and a chord's greatest departure from a parabola through its
+own endpoints is `f''·L²/8` — and `0.25` is that doubled, because real relief
+is not quadratic and a three-point second difference is itself a noisy
+estimate of its curvature.
+
+Measured, the two together (real vendored data, both directions):
+
+| scene | before | after |
+|---|---|---|
+| Zürich z14, 60 degree pitch, one rail line over 1,991 footprints | 129 road cells drawn over building ink | 37 (25 of which are geometrically legitimate — the road really is in front there) |
+| the same view, all 605 road features | 417 | 268 |
+| the ridge fixture below (span 12, 40 degrees) — terrain fidelity, which must NOT regress | 71 cells / 61 columns / 0 breaks | 72 / 61 / 0 |
+
+The floor is real and documented rather than padded away: at a 70 degree
+pitch a 4 m building still fails, because at that pitch its roof and the road
+beside it are inside the reconstruction's own error. Every ordinary height at
+every pitch `/maps` offers is closed.
+
+The ridge fixture is what keeps the allowance from being tuned to zero.
+Measured there (3,800 m gaussian ridge plus 200 m of tile-scale roughness,
+720x360 tiles, span 12, 40 degree pitch), the border inks **72 cells across
+61 consecutive columns**; with `GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE`
+mutated to `0`, **16 of those 72 go dark**, the border survives in 52 columns
+and the run **breaks in six places**. Dropping the sub-cell reconstruction
+instead leaves that test green and doubles the city defect (74 rail cells
+against 37), so each half has its own gate: `stroke.test.ts` pins the
+reconstruction on a plane with no curvature to hide behind, and the ridge
+pins the allowance.
 
 **Two allowances died here, and neither was reduced — both had their premise
 removed.** Both existed only because a `line` vertex used to be projected at
@@ -1693,9 +1745,9 @@ elevation zero:
    WHETHER a stroke was occluded and silent about WHERE IT WAS DRAWN. It is
    exactly the projection the drape now IS.
 
-For scale, the gap the surviving bias has to cover is **6.54e-4** at the ridge
-view while the ground offset there is **~2e-2** (3,950 m at 24x) — thirty
-times larger. The premise is gone, not the magnitude tuned. The drape also
+For scale, the ground offset the two dead allowances existed to cover is
+**~2e-2** at the ridge view (3,950 m at 24x), orders of magnitude above
+anything the surviving curvature term forgives. The premise is gone, not the magnitude tuned. The drape also
 costs LESS than the allowance it replaces: measured on 9,600 border vertices
 at 160x64, span 12, 40 degree pitch with terrain mounted, the stamp is
 **2.76 ms** draped against **3.26 ms** pre-drape (median of 3, 60 renders
