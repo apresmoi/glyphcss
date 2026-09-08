@@ -2,7 +2,7 @@ import earcut from "earcut";
 import type { Polygon, Vec3 } from "glyphcss";
 import type { GlyphMapBounds, GlyphMapField } from "./types";
 import { glyphMapTrueScaleElevation, type GlyphMapProjection } from "./projection";
-import { localUpDirection } from "./mesh";
+import { localOrientation, localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
 import { glyphMapFacadeTiles, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
 
@@ -294,6 +294,20 @@ const GLYPH_MAP_FILL_MAX_REFINE_DEPTH = 8;
  * never fires there and the flat path is untouched.
  */
 const GLYPH_MAP_FILL_MIN_FACE_UP_ALIGNMENT = 0.9;
+
+/**
+ * The margin by which a kept face's own chord plane must agree with the
+ * surface — `|cos|` between its normal and the local up, as a fraction.
+ *
+ * This is NOT a shape test (that is what the topological verdict beside it
+ * replaced); it is the numerical floor under "the plane looks the same way
+ * through the surface as the face does". A face at exactly zero is a plane
+ * through the globe's own centre, whose emitted normal is then float noise —
+ * the pole-reaching patch in `layers.globe.test.ts` produces one, at a plane
+ * distance of -3.4e-15. `1e-9` is far above double precision's own noise on a
+ * unit sphere and far below any face a projection meaningfully places.
+ */
+const GLYPH_MAP_FILL_MIN_FACE_UP_EPSILON = 1e-6;
 
 type Project = (lon: number, lat: number, elev: number) => Vec3;
 
@@ -623,6 +637,30 @@ export interface GlyphMapVectorWall {
    * here would over-reach the globe's horizon by the exaggeration factor.
    */
   readonly elevTop: number;
+  /**
+   * Present when this entry is NOT a wall but an ill-conditioned CAP face — a
+   * tessellation SLIVER, whose three vertices are nearly collinear on the
+   * surface, so its plane is the great circle's rather than the surface's and
+   * its normal is up to 90 degrees off the local up. It carries the face's own
+   * three lon/lat corners, and {@link elev}/{@link elevTop} are both the cap's
+   * own elevation.
+   *
+   * Such a face IS emitted — dropping it is what drew black lines across the
+   * open sea — and it is wound correctly, so the rasterizer's backface cull
+   * removes it wherever it lies wholly on one side. What that cull cannot
+   * decide is a face reaching ACROSS the limb: its projected orientation is
+   * then whichever half dominates, and a far-side sliver near the limb inks
+   * the near side (measured on `widget.farSideFill.test.ts`'s own
+   * far-hemisphere patch: 16 cells). So it rides the same per-frame near-side
+   * test a wall does, and for the same reason — this module has no camera.
+   *
+   * The verdict is STRICTER than a wall's: drawn only when EVERY corner is
+   * visible, where a wall survives on ANY. A wall over-draws past the limb
+   * rather than eroding a silhouette; a sliver has no silhouette to erode — it
+   * is one cell wide — and what the report is about is one missing on the NEAR
+   * side, where all three corners are visible anyway.
+   */
+  readonly cap?: readonly (readonly [lon: number, lat: number])[];
 }
 
 /**
@@ -633,7 +671,12 @@ export interface GlyphMapVectorWall {
  */
 export interface GlyphMapVectorMesh {
   readonly polygons: readonly Polygon[];
-  /** Empty for a `fill` (height 0) mesh, which has no camera-dependent face. */
+  /**
+   * Every face whose near/far verdict is CAMERA-dependent: an extrusion's
+   * walls, plus the ill-conditioned cap slivers a `fill` can carry on a curved
+   * projection (see {@link GlyphMapVectorWall.cap}). Empty for a `fill` on an
+   * affine projection, which refines nothing and so has neither.
+   */
   readonly walls: readonly GlyphMapVectorWall[];
 }
 
@@ -664,6 +707,11 @@ export function glyphMapVectorCullWalls(mesh: GlyphMapVectorMesh, visible: (lon:
   if (!mesh.walls.length) return [...mesh.polygons];
   const keep = new Uint8Array(mesh.polygons.length).fill(1);
   for (const wall of mesh.walls) {
+    if (wall.cap) {
+      // EVERY corner, not any — see `GlyphMapVectorWall.cap`.
+      for (const [lon, lat] of wall.cap) if (!visible(lon, lat, wall.elev)) { keep[wall.polygon] = 0; break; }
+      continue;
+    }
     const anyCorner = visible(wall.a[0], wall.a[1], wall.elev)
       || visible(wall.b[0], wall.b[1], wall.elev)
       || visible(wall.a[0], wall.a[1], wall.elevTop)
@@ -750,16 +798,62 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
         // so this only fires for a projection whose valid window has a hole in
         // it — dropped face by face rather than poisoning the buffer with NaN.
         if (vertices.some((v) => !finite(v))) continue;
-        const faceUp = localUpDirection(projection, (tri[0][0] + tri[1][0] + tri[2][0]) / 3, (tri[0][1] + tri[1][1] + tri[2][1]) / 3, capElev);
+        const centroidLon = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
+        const centroidLat = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
+        const faceUp = localUpDirection(projection, centroidLon, centroidLat, capElev);
         const normal = ringNormal(vertices);
         let faceFlip = flip;
+        let weak = false;
         if (faceUp !== null) {
           const scale = Math.hypot(normal[0], normal[1], normal[2]) * Math.hypot(faceUp[0], faceUp[1], faceUp[2]);
-          if (!(scale > 0) || Math.abs(dot(normal, faceUp)) < GLYPH_MAP_FILL_MIN_FACE_UP_ALIGNMENT * scale) continue;
-          faceFlip = dot(normal, faceUp) < 0;
+          if (!(scale > 0)) continue;
+          const alignment = dot(normal, faceUp);
+          if (Math.abs(alignment) >= GLYPH_MAP_FILL_MIN_FACE_UP_ALIGNMENT * scale) {
+            // Well-conditioned face: its own plane IS the local surface, so it
+            // answers its own facing, exactly as it always has. Byte-identical
+            // for every face that is not a sliver, which on the real
+            // OpenFreeMap `3/3/3` ocean polygon is 954 of 1076.
+            faceFlip = alignment < 0;
+          } else {
+            // Ill-conditioned face — a tessellation SLIVER, not a large face
+            // (refinement has already bounded the curvature across every edge).
+            // Its plane is the great circle's rather than the surface's, so it
+            // cannot answer its own facing; the answer comes from its lon/lat
+            // WINDING (exact for any shape) times the projection's own local
+            // handedness (`localOrientation`, a probe of `project`). Taking it
+            // from the sliver's plane instead is what made the facing a coin
+            // flip, and DROPPING the face rather than fixing the facing is what
+            // drew the reported black lines: `earcut` fans a tile-sized ocean
+            // ring from its own corners, so those slivers are long — the widest
+            // on `3/3/3` was 13.7 degrees of arc and 0.500 degrees across, a
+            // two-cell gap 55 cells long over the open Atlantic, and 122 of the
+            // tile's 1076 refined faces were cut this way.
+            const winding = signedArea2(tri);
+            const handedness = winding === 0 ? null : localOrientation(projection, centroidLon, centroidLat, capElev);
+            if (handedness === null) continue;
+            const outward = handedness * (winding > 0 ? 1 : -1);
+            // Kept only while the chord plane still has the surface's own
+            // outward side at EVERY vertex — the "no face may look into the
+            // sphere" property (`layers.globe.test.ts`), which no winding can
+            // repair: such a face shades as if lit from inside. Per vertex, not
+            // at the centroid: a face whose plane passes through the globe's
+            // centre is edge-on, and the centroid then reports a sign its own
+            // corners do not share (measured on the pole-reaching patch, plane
+            // distance -3.4e-15).
+            let planeAgrees = true;
+            for (const [lon, lat] of tri) {
+              const vertexUp = localUpDirection(projection, lon, lat, capElev);
+              const vertexScale = vertexUp === null ? 0 : Math.hypot(normal[0], normal[1], normal[2]) * Math.hypot(vertexUp[0], vertexUp[1], vertexUp[2]);
+              if (vertexUp === null || !(dot(normal, vertexUp) * outward > GLYPH_MAP_FILL_MIN_FACE_UP_EPSILON * vertexScale)) { planeAgrees = false; break; }
+            }
+            if (!planeAgrees) continue;
+            faceFlip = outward < 0;
+            weak = true;
+          }
         }
         const cap: Polygon = { vertices: faceFlip ? [vertices[2], vertices[1], vertices[0]] : vertices };
         if (color) cap.color = color;
+        if (weak) walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: capElev, elevTop: capElev, cap: tri });
         out.push(cap);
       }
 

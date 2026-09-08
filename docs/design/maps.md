@@ -4549,3 +4549,166 @@ Wrapping is applied where a label is turned into cells
 per-layer option: the width is a property of the character grid, not of the
 data, and a caller who wants a different one can call `glyphMapWrapLabel`
 themselves through `GlyphMapSymbolLayer.text`.
+
+## Black lines in the middle of the sea: a `fill`'s tessellation slivers
+
+The report was one line: "also lets fix these black lines in the middle of the
+sea". The link decoded to a globe over the mid-Atlantic — centre
+`-28.96126 / 9.653595`, span 40.41, tilt 4, bearing 359, exaggeration 24,
+atlas encoding — with **terrain, borders and contour all OFF** and the OSM
+card the only mounted layer, itself carrying a single row: `omt-water`, at
+density 1.4. So the whole picture was one vector `fill` of the OpenMapTiles
+`water` layer, and the lines were holes in it: one to two cells wide, tens of
+cells long, curving with the surface, moving with the geometry rather than
+with the grid, and present inside a SINGLE tile (the sweep asks for exactly
+one at that framing, `3/3/3`).
+
+### What it was not
+
+- **Not a tile seam.** One tile is mounted at that view. The lines run
+  diagonally across its interior, nowhere near `3/3/3`'s own bounds.
+- **Not the antimeridian.** The visible window is roughly `-49..-9` degrees of
+  longitude.
+- **Not a `line` layer.** No stroke layer is mounted — the link's `O` mask has
+  exactly one bit set, and `4be71a5`'s maritime/disputed exclusion is not
+  involved because the boundaries row is off.
+- **Not the relief mesh.** No `raster` layer is mounted at all, so no tier,
+  no backstop and no sink is in the frame.
+- **Not `e141f94`'s new `class` colouring.** `GLYPH_MAP_OPENMAPTILES_WATER_COLORS`
+  falls back to the row's own colour for an unknown class, and the cells were
+  BACKGROUND, not a colour.
+
+Setting `GLYPH_MAP_FILL_MIN_FACE_UP_ALIGNMENT` to zero made every line vanish
+in one run, which located it exactly: the faces were being DROPPED.
+
+### The mechanism
+
+`glyphMapVectorMesh` triangulates in lon/lat with earcut, whose ears connect
+boundary vertices with no interior vertices to work with. An ocean polygon's
+rings are the tile box plus its continents (the real `3/3/3` water layer: one
+`ocean` feature, one group, 15 rings, 560 points), so earcut fans it from the
+box's own corners — long, thin faces reaching right across the open sea.
+Curvature refinement leaves them alone and is right to: its verdict is a pure
+function of an EDGE, and each of their edges is already inside the 13-degree
+limit that makes a chord a good stand-in for the arc.
+
+A long thin triangle inscribed on a sphere, though, has a circumcircle whose
+centre is tens of degrees away, and a triangle's plane normal points at its
+circumcenter. So the face's PLANE is the great circle's rather than the
+surface's, and its normal is up to 90 degrees off the local up — not noise,
+a real geometric fact about a thin patch. The old guard read exactly that
+normal for two jobs at once (which way the face points, and whether to trust
+it) and dropped everything past `acos(0.9)` = 25.84 degrees.
+
+Measured on the real OpenFreeMap `3/3/3` ocean polygon: 1,076 refined cap
+faces, 122 of them cut. The widest was 13.72 degrees of arc and **0.500
+degrees across** — at that framing's 0.25 degrees per cell, a two-cell gap 55
+cells long, drawn straight across the Atlantic. The guard's own premise, that
+"the same degeneracy that makes a sliver's normal meaningless also makes its
+area negligible", is false: nothing bounded how FAR one reached.
+
+### Three fixes that were measured and rejected
+
+1. **Just keep them** (drop the alignment guard). The holes close — the
+   vendored z0 ocean goes from 184 interior holes to 1 at the reported
+   framing — but a kept face is shaded by its own plane, so the black line
+   becomes a line of wrongly-toned cells (`@` and `%` against `#*+=`
+   neighbours in the same render), and `layers.globe.test.ts`'s "no face may
+   look into the sphere" plus three far-side clauses go red.
+2. **Bound how far a face may reach** — a max lon/lat edge length, so the
+   guard's premise becomes true. The bound is exact and derivable: a dropped
+   face satisfies `L^2 / (8h) > 0.4510`, so its width is under
+   `0.004836 * L_deg^2` degrees, which measured 0.500 -> 0.127 -> 0.031 at
+   caps of infinity, 6 and 3 degrees. It does not work. A crack of ANY width
+   still blanks a cell wherever it covers the cell's sample point, so the
+   hole count falls only linearly while the face count rises quadratically
+   (118 -> 49 holes at 4.9x the faces, 71 ms per render at a 3-degree cap
+   against 21 ms), and an absolute or extent-relative cap fires on FLAT
+   projections too, breaking "an affine projection is untouched, face for
+   face".
+3. **A better tessellator.** A constrained Delaunay in a local tangent frame
+   emits no slivers at all and is the real root fix, but it is a new
+   dependency and an architectural change, and earcut is shared with
+   `@glyphcss/fonts`' `extrudeContours`.
+
+### The fix: stop asking a sliver which way it points
+
+A sliver cannot answer that question, and it never had to. Two things that
+are well conditioned for ANY face shape answer it exactly:
+
+- the face's own lon/lat **winding** (`signedArea2`, exact whatever its
+  thickness — earcut and red-green refinement both preserve the outer ring's
+  normalised orientation, though not universally: 5 CW and 8 zero-area
+  triangles out of 12,099 in the vendored z14 tile, so the sign is read per
+  face rather than assumed), and
+- the projection's own local **handedness**, `localOrientation` — a probe of
+  `project` in the same family as `localUpDirection`, central differences in
+  lon and lat crossed against the up probe. A probe, never a projection id, so
+  a `glyphMapFromD3Raw` projection and a `setProjection` blend both work.
+
+Their product is the face's outward verdict. What the face's own plane still
+decides is the ONE thing a winding cannot repair: whether the plane looks the
+right way THROUGH the surface, since a face whose plane passes on the far side
+of the globe's centre shades as if lit from inside. That is tested per VERTEX,
+not at the centroid — a plane through the centre is edge-on, and the centroid
+then reports a sign its own corners do not share (the pole-reaching patch in
+`layers.globe.test.ts` produces exactly one such face, at a plane distance of
+-3.4e-15). It cuts 14 of the 1,076 faces instead of 122, and those 14 are the
+narrowest.
+
+**The well-conditioned path is untouched.** A face at or above the old 0.9
+alignment — 954 of 1,076 on that tile, and every face any affine projection
+emits — takes the original branch, byte for byte, and pays for no extra probe.
+
+### Near versus far is still camera-dependent, and rides the existing cull
+
+A correctly wound sliver is removed by the rasterizer's own backface cull
+wherever it lies wholly on one hemisphere. What that cull cannot decide is a
+face reaching ACROSS the limb: its projected orientation is then whichever
+half dominates, and a far-side sliver near the limb inks the near side
+(measured on `widget.farSideFill.test.ts`'s own far-hemisphere patch: 16
+cells, and refinement does not remove it — still 6 cells at half the curvature
+tolerance).
+
+So a sliver is reported for the same per-frame near-side test an extrusion
+wall already gets, as a `GlyphMapVectorWall.cap` entry, and
+`glyphMapVectorCullWalls` culls both. One list rather than two because the
+widget's own gate is `mesh.walls.length` — a `fill` with slivers genuinely
+DOES have camera-dependent faces, which is what that gate is asking. The
+verdict is stricter than a wall's: a sliver is drawn only when EVERY corner is
+visible, where a wall survives on ANY. A wall over-draws past the limb rather
+than eroding a silhouette; a sliver has no silhouette to erode, it is one cell
+wide, and the case that matters is one missing on the NEAR side, where all
+three corners are visible anyway.
+
+### Measured
+
+Vendored real z0 OpenFreeMap `ocean` polygon (2 groups, 86 rings, 3,777
+points), globe, 160x64, interior holes / longest 8-connected chain, before
+against after:
+
+| framing | before | after |
+|---|---|---|
+| the reported mid-Atlantic view (span 40.41, tilt 4, bearing 359) | 184 / 18 | 1 / 1 |
+| South Pacific (span 80, tilt 0) | 65 / 7 | 14 / 2 |
+| the page's own opening view (span 140, tilt 40) | 118 / 6 | 26 / 4 |
+
+The residue at the two wider framings is coastline, not crack: single blank
+cells at islands and straits, in chains of two to four. Frame cost is inside
+noise (the reported view's render, real `3/3/3` tiles through the widget:
+15.2 ms before, 10.6 ms after — the extra probes are paid only on the 11% of
+faces that are slivers, and the filled cells coalesce into longer colour runs).
+
+Gate: `widget.fillSliver.test.ts`. Mutation-checked by restoring the drop —
+all five clauses go red (`expected 184 to be less than or equal to 2`,
+`expected 7 to be less than or equal to 2`, `expected 6 to be less than or
+equal to 4`, `expected 0 to be greater than 100`, and the cull clause throws
+on a mesh that reports no sliver at all).
+
+### Still open
+
+The sliver is DRAWN with its own plane's normal, so its Lambert shade is up to
+26 degrees off — the same tolerance the guard has always allowed for a kept
+face, and invisible against the ocean's own banding at every framing measured,
+but not zero. Closing it properly needs either a per-polygon shading normal in
+glyphcss (a public API change) or the quality tessellator above.

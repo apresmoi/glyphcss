@@ -207,6 +207,54 @@ export function localUpDirection(projection: GlyphMapProjection, lon: number, la
 }
 
 /**
+ * Degrees. Small enough that the probe reads the projection's LOCAL
+ * behaviour rather than its curvature, large enough to stay well clear of
+ * double-precision cancellation in `project` (the globe's own `project` is
+ * trigonometry on a unit sphere, so 1e-4 of a degree still moves a point by
+ * ~1.7e-6 radii — eleven orders above the epsilon).
+ */
+const ORIENTATION_PROBE_DEG = 1e-4;
+
+/**
+ * The projection's local HANDEDNESS at `(lon, lat, elev)`: `+1` where a
+ * counter-clockwise lon/lat triangle projects to an OUTWARD-facing world
+ * triangle, `-1` where it projects to an inward-facing one, `null` where the
+ * projection cannot place the probe.
+ *
+ * The companion to {@link localUpDirection}, and a probe for the same reason:
+ * a flat sheet's frame and the globe's are two independently chosen axis
+ * mappings with no shared handedness, and `glyphMapFromD3Raw` can bring a
+ * third — so this asks `project` rather than assuming either.
+ *
+ * It exists because a face's OWN chord normal cannot answer "which way does
+ * this face point" when the face is a thin tessellation sliver: three points
+ * that are nearly collinear on the sphere have a circumcircle whose centre is
+ * tens of degrees away, so their plane is the great circle's, not the
+ * surface's, and its normal is up to 90 degrees off the local up (measured on
+ * the real OpenFreeMap `3/3/3` ocean polygon: 122 of 1076 refined faces past
+ * 26 degrees, the worst 87). The face's lon/lat WINDING plus this probe answer
+ * it exactly and are well conditioned for any face shape, because neither
+ * reads the face's thickness.
+ *
+ * Central differences, one-sided at the poles (`lat +/- delta` leaves the
+ * domain there) — either way the two tangents are taken in increasing
+ * `lon`/`lat` order, so the cross product's sign is the parametrisation's own.
+ */
+export function localOrientation(projection: GlyphMapProjection, lon: number, lat: number, elev: number): number | null {
+  const up = localUpDirection(projection, lon, lat, elev);
+  if (!up) return null;
+  const d = ORIENTATION_PROBE_DEG;
+  const at = (dLon: number, dLat: number): Vec3 => projection.project(lon + dLon, lat + dLat, elev);
+  const east = at(d, 0), west = at(-d, 0);
+  const lonTangent = finite(east) && finite(west) ? sub(east, west) : finite(east) ? sub(east, projection.project(lon, lat, elev)) : finite(west) ? sub(projection.project(lon, lat, elev), west) : null;
+  const north = at(0, Math.min(90, lat + d) - lat), south = at(0, Math.max(-90, lat - d) - lat);
+  const latTangent = finite(north) && finite(south) ? sub(north, south) : null;
+  if (!lonTangent || !latTangent || !finite(lonTangent) || !finite(latTangent)) return null;
+  const sign = dot(cross(lonTangent, latTangent), up);
+  return sign > 0 ? 1 : sign < 0 ? -1 : null;
+}
+
+/**
  * The relief mesh (MAPS.md §14): one quad per {@link GlyphMapGeoTile} cell,
  * each corner projected through `projection` — glyphcss's flat/globe camera
  * renders the SAME geometry under two functions (§7). A quad with any corner
