@@ -487,6 +487,41 @@ same rule for your own text — for instance inside
 tall), so a long name no longer reserves a strip across a third of the frame.
 Contour labels pass no `lines` and never wrap.
 
+### Label placement
+
+A `symbol` layer's labels are centred on their own point by default. Move
+them with `textAnchor` — MapLibre's `text-anchor` vocabulary and semantics
+(`center`, `left`, `right`, `top`, `bottom` and the four corners; `left` puts
+the label's LEFT edge on the point, so it reads out to the right) — and nudge
+them with `textOffset`, `[x, y]` in CELLS with `y` down, applied on top of the
+anchor.
+
+```ts
+map.addLayer({
+  type: "symbol",
+  source: places,
+  textProperty: "name",
+  // Beside the dot, one cell clear of it.
+  textAnchor: "left",
+  textOffset: [1, 0],
+});
+```
+
+The offset is there for the same reason MapLibre pairs `text-offset` with
+`text-anchor`: an anchor alone puts the label's edge exactly ON the point, so
+a name anchored `left` of a `circle` layer's dot has its first character
+inside the dot. Cells rather than ems because a cell is this package's unit
+and the one both the CSS and the declutter arbiter can convert exactly.
+
+The arbiter reserves the box where the label LANDS, not where its point is
+(`GlyphMapLabelCandidate.anchor`/`offset`, off the same
+`glyphMapLabelAnchorFraction` table the CSS percentage comes from) — otherwise
+moving a label would increase collisions while emptying the map. Contour
+labels pass neither and are unaffected.
+
+Omitting both, or passing `textAnchor: "center"` with `textOffset: [0, 0]`, is
+byte-identical: no `transform` is written at all.
+
 ### Per-layer glyph palette
 
 The same argument, one axis over: a map is no more one picture in one

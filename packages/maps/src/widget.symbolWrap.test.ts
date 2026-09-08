@@ -135,8 +135,13 @@ describe("GlyphMapSymbolLayer — long labels wrap", () => {
       expect(el.style.textAlign).toBe("");
       // The whole element, not a field of it: a wrap that leaked a style, a
       // class or a child onto the short path fails here.
+      // The `width`/`height` glyphcss stages for a hotspot's `size` box are
+      // dropped for a label — see `widget.symbolAnchor.test.ts`, where the
+      // 1-character box is the "left-aligned label" defect. Still the WHOLE
+      // element, so a wrap that leaked anything onto the short path fails
+      // here exactly as before.
       expect(el.outerHTML).toBe(
-        '<div class="glyph-hotspot glyph-map-symbol" data-hotspot-id="glyph-map-layer-point-0" style="position: absolute; width: 1ch; height: 2ch; opacity: 1;">Zurich</div>',
+        '<div class="glyph-hotspot glyph-map-symbol" data-hotspot-id="glyph-map-layer-point-0" style="position: absolute; opacity: 1;">Zurich</div>',
       );
     } finally { done(); }
   });

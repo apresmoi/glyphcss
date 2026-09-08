@@ -105,7 +105,7 @@ import {
   type GlyphMapSkyParams,
 } from "./sky";
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
-import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapVectorMesh } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
@@ -652,6 +652,38 @@ export interface GlyphMapSymbolLayer {
    */
   readonly text?: (feature: GlyphMapVectorFeature) => string;
   readonly priorityProperty?: string; readonly minPriority?: number; readonly color?: string; readonly density?: number;
+  /**
+   * Where each label sits relative to its own point —
+   * {@link GlyphMapLabelAnchor}, MapLibre's `text-anchor` vocabulary and
+   * semantics. Omitted is `"center"`: the label centred on the feature's
+   * projected cell, which is what a symbol layer has always drawn, and
+   * declaring `"center"` explicitly is the same render down to the element's
+   * own attributes.
+   *
+   * It is a LAYER option and not a per-feature one because it is a
+   * cartographic decision about a whole class of things — city names sit
+   * beside their dot, region names sit on their centroid — and a per-feature
+   * answer is what {@link GlyphMapFeatureFilter} plus a second layer already
+   * expresses.
+   */
+  readonly textAnchor?: GlyphMapLabelAnchor;
+  /**
+   * A further displacement in CELLS, `[x, y]` with `y` down, applied on top
+   * of {@link textAnchor}. Omitted is `[0, 0]` and byte-identical.
+   *
+   * It belongs beside the anchor for the reason MapLibre pairs `text-offset`
+   * with `text-anchor`: an anchor alone puts the label's edge exactly ON the
+   * point, so a name anchored `left` of a `circle` layer's dot has its first
+   * character sitting in the dot. The clearance a reader wants is one cell,
+   * and only the caller knows how big its own dots are.
+   *
+   * CELLS, not MapLibre's ems, because a cell is this package's unit and the
+   * one both halves of the placement can convert exactly — the declutter
+   * arbiter reserves boxes in cells, and the widget knows its own cell size
+   * in CSS pixels. An em would be the LABEL's font, which the consumer's
+   * stylesheet owns and this package cannot see.
+   */
+  readonly textOffset?: readonly [number, number];
 }
 export interface GlyphMapCircleLayer {
   readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
@@ -979,6 +1011,41 @@ export function glyphMapContourIndexLevels(levels: readonly number[], step: numb
   if (!(every > 1) || !(step > 0) || !Number.isFinite(step)) return levels;
   const picked = levels.filter((level) => Math.round(level / step) % every === 0);
   return picked.length > 0 ? picked : levels;
+}
+
+/**
+ * One symbol layer's label placement, in the two forms the two halves of it
+ * need: the CSS `transform` that moves the ELEMENT, and the arbiter fields
+ * that move the BOX reserved for it. Both come off the same
+ * {@link glyphMapLabelAnchorFraction} table, so they cannot drift.
+ *
+ * `null` for the default placement — a centred anchor and a zero offset —
+ * and nothing downstream then touches `style.transform` or the candidate at
+ * all, which is what makes the default byte-identical rather than merely
+ * equivalent.
+ *
+ * The transform is a FUNCTION of the cell size because the anchor half is a
+ * percentage of a box the browser lays out while the offset half is a count
+ * of the map's own cells: only the first can be written once.
+ */
+function glyphMapLabelPlacement(
+  anchor: GlyphMapLabelAnchor | undefined,
+  offset: readonly [number, number] | undefined,
+): { readonly candidate: { readonly anchor: GlyphMapLabelAnchor; readonly offset: readonly [number, number] }; readonly transform: (cellWidth: number, cellHeight: number) => string } | null {
+  const resolved = anchor ?? "center";
+  const [ox, oy] = offset ?? [0, 0];
+  if (resolved === "center" && ox === 0 && oy === 0) return null;
+  const f = glyphMapLabelAnchorFraction(resolved);
+  const axis = (fraction: number, cells: number, cellSize: number): string => {
+    const pct = `${-50 + fraction * 100}%`;
+    if (cells === 0) return pct;
+    const px = cells * cellSize;
+    return `calc(${pct} ${px < 0 ? "-" : "+"} ${Math.abs(px)}px)`;
+  };
+  return {
+    candidate: { anchor: resolved, offset: [ox, oy] },
+    transform: (cellWidth, cellHeight) => `translate(${axis(f.x, ox, cellWidth)}, ${axis(f.y, oy, cellHeight)})`,
+  };
 }
 
 export type GlyphMapLayer = GlyphMapBackgroundLayer | GlyphMapRasterLayer | GlyphMapLineLayer | GlyphMapContourLayer | GlyphMapFillLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer | GlyphMapFillExtrusionLayer | GlyphMapModelLayer;
@@ -5078,6 +5145,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function createPointFeatureRuntime(layer: GlyphMapSymbolLayer | GlyphMapCircleLayer): FeatureLayerRuntime {
     let hotspots: GlyphHotspotHandle[] = [];
     let sync: (() => void) | null = null;
+    const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
+    let placementTransform: string | null = null;
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
@@ -5096,6 +5165,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // marker update) must not pay for it.
         const lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
         handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
+        if (layer.type === "symbol") {
+          // glyphcss gives every hotspot a `size` box, `[1, 1]` by default —
+          // right for a click anchor, wrong for a LABEL. A 6-character name
+          // in a 1-character box overflows it, and `.glyph-hotspot`'s own
+          // `translate(-50%, -50%)` then centres the ONE-CHARACTER BOX on the
+          // feature's cell while the text runs off to the right of it: the
+          // reported "left-aligned" place name. Dropping the declarations
+          // makes the element shrink-to-fit, so the box IS the label and the
+          // rule centres the label. (It is also what makes `textAnchor`
+          // expressible at all — a percentage of a 1ch box displaces
+          // nothing.)
+          handle.el.style.removeProperty("width");
+          handle.el.style.removeProperty("height");
+        }
         if (lines.length > 1) {
           // `white-space` and `text-align` are set HERE rather than left to
           // the consumer's stylesheet (which is where the rest of a symbol's
@@ -5136,11 +5219,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           });
           return;
         }
+        // The label is DISPLACED in CSS by a fraction of its own laid-out box
+        // plus a whole number of cells, so the pixel half of that has to be
+        // re-derived whenever the cell size can have changed — which is
+        // exactly this sweep. Written only for a layer that asked for one
+        // (`transform` is otherwise never touched, leaving glyphcss's own
+        // centring rule to apply), and only when the string actually changes,
+        // so a resize costs one assignment and a pan costs none.
+        if (placement) {
+          const grid = projectionGrid();
+          const next = placement.transform(grid.cellWidth, grid.cellHeight);
+          if (next !== placementTransform) {
+            placementTransform = next;
+            for (const r of records) r.handle.el.style.transform = next;
+          }
+        }
         // `lines` is what the arbiter measures: a wrapped label occupies a
         // narrower, taller box than its own string, and reserving the
         // one-line strip would make wrapping increase collisions instead of
-        // reducing them (see `GlyphMapLabelCandidate.lines`).
-        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible }; }).filter((c) => c.visible);
+        // reducing them (see `GlyphMapLabelCandidate.lines`). `anchor`/
+        // `offset` are the other half of the same rule: the box has to be
+        // where the label LANDS, or moving a label makes it collide more
+        // while the map looks emptier.
+        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };

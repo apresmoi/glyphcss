@@ -169,9 +169,11 @@ export type {
   GlyphMapStrokeVertex,
 } from "./stroke";
 export {
+  GLYPH_MAP_LABEL_ANCHORS,
   GLYPH_MAP_LABEL_WRAP_CELLS,
   GLYPH_MAP_LABEL_WRAP_MAX_LINES,
   glyphMapDeclutterLabels,
+  glyphMapLabelAnchorFraction,
   glyphMapWrapLabel,
   glyphMapPointHeatmap,
   glyphMapVectorCullWalls,
@@ -181,7 +183,7 @@ export {
   type GlyphMapVectorMeshOptions,
   type GlyphMapVectorWall,
 } from "./layers";
-export type { GlyphMapLabelCandidate } from "./layers";
+export type { GlyphMapLabelAnchor, GlyphMapLabelCandidate } from "./layers";
 export {
   glyphMapFacadeTexture,
   glyphMapFacadeTiles,

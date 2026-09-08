@@ -6,6 +6,44 @@ import { localOrientation, localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
 import { glyphMapFacadeTiles, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
 
+/**
+ * Which part of the LABEL is placed at its anchor point — MapLibre's
+ * `text-anchor` vocabulary and its semantics unchanged, because this is the
+ * established name for the concept and a reader coming from any web map
+ * already knows what `bottom-left` does. `"left"` puts the label's LEFT edge
+ * on the point, so the label reads out to the RIGHT of it.
+ */
+export type GlyphMapLabelAnchor =
+  | "center" | "left" | "right" | "top" | "bottom"
+  | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** Every {@link GlyphMapLabelAnchor}, for a UI that offers the choice. */
+export const GLYPH_MAP_LABEL_ANCHORS: readonly GlyphMapLabelAnchor[] = [
+  "center", "left", "right", "top", "bottom",
+  "top-left", "top-right", "bottom-left", "bottom-right",
+];
+
+/**
+ * The anchor as a signed fraction of the label's OWN drawn box, added to the
+ * box's centre: `0` centres it on the point, `+0.5` puts its leading edge
+ * there.
+ *
+ * ONE table, read by both halves of the placement. The arbiter multiplies it
+ * by the box it has already measured in CELLS; the widget turns the same
+ * number into the CSS percentage the browser multiplies by the box it lays
+ * out in PIXELS (`-50% + fraction * 100%`). They are the same displacement
+ * expressed in the only two units each side can see, so an anchored label and
+ * the box reserved for it can never drift apart — which is the trap: an
+ * arbiter still reserving the point makes a moved label collide MORE while
+ * the map looks emptier.
+ */
+export function glyphMapLabelAnchorFraction(anchor: GlyphMapLabelAnchor = "center"): { readonly x: number; readonly y: number } {
+  return {
+    x: anchor.endsWith("left") ? 0.5 : anchor.endsWith("right") ? -0.5 : 0,
+    y: anchor.startsWith("top") ? 0.5 : anchor.startsWith("bottom") ? -0.5 : 0,
+  };
+}
+
 export interface GlyphMapLabelCandidate {
   readonly id: string;
   readonly col: number;
@@ -26,13 +64,37 @@ export interface GlyphMapLabelCandidate {
    * the second line.
    */
   readonly lines?: readonly string[];
+  /**
+   * Where the label sits relative to `col`/`row` — see
+   * {@link GlyphMapLabelAnchor}. Omitted means centred on the point, which is
+   * what every candidate was before this existed, so the box expression below
+   * is unchanged for it.
+   *
+   * The arbiter must know this: the box it reserves has to be the box the
+   * label OCCUPIES, and an anchor moves that box by half its own width or
+   * height. Reserving the centred strip for a label drawn to one side of it
+   * is strictly worse than not moving the label at all.
+   */
+  readonly anchor?: GlyphMapLabelAnchor;
+  /**
+   * A further displacement in CELLS, `[x, y]`, `y` down — applied on top of
+   * {@link anchor}, not instead of it. Omitted is `[0, 0]`.
+   *
+   * Cells rather than MapLibre's ems because a cell is the unit this whole
+   * package measures in, and it is the one unit both halves can convert
+   * exactly: the arbiter's boxes are already in cells, and the widget knows
+   * its own cell size in CSS pixels.
+   */
+  readonly offset?: readonly [number, number];
 }
 
 /**
  * Greedy, stable label declutter: priority descending, then input order.
  *
  * The exclusion box is the label's own drawn extent: `lines`'s LONGEST line
- * wide (not the whole string), and one `height` per line tall. See
+ * wide (not the whole string), and one `height` per line tall, placed where
+ * the candidate's own {@link GlyphMapLabelCandidate.anchor} and
+ * {@link GlyphMapLabelCandidate.offset} put it. See
  * {@link GlyphMapLabelCandidate.lines}.
  *
  * `padX`/`padY` grow each label's exclusion box beyond its own glyphs
@@ -56,9 +118,20 @@ export function glyphMapDeclutterLabels(candidates: readonly GlyphMapLabelCandid
       for (const line of c.lines) chars = Math.max(chars, line.length);
       rows = c.lines.length;
     }
-    const w = Math.max(charWidth, chars * charWidth) + padX * 2;
-    const h = height * rows + padY * 2;
-    const box = { x: c.col - w / 2, y: c.row - h / 2, w, h };
+    // The DRAWN extent and the RESERVED one are separate: `padX`/`padY` are a
+    // declutter margin around the label, while an anchor displaces the label
+    // itself, so the anchor fraction is of the drawn box exactly as the CSS
+    // percentage is of the element's own box.
+    const drawnW = Math.max(charWidth, chars * charWidth);
+    const drawnH = height * rows;
+    const w = drawnW + padX * 2;
+    const h = drawnH + padY * 2;
+    const f = glyphMapLabelAnchorFraction(c.anchor);
+    const box = {
+      x: c.col + (c.offset?.[0] ?? 0) + f.x * drawnW - w / 2,
+      y: c.row + (c.offset?.[1] ?? 0) + f.y * drawnH - h / 2,
+      w, h,
+    };
     if (placed.some((p) => !(box.x + box.w <= p.x || box.x >= p.x + p.w || box.y + box.h <= p.y || box.y >= p.y + p.h))) continue;
     placed.push(box);
     out.push(c);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons, glyphMapWrapLabel, GLYPH_MAP_LABEL_WRAP_CELLS, GLYPH_MAP_LABEL_WRAP_MAX_LINES } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapPointHeatmap, glyphMapVectorPolygons, glyphMapWrapLabel, GLYPH_MAP_LABEL_WRAP_CELLS, GLYPH_MAP_LABEL_WRAP_MAX_LINES } from "./layers";
 import { glyphMapEquirectangular } from "./projection";
 
 describe("map layer primitives", () => {
@@ -120,5 +120,94 @@ describe("glyphMapWrapLabel", () => {
     expect(out).toHaveLength(GLYPH_MAP_LABEL_WRAP_MAX_LINES);
     expect(Math.max(...out.map((l) => l.length))).toBeGreaterThan(GLYPH_MAP_LABEL_WRAP_CELLS);
     expect(out.join(" ")).toBe(many);
+  });
+});
+
+/**
+ * An ANCHORED label's box, in the arbiter itself.
+ *
+ * `Zurich` is 6 cells: centred on column 60 it reserves `[57, 63]`, anchored
+ * `left` it reserves `[60, 66]`. Every case below is a pair — a neighbour
+ * only the moved box reaches and one only the centred box reached — because
+ * either alone passes for an arbiter that ignored the anchor entirely (it
+ * would keep the first) or one that moved the box the wrong way.
+ */
+describe("glyphMapDeclutterLabels — an anchored label's box", () => {
+  const arbitrate = (neighbourCol: number, neighbourRow: number, extra: Record<string, unknown>) =>
+    glyphMapDeclutterLabels([
+      { id: "label", col: 60, row: 20, label: "Zurich", priority: 9, ...extra },
+      { id: "neighbour", col: neighbourCol, row: neighbourRow, label: "Nb", priority: 1 },
+    ]).map((c) => c.id);
+
+  it("moves the reserved columns with a left/right anchor, in both directions", () => {
+    // Column 65 is inside `[60, 66]` and outside `[57, 63]`.
+    expect(arbitrate(65, 20, {})).toEqual(["label", "neighbour"]);
+    expect(arbitrate(65, 20, { anchor: "left" })).toEqual(["label"]);
+    // Column 58 is the mirror: inside the centred box, outside the moved one.
+    expect(arbitrate(58, 20, {})).toEqual(["label"]);
+    expect(arbitrate(58, 20, { anchor: "left" })).toEqual(["label", "neighbour"]);
+    // `right` is the same claim with the sign flipped.
+    expect(arbitrate(55, 20, { anchor: "right" })).toEqual(["label"]);
+    expect(arbitrate(55, 20, {})).toEqual(["label", "neighbour"]);
+  });
+
+  it("moves the reserved ROWS with a top/bottom anchor", () => {
+    // One row is the whole box height, so the row either side of the anchor
+    // is reached by exactly one of the three placements.
+    expect(arbitrate(60, 21, {})).toEqual(["label", "neighbour"]);
+    expect(arbitrate(60, 21, { anchor: "top" })).toEqual(["label"]);
+    expect(arbitrate(60, 19, { anchor: "top" })).toEqual(["label", "neighbour"]);
+    expect(arbitrate(60, 19, { anchor: "bottom" })).toEqual(["label"]);
+  });
+
+  it("adds an offset in cells on top of whatever the anchor did", () => {
+    // Centred plus 3 cells right is the same reservation `left` produced.
+    expect(arbitrate(65, 20, { offset: [3, 0] })).toEqual(["label"]);
+    expect(arbitrate(58, 20, { offset: [3, 0] })).toEqual(["label", "neighbour"]);
+    // ...and it composes rather than replacing. `left` reserves [60, 66]; a
+    // further 3 cells slides that whole box to [63, 69], so column 61 is
+    // released and column 68 is newly taken.
+    expect(arbitrate(61, 20, { anchor: "left" })).toEqual(["label"]);
+    expect(arbitrate(61, 20, { anchor: "left", offset: [3, 0] })).toEqual(["label", "neighbour"]);
+    expect(arbitrate(68, 20, { anchor: "left" })).toEqual(["label", "neighbour"]);
+    expect(arbitrate(68, 20, { anchor: "left", offset: [3, 0] })).toEqual(["label"]);
+  });
+
+  it("is byte-identical for an omitted anchor and an explicit centred, zero-offset one", () => {
+    for (const col of [55, 58, 60, 63, 65]) {
+      expect(arbitrate(col, 20, { anchor: "center", offset: [0, 0] })).toEqual(arbitrate(col, 20, {}));
+    }
+  });
+
+  it("leaves the CONTOUR call shape — padding, no anchor — exactly where it was", () => {
+    // The contour path passes padX/padY and never an anchor. Its box stays
+    // centred on the point and grows symmetrically, so a neighbour is
+    // suppressed at the same distance on both sides.
+    const contour = (neighbourCol: number) =>
+      glyphMapDeclutterLabels([
+        { id: "label", col: 60, row: 20, label: "5000", priority: 9 },
+        { id: "neighbour", col: neighbourCol, row: 20, label: "5000", priority: 1 },
+      ], 1, 1, 6, 1).map((c) => c.id);
+    // Half-widths are 2 + 6 = 8 each, so anything inside 16 columns collides
+    // and 16 clears — symmetrically.
+    expect(contour(75)).toEqual(["label"]);
+    expect(contour(45)).toEqual(["label"]);
+    expect(contour(76)).toEqual(["label", "neighbour"]);
+    expect(contour(44)).toEqual(["label", "neighbour"]);
+  });
+});
+
+describe("glyphMapLabelAnchorFraction", () => {
+  it("is the fraction of the label's own box the anchor displaces it by", () => {
+    expect(glyphMapLabelAnchorFraction("center")).toEqual({ x: 0, y: 0 });
+    expect(glyphMapLabelAnchorFraction("left")).toEqual({ x: 0.5, y: 0 });
+    expect(glyphMapLabelAnchorFraction("right")).toEqual({ x: -0.5, y: 0 });
+    expect(glyphMapLabelAnchorFraction("top")).toEqual({ x: 0, y: 0.5 });
+    expect(glyphMapLabelAnchorFraction("bottom")).toEqual({ x: 0, y: -0.5 });
+    expect(glyphMapLabelAnchorFraction("top-left")).toEqual({ x: 0.5, y: 0.5 });
+    expect(glyphMapLabelAnchorFraction("bottom-right")).toEqual({ x: -0.5, y: -0.5 });
+    // An omitted anchor is the centred one — the default the whole
+    // byte-identity claim rests on.
+    expect(glyphMapLabelAnchorFraction(undefined)).toEqual({ x: 0, y: 0 });
   });
 });

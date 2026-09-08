@@ -2814,15 +2814,24 @@ thing collapsing it. Each row now carries its own control on its own line,
 `MapOsmLayerOptions.densities` is that record, and nothing in
 `@glyphcss/maps` changed.
 
-**Master and per-row.** The RECORD is the single source of truth — there is
-no second master value in page state. The card's surviving one-drag control
-is derived both ways: it WRITES every row (`mapOsmDensityRecord`, an
-overwrite, never a ratio — a ratio makes "all of it, this dense" unreachable
-from any mixed state without flattening it by hand first) and it READS as the
-shared value or as **"mixed"** (`mapOsmMasterDensity` answers `null`), because
-no single number is true of ten different ones. A mixed slider's thumb sits at
-the mean of the rows shown: a range input needs a position, and the mean
-belongs to no row, so it cannot be read as a claim about one.
+**Per row, and ONLY per row.** The RECORD is the single source of truth —
+there is no second master value in page state, and no master CONTROL either.
+The card kept one for a while: a slider that WROTE every row
+(`mapOsmDensityRecord`, an overwrite, never a ratio) and READ as the shared
+value or as **"mixed"**. It is gone. Per-row control is the feature, a second
+control standing for every row at once is redundant beside it, and its one
+distinct reading — "mixed" — was a statement about the controls rather than
+about the map. What still speaks for the card as a whole is the `stroke
+grids` cost row below, and it matters MORE without the master: a reader can
+no longer flatten every stroke back to one number in one drag, so the live
+grid count is the thing telling them why the frame got slow.
+
+`mapOsmMasterDensity` survives the control it was written for, because the
+LINK still needs it — it is what token `Q` carries (see "On the wire" below),
+and it is why removing the master needed no codec change at all.
+`mapOsmDensityRecord` survives as the legacy `Q` seed and as the bench hook's
+whole-card write (`__glyphMapsBench.setOsmDensities`, beside the per-row
+`setOsmDensityRow`).
 
 **The two costs are opposite, which is why the card states them per row
 rather than once.**
@@ -2839,8 +2848,20 @@ rather than once.**
   full-viewport overlay grid and holding three cost THREE, each with its own
   geometry depth pass.
 - `symbol`/`circle` rows read no density at all (nothing in `widget.ts`
-  consumes it for the two hotspot-mounting types), so their control is
-  disabled with that reason rather than offered as a knob that does nothing.
+  consumes it for the two hotspot-mounting types), so those rows carry **no
+  density control at all** — not a disabled one. A greyed slider is a control
+  a reader has to work out is dead, and it spends the row's whole width
+  saying nothing; the row keeps its label and its toggle, the checkbox stays
+  in the same flex head of the same WIDGET column it occupies on every other
+  row, and the value column is simply empty (the card body's three columns
+  are declared on the row, not inferred from its children, so nothing
+  reflows). The set is derived from each row's own `type` against
+  `OSM_DENSITYLESS_TYPES`, never a list of row ids: the row list belongs to
+  `@glyphcss/maps` and has already moved twice — `Peaks` became a labelled
+  `symbol` row, and `Protected areas`/`Water labels` were appended as
+  `symbol` rows — so a hardcoded list would have gone stale silently. Five of
+  the thirteen rows are densityless today (`Places`, `Peaks`, `POIs`,
+  `Protected areas`, `Water labels`).
 
 **Measured**, 140x63 over a relief mesh with three stroke layers mounted
 (median of 60 renders, node/happy-dom, so read the RATIOS rather than the
@@ -2874,9 +2895,10 @@ one number was applied to every enabled row when it was written. The new token
 `M` (`osmDensities`) carries the vector as a `floatTuple` of
 `MAPS_OSM_DENSITY_SLOTS` = 10 slots at step 0.1, positional over
 `MAPS_OSM_SUBLAYER_KEYS`. A tuple, where the six per-LAYER densities beside it
-are one token each, because the common cases are opposite: those six are
-touched one at a time, while the master gesture writes all ten of these at
-once. It is appended LAST in the field list, since `decodePacked` stops at the
+are one token each, because the common cases were opposite: those six are
+touched one at a time, while the master gesture wrote all ten of these at
+once (the master is gone from the card, but the tuple's shape is a wire
+format and does not move because a control did). It is appended LAST in the field list, since `decodePacked` stops at the
 first unrecognized token and there is then nothing after `M` for an
 older build to strand. A uniform card writes `Q` at the shared value; a mixed
 one writes it at the default and so spends no characters on it, because there
@@ -2886,13 +2908,15 @@ headroom — so `mapsUrlState.osmDensity.test.ts` asserts the two lists still
 match and an eleventh row goes red here rather than silently reinterpreting
 every shared `M` link.
 
-Gates: `mapsOsm.density.test.ts` (the record, the master reading, and that a
+Gates: `mapsOsm.density.test.ts` (the record, the `Q` reading, and that a
 row's density reaches that row and only that row), `mapsOsmDensity.cost.test.ts`
 (both cost claims, through the real widget, against
 `pre[data-glyph-overlay-density]`), `mapsUrlState.osmDensity.test.ts` (legacy
-`Q` seeding, mixed round trip, `M` beating a `Q` carried beside it),
-`LayersPanel.osmDensity.test.tsx` (the rows, the master's "mixed", the gated
-types, the live grid count).
+`Q` seeding, mixed round trip, `M` beating a `Q` carried beside it, and a
+captured ten-slot `M` string still decoding character-for-character),
+`LayersPanel.osmDensity.test.tsx` (the rows, the absent master, the densityless
+rows carrying no control at all, the live grid count) — the last two asserted
+against the RENDERED control set, not a props object.
 
 ## Cast shadows (`GlyphMapOptions.shadow`)
 
@@ -3068,9 +3092,9 @@ altitude where shadows start to dither.
 
 `2.9` is the whole story. The OSM card gave its ten rows ONE density slider at
 the time (`mapOsmLayers` fanned it out over every enabled row; it now carries
-one control per row plus a master that writes all ten — "One density PER ROW"
-above, which changes nothing here: the master gesture still writes every row
-at once, so this link is reproduced exactly), and `density !== 1` is
+one control per row and no master at all — "One density PER ROW" above, which
+changes nothing here: the link's `Q` still seeds EVERY row at 2.9 on decode,
+so it is reproduced exactly), and `density !== 1` is
 exactly what `isDetailMesh` separates on — so moving that one slider separated
 the `omt-buildings` `fill-extrusion` that CASTS and the `omt-landuse` /
 `omt-landcover` `fill`s that RECEIVE, in the same gesture. The base grid was
@@ -4468,7 +4492,10 @@ scan is free. The result on that name is `Region de` / `Magallanes y de la` /
 The lines are centred on each other and on the feature's own point: the
 element is already centred on the anchor by `.glyph-hotspot`'s
 `transform: translate(-50%, -50%)`, so `text-align: center` inside a
-shrink-to-fit box is the whole of it. `white-space: pre` is set alongside it
+shrink-to-fit box is the whole of it. (It was not shrink-to-fit when this was
+written — see "Label placement" below, where that turns out to be the reported
+"left-aligned label" defect and `text-align: center` turns out to have been
+masking it for the wrapped path only.) `white-space: pre` is set alongside it
 and is not decoration — the consumer's own `.glyph-map-symbol` rule (on
 `/maps`, `maps-workbench.css`) sets `white-space: nowrap`, under which the
 newlines collapse to spaces and the label is not wrapped at all. Those two
@@ -4549,6 +4576,136 @@ Wrapping is applied where a label is turned into cells
 per-layer option: the width is a property of the character grid, not of the
 data, and a caller who wants a different one can call `glyphMapWrapLabel`
 themselves through `GlyphMapSymbolLayer.text`.
+
+## Label placement: `textAnchor` / `textOffset`, and the box that was never the label
+
+The report was "labels of places shouldn't be left aligned, probably should be
+centered", then "could we have placement options for the labels?". Those are
+two separate things and one of them was a defect.
+
+### The defect: the box was one character wide
+
+glyphcss's `addHotspot` gives every hotspot a `size` box, defaulting to
+`[1, 1]`, staged as `width: 1ch; height: <cellAspect>ch`. That is right for a
+click anchor — a hit target on a vertex — and wrong for a label. A symbol
+layer asked for no `size`, so every place name was a 1-character box with the
+text overflowing it, and `.glyph-hotspot`'s `transform: translate(-50%, -50%)`
+then centred THE BOX on the projected cell while the text ran off to the right
+of it. A 6-character name sat about 2.5 cells right of its own point; a
+14-character one, 6.5.
+
+That is exactly the reported "left-aligned", and it is also why the WRAPPED
+labels looked right while single-line ones did not. The wrap work set
+`text-align: center` on multi-line labels only, and an overflowing line box
+with `text-align: center` overflows SYMMETRICALLY — so the centring the wrap
+record above describes ("`text-align: center` inside a shrink-to-fit box") was
+accidentally compensating for a box that was never shrink-to-fit. The premise
+in that record was wrong; the render it describes was right.
+
+The fix is the box, not the alignment: `createPointFeatureRuntime` removes the
+`width`/`height` declarations for a `symbol` (never for a `circle`, which sets
+its own diameter), so the element is genuinely shrink-to-fit and glyphcss's
+own rule centres the label itself. `text-align` is left exactly where the wrap
+work put it — needed for several lines, meaningless for one.
+
+### The option
+
+`GlyphMapSymbolLayer.textAnchor` is MapLibre's `text-anchor`, vocabulary and
+semantics unchanged (`center` — the default — `left`, `right`, `top`,
+`bottom` and the four corners), because it is the established name for the
+concept and `left` meaning "the label's left edge is on the point, so it reads
+out to the right" is what anyone coming from a web map already expects.
+
+`GlyphMapSymbolLayer.textOffset` is `[x, y]` in CELLS, `y` down, applied ON TOP
+of the anchor. It is here for the reason MapLibre pairs `text-offset` with
+`text-anchor`: an anchor alone puts the label's edge exactly ON the point, so a
+name anchored `left` of a `circle` layer's dot has its first character inside
+the dot. Cells rather than ems because a cell is this package's unit and the
+only one BOTH halves of the placement can convert exactly — the arbiter's
+boxes are already in cells, and the widget knows its own cell size in CSS
+pixels. An em would be the label's font, which the consumer's stylesheet owns
+and this package cannot see.
+
+Both are LAYER options, not per-feature: this is a cartographic decision about
+a class of things (city names sit beside their dot, region names sit on their
+centroid), and a per-feature answer is what a `filter` plus a second layer
+already expresses.
+
+### One table, two units
+
+`glyphMapLabelAnchorFraction` is the whole of the placement — the anchor as a
+signed fraction of the label's own drawn box, `0` centred and `±0.5` for a
+leading/trailing edge. Both halves read it:
+
+- the arbiter multiplies it by the box it has already measured in CELLS;
+- the widget turns it into the CSS percentage the browser multiplies by the
+  box it lays out in PIXELS, `-50% + fraction × 100%`, so `left` is
+  `translate(0%, -50%)` and `bottom-right` is `translate(-100%, -100%)`.
+
+They are the same displacement in the only two units each side can see, so an
+anchored label and the box reserved for it cannot drift apart. That is the
+trap, and it is the same one the wrap work hit: an arbiter still reserving the
+box on the point while the label is drawn to one side of it makes collisions
+WORSE while the map looks emptier — every neighbour under the label survives,
+and every neighbour where the label no longer is gets suppressed for nothing.
+
+`glyphMapLabelPlacement` (widget) resolves a layer's pair into `null` for the
+default, so nothing downstream touches `style.transform` or the candidate at
+all — that is what makes the default byte-identical rather than merely
+equivalent. Its transform is a FUNCTION of the cell size, because the anchor
+half is a percentage of a laid-out box while the offset half is a count of the
+map's own cells: only the first can be written once. It is therefore re-derived
+in `sync` (the DOM-only sweep that already writes each label's `opacity`) and
+assigned only when the string changes, so a resize costs one assignment per
+label and a pan costs none.
+
+### What each half can and cannot change
+
+The anchor CAN change which labels survive, because its displacement is a
+fraction of each label's OWN width and labels differ in width. The offset
+CANNOT, within one layer: it is the same vector on every candidate, a rigid
+translation, which preserves every pairwise overlap and therefore the whole
+greedy result. Its box move is still plumbed and still pinned — on the arbiter
+itself, where a single candidate can move alone — because the reserved box has
+to be true by construction; the widget-level test asserts the invariance
+instead of pretending to a discrimination that cannot exist.
+
+Gates: `layers.test.ts` (the box moves with the anchor in both directions and
+on both axes, the offset composes rather than replaces, an explicit
+`center`/`[0,0]` equals an omitted one, and the CONTOUR call shape — padding,
+no anchor — still reserves a symmetric box); `widget.symbolAnchor.test.ts` (the
+element carries no `width`/`height` at all, asserted as its whole `outerHTML`
+against glyphcss's own injected `translate(-50%, -50%)` rule; every one of the
+nine anchors as the transform it stages with `left`/`top` unmoved; the
+neighbour pair that discriminates a moved reservation from a stale one; the
+default byte-identical across three labels and the rendered `<pre>`; and the
+contour labels stamped cell-for-cell identically beside a symbol layer anchored
+hard into a corner).
+
+### `text-variable-anchor`: measured, and recommended as its own slice
+
+MapLibre's `text-variable-anchor` is a LIST of anchors tried in order until one
+does not collide, so a crowded label moves instead of being suppressed. The
+arbiter this package now has is the machinery that would need; measured on the
+vendored OpenFreeMap tiles (candidates projected through the widget's own
+camera at 140×63, all named points, then arbitrated with the fixed box against
+a greedy per-candidate anchor search):
+
+| view | candidates | fixed | 5 anchors | 9 anchors |
+|---|---|---|---|---|
+| Zurich z12, span 0.15° | 105 | 72 | 84 | 85 (+18%) |
+| Zurich z12, span 0.09° | 61 | 43 | 47 | 49 (+14%) |
+| Zurich z12, span 0.05° | 38 | 30 | 33 | 33 (+10%) |
+| Kansas z8, span 3° | 81 | 69 | 73 | 74 (+7%) |
+
+Strictly more labels at the same density, and the fifth through ninth anchors
+add almost nothing over the first five. It is worth building — as its own
+slice, not folded into this one, because the cheap part is the arbiter loop and
+the real work is elsewhere: the arbiter would have to report the CHOSEN anchor
+back per candidate, which turns the widget's one shared transform string into a
+per-record write in the sync sweep, and a label that flips anchor between
+frames as the camera pans reads worse than one that disappears (MapLibre damps
+that with its own fade; this widget has no such rule and would need one).
 
 ## Black lines in the middle of the sea: a `fill`'s tessellation slivers
 
