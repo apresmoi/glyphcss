@@ -3633,7 +3633,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // ── project()/unproject() ────────────────────────────────────────────
 
   function project(lngLat: readonly [number, number]): GlyphMapProjectResult {
-    const grid = projectionGrid();
+    return projectOn(lngLat, projectionGrid());
+  }
+
+  /**
+   * {@link project} against a grid the CALLER already measured.
+   *
+   * `projectionGrid()` is two `getBoundingClientRect()` calls — a forced
+   * style-and-layout flush — so a caller projecting N points through
+   * `project()` pays 2N of them. That is not only the cost (a `symbol`
+   * layer's sweep at the reported view projects ~4,300 anchors); it is a
+   * correctness hazard for anything that PROJECTS AND THEN WRITES STYLE,
+   * because each flush RESOLVES the style of whatever that caller has
+   * already put in the document. A label inserted a moment earlier is
+   * resolved at its CSS-default `opacity: 1`, and the hide that follows is
+   * then a change between two resolved styles — which a consumer's
+   * `transition: opacity` will animate. Hoisting the measurement above the
+   * loop is what makes the whole rebuild one style, not N.
+   */
+  function projectOn(lngLat: readonly [number, number], grid: ProjectionGrid): GlyphMapProjectResult {
     const world = projection.project(lngLat[0], lngLat[1], 0);
     if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) {
       return { col: NaN, row: NaN, visible: false };
@@ -4919,7 +4937,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
-  interface FeatureLayerRuntime { update(): Promise<void>; dispose(): void }
+  /**
+   * `update(force)`: `force` re-runs `rebuild` even when the sweep resolved
+   * exactly the tiles it resolved last time. Only {@link reprojectGeometry}
+   * passes it, and it must: a point feature's world position is baked into
+   * its hotspot at rebuild time and a `fill`/`fill-extrusion`'s mesh is built
+   * in world coordinates, so a projection change is the one input to a
+   * rebuild that is not the tile set.
+   */
+  interface FeatureLayerRuntime { update(force?: boolean): Promise<void>; dispose(): void }
 
   function createFeatureLayerRuntime(
     source: GlyphMapVectorSource,
@@ -4927,11 +4953,57 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     padCells = 2,
     sourceLayer?: string,
     filter?: GlyphMapFeatureFilter,
+    featuresAreTheWholeInput = false,
   ): FeatureLayerRuntime {
     const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let disposed = false;
-    async function update(): Promise<void> {
-      if (!isGlyphMapVectorProvider(source)) { rebuild(filter ? source.features.filter(filter) : source.features); return; }
+    /**
+     * The tiles, IN SWEEP ORDER, that produced the mounted geometry — or the
+     * static collection's own feature array. `null` until the first rebuild,
+     * and cleared by `dispose()`.
+     *
+     * A sweep re-runs on every `scheduleTileUpdate` (180 ms after motion
+     * stops, re-armed by every moving frame), and most of them resolve the
+     * SAME cached tiles: the view has to cross a tile boundary or change LOD
+     * before the set moves. `rebuild` used to run anyway, and for a `symbol`
+     * layer that means every label's `<div>` is destroyed and re-created —
+     * measured on the reported view as `+4298 -4298` on a `.glyph-hotspot-layer`
+     * `MutationObserver` after a 40 px pan that fetched no tile at all. That
+     * is both a ~200 ms stall and the reported flicker: a fresh element
+     * starts at the CSS default `opacity: 1` and is only hidden once the
+     * arbiter has ruled, so a consumer's `transition: opacity` (which is
+     * what `/maps` sets) fades every dropped label out from fully visible.
+     *
+     * Reference identity of the TILE OBJECTS, not of the keys: a key set that
+     * re-resolves to a re-fetched tile is a real change and must rebuild,
+     * while the same objects in the same order can only produce the same
+     * `selected` array. That makes the skip exact rather than a heuristic.
+     *
+     * `featuresAreTheWholeInput` is what a caller asserts to opt in, and only
+     * {@link createPointFeatureRuntime} does. It is NOT true in general: a
+     * `heatmap`'s relief samples the mounted TERRAIN, so an unchanged vector
+     * tile set still has to re-mesh when a finer elevation tier lands, and a
+     * `fill`/`fill-extrusion` re-probes its ground through its own
+     * `groundChangeSyncs` hook rather than here. A point hotspot depends on
+     * the feature and the projection alone, and the projection is the `force`
+     * argument's whole reason for existing.
+     */
+    let lastInputs: readonly unknown[] | null = null;
+    /** Same list, same order, same objects — so `rebuild` would be handed an identical feature array. */
+    function sameInputs(next: readonly unknown[]): boolean {
+      const prev = lastInputs;
+      return prev !== null && prev.length === next.length && prev.every((value, i) => value === next[i]);
+    }
+    async function update(force = false): Promise<void> {
+      const maySkip = featuresAreTheWholeInput && !force;
+      if (!isGlyphMapVectorProvider(source)) {
+        // A static collection's features never change under it, so the array
+        // itself is the whole identity.
+        if (maySkip && sameInputs([source.features])) return;
+        lastInputs = [source.features];
+        rebuild(filter ? source.features.filter(filter) : source.features);
+        return;
+      }
       // `getView()`, not raw `view` — see the raster runtime's own
       // `updateProvider` doc for why.
       const lod = sweepLOD(source);
@@ -4956,10 +5028,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (tile) cache.set(key, tile);
       }));
       if (disposed) return;
+      const tiles = desired.map((key) => cache.get(key));
+      if (maySkip && sameInputs(tiles)) return;
+      lastInputs = tiles;
       const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
       rebuild(filter ? selected.filter(filter) : selected);
     }
-    return { update, dispose() { disposed = true; cache.clear(); rebuild([]); } };
+    return { update, dispose() { disposed = true; cache.clear(); lastInputs = null; rebuild([]); } };
   }
 
   /**
@@ -5198,7 +5273,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function createPointFeatureRuntime(layer: GlyphMapSymbolLayer | GlyphMapCircleLayer): FeatureLayerRuntime {
     let hotspots: GlyphHotspotHandle[] = [];
-    let sync: (() => void) | null = null;
+    /** Takes an optional pre-measured grid — see the rebuild's own `grid`. `nearSideSyncs` calls it with none. */
+    let sync: ((measured?: ProjectionGrid) => void) | null = null;
     const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
     let placementTransform: string | null = null;
     /**
@@ -5225,6 +5301,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       return anchor ? [anchor] : [];
     };
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
+      // MEASURED FIRST, before a single node is removed or added. Every
+      // `getBoundingClientRect()` is a forced style-and-layout flush, so one
+      // taken AFTER the new labels are in the document resolves them at the
+      // CSS default `opacity: 1` — and the hide that `sync` then writes
+      // becomes a transition a consumer's stylesheet can animate. Taken
+      // here, the only style the browser ever resolves for a fresh label is
+      // the one it ends the rebuild with. (`sync` is handed this same grid
+      // for the same reason it exists: one measurement for the whole
+      // rebuild, not two per record.)
+      const grid = projectionGrid();
       if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
       hotspots = [];
@@ -5233,6 +5319,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
         if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
         const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], 0) });
+        // Written IMMEDIATELY, before anything can resolve style: a label
+        // that the declutter arbiter has not ruled on yet is not a label the
+        // reader may see. `scene.addHotspot` appends the element itself, so
+        // this is the earliest the widget can speak, and `sync` below raises
+        // the winners back to `1` inside the same synchronous rebuild.
+        // Without it a rebuild puts every label on Earth in the document in
+        // the SHOWN state and hides them one moment later — which is the
+        // reported flicker wherever the consumer transitions `opacity`.
+        if (layer.type === "symbol") handle.el.style.opacity = "0";
         const label = layer.type !== "symbol" ? ""
           : layer.text ? layer.text(feature)
           : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
@@ -5284,13 +5379,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         hotspots.push(handle);
         records.push({ handle, feature, lon: point[0], lat: point[1], label, lines, priority });
       }
-      sync = () => {
+      sync = (measured?: ProjectionGrid) => {
+        // ONE grid for the whole sweep. The frame paths call this with
+        // nothing and it measures once; the rebuild above hands in the grid
+        // it took before it touched the DOM, so a rebuild resolves style
+        // exactly zero times between inserting a label and deciding whether
+        // it is shown (see `projectOn`).
+        const live = measured ?? projectionGrid();
         if (layer.type === "circle") {
           records.forEach((r) => {
             const world = projection.project(r.lon, r.lat, 0);
-            const grid = projectionGrid();
             const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-              && nearSideVisible(r.lon, r.lat, world, grid);
+              && nearSideVisible(r.lon, r.lat, world, live);
             setHotspotNearSide(r.handle.el, visible);
           });
           return;
@@ -5307,7 +5407,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // does not resize it, and an offset counted in cells has to keep the
         // pixel length it had before the gesture or the label slides on
         // grab and slides back on release.
-        const labelUnits = labelGrid(projectionGrid());
+        const labelUnits = labelGrid(live);
         if (placement) {
           const next = placement.transform(labelUnits.cellWidth, labelUnits.cellHeight);
           if (next !== placementTransform) {
@@ -5326,12 +5426,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // whole frame — positions, the `charWidth`/`height` box it defaults
         // to, and `offset`'s own cells — is the one unit the labels are drawn
         // in. Scaling only one of the three would be worse than scaling none.
-        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
+        const candidates = records.map((r, i) => { const p = projectOn([r.lon, r.lat], live); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
-      nearSideSyncs.add(sync); sync();
-    }, 2, layer.sourceLayer, layer.filter);
+      nearSideSyncs.add(sync); sync(grid);
+    }, 2, layer.sourceLayer, layer.filter, true);
     return { update: runtime.update, dispose() { runtime.dispose(); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
   }
 
@@ -6049,7 +6149,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function reprojectGeometry(): void {
     for (const state of layerStates.values()) {
       if (state.kind === "raster") state.runtime.reproject();
-      else if (state.kind === "feature") void state.runtime.update();
+      // FORCED: a projection change moves every vertex and every hotspot
+      // anchor, and neither is re-derived by anything else — the tile set it
+      // came from is unchanged, so the sweep's own skip would drop it.
+      else if (state.kind === "feature") void state.runtime.update(true);
     }
   }
 
