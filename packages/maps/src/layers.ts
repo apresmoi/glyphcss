@@ -295,20 +295,6 @@ const GLYPH_MAP_FILL_MAX_REFINE_DEPTH = 8;
  */
 const GLYPH_MAP_FILL_MIN_FACE_UP_ALIGNMENT = 0.9;
 
-/**
- * The margin by which a kept face's own chord plane must agree with the
- * surface — `|cos|` between its normal and the local up, as a fraction.
- *
- * This is NOT a shape test (that is what the topological verdict beside it
- * replaced); it is the numerical floor under "the plane looks the same way
- * through the surface as the face does". A face at exactly zero is a plane
- * through the globe's own centre, whose emitted normal is then float noise —
- * the pole-reaching patch in `layers.globe.test.ts` produces one, at a plane
- * distance of -3.4e-15. `1e-9` is far above double precision's own noise on a
- * unit sphere and far below any face a projection meaningfully places.
- */
-const GLYPH_MAP_FILL_MIN_FACE_UP_EPSILON = 1e-6;
-
 type Project = (lon: number, lat: number, elev: number) => Vec3;
 
 function midLonLat(a: LonLat, b: LonLat): LonLat {
@@ -832,27 +818,32 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
             const handedness = winding === 0 ? null : localOrientation(projection, centroidLon, centroidLat, capElev);
             if (handedness === null) continue;
             const outward = handedness * (winding > 0 ? 1 : -1);
-            // Kept only while the chord plane still has the surface's own
-            // outward side at EVERY vertex — the "no face may look into the
-            // sphere" property (`layers.globe.test.ts`), which no winding can
-            // repair: such a face shades as if lit from inside. Per vertex, not
-            // at the centroid: a face whose plane passes through the globe's
-            // centre is edge-on, and the centroid then reports a sign its own
-            // corners do not share (measured on the pole-reaching patch, plane
-            // distance -3.4e-15).
-            let planeAgrees = true;
-            for (const [lon, lat] of tri) {
-              const vertexUp = localUpDirection(projection, lon, lat, capElev);
-              const vertexScale = vertexUp === null ? 0 : Math.hypot(normal[0], normal[1], normal[2]) * Math.hypot(vertexUp[0], vertexUp[1], vertexUp[2]);
-              if (vertexUp === null || !(dot(normal, vertexUp) * outward > GLYPH_MAP_FILL_MIN_FACE_UP_EPSILON * vertexScale)) { planeAgrees = false; break; }
-            }
-            if (!planeAgrees) continue;
             faceFlip = outward < 0;
             weak = true;
           }
         }
         const cap: Polygon = { vertices: faceFlip ? [vertices[2], vertices[1], vertices[0]] : vertices };
         if (color) cap.color = color;
+        // The sliver's plane cannot say which way it POINTS (that is what the
+        // winding verdict above replaced) and it cannot say which way it LOOKS
+        // either — it is the great circle's, up to 90 degrees off the surface,
+        // so shading by it lights a legitimate piece of the sea as if lit from
+        // inside. The surface's own outward normal there IS the answer, and
+        // `faceUp` (non-null in this branch, and non-zero because `scale > 0`)
+        // already holds it. Carrying it as `Polygon.shadingNormal` makes "no
+        // face may look into the sphere" true BY CONSTRUCTION for every
+        // emitted sliver, where the test it replaces could only DROP the ones
+        // that failed — and dropping them is what drew the reported cracks in
+        // the open sea (1,112 of 22,009 faces on the vendored z0 ocean; every
+        // open-water crack cell measured at four framings sat under exactly
+        // one of them). It also closes the shade error a kept sliver used to
+        // carry, which reached the guard's own 26 degrees.
+        if (weak && faceUp !== null) {
+          const upLen = Math.hypot(faceUp[0], faceUp[1], faceUp[2]);
+          // `localUpDirection` is the direction of INCREASING elevation, i.e.
+          // already the outward one — the same convention `groupUp` relies on.
+          cap.shadingNormal = [faceUp[0] / upLen, faceUp[1] / upLen, faceUp[2] / upLen];
+        }
         if (weak) walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: capElev, elevTop: capElev, cap: tri });
         out.push(cap);
       }

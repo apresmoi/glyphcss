@@ -2243,15 +2243,29 @@ function rasterizeSolid(
       const shadeCacheHit = shadeCache !== null && shadeCache.iA[triT] !== undefined;
       let fnxN = 0, fnyN = 0, fnzN = 0;
       if (normalBuf !== null || !shadeCacheHit) {
-        const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
-        const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
-        const fnx = uy * vvz - uz * vvy;
-        const fny = uz * vvx - ux * vvz;
-        const fnz = ux * vvy - uy * vvx;
-        const fnLen = Math.hypot(fnx, fny, fnz) || 1;
-        fnxN = fnx / fnLen;
-        fnyN = fny / fnLen;
-        fnzN = fnz / fnLen;
+        // An AUTHORED shading normal (`Polygon.shadingNormal`) wins over the
+        // one this triangle's own vertices imply — see its declaration: a face
+        // whose plane is not the surface it stands for (a tessellation sliver
+        // on a curved projection) has a meaningless geometric normal, and its
+        // consumer knows the real one. Visibility is untouched; the back-face
+        // verdict below is still the projected winding's.
+        const authored = poly.shadingNormal;
+        const authoredLen = authored === undefined ? 0 : Math.hypot(authored[0], authored[1], authored[2]);
+        if (authored !== undefined && authoredLen > 0 && Number.isFinite(authoredLen)) {
+          fnxN = authored[0] / authoredLen;
+          fnyN = authored[1] / authoredLen;
+          fnzN = authored[2] / authoredLen;
+        } else {
+          const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+          const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
+          const fnx = uy * vvz - uz * vvy;
+          const fny = uz * vvx - ux * vvz;
+          const fnz = ux * vvy - uy * vvx;
+          const fnLen = Math.hypot(fnx, fny, fnz) || 1;
+          fnxN = fnx / fnLen;
+          fnyN = fny / fnLen;
+          fnzN = fnz / fnLen;
+        }
       }
       // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): same cross
       // product as the world normal above, but against the PRE-transform

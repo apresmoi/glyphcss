@@ -4705,10 +4705,150 @@ all five clauses go red (`expected 184 to be less than or equal to 2`,
 equal to 4`, `expected 0 to be greater than 100`, and the cull clause throws
 on a mesh that reports no sliver at all).
 
+## The cracks that survived: the sliver's plane still decided one thing
+
+The report came back with two more globe links, same shape (water `fill` only,
+no terrain, no strokes), and the same complaint:
+
+- centre `-47.101607 / 12.901767`, span 206.85, tilt 4, bearing 359
+- centre `-132.816352 / -2.489387`, span 92.71, tilt 4, bearing 359
+
+### First: the previous pass's harness was measuring a different picture
+
+`stubMonospaceMetrics` — every widget test's cell-metric stub, the one the
+section above measured through — overrides `getBoundingClientRect` on the
+`<pre>` elements THAT EXIST WHEN IT RUNS. glyphcss's own cell probe is a fresh
+20-line `<pre>` created per measurement inside its hidden sandbox, so it is
+never one of them: it measures zero and falls back to `8 x 16`, while the
+widget's `projectionGrid()` reads the stubbed `1120 x 768` output rect and
+computes `7 x 12`. The widget then frames the camera for one cell size and the
+rasterizer projects with another.
+
+Two things follow, and both matter. The pictures in the table above are NOT the
+framings the links ask for. And `map.unproject()` disagrees with the render by
+tens of degrees — measured: the polygon that actually inks a given cell has its
+nearest vertex 0.48 radii (about 28 degrees) from where `unproject` says that
+cell's surface point is. That is why the previous pass could only ASSERT that
+its residue was coastline: no cell in that harness could be classified at all.
+`widget.fillCrack.test.ts` stubs the PROTOTYPE instead, deriving the probe's
+rect from its own text, so the two agree and a cell's lon/lat is the one it
+shows. `widget.fillSliver.test.ts` is left exactly as it was — its metric is
+the text alone, which is self-consistent whatever the framing.
+
+### Crack versus coastline, measured rather than asserted
+
+A hole is a blank cell with ink on both sides in one axis. It is a CRACK when
+its own `unproject` lon/lat is inside the source ocean polygon (even-odd
+against the real ring set, holes included) and COASTLINE when it is not. At
+160x64 on the vendored z0 ocean, at the correct framing:
+
+| framing | holes | crack (open water) | coastline |
+|---|---|---|---|
+| span 206.85, the first reported link | 64 | 6 | 58 |
+| span 92.71, the second reported link | 17 | 0 | 17 |
+| South Pacific (span 80) | 6 | 1 | 5 |
+| the page's opening view (span 140) | 31 | 5 | 26 |
+| the earlier mid-Atlantic link (span 40.41) | 2 | 0 | 2 |
+
+The coastline residue is real geography. The cracks are not, and at the finer
+grid a real page reaches they are more numerous — the second link's framing
+shows none at 160x64 and three at 320x128, because a crack is a fixed fraction
+of a DEGREE wide and a coarser grid can sample straight past it.
+
+### Every crack cell sits under exactly one dropped sliver
+
+For each open-water crack cell, exactly ONE face of the tessellation contains
+its lon/lat, and that face is one `aefc864` DROPPED. Its per-vertex
+`planeAgrees` test — "the chord plane must have the surface's own outward side
+at every vertex" — cut 1,112 of 22,009 faces on this tile, and those cuts are
+these cracks. Two examples, both needles about 0.3 degrees tall and 13 degrees
+long, exactly the `earcut` fan shape the section above describes:
+
+    (-40.704, 56.891) (-47.615, 56.909) (-33.970, 56.559)
+    (-16.859, -53.049) (-6.438, -52.698) (-18.820, -53.086)
+
+`aefc864` stopped asking a sliver's plane which way it POINTS and still asked
+it which way it LOOKS. A plane that is a great circle's cannot answer either.
+
+### What was measured and ruled out
+
+- **Not the tessellator.** `earcut`'s triangle area matches the polygon's own
+  to 1.3e-15 with zero unused vertices, on both groups of the real z0 ocean
+  (85 rings / 3,647 points and 1 ring / 44 points). A CDT would replace a
+  triangulation that is already exact.
+- **Refinement is a bad deal, not a non-answer.** Forcing 1 and 2 rounds of
+  UNIFORM 4-way subdivision on top of the curvature refinement does reduce the
+  cracks — the first link goes 6 -> 4 -> 2, the opening view 5 -> 1 -> 0, the
+  second link's 320x128 grid 4 -> 1 -> 0 — because a sliver's plane error is
+  `atan(sagitta / width)` and halving every edge cuts the sagitta by 4 while
+  cutting the width by 2. It costs 4x and 16x the faces for that, and the
+  render goes 8.53 -> 20.55 -> 57.53 ms at the first link, i.e. 6.7x for a
+  count that is still not zero. Tightening the curvature tolerance to 0.008
+  and the edge floor to 0.15 degrees buys the same shape of trade at 4x the
+  cost. This is the section above's max-edge-cap rejection re-measured at a
+  framing that is real, and it lands in the same place.
+  **It is also why the red-green refinement never subdivided these faces on its
+  own** — its verdict is a pure function of an EDGE, and a sliver's edges are
+  already inside the 13-degree curvature limit that makes a chord a good stand-
+  in for the arc. The face is ill-conditioned in its ASPECT RATIO, which no
+  per-edge test can see.
+- **Not the recursion cap.** Raising `GLYPH_MAP_FILL_MAX_REFINE_DEPTH` from 8
+  to 24 changed not one face: `GLYPH_MAP_FILL_MIN_EDGE_DEG` terminates first,
+  so the one rule that could leave a T-junction never fires.
+- **Not the cull.** Relaxing the sliver's every-corner near-side verdict to a
+  wall's any-corner one changed the ink by 1 cell in 3,168. Disabling
+  glyphcss's pre-projection cull runs outright reproduces every count exactly.
+- **Not shading.** Re-rendering with the space-free `solid` palette gives the
+  identical ink count, so a blank cell is uncovered, not merely dark.
+- **Not the rasterizer.** Every crack cell's depth is `-Infinity`: no triangle
+  claimed it.
+
+### The fix: the surface's own normal, carried on the face
+
+`Polygon.shadingNormal` (new, `@glyphcss/core`) is an authored unit shading
+normal replacing the geometric one. LIGHTING only and solid mode only:
+visibility is still the projected-winding back-face verdict, depth and the
+shadow map read geometry, and a zero-length or non-finite value falls back to
+the geometry. `glyphMapVectorMesh` sets it, on the ill-conditioned faces only,
+to `localUpDirection` at the face's centroid — the projection's own outward
+surface normal there, the same probe family the facing verdict already uses.
+
+The property `planeAgrees` was defending is then true BY CONSTRUCTION for every
+emitted sliver, where the test could only DISCARD the faces that failed it. It
+also closes the "up to 26 degrees off" shade error the previous section left
+open, and closes it for every sliver rather than only the ones the test cut:
+a kept sliver is now shaded by the surface, not by its own chord.
+
+`layers.globe.test.ts`'s "no face may look into the sphere" clause reads the
+shading normal where one is authored, and keeps its original geometric clause
+verbatim for every face that authored nothing — so an authored normal can never
+become a way for a bad plane to skip the check.
+
+### Measured
+
+Vendored real z0 OpenFreeMap `ocean` polygon, globe, 160x64, before against
+after: open-water cracks 6 -> 0 (first link), 0 -> 0 at 160x64 and 4 -> 1 at
+320x128 (second link, the survivor being the antimeridian seam below), 1 -> 0
+(South Pacific), 5 -> 0 (opening view). Interior holes fall 64 -> 58, 6 -> 5 and
+31 -> 26; the rest is coastline and is unchanged. The mesh grows 20,897 -> 22,009 polygons (+5.3%, exactly the
+1,112 that were cut) and the cost is inside noise: mesh build 34.4-35.7 ->
+35.3-36.5 ms, render 7.8-8.4 -> 7.8-8.6 ms at the first link, 3.4-3.6 -> 3.4-3.9
+at the second. Affine projections are untouched — an equirectangular fill
+refines nothing, so it reaches the ill-conditioned branch never, authors no
+shading normal, and emits the identical face list.
+
+Gates: `widget.fillCrack.test.ts` (both reported links, decoded, on the real
+vendored tile, with the crack/coastline split measured per cell) and
+`packages/glyphcss/src/render/rasterize.shadingNormal.test.ts` (the field is
+lighting-only, is byte-identical when absent or set to the geometric normal,
+never decides visibility, and degrades to geometry).
+
 ### Still open
 
-The sliver is DRAWN with its own plane's normal, so its Lambert shade is up to
-26 degrees off — the same tolerance the guard has always allowed for a kept
-face, and invisible against the ocean's own banding at every framing measured,
-but not zero. Closing it properly needs either a per-polygon shading normal in
-glyphcss (a public API change) or the quality tessellator above.
+The ANTIMERIDIAN SEAM. At fine grids a strip about a tenth of a degree either
+side of +/-180 loses single cells (320x128: 1 in the second link's framing, 5
+over the South Pacific, all between -179.8 and -180, none anywhere else). The
+vendored z0 ring carries the tile's own buffer out to +/-185.625 degrees, so
+this is about the seam rather than about face shape; it is one cell wide, it
+does not chain, and `widget.fillCrack.test.ts` excludes that strip explicitly
+rather than absorbing it silently.

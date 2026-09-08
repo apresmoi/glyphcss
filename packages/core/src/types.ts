@@ -175,6 +175,26 @@ export interface Polygon {
    * between renders, without re-adding the mesh. Default `false`.
    */
   hidden?: boolean;
+  /**
+   * Authored UNIT shading normal, replacing the geometric one this polygon's
+   * own vertices imply. Lighting only, and solid mode only: visibility is
+   * still the rasterizer's screen-winding back-face verdict, the depth test
+   * and the shadow map read geometry, and `wireframe`/`ink`/`voxel` do no
+   * Lambert shading to redirect. A non-finite or zero-length value falls back
+   * to the geometric normal.
+   *
+   * It exists because a face's own plane is not always the surface it stands
+   * for. Triangulating a curved region in a FLAT parameter space emits
+   * near-collinear SLIVERS, and three nearly collinear points on a sphere have
+   * a circumcircle whose centre is tens of degrees away — so their plane is a
+   * great circle's rather than the surface's, and their geometric normal is up
+   * to 90 degrees off the real one. Such a face is a legitimate piece of the
+   * surface with a meaningless plane: shaded by that plane it can light as if
+   * lit from inside, and the only alternative without this field is to DROP it
+   * and leave a hole. `@glyphcss/maps`' vector `fill` on a globe is the
+   * reference consumer — it sets the projection's own local up here.
+   */
+  shadingNormal?: Vec3;
 }
 
 // ── Glyphcss-specific (ASCII rendering) ─────────────────────────

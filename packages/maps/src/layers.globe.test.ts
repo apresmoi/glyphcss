@@ -60,13 +60,31 @@ function centroid(points: readonly Vec3[]): Vec3 {
 
 /**
  * A face's plane distance from the sphere's centre, SIGNED along its own
- * outward normal. Every vertex of a planar face has the same value, so this
- * is exactly "does this face's front side look away from the globe's centre".
- * Negative = the face's front side looks INTO the globe.
+ * GEOMETRIC outward normal. Every vertex of a planar face has the same value.
+ * Negative = the face's own plane looks INTO the globe.
  */
 function planeDistance(polygon: Polygon): number {
   const vertices = polygon.vertices as readonly Vec3[];
   return dot(unit(newell(vertices)), vertices[0]);
+}
+
+/**
+ * The same question asked of the normal the face is actually SHADED by:
+ * `Polygon.shadingNormal` when the emitter authored one, its own plane
+ * otherwise. That is what "look into the sphere" means for appearance — a
+ * face lit from inside — and the geometric plane only answers it for a face
+ * whose plane IS the surface.
+ *
+ * An ill-conditioned sliver's plane is a great circle's, tens of degrees off,
+ * so it answers neither this nor its own facing; the emitter hands it the
+ * projection's local up instead. The geometric clause below still holds
+ * verbatim for every face that authored nothing, which is every face on an
+ * affine projection and every well-conditioned face on a curved one.
+ */
+function shadingDistance(polygon: Polygon): number {
+  const vertices = polygon.vertices as readonly Vec3[];
+  const n = polygon.shadingNormal;
+  return dot(n ? unit(n as Vec3) : unit(newell(vertices)), vertices[0]);
 }
 
 /** How far under the sphere's surface a face's own centroid sits, in radii. */
@@ -104,8 +122,15 @@ describe("glyphMapVectorPolygons on the globe — no face may look into the sphe
     it(`emits only outward-facing cap faces for ${testCase.name}`, () => {
       const polygons = glyphMapVectorPolygons([feature(testCase.rings)], glyphMapGlobe());
       expect(polygons.length).toBeGreaterThan(0);
-      const inward = polygons.filter((p) => planeDistance(p) <= 0);
-      expect(inward.map(planeDistance)).toEqual([]);
+      // The face is shaded by `shadingNormal` when it authored one, so that is
+      // the normal this property is about.
+      const inward = polygons.filter((p) => shadingDistance(p) <= 0);
+      expect(inward.map(shadingDistance)).toEqual([]);
+      // And the original geometric clause, unweakened, for every face that
+      // authored nothing — an authored normal must never become a way for a
+      // face with a bad plane to skip the check.
+      const plainInward = polygons.filter((p) => p.shadingNormal === undefined && planeDistance(p) <= 0);
+      expect(plainInward.map(planeDistance)).toEqual([]);
     });
 
     it(`keeps every cap face's chord within 2% of a radius of the surface for ${testCase.name}`, () => {
