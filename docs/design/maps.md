@@ -5525,6 +5525,116 @@ A vertex no mounted tile covers falls back to the datum, so a fill can straddle 
 
 ---
 
+## The sea is not the seabed: the ocean is the one water body a DEM cannot place
+
+Reported on the Aegean, with the terrain raster and the OSM `omt-water` row both on — `/maps?m=p3x5f8dcgy5n2t9ms32i8t21xE1j26zb1kF21eL1dO33d0T212N1kI31jkR1M1a1a1q1k1n1t1t1a1a1aJ1a2141a`, i.e. centre 25.585 E / 38.762 N, span 5.07 degrees, tilt 69, bearing 20, globe, the default `exaggeration: 24`, terrain density 3.8 and the water row at 2.6: *"the sea is a mess"*, *"there is a ton of black lines"*, *"and weird shapes"*.
+
+### What was actually being fed to the sea
+
+The section above drapes every `fill` cap vertex on `groundElevationSampler()`, whose answer is the TERRAIN elevation. Over the ocean the terrain is BATHYMETRY. Measured directly, on the live OpenFreeMap tile the reported view loads (Web Mercator `6/36/24`, now vendored as `fixtures/openfreemap/z6-36-24-aegean.mvt`: one `ocean` feature, 4 groups, 109 island holes, 12,449 ring vertices) against the real ETOPO1 pyramid, over the 37,599 vertices the drape actually probes:
+
+| | min | p05 | p25 | p50 | p75 | p95 | max |
+|---|---|---|---|---|---|---|---|
+| ground under an ocean cap vertex, m | **-890** | -268 | -67 | -1 | +55 | +200 | **+622** |
+
+50.7% of them below sea level. The `+622 m` tail is the same defect from the other side: where a 0.125-degree DEM cell straddles a coast, the sea climbs the hill.
+
+### The two reported symptoms are one mechanism
+
+They are not two defects, and neither is a regression of `d9b5371`'s sliver-drop family — the draped and the flat mesh carry exactly the same 12,499 faces (`glyphMapVectorMesh` takes the facing and sliver verdicts on the UNDRAPED face by construction, and that is asserted).
+
+- **"Weird shapes"** is the sea surface being the seabed. Per draped face, the vertical spread of its own three vertices is 627 m of world at the median, 3,738 m at p90 and 20,746 m at the maximum; the face's normal sits 27 degrees off the local up at the median, 61 at p90, and **2,891 of 12,499 faces stand steeper than 45 degrees**. Nearly a quarter of the "flat" sea is a cliff.
+- **"Black lines"** is what those faces draw. A face approaching 90 degrees off the local up is edge-on to the camera — it covers a line of cells rather than an area, and its Lambert term collapses. `/maps` opens a globe with Sun "Full", which is a HEADLIGHT (`mapKeyLightForSunMode`), so a face turned away from the view axis goes dark rather than merely dim. Rendered at 140x63 with the reported framing, the draped sea's cells carry 354 distinct colours reaching L23 luminance against the flat sea's 302 reaching L31.
+  The page's own densities add the second half: terrain 3.8 and water 2.6 put each layer in its own `<pre>` and hand ownership to the shared occlusion id-map, and a draped sea is the SAME surface as the relief plus 10 m, so ownership flips cell to cell along every bathymetric slope. Measured at the reported densities, the terrain grid loses 1,471 of its own cells to the sea while the sea's grid gains only 555 of its (coarser) ones — about 20 base cells that neither grid paints, i.e. background, in lines that follow the seabed contours.
+
+Isolated at the reported framing (140x63, tilt 69, headlight, terrain-only render subtracted so only the water layer's own cells are counted):
+
+| | draped on bathymetry | at the datum |
+|---|---|---|
+| cells the water layer paints | 1,716 | 1,615 |
+| of those, near-black (< L40) | **142** | **40** |
+| distinct colours | 76 | 42 |
+| luminance sd over the sea | **7.8** | **3.2** |
+| luminance p01 | 32.3 | 36.1 |
+
+The shade spread across the sea more than halves and the near-black cells drop by 3.5x — the sea stops being a shaded relief and starts being a surface. GLYPH-run length is deliberately NOT the metric at this framing: a sheet whose Lambert term falls between two ramp steps dithers between them, so it reads as a run length of 1 while being exactly the sheet wanted. It is the right metric at the gate's own closer framing, where the sea sits on one step (29.9 cells per run against 12.8).
+
+### The rule: the datum, by the definition of the datum
+
+The section above rejected a "flat lake level" ESTIMATOR (min/median/mean/centroid over a ring), and that rejection stands — it was a statistic, and every one of its candidates buried or floated Nahuel Huapi. This is not that. Read out of the real tiles rather than argued: across every tile vendored under `fixtures/openfreemap/` plus the Aegean one, the ground under each `water.class`'s own ring vertices —
+
+| `water.class` | n | min | p50 | max | below sea level |
+|---|---|---|---|---|---|
+| `lake` | 4,278 | +4 | +1,166 | +1,413 | 0% |
+| `pond` | 90 | +415 | +430 | +438 | 0% |
+| `river` | 988 | +22 | +411 | +1,121 | 0% |
+| `swimming_pool` | 240 | +22 | +23 | +442 | 0% |
+| `ocean` | 16,375 | **-5,296** | +1 | +2,587 | **48.8%** |
+
+The premise the drape rests on — *where a DEM resolves a water body it stores that body's own SURFACE* — holds for every class in the schema except one, and it fails for the ocean for a reason in the DATA rather than in the renderer: **a DEM's zero IS mean sea level**, so the sea is the single body of water whose surface a DEM never stores, because it stores what is under it. Its surface therefore needs no estimator, no statistic and no constant: it is the datum.
+
+### What was rejected
+
+- **A blanket `max(ground, 0)` clamp on every draped fill.** Rejected on measurement, not taste: with the clamp in place of the datum rule, the same ocean ring still tears — 13 crack cells inside it at the gate's own framing, because the clamp does nothing about the `+622 m` coastal probes and the sea still climbs the hills. And it breaks the land that is genuinely below sea level, floating a landcover or landuse wash up to 10 km of world above the ground it describes at `exaggeration: 24`: Death Valley (-86 m), the Dead Sea shore (-430 m), the Caspian (-28 m), a Dutch polder (-7 m). The mutation check below is exactly this alternative, and it prints its own failure.
+- **`drape: "flat"` on the whole `omt-water` row.** One `water` source layer carries the ocean beside the lakes, so this is Lake Titicaca back under the mountains — the very report the drape exists to answer.
+- **Splitting `omt-water` into two mounted rows** through the existing `filter`. It needs no library change at all, and it was rejected because it doubles the runtimes and sweeps for water, pushes a data-schema decision onto every consumer, and changes the `omt-water` id the `/maps` URL codec's density slots are keyed on.
+- **A `kind: "ocean"` row for Protomaps.** The vendored Zurich archive's `water` kinds are `basin`, `canal`, `river`, `swimming_pool`, `water` — no ocean — and this package's rule is that every name in a schema table was read out of a real tile. `protomaps.ts` is unchanged, and the shipped OSM path is OpenFreeMap/OpenMapTiles.
+
+### The seam: `GlyphMapFillDrapeFor`
+
+`GlyphMapFillLayer.drape` now takes `GlyphMapFillDrape | ((feature) => GlyphMapFillDrape)`. PER FEATURE, because the grain the problem has is the feature's own class and not the layer's. A PREDICATE rather than a `drapeProperty`/`drapes` value table (which would have mirrored `colorProperty`/`colors`) for the same reason `GlyphMapFeatureFilter` is a predicate: a PROVIDER source's features arrive after mount, so nothing can be pre-split, and a consumer whose schema names the sea differently — or who has a single sea collection — writes their own one-liner.
+
+`glyphMapVectorMesh`'s `drape` callback was ALREADY `(feature, lon, lat) => number`, so the primitive is untouched; the widget stopped discarding the feature it was handed.
+
+Three things in the widget move with it, and each is load-bearing:
+
+1. A feature the rule calls `"flat"` returns **`0`** — which is exactly `capElev` for a fill, i.e. the expression `drape: "flat"` has always produced — and reads no ground at all.
+2. It takes **no `GLYPH_MAP_FILL_DRAPE_LIFT_M`**. That lift exists to clear the disagreement between a draped cap (the tile's full-resolution bilinear field) and the relief quads under it (coarsened per level); a sheet at the datum shares no surface with the relief, and over the sea the relief is below it everywhere by construction.
+3. `syncGround`'s guard became `wantsDrape` instead of `(layer.drape ?? "surface") === "surface"`. That is not tidiness: the literal comparison is FALSE for a predicate, so the whole layer would have stopped re-planting — and a `fill` on a static source is never rebuilt by a tile sweep, so every lake mounted before its terrain landed would sit at the datum for the life of the map. The reported Titicaca defect, returning through the fix for the sea. It has its own clause and its own mutation check.
+
+`GLYPH_MAP_OPENMAPTILES_DATUM_WATER_CLASSES` (`["ocean"]`) and `glyphMapOpenMapTilesWaterDrape` are exported so a caller composing their own water layer gets the shipped rule without restating it — and so the gate reads the rule off the table rather than reproducing it.
+
+### Gate
+
+`widget.oceanDrape.test.ts`, seven clauses. Both fixtures are real: `fixtures/openfreemap/z6-36-24-aegean.mvt` is the live tile the reported view loads, and `AEGEAN_BLOCK` is a literal 35x30 slice of the z4 ETOPO1 tile `4/9_4` (lon 23.5..27.75 by lat 37.0..40.625 at the pyramid's own 0.125-degree spacing) — -1,460 m in the Cretan basin, +1,139 m in the Anatolian hills, 699 of 1,050 samples below sea level. Cell metrics are stubbed on the PROTOTYPE (`widget.fillCrack.test.ts`'s own reader), so `map.unproject()` names the cell it is handed.
+
+1. Every ocean cap vertex is within **1 m of one Earth radius** — sea level — and the drape reads no ground for it at all; with the premise that draping the same polygon on the same terrain sinks it past -20,000 m of world and that the face count is identical either way.
+2. The shipped rule answers `"surface"` for every real `lake` in the same tile, for `river`/`pond`/`swimming_pool`, and for a feature with no `class` at all.
+3. The sea renders as a SHEET: 4,450 cells in 149 same-glyph runs (29.9 per run) flat against 4,052 in 317 (12.8) draped — a factor of 2.34, measured over the sea's own cells and never over total ink.
+4. No CRACK inside the ocean ring, with the ground supplied and no raster layer mounted so the sea's own mesh is the only ink; and the premise that the draped mesh genuinely tears there (24 crack cells).
+5. A layer whose features are all lakes is byte-identical `<pre>` innerHTML under the shipped rule and under a plain `"surface"`.
+6. The lakes beside the ocean still RE-PLANT when a finer tier lands (coarse tiers answer the real z0 reading of 147 m, the target tier the block's 306..1,003 m over the same Anatolian plateau), with the premise that a fill pinned to the coarse reading is buried there.
+7. `GLYPH_MAP_OPENMAPTILES_LAYERS` names the rule on `omt-water` and on no other row.
+
+Mutation checks, each restored from a `cp` backup, verbatim from the runner:
+
+- drop `drape: glyphMapOpenMapTilesWaterDrape` from the shipped row: 5 of 7 red — `expected 'undefined' to be 'function'`, `resolve is not a function`, `expected 4052 to be less than 4052`, `expected [ '22,8@25.05,39.95', …(23) ] to deeply equal []`, `expected 'undefined' to be 'function'`.
+- make the widget ignore the per-feature rule and drape every fill feature: 2 red — `expected 4052 to be less than 4052` and `expected [ '22,8@25.05,39.95', …(23) ] to deeply equal []`.
+- replace the datum rule with a `max(ground, 0)` clamp: 2 red — `expected 4523 to be less than 4523` and `expected [ '29,9@25.20,39.85', …(12) ] to deeply equal []`. Thirteen cracks survive the clamp, which is the measurement that rejected it.
+- restore `syncGround`'s old literal guard: the re-planting clause red — `expected 0 to be greater than 20`.
+
+### The other fill layers were checked, and need nothing
+
+Asked directly, because `landcover`, `landuse` and `park` also cross water and also cross land that is genuinely below sea level. Measured over the same tiles, the ground under each layer's own ring vertices:
+
+| layer / class | n | min, m | below sea level |
+|---|---|---|---|
+| `landcover/ice` | 631 | -1,220 | 18.2% |
+| `landcover/sand` | 109 | -2 | 60.6% |
+| `landcover/wetland` | 692 | -3 | 44.2% |
+| `landcover/grass` | 4,335 | -3 | 12.9% |
+| `park/national_park` | 2,154 | -980 | 11.8% |
+| `landuse/residential` | 4,899 | -45 | 1.8% |
+| every other `landuse` class | 3,700+ | +22 and up | 0% |
+
+Two different things are in that table and neither is the ocean's defect. The `-1..-3 m` bulk (beaches, marshes, coastal grass, 60.6% of `sand`) is the 0.125-degree DEM cell straddling a shoreline — metres, invisible even at 24x, and the polygon really is at the water's edge. The `-980`/`-1,220 m` tails are marine EXTENSIONS: a national park or an ice shelf whose ring reaches out over water. They are the same resolution artefact one order up, they are a handful of features, and unlike the ocean they have no honest datum to be moved to — a national park's ground IS the ground, and an ice shelf's surface is neither the datum nor the seabed. Nothing is changed for them, and nothing pretends to be: land that is genuinely below sea level (Death Valley, the Dead Sea, a polder) must keep draping on its own real elevation, which is precisely what the rejected `max(ground, 0)` clamp would have taken away.
+
+### Known limits
+
+A `line` and a `symbol` over the sea still drape on the bathymetry — a maritime boundary or a water label sinks the way the fill used to. Neither is in the reported picture (`omt-waterways` is inland and `omt-water-labels` are points over a sea that is now at the datum under them), and neither has been changed here; the seam that would fix them is the same one — a per-feature rule on those layers — but it is not built without a report to measure it against.
+
+---
+
 ## A contour that could not answer its first sweep stayed empty forever
 
 Reported on a page loaded from a URL with the contour layer on: *"for the contour it's like I need to disable it and enable it for it to load after I refresh the page"*.

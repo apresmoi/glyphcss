@@ -31,6 +31,8 @@ import type { GlyphMapVectorFeature, GlyphMapVectorSource } from "./types";
 import type {
   GlyphMapCircleLayer,
   GlyphMapFeatureFilter,
+  GlyphMapFillDrape,
+  GlyphMapFillDrapeFor,
   GlyphMapFillExtrusionLayer,
   GlyphMapFillLayer,
   GlyphMapLineLayer,
@@ -201,6 +203,37 @@ export const GLYPH_MAP_OPENMAPTILES_WATER_COLORS: Readonly<Record<string, string
   swimming_pool: "#4fb0d8",
 };
 
+/**
+ * The `water.class` values whose surface a terrain DEM cannot supply, so the
+ * `omt-water` row stands them at the DATUM instead of draping them.
+ *
+ * It is exactly `ocean`, and that is a statement about elevation data rather
+ * than a taste: a DEM's zero IS mean sea level, so over the sea the DEM
+ * stores BATHYMETRY — what is under the water, not the water. Every other
+ * class in this schema is a body a DEM resolves as a plateau at its own
+ * surface. Measured across every tile vendored under
+ * `fixtures/openfreemap/`, the ground under each class's own ring vertices:
+ * `lake` 4,278 samples, min +4 m, 0% below sea level; `pond` 90, min +415 m,
+ * 0%; `river` 988, min +22 m, 0%; `swimming_pool` 240, min +22 m, 0%; and
+ * `ocean` 16,375, **min -5,296 m, 48.8% below sea level**.
+ */
+export const GLYPH_MAP_OPENMAPTILES_DATUM_WATER_CLASSES: readonly string[] = ["ocean"];
+
+/**
+ * The `omt-water` row's own {@link GlyphMapFillDrapeFor}: `"flat"` for the
+ * classes in {@link GLYPH_MAP_OPENMAPTILES_DATUM_WATER_CLASSES}, `"surface"`
+ * for every other feature — INCLUDING one carrying no `class` at all, because
+ * the sea has to be named and never assumed.
+ *
+ * Exported so a caller composing their own water layer (or narrowing this one
+ * through `classes`) gets the same rule without restating it, and so a test
+ * can read the shipped rule off the table rather than reproduce it.
+ */
+export const glyphMapOpenMapTilesWaterDrape: GlyphMapFillDrapeFor = (feature) => {
+  const klass = glyphMapOpenMapTilesClass(feature);
+  return klass !== undefined && GLYPH_MAP_OPENMAPTILES_DATUM_WATER_CLASSES.includes(klass) ? "flat" : "surface";
+};
+
 /** The geometry kinds an MVT source layer mixes, and the axis a row narrows on. */
 export type GlyphMapOpenMapTilesGeometry = "point" | "line" | "polygon";
 
@@ -320,6 +353,8 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly colorProperty?: string;
   /** `fill` only — the value → colour table {@link colorProperty} indexes. */
   readonly colors?: Readonly<Record<string, string>>;
+  /** `fill` only — a per-feature {@link GlyphMapFillDrapeFor}; the `water` row's is {@link glyphMapOpenMapTilesWaterDrape}. */
+  readonly drape?: GlyphMapFillDrapeFor;
   /** `fill-extrusion` only. */
   readonly heightProperty?: string;
   /** `fill-extrusion` only — the property carrying the part's own base, on the SAME datum as {@link heightProperty}. */
@@ -474,6 +509,7 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
     id: "omt-water", label: "Water", type: "fill", sourceLayer: "water",
     geometry: "polygon", color: "#2c5c8f",
     colorProperty: "class", colors: GLYPH_MAP_OPENMAPTILES_WATER_COLORS,
+    drape: glyphMapOpenMapTilesWaterDrape,
   },
   {
     id: "omt-waterways", label: "Waterways", type: "line", sourceLayer: "waterway",
@@ -630,6 +666,7 @@ export function glyphMapOpenMapTilesLayers(
           type: "fill", ...common,
           ...(spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
           ...(spec.colors === undefined ? {} : { colors: spec.colors }),
+          ...(spec.drape === undefined ? {} : { drape: spec.drape }),
         });
         break;
       case "fill-extrusion":

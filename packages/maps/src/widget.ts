@@ -671,6 +671,48 @@ export type GlyphMapFillDrape = "surface" | "flat";
 export const GLYPH_MAP_FILL_DRAPES: readonly GlyphMapFillDrape[] = ["surface", "flat"];
 
 /**
+ * A per-FEATURE {@link GlyphMapFillDrape} — the grain one source layer needs
+ * when it mixes bodies a DEM can describe with one it cannot.
+ *
+ * THE OCEAN IS THAT ONE. `groundElevationSampler` answers the TERRAIN
+ * elevation, and over the sea the terrain is BATHYMETRY: the floor, not the
+ * surface. Draping an ocean polygon on it builds the sea SURFACE on the sea
+ * FLOOR — measured on the real z6 OpenFreeMap ocean polygon over the real
+ * ETOPO1 pyramid at the reported Aegean view, 50.7% of its 37,599 cap
+ * vertices landed below sea level (min -890 m), one face of the "flat" sea
+ * spanned 20,746 m of world vertically, and 2,891 of 12,499 faces stood
+ * steeper than 45 degrees off the local up. That is the reported "the sea is
+ * a mess... a ton of black lines... weird shapes": a face at 90 degrees is
+ * edge-on to the camera and draws as one dark line.
+ *
+ * It is NOT the "flat lake level" estimator this package already rejected
+ * (`docs/design/maps.md`), and the difference is in the DATA rather than in
+ * the renderer: where a DEM resolves a lake it stores the lake's own SURFACE,
+ * so the per-vertex drape is already flat there and needs no statistic.
+ * Measured across every vendored OpenFreeMap tile, `lake`/`pond`/`river`/
+ * `swimming_pool` ring vertices read 0% below sea level while `ocean` reads
+ * 48.8% (min -5,296 m). A DEM's zero IS mean sea level, so the ocean is the
+ * one water body whose surface a DEM never stores — and its surface is
+ * therefore the datum, by the definition of the datum, with no estimator and
+ * no constant to tune.
+ *
+ * PER FEATURE rather than per layer because one `water` source layer carries
+ * the ocean beside the lakes, and `"flat"` on the whole layer would put Lake
+ * Titicaca back under the mountains this option exists to lift it out of. A
+ * PREDICATE rather than a property/value table for the same reason
+ * {@link GlyphMapFeatureFilter} is one: a provider source's features arrive
+ * after mount, so they cannot be pre-split, and a consumer whose schema names
+ * the sea differently writes their own.
+ *
+ * A feature this answers `"flat"` for is built at the datum EXACTLY — no
+ * ground is read for it and {@link GLYPH_MAP_FILL_DRAPE_LIFT_M} is not added,
+ * because that lift exists to clear the disagreement between the drape and
+ * the coarsened relief quads and a sheet at the datum shares no surface with
+ * the relief.
+ */
+export type GlyphMapFillDrapeFor = (feature: GlyphMapVectorFeature) => GlyphMapFillDrape;
+
+/**
  * Raw metres (pre-exaggeration, like `GLYPH_MAP_HEATMAP_SURFACE_LIFT_M`)
  * added on top of the sample a draped `fill` reads.
  *
@@ -709,8 +751,14 @@ export interface GlyphMapFillLayer {
    * PER LAYER, not per map: a reader can drape the water and leave the
    * landcover flat, which is the same grain the density and the label
    * placement already have.
+   *
+   * A {@link GlyphMapFillDrapeFor} predicate takes it per FEATURE instead,
+   * which is what a source layer mixing the OCEAN with the lakes needs — see
+   * that type's own doc for why the sea is the one body of water a DEM cannot
+   * place. The shipped `omt-water` row
+   * ({@link GLYPH_MAP_OPENMAPTILES_LAYERS}) carries exactly that predicate.
    */
-  readonly drape?: GlyphMapFillDrape;
+  readonly drape?: GlyphMapFillDrape | GlyphMapFillDrapeFor;
   /**
    * Per-layer render mode — this layer's mounted mesh(es) rasterize under
    * `renderMode` instead of the scene's own (glyphcss's per-mesh
@@ -5526,6 +5574,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let groundProbes: { lon: number; lat: number; ground: number }[] = [];
     /** Whether the last build had any terrain to read at all — a raster layer arriving or leaving is itself a ground change, and no probe can report it. */
     let builtOnTerrain = false;
+    /**
+     * This `fill`'s drape rule, resolved once for the layer — a bare
+     * {@link GlyphMapFillDrape} answers for every feature, a
+     * {@link GlyphMapFillDrapeFor} per feature. `null` for every layer type
+     * that has no cap to drape.
+     */
+    const fillDrape = layer.type === "fill" ? layer.drape ?? "surface" : null;
+    const drapeFor: GlyphMapFillDrapeFor | null = fillDrape === null
+      ? null
+      : typeof fillDrape === "function" ? fillDrape : () => fillDrape;
+    /**
+     * Whether this layer needs a GROUND at all. A predicate counts, even one
+     * that happens to answer `"flat"` for every feature the source turns out
+     * to hold: the features arrive after mount for a provider source, so
+     * "does anything here drape" is not a question this can answer here — and
+     * a layer that reads a ground it never uses still renders identically.
+     */
+    const wantsDrape = drapeFor !== null && fillDrape !== "flat";
     function build(features: readonly GlyphMapVectorFeature[]): void {
       lastFeatures = features;
       // The mounted tile set moved: the walk collision index describes the
@@ -5561,7 +5627,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // An extrusion takes ONE ground per rigid piece; a `fill` is a sheet of
       // ground and takes one per VERTEX (see `glyphMapVectorMesh`'s `drape`),
       // unless this layer asked for the flat datum overlay instead.
-      const wantsDrape = layer.type === "fill" && (layer.drape ?? "surface") === "surface";
       const groundAt = layer.type === "fill-extrusion" || wantsDrape ? groundElevationSampler() : null;
       groundProbes = [];
       builtOnTerrain = groundAt !== null;
@@ -5576,8 +5641,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
        * building 28,039 strings is dearer than 28,039 bilinear reads (those
        * are 1.05 ms of the 5.8).
        */
-      const drapeAt = groundAt && wantsDrape
-        ? (lon: number, lat: number): number => {
+      const drapeAt = groundAt && wantsDrape && drapeFor
+        ? (feature: GlyphMapVectorFeature, lon: number, lat: number): number => {
+          // A feature this layer's rule calls `"flat"` — the OCEAN, on the
+          // shipped `omt-water` row — reads no ground and takes no lift: its
+          // surface is the datum by the definition of the datum, and the lift
+          // exists only to clear the disagreement between a DRAPED cap and
+          // the coarsened relief quads under it. See `GlyphMapFillDrapeFor`.
+          if (drapeFor(feature) === "flat") return 0;
           const ground = groundAt(lon, lat);
           groundProbes.push({ lon, lat, ground });
           // The lift rides ON TOP of the recorded probe, so a terrain change
@@ -5599,7 +5670,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           groundProbes.push({ lon, lat, ground });
           return ground;
         } : undefined,
-        drape: drapeAt ? (_f, lon, lat) => drapeAt(lon, lat) : undefined,
+        drape: drapeAt,
         // TRUE metres above that ground — a structure offset, not an
         // elevation. See `GlyphMapFillExtrusionLayer.baseOffsetProperty`.
         // Unparseable (OSM tags carry "20 m" and worse) reads as no offset,
@@ -5624,8 +5695,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     function syncGround(): void {
       // A `fill` reaches here only while it is draped: a `"flat"` one stands
       // on nothing, records no probe, and must stay byte-identical through
-      // every tile arrival.
-      if (layer.type !== "fill-extrusion" && !(layer.type === "fill" && (layer.drape ?? "surface") === "surface")) return;
+      // every tile arrival. A layer holding a PREDICATE does reach here, and
+      // must — its ocean is flat but the lakes beside it still have to
+      // re-plant when a finer tier lands.
+      if (layer.type !== "fill-extrusion" && !wantsDrape) return;
       const groundAt = groundElevationSampler();
       const moved = (groundAt !== null) !== builtOnTerrain
         || (groundAt !== null && groundProbes.some((p) => groundAt(p.lon, p.lat) !== p.ground));

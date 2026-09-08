@@ -98,6 +98,7 @@ export {
 export type { GlyphMapOpenFreeMapOptions } from "./vector/openfreemap";
 export {
   GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION,
+  GLYPH_MAP_OPENMAPTILES_DATUM_WATER_CLASSES,
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   GLYPH_MAP_OPENMAPTILES_SOURCE_LAYERS,
   glyphMapOpenMapTilesAdminLevel,
@@ -106,6 +107,7 @@ export {
   glyphMapOpenMapTilesFeatureFilter,
   glyphMapOpenMapTilesFlag,
   glyphMapOpenMapTilesLayers,
+  glyphMapOpenMapTilesWaterDrape,
 } from "./vector/openmaptiles";
 export type {
   GlyphMapOpenMapTilesFeatureFilterOptions,
@@ -286,6 +288,7 @@ export type {
   GlyphMapLayer,
   GlyphMapFillLayer,
   GlyphMapFillDrape,
+  GlyphMapFillDrapeFor,
   GlyphMapFillExtrusionLayer,
   GlyphMapGroundElevation,
   GlyphMapHeatmapLayer,

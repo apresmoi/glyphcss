@@ -510,6 +510,29 @@ like markers and extrusions.
 With no ground to read (see below) the two settings render identically, cell
 for cell.
 
+#### The ocean is the one body of water the terrain cannot place
+
+`drape` also takes a PREDICATE — `(feature) => "surface" | "flat"` — and the
+shipped `omt-water` row carries one, because a DEM's zero *is* mean sea level:
+over the sea the terrain is BATHYMETRY, so draping an ocean polygon on it
+builds the sea surface on the sea FLOOR.
+
+```js
+import { glyphMapOpenMapTilesWaterDrape } from "@glyphcss/maps";
+
+map.addLayer({ type: "fill", source: water, colorProperty: "class",
+               drape: glyphMapOpenMapTilesWaterDrape });   // ocean flat, lakes draped
+```
+
+Measured across every tile vendored under `packages/maps/fixtures/openfreemap/`,
+the ground under each water class's own ring vertices: `lake` 0% below sea
+level (min +4 m), `pond` 0%, `river` 0%, `swimming_pool` 0% — and `ocean`
+**48.8%, min -5,296 m**. So the per-vertex drape is already flat wherever a DEM
+resolves a water body; the ocean is the single exception, and its surface is
+the datum by definition rather than by any estimator. Per FEATURE and not per
+layer, because one `water` source layer carries the ocean beside the lakes and
+flattening the whole layer would put Titicaca back under the mountains.
+
 ### Where the ground comes from — `groundElevation`
 
 Everything that stands on the ground — a `line`'s draped vertices, a
