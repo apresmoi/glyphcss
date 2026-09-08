@@ -38,7 +38,7 @@ import { MAP_BEARING_SLIDER_RANGE, mapTiltSliderRange } from "./mapsView";
 // One-way: `mapsOsm.ts` imports `@glyphcss/maps` and nothing from this file,
 // so the OSM card can read its own cost rule from the same place the page's
 // mount path does rather than restating it.
-import { mapOsmStrokeOverlayCount } from "./mapsOsm";
+import { mapOsmStrokeOverlayCount, mapOsmSublayerTooltip } from "./mapsOsm";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // ── Projections ────────────────────────────────────────────────────────────
@@ -706,7 +706,19 @@ function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
       className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${wired && !row.on ? " maps-osm-row--density-off" : ""}${labelled ? " maps-osm-row--labelled" : ""}`}
       title={OSM_DENSITY_TITLES[row.type]?.(row.label) ?? `${row.label} — the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
     >
-      <span>{row.label}</span>
+      {/*
+        The row's NAME carries what the layer IS; the `title` on the `<label>`
+        around it carries what the row's DENSITY costs. Two titles rather than
+        one concatenation because a browser shows the INNERMOST one, so
+        pointing at "Waterways" answers "what is this?" and pointing at its
+        slider answers "what does moving this cost?" — which is the question
+        each of those two targets actually raises. `undefined`, never an empty
+        string, for a row `mapsOsm.ts` has no summary for: an empty `title`
+        renders an empty tooltip box in some browsers, and the gap is a red
+        test (`mapsOsm.tooltips.test.ts`) rather than something to paper over
+        here.
+      */}
+      <span title={mapOsmSublayerTooltip(row.id) ?? undefined}>{row.label}</span>
       <span className="maps-osm-row-widget">
         <span className="layer-group-check maps-layer-bool-check">
           <input type="checkbox" checked={row.on} onChange={(e) => onToggle(e.target.checked)} />

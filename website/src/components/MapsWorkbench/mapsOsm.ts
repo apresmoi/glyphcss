@@ -343,3 +343,204 @@ export function mapOsmMissingTilesLabel(missing: number): string | null {
   if (missing <= 0) return null;
   return `${missing} tile${missing === 1 ? "" : "s"} unavailable`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Row tooltips
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The first zoom each OpenMapTiles source layer carries data at, read out of
+ * the vendored `packages/maps/fixtures/openfreemap/tilejson.json` — the real
+ * `https://tiles.openfreemap.org/planet` manifest — and never out of the
+ * schema docs, which describe an idealized pyramid rather than the one this
+ * page mounts. `mapsOsm.tooltips.test.ts` re-reads that fixture on every run,
+ * so a drift is a red test rather than a tooltip promising a layer that is
+ * not there.
+ *
+ * It is keyed by SOURCE LAYER, not by row id: the zoom is a property of the
+ * service's pyramid, and two rows on one source layer would answer with one
+ * number.
+ */
+export const MAP_OSM_SOURCE_MIN_ZOOM: Readonly<Record<string, number>> = {
+  aerodrome_label: 8,
+  aeroway: 10,
+  boundary: 0,
+  building: 13,
+  housenumber: 14,
+  landcover: 0,
+  landuse: 4,
+  mountain_peak: 7,
+  park: 4,
+  place: 0,
+  poi: 11,
+  transportation: 4,
+  transportation_name: 6,
+  water: 0,
+  water_name: 0,
+  waterway: 3,
+};
+
+/**
+ * What a source layer's own `minzoom` reads as to somebody LOOKING at the
+ * page, banded from the coarsest threshold down.
+ *
+ * A z-number is the wrong thing to print here, and not merely because it is
+ * jargon: this page has no zoom number to compare it against. Its LOD picker
+ * (`glyphMapTargetLOD`) matches the level's degrees per TILE PIXEL against
+ * the view's degrees per CHARACTER CELL, and a character cell is roughly ten
+ * tile pixels wide, so a layer arrives about 3.4 levels later than its
+ * `minzoom` suggests on a slippy map. Solving `span/cols <= (360/2^z)/256`
+ * at the page's own 140 columns gives the span each level is first requested
+ * at — z3 at ~25° (a continent), z4 at ~12° (a country), z7 at ~1.5° (~170 km,
+ * a range or a valley), z10 at ~0.19° (~21 km, a city), z13 at ~0.024°
+ * (~2.7 km, a few blocks) — and those are the scales named below.
+ *
+ * A layer at `minzoom: 0` gets no note at all: it draws from the opening
+ * globe, which is the case that needs no explaining.
+ */
+const MAP_OSM_SCALE_NOTES: readonly { readonly minZoom: number; readonly note: string }[] = [
+  { minZoom: 13, note: "Draws only at street scale, a few blocks across." },
+  { minZoom: 10, note: "Draws only once you are zoomed into a city." },
+  { minZoom: 7, note: "Draws only once you are zoomed into a region — a range or a valley." },
+  { minZoom: 4, note: "Draws only once the view is down to about one country." },
+  { minZoom: 1, note: "Not on the opening globe; draws from a continental view down." },
+];
+
+/** How this page's scale reads for a source layer, or `null` when the layer draws from the globe. */
+export function mapOsmScaleNote(sourceLayer: string): string | null {
+  const minZoom = MAP_OSM_SOURCE_MIN_ZOOM[sourceLayer];
+  if (minZoom === undefined) return null;
+  for (const band of MAP_OSM_SCALE_NOTES) if (minZoom >= band.minZoom) return band.note;
+  return null;
+}
+
+/**
+ * Plain-English names for the three exclusion axes
+ * {@link GLYPH_MAP_OPENMAPTILES_LAYERS} actually uses, so the sentence a row
+ * shows is a rendering of the filter the row mounts rather than a second
+ * description of it that can drift. An axis value with no entry falls back to
+ * the raw schema token — wrong-sounding, but never silently absent.
+ */
+const MAP_OSM_BRUNNEL_DROPS: Readonly<Record<string, string>> = {
+  tunnel: "tunnels and culverts (the bridge over one still draws)",
+  bridge: "bridges",
+};
+const MAP_OSM_SERVICE_DROPS: Readonly<Record<string, string>> = {
+  driveway: "driveways",
+  parking_aisle: "parking aisles",
+};
+const MAP_OSM_FLAG_DROPS: Readonly<Record<string, string>> = {
+  maritime: "maritime (EEZ) lines across open ocean",
+  disputed: "disputed claims",
+  indoor: "indoor paths",
+  hide_3d: "outlines the data marks as mapped part-by-part (extruding one swallows the buildings inside it)",
+};
+
+/** `2` = country, `4` = state/province. Only the cuts the table actually takes need an entry. */
+const MAP_OSM_ADMIN_LEVEL_NOTES: Readonly<Record<number, string>> = {
+  2: "International borders only — no state, province or county lines.",
+  4: "Down to state and province lines only — nothing more local.",
+};
+
+function mapOsmJoin(parts: readonly string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * The sentences a row's own filter axes earn, derived from the spec in
+ * {@link GLYPH_MAP_OPENMAPTILES_LAYERS} rather than written out beside it.
+ *
+ * This is the honest half of a tooltip and the half that prevents a bug
+ * report: a reader who cannot find the tunnel they know is there, or the
+ * county line, or the bench outside the station, is looking at a deliberate
+ * drop. Deriving it means a row that stops dropping something stops claiming
+ * to.
+ */
+function mapOsmFilterNotes(spec: (typeof GLYPH_MAP_OPENMAPTILES_LAYERS)[number]): string[] {
+  const notes: string[] = [];
+  if (spec.maxAdminLevel !== undefined) {
+    notes.push(MAP_OSM_ADMIN_LEVEL_NOTES[spec.maxAdminLevel]
+      ?? `Only boundaries at administrative level ${spec.maxAdminLevel} or above.`);
+  }
+  if (spec.maxRank !== undefined) {
+    notes.push(`Thinned to the data's own top ${spec.maxRank} by importance rank.`);
+  }
+  if (spec.requireProperties?.includes("name")) {
+    notes.push("Only named features are drawn.");
+  }
+  if (spec.excludeClasses && spec.excludeClasses.length > 0) {
+    notes.push(`Dropped as clutter: ${mapOsmJoin(spec.excludeClasses.map((c) => c.replace(/_/g, " ")))}.`);
+  }
+  const hidden = [
+    ...(spec.excludeBrunnel ?? []).map((v) => MAP_OSM_BRUNNEL_DROPS[v] ?? v),
+    ...(spec.excludeService ?? []).map((v) => MAP_OSM_SERVICE_DROPS[v] ?? v),
+    ...(spec.excludeFlags ?? []).map((v) => MAP_OSM_FLAG_DROPS[v] ?? v),
+  ];
+  if (hidden.length > 0) notes.push(`Deliberately hidden: ${mapOsmJoin(hidden)}.`);
+  return notes;
+}
+
+/**
+ * What each row IS, in one sentence — the only hand-written half of a
+ * tooltip, and deliberately the half no table can derive.
+ *
+ * A row's `label` already says its name; this says the thing the name does
+ * not, which is usually the GEOMETRY the source layer holds ("Water" is
+ * areas and "Waterways" is lines — the single most asked question about this
+ * card) or what the row is a proxy for. The scale and the filtering are
+ * appended from the layer table by {@link mapOsmSublayerTooltip}, so nothing
+ * here restates them.
+ *
+ * Keyed by row id and required to be TOTAL over
+ * {@link MAP_OSM_SUBLAYERS} — `mapsOsm.tooltips.test.ts` fails on a row with
+ * no entry, so a row appended to `@glyphcss/maps` cannot ship here with a
+ * silent gap.
+ */
+export const MAP_OSM_ROW_SUMMARIES: Readonly<Record<string, string>> = {
+  "omt-landcover":
+    "Natural ground — woodland, grass, farmland, wetland, sand, bare rock and ice, each painted in its own tone.",
+  "omt-landuse":
+    "What the ground is USED for — housing, shops, industry, schools and hospitals, pitches and cemeteries. Sits on top of land cover.",
+  "omt-water":
+    "Water as AREAS — oceans, lakes, ponds and wide rivers, each kind in its own blue (a swimming pool is not the blue of the Pacific).",
+  "omt-waterways":
+    "Rivers, streams and canals as LINES — the narrow water that is too thin to have an area of its own.",
+  "omt-roads":
+    "The street and rail network as lines, from motorways down to footpaths.",
+  "omt-buildings":
+    "Building footprints extruded to their real height, standing on the terrain under them, with textured facades and a tone of their own.",
+  "omt-boundaries":
+    "Administrative borders, drawn as lines.",
+  "omt-places":
+    "Place names — countries, cities, towns and suburbs, printed at their own point, the more important one winning a collision.",
+  "omt-peaks":
+    "Summits, labelled with their height in metres (\"Matterhorn 4478\").",
+  "omt-pois":
+    "Points of interest as plain dots — shops, stations, hospitals, schools. The dot says where something is, not what it is.",
+  "omt-parks":
+    "Protected land — national parks, nature reserves, recreation areas. A label rather than a green wash, which would paint over the lake inside the park.",
+  "omt-aeroways":
+    "Airport ground as lines — runways, taxiways and aprons.",
+  "omt-water-labels":
+    "The names of water bodies — the four oceans at world scale, then lakes and reservoirs as you go in.",
+};
+
+/**
+ * The row's whole tooltip: what it is, when it appears, and what it drops —
+ * summary first, then the scale note and the filter notes derived from
+ * {@link GLYPH_MAP_OPENMAPTILES_LAYERS} and {@link MAP_OSM_SOURCE_MIN_ZOOM}.
+ *
+ * `null` — never a placeholder — for a row with no summary, so a row appended
+ * to the package renders no tooltip rather than an empty or invented one, and
+ * the gap is what the test catches.
+ */
+export function mapOsmSublayerTooltip(id: string): string | null {
+  const summary = MAP_OSM_ROW_SUMMARIES[id];
+  if (summary === undefined || summary === "") return null;
+  const spec = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === id);
+  if (spec === undefined) return summary;
+  return [summary, mapOsmScaleNote(spec.sourceLayer), ...mapOsmFilterNotes(spec)]
+    .filter((part): part is string => part !== null)
+    .join(" ");
+}
