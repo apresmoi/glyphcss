@@ -4437,3 +4437,115 @@ be general rather than a building special case) which pays the deep-tile price
 only for the layers that need it; or keeping the last-loaded deeper tiles
 mounted across the step so buildings fade out with the view instead of
 vanishing at one span.
+
+## Long `symbol` labels wrap (`glyphMapWrapLabel`)
+
+A `symbol` label was one line of characters however long the name was.
+`Region de Magallanes y de la Antartica Chilena` is 46 cells and a whole city
+view is 140, so one name took a third of the frame — and because the greedy
+arbiter reserves a box per label, that strip also suppressed every neighbour
+inside it. The fix is to break the label onto several lines and to make the
+arbiter measure the block that is actually drawn.
+
+### The rule
+
+Word boundaries only, no hyphenation: a single word longer than the wrap
+width overflows its line rather than being cut, because a broken place name
+is worse than a wide one (`Llanfairpwllgwyngyll…` stays one line).
+
+Balanced, not greedy. Greedy filling of that name gives
+`Region de Magallanes` / `y de la Antartica` / `Chilena` — a 7-cell stub
+beside a full line. `glyphMapWrapLabel` picks the line COUNT first,
+`min(maxLines, words, ceil(label.length / width))`, so the width is what
+decides whether a second line is needed at all, then partitions the words
+into exactly that many lines minimising the sum of squared line lengths (the
+classic minimum-raggedness objective; with the line count fixed and the total
+near-fixed it is minimising the variance of the line lengths). A small DP over
+the word list — the labels are a handful of words, so the O(lines · words²)
+scan is free. The result on that name is `Region de` / `Magallanes y de la` /
+`Antartica Chilena`, widest line 18.
+
+The lines are centred on each other and on the feature's own point: the
+element is already centred on the anchor by `.glyph-hotspot`'s
+`transform: translate(-50%, -50%)`, so `text-align: center` inside a
+shrink-to-fit box is the whole of it. `white-space: pre` is set alongside it
+and is not decoration — the consumer's own `.glyph-map-symbol` rule (on
+`/maps`, `maps-workbench.css`) sets `white-space: nowrap`, under which the
+newlines collapse to spaces and the label is not wrapped at all. Those two
+declarations are the wrap's mechanism, which is why they are set by the
+library and the rest of a symbol's presentation still is not.
+
+### The width and the line cap, against the real distribution
+
+Both are fixed character counts rather than fractions of the viewport,
+following MapLibre's `text-max-width` (10 ems): a place name's block shape is
+a property of the NAME, and tying it to `cols` would reflow every label on a
+resize for no cartographic reason.
+
+`GLYPH_MAP_LABEL_WRAP_CELLS = 20` was chosen against the label lengths in the
+vendored OpenFreeMap tiles — 1,981 named features across the world (z0),
+Zurich city (z12, z14), an alpine peak tile (z8) and a maritime one (z4):
+
+| p50 | p75 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|
+| 12 | 17 | 23 | 29 | 39 | 54 |
+
+At 20, 85.5% of real labels are left as one line and the ones that wrap are
+exactly the outliers that provoked this. (16.0% of the 1,470 named features in
+the Zurich z14 tile wrap.)
+
+`GLYPH_MAP_LABEL_WRAP_MAX_LINES = 3`, not 2: a two-line cap leaves the reported
+46-character name 23 cells wide, which is most of the complaint still standing,
+and the p99 label at 20. Three brings those to 18 and 13, while a three-line
+block of ~15 characters still reads as one label rather than a paragraph on the
+map. A fourth line would only ever engage above 3 × 20 = 60 characters, longer
+than the longest name in the fixtures, so it would be dead code.
+
+### The arbiter had to learn the wrapped box
+
+This is the half that decides whether wrapping helps or hurts.
+`glyphMapDeclutterLabels` reserved `label.length × 1`. A wrapped label is
+NARROWER and TALLER than its string, so an arbiter still reserving the strip
+would make wrapping worse than not wrapping — freeing columns nothing draws in
+while letting a neighbour land on the second line.
+
+`GlyphMapLabelCandidate` therefore grew an optional `lines` (the array
+`glyphMapWrapLabel` returned), and the box is `max(line length)` wide by
+`lines.length` tall. Omitted means one line and the box is computed from
+`label` exactly as before — which is what keeps every contour label untouched,
+the same shape as the `padX`/`padY` addition before it. `widget.ts` wraps once
+at feature-build time and carries `lines` on the record, so `sync` (which runs
+on every marker update) pays for neither the wrap nor a rejoin.
+
+Gates: `layers.test.ts` pins both edges of the reserved box from probes that
+straddle them (widest line 18 against the string's 46, three rows against one)
+and pins that a candidate with no `lines` keeps the old box exactly;
+`widget.symbolWrap.test.ts` pins the rendered element — its lines, the two
+declarations that make them render, its unchanged anchor, and the pair of
+neighbours that discriminates a real fix from a half one (the one below is now
+suppressed, the one 16 columns out is now kept). `stroke.test.ts` drives a
+deliberately absurd 31-character contour label through the widget's own
+plan → declutter → stamp sequence and pins that it still lands as one
+contiguous run on one row.
+
+### Cost
+
+Nothing per frame. Measured on the 1,470 named features of the vendored
+`z14-8579-5736.mvt`, scattered over a 140×63 grid, 500 declutter passes:
+0.3117 ms/pass unwrapped against 0.3111 ms/pass wrapped — inside noise, because
+a `max` over at most three short strings is nothing against the arbiter's own
+O(n · placed) overlap scan. Wrapping all 1,470 names costs 0.577 ms ONCE, at
+feature-build time. Labels surviving the arbiter were 310 against 309 on that
+random scatter, i.e. wrapping neither gains nor loses labels in the aggregate;
+what it changes is WHICH ones, and that a long name no longer clears a strip
+across a third of the frame.
+
+### No `/maps` change
+
+Wrapping is applied where a label is turned into cells
+(`createPointFeatureRuntime`), so every `symbol` layer gets it — `omt-places`,
+`omt-parks`, `omt-water-labels`, `omt-peaks` — with no row in
+`GLYPH_MAP_OPENMAPTILES_LAYERS` and no page control. There is deliberately no
+per-layer option: the width is a property of the character grid, not of the
+data, and a caller who wants a different one can call `glyphMapWrapLabel`
+themselves through `GlyphMapSymbolLayer.text`.

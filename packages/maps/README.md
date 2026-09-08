@@ -461,6 +461,32 @@ mesh, are stamped into the cell grid after rasterization, and already emit
 oriented stroke glyphs by construction. `symbol`/`circle` mount DOM hotspots
 rather than geometry, so they carry none either.
 
+### Long labels wrap
+
+A `symbol` label longer than `GLYPH_MAP_LABEL_WRAP_CELLS` (20 characters) is
+broken onto up to `GLYPH_MAP_LABEL_WRAP_MAX_LINES` (3) balanced lines, centred
+on each other and on the feature's own point. At word boundaries only — a
+single word longer than the width overflows its line rather than being
+hyphenated — and balanced rather than filled greedily, so
+`Region de Magallanes y de la Antartica Chilena` (46 cells; a city view is
+about 140) reads
+
+```
+     Region de
+ Magallanes y de la
+ Antartica Chilena
+```
+
+rather than one full line and a stub. A label at or under the width is
+untouched.
+
+`glyphMapWrapLabel(label, width?, maxLines?)` is exported if you want the
+same rule for your own text — for instance inside
+`GlyphMapSymbolLayer.text`. The declutter arbiter measures the wrapped block
+(`GlyphMapLabelCandidate.lines`: `max(line length)` wide by `lines.length`
+tall), so a long name no longer reserves a strip across a third of the frame.
+Contour labels pass no `lines` and never wrap.
+
 ### Per-layer glyph palette
 
 The same argument, one axis over: a map is no more one picture in one

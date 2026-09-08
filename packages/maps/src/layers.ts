@@ -6,10 +6,34 @@ import { localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
 import { glyphMapFacadeTiles, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
 
-export interface GlyphMapLabelCandidate { readonly id: string; readonly col: number; readonly row: number; readonly label: string; readonly priority: number }
+export interface GlyphMapLabelCandidate {
+  readonly id: string;
+  readonly col: number;
+  readonly row: number;
+  readonly label: string;
+  readonly priority: number;
+  /**
+   * The label AS DRAWN, one entry per rendered line — what
+   * {@link glyphMapWrapLabel} returned. Omitted means one line, and the
+   * exclusion box is then computed from `label` exactly as it was before
+   * wrapping existed, so every single-line caller (every contour label) is
+   * untouched.
+   *
+   * It exists because the box must be the OCCUPIED one: a wrapped label is
+   * narrower and taller than its own string, and an arbiter still reserving
+   * the one-line strip would make wrapping worse than not wrapping — it
+   * would free up columns nothing draws in while letting a neighbour land on
+   * the second line.
+   */
+  readonly lines?: readonly string[];
+}
 
 /**
  * Greedy, stable label declutter: priority descending, then input order.
+ *
+ * The exclusion box is the label's own drawn extent: `lines`'s LONGEST line
+ * wide (not the whole string), and one `height` per line tall. See
+ * {@link GlyphMapLabelCandidate.lines}.
  *
  * `padX`/`padY` grow each label's exclusion box beyond its own glyphs
  * WITHOUT changing where it is drawn. Both default to `0`, so the symbol
@@ -25,14 +49,121 @@ export function glyphMapDeclutterLabels(candidates: readonly GlyphMapLabelCandid
   const out: GlyphMapLabelCandidate[] = [];
   for (const candidate of candidates.map((value, index) => ({ value, index })).sort((a, b) => b.value.priority - a.value.priority || a.index - b.index)) {
     const c = candidate.value;
-    const w = Math.max(charWidth, c.label.length * charWidth) + padX * 2;
-    const h = height + padY * 2;
+    let chars = c.label.length;
+    let rows = 1;
+    if (c.lines && c.lines.length > 0) {
+      chars = 0;
+      for (const line of c.lines) chars = Math.max(chars, line.length);
+      rows = c.lines.length;
+    }
+    const w = Math.max(charWidth, chars * charWidth) + padX * 2;
+    const h = height * rows + padY * 2;
     const box = { x: c.col - w / 2, y: c.row - h / 2, w, h };
     if (placed.some((p) => !(box.x + box.w <= p.x || box.x >= p.x + p.w || box.y + box.h <= p.y || box.y >= p.y + p.h))) continue;
     placed.push(box);
     out.push(c);
   }
   return out;
+}
+
+/**
+ * Longest line, in cells, a symbol label is wrapped to.
+ *
+ * A fixed character count rather than a fraction of the viewport, following
+ * MapLibre's `text-max-width` (10 ems): a place name's block shape is a
+ * property of the NAME, and tying it to `cols` would reflow every label on a
+ * resize for no cartographic reason.
+ *
+ * `20` was chosen against the real label distribution in the vendored
+ * OpenFreeMap tiles (1,981 named features across the world, Zurich city,
+ * alpine peak and park fixtures): median 12 characters, p90 23, p99 39, max
+ * 54. At 20, 85.5% of real labels are left as one line and the ones that
+ * wrap are exactly the outliers that provoked this — the reported
+ * `region de magallanes y de la antartica chilena` is 46, a third of a
+ * 140-column frame.
+ */
+export const GLYPH_MAP_LABEL_WRAP_CELLS = 20;
+
+/**
+ * Hard ceiling on the number of lines. Past it the label stops wrapping and
+ * its lines run long, rather than growing a paragraph on the map.
+ *
+ * `3`, not `2`: a two-line cap leaves the reported 46-character name 23 cells
+ * wide, which is most of the complaint still standing, and the p99 label (39)
+ * at 20. Three brings those to 18 and 13 while a three-line block of ~15
+ * characters is still compact enough to read as one label. A fourth line
+ * would only ever engage above 3 x 20 = 60 characters — longer than the
+ * longest name in the fixtures — so it would be dead code.
+ */
+export const GLYPH_MAP_LABEL_WRAP_MAX_LINES = 3;
+
+/**
+ * Break one label into at most {@link GLYPH_MAP_LABEL_WRAP_MAX_LINES} lines
+ * of roughly {@link GLYPH_MAP_LABEL_WRAP_CELLS} cells.
+ *
+ * WORD BOUNDARIES ONLY, no hyphenation: a single word longer than `width`
+ * overflows its line rather than being cut, because a broken place name is
+ * worse than a wide one.
+ *
+ * BALANCED, not greedy. Greedy filling of the reported name gives
+ * `region de magallanes y de la antartica` / `chilena` — one full line and a
+ * stub. This picks the line COUNT first
+ * (`min(maxLines, ceil(label.length / width))`, so the width is what decides
+ * whether a second line is needed at all) and then partitions the words into
+ * exactly that many lines minimising the sum of squared line lengths — the
+ * classic minimum-raggedness objective, which with a fixed line count and a
+ * near-fixed total is minimising the variance of the line lengths. On that
+ * name it gives `region de` / `magallanes y de la` / `antartica chilena`.
+ *
+ * A label at or under `width`, or one that is a single word, returns the
+ * ORIGINAL string in a one-element array — never a re-joined copy — so the
+ * caller's short-label path is byte-identical.
+ */
+export function glyphMapWrapLabel(label: string, width = GLYPH_MAP_LABEL_WRAP_CELLS, maxLines = GLYPH_MAP_LABEL_WRAP_MAX_LINES): readonly string[] {
+  if (label.length <= width || maxLines < 2 || width < 1) return [label];
+  const words = label.split(/\s+/).filter((word) => word.length > 0);
+  const count = Math.min(maxLines, words.length, Math.ceil(label.length / width));
+  if (count < 2) return [label];
+
+  // `prefix[i]` = characters in words[0..i), so the line words[i..j) measures
+  // `prefix[j] - prefix[i] + (j - i - 1)` — its words plus its own spaces.
+  const prefix = [0];
+  for (const word of words) prefix.push(prefix[prefix.length - 1] + word.length);
+  const lineLength = (i: number, j: number): number => prefix[j] - prefix[i] + (j - i - 1);
+
+  // best[k][i] = minimum cost of splitting words[i..] into exactly k lines,
+  // and cut[k][i] the first break that achieves it. Scanning `j` upward and
+  // keeping only a strict improvement makes the shortest first line win a
+  // tie, so the partition is deterministic.
+  const n = words.length;
+  const best: number[][] = [];
+  const cut: number[][] = [];
+  best[1] = [];
+  cut[1] = [];
+  for (let i = 0; i <= n; i++) { best[1][i] = lineLength(i, n) ** 2; cut[1][i] = n; }
+  for (let k = 2; k <= count; k++) {
+    best[k] = [];
+    cut[k] = [];
+    for (let i = 0; i <= n - k; i++) {
+      let score = Infinity;
+      let at = i + 1;
+      for (let j = i + 1; j <= n - k + 1; j++) {
+        const candidate = lineLength(i, j) ** 2 + best[k - 1][j];
+        if (candidate < score) { score = candidate; at = j; }
+      }
+      best[k][i] = score;
+      cut[k][i] = at;
+    }
+  }
+
+  const lines: string[] = [];
+  let start = 0;
+  for (let k = count; k >= 1; k--) {
+    const end = k === 1 ? n : cut[k][start];
+    lines.push(words.slice(start, end).join(" "));
+    start = end;
+  }
+  return lines;
 }
 
 export function glyphMapPointHeatmap(features: readonly GlyphMapVectorFeature[], bounds: GlyphMapBounds, cols: number, rows: number, radius = 2, weightProperty?: string): GlyphMapField {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { stampGlyphMapContour, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { glyphMapDeclutterLabels, GLYPH_MAP_LABEL_WRAP_CELLS } from "./layers";
+import { GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y } from "./widget";
 import type { CellGrid } from "glyphcss";
 
 function makeGrid(cols: number, rows: number, depthAt: (col: number, row: number) => number): CellGrid {
@@ -382,5 +384,61 @@ describe("stampGlyphMapContour — elevation window (minElevation/maxElevation)"
     stampGlyphMapContour(b, (col) => values[col], { levels: [1000, 3500], color: "#0af", minElevation: undefined, maxElevation: undefined });
     expect(b.char).toEqual(a.char);
     expect(b.color).toEqual(a.color);
+  });
+});
+
+/**
+ * Contour labels do NOT wrap, and the wrap never reaches them.
+ *
+ * The two label paths share one arbiter (`glyphMapDeclutterLabels`), and a
+ * contour label is a number stamped INTO A GAP IN ITS OWN LINE with the
+ * terrain glyph restored either side — a second row of it would punch a hole
+ * in the relief the first row exists to preserve. So the gate is driven with
+ * a deliberately absurd `format` (31 characters, longer than
+ * `GLYPH_MAP_LABEL_WRAP_CELLS`) through the widget's own
+ * plan -> declutter -> stamp sequence: it must still land as ONE contiguous
+ * run on ONE row. A wrap moved into the arbiter, or into the stamp, goes red
+ * here.
+ */
+describe("contour labels are inert under symbol-label wrapping", () => {
+  const TEXT = "Elevation One Hundred Metres AB"; // 31 characters
+
+  it("stamps a 31-character contour label as one run on one row, with nothing on the rows either side", () => {
+    // Elevation ramps with ROW only, so every contour is a horizontal line
+    // and is exactly the near-horizontal run a label may lie along.
+    const cols = 80;
+    const rows = 21;
+    const grid = makeGrid(cols, rows, () => 1);
+    const elevationAt = (_col: number, row: number) => row * 10;
+    const plan = stampGlyphMapContour(grid, elevationAt, {
+      levels: [100],
+      requireSurface: false,
+      labels: { levels: [100], format: () => TEXT },
+    });
+    expect(plan).not.toBeNull();
+    expect(plan!.candidates.length).toBeGreaterThan(0);
+    expect(TEXT.length).toBeGreaterThan(GLYPH_MAP_LABEL_WRAP_CELLS);
+
+    const placed = glyphMapDeclutterLabels(
+      plan!.candidates.map((candidate, index) => ({ id: String(index), col: candidate.col, row: candidate.row, label: candidate.text, priority: candidate.priority })),
+      1,
+      1,
+      GLYPH_MAP_CONTOUR_LABEL_PAD_X,
+      GLYPH_MAP_CONTOUR_LABEL_PAD_Y,
+    );
+    expect(placed.length).toBeGreaterThan(0);
+    stampGlyphMapContourLabels(grid, placed.map((p) => plan!.candidates[Number(p.id)]), plan!, "#ffffff");
+
+    const rowText = (row: number) => Array.from({ length: cols }, (_, c) => grid.char[row * cols + c]).join("");
+    const labelRow = placed[0].row;
+    // The whole text, unbroken, on the label's own row.
+    expect(rowText(labelRow)).toContain(TEXT);
+    // And no fragment of it on the neighbouring rows — the only way a
+    // second line of a wrapped contour label could ever appear.
+    const words = TEXT.split(" ");
+    for (const row of [labelRow - 1, labelRow + 1]) {
+      if (row < 0 || row >= rows) continue;
+      for (const word of words) expect(rowText(row)).not.toContain(word);
+    }
   });
 });

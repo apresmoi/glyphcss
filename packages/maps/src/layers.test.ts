@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorPolygons, glyphMapWrapLabel, GLYPH_MAP_LABEL_WRAP_CELLS, GLYPH_MAP_LABEL_WRAP_MAX_LINES } from "./layers";
 import { glyphMapEquirectangular } from "./projection";
 
 describe("map layer primitives", () => {
@@ -35,5 +35,90 @@ describe("map layer primitives", () => {
     expect(fill.every((p) => p.color === "#123456")).toBe(true);
     expect(extrusion).toHaveLength(6);
     expect(new Set(extrusion.flatMap((p) => p.vertices.map((v) => v[2]))).size).toBe(2);
+  });
+});
+
+/**
+ * The declutter box is what a wrapped label makes or breaks: it is narrower
+ * and taller than the one-line strip, and an arbiter that kept reserving the
+ * strip would make wrapping INCREASE collisions — freeing columns nothing
+ * draws in while letting a neighbour land on the second line.
+ *
+ * Every case below is a pair, because either half alone passes for a
+ * half-fix.
+ */
+describe("glyphMapDeclutterLabels — a wrapped label's box", () => {
+  const long = "Region de Magallanes y de la Antartica Chilena";
+  const lines = glyphMapWrapLabel(long);
+
+  const arbitrate = (neighbourCol: number, neighbourRow: number, wrapped: boolean) =>
+    glyphMapDeclutterLabels([
+      { id: "long", col: 60, row: 20, label: long, priority: 9, ...(wrapped ? { lines } : {}) },
+      { id: "neighbour", col: neighbourCol, row: neighbourRow, label: "Punta", priority: 1 },
+    ]).map((c) => c.id);
+
+  it("is TALLER: a neighbour one row down clears the one-line strip and is caught by the wrapped block", () => {
+    expect(arbitrate(60, 21, false)).toEqual(["long", "neighbour"]);
+    expect(arbitrate(60, 21, true)).toEqual(["long"]);
+  });
+
+  it("is NARROWER: a neighbour 15 columns out is caught by the one-line strip and clears the wrapped block", () => {
+    expect(arbitrate(75, 20, false)).toEqual(["long"]);
+    expect(arbitrate(75, 20, true)).toEqual(["long", "neighbour"]);
+  });
+
+  it("leaves a candidate with no `lines` on exactly the box it always had — the contour path's box", () => {
+    // Half-widths 46/2 and 5/2 sum to 25.5: at 26 columns apart the boxes
+    // clear and both are placed, at 25 they overlap and the neighbour goes.
+    // Both numbers are the UNWRAPPED string's, so a default that quietly
+    // wrapped — or that measured anything but `label.length` — moves them.
+    expect(long).toHaveLength(46);
+    expect(arbitrate(60 + 26, 20, false)).toEqual(["long", "neighbour"]);
+    expect(arbitrate(60 + 25, 20, false)).toEqual(["long"]);
+    // And one row apart is still clear, because the box is still one row tall.
+    expect(arbitrate(60, 21, false)).toEqual(["long", "neighbour"]);
+  });
+
+  it("measures the LONGEST line, not the whole string, and one row per line", () => {
+    // Read back off probes that straddle each edge of the box the arbiter
+    // reserved. Widest line 18, neighbour 5: they clear at 12 columns and
+    // overlap at 11. Three rows against one: they clear at 2 rows and
+    // overlap at 1.
+    expect(Math.max(...lines.map((l) => l.length))).toBe(18);
+    expect(lines).toHaveLength(3);
+    expect(arbitrate(60 + 12, 20, true)).toEqual(["long", "neighbour"]);
+    expect(arbitrate(60 + 11, 20, true)).toEqual(["long"]);
+    expect(arbitrate(60, 22, true)).toEqual(["long", "neighbour"]);
+    expect(arbitrate(60, 21, true)).toEqual(["long"]);
+  });
+});
+
+/**
+ * The wrap rule itself. The RENDERED consequences are pinned in
+ * `widget.symbolWrap.test.ts`; what is here is the boundary and the shape of
+ * the partition, which have no other home.
+ */
+describe("glyphMapWrapLabel", () => {
+  it("returns the original string, not a rejoined copy, at or under the wrap width", () => {
+    const at = "Aaaaaaaa Bbbbbbbbbbb";
+    expect(at).toHaveLength(GLYPH_MAP_LABEL_WRAP_CELLS);
+    const out = glyphMapWrapLabel(at);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(at);
+  });
+
+  it("balances rather than filling greedily", () => {
+    // Greedy at 20 cells: `Region de Magallanes` / `y de la Antartica` /
+    // `Chilena` — a 7-cell stub. Minimum raggedness spends the slack evenly.
+    expect(glyphMapWrapLabel("Region de Magallanes y de la Antartica Chilena"))
+      .toEqual(["Region de", "Magallanes y de la", "Antartica Chilena"]);
+  });
+
+  it("stops at the line cap and lets the last lines run long rather than growing a paragraph", () => {
+    const many = Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ");
+    const out = glyphMapWrapLabel(many);
+    expect(out).toHaveLength(GLYPH_MAP_LABEL_WRAP_MAX_LINES);
+    expect(Math.max(...out.map((l) => l.length))).toBeGreaterThan(GLYPH_MAP_LABEL_WRAP_CELLS);
+    expect(out.join(" ")).toBe(many);
   });
 });

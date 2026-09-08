@@ -105,7 +105,7 @@ import {
   type GlyphMapSkyParams,
 } from "./sky";
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
-import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, type GlyphMapVectorMesh } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
@@ -5082,7 +5082,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
       hotspots = [];
-      const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; priority: number }[] = [];
+      const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; lines: readonly string[]; priority: number }[] = [];
       for (const feature of features.filter((f) => f.geometryType === "point" || f.rings.every((r) => r.length === 1))) for (const ring of feature.rings) {
         const point = ring[0]; if (!point) continue;
         const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
@@ -5091,8 +5091,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const label = layer.type !== "symbol" ? ""
           : layer.text ? layer.text(feature)
           : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
+        // Wrapped ONCE, here, off the finished label — a break depends only
+        // on the string, never on the camera, so `sync` (which runs on every
+        // marker update) must not pay for it.
+        const lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
         handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
-        handle.el.textContent = label;
+        if (lines.length > 1) {
+          // `white-space` and `text-align` are set HERE rather than left to
+          // the consumer's stylesheet (which is where the rest of a symbol's
+          // presentation lives) because they are the wrap's MECHANISM, not
+          // its styling: the page's own `.glyph-map-symbol` rule sets
+          // `white-space: nowrap`, under which the newlines below render as
+          // spaces and the label is not wrapped at all. `text-align: center`
+          // is the other half of the design — the hotspot element is already
+          // centred on the anchor by `.glyph-hotspot`'s
+          // `translate(-50%, -50%)`, so centring the lines within the
+          // shrink-to-fit box centres them on each other AND on the feature's
+          // own point.
+          handle.el.textContent = lines.join("\n");
+          handle.el.style.whiteSpace = "pre";
+          handle.el.style.textAlign = "center";
+        } else {
+          handle.el.textContent = label;
+        }
         handle.el.style.color = layer.color ?? "";
         if (layer.type === "circle") {
           const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
@@ -5102,7 +5123,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           handle.el.style.backgroundColor = layer.color ?? "currentColor";
         }
         hotspots.push(handle);
-        records.push({ handle, feature, lon: point[0], lat: point[1], label, priority });
+        records.push({ handle, feature, lon: point[0], lat: point[1], label, lines, priority });
       }
       sync = () => {
         if (layer.type === "circle") {
@@ -5115,7 +5136,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           });
           return;
         }
-        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, priority: r.priority, visible: p.visible }; }).filter((c) => c.visible);
+        // `lines` is what the arbiter measures: a wrapped label occupies a
+        // narrower, taller box than its own string, and reserving the
+        // one-line strip would make wrapping increase collisions instead of
+        // reducing them (see `GlyphMapLabelCandidate.lines`).
+        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };

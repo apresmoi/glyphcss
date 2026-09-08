@@ -108,6 +108,20 @@ function labels(host: HTMLElement): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>(".glyph-map-symbol")];
 }
 
+/**
+ * The country's NAME, read back off the rendered label.
+ *
+ * `@glyphcss/maps` wraps a symbol label longer than
+ * `GLYPH_MAP_LABEL_WRAP_CELLS` onto several lines (`glyphMapWrapLabel`), so
+ * `United States of America` renders as two lines and its `textContent`
+ * carries the break. Joining the lines back with a space recovers the name
+ * the assertions below are about; it is not a relaxation — a label that
+ * lost, gained or reordered a character still fails.
+ */
+function labelText(el: HTMLElement): string {
+  return String(el.textContent).split("\n").join(" ");
+}
+
 /** `name -> label_priority`, read straight off every baked tile on disk. */
 async function bakedPriorities(): Promise<Map<string, number>> {
   const out = new Map<string, number>();
@@ -174,7 +188,7 @@ describe("symbol layer — country labels from the baked country pyramid", () =>
         textProperty: "name", priorityProperty: COUNTRY_PRIORITY_PROPERTY,
       });
       await vi.waitFor(() => expect(labels(host).length).toBeGreaterThan(0));
-      const chile = labels(host).find((el) => el.textContent === "Chile");
+      const chile = labels(host).find((el) => labelText(el) === "Chile");
       expect(chile).toBeDefined();
       expect(chile!.style.opacity).toBe("1");
 
@@ -197,8 +211,8 @@ describe("symbol layer — country labels from the baked country pyramid", () =>
       });
       await vi.waitFor(() => expect(labels(host).length).toBeGreaterThan(20));
       const priorities = await bakedPriorities();
-      const all = labels(host).map((el) => String(el.textContent));
-      const shown = new Set(labels(host).filter((el) => el.style.opacity === "1").map((el) => String(el.textContent)));
+      const all = labels(host).map(labelText);
+      const shown = new Set(labels(host).filter((el) => el.style.opacity === "1").map(labelText));
       const hidden = all.filter((n) => !shown.has(n));
       expect(shown.size).toBeGreaterThan(3);
       expect(hidden.length).toBeGreaterThan(3);
@@ -233,7 +247,7 @@ describe("symbol layer — country labels from the baked country pyramid", () =>
       expect(far.visible).toBe(false);
       expect(Math.round(near.row)).not.toBe(Math.round(far.row));
       await vi.waitFor(() => {
-        const shown = labels(host).filter((el) => el.style.opacity === "1").map((el) => el.textContent);
+        const shown = labels(host).filter((el) => el.style.opacity === "1").map(labelText);
         expect(shown).toContain("Germany");
         expect(shown).not.toContain("New Zealand");
       });

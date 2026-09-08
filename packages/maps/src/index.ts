@@ -169,7 +169,10 @@ export type {
   GlyphMapStrokeVertex,
 } from "./stroke";
 export {
+  GLYPH_MAP_LABEL_WRAP_CELLS,
+  GLYPH_MAP_LABEL_WRAP_MAX_LINES,
   glyphMapDeclutterLabels,
+  glyphMapWrapLabel,
   glyphMapPointHeatmap,
   glyphMapVectorCullWalls,
   glyphMapVectorMesh,
