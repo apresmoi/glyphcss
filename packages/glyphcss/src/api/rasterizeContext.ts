@@ -38,43 +38,50 @@ export interface OcclusionMap {
    */
   foreignOnly?: boolean;
   /**
-   * SUB-CELL SEAM REFINEMENT (all three optional, all three required
-   * together — any missing one keeps the pure id-based blanking).
+   * SUB-CELL OWNERSHIP REFINEMENT (optional; absent keeps the pure id-based
+   * blanking).
    *
    * The id-map is rasterized at the BASE grid's resolution, but a
    * `density > 1` detail layer renders FINER and point-samples the map at
    * each of its own cells' centres. Ownership is therefore all-or-nothing
    * per id-map cell while coverage is decided per detail cell, so where two
    * adjacent meshes share an edge the id-map cell straddling it is claimed
-   * by exactly one of them and the other blanks every detail cell it owns
-   * inside that map cell — including the ones the winner does not cover.
-   * Nothing paints those: a black seam along every shared edge, in both
-   * axes (measured on `@glyphcss/maps`' globe: a median 0.75 base cells
+   * by exactly one of them and the other would blank every detail cell it
+   * owns inside that map cell — including the ones the winner does not
+   * cover. Nothing paints those: a black seam along every shared edge, in
+   * both axes (measured on `@glyphcss/maps`' globe: a median 0.75 base cells
    * over ~1,500 runs per frame at density 1.4, and the same at 2 and 3).
    *
    * `depth` is the id-map's own nearest-depth buffer (same resolution,
    * `-Infinity` = empty, larger = nearer — `fillDepthTri`'s convention),
-   * retained by `computeOcclusionIds` rather than discarded. `gradX`/
-   * `gradY` are the per-map-cell absolute depth difference to that cell's
-   * nearest finite horizontal/vertical neighbour: how much depth may
-   * legitimately change across ONE map cell right there.
+   * retained by `computeOcclusionIds` rather than discarded. Given it, the
+   * rasterizer takes ONE verdict per id-map cell rather than one per output
+   * cell, so a mesh's `density` — an appearance choice — can never change
+   * who occludes whom.
    *
-   * A cell is then blanked only when the owner is nearer by more than the
-   * depth change its own surface could account for over the distance
-   * between where the map was SAMPLED (the map cell's centre) and where
-   * this detail cell actually sits — `|dx|*gradX + |dy|*gradY`, with `dx`/
-   * `dy` the exact sub-cell offset in map cells, scaled by
-   * `OCCLUSION_SEAM_SAFETY`. This is deliberately not a flat bias: a
-   * constant fails across world scales for exactly the reason it fails for
-   * wireframe `hiddenLines: "hide"` (see `RasterizeScene.hiddenLines`), and
-   * scaling by the map's OWN local depth variation is scale-free. A detail
-   * cell near its map cell's centre gets an allowance near zero and blanks
-   * exactly as before; only cells near a map cell's EDGE — precisely where
-   * the seam lives — get a meaningful one.
+   * The verdict compares the owner's retained depth against this pass's own
+   * depth AT THE SAME SCREEN POINT: the output cell covering the map cell's
+   * own sample point (both rasterizers sample at their cell's integer
+   * `(col, row)`, so the forward map's `floor` inverts to a `floor`; for the
+   * base grid that is the identity, i.e. the cell's own depth). Where this
+   * pass does not reach that point it cannot compare there, and the answer
+   * is instead its NEAREST depth anywhere inside the map cell — which is
+   * what closes the seam with no tuned allowance, since two halves of ONE
+   * continuous surface can never beat each other's nearest sample inside a
+   * single map cell while a genuine occluder in front clears it outright.
+   *
+   * The superseded form compared the owner's depth at the map cell against
+   * the detail cell's own depth up to half a map cell away and forgave the
+   * difference up to the map's local depth GRADIENT (a dilated first
+   * difference, scaled by a 1.5 safety factor). Under a pitched camera that
+   * gradient is the VIEW's own depth ramp rather than the surface's
+   * roughness, so it swallowed genuine separations wholesale:
+   * `@glyphcss/maps`' draped `fill` sits 10 m above the terrain and stopped
+   * occluding it entirely the moment the terrain left the base grid (a lake
+   * took 32 of the terrain's cells at density 1.4 and 0 at 1.8, against 81
+   * per base cell with both layers in the base grid).
    */
   depth?: Float64Array | null;
-  gradX?: Float32Array | null;
-  gradY?: Float32Array | null;
 }
 
 /**

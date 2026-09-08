@@ -110,20 +110,6 @@ function projectionMetricsForGrid(
 export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
 
 /**
- * Safety factor on {@link OcclusionMap}'s sub-cell seam allowance. The
- * allowance is a FIRST-ORDER estimate (`|dx|*gradX + |dy|*gradY`) of how much
- * the owner's surface may legitimately have changed between where the id-map
- * was sampled and where the detail cell sits; a curved surface's true change
- * over that distance can exceed the linear one, so the estimate is scaled
- * rather than trusted exactly. `1.5` is the smallest value measured to close
- * `@glyphcss/maps`' globe seam completely at densities 1.4/2/3 while leaving
- * the "a mesh genuinely behind another is still blanked" case untouched.
- * Deliberately a RATIO, not an added constant: a flat bias fails across world
- * scales for the same reason it fails for wireframe `hiddenLines: "hide"`.
- */
-const OCCLUSION_SEAM_SAFETY = 1.5;
-
-/**
  * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
  * into a `cols × rows` buffer and record, per cell, the id of the layer whose
  * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
@@ -2619,19 +2605,92 @@ function rasterizeSolid(
     // `foreignOnly` layer: a foreign stamp carries no local depth to compare
     // against, and the foreign scene is nearer by definition.
     const odepth = !foreignOnly ? occ.depth ?? null : null;
-    const ogradX = odepth !== null ? occ.gradX ?? null : null;
-    const ogradY = odepth !== null ? occ.gradY ?? null : null;
-    const seamRefine = odepth !== null && ogradX !== null && ogradY !== null;
+    const seamRefine = odepth !== null;
+    // The map is a separable affine, so resolve each axis ONCE instead of per
+    // cell (`-1` = this output row/column falls outside the map entirely).
+    const refColOf = new Int32Array(cols);
+    for (let c = 0; c < cols; c++) {
+      const v = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
+      refColOf[c] = v >= 0 && v < ocols ? v : -1;
+    }
+    const refRowOf = new Int32Array(rows);
     for (let r = 0; r < rows; r++) {
-      const refRowF = occ.rowScale * (r * invSS) + occ.rowOffset;
-      const refRow = Math.floor(refRowF);
-      if (refRow < 0 || refRow >= orows) continue;
+      const v = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
+      refRowOf[r] = v >= 0 && v < orows ? v : -1;
+    }
+    // SUB-CELL OWNERSHIP (see `OcclusionMap.depth`): ONE verdict per ID-MAP
+    // cell — `0` not asked, `1` blank, `2` keep — so that every output cell
+    // inside a map cell gets the same answer and a mesh's `density` can no
+    // longer change who occludes whom.
+    //
+    // The verdict compares the owner's retained depth against this pass's own
+    // depth AT THE SAME SCREEN POINT: the output cell covering the map cell's
+    // own sample point. Both rasterizers sample at their cell's integer
+    // `(col, row)` (see `computeOcclusionIds`), so the forward map's `floor`
+    // inverts to a `floor` too — a map cell's sample point sits at
+    // `F(c) - step/2` for the output cell `c` covering it, hence
+    // `floor((ref - offset + step/2) / step)`. For the BASE grid
+    // (`colScale = ss`, `colOffset = 0.5`, `step = 1`) that is the identity
+    // `c = ref`, i.e. the cell's own depth, exactly as before.
+    //
+    // Where this pass does not reach that point it cannot compare there, and
+    // the answer is its NEAREST depth anywhere inside the map cell. That is
+    // the SEAM: two meshes sharing an edge split a map cell between them, so
+    // the loser covers part of it while the map records only the winner, and
+    // blanking on the winner's claim erases cells nothing else paints — a
+    // black line along every shared edge. Taking the nearest is what closes
+    // it without a tuned allowance: two halves of ONE continuous surface can
+    // never beat each other's nearest sample by more than the surface's own
+    // relief inside a single map cell, while a genuine occluder in front
+    // clears it outright.
+    //
+    // Both phases run up front rather than lazily per output cell, because
+    // the loop below CLEARS `depthBuf` as it goes and a blanked cell would
+    // read `-Infinity`.
+    let verdict: Int8Array | null = null;
+    if (seamRefine) {
+      const nearest = new Float64Array(ocols * orows).fill(-Infinity);
+      for (let r = 0; r < rows; r++) {
+        const rr = refRowOf[r]!;
+        if (rr < 0) continue;
+        const rowBase = r * cols, mapBase = rr * ocols;
+        for (let c = 0; c < cols; c++) {
+          const rc = refColOf[c]!;
+          if (rc < 0) continue;
+          const d = depthBuf[rowBase + c]!;
+          if (d > nearest[mapBase + rc]!) nearest[mapBase + rc] = d;
+        }
+      }
+      verdict = new Int8Array(ocols * orows);
+      const stepC = occ.colScale * invSS, stepR = occ.rowScale * invSS;
+      const invStepC = stepC !== 0 ? 1 / stepC : 0, invStepR = stepR !== 0 ? 1 / stepR : 0;
+      const baseC = stepC / 2 - occ.colOffset, baseR = stepR / 2 - occ.rowOffset;
+      for (let rr = 0; rr < orows; rr++) {
+        const mr = Math.floor((rr + baseR) * invStepR);
+        const rowOk = mr >= 0 && mr < rows;
+        const mrBase = mr * cols, mapBase = rr * ocols;
+        for (let rc = 0; rc < ocols; rc++) {
+          const ref = mapBase + rc;
+          const owner = idm[ref]!;
+          // Only a cell some other LOCAL layer owns can blank anything here.
+          // A foreign stamp overwrites the owner but not the depth under it,
+          // so it is never refined (see the call site).
+          if (owner === -1 || owner === myId || owner === GLYPH_FOREIGN_OCCLUDER_ID) continue;
+          let mine = -Infinity;
+          if (rowOk) {
+            const mc = Math.floor((rc + baseC) * invStepC);
+            if (mc >= 0 && mc < cols) mine = depthBuf[mrBase + mc]!;
+          }
+          if (mine === -Infinity) mine = nearest[ref]!;
+          verdict[ref] = mine !== -Infinity && odepth![ref]! > mine ? 1 : 2;
+        }
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      const refRow = refRowOf[r]!;
+      if (refRow < 0) continue;
       const refRowBase = refRow * ocols;
       const rowBase = r * cols;
-      // Offset of this row's cell centres from the id-map cell's own centre,
-      // in id-map cells: exactly how far the sample point is from where the
-      // depth it returns was actually measured.
-      const dy = seamRefine ? Math.abs(refRowF - (refRow + 0.5)) : 0;
       for (let c = 0; c < cols; c++) {
         const idx = rowBase + c;
         const myDepth = depthBuf[idx]!;
@@ -2642,9 +2701,8 @@ function rasterizeSolid(
         // layer covers is still that layer's). Without the buffer this is the
         // original fast path, unchanged.
         if (myDepth === -Infinity && occludedBuf === null) continue;
-        const refColF = occ.colScale * (c * invSS) + occ.colOffset;
-        const refCol = Math.floor(refColF);
-        if (refCol < 0 || refCol >= ocols) continue;
+        const refCol = refColOf[c]!;
+        if (refCol < 0) continue;
         const ref = refRowBase + refCol;
         const owner = idm[ref]!;
         // A different layer is nearest here → this cell is occluded. Owner === myId
@@ -2660,16 +2718,7 @@ function rasterizeSolid(
           // to whatever local surface won the cell — and a scene stacked above
           // this one is nearer by definition. Refining against it would
           // compare a layer to itself and never blank.
-          if (seamRefine && owner !== GLYPH_FOREIGN_OCCLUDER_ID) {
-            const ownerDepth = odepth![ref]!;
-            const dx = Math.abs(refColF - (refCol + 0.5));
-            const allowed = (dx * ogradX![ref]! + dy * ogradY![ref]!) * OCCLUSION_SEAM_SAFETY;
-            // Within what the owner's own surface could legitimately vary
-            // across the sub-cell distance between the sample point and this
-            // cell → the two surfaces are effectively coincident here, and
-            // blanking would open a seam nothing else paints.
-            if (!(ownerDepth > myDepth + allowed)) continue;
-          }
+          if (seamRefine && owner !== GLYPH_FOREIGN_OCCLUDER_ID && verdict![ref] !== 1) continue;
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
           if (occludedBuf) occludedBuf[idx] = 1;

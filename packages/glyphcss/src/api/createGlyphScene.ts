@@ -643,9 +643,8 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
 
 /**
  * The shared cross-layer occlusion id-map for one render, plus the base cell
- * metrics every consumer of it needs. `depth`/`gradX`/`gradY` are the
- * sub-cell seam refinement (see {@link OcclusionMap.depth}) and are present
- * together or not at all.
+ * metrics every consumer of it needs. `depth` is the sub-cell ownership
+ * refinement's own input (see {@link OcclusionMap.depth}).
  */
 interface OcclusionShared {
   idMap: Int32Array;
@@ -656,77 +655,6 @@ interface OcclusionShared {
   chB: number;
   foreign?: boolean;
   depth?: Float64Array;
-  gradX?: Float32Array;
-  gradY?: Float32Array;
-}
-
-/**
- * Per-id-map-cell local depth variation: for each cell, the largest absolute
- * depth difference to a finite horizontal (`gradX`) / vertical (`gradY`)
- * neighbour — i.e. how much the surface the map recorded may legitimately
- * change across ONE map cell right there.
- *
- * Non-finite neighbours are skipped rather than treated as a discontinuity: an
- * empty cell next to a covered one is a silhouette edge, not a depth slope,
- * and folding `-Infinity` in would produce an infinite allowance that disables
- * blanking along every silhouette.
- *
- * Computed once per render over the id-map (base grid sized — thousands of
- * cells), never per detail cell (potentially hundreds of thousands), so the
- * refinement costs one small pass plus one comparison per already-visited
- * detail cell.
- */
-function occlusionDepthSlack(depth: Float64Array, cols: number, rows: number): { depth: Float64Array; gradX: Float32Array; gradY: Float32Array } {
-  const gradX = new Float32Array(cols * rows);
-  const gradY = new Float32Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    const base = r * cols;
-    for (let c = 0; c < cols; c++) {
-      const i = base + c;
-      const d = depth[i]!;
-      if (!isFinite(d)) continue;
-      let gx = 0, gy = 0;
-      if (c > 0) { const n = depth[i - 1]!; if (isFinite(n)) gx = Math.max(gx, Math.abs(n - d)); }
-      if (c + 1 < cols) { const n = depth[i + 1]!; if (isFinite(n)) gx = Math.max(gx, Math.abs(n - d)); }
-      if (r > 0) { const n = depth[i - cols]!; if (isFinite(n)) gy = Math.max(gy, Math.abs(n - d)); }
-      if (r + 1 < rows) { const n = depth[i + cols]!; if (isFinite(n)) gy = Math.max(gy, Math.abs(n - d)); }
-      gradX[i] = gx;
-      gradY[i] = gy;
-    }
-  }
-  // DILATE by a 3x3 max. A one-cell difference is the surface's AVERAGE slope
-  // across that cell, and on a curved surface the slope at the far side of the
-  // cell — which is where a detail cell sitting at the cell's edge actually
-  // samples — is steeper than that average. Taking the largest slope in the
-  // immediate neighbourhood bounds it instead of averaging it away. Measured on
-  // the globe fixture: the centre-cell estimate leaves ~15-20% of interior tile
-  // boundary points still blanked, the dilated one converges to the floor that
-  // no amount of allowance can reach (per-mesh silhouette coverage, not
-  // occlusion) — without inflating the safety factor, which would have bought
-  // the same thing by weakening genuine occlusion everywhere.
-  const dx = new Float32Array(gradX), dy = new Float32Array(gradY);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const i = r * cols + c;
-      if (!isFinite(depth[i]!)) continue;
-      let mx = dx[i]!, my = dy[i]!;
-      for (let n = -1; n <= 1; n++) {
-        const rr = r + n;
-        if (rr < 0 || rr >= rows) continue;
-        for (let m = -1; m <= 1; m++) {
-          const cc = c + m;
-          if (cc < 0 || cc >= cols) continue;
-          const j = rr * cols + cc;
-          if (!isFinite(depth[j]!)) continue;
-          if (dx[j]! > mx) mx = dx[j]!;
-          if (dy[j]! > my) my = dy[j]!;
-        }
-      }
-      gradX[i] = mx;
-      gradY[i] = my;
-    }
-  }
-  return { depth, gradX, gradY };
 }
 
 export function createGlyphScene(
@@ -1480,7 +1408,7 @@ export function createGlyphScene(
         const oCols = options.cols * ss, oRows = options.rows * ss;
         const depth = idClaimOverride || opaqueDetails.length === 0 ? null : new Float64Array(oCols * oRows);
         const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, resolvedTextureSamplers(), depth);
-        occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth ? occlusionDepthSlack(depth, oCols, oRows) : null) };
+        occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth ? { depth } : null) };
       }
     }
     // FOREIGN OCCLUSION (cross-scene): stamp every cell covered by the foreign
@@ -1611,7 +1539,7 @@ export function createGlyphScene(
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
-      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5, depth: occShared.depth, gradX: occShared.gradX, gradY: occShared.gradY }
+      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5, depth: occShared.depth }
       : null;
     // Hoisted so the effects metadata and the plain-hook layer tag can never
     // drift apart — both describe the SAME identity affine for the base grid.
@@ -2474,7 +2402,7 @@ export function createGlyphScene(
               idMap: occShared.idMap, layerId: group.id, cols: occShared.cols, rows: occShared.rows,
               colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
               rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
-              depth: occShared.depth, gradX: occShared.gradX, gradY: occShared.gradY,
+              depth: occShared.depth,
             }
           // A `transparent` detail mesh keeps ignoring every LOCAL layer, but a
           // foreign occluder (another scene stacked above) still covers it:
