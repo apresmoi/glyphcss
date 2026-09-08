@@ -1264,6 +1264,37 @@ button, in the same corner, showing whichever of heading and pitch is off home
 resetting both in one click — which is what a map compass has always done, and
 is why this is not a second button beside the first.
 
+**The Dock's own per-axis resets.** The compass is the DISCOVERABLE reset and
+resets both angles together; the reader also asked for the per-axis pair in the
+place the two sliders live, so the View folder carries `Reset tilt` and `Reset
+bearing` as lil-gui BUTTON ROWS — the Dock's existing reset idiom
+(`Dock/folders/useCameraFolder.ts`'s `Reset camera`), not a new control style.
+An inline button beside each slider was the other candidate and lost on
+geometry: a number row is `.name` at 45% plus a widget ending in a 45..70px
+value box (`maps-workbench.rowWidths.test.ts` pins exactly that), so an inline
+affordance would buy itself out of the slider TRACK, the part of the row a
+reader drags. The two rows sit AFTER `Bearing °`, in slider order, rather than
+one under each slider, because `Tilt °` and `Bearing °` are the two halves of
+one gesture and nothing may be inserted between them. Both write through the
+folder's own `onTilt`/`onBearing` — the callbacks the sliders drive, which
+`MapsWorkbench` wires to `map.setTilt`/`map.setBearing` — so the tilt ceiling,
+the `[0, 360)` bearing normalization, the single motion loop and the URL write
+all still happen; nothing here touches page state directly. Home is
+`mapTiltResetValue`/`MAP_BEARING_HOME`, the same pair the compass uses, so the
+tilt reset is 0 on an ORBIT projection and `MAP_TILT_SHEET_HOME` (40) on a
+SHEET — a button that wrote 0 to both would flatten a sheet into a plan view
+and call it a reset. Each row is DISABLED at its own home
+(`mapTiltIsLevel`/`mapBearingIsNorth`, the compass's epsilons), which lil-gui
+renders as the real `disabled` attribute on the row's button plus its dimmed
+`.disabled` class, so the pair doubles as the indicator that a pitch or a
+heading is in force. One asymmetry worth stating rather than hiding: a bearing
+reset leaves the LINK untouched (`b`'s default is 0, so the codec omits it) and
+so does a SHEET tilt reset (`t`'s default is 40), but an ORBIT tilt reset ADDS
+`t` to the link — `MAPS_URL_DEFAULTS.tilt` is one number, 40, while home is
+projection-dependent. That is correct, not a defect: a head-on globe is not the
+map the default describes, so the link has to say so. Gate:
+`mapsKit.viewReset.test.tsx`.
+
 **`cameraForCenter` is a 2-to-1 inverse, and the widget remembers which
 preimage it is on.** `centerForCamera`'s parametrization
 `n = (sinRotX·cosRotY, sinRotX·sinRotY, cosRotX)` maps `(rotX, rotY)` and

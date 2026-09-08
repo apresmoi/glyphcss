@@ -33,8 +33,15 @@ import {
 } from "@glyphcss/maps";
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
-import { useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
-import { MAP_BEARING_SLIDER_RANGE, mapTiltSliderRange } from "./mapsView";
+import { useButton, useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
+import {
+  MAP_BEARING_HOME,
+  MAP_BEARING_SLIDER_RANGE,
+  mapBearingIsNorth,
+  mapTiltIsLevel,
+  mapTiltResetValue,
+  mapTiltSliderRange,
+} from "./mapsView";
 // One-way: `mapsOsm.ts` imports `@glyphcss/maps` and nothing from this file,
 // so the OSM card can read its own cost rule from the same place the page's
 // mount path does rather than restating it.
@@ -2096,7 +2103,74 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
       "Compass heading at the top of the map. 0° = north up, 90° = east up. Ctrl+drag or right-drag sideways to turn.",
     );
   }, [bearingCtrl]);
+  useTiltAndBearingResets(folder, { tilt, bearing, isOrbitProjection, onTilt, onBearing });
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
+}
+
+/**
+ * The "Reset tilt" / "Reset bearing" rows.
+ *
+ * Asked for by name ("can we add some 'reset' buttons on the VIEW section
+ * ... maybe we could have a reset for the tilt and bearing"), and built as
+ * lil-gui BUTTON ROWS because that is this Dock's own existing reset idiom —
+ * `Dock/folders/useCameraFolder.ts`'s "Reset camera" is the same control in
+ * the same shell. A small inline button beside each slider was the other
+ * candidate and was rejected on geometry, not taste: a number row is
+ * `.name` at 45% plus a widget that already ends in a 45..70px value box
+ * (`maps-workbench.rowWidths.test.ts` pins exactly that), so an inline
+ * affordance buys itself out of the slider TRACK, which is the part of the
+ * row a reader actually drags.
+ *
+ * They sit AFTER Bearing rather than one under each slider, because Tilt and
+ * Bearing are the two halves of one gesture and must stay adjacent
+ * (`useViewFolder` above). Same order as the sliders, so the pairing is
+ * readable by position.
+ *
+ * Both write through the folder's OWN `onTilt`/`onBearing` — the callbacks
+ * the sliders drive, which `MapsWorkbench` wires to `map.setTilt` /
+ * `map.setBearing`. Nothing here writes page state directly: the tilt
+ * ceiling, the `[0, 360)` bearing normalization, the widget's single motion
+ * loop and the URL write all live behind those two setters.
+ *
+ * DISABLED at home, which lil-gui renders as the real `disabled` attribute on
+ * the row's own button plus its dimmed `.disabled` class — a reset that would
+ * do nothing should look like it, and here it is also the INDICATOR that a
+ * pitch or a heading is in force at all (the same job the on-map
+ * `MapCompass` does, which resets both angles at once and is the
+ * discoverable half of this pair).
+ */
+function useTiltAndBearingResets(folder: GUI | null, inputs: {
+  tilt: number;
+  bearing: number;
+  isOrbitProjection: boolean;
+  onTilt: (tilt: number) => void;
+  onBearing: (bearing: number) => void;
+}): void {
+  const { tilt, bearing, isOrbitProjection, onTilt, onBearing } = inputs;
+  // Home is NOT zero for both families: an orbit `tilt` is a signed offset on
+  // top of `cameraForCenter` so 0 is the head-on globe, while a sheet's IS
+  // `camera.rotX` so 0 is a plan view looking straight down — a different map
+  // from the one the page opens at. See `mapTiltResetValue`.
+  const tiltHome = mapTiltResetValue(isOrbitProjection);
+  const tiltReset = useButton(folder, "Reset tilt", () => onTilt(tiltHome));
+  useEffect(() => {
+    tiltReset?.setEnabled(!mapTiltIsLevel(tilt, isOrbitProjection));
+    (tiltReset?.raw.domElement as HTMLElement | undefined)?.setAttribute(
+      "title",
+      `Put the pitch back to ${tiltHome}° — ${isOrbitProjection
+        ? "the globe seen head-on, this projection's own base orientation"
+        : "the isometric pitch this page opens at; 0° would be a plan view looking straight down"}.`,
+    );
+  }, [tiltReset, tilt, isOrbitProjection, tiltHome]);
+
+  const bearingReset = useButton(folder, "Reset bearing", () => onBearing(MAP_BEARING_HOME));
+  useEffect(() => {
+    bearingReset?.setEnabled(!mapBearingIsNorth(bearing));
+    (bearingReset?.raw.domElement as HTMLElement | undefined)?.setAttribute(
+      "title",
+      "Face the map north-up again. A compass has one home on either projection.",
+    );
+  }, [bearingReset, bearing]);
 }
 
 // ── Code panel — reuses `GalleryWorkbench/CodePanel`'s shell (tabs, copy,
