@@ -42,6 +42,7 @@ function inputs(contour: Partial<LayersFolderInputs["contour"]>): LayersFolderIn
       glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop,
       exaggeration: 24, onExaggeration: noop,
       sampler: null,
+      minElevation: null, onMinElevation: () => {}, maxElevation: null, onMaxElevation: () => {},
       density: 1, onDensity: noop,
     },
     borders: { visible: true, onVisible: noop, color: "#e8c988", onColor: noop, simplify: null, density: 1, onDensity: noop },

@@ -945,6 +945,15 @@ export interface TerrainLayerInputs {
   exaggeration: number; onExaggeration: (v: number) => void;
   /** ETOPO1 tile pyramid's own sampling provenance (e.g. `"nearest"`) — `null` before the provider loads. */
   sampler: string | null;
+  /**
+   * The terrain's own elevation WINDOW in metres, `null` at either end for
+   * unbounded — `GlyphMapRasterLayer.minElevation`/`maxElevation`. Terrain
+   * outside it is held AT the window edge, so a floor of 0 draws the land and
+   * replaces the seabed with a smooth plane at sea level. Same two numbers,
+   * same units and the same control as the Contour card's own window.
+   */
+  minElevation: number | null; onMinElevation: (v: number | null) => void;
+  maxElevation: number | null; onMaxElevation: (v: number | null) => void;
   density: number; onDensity: (v: number) => void;
 }
 
@@ -989,18 +998,18 @@ export interface ContourLayerInputs {
   density: number; onDensity: (v: number) => void;
 }
 
-/** Slider granularity for the contour window, in metres — fine enough to place a coastline or a treeline exactly, coarse enough that the whole ETOPO1 envelope is a few hundred steps. */
-export const CONTOUR_WINDOW_STEP = 50;
-const CONTOUR_WINDOW_FALLBACK = { min: -11000, max: 9000 } as const;
+/** Slider granularity for an elevation window (the Contour card's floor/ceiling and the Terrain card's), in metres — fine enough to place a coastline or a treeline exactly, coarse enough that the whole ETOPO1 envelope is a few hundred steps. */
+export const ELEVATION_WINDOW_STEP = 50;
+const ELEVATION_WINDOW_FALLBACK = { min: -11000, max: 9000 } as const;
 
-/** Rounded-out slider bounds for the contour window, widened to contain whatever the current values are so a handle is never off its own track (a user who set a floor of 0 and then zoomed into a wholly-submarine view keeps a reachable handle). Falls back to the ETOPO1 envelope before a field resolves. */
-export function contourWindowTrack(
+/** Rounded-out slider bounds for an elevation window, widened to contain whatever the current values are so a handle is never off its own track (a user who set a floor of 0 and then zoomed into a wholly-submarine view keeps a reachable handle). Falls back to the ETOPO1 envelope before a field resolves. */
+export function elevationWindowTrack(
   fieldRange: { readonly min: number; readonly max: number } | null,
   values: readonly (number | null)[],
 ): { readonly min: number; readonly max: number } {
-  const step = CONTOUR_WINDOW_STEP;
-  const lo = fieldRange ? Math.floor(fieldRange.min / step) * step : CONTOUR_WINDOW_FALLBACK.min;
-  const hi = fieldRange ? Math.ceil(fieldRange.max / step) * step : CONTOUR_WINDOW_FALLBACK.max;
+  const step = ELEVATION_WINDOW_STEP;
+  const lo = fieldRange ? Math.floor(fieldRange.min / step) * step : ELEVATION_WINDOW_FALLBACK.min;
+  const hi = fieldRange ? Math.ceil(fieldRange.max / step) * step : ELEVATION_WINDOW_FALLBACK.max;
   const present = values.filter((v): v is number => v !== null);
   const min = Math.min(lo, ...present);
   const max = Math.max(hi, ...present);
@@ -1022,6 +1031,23 @@ export function contourWindowTrack(
  * passed as a sentinel, when unset — so an untouched control mounts exactly
  * the layer this page mounted before that control existed.
  */
+/**
+ * The TERRAIN layer's elevation-window options, as `addLayer` takes them.
+ * Extracted for the same reason `buildContourLayerMountOptions` is: each end
+ * is OMITTED, never passed as a sentinel, when unset — so an untouched
+ * control mounts exactly the layer this page mounted before the control
+ * existed, which is the byte-identity `@glyphcss/maps` gates on its side.
+ */
+export function terrainWindowOptions(
+  minElevation: number | null,
+  maxElevation: number | null,
+): { minElevation?: number; maxElevation?: number } {
+  return {
+    ...(minElevation === null ? {} : { minElevation }),
+    ...(maxElevation === null ? {} : { maxElevation }),
+  };
+}
+
 export function buildContourLayerMountOptions(opts: {
   interval: number;
   color: string;
@@ -1061,8 +1087,8 @@ export function buildContourLayerMountOptions(opts: {
  *   reverts to what was there.
  *
  * A typed value is CLAMPED to the ETOPO envelope
- * ({@link CONTOUR_WINDOW_FALLBACK}) rather than to the slider's current
- * track, and the track then WIDENS to contain it ({@link contourWindowTrack}
+ * ({@link ELEVATION_WINDOW_FALLBACK}) rather than to the slider's current
+ * track, and the track then WIDENS to contain it ({@link elevationWindowTrack}
  * already folds the live values into its own bounds, so a handle is never
  * stranded). Clamping to the track instead would make a legitimate elevation
  * unreachable purely because the current view doesn't happen to hold it. The
@@ -1071,12 +1097,12 @@ export function buildContourLayerMountOptions(opts: {
  * persists as — a typed value colliding with it would round-trip through a
  * shared link as "off".
  */
-export function parseContourWindowEnd(raw: string): { readonly value: number | null } | null {
+export function parseElevationWindowEnd(raw: string): { readonly value: number | null } | null {
   const text = raw.trim();
   if (text === "" || text.toLowerCase() === "off") return { value: null };
   const n = Number.parseFloat(text);
   if (!Number.isFinite(n)) return null;
-  return { value: Math.min(CONTOUR_WINDOW_FALLBACK.max, Math.max(CONTOUR_WINDOW_FALLBACK.min, n)) };
+  return { value: Math.min(ELEVATION_WINDOW_FALLBACK.max, Math.max(ELEVATION_WINDOW_FALLBACK.min, n)) };
 }
 
 /**
@@ -1087,13 +1113,19 @@ export function parseContourWindowEnd(raw: string): { readonly value: number | n
  * view's terrain changes, and "no floor" must not silently become "a floor
  * at whatever the deepest visible cell was".
  *
- * The readout is editable ({@link parseContourWindowEnd}) because that
+ * The readout is editable ({@link parseElevationWindowEnd}) because that
  * sentinel makes the DRAG unable to express one of the values a reader most
  * wants: a floor of exactly 0 m is only reachable by dragging when the view's
  * own data range happens to straddle sea level on a 50 m detent. Typing does
  * not snap to that 50 m step either — the URL persists this window at 10 m.
  */
-function ContourWindowRow({ end, value, onChange, track, title }: {
+/**
+ * One end of an elevation window: a slider whose far end IS "off", plus an
+ * editable readout that prints and accepts `off`. Shared by the Contour
+ * card's floor/ceiling and the Terrain card's — the same two numbers in the
+ * same units, so they get the same control rather than two lookalikes.
+ */
+function ElevationWindowRow({ end, value, onChange, track, title }: {
   end: "floor" | "ceiling";
   value: number | null;
   onChange: (v: number | null) => void;
@@ -1110,7 +1142,7 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
           type="range"
           min={track.min}
           max={track.max}
-          step={CONTOUR_WINDOW_STEP}
+          step={ELEVATION_WINDOW_STEP}
           value={shown}
           style={densityFill(shown, track.min, track.max)}
           onChange={(e) => {
@@ -1122,7 +1154,7 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
       <MapsReadout
         value={value}
         format={(v) => (v === null ? "off" : `${v}m`)}
-        parse={parseContourWindowEnd}
+        parse={parseElevationWindowEnd}
         onCommit={onChange}
         title={`Type an elevation in metres — 0 is sea level. Empty, or "off", for no ${end}.`}
       />
@@ -1437,6 +1469,20 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             title="Type a multiplier between 1 and 60."
           />
         </label>
+        <ElevationWindowRow
+          end="floor"
+          value={terrain.minElevation}
+          onChange={terrain.onMinElevation}
+          track={elevationWindowTrack(null, [terrain.minElevation, terrain.maxElevation])}
+          title="Floor — lowest elevation the terrain SHAPE is drawn at. Terrain below it is held at the floor rather than dropped, so a floor of 0m draws the land and replaces the seabed with a smooth plane at sea level. Colours are untouched: the sea keeps its own band, it just loses its relief. Drag to the far left for no floor."
+        />
+        <ElevationWindowRow
+          end="ceiling"
+          value={terrain.maxElevation}
+          onChange={terrain.onMaxElevation}
+          track={elevationWindowTrack(null, [terrain.minElevation, terrain.maxElevation])}
+          title="Ceiling — highest elevation the terrain SHAPE is drawn at. A ceiling of 0m flattens the land and leaves the bathymetry; floor 0 with ceiling 2000 flattens everything outside the foothills. Drag to the far right for no ceiling."
+        />
         {terrain.sampler !== null && <InfoRow label="sampler" value={terrain.sampler} />}
         <DensityRow label="Terrain" density={terrain.density} onDensity={terrain.onDensity} enabled={true} />
       </LayerCard>
@@ -1460,18 +1506,18 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             title="Type a spacing in metres between 100 and 2000. Not snapped to the slider's 100 m detents."
           />
         </label>
-        <ContourWindowRow
+        <ElevationWindowRow
           end="floor"
           value={contour.minElevation}
           onChange={contour.onMinElevation}
-          track={contourWindowTrack(contour.fieldRange, [contour.minElevation, contour.maxElevation])}
+          track={elevationWindowTrack(contour.fieldRange, [contour.minElevation, contour.maxElevation])}
           title="Floor — lowest elevation contoured. Levels are both CHOSEN inside the window and CLIPPED to it, so a floor of 0m spends every line on land instead of the abyssal plains. Drag to the far left for no floor."
         />
-        <ContourWindowRow
+        <ElevationWindowRow
           end="ceiling"
           value={contour.maxElevation}
           onChange={contour.onMaxElevation}
-          track={contourWindowTrack(contour.fieldRange, [contour.minElevation, contour.maxElevation])}
+          track={elevationWindowTrack(contour.fieldRange, [contour.minElevation, contour.maxElevation])}
           title="Ceiling — highest elevation contoured. A ceiling of 0m gives bathymetry alone; floor 0 with ceiling 2000 gives the foothills. Drag to the far right for no ceiling."
         />
         <InfoRow label="lines" value={contour.lineCount === null ? "—" : String(contour.lineCount)} />

@@ -5675,3 +5675,80 @@ Mutation checks, verbatim:
 ### Found alongside, not fixed here
 
 The RASTER runtime's own sweep has the identical fragility: with two of its tile loads rejecting, the harness rendered **0 inked cells** — one rejection took down the whole mount, not just the tiles that failed. That is a bigger blast radius than the contour's and it is a separate change to a different runtime, so it is reported rather than folded into this hunk.
+
+---
+
+## The terrain's own elevation window: why it clamps where everything else crops
+
+Asked for as "a floor, so we decide if we want to render the sea level terrain (negative), like we do with the contour". `GlyphMapRasterLayer.minElevation`/`maxElevation`, metres, either end omitted and byte-identical there — the same two numbers as `GlyphMapContourLayer`'s window, on the layer that draws the surface rather than the layer that draws lines on it.
+
+### The question the contour's window does not have to answer
+
+A contour simply draws no line outside its window. Terrain is a SURFACE, so "outside the window" has to mean one of two things, and both were built and rendered on the real ETOPO1 pyramid through `createGlyphMap` before choosing.
+
+**CROP** — do not emit the out-of-window quads. It is this package's own stated principle ("crop, don't clamp", `:83`), and for ONE tier it is exact. Rendering the target LOD alone with a floor of 0 left precisely the cells the unwindowed render painted in a land band and removed precisely the ones it painted as water: 150 of 1,752 sea cells over the Mediterranean at span 40 either way, 13 of 2,932 over the Peru–Chile trench at span 33. That exactness is not luck — the crop tested the same representative elevation `colorSample` hands `color`, so a quad was dropped exactly when it would have been painted in an out-of-window band.
+
+It is not exact for the tier LADDER, and cannot be made so. A raster layer mounts three tiers at once, each resolving the window against its OWN quad grid, so their coastlines disagree by up to a coarse quad — and a dropped quad is a HOLE, which the backstop underneath simply fills, in the colour of an 11-degree quad that is mostly land. Measured with all three tiers up, the same cropped floor of 0 painted **641** of those 1,752 sea cells in a land band against the target tier's own 150, and **344** of 2,932 against 13. That is "the sea is basically GREEN" (`:210`) reintroduced at the magnitude it was first reported at (486 of 4,462), and `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M` cannot answer it: the sink ORDERS two surfaces where both exist and says nothing about what shows through a gap in one. Cropping also ate coastline — **200** land cells went blank, each a quad whose statistic fell below the floor taking its land half with it.
+
+**CLAMP** — hold the out-of-window vertices at the window edge. It is what shipped. It has no hole, so none of the above arises, and the tier agreement is EXACT rather than merely ordered: wherever every sample a tier covers is below the floor, every tier's surface is the same constant plane at that floor, so no coarse chord can rise above a finer one. Measured, a clamped floor of 0 left the ladder's colour statistics untouched — 165 and 17 land-banded sea cells, exactly the unwindowed render's own, with no land cell lost.
+
+### It is not a no-op, it just is not a COLOUR change
+
+The clamp moves nothing in the colour channel and everything in the glyph channel, which is why the first audit almost dismissed it. At a world view the ocean goes from noise to a smooth Lambert ramp — 8.2% of glyphs change at tilt 0 and 14.3% under a 60-degree tilt. That is the whole point: at `exaggeration: 24` a 6,000 m basin is a 144 km pit and ETOPO1's deepest is 261 km, and that relief renders as speckle across every sea cell. Flooring at 0 is the difference between a globe and a globe with pits in it.
+
+### Where the window is applied, and where it is not
+
+**POSITION only.** A quad's colour still reads the terrain's own unwindowed statistic, exactly as `elevationBias` already does — a windowed mesh is the same map at a different shape, never a differently-classified one. Clamping the colour too would hand an elevation-band classifier the floor value for every sea quad on Earth, and `GlyphMapClassifiers.etopo1V1`'s first break is 0, so a floor of 0 would paint every ocean in the lowest LAND colour: the sea-painted-as-land defect `colorSample: "median"` exists to prevent, this time by construction rather than by accident.
+
+**Per VERTEX**, which is the answer to "median, corners, or vertices". There is no quad-level accept/reject decision, so `colorSample` never enters it. It is also what makes a partially-submerged quad right: its land corners keep their heights while its sea corners sit on the plane, so the coast still slopes into the water instead of stepping. Clamping by a quad's median would move all four corners together and flatten real coastal relief a whole quad at a time (gated: of the coastal quads in the trench fixture, not one comes out flat).
+
+**Every tier**, through `mountTile` — one resolved window object spread into every `glyphMapPolygons` call. Observable only where a tier is itself the visible surface, i.e. at the span where the floor IS the target LOD and takes no sink; everywhere else an unwindowed backstop is hidden behind a closed windowed surface, which is the clamp's own safety property. Gated there: 135 changed cells with the floor windowed, exactly 0 with it left out.
+
+**`groundElevationSampler`**, because it reports the ground things are PLANTED on and the window moves where that ground is drawn. A road draped at the seabed's own -4,000 m under a floored terrain would sit ~96 km of world below the plane the sea is now drawn at — the same parting-company-with-the-ground the stroke drape exists to prevent (`:1640`), caused by the window instead of by the datum. Mutating the clamp out does not merely displace the stroke, it DELETES it: the gate goes from a stroke on the floor's own row to zero inked cells, buried under the surface it is meant to lie on.
+
+**Not a `contour`.** It marches the mounted mosaic's own vertex GRIDS rather than reading the drawn surface, and it carries its own `minElevation`/`maxElevation` for the same job. Coupling them would let one layer's option silently reach into another's. The consequence is real and documented rather than hidden: a contour below the terrain's floor is buried under the flattened surface, and the fix is to set the contour's own floor to match.
+
+### What it does to the ocean fill, and what that turned out to be
+
+A `"flat"`-draped ocean (`685dcd3`) and a terrain floored at 0 both describe the sea's surface at the datum. The composition is stable — identical frame render to render, one contiguous surface, nothing blank — but ownership flips completely. Measured at span 33, 140x63:
+
+| terrain floor | ocean-fill cells | terrain-water cells |
+|---|---|---|
+| none (seabed at -6,000 m) | 8,820 | 0 |
+| 0 m | 0 | 8,820 |
+| -20 m | 1 | 8,819 |
+| -100 m | 38 | 8,782 |
+| -400 m | 728 | 8,092 |
+| -1,500 m | 8,820 | 0 |
+
+It happens at a floor of -1 m too, so it is NOT a coplanar depth tie. It is the FILL's own tessellation: `glyphMapVectorMesh` refines a ring until the projection is locally affine, and the resulting chords sag INSIDE the sphere while the relief mesh's much finer quads sit close to it; the ~1,500 m crossover is that sagitta. The ocean fill only ever won these cells because the unfloored seabed sat 144 km of world beneath it. Raising the terrain to the datum uncovers a property the fill has always had.
+
+Left as it is rather than tuned. `685dcd3` settled with its own measurements that a `"flat"`-draped ocean takes NO `GLYPH_MAP_FILL_DRAPE_LIFT_M`, and re-opening that on the strength of a different feature's fixture would be exactly the "shift the bug one layer down" move. The picture is coherent either way — one smooth sea at the datum, in the terrain palette's own sea band — so the ocean fill becomes redundant under a floored terrain rather than broken by it.
+
+### What was rejected
+
+- **An option to choose crop or clamp.** The measurements do not leave two usable behaviours: crop is unusable with the tier ladder that ships. An option here would be a way of not deciding.
+- **Cropping only the target tier, or suppressing backstops under a window.** It trades a documented artefact for a blank hole during every pan, which is the thing the tier ladder exists to prevent.
+- **A resolution-independent crop rule** ("drop only where every covered sample is out of window"). It makes the coarse tier's kept set a superset of the fine tier's only approximately — different pyramid levels hold differently decimated data — and at the floor's 11-degree quads it eats essentially every coastal quad on Earth.
+- **Clamping the colour with the position.** Paints every ocean in the lowest land colour; see above.
+
+### Cost
+
+Free, and slightly negative. Mesh build on a real z4 tile (180x90 = 16,200 quads): **4.57 ms unwindowed, 4.39 ms floored** — two `Math.min`/`Math.max` per vertex against a projection. Render at the Peru–Chile coastal view, span 33, 140x63: **18.72 ms unwindowed, 17.24 ms floored**. Both differences are at or inside noise, and what direction there is, is self-funding in the way the headlight record already describes: a flat sea gives longer same-colour runs, so the commit write is cheaper.
+
+### The page control
+
+The Terrain card gets `floor` and `ceiling` rows — the SAME `ElevationWindowRow` the Contour card uses (renamed from `ContourWindowRow`, with `contourWindowTrack`/`CONTOUR_WINDOW_STEP`/`parseContourWindowEnd` renamed alongside it), because they are the same two numbers in the same units and a lookalike would be worse than a reuse. The terrain track runs over the ETOPO1 envelope (`elevationWindowTrack(null, …)`) rather than a live field range: the raster layer has no `getContourFieldRange` equivalent, and the envelope IS its range. URL: `f`/`o` appended LAST to the v3 schema, `step: 10` (finer than the control's own 50 m, so a typed value survives), `MAPS_TERRAIN_WINDOW_OFF` (±32,000) as both the unbounded sentinel and the default, so an untouched window costs zero characters. Its own constant rather than a reuse of `MAPS_CONTOUR_WINDOW_OFF` — two independent wire fields, and a retune of one must not silently move the other. Pinned against a real already-shared link (the Aegean framing from the ocean-drape record above), which still decodes field for field and re-encodes byte for byte.
+
+### Gates
+
+`mesh.elevationWindow.test.ts` (a vendored real 45x30 ETOPO1 slice of the trench-and-cordillera, 1,004 of 1,350 samples below sea level), `widget.reliefWindow.test.ts` (the tier ladder, on `widget.backstopOcclusion.test.ts`' own step-continent pyramid), `widget.reliefWindowGround.test.ts`, `widget.reliefWindowOcean.test.ts`, `mapsUrlState.terrainWindow.test.ts`, `LayersPanel.terrainWindow.test.tsx`.
+
+Mutation checks, each restored from a `cp` backup afterwards:
+
+1. `projectVertex` stops clamping → 7 red across the mesh and widget suites.
+2. `groundElevationAt`'s `clampToWindow` becomes the identity → the draped stroke is not displaced but DELETED (`expected 0 to be greater than 0`).
+3. `mountTile` stops forwarding the window → 2 red.
+4. Only the `"fine"` tier is windowed → the floor-tier gate goes red (`expected 0 to be greater than 50`). This one was written twice: the first version of that test stayed GREEN under this mutation, because a clamp hides tier disagreement behind its own closed surface. The gate now targets the one span where the floor is the visible surface.
+5. `terrainWindowOptions` passes the sentinel instead of omitting → 2 red.
+6. The `f`/`o` tokens are inserted before an existing token → the ordering gate goes red.

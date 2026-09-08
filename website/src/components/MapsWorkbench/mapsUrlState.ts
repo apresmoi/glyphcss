@@ -67,6 +67,22 @@ export interface MapsUrlState {
    */
   contourFloor: number;
   contourCeiling: number;
+  /**
+   * The TERRAIN layer's own elevation WINDOW in metres
+   * (`GlyphMapRasterLayer.minElevation`/`maxElevation`) — a different layer
+   * from `contourFloor`/`contourCeiling` and deliberately a separate pair,
+   * since flooring the relief and clipping the isolines are independent
+   * choices a reader makes for different reasons.
+   *
+   * Same shape as the contour pair, and for the same reasons:
+   * `MAPS_TERRAIN_WINDOW_OFF` is the sentinel each unbounded end packs as,
+   * far outside any terrestrial elevation so it can never collide with a
+   * real choice, and it is also each field's DEFAULT — so an untouched
+   * window costs zero characters and a link carrying neither token decodes
+   * to "no window", which is the pre-window behaviour exactly.
+   */
+  terrainFloor: number;
+  terrainCeiling: number;
 
   // ── What is ON the map (as opposed to how it is drawn) ─────────────────
   //
@@ -381,6 +397,14 @@ export function mapsOsmAnchorRecordFromTuple(tuple: readonly number[]): MapOsmAn
 /** The sentinel a `null` (unbounded) contour-window end packs as — see `MapsUrlState.contourFloor`. */
 export const MAPS_CONTOUR_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
+/**
+ * The sentinel a `null` (unbounded) TERRAIN-window end packs as — see
+ * `MapsUrlState.terrainFloor`. Its own constant rather than a reuse of
+ * `MAPS_CONTOUR_WINDOW_OFF`: these are two independent wire fields, and a
+ * future retune or retirement of one must not silently move the other.
+ */
+export const MAPS_TERRAIN_WINDOW_OFF = { min: -32000, max: 32000 } as const;
+
 export const MAPS_URL_DEFAULTS: MapsUrlState = {
   projection: "globe",
   exaggeration: 24,
@@ -426,6 +450,8 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   shadows: false,
   contourFloor: MAPS_CONTOUR_WINDOW_OFF.min,
   contourCeiling: MAPS_CONTOUR_WINDOW_OFF.max,
+  terrainFloor: MAPS_TERRAIN_WINDOW_OFF.min,
+  terrainCeiling: MAPS_TERRAIN_WINDOW_OFF.max,
   // Every layer-content default below is READ from the page's own constant
   // rather than restated, so the "a link carrying no token renders exactly
   // what the untouched page renders" property cannot drift: the codec omits
@@ -694,6 +720,28 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    the same clause `M`/`m`, `w`/`W` and `J`/`j` already carry. Every
   //    upper-case letter was spent by `J`.
   { key: "osmLabelAnchors", token: "l", type: { kind: "floatTuple", length: MAPS_OSM_ANCHOR_SLOTS, step: 1 }, default: MAPS_URL_DEFAULTS.osmLabelAnchors },
+  // ── The TERRAIN card's own elevation WINDOW. Appended after `l`, and for
+  //    the ninth time with the same consequence: the codec is TOKEN-keyed,
+  //    so a link carrying neither `f` nor `o` decodes to "no window" — which
+  //    is every link ever shared, since an unwindowed terrain is what this
+  //    page has always drawn and is byte-identical to it.
+  //
+  //    LAST, for the reason `M`, `w`, `J` and `l` each give — `decodePacked`
+  //    stops at the first token it does not recognize, so a link written
+  //    here and opened by a not-yet-updated build strands only what is
+  //    ordered after it, and there is nothing after it. `l` was that token
+  //    until now.
+  //
+  //    `step: 10` and the ±32,000 sentinel, both matching `F`/`C`: the
+  //    control's own slider moves in `ELEVATION_WINDOW_STEP` (50 m) but a
+  //    TYPED value is deliberately not snapped to it, so the wire step has
+  //    to be finer or a typed 25 m floor would not survive a round trip.
+  //
+  //    `f`/`o` in lower case: the token map is case-sensitive and every
+  //    upper-case letter was spent by `J`. `F`/`C` are the CONTOUR window's
+  //    and are untouched.
+  { key: "terrainFloor", token: "f", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainFloor },
+  { key: "terrainCeiling", token: "o", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainCeiling },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";

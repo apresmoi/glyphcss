@@ -715,6 +715,46 @@ Consequences worth knowing:
   geometry costs 4.8 ms at a 1,000 m interval and ~35 ms at 200 m, and is paid
   only when the mosaic or the level list changes.
 
+### Terrain elevation window
+
+A `raster` layer takes `minElevation`/`maxElevation` too — metres, both
+optional, both omitted by default and byte-identical there. Terrain outside
+the window is **held AT the window edge**, not dropped:
+
+```js
+// Draw the land; replace the seabed with a smooth plane at sea level.
+map.addLayer({ type: "raster", id: "terrain", source: provider, classifier, colors, minElevation: 0 });
+
+// The reverse: bathymetry with the land flattened off.
+map.addLayer({ type: "raster", id: "terrain", source: provider, classifier, colors, maxElevation: 0 });
+```
+
+This is the one place the package clamps where it otherwise crops, and the
+tier ladder is why. A raster layer mounts three tiers of terrain at once, each
+resolving the window against its own quad grid, so a dropped quad is a HOLE
+the backstop underneath fills — in the colour of an 11-degree quad that is
+mostly land. Measured on the real ETOPO1 pyramid, a cropped floor of 0 painted
+641 of 1,752 Mediterranean sea cells in a land band against the target tier's
+own 150, plus 200 coastal land cells lost. A clamp has no hole, and wherever
+every sample a tier covers is out of window every tier's surface is the same
+constant plane, so no coarse chord can rise above a finer one.
+
+It moves POSITION only, per vertex. A quad's colour still reads the terrain's
+own unwindowed elevation, exactly as `elevationBias` does — the sea keeps its
+bathymetric band and only its floor goes — and a partially-submerged quad
+keeps its land corners at their own heights, so a coast still slopes rather
+than steps. `groundElevationSampler` takes the same window, so a draped road,
+a planted building and a marker all stand on the surface actually drawn.
+
+A `contour` layer is deliberately not windowed by this: it marches the mounted
+mosaic's own vertex grids and carries its own window below. A contour below the
+terrain's floor is buried under the flattened surface — set the contour's own
+floor to match.
+
+Cost: nothing. Mesh build on a real z4 tile 4.57 ms unwindowed against 4.39 ms
+floored; a render at a coastal view 18.72 ms against 17.24 ms (a flat sea gives
+longer same-colour runs, so the commit write is cheaper).
+
 ### Contour elevation window
 
 A `contour` layer's `levels` resolves against whatever range the mounted

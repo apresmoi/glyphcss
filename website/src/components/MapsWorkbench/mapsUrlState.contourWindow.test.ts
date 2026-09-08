@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAPS_CONTOUR_WINDOW_OFF, MAPS_URL_DEFAULTS, mapsCodec, mapsCodecLegacyV1, mapsCodecLegacyV2 } from "./mapsUrlState";
-import { contourWindowTrack, CONTOUR_WINDOW_STEP } from "./mapsKit";
+import { elevationWindowTrack, ELEVATION_WINDOW_STEP } from "./mapsKit";
 
 /**
  * The contour layer's elevation-window tokens (`F`/`C`). Appended to the live
@@ -39,7 +39,7 @@ describe("mapsUrlState — contour elevation window", () => {
   });
 
   it("the codec's 10m step is finer than the control's own 50m step, so every offered value survives", () => {
-    expect(CONTOUR_WINDOW_STEP % 10).toBe(0);
+    expect(ELEVATION_WINDOW_STEP % 10).toBe(0);
   });
 
   it("does not disturb the fields ordered before it", () => {
@@ -60,23 +60,23 @@ describe("mapsUrlState — contour elevation window", () => {
   });
 });
 
-describe("contourWindowTrack — the floor/ceiling sliders' own bounds", () => {
+describe("elevationWindowTrack — the floor/ceiling sliders' own bounds", () => {
   it("is the field's own data range, rounded out to the control's step", () => {
-    expect(contourWindowTrack({ min: -5230, max: 4410 }, [null, null])).toEqual({ min: -5250, max: 4450 });
+    expect(elevationWindowTrack({ min: -5230, max: 4410 }, [null, null])).toEqual({ min: -5250, max: 4450 });
   });
 
   it("falls back to the ETOPO1 envelope before a field resolves", () => {
-    expect(contourWindowTrack(null, [null, null])).toEqual({ min: -11000, max: 9000 });
+    expect(elevationWindowTrack(null, [null, null])).toEqual({ min: -11000, max: 9000 });
   });
 
   it("widens to contain a value the current field no longer covers, so a handle is never off its track", () => {
     // Floor 0 set at a global view, then zoomed into a wholly submarine one:
     // the track has to keep reaching 0 or the handle becomes unreachable.
-    expect(contourWindowTrack({ min: -5000, max: -1000 }, [0, null])).toEqual({ min: -5000, max: 0 });
+    expect(elevationWindowTrack({ min: -5000, max: -1000 }, [0, null])).toEqual({ min: -5000, max: 0 });
   });
 
   it("never returns a zero-width track for a flat field", () => {
-    const track = contourWindowTrack({ min: 100, max: 100 }, [null, null]);
+    const track = elevationWindowTrack({ min: 100, max: 100 }, [null, null]);
     expect(track.max).toBeGreaterThan(track.min);
   });
 });

@@ -94,7 +94,9 @@ function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs 
     terrain: {
       visible: true, onVisible: noop, palette: "terrain", onPalette: noop,
       glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop,
-      exaggeration: 24, onExaggeration: noop, sampler: null, density: 1, onDensity: noop,
+      exaggeration: 24, onExaggeration: noop, sampler: null, 
+        minElevation: null, onMinElevation: noop, maxElevation: null, onMaxElevation: noop,
+        density: 1, onDensity: noop,
     },
     borders: { visible: true, onVisible: noop, color: "#e8c988", onColor: noop, simplify: null, density: 1, onDensity: noop },
     contour: {

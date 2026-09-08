@@ -364,6 +364,41 @@ export interface GlyphMapRasterLayer {
    * in glyphcss.
    */
   readonly glyphPalette?: string;
+  /**
+   * Elevation WINDOW in METRES — a floor and a ceiling, both optional, both
+   * omitted by default and byte-identical there. `minElevation: 0` renders
+   * the land and replaces the seabed with a smooth plane at sea level;
+   * `maxElevation: 0` renders the bathymetry alone; `0..2000` flattens
+   * everything outside the foothills.
+   *
+   * Terrain outside the window is HELD AT the window edge, not dropped. That
+   * is a deliberate divergence from this package's "crop, don't clamp" rule,
+   * argued and measured on the real ETOPO1 pyramid in
+   * {@link GlyphMapPolygonsOptions.minElevation} — the short version is that
+   * a dropped quad is a hole, this layer keeps three tiers of terrain mounted
+   * at once, and a backstop tier simply fills the hole the target tier
+   * opened, in the colour of an 11-degree quad that is mostly land. That is
+   * the "sea is basically GREEN" defect {@link GLYPH_MAP_RELIEF_BACKSTOP_SINK_M}
+   * exists for, and the sink cannot answer it: it ORDERS two surfaces where
+   * both exist and says nothing about what shows through a gap in one.
+   *
+   * It moves POSITION only. A quad's colour still reads the terrain's own
+   * unwindowed elevation, exactly as `elevationBias` does, so the sea keeps
+   * its bathymetric colour and only its floor goes. All three tiers take the
+   * same window (it rides `mountTile`), and so does
+   * {@link RasterLayerRuntime.groundElevationAt} — anything planted on this
+   * terrain stands on the surface actually DRAWN, or it would part company
+   * with the ground under a tilt.
+   *
+   * A `contour` layer is deliberately NOT windowed by this: it marches the
+   * mounted mosaic's own vertex grids rather than reading the drawn surface,
+   * and it carries its own {@link GlyphMapContourLayer.minElevation}/
+   * {@link GlyphMapContourLayer.maxElevation} for the same job. A contour
+   * below this floor is therefore buried under the flattened surface — set
+   * the contour's own floor to match.
+   */
+  readonly minElevation?: number;
+  readonly maxElevation?: number;
 }
 
 function isGlyphMapVectorProvider(source: GlyphMapVectorSource): source is GlyphMapVectorProvider {
@@ -4225,6 +4260,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   function createRasterLayerRuntime(layer: GlyphMapRasterLayer, layerId: string): RasterLayerRuntime {
     const color = colorForLayer(layer);
+    /**
+     * The layer's elevation window, resolved once and spread into every
+     * `glyphMapPolygons` call — so the target LOD, the fallback tier and the
+     * permanent floor are windowed identically. Spread rather than passed as
+     * two fields so an unwindowed layer hands `glyphMapPolygons` the exact
+     * option object it did before this existed.
+     */
+    const window: { minElevation?: number; maxElevation?: number } = {};
+    if (layer.minElevation !== undefined) window.minElevation = layer.minElevation;
+    if (layer.maxElevation !== undefined) window.maxElevation = layer.maxElevation;
+    /**
+     * The window as plain numbers, for {@link groundElevationAt}: what
+     * stands on this terrain must stand on the surface actually drawn.
+     */
+    const groundMin = layer.minElevation ?? -Infinity;
+    const groundMax = layer.maxElevation ?? Infinity;
+    const windowed = groundMin !== -Infinity || groundMax !== Infinity;
+    const clampToWindow = (elev: number): number =>
+      windowed && Number.isFinite(elev) ? Math.min(groundMax, Math.max(groundMin, elev)) : elev;
     let staticHandles: GlyphMeshHandle[] = [];
     const tileCache = new Map<string, GlyphMapGeoTile>();
     const activeHandles = new Map<string, GlyphMeshHandle[]>();
@@ -4313,7 +4367,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           glyphMapPolygons(
             part,
             projection,
-            fraction >= 1 ? { color, elevationBias } : { color, elevationBias, resolution: reliefResolution(part.cols, part.rows, fraction) },
+            fraction >= 1 ? { color, elevationBias, ...window } : { color, elevationBias, ...window, resolution: reliefResolution(part.cols, part.rows, fraction) },
           ),
           transform,
         ),
@@ -4629,23 +4683,34 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    /** @see RasterLayerRuntime.groundElevationAt */
+    /**
+     * @see RasterLayerRuntime.groundElevationAt
+     *
+     * Every answer goes through {@link clampToWindow}, because this reports
+     * the ground things are PLANTED on and the layer's elevation window
+     * moves where that ground is drawn. A road draped at the seabed's own
+     * -4,000 m under a `minElevation: 0` terrain would sit ~96 km of world
+     * below the plane the sea is now drawn at (`exaggeration: 24`) — the
+     * same parting-company-with-the-ground the drape exists to prevent, just
+     * caused by the window instead of by the datum. Unwindowed it is the
+     * identity, so the whole path is unchanged.
+     */
     function groundElevationAt(lon: number, lat: number): number {
       if (!isGlyphMapProvider(layer.source)) {
-        return staticHandles.length > 0 ? glyphMapGeoTileElevationAt(layer.source, lon, lat) : NaN;
+        return staticHandles.length > 0 ? clampToWindow(glyphMapGeoTileElevationAt(layer.source, lon, lat)) : NaN;
       }
       for (const tiles of [activeHandles, fallbackHandles]) {
         for (const key of tiles.keys()) {
           const tile = tileCache.get(key);
           if (!tile) continue;
           const value = glyphMapGeoTileElevationAt(tile, lon, lat);
-          if (Number.isFinite(value)) return value;
+          if (Number.isFinite(value)) return clampToWindow(value);
         }
       }
       if (floorHandles.length > 0) {
         for (const tile of floorTiles) {
           const value = glyphMapGeoTileElevationAt(tile, lon, lat);
-          if (Number.isFinite(value)) return value;
+          if (Number.isFinite(value)) return clampToWindow(value);
         }
       }
       return NaN;

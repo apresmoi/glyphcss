@@ -62,6 +62,7 @@ import {
   buildMapProjection,
   buildMapsSnippet,
   buildContourLayerMountOptions,
+  terrainWindowOptions,
   EXTRUSION_HEIGHT_BOUNDS_M,
   HEATMAP_RELIEF_HEIGHT_BOUNDS_M,
   LayersPanel,
@@ -102,6 +103,7 @@ import { flyToMapSearchResult, loadMapSearchIndex, type MapSearchIndex, type Map
 import type { MapGeocodeView } from "./mapsGeocode";
 import {
   MAPS_CONTOUR_WINDOW_OFF,
+  MAPS_TERRAIN_WINDOW_OFF,
   mapsLayerMaskFromVisibility,
   mapsLayerVisibilityFromMask,
   mapsOsmDensitiesExtFromRecord,
@@ -314,6 +316,21 @@ export default function MapsWorkbench() {
   );
   const [contourFieldRange, setContourFieldRange] = useState<{ readonly min: number; readonly max: number } | null>(null);
   /**
+   * The TERRAIN layer's own elevation window
+   * (`GlyphMapRasterLayer.minElevation`/`maxElevation`), `null` at either end
+   * for unbounded. Terrain outside it is held AT the window edge — a floor of
+   * 0 draws the land and replaces the seabed with a smooth plane at sea
+   * level, which at this page's `exaggeration: 24` is the difference between
+   * a globe and a globe with 261 km pits in it. Persisted through
+   * `MAPS_TERRAIN_WINDOW_OFF`, its own sentinel for an unbounded end.
+   */
+  const [terrainMinElevation, setTerrainMinElevation] = useState<number | null>(
+    initial.terrainFloor === MAPS_TERRAIN_WINDOW_OFF.min ? null : initial.terrainFloor,
+  );
+  const [terrainMaxElevation, setTerrainMaxElevation] = useState<number | null>(
+    initial.terrainCeiling === MAPS_TERRAIN_WINDOW_OFF.max ? null : initial.terrainCeiling,
+  );
+  /**
    * `GlyphMapContourLayer.labels` — prints the elevation on every INDEX
    * contour (every `labelEvery`th line, default 5) in a gap in the line.
    * Page-local, like the window's own bounds are not; `labelEvery` stays
@@ -417,6 +434,10 @@ export default function MapsWorkbench() {
   showTerrainRef.current = showTerrain;
   const terrainDensityRef = useRef(terrainDensity);
   terrainDensityRef.current = terrainDensity;
+  // The construction effect deliberately depends on neither end, so it reads
+  // the live values through a ref — same discipline as `terrainDensityRef`.
+  const terrainWindowRef = useRef(terrainWindowOptions(terrainMinElevation, terrainMaxElevation));
+  terrainWindowRef.current = terrainWindowOptions(terrainMinElevation, terrainMaxElevation);
   const terrainGlyphPaletteRef = useRef(terrainGlyphPalette);
   terrainGlyphPaletteRef.current = terrainGlyphPalette;
   const backgroundColorRef = useRef(backgroundColor);
@@ -647,6 +668,8 @@ export default function MapsWorkbench() {
       glyphPalette: terrainGlyphPalette, onGlyphPalette: setTerrainGlyphPalette,
       exaggeration, onExaggeration: setExaggeration,
       sampler: provider?.sampler ?? null,
+      minElevation: terrainMinElevation, onMinElevation: setTerrainMinElevation,
+      maxElevation: terrainMaxElevation, onMaxElevation: setTerrainMaxElevation,
       density: terrainDensity, onDensity: setTerrainDensity,
     },
     borders: {
@@ -946,6 +969,7 @@ export default function MapsWorkbench() {
               colors: MAP_PALETTES[palette],
               density: terrainDensityRef.current,
               glyphPalette: terrainGlyphPaletteRef.current,
+              ...terrainWindowRef.current,
             }]
           : []),
         ...(vectorProvider && showBordersRef.current
@@ -1158,12 +1182,13 @@ export default function MapsWorkbench() {
         colors: MAP_PALETTES[palette],
         density: terrainDensity,
         glyphPalette: terrainGlyphPalette,
+        ...terrainWindowOptions(terrainMinElevation, terrainMaxElevation),
       });
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [palette, showTerrain, terrainDensity, terrainGlyphPalette]);
+  }, [palette, showTerrain, terrainDensity, terrainGlyphPalette, terrainMinElevation, terrainMaxElevation]);
 
   // ── Background recolor -> addLayer/removeLayer, same mechanism. Always
   //    mounted (background is a plain always-present colour, not a
@@ -1613,6 +1638,8 @@ export default function MapsWorkbench() {
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
       contourCeiling: contourMaxElevation ?? MAPS_CONTOUR_WINDOW_OFF.max,
+      terrainFloor: terrainMinElevation ?? MAPS_TERRAIN_WINDOW_OFF.min,
+      terrainCeiling: terrainMaxElevation ?? MAPS_TERRAIN_WINDOW_OFF.max,
       // What is ON the map. The four named toggles and the six demo cards
       // are one flat record here because the wire format is one bitfield
       // (`mapsUrlState.ts`'s `MAPS_LAYER_KEYS`) — the page's own split
@@ -1657,7 +1684,7 @@ export default function MapsWorkbench() {
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, terrainMinElevation, terrainMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

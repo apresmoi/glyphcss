@@ -49,6 +49,7 @@ function inputs(overrides: Partial<LayersFolderInputs> = {}): LayersFolderInputs
       glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop,
       exaggeration: 24, onExaggeration: noop,
       sampler: "nearest",
+      minElevation: null, onMinElevation: () => {}, maxElevation: null, onMaxElevation: () => {},
       density: 1, onDensity: noop,
     },
     borders: { visible: true, onVisible: noop, color: "#e8c988", onColor: noop, simplify: "vw", density: 1, onDensity: noop },
