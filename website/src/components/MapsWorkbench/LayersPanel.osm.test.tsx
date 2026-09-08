@@ -51,7 +51,6 @@ function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
     sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1 })),
     onSublayer: noop,
     onSublayerDensity: noop,
-    density: 1, onDensity: noop,
     ...overrides,
   };
 }

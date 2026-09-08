@@ -154,25 +154,34 @@ export type MapOsmDensities = Readonly<Record<string, number>>;
 /**
  * A complete record with every row at `value`.
  *
- * This IS the master gesture: the card keeps one slider over every row,
- * and moving it OVERWRITES each of them rather than scaling the spread they
- * currently hold. A ratio was considered and rejected — the master's whole
- * job is "all of it, this dense", and a ratio makes that unreachable from
- * any mixed state without first flattening it by hand. It is also what a
- * legacy `Q`-only link seeds (`mapsUrlState.ts`), which is exactly the map
- * such a link described: one number applied to every enabled row.
+ * The card itself no longer has a gesture that does this — per-row control
+ * replaced the master slider, which is the whole point of per-row. What is
+ * left are the two callers that legitimately speak for every row at once:
+ * a legacy `Q`-only link's seed (`mapsUrlState.ts`), which is exactly the
+ * map such a link described — one number applied to every enabled row — and
+ * the bench hook `__glyphMapsBench.setOsmDensities`, which prices the card
+ * as a whole before `setOsmDensityRow` prices one row.
  */
 export function mapOsmDensityRecord(value: number): Record<string, number> {
   return Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, value]));
 }
 
 /**
- * What the master control READS: the shared value while every row agrees,
- * and `null` — "mixed" — as soon as one differs.
+ * The one number that is still true about the whole card: the shared value
+ * while every row agrees, and `null` — "mixed" — as soon as one differs.
+ *
+ * This was the card's master slider's reading. The card has no master any
+ * more, but the LINK still does: `MapsUrlState.osmDensity` (token `Q`) is
+ * kept written for links already shared, and a uniform card is exactly the
+ * case where one float describes it honestly. A mixed card answers `null`,
+ * which `MapsWorkbench` writes as the default — the codec omits a field at
+ * its default, so saying nothing costs nothing and `M`/`J` carry the truth
+ * either way. That is this function's only remaining caller, and it is why
+ * removing the master control needed no codec change at all.
  *
  * A row the record does not carry counts as {@link MAP_OSM_DEFAULT_DENSITY},
  * never as absent: "nine rows at 3x and one unset" is a mixed card, and
- * skipping the hole would print 3x over a row that is not at 3x.
+ * skipping the hole would write 3x for a card that is not at 3x.
  */
 export function mapOsmMasterDensity(densities: MapOsmDensities): number | null {
   let shared: number | null = null;

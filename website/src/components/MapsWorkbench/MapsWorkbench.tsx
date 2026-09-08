@@ -217,14 +217,17 @@ export default function MapsWorkbench() {
   const [osmSublayers, setOsmSublayers] = useState<Record<string, boolean>>(
     () => mapsOsmSublayersFromMask(initial.osmMask),
   );
-  // One density PER ROW, not one for the card: the ten mounted layers cost
+  // One density PER ROW, and ONLY per row: the mounted layers cost
   // differently (a mesh row is free to differ, each distinct stroke density
   // is another viewport overlay grid — `mapsOsm.ts`'s `MapOsmLayerOptions
-  // .densities`), so a reader can spend on the row they are reading. The
-  // record is the truth; the card's surviving master slider WRITES every one
-  // (`mapOsmDensityRecord`) and READS as "mixed" when they disagree
-  // (`mapOsmMasterDensity`). Restored from the link's `M` tuple, which
-  // `readInitialMapsState` seeds from a legacy `Q` when the link predates it.
+  // .densities`), so a reader spends on the row they are reading. The record
+  // is the whole truth — the card carries no master control over it. What
+  // still reads it whole is the LINK: `mapOsmMasterDensity` supplies the
+  // legacy `Q` float below (the one honest number a uniform card has), and
+  // `mapOsmDensityRecord` is the bench hook's "every row at once" and the
+  // seed a `Q`-only link decodes to. Restored from the link's `M`/`J`
+  // tuples, which `readInitialMapsState` seeds from `Q` when the link
+  // predates them.
   const [osmDensities, setOsmDensities] = useState<Record<string, number>>(
     () => mapsOsmDensityRecordFromTuple(initial.osmDensities, initial.osmDensitiesExt),
   );
@@ -664,7 +667,6 @@ export default function MapsWorkbench() {
       })),
       onSublayer: (id, on) => setOsmSublayers((prev) => ({ ...prev, [id]: on })),
       onSublayerDensity: (id, density) => setOsmDensities((prev) => ({ ...prev, [id]: density })),
-      density: mapOsmMasterDensity(osmDensities), onDensity: (v) => setOsmDensities(mapOsmDensityRecord(v)),
     },
   };
 
@@ -845,10 +847,11 @@ export default function MapsWorkbench() {
       setOsmSublayers: (ids: readonly string[]) =>
         setOsmSublayers(Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, ids.includes(s.id)]))),
       setOsmDensities: (value: number) => setOsmDensities(mapOsmDensityRecord(value)),
-      // ONE row's density. The master gesture above writes every row, which
-      // conflates the two costs a reader can spend here — a `line` row buys a
-      // full-viewport overlay grid, a mesh row buys a separated detail pass —
-      // so attributing either needs the rows moved apart.
+      // ONE row's density — the only gesture the CARD offers, since the
+      // master control is gone. The whole-card hook above conflates the two
+      // costs a reader can spend here — a `line` row buys a full-viewport
+      // overlay grid, a mesh row buys a separated detail pass — so
+      // attributing either needs the rows moved apart.
       setOsmDensityRow: (id: string, value: number) =>
         setOsmDensities((old) => ({ ...old, [id]: value })),
       // Street-level walk mode, through the page's OWN toggle rather than

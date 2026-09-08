@@ -8,19 +8,28 @@
  * beside the toggle it already had — the same `MapsReadout` + 1..4 track
  * every other density row on this rail uses, not a new control shape.
  *
- * The master/per-row contract asserted here:
+ * Per-row is now the WHOLE feature. The contract asserted here:
  *
- *  - The card keeps ONE master row. Moving it is a write of EVERY row (the
- *    page's `mapOsmDensityRecord`), because that is the gesture the card
- *    already had and it has to keep meaning all of it.
- *  - The master READS "mixed" once the rows disagree — it cannot print a
- *    number that is wrong for nine of ten rows.
+ *  - The card has NO master density row. Per-row control replaced it, and a
+ *    second control standing for every row at once is redundant beside it.
  *  - A row's own control writes that row and nothing else.
- *  - A row whose density cannot do anything — the row is switched off, or it
- *    is a `symbol`/`circle` row, which reads no density at all — has it
- *    disabled and dimmed (`.maps-osm-row--density-off`, `DensityRow`'s own
- *    gated treatment scoped to the density half, since the toggle beside it
- *    is live).
+ *  - A row the renderer reads no density for — `symbol`/`circle`, which
+ *    mount positioned DOM hotspots rather than geometry — carries NO density
+ *    control at all: no slider, no readout, not a disabled one. It keeps its
+ *    toggle and its label, and the card body's three-column grid keeps the
+ *    checkbox in the same column it sits in on every other row.
+ *  - A row that IS wired but is switched off keeps the control, disabled and
+ *    dimmed (`.maps-osm-row--density-off`, `DensityRow`'s own gated
+ *    treatment scoped to the density half, since the toggle beside it is
+ *    live).
+ *  - The `stroke grids` cost readout survives, and matters more now that
+ *    nothing can flatten every row in one drag.
+ *
+ * The densityless SET is derived from each row's own layer type rather than
+ * listed, because the row list is `@glyphcss/maps`' and it moves: `Peaks`
+ * became a labelled `symbol` row and `Protected areas`/`Water labels` were
+ * appended as `symbol` rows after this card was first written. A hardcoded
+ * list of labels would have gone stale silently.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,7 +50,7 @@ import {
   type LayersFolderInputs,
   type OsmLayerInputs,
 } from "./mapsKit";
-import { MAP_OSM_SUBLAYERS, mapOsmDensityRecord } from "./mapsOsm";
+import { MAP_OSM_SUBLAYERS } from "./mapsOsm";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -59,10 +68,19 @@ function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
     sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 1 })),
     onSublayer: noop,
     onSublayerDensity: noop,
-    density: 1, onDensity: noop,
     ...overrides,
   };
 }
+
+/**
+ * The layer types this card mounts that the renderer reads no `density` for
+ * — stated here as the independent claim, so this file and `mapsKit`'s own
+ * constant have to agree rather than one being read off the other.
+ */
+const DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
+/** The rows that lose the control, and the rows that keep it — derived, never listed. */
+const DENSITYLESS_ROWS = MAP_OSM_SUBLAYERS.filter((s) => DENSITYLESS_TYPES.has(s.type));
+const WIRED_ROWS = MAP_OSM_SUBLAYERS.filter((s) => !DENSITYLESS_TYPES.has(s.type));
 
 function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs {
   const glyphOnly = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
@@ -117,6 +135,9 @@ function row(host: HTMLElement, label: string): HTMLElement {
 
 const slider = (el: HTMLElement) => el.querySelector<HTMLInputElement>("input[type='range']")!;
 const readout = (el: HTMLElement) => el.querySelector<HTMLInputElement>("input[type='text']")!;
+/** Every density widget inside `el` — the RENDERED control set, which is what "gone" has to be asserted against. */
+const sliders = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLInputElement>("input[type='range']"));
+const readouts = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLInputElement>("input[type='text']"));
 
 /** The card's live overlay-grid count, or `null` while it costs nothing and says nothing. */
 function strokeGrids(host: HTMLElement): string | null {
@@ -124,15 +145,6 @@ function strokeGrids(host: HTMLElement): string | null {
     (r) => r.querySelector("span")?.textContent === "stroke grids",
   );
   return found?.querySelector(".maps-layer-info-value")?.textContent ?? null;
-}
-
-/** The card's ONE master row — the density control it already had. */
-function master(host: HTMLElement): HTMLElement {
-  const found = Array.from(card(host).querySelectorAll(".maps-layer-slider")).find(
-    (r) => !r.classList.contains("maps-osm-row"),
-  );
-  expect(found).toBeTruthy();
-  return found as HTMLElement;
 }
 
 /**
@@ -158,9 +170,15 @@ afterEach(() => {
 });
 
 describe("every OSM row carries its own density, on its own line", () => {
-  it("gives each mapped row a slider and an editable readout beside its toggle", () => {
+  it("the derived sets are both non-empty — otherwise every claim below is vacuous", () => {
+    expect(WIRED_ROWS.length).toBeGreaterThan(0);
+    expect(DENSITYLESS_ROWS.length).toBeGreaterThan(0);
+    expect(WIRED_ROWS.length + DENSITYLESS_ROWS.length).toBe(MAP_OSM_SUBLAYERS.length);
+  });
+
+  it("gives each WIRED row a slider and an editable readout beside its toggle", () => {
     const host = render();
-    for (const spec of MAP_OSM_SUBLAYERS) {
+    for (const spec of WIRED_ROWS) {
       const r = row(host, spec.label);
       expect(r.querySelector("input[type='checkbox']"), spec.label).not.toBeNull();
       expect(slider(r), spec.label).not.toBeNull();
@@ -192,6 +210,18 @@ describe("every OSM row carries its own density, on its own line", () => {
     expect(onSublayerDensity).toHaveBeenCalledWith("omt-roads", 2.7);
   });
 
+  it("keeps the readout EDITABLE — a typed number commits to that row alone", () => {
+    // The master used to be the only control on this card a typed number
+    // reached. With it gone, the per-row readout has to carry that gesture.
+    const onSublayerDensity = vi.fn();
+    const host = render({ onSublayerDensity });
+    const input = readout(row(host, "Roads"));
+    act(() => { input.focus(); input.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); });
+    act(() => { setValue(input, "2.4"); });
+    act(() => { input.blur(); input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
+    expect(onSublayerDensity).toHaveBeenCalledWith("omt-roads", 2.4);
+  });
+
   it("disables a row's density while the row itself is off", () => {
     const host = render({
       sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1 })),
@@ -211,18 +241,36 @@ describe("every OSM row carries its own density, on its own line", () => {
     expect(off.querySelector<HTMLInputElement>("input[type='checkbox']")!.disabled).toBe(false);
   });
 
-  it("gates the two row types that read no density at all, even while they are ON", () => {
+  it("gives the row types that read no density NO density control at all — not a disabled one", () => {
     // `symbol`/`circle` rows mount positioned hotspots rather than geometry
-    // and nothing in `widget.ts` consumes their `density` — the same honest
-    // "not wired through for this layer type" state `DensityRow` already has.
+    // and nothing in `widget.ts` consumes their `density`. A greyed slider
+    // is a control the reader has to work out is dead; there is nothing to
+    // say, so the row says nothing.
     const host = render();
-    for (const label of ["Places", "Peaks", "POIs"]) {
-      const r = row(host, label);
-      expect(r.querySelector<HTMLInputElement>("input[type='checkbox']")!.checked, label).toBe(true);
-      expect(slider(r).disabled, label).toBe(true);
-      expect(r.getAttribute("title"), label).toMatch(/not wired through/i);
+    for (const spec of DENSITYLESS_ROWS) {
+      const r = row(host, spec.label);
+      // The row itself is unchanged: label, and the toggle that is its point.
+      expect(r.querySelector("span")!.textContent, spec.label).toBe(spec.label);
+      expect(r.querySelector<HTMLInputElement>("input[type='checkbox']")!.checked, spec.label).toBe(true);
+      expect(sliders(r), spec.label).toHaveLength(0);
+      expect(readouts(r), spec.label).toHaveLength(0);
+      expect(r.querySelector(".voice-slider-track"), spec.label).toBeNull();
+      // Nothing to dim, so the gated treatment is not applied either.
+      expect(r.className, spec.label).not.toContain("maps-osm-row--density-off");
+      expect(r.getAttribute("title"), spec.label).toMatch(/no density/i);
     }
+    // And a wired row is untouched by all of that.
     expect(slider(row(host, "Roads")).disabled).toBe(false);
+  });
+
+  it("mounts exactly one density control per wired row across the whole card — nothing else carries one", () => {
+    const host = render();
+    const body = card(host).querySelector<HTMLElement>(".maps-layer-body")!;
+    expect(sliders(body)).toHaveLength(WIRED_ROWS.length);
+    expect(readouts(body)).toHaveLength(WIRED_ROWS.length);
+    // Every one of them belongs to a row, so none is a card-level control.
+    for (const el of sliders(body)) expect(el.closest(".maps-osm-row")).not.toBeNull();
+    for (const el of readouts(body)) expect(el.closest(".maps-osm-row")).not.toBeNull();
   });
 
   it("still routes the toggle itself, unchanged", () => {
@@ -233,44 +281,26 @@ describe("every OSM row carries its own density, on its own line", () => {
   });
 });
 
-describe("the master row", () => {
-  it("survives — the common gesture is still one drag", () => {
-    const onDensity = vi.fn();
-    const host = render({ onDensity });
-    drag(slider(master(host)), "3.1");
-    expect(onDensity).toHaveBeenCalledWith(3.1);
+describe("the master row is gone", () => {
+  it("leaves no card-level density control beside the per-row ones", () => {
+    const body = card(render()).querySelector<HTMLElement>(".maps-layer-body")!;
+    // The master was the card's one `.maps-layer-slider` that was NOT a row.
+    const cardLevel = Array.from(body.querySelectorAll(".maps-layer-slider")).filter(
+      (r) => !r.classList.contains("maps-osm-row"),
+    );
+    expect(cardLevel).toHaveLength(0);
+    // And nothing prints its "mixed" reading anywhere on the card.
+    expect(body.textContent).not.toMatch(/mixed/i);
   });
 
-  it("reads the shared value while every row agrees", () => {
-    const host = render({
-      density: 2.5,
+  it("prints no shared reading even when every row genuinely agrees", () => {
+    // The state the master used to read a number in. The card offers only
+    // the thirteen rows' own controls now.
+    const body = card(render({
       sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 2.5 })),
-    });
-    expect(readout(master(host)).value).toBe("2.5x");
-  });
-
-  it("reads 'mixed' once one row differs — it cannot print a number that is wrong for the others", () => {
-    const host = render({
-      density: null,
-      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: s.id === "omt-roads" ? 3 : 1 })),
-    });
-    expect(readout(master(host)).value).toBe("mixed");
-  });
-
-  it("a typed number on the mixed master still commits, overwriting every row", () => {
-    const onDensity = vi.fn();
-    const host = render({
-      density: null,
-      onDensity,
-      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: s.id === "omt-roads" ? 3 : 1 })),
-    });
-    const input = readout(master(host));
-    act(() => { input.focus(); input.dispatchEvent(new FocusEvent("focusin", { bubbles: true })); });
-    act(() => { setValue(input, "2"); });
-    act(() => { input.blur(); input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })); });
-    expect(onDensity).toHaveBeenCalledWith(2);
-    // And `mapOsmDensityRecord` is what the page turns that into.
-    expect(Object.values(mapOsmDensityRecord(2)).every((v) => v === 2)).toBe(true);
+    })).querySelector<HTMLElement>(".maps-layer-body")!;
+    expect(sliders(body)).toHaveLength(WIRED_ROWS.length);
+    for (const el of sliders(body)) expect(el.closest(".maps-osm-row")).not.toBeNull();
   });
 });
 

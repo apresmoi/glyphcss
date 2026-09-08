@@ -541,66 +541,41 @@ export function DensityRow({ label, density, onDensity, enabled }: {
 }
 
 /**
- * The OpenStreetMap card's MASTER density: `DensityRow`'s twin, for a value
- * that can be "mixed".
- *
- * A sibling rather than a widened `DensityRow` because `DensityRow`'s
- * contract — a number in, a number out — is the right one for the eight
- * cards that have exactly one layer, and this is the only control on the
- * page standing for ten values at once. It reads `null` as "mixed" (it
- * cannot print a number that is wrong for every other row) while the
- * SLIDER still needs a position, which `sliderAt` supplies. Committing —
- * dragging or typing — always writes every row, which is the gesture this
- * control has always been.
- */
-function OsmMasterDensityRow({ density, sliderAt, onDensity }: {
-  density: number | null;
-  sliderAt: number;
-  onDensity: (v: number) => void;
-}) {
-  return (
-    <label
-      className="voice-slider maps-layer-slider"
-      title="OpenStreetMap density — every row at once. Moving this OVERWRITES every per-row density below; it reads 'mixed' while they disagree."
-    >
-      <span>density</span>
-      <span className="voice-slider-track">
-        <input
-          type="range"
-          min={DENSITY_MIN}
-          max={DENSITY_MAX}
-          step={DENSITY_STEP}
-          value={density ?? sliderAt}
-          style={densityFill(density ?? sliderAt, DENSITY_MIN, DENSITY_MAX)}
-          onChange={(e) => onDensity(+e.target.value)}
-        />
-      </span>
-      <MapsReadout
-        value={density}
-        format={(v) => (v === null ? "mixed" : formatDensity(v))}
-        parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
-        onCommit={(v) => { if (v !== null) onDensity(v); }}
-        title="Type a multiplier between 1 and 4 to set every OpenStreetMap row at once."
-      />
-    </label>
-  );
-}
-
-/**
- * One OpenStreetMap row: its toggle and its own density, on ONE line.
+ * One OpenStreetMap row: its toggle and, where the renderer reads one, its
+ * own density — on ONE line.
  *
  * The card mounts one layer per OpenMapTiles source row and used to give all
- * ten of them a single density, so sharpening roads meant sharpening land
- * cover too. The control is the rail's own — the same 1..4/0.1 track and the
- * same editable `MapsReadout` every other density row carries — landed in
- * the card body's existing three-column grid with the checkbox moved into
- * the head of the WIDGET column beside the slider, rather than a fourth
- * column or a second line per row.
+ * of them a single density, so sharpening roads meant sharpening land cover
+ * too. Per-row is now the whole feature: the card carries NO master, because
+ * a second control standing for every row at once is redundant beside the
+ * rows themselves and its only distinct reading — "mixed" — was a statement
+ * about the controls rather than about the map. The `stroke grids` row above
+ * is what still speaks for the card as a whole, and it matters more now: a
+ * reader can no longer flatten every stroke back to one number in one drag,
+ * so the live grid count is the thing telling them why the frame got slow.
+ *
+ * The control is the rail's own — the same 1..4/0.1 track and the same
+ * editable `MapsReadout` every other density row carries — landed in the
+ * card body's existing three-column grid with the checkbox moved into the
+ * head of the WIDGET column beside the slider, rather than a fourth column
+ * or a second line per row.
  *
  * The class list keeps `maps-layer-bool-row` (this is still the row that
  * toggles the layer, and the checkbox is still its first input) and adds
  * `maps-osm-row`, which is what the CSS uses to stop the checkbox spanning
  * the value column.
+ *
+ * **A `symbol`/`circle` row renders no density control at all** — not a
+ * disabled one. Those two mount positioned DOM hotspots rather than
+ * geometry and nothing in `widget.ts` reads their `density`, so there is no
+ * number to show and no gesture to offer; a greyed slider is a control a
+ * reader has to work out is dead, and it takes the row's own width to say
+ * nothing. The row keeps its label and its toggle, and because the checkbox
+ * stays inside `.maps-osm-row-widget` — the same flex head of the same
+ * WIDGET column — it lands in the same place it does on every other row,
+ * with the value column simply empty. The set is derived from
+ * {@link OSM_DENSITYLESS_TYPES} against each row's OWN type, never a list of
+ * row ids, because the row list belongs to `@glyphcss/maps` and moves.
  *
  * **The `title` states what the row's own density COSTS**, and the answer
  * differs by layer type, which is why it is written per type rather than
@@ -616,19 +591,17 @@ function OsmMasterDensityRow({ density, sliderAt, onDensity }: {
  *    `scene.setViewportOverlayDensities`, so the three stroke rows sharing
  *    one number cost one grid and holding three cost three, each with its
  *    own geometry depth pass.
- *  - `symbol`/`circle` mount DOM hotspots rather than geometry and read no
- *    density at all (nothing in `widget.ts` consumes it for those two), so
- *    the control is disabled with that reason — the same treatment
- *    `DensityRow`'s own `enabled: false` state carries.
+ *  - `symbol`/`circle` have no density row to price, so their title says
+ *    what the row IS and why the control is absent.
  */
 const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
   line: (label) => `${label} density — a stroke row is stamped into a full-viewport overlay grid, and each DISTINCT density among the stroke rows (Waterways, Roads, Boundaries) buys another grid and another depth pass: measured at 140x63, one grid at 2x costs 27.4 ms/render and three at 2/2.1/2.2 cost 63.4 ms, so it is the COUNT that is charged for. Sharing one number with the other strokes costs nothing.`,
   fill: (label) => `${label} density — free to differ. This row renders in its own pass at any value above 1x, so a number of its own costs no more than sharing one.`,
   "fill-extrusion": (label) => `${label} density — free to differ. This row renders in its own pass at any value above 1x, so a number of its own costs no more than sharing one.`,
-  symbol: (label) => `${label} density — this row mounts positioned labels rather than geometry, so density is not wired through to the renderer for it.`,
-  circle: (label) => `${label} density — this row mounts positioned markers rather than geometry, so density is not wired through to the renderer for it.`,
+  symbol: (label) => `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+  circle: (label) => `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
 };
-/** The two layer types the OSM card mounts that read no `density` at all. */
+/** The two layer types the OSM card mounts that read no `density` at all — so their rows carry no density control. */
 const OSM_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
 
 function OsmSublayerRow({ row, onToggle, onDensity }: {
@@ -637,15 +610,15 @@ function OsmSublayerRow({ row, onToggle, onDensity }: {
   onDensity: (v: number) => void;
 }) {
   const wired = !OSM_DENSITYLESS_TYPES.has(row.type);
-  const live = row.on && wired;
   return (
     <label
       // `maps-osm-row--density-off`, NOT `maps-layer-slider--off`: on this
       // row only the DENSITY is gated — the toggle beside it is exactly how
       // a reader turns the row back on, so dimming the whole line (which is
       // what `--off` does, name column included) would read as "this control
-      // is dead" about a control that is not.
-      className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${live ? "" : " maps-osm-row--density-off"}`}
+      // is dead" about a control that is not. A densityless row never takes
+      // it: there is nothing there to dim.
+      className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${wired && !row.on ? " maps-osm-row--density-off" : ""}`}
       title={OSM_DENSITY_TITLES[row.type]?.(row.label) ?? `${row.label} — the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
     >
       <span>{row.label}</span>
@@ -653,27 +626,31 @@ function OsmSublayerRow({ row, onToggle, onDensity }: {
         <span className="layer-group-check maps-layer-bool-check">
           <input type="checkbox" checked={row.on} onChange={(e) => onToggle(e.target.checked)} />
         </span>
-        <span className="voice-slider-track">
-          <input
-            type="range"
-            min={DENSITY_MIN}
-            max={DENSITY_MAX}
-            step={DENSITY_STEP}
-            disabled={!live}
-            value={row.density}
-            style={densityFill(row.density, DENSITY_MIN, DENSITY_MAX)}
-            onChange={(e) => onDensity(+e.target.value)}
-          />
-        </span>
+        {wired && (
+          <span className="voice-slider-track">
+            <input
+              type="range"
+              min={DENSITY_MIN}
+              max={DENSITY_MAX}
+              step={DENSITY_STEP}
+              disabled={!row.on}
+              value={row.density}
+              style={densityFill(row.density, DENSITY_MIN, DENSITY_MAX)}
+              onChange={(e) => onDensity(+e.target.value)}
+            />
+          </span>
+        )}
       </span>
-      <MapsReadout
-        value={row.density}
-        disabled={!live}
-        format={formatDensity}
-        parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
-        onCommit={onDensity}
-        title="Type a multiplier between 1 and 4 for this row alone."
-      />
+      {wired && (
+        <MapsReadout
+          value={row.density}
+          disabled={!row.on}
+          format={formatDensity}
+          parse={parseMapsNumber(DENSITY_MIN, DENSITY_MAX)}
+          onCommit={onDensity}
+          title="Type a multiplier between 1 and 4 for this row alone."
+        />
+      )}
     </label>
   );
 }
@@ -1058,10 +1035,10 @@ function ContourWindowRow({ end, value, onChange, track, title }: {
 export interface OsmSublayerInputs {
   readonly id: string;
   readonly label: string;
-  /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether it is wired at all (`OSM_DENSITY_TITLES`). */
+  /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether the row gets a density control at all (`OSM_DENSITYLESS_TYPES`). */
   readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle";
   readonly on: boolean;
-  /** This row's own density. The card's per-row control, not the master's value. */
+  /** This row's own density. Ignored for a `symbol`/`circle` row, which renders no density control. */
   readonly density: number;
 }
 
@@ -1074,16 +1051,12 @@ export interface OsmLayerInputs {
   /** One row per mapped OpenMapTiles layer (`GLYPH_MAP_OPENMAPTILES_LAYERS`). */
   sublayers: readonly OsmSublayerInputs[];
   onSublayer: (id: string, on: boolean) => void;
-  /** A single row's density. Writes THAT row and nothing else. */
-  onSublayerDensity: (id: string, density: number) => void;
   /**
-   * The MASTER's reading: the value every row shares, or `null` — "mixed" —
-   * while they disagree (`mapOsmMasterDensity`). Committing it writes all
-   * every row; the card keeps it because the common gesture is still one
-   * drag.
+   * A single row's density. Writes THAT row and nothing else — the card's
+   * only density gesture. There is deliberately no card-level `density`
+   * here: per-row replaced the master rather than joining it.
    */
-  density: number | null;
-  onDensity: (v: number) => void;
+  onSublayerDensity: (id: string, density: number) => void;
 }
 
 export interface LayersFolderInputs {
@@ -1433,18 +1406,6 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             onDensity={(v) => osm.onSublayerDensity(s.id, v)}
           />
         ))}
-        {/*
-          The master stays BELOW the rows it writes, where the card's single
-          density row has always been \u2014 moving it above would read as a
-          heading for them rather than as the control that overwrites them.
-        */}
-        <OsmMasterDensityRow
-          density={osm.density}
-          sliderAt={osm.sublayers.length === 0
-            ? 1
-            : osm.sublayers.reduce((sum, s) => sum + s.density, 0) / osm.sublayers.length}
-          onDensity={osm.onDensity}
-        />
       </LayerCard>
     </div>
   );

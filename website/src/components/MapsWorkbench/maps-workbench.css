@@ -327,7 +327,14 @@
    does (that rule still applies — it is simply inert once the checkbox sits
    inside a flex parent rather than directly in the row's grid). The row
    keeps the card body's three-column geometry unchanged: name / widget /
-   value, with the readout in the value column like every other row. */
+   value, with the readout in the value column like every other row.
+
+   A `symbol`/`circle` row renders NO density control (nothing in the
+   renderer reads one for it), so its widget column holds the checkbox alone
+   and its value column is empty. Nothing here needs a rule for that: the
+   grid's three columns are declared on the row, not inferred from its
+   children, and the checkbox keeps its place because it is still the first
+   item of the same flex widget. */
 .maps-layer-card .maps-layer-body .maps-osm-row-widget {
   display: flex;
   align-items: center;
@@ -341,12 +348,14 @@
   flex: 1 1 auto;
   min-width: 0;
 }
-/* A row whose DENSITY is gated — either the row is switched off, or it is a
-   `symbol`/`circle` row, which mounts positioned hotspots rather than
-   geometry and so reads no density at all. Same treatment as
+/* A row whose DENSITY is gated: the row is switched off, so its control has
+   nothing to act on until it comes back. Same treatment as
    `.maps-layer-slider--off` (0.5 opacity, `not-allowed`, tooltip left
    reachable) but scoped to the density control, because the TOGGLE on this
-   row is live and dimming the name beside it would say otherwise. */
+   row is live and dimming the name beside it would say otherwise.
+
+   The `symbol`/`circle` rows used to take this class too. They no longer
+   carry a density control at all, so there is nothing left to dim. */
 .maps-osm-row--density-off .voice-slider-track,
 .maps-osm-row--density-off .voice-slider-readout {
   opacity: 0.5;

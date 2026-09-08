@@ -5,17 +5,19 @@
  * `glyphMapOpenMapTilesLayers` has always taken a `densities` map keyed by
  * row id — the page was the thing collapsing it to a single number. What is
  * asserted here is the plumbing that opened it back up, plus the two pure
- * functions the master control is derived from.
+ * functions that still read the record whole (for the LINK, not for a control).
  *
- * The master/per-row contract, stated once:
+ * The per-row contract, stated once:
  *
- *  - The RECORD is the truth. There is no second "master" value in state.
- *  - A master write OVERWRITES every row (never a ratio, never a clamp on
- *    top of an existing spread) — that is the one gesture the card already
- *    had, and it has to keep meaning "all of it, this dense".
- *  - The master READS as the shared value when every row agrees and as
- *    "mixed" when they do not; {@link mapOsmMasterDensity} is that reading
- *    and answers `null` for mixed.
+ *  - The RECORD is the truth. There is no second "master" value in state,
+ *    and since per-row replaced the card's master slider there is no master
+ *    CONTROL either.
+ *  - A write over every row at once OVERWRITES each of them (never a ratio,
+ *    never a clamp on top of an existing spread). Its callers are now a
+ *    legacy `Q`-only link's seed and the bench hook, not a slider.
+ *  - {@link mapOsmMasterDensity} is what the LINK's legacy `Q` float carries:
+ *    the shared value when every row agrees, `null` when they do not, which
+ *    the page writes as the default so the codec omits it.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -32,7 +34,7 @@ const source = { zooms: [{ z: 0, tiles: 1 }], loadTile: async () => ({ layers: {
 
 const ids = MAP_OSM_SUBLAYERS.map((s) => s.id);
 
-describe("mapOsmDensityRecord — the seed and the master write", () => {
+describe("mapOsmDensityRecord — the legacy-link seed and the bench hook's whole-card write", () => {
   it("gives every mapped row the same value", () => {
     const record = mapOsmDensityRecord(2.5);
     expect(Object.keys(record).sort()).toEqual([...ids].sort());
@@ -45,7 +47,7 @@ describe("mapOsmDensityRecord — the seed and the master write", () => {
   });
 });
 
-describe("mapOsmMasterDensity — what the card's one slider reads", () => {
+describe("mapOsmMasterDensity — the one number the link's legacy Q float carries", () => {
   it("is the shared value while every row agrees", () => {
     expect(mapOsmMasterDensity(mapOsmDensityRecord(3.2))).toBe(3.2);
   });
@@ -90,7 +92,7 @@ describe("mapOsmLayers — a per-row density reaches THAT row and only that row"
     }
   });
 
-  it("a master write reaches every enabled row", () => {
+  it("a whole-card write reaches every enabled row", () => {
     const layers = mapOsmLayers(source, { enabled: ids, densities: mapOsmDensityRecord(2.2) });
     expect(layers).toHaveLength(ids.length);
     for (const layer of layers) expect(layer.density, layer.id).toBe(2.2);
