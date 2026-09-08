@@ -131,20 +131,36 @@ function sampledProfile(map: ReturnType<typeof createGlyphMap>, field: GlyphMapF
 
 /**
  * The columns a given level list must ink, read off the widget's own sampled
- * profile: `stampGlyphMapContour` inks a cell when a level falls between it
- * and its RIGHT (or down) neighbour — with `floor`/`ceiling` additionally
- * excluding a cell whose own value is outside the window.
+ * profile.
+ *
+ * A contour is GEOMETRY now (`contourGeometry.ts`), so this is not a
+ * per-cell crossing rule any more but the crossing's own POSITION: marching
+ * squares cuts the isoline where the field reaches the level, between the two
+ * sample points either side of it, and the ink lands in whichever output cell
+ * that lon falls in. Here the field grid and the view grid are the same
+ * `COLS x ROWS` over the same bounds, so sample `col` sits at screen position
+ * `col + 0.5` and a crossing a fraction `t` of the way to its right neighbour
+ * is at `col + 0.5 + t`.
+ *
+ * There is no `floor`/`ceiling` parameter any more, and that is the window's
+ * per-cell ink gate being SUBSUMED rather than dropped: a marching vertex
+ * stands AT its own level by construction, so a level inside the window can
+ * no longer put ink on terrain kilometres outside it. What used to ink a
+ * whole ocean cell because a level crossed somewhere between it and the land
+ * cell beside it now inks at the point where that level actually is.
  */
-function expectedColumns(profile: readonly number[], levels: readonly number[], floor = -Infinity, ceiling = Infinity): number[] {
-  const cols: number[] = [];
+function expectedColumns(profile: readonly number[], levels: readonly number[]): number[] {
+  const cols = new Set<number>();
   for (let col = 0; col < COLS - 1; col++) {
     const e = profile[col];
     const right = profile[col + 1];
-    if (!Number.isFinite(e) || !Number.isFinite(right)) continue;
-    if (e < floor || e > ceiling) continue;
-    if (levels.some((level) => (e - level) * (right - level) <= 0)) cols.push(col);
+    if (!Number.isFinite(e) || !Number.isFinite(right) || e === right) continue;
+    for (const level of levels) {
+      if ((e - level) * (right - level) > 0) continue;
+      cols.add(Math.floor(col + 0.5 + (level - e) / (right - e)));
+    }
   }
-  return cols;
+  return [...cols].sort((a, b) => a - b);
 }
 
 const columnsOf = (cells: { col: number; row: number }[]): number[] => [...new Set(cells.map((c) => c.col))].sort((a, b) => a - b);
@@ -204,12 +220,12 @@ describe("createGlyphMap — contour elevation window (minElevation/maxElevation
     // -3120, -1240, 640, 2520 — three of them under water.
     const unwindowed = [1, 2, 3, 4].map((i) => -5000 + 9400 * (i / 5));
 
-    const expected = expectedColumns(profile, windowed, 0);
+    const expected = expectedColumns(profile, windowed);
     expect(expected).toHaveLength(4);
     expect(columnsOf(inkedCells(map))).toEqual(expected);
     // The two level sets must be genuinely distinguishable on this fixture,
     // or the assertion above would pass either way.
-    expect(expectedColumns(profile, unwindowed, 0)).not.toEqual(expected);
+    expect(expectedColumns(profile, unwindowed)).not.toEqual(expected);
 
     map.destroy();
     host.remove();
@@ -226,12 +242,12 @@ describe("createGlyphMap — contour elevation window (minElevation/maxElevation
 
     map.addLayer({ type: "contour", id: "c", source: field, levels: [-1000, 3000], minElevation: 0, color: "#00aaff" });
     map.scene.rerender();
-    const trap = expectedColumns(profile(), [-1000], 0);
+    const trap = expectedColumns(profile(), [-1000]);
     expect(trap.length).toBeGreaterThan(0); // the fixture really does contain the case
 
     const inked = columnsOf(inkedCells(map));
     // Only the 3,000 m level survives the clip.
-    expect(inked).toEqual(expectedColumns(profile(), [3000], 0));
+    expect(inked).toEqual(expectedColumns(profile(), [3000]));
     for (const col of trap) expect(inked).not.toContain(col);
 
     map.destroy();
@@ -249,10 +265,10 @@ describe("createGlyphMap — contour elevation window (minElevation/maxElevation
     // -3,000 / 0 / 3,000; the window keeps 3,000 alone — and keeps it at
     // 3,000, not at some level re-derived from the window's own edges (which
     // is what would make an interval's lines crawl as the view pans).
-    expect(columnsOf(inkedCells(map))).toEqual(expectedColumns(profile, [3000], 500));
+    expect(columnsOf(inkedCells(map))).toEqual(expectedColumns(profile, [3000]));
     // The dropped -3,000 / 0 levels both cross at the cliff, detected from
     // its in-window (2,000 m) side — so this fixture fails if they survive.
-    expect(expectedColumns(profile, [-3000, 0], 500).length).toBeGreaterThan(0);
+    expect(expectedColumns(profile, [-3000, 0]).length).toBeGreaterThan(0);
 
     map.destroy();
     host.remove();
@@ -304,31 +320,36 @@ describe("createGlyphMap — contour elevation window (minElevation/maxElevation
   });
 
   /**
-   * BYTE IDENTITY for the default (no window declared).
+   * BYTE IDENTITY for the default (no window declared) — one pin per `levels`
+   * shape: 24 rows of 60 columns, ink on rows 6..17 (the field's own latitude
+   * band), spaces everywhere else, `\n`-joined with no trailing newline —
+   * 1,463 characters.
    *
-   * These three strings were captured from the renderer BEFORE
-   * `minElevation`/`maxElevation` existed, one per `levels` shape, and are
-   * reproduced here exactly: 24 rows of 60 columns, ink on rows 6..17 (the
-   * field's own latitude band), a `|` in each column named below, spaces
-   * everywhere else, `\n`-joined with no trailing newline — 1,463 characters.
-   * Encoded as a column list rather than a padded literal only so trailing
-   * spaces cannot be lost to an editor; `expandGolden` rebuilds the exact
-   * captured bytes.
+   * RE-BASELINED when `contour` became real geometry: these rows were
+   * recaptured from the marching-squares renderer, and the previous literals
+   * (a `|` at columns [29, 34, 46] / [29, 30, 36, 43, 49, 56] / [29, 43]) are
+   * recorded here because the DIFFERENCE is the feature, not noise. The per-
+   * cell scan inked the cell that DETECTED a crossing, so a line wandered a
+   * column between rows and the twelve rows of one straight contour were not
+   * identical; the geometry stands at the crossing's own sub-cell position, so
+   * every row of a vertical line is now byte-identical to every other and the
+   * glyph carries the sub-cell offset (`▕`/`▏`) instead of rounding it away.
+   * The property this pins is unchanged: declaring no window must render
+   * exactly as not declaring one, for every `levels` shape.
    */
-  const expandGolden = (inkCols: readonly number[]): string => {
-    const row = Array.from({ length: COLS }, (_, col) => (inkCols.includes(col) ? "|" : " ")).join("");
-    return Array.from({ length: ROWS }, (_, r) => (r >= 6 && r <= 17 ? row : " ".repeat(COLS))).join("\n");
-  };
+  const expandGolden = (inkRow: string): string =>
+    Array.from({ length: ROWS }, (_, r) => (r >= 6 && r <= 17 ? inkRow : " ".repeat(COLS))).join("\n");
 
   it.each([
-    { label: "a count", levels: 4 as number | readonly number[] | { readonly interval: number }, inkCols: [29, 34, 46] },
-    { label: "an { interval }", levels: { interval: 1000 }, inkCols: [29, 30, 36, 43, 49, 56] },
-    { label: "an explicit array", levels: [-3000, 2000], inkCols: [29, 43] },
-  ])("declaring no window renders byte-identically to before the window existed — $label", ({ levels, inkCols }) => {
+    { label: "a count", levels: 4 as number | readonly number[] | { readonly interval: number }, inkRow: "                             ▕▏   ▕            ▏            " },
+    { label: "an { interval }", levels: { interval: 1000 }, inkRow: "                             ▕|      ▏     ▕      ▏     ▕   " },
+    { label: "an explicit array", levels: [-3000, 2000], inkRow: "                             ▕             ▕                " },
+  ])("declaring no window renders byte-identically to the pinned unwindowed render — $label", ({ levels, inkRow }) => {
     const { host, map } = mount();
+    expect(inkRow).toHaveLength(COLS); // the literal must be the real width, trailing spaces included
     map.addLayer({ type: "contour", id: "c", source: stepField(-5000, 0, 4400), levels, color: "#00aaff" });
     map.scene.rerender();
-    expect(map.scene.output.textContent).toBe(expandGolden(inkCols));
+    expect(map.scene.output.textContent).toBe(expandGolden(inkRow));
     map.destroy();
     host.remove();
   });

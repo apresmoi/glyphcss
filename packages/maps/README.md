@@ -458,7 +458,8 @@ would erase the terrain the outline is drawn over.
 
 `line` and `contour` layers have no `renderMode` and never will: they own no
 mesh, are stamped into the cell grid after rasterization, and already emit
-oriented stroke glyphs by construction. `symbol`/`circle` mount DOM hotspots
+oriented stroke glyphs by construction. (A contour is real 3D geometry —
+see "Contours stand on the terrain" — but it is *stamped*, not mounted.) `symbol`/`circle` mount DOM hotspots
 rather than geometry, so they carry none either.
 
 ### Markers stand on the terrain
@@ -599,6 +600,42 @@ is read live at mount; changing it afterwards through the `map.scene` escape
 hatch does not re-evaluate already-mounted meshes — re-add the layer, which is
 how every other per-layer appearance change here already works.
 
+### Contours stand on the terrain
+
+A `contour` layer's lines are real geometry at their own elevation. Each
+level's isoline is cut out of the elevation field with marching squares, in
+lon/lat, and every vertex it produces is projected through
+`projection.project(lon, lat, level)` — the same call the terrain vertex beside
+it goes through. So a 2,000 m contour sits on the 2,000 m ground at every
+`exaggeration` and, crucially, at every tilt: pitch the camera and the lines
+wrap the relief in three dimensions instead of lying flat under it.
+
+This replaced a per-cell scan that asked `unproject` what elevation was under
+each output cell. `unproject` inverts at elevation ZERO (a projection's `z`
+axis is one-way relief), so under a tilt the cell you are looking at was
+attributed the lon/lat of the sea-level point beneath the view ray, and the
+line landed where sea level would be — the mirror image of the parallax the
+`line` drape closes. Measured on a 24x alpine fixture at a 40-degree pitch:
+every one of 280 inked cells sat at the datum position, none at the level's.
+There is no flat/elevated toggle, because at zero pitch the two are the same
+picture and everywhere else the flat one is simply wrong.
+
+Consequences worth knowing:
+
+- A contour is now depth-tested like any other stroke, so a ridge in front of
+  it hides it, and it inherits the same curvature-scaled coplanar allowance a
+  draped `line` uses.
+- The geometry is CACHED and re-projected per frame. It is re-cut only when
+  the mounted tile mosaic changes or the resolved level list does — never on a
+  pan, zoom, orbit or tilt, which only re-project it.
+- Cost, measured on the real ETOPO1 pyramid at an alpine view (0.6 degrees,
+  140x63, Switzerland's curated z7, 64,800 quads mounted): the per-render
+  stamp is 1.2 ms at a 1,000 m interval and 8.7 ms at 200 m, against a flat
+  ~11-12 ms for the per-cell path it replaces (whose cost was a function of
+  the OUTPUT grid, not of how many levels you asked for). Re-cutting the
+  geometry costs 4.8 ms at a 1,000 m interval and ~35 ms at 200 m, and is paid
+  only when the mosaic or the level list changes.
+
 ### Contour elevation window
 
 A `contour` layer's `levels` resolves against whatever range the mounted
@@ -626,12 +663,13 @@ Both halves happen, because either alone is a half-fix.
   multiples are CLIPPED instead, never renumbered: an interval's whole point
   is that its lines sit at fixed elevations and do not crawl as you pan, which
   re-deriving them from the window's edges would undo.
-- **Ink is clipped to the window.** No cell whose own elevation is outside it
-  inks, even where a level legitimately crosses between it and a neighbour.
-  The crossing scan reads a cell's right/down neighbours, so on a sea cliff —
-  one cell at -5,000 m, the next at +2,000 m — a 1,000 m level crosses BETWEEN
-  them and the ink lands on the ocean cell. Filtering the level list cannot
-  catch that; the level is legitimately inside the window.
+- **Ink lands at the level, so the window needs no second gate.** A contour is
+  cut as geometry (below), and a marching vertex stands AT its own level by
+  construction — so a level inside the window can no longer put ink on terrain
+  kilometres outside it. The per-cell scan this replaced could: it read a
+  cell's right/down neighbours, so on a sea cliff — one cell at -5,000 m, the
+  next at +2,000 m — a 1,000 m level crossed BETWEEN them and inked the ocean
+  cell 5 km below the floor. That gate is subsumed, not dropped.
 
 Levels stay computed across the WHOLE mounted mosaic, window included, so
 neighbouring tiles can never resolve different level sets and tear at the

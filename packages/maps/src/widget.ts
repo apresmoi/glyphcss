@@ -92,7 +92,8 @@ import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
-import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
 import {
@@ -470,6 +471,49 @@ interface GlyphMapElevationPiece {
   readonly min: number;
   readonly max: number;
   valueAt(lon: number, lat: number): number;
+  /**
+   * The piece's own NATIVE sample grid, for cutting isolines out of
+   * (`contourGeometry.ts`). It is the grid itself and never a resampling of
+   * it: two adjacent tiles share their edge vertex row/column, so marching
+   * each one's own grid cuts bit-identical crossings on both sides of a
+   * boundary — the same identity `valueAt` relies on, expressed as geometry.
+   */
+  readonly grid: GlyphMapContourSampleGrid;
+}
+
+/**
+ * A cell-centered {@link GlyphMapField} as a marching grid: its own cell
+ * CENTRES are the sample vertices, which insets the grid by half a cell
+ * inside the field's declared bounds.
+ *
+ * That inset is the honest reading, not a shortcut. A field has no data
+ * outside its own sample points; `glyphMapFieldValueAt` answers past them by
+ * CLAMPING, and manufacturing marching vertices out of that clamp is exactly
+ * the flat extrapolation that put a false line along every tile boundary
+ * (`widget.contourTileBoundary.test.ts`). A provider tile is vertex-centered
+ * and so has no inset at all — which is the shape every mosaic in this
+ * package actually uses.
+ */
+function contourGridFromField(field: GlyphMapField): GlyphMapContourSampleGrid {
+  const { bounds, cols, rows, values, noData } = field;
+  const halfLon = (bounds.east - bounds.west) / cols / 2;
+  const halfLat = (bounds.north - bounds.south) / rows / 2;
+  let samples: Float32Array | Float64Array = values;
+  for (let i = 0; i < noData.length; i++) {
+    if (noData[i]) {
+      // A `noData` sample is an ABSENCE — carried as NaN so the marcher skips
+      // the quads touching it whole rather than interpolating a crossing
+      // through a hole.
+      samples = Float64Array.from(values, (v, j) => (noData[j] ? NaN : v));
+      break;
+    }
+  }
+  return {
+    bounds: { west: bounds.west + halfLon, east: bounds.east - halfLon, south: bounds.south + halfLat, north: bounds.north - halfLat },
+    cols: Math.max(0, cols - 1),
+    rows: Math.max(0, rows - 1),
+    values: samples,
+  };
 }
 
 /**
@@ -488,12 +532,17 @@ interface GlyphMapElevationPiece {
  */
 function elevationPieceFromTile(tile: GlyphMapGeoTile): GlyphMapElevationPiece {
   const { min, max } = glyphMapGeoTileElevationRange(tile);
-  return { min, max, valueAt: (lon, lat) => glyphMapGeoTileElevationAt(tile, lon, lat) };
+  return {
+    min,
+    max,
+    valueAt: (lon, lat) => glyphMapGeoTileElevationAt(tile, lon, lat),
+    grid: { bounds: tile.bounds, cols: tile.cols, rows: tile.rows, values: tile.elevation },
+  };
 }
 
 /** A static, already-sampled cell-centered field as an elevation piece. It has no neighbours, so its own edge clamp has nothing to disagree with. */
 function elevationPieceFromField(field: GlyphMapField): GlyphMapElevationPiece {
-  return { min: field.min, max: field.max, valueAt: (lon, lat) => glyphMapFieldValueAt(field, lon, lat) };
+  return { min: field.min, max: field.max, valueAt: (lon, lat) => glyphMapFieldValueAt(field, lon, lat), grid: contourGridFromField(field) };
 }
 
 async function loadGlyphMapElevationPiece(provider: GlyphMapProvider, z: number, x: number, y: number): Promise<GlyphMapElevationPiece> {
@@ -4743,6 +4792,49 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let disposed = false;
 
     /**
+     * The cut isolines, in lon/lat, each carrying the elevation it was cut at
+     * — the layer's GEOMETRY, and the whole reason a contour no longer has to
+     * ask `unproject` where it is (`contourGeometry.ts`).
+     *
+     * CACHED, because marching a mosaic is not a per-frame cost: a real
+     * alpine view mounts a handful of 180x90-quad tiles, and cutting twenty
+     * levels out of them is milliseconds while a frame is one. The two things
+     * that can change the ANSWER are exactly the two things watched here —
+     * the mounted MOSAIC (a tile sweep resolved a different set, or a finer
+     * tier landed) and the resolved LEVEL LIST (the mosaic's range moved
+     * under a `levels` count or an `{ interval }`, or the layer's window
+     * clipped it) — so the cache is keyed on both and on nothing else. The
+     * camera is deliberately not among them: geometry is in lon/lat, so a
+     * pan, a zoom, an orbit or a tilt re-PROJECTS it and never re-cuts it.
+     */
+    let geometry: readonly GlyphMapContourSegment[] = [];
+    let geometryMosaic: readonly GlyphMapElevationPiece[] | null = null;
+    let geometryLevels: readonly number[] = [];
+    /**
+     * The largest QUAD, in degrees, any mounted piece was marched on — the
+     * screen-cull margin's whole basis (see `stamp`). Cached with the geometry
+     * because it changes only when the mosaic does.
+     */
+    let geometryQuadDeg = 0;
+
+    function contourGeometry(levels: readonly number[]): readonly GlyphMapContourSegment[] {
+      const unchanged = geometryMosaic === mosaic
+        && geometryLevels.length === levels.length
+        && geometryLevels.every((level, i) => level === levels[i]);
+      if (unchanged) return geometry;
+      geometryMosaic = mosaic;
+      geometryLevels = levels;
+      const grids = mosaic.map((piece) => piece.grid);
+      geometryQuadDeg = 0;
+      for (const g of grids) {
+        if (g.cols > 0) geometryQuadDeg = Math.max(geometryQuadDeg, Math.abs(g.bounds.east - g.bounds.west) / g.cols);
+        if (g.rows > 0) geometryQuadDeg = Math.max(geometryQuadDeg, Math.abs(g.bounds.north - g.bounds.south) / g.rows);
+      }
+      geometry = glyphMapMarchContourMosaic(grids, levels);
+      return geometry;
+    }
+
+    /**
      * The elevation range across the WHOLE mounted mosaic, not one tile's —
      * `levels` as a count or an `{ interval }` is documented to be resolved
      * against "whichever field is CURRENTLY resolved", and with a mosaic
@@ -4893,7 +4985,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (!range) return;
       // `hasOpaqueSurface` stays a SCENE-level check (does ANY raster layer
       // exist, anywhere — base or a detail grid, regardless of density) —
-      // deliberately not per-grid. `stampGlyphMapContour`'s own gate
+      // deliberately not per-grid. The per-cell gate inside the stamp
       // (`Number.isFinite(grid.depth[idx])`) already reads whichever grid IS
       // passed to it, so it already answers "does a surface exist HERE" per
       // grid on its own; this flag only decides whether that question is
@@ -4904,44 +4996,120 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // the contour on the base (nothing there to annotate) while the SAME
       // flag, passed to the detail grid's own `stamp()` call, correctly
       // gates on that grid's real terrain coverage instead. No raster layer
-      // mounted anywhere degrades every grid to "draw wherever the field
-      // itself is defined" (open sky reads uniformly non-finite too, and the
-      // per-grid gate can't tell that apart from "no surface exists to
-      // annotate" — see `stroke.ts`'s `GlyphMapContourOptions.requireSurface`
-      // doc).
+      // mounted anywhere degrades every grid to "draw wherever the geometry
+      // is" (open sky reads uniformly non-finite too, and the per-grid gate
+      // can't tell that apart from "no surface exists to annotate" — see
+      // `stroke.ts`'s `GlyphMapStampOptions.requireSurface` doc).
       const hasOpaqueSurface = [...layerStates.values()].some((s) => s.kind === "raster");
       const levels = levelsFor(range);
-      const plan = stampGlyphMapContour(
-        grid,
-        (col, row) => {
-          // `col`/`row` are THIS grid's own local cell coordinates — sample
-          // at the cell CENTER in LOCAL units first (a local half-cell is
-          // 1/density of a scene cell; adding 0.5 after the affine would
-          // sample the wrong offset), then convert forward through the
-          // affine into scene/base coordinates (the mirror of `line`'s own
-          // inverse conversion above) and unproject through the public
-          // `unproject()` wrapper — safe here because `composedTransformCells`
-          // restores `camera`'s zoom/center/fovScale to their base-call
-          // values for the duration of a detail call's stamping (see
-          // `StrokeLayerRuntime`'s doc), so `unproject()`'s own live
-          // `projectionGrid()`/`camera.project` reads answer with the
-          // scene's true base framing even mid-detail-render.
+      const segments = contourGeometry(levels);
+      if (segments.length === 0) return;
+
+      /**
+       * SCREEN CULL, and it is what keeps this affordable. A mounted mosaic
+       * covers the swept tiles, not the viewport, and the marching grid is
+       * finer than the output grid — measured on the real ETOPO1 pyramid at
+       * an alpine view (0.6 degrees, 140x63, Switzerland's curated z7), 22
+       * levels cut 86,234 segments of which about 4% are on screen. Projecting
+       * all of them, and asking `visibleStrokeRuns` to project them a second
+       * time, cost +57.6 ms per render against the per-cell path's +6.7.
+       *
+       * So the FIRST endpoint is projected, tested, and the rest of the work
+       * is skipped when it lands far enough outside the grid that no segment
+       * could reach back in. `margin` is that bound, and it is a bound rather
+       * than a tuning: a marching segment lies inside ONE quad of its own
+       * grid, and the camera's cells-per-degree is greatest at the view centre
+       * along longitude (a sphere foreshortens everything else, and a tilt
+       * only compresses rows), so `2 x quadDeg / degPerCell` covers a quad's
+       * diagonal anywhere in the frame. The cull runs in SCENE (base-grid)
+       * coordinates, before the per-grid affine, so one bound serves the base
+       * grid and every detail grid — conservative for a silhouette-fitted one,
+       * never wrong.
+       */
+      const degPerCell = glyphMapDegreesPerCell(getView());
+      const margin = degPerCell > 0 ? (2 * geometryQuadDeg) / degPerCell + 2 : Infinity;
+      const minCol = -margin, maxCol = baseGrid.cols + margin;
+      const minRow = -margin, maxRow = baseGrid.rows + margin;
+
+      const polylines: GlyphMapContourPolyline[] = [];
+      for (const segment of segments) {
+        // THE WHOLE POINT: the vertex is projected at the LEVEL'S OWN
+        // elevation, in metres, through the same `projection.project` the
+        // terrain vertex beside it goes through — so the exaggerated relief
+        // carries its contours with it, and a 2,000 m line sits on the 2,000 m
+        // ground at every `exaggeration` and every tilt. No sampler, no
+        // ray-march, no datum left to be wrong about.
+        //
+        // `baseGrid` (NOT the live `projectionGrid()`) is what makes this a
+        // SCENE/base-grid col/row — see `StrokeLayerRuntime`'s doc.
+        const worldA = projection.project(segment.a[0], segment.a[1], segment.level);
+        const pa = camera.project(worldA, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+        // A NaN projection (a flat projection cropping its own domain) fails
+        // this too, which is the same exclusion `stampGlyphMapPolyline`'s own
+        // finite check already made.
+        if (!(pa[0] >= minCol && pa[0] <= maxCol && pa[1] >= minRow && pa[1] <= maxRow)) continue;
+        const worldB = projection.project(segment.b[0], segment.b[1], segment.level);
+        const pb = camera.project(worldB, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+
+        // Near/far side, asked of the ELEVATED world point this already has —
+        // an orthographic camera maps the far hemisphere onto the same screen
+        // disc as the near one, so a contour is clipped to the visible side
+        // exactly as a `line` is. Reusing the vector already computed is what
+        // makes this free; `visibleStrokeRuns` would project both ends a
+        // second time, and at 86,234 segments that second projection was 21.6
+        // of the 57.6 ms.
+        const visibleA = nearSideVisible(segment.a[0], segment.a[1], worldA, baseGrid);
+        const visibleB = nearSideVisible(segment.b[0], segment.b[1], worldB, baseGrid);
+        if (!visibleA && !visibleB) continue;
+        if (visibleA && visibleB) {
+          const la = glyphMapSceneToLocalCell(pa[0], pa[1], cellToSceneGrid);
+          const lb = glyphMapSceneToLocalCell(pb[0], pb[1], cellToSceneGrid);
+          polylines.push({
+            level: segment.level,
+            points: [{ col: la.col, row: la.row, depth: pa[3] ?? pa[2] }, { col: lb.col, row: lb.row, depth: pb[3] ?? pb[2] }],
+          });
+          continue;
+        }
+        // Straddling the limb — rare enough (a one-quad segment, only where
+        // the silhouette crosses it) to hand to the SHARED clipper rather than
+        // repeat its bisection here.
+        for (const run of visibleStrokeRuns([segment.a, segment.b], baseGrid)) {
+          if (run.length < 2) continue;
+          const points: GlyphMapStrokeVertex[] = run.map(([lon, lat]) => {
+            const world = projection.project(lon, lat, segment.level);
+            const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+            const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
+            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
+          });
+          polylines.push({ level: segment.level, points });
+        }
+      }
+
+      // The globe's horizon gate for LABELS, and only where the grid cannot
+      // answer it: with no raster layer mounted every cell reads non-finite
+      // depth, so "is this cell over the map at all" has to come from the
+      // projection instead. Memoized per cell because a label's candidates
+      // share rows and this is a Newton solve on a globe; built only when
+      // labels are actually on.
+      const coveredCache = new Map<number, boolean>();
+      const coveredByProjection = (col: number, row: number): boolean => {
+        const key = row * grid.cols + col;
+        let hit = coveredCache.get(key);
+        if (hit === undefined) {
           const scenePt = glyphMapLocalCellToScene(col + 0.5, row + 0.5, cellToSceneGrid);
-          const ll = unproject([scenePt.col, scenePt.row]);
-          if (!ll) return NaN;
-          return elevationAtLonLat(ll[0], ll[1]);
-        },
-        {
-          levels,
-          color: layer.color,
-          requireSurface: hasOpaqueSurface,
-          minElevation: layer.minElevation,
-          maxElevation: layer.maxElevation,
-          labels: layer.labels === true
-            ? { levels: glyphMapContourIndexLevels(levels, levelStepFor(range, levels), layer.labelEvery ?? GLYPH_MAP_CONTOUR_LABEL_EVERY) }
-            : undefined,
-        },
-      );
+          hit = unproject([scenePt.col, scenePt.row]) !== null;
+          coveredCache.set(key, hit);
+        }
+        return hit;
+      };
+      const plan = stampGlyphMapContourGeometry(grid, polylines, {
+        color: layer.color,
+        requireSurface: hasOpaqueSurface,
+        covered: layer.labels === true && !hasOpaqueSurface ? coveredByProjection : undefined,
+        labels: layer.labels === true
+          ? { levels: glyphMapContourIndexLevels(levels, levelStepFor(range, levels), layer.labelEvery ?? GLYPH_MAP_CONTOUR_LABEL_EVERY) }
+          : undefined,
+      });
       if (!plan) return;
       // ONE greedy declutter over this grid's whole candidate set, the same
       // stable "priority descending, then input order" arbitration the symbol
@@ -4969,6 +5137,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         disposed = true;
         fieldCache.clear();
         mosaic = [];
+        geometry = [];
+        geometryMosaic = null;
+        geometryLevels = [];
       },
       getFieldRange(): { readonly min: number; readonly max: number } | null {
         return fieldRange();

@@ -142,6 +142,7 @@ export type {
 } from "./vector/types";
 export {
   stampGlyphMapContour,
+  stampGlyphMapContourGeometry,
   stampGlyphMapContourLabels,
   stampGlyphMapPolyline,
   GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE,
@@ -161,7 +162,11 @@ export {
   stampGlyphMapNight,
 } from "./sun";
 export type { GlyphMapNightOptions, GlyphMapSolarPosition } from "./sun";
+export { glyphMapMarchContourGrid, glyphMapMarchContourMosaic } from "./contourGeometry";
+export type { GlyphMapContourSampleGrid, GlyphMapContourSegment } from "./contourGeometry";
 export type {
+  GlyphMapContourGeometryOptions,
+  GlyphMapContourPolyline,
   GlyphMapContourLabelCandidate,
   GlyphMapContourLabelOptions,
   GlyphMapContourLabelPlan,

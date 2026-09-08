@@ -257,11 +257,10 @@ export interface GlyphMapFieldValueAtOptions {
    * always continuous (elevation), so it gets bilinear by default without
    * asking — a nearest-only lookup reads a field whose own resolution is
    * coarser than the output grid (the common case: a wide-span view's LOD
-   * field vs. a much finer glyph grid) as BLOCKY, quantized steps, which
-   * `stampGlyphMapContour`'s per-cell crossing test then renders as thick,
-   * chunky bands instead of a smooth line — bilinear removes that
-   * quantization at the source, the same reason the raster pipeline
-   * defaults continuous sampling to bilinear.
+   * field vs. a much finer glyph grid) as BLOCKY, quantized steps, which any
+   * crossing test then renders as thick, chunky bands instead of a smooth
+   * line — bilinear removes that quantization at the source, the same reason
+   * the raster pipeline defaults continuous sampling to bilinear.
    */
   readonly interpolate?: "nearest" | "bilinear";
 }

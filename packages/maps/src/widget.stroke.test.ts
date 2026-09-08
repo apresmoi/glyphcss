@@ -383,17 +383,13 @@ describe("createGlyphMap — layer density (uniform field, per-type behavior)", 
     // Level 24 crosses at lon 6 (`values[col] = col`, field bounds -18..18
     // over 36 cols, so col == lon + 18): just east of the ridge's own east
     // edge (lon 5) and short of the east-flank assertion's own window
-    // (lon 8..15) below. `stampGlyphMapContour` is intentionally NOT
-    // depth-tested against a nearer occluding mesh (`stroke.ts`'s own doc:
-    // "this needs no depth test of its own... not an independent 3D object
-    // that could be nearer or farther than the terrain" — pinned by
-    // `stroke.test.ts`'s "skips cells with no rendered surface" suite), so a
-    // level whose crossing landed UNDER the ridge would draw right through
-    // it regardless of occlusion — a false failure of the LINE layer's own
-    // occlusion assertion below, not a defect in either layer. Level 24
-    // keeps the contour's own ink out of all three checked windows so this
-    // test isolates what its own name describes: the CO-ROUTED LINE's
-    // occlusion, on an overlay the contour merely shares.
+    // (lon 8..15) below. Level 24 keeps the contour's own ink out of all
+    // three checked windows so this test isolates what its own name
+    // describes: the CO-ROUTED LINE's occlusion, on an overlay the contour
+    // merely shares. (A contour is depth-tested like any other stroke since
+    // it became geometry at its own elevation — see
+    // `widget.contourElevation.test.ts` — but its ink still has no business
+    // in the windows this test reads.)
     map.addLayer({ type: "contour", id: "contours", source: field, levels: [24], density: 3, color: "#00aaff" });
     map.addLayer({
       type: "line",

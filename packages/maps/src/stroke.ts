@@ -124,6 +124,30 @@ export interface GlyphMapStampOptions {
   readonly depthBias?: number;
   /** Overrides {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE}. */
   readonly depthCurvatureScale?: number;
+  /**
+   * Skip a cell the base render left EMPTY (`grid.depth` non-finite) instead
+   * of drawing through it. Default `false`, which is the `line` rule — no
+   * base surface there means nothing to be occluded by.
+   *
+   * A `contour` sets it: a contour is an ANNOTATION of whatever surface won
+   * each cell, so past the map's own silhouette (open sky, the far side of a
+   * globe) there is nothing to annotate. The caller decides, because from in
+   * here an empty cell is indistinguishable from a scene with no opaque base
+   * layer mounted at all — see {@link GlyphMapContourOptions.requireSurface}.
+   */
+  readonly requireSurface?: boolean;
+  /**
+   * Called once for every cell this stamp actually inks, BEFORE the write, with
+   * that cell's index, what was there, and the segment's own screen tangent.
+   *
+   * It exists so a contour's LABEL pass can be built out of the ordinary
+   * stroke path rather than a second one: the label plan needs the level each
+   * cell was inked with, the terrain glyph underneath it (a label breaks its
+   * own line by restoring that), and how horizontal the line runs there. All
+   * three are known here and nowhere else, since only this loop knows which
+   * cells survived the depth test.
+   */
+  readonly onInk?: (idx: number, previousChar: string, previousColor: string | null, tangentCol: number, tangentRow: number) => void;
 }
 
 /**
@@ -211,6 +235,8 @@ export function stampGlyphMapPolyline(
   const color = opts.color ?? null;
   const bias = opts.depthBias ?? 0;
   const curvatureScale = opts.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE;
+  const requireSurface = opts.requireSurface ?? false;
+  const onInk = opts.onInk;
 
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
@@ -232,6 +258,7 @@ export function stampGlyphMapPolyline(
       const subCol = col - colI;
       const subRow = row - rowI;
       const surfaceDepth = grid.depth[idx];
+      if (requireSurface && !Number.isFinite(surfaceDepth)) continue; // nothing rendered here — no surface to annotate
       if (Number.isFinite(surfaceDepth)) {
         // Correct the sampling offset, then forgive only the faceting — two
         // different quantities, and only the second one is an allowance. See
@@ -244,6 +271,7 @@ export function stampGlyphMapPolyline(
         const allowed = bias + curvatureScale * Math.hypot(cx, cy);
         if (atStroke - depth > allowed) continue; // occluded by nearer geometry
       }
+      if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
@@ -406,7 +434,8 @@ const defaultContourLabelText = (level: number): string => String(Math.round(lev
 
 function buildContourLabelCandidates(
   grid: CellGrid,
-  elev: Float64Array,
+  /** Whether a cell sits over terrain the layer actually answers for — the one gate the globe horizon needs. See the call sites for what each path can prove. */
+  covered: (idx: number) => boolean,
   levelAt: Float64Array,
   horizontality: Float32Array,
   labels: GlyphMapContourLabelOptions,
@@ -440,9 +469,9 @@ function buildContourLabelCandidates(
       // This is the one gate the globe needs: past the horizon `elevationAt`
       // reads NaN (the widget's `unproject` refuses a far-side cell), so a
       // label can neither be born on the far side nor straddle the limb.
-      let covered = true;
-      for (let c = left; c <= right && covered; c++) covered = Number.isFinite(elev[row * cols + c]);
-      if (!covered) continue;
+      let onTerrain = true;
+      for (let c = left; c <= right && onTerrain; c++) onTerrain = covered(row * cols + c);
+      if (!onTerrain) continue;
 
       let support = 0;
       let clutter = 0;
@@ -516,12 +545,22 @@ export function stampGlyphMapContourLabels(
 }
 
 /**
- * Contour layers reuse field-synth's `subcellRes: "ink"` approach (AGENTS.md,
- * MAPS.md §13 slice 5): cut the elevation range into `levels`, ink a cell
- * where a level falls BETWEEN it and a neighbor (a sign change of
- * `value - level`), oriented perpendicular to the local gradient — exactly
- * the field-synth ink-contour rule, pointed at an elevation field instead
- * of a synth field.
+ * The PER-CELL contour primitive: cut the elevation range into `levels`, ink a
+ * cell where a level falls BETWEEN it and a neighbor (a sign change of
+ * `value - level`), oriented perpendicular to the local gradient — field
+ * synth's `subcellRes: "ink"` rule pointed at an elevation field.
+ *
+ * **`@glyphcss/maps`' own `contour` LAYER no longer uses this.** A mounted
+ * contour is real geometry at its own elevation
+ * ({@link stampGlyphMapContourGeometry}), because answering "what elevation is
+ * under this cell" needs `unproject`, and `unproject` inverts at elevation
+ * ZERO — so under a tilt the answer describes the sea-level point beneath the
+ * view ray rather than the terrain point actually drawn there. This stays
+ * exported as the primitive for a caller who genuinely holds a SCREEN-SPACE
+ * scalar field (one with no lon/lat domain to cut an isoline in), which is a
+ * different input shape rather than a second way of doing the same thing; the
+ * label plan and {@link stampGlyphMapContourLabels} are shared with the
+ * geometry path.
  *
  * Unlike `stampGlyphMapPolyline`, this needs no depth test of its own: a
  * contour is an ANNOTATION of whatever surface already won each cell (the
@@ -620,5 +659,117 @@ export function stampGlyphMapContour(
   }
 
   if (!labels) return null;
-  return { candidates: buildContourLabelCandidates(grid, elev, levelAt!, horizontality!, labels), levelAt: levelAt!, restore: restore! };
+  // This path holds a real per-cell elevation array, so "over terrain" is
+  // literally "the field answered here" — past a globe's horizon `elevationAt`
+  // reads NaN, so a label can neither be born on the far side nor straddle
+  // the limb.
+  return { candidates: buildContourLabelCandidates(grid, (idx) => Number.isFinite(elev[idx]), levelAt!, horizontality!, labels), levelAt: levelAt!, restore: restore! };
+}
+
+// ── Contour GEOMETRY (the mounted `contour` layer's path) ──────────────
+
+/** One isoline, already projected: every vertex stands at `level`, so the whole run is at a single known height. */
+export interface GlyphMapContourPolyline {
+  readonly level: number;
+  readonly points: readonly GlyphMapStrokeVertex[];
+}
+
+export interface GlyphMapContourGeometryOptions {
+  readonly color?: string;
+  /** @see GlyphMapStampOptions.requireSurface — default `true` here, the contour ANNOTATION rule. */
+  readonly requireSurface?: boolean;
+  readonly depthBias?: number;
+  readonly depthCurvatureScale?: number;
+  /** @see GlyphMapContourOptions.labels — omitted allocates nothing and returns `null`. */
+  readonly labels?: GlyphMapContourLabelOptions;
+  /**
+   * Whether a cell sits over terrain this layer answers for — the globe's
+   * HORIZON gate for label placement, and the one thing geometry cannot read
+   * off the grid by itself.
+   *
+   * With a surface mounted the default is exact and free: after this pass a
+   * cell's depth is finite exactly where the terrain drew or this contour
+   * inked, and past the limb it is neither. With `requireSurface` false — the
+   * "no raster layer mounted anywhere" degrade — every cell reads non-finite
+   * uniformly and the grid has nothing left to say, so a caller that CAN
+   * answer (the widget, which owns the projection and can ask `unproject`)
+   * passes the answer in. Omitted there, no label is refused on horizon
+   * grounds; the geometry is still clipped to the visible hemisphere, so only
+   * a label's own padding could reach past it.
+   */
+  readonly covered?: (col: number, row: number) => boolean;
+}
+
+/**
+ * Stamp contour lines that are REAL GEOMETRY — each one a polyline whose
+ * vertices were projected at the level's own elevation
+ * (`contourGeometry.ts`), so the line stands on the terrain it annotates
+ * instead of at the datum under it and stays there at every tilt.
+ *
+ * This is deliberately NOT a second stamping path: every cell it inks is
+ * inked by {@link stampGlyphMapPolyline}, so an elevated contour inherits the
+ * `line` layer's depth test (the sub-cell surface reconstruction plus the
+ * curvature-scaled faceting allowance), its cross-`<pre>` ownership skip, and
+ * its no-endpoint-special-case tangent — all three of which a contour now
+ * needs and the per-cell scan could not have: a contour with a height is an
+ * object in the scene that a ridge in front of it must be able to hide.
+ *
+ * The label plan is accumulated through that stamp's own `onInk` hook rather
+ * than rebuilt from the grid afterwards, because only the stamp knows which
+ * cells survived the depth test. `restore` keeps the FIRST writer's glyph (the
+ * terrain), while `levelAt` keeps the LAST (the level actually visible), which
+ * is what lets a label break its own line without punching a hole in the
+ * relief or erasing a contour crossing it.
+ */
+export function stampGlyphMapContourGeometry(
+  grid: CellGrid,
+  polylines: readonly GlyphMapContourPolyline[],
+  opts: GlyphMapContourGeometryOptions = {},
+): GlyphMapContourLabelPlan | null {
+  const requireSurface = opts.requireSurface ?? true;
+  const labels = opts.labels;
+  const cells = grid.cols * grid.rows;
+  const levelAt = labels ? new Float64Array(cells).fill(NaN) : null;
+  const horizontality = labels ? new Float32Array(cells) : null;
+  const restore = labels ? new Map<number, { readonly char: string; readonly color: string | null }>() : null;
+
+  for (const line of polylines) {
+    if (line.points.length < 2) continue;
+    const level = line.level;
+    stampGlyphMapPolyline(grid, line.points, {
+      color: opts.color,
+      requireSurface,
+      depthBias: opts.depthBias,
+      depthCurvatureScale: opts.depthCurvatureScale,
+      onInk: labels
+        ? (idx, previousChar, previousColor, dCol, dRow) => {
+            if (!restore!.has(idx)) restore!.set(idx, { char: previousChar, color: previousColor });
+            levelAt![idx] = level;
+            const len = Math.hypot(dCol, dRow);
+            // The stroke's own screen tangent: 1 when the line runs exactly
+            // horizontally (the orientation a horizontal label can lie along),
+            // 0 when it runs exactly vertically. The per-cell path derives the
+            // same number from the elevation gradient, which is this tangent
+            // rotated 90 degrees.
+            horizontality![idx] = len > 0 ? Math.abs(dCol) / len : 0;
+          }
+        : undefined,
+    });
+  }
+
+  if (!labels) return null;
+  // With geometry there is no per-cell elevation array to read coverage off,
+  // so the grid's own depth answers instead: after this pass a cell is finite
+  // exactly where the terrain drew or this contour inked, which past a globe's
+  // limb is neither. With `requireSurface` false — the "no raster layer
+  // mounted anywhere" degrade — every cell reads non-finite uniformly and the
+  // question is meaningless, so it is not asked; the geometry is already
+  // clipped to the visible hemisphere by its caller, and the locally-straight
+  // support gate still refuses a label whose run leaves its own line.
+  const covered = opts.covered
+    ? (idx: number) => opts.covered!(idx % grid.cols, (idx / grid.cols) | 0)
+    : requireSurface
+      ? (idx: number) => Number.isFinite(grid.depth[idx])
+      : () => true;
+  return { candidates: buildContourLabelCandidates(grid, covered, levelAt!, horizontality!, labels), levelAt: levelAt!, restore: restore! };
 }

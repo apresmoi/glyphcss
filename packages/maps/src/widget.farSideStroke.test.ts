@@ -203,6 +203,16 @@ describe("createGlyphMap — a line layer never draws far-hemisphere geometry ov
     // Flat (elevation 0) everywhere within 120 degrees of the camera's own
     // longitude, so no `levels: [500]` crossing can exist on the near side
     // OR in the bilinear neighbourhood of the limb; strongly varying beyond.
+    //
+    // AND flat within 5 degrees of either POLE, which is not decoration. A
+    // pole sits exactly ON the limb (`glyphMapGlobe.visible`'s `axial === 0`)
+    // and is at EVERY longitude at once, so a field that varies with
+    // longitude alone is multi-valued there and every meridian's contour
+    // converges on it: with the poles left varying, the contour genuinely
+    // reaches a visible point and inks the two polar cells. That is correct
+    // behaviour and not the leak this test is about — "only the FAR
+    // hemisphere carries crossings" is a claim the fixture has to actually
+    // make, and at a pole a longitude-only field cannot make it.
     const provider: GlyphMapProvider & { loadTile: ReturnType<typeof vi.fn> } = {
       id: "far-only-field",
       zooms,
@@ -213,7 +223,8 @@ describe("createGlyphMap — a line layer never draws far-hemisphere geometry ov
         const elevation = new Float32Array((cols + 1) * (rows + 1));
         for (let r = 0; r <= rows; r++) for (let c = 0; c <= cols; c++) {
           const lon = b.west + (b.east - b.west) * (c / cols);
-          elevation[r * (cols + 1) + c] = Math.abs(lon) > 120 ? 1000 * Math.sin((lon * Math.PI) / 15) : 0;
+          const lat = b.north - (b.north - b.south) * (r / rows);
+          elevation[r * (cols + 1) + c] = Math.abs(lon) > 120 && Math.abs(lat) < 85 ? 1000 * Math.sin((lon * Math.PI) / 15) : 0;
         }
         return { bounds: b, cols, rows, elevation, source: "far-only", sampler: "nearest" };
       }),

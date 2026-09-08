@@ -1795,8 +1795,10 @@ the same composed hook runs over every grid the frame renders, so the owning
 layer stamps there against its own real depth — and the ink that used to
 double up in a detail layer's own `<pre>` outside its silhouette goes with it.
 
-`contour` was never exposed: its `requireSurface` gate already skips a cell
-whose depth is non-finite, which is exactly what a blanked cell reads as.
+A `contour` was never exposed to this while it sampled per cell — its
+`requireSurface` gate already skips a cell whose depth is non-finite, which is
+exactly what a blanked cell reads as — and now that it stamps through
+`stampGlyphMapPolyline` it gets the ownership skip itself, for free.
 
 Gate: `widget.strokeDensityOcclusion.test.ts`.
 
@@ -1845,17 +1847,148 @@ composited across EVERY `<pre>` by each one's own declared geometry rather
 than off the base grid alone, against the road's own screen path measured with
 nothing in front of it. 265 misplaced base cells before, none after.
 
-**Contour needs none of this and is byte-identical.** A `contour` layer
-projects no vertex and runs no depth test at all: it samples per CELL
-(`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inks a level
-crossing between neighbouring cells, gated only on surface COVERAGE. It never
-carried a ground offset, so there is nothing to double-count. It does have the
-MIRROR-IMAGE of the same parallax, unfixed and out of scope here: `unproject`
-inverts at elevation zero, so a cell showing raised terrain is attributed the
-lon/lat of the sea-level point under the view ray rather than of the terrain
-point actually drawn there, which offsets the contour field against the relief
-it annotates by the same 16 rows per 10 m at `/maps`' defaults. Closing it
-needs a ray-march against the terrain, not a per-vertex sampler.
+### Contours are geometry at their own elevation
+
+**The defect.** A `contour` layer used to project no vertex at all: it sampled
+per CELL (`unproject(cell centre) → lon/lat → elevationAtLonLat`) and inked a
+level crossing between neighbouring cells, gated only on surface COVERAGE.
+That carries the MIRROR IMAGE of the parallax the stroke drape closed above —
+`unproject` inverts at elevation ZERO (`GlyphMapProjection.unproject`'s own
+contract: a projection's `z` axis is one-way relief, never re-derived from
+world space), so a cell showing raised terrain is attributed the lon/lat of
+the SEA-LEVEL point under the view ray rather than of the terrain point
+actually drawn there. Reported as "the lines are not actually set at the
+height they should be set", and asked as "could we do it in height? so when I
+tilt the camera I also see them from the side". This record used to say the
+fix needed a terrain ray-march. It did not.
+
+**What replaced it removes the question instead of answering it.**
+`contourGeometry.ts` cuts each level's isoline with MARCHING SQUARES over the
+mosaic's own vertex grids, in the field's own (lon, lat) domain. Every vertex
+it produces is therefore at a KNOWN height — the level's own — and is
+projected through `projection.project(lon, lat, level)`, the same call the
+terrain vertex beside it goes through. There is no datum left to be wrong
+about at any tilt, and the lines wrap the relief in three dimensions.
+
+**No flat/elevated toggle.** At zero pitch the two are the same picture (the
+elevation offset is along the view axis at the view centre, so it moves depth
+and not the row — pinned), and everywhere else the flat one is simply wrong. A
+toggle would preserve the defect as an option.
+
+**Sampled at the grid's own vertices, and canonically ordered.** The input is
+the same VERTEX-centered grid `glyphMapPolygons` builds the relief from, so
+adjacent tiles — which SHARE their edge vertex row/column — cut identical
+crossings on both sides of a boundary and the mosaic is seamless by
+construction, exactly as the sampler was (see the tile-boundary octagon
+below). Output is a segment LIST, not a chained polyline: a marching segment's
+own two endpoints already give the exact local tangent, which is all
+`stampGlyphMapPolyline` needs. The list is sorted by `(level, lon, lat)`, and
+that sort is load-bearing rather than tidiness — the same terrain served as
+one tile and as sixty-four yields the same segment SET in a different order,
+and a contested output cell is won by whoever stamps last, so the sort is what
+lets `widget.contourTileBoundary.test.ts` demand cell-for-cell identity.
+
+**One stamping path.** Every cell is inked by `stampGlyphMapPolyline`, so an
+elevated contour inherits the `line` layer's depth test (the sub-cell surface
+reconstruction plus the curvature-scaled faceting allowance), its
+cross-`<pre>` ownership skip, and its no-endpoint-special-case tangent — all
+three of which a contour now needs and the per-cell scan could not have, since
+a contour with a height is an object in the scene a ridge in front of it must
+be able to hide. Two options were added to that shared path: `requireSurface`
+(skip an empty cell instead of drawing through it — the contour ANNOTATION
+rule, `false` for a `line`) and an `onInk` hook, which is how the LABEL plan is
+accumulated: only the stamp knows which cells survived the depth test.
+`restore` keeps the FIRST writer's glyph (the terrain) while `levelAt` keeps
+the LAST (the level actually visible), which is what lets a label break its own
+line without punching a hole in the relief.
+
+**The elevation window's per-cell ink gate is SUBSUMED, not dropped.** It
+existed because the crossing scan read a cell's right/down neighbours, so on a
+sea cliff — one cell at -5,000 m, the next at +2,000 m — a 1,000 m level
+crossed BETWEEN them and inked the ocean cell 5 km below a `minElevation: 0`
+floor. A marching vertex stands AT its own level, so the ink now lands where
+that level actually is. `minElevation`/`maxElevation` still clip the LEVEL
+list, with the same two rules (a count DISTRIBUTED across the window, an array
+and an `{ interval }` CLIPPED and never renumbered).
+
+**The horizon gate for LABELS is the one thing geometry cannot read off the
+grid.** With a surface mounted it is exact and free — after the pass a cell's
+depth is finite exactly where terrain drew or this contour inked, and past the
+limb it is neither. With no raster layer mounted anywhere, every cell reads
+non-finite uniformly and the grid has nothing to say, so the widget passes a
+`covered` predicate that asks `unproject` (memoized per cell, built only when
+labels are on). Without it a label was born straddling the limb —
+`widget.contourLabels.test.ts`'s near-side clause goes red.
+
+**Caching, and what invalidates it.** The marched geometry is cached on the
+contour runtime and re-cut only when the mounted MOSAIC changes (a tile sweep
+resolved a different set, or a finer tier landed) or the resolved LEVEL LIST
+changes (the mosaic's range moved under a count or an `{ interval }`, or the
+window clipped it). The camera is deliberately not among them: geometry is in
+lon/lat, so a pan, zoom, orbit or tilt re-PROJECTS it and never re-cuts it.
+
+**The screen cull, and why it is a bound.** A mounted mosaic covers the swept
+TILES, not the viewport, and the marching grid is finer than the output grid —
+measured on the real ETOPO1 pyramid at an alpine view (0.6 degrees, 140x63,
+Switzerland's curated z7), 22 levels cut 86,234 segments of which about 4% are
+on screen. Projecting all of them, and letting `visibleStrokeRuns` project them
+a second time, cost +57.6 ms per render. So the FIRST endpoint is projected and
+tested, and the rest of the work skipped when it lands outside the grid by more
+than `2 x quadDeg / degPerCell`: a marching segment lies inside ONE quad of its
+own grid, and the camera's cells-per-degree is greatest at the view centre
+along longitude (a sphere foreshortens everything else; a tilt only compresses
+rows), so that covers a quad's diagonal anywhere in the frame. The cull runs in
+SCENE coordinates, before the per-grid affine, so one bound serves the base grid
+and every detail grid. Near/far side is then asked of the ELEVATED world point
+the projection already produced, and only a limb-straddling segment is handed
+to the shared `visibleStrokeRuns` for bisection.
+
+**Measured**, real ETOPO1 pyramid, alpine view above, min of 40 renders:
+
+| levels | per-render stamp, geometry | per-render stamp, per-cell scan | re-cut (mosaic/level change) |
+|---|---|---|---|
+| `{ interval: 1000 }` (4, `/maps`' default) | 1.2 ms | ~11 ms | 4.8 ms |
+| `{ interval: 500 }` (8) | 2.7-3.0 ms | ~13 ms | 19.1 ms |
+| `{ interval: 200 }` (22) | 8.7-10.3 ms | ~12 ms | 31-41 ms |
+
+The per-cell path's cost was a function of the OUTPUT grid (8,820 per-cell
+`unproject` Newton solves) and so flat in the level count; the geometry path
+scales with the level count and is 1.4x to 10x cheaper across the range. The
+re-cut is the one new cost and is paid only when the mosaic or the level list
+changes. The whole-FRAME figure moved the other way at fine intervals, and for
+a reason worth recording: at a 200 m interval on this terrain the per-cell scan
+inked 6,484 of 8,820 cells — 73% of the frame, a wash rather than a contour map
+— which COALESCED into 2,713 colour spans, while the geometry draws 1,479 cells
+of thin precise line that break the terrain into 5,160 spans. The encoder then
+costs more for a render that contains more distinct lines. (Whole-frame numbers
+from the happy-dom harness are otherwise unreliable — the per-cell path's
+allocation drags its own baseline from 28 to 46 ms across one run — so only the
+stamp and re-cut times above are quoted; `bench/maps-render` is the browser
+harness for frame-level work.)
+
+**Gates.** `widget.contourElevation.test.ts` pins the elevation forward (the
+terrain is exactly linear in latitude, so a level's isoline sits at a latitude
+stated in closed form; the expected screen row comes from the same
+radial/affine identity `widget.strokeDrape.test.ts` uses, out of public API
+alone), the exaggeration tracking, the tilt-0 equivalence, survival of the
+terrain's own depth test with a raster layer mounted, the screen-cull bound at
+a coarse grid, the marching order's tiling invariance, and — on the VENDORED
+real-ETOPO1 tile — that every marching vertex reads back at its own level
+through the tile's own bilinear field. (The full z0-z4 pyramid under
+`website/public/data/geo-tiles/` is gitignored and so cannot be a test
+dependency.) Mutation checks: projecting at the datum reddens three clauses
+(280 of 280 cells at the datum position); a zero cull margin blanks the coarse
+case; dropping the sort breaks tiling invariance; forcing `requireSurface`
+reddens 16 tests; last-writer `restore` breaks the label gap.
+
+**What is NOT reproduced.** Nothing from the per-cell path was dropped
+silently. The two behaviours that changed rather than transferred are recorded
+above: the window's per-cell ink gate (subsumed by the geometry standing at its
+level) and the LABEL horizon gate with no raster layer mounted (moved from the
+per-cell elevation array to a widget-supplied `unproject` predicate). The
+per-cell `stampGlyphMapContour` stays exported for a caller holding a genuine
+SCREEN-SPACE scalar field, which is a different input shape and not a second
+way of doing the same thing.
 
 **Sub-cell stability.** The sampler reads MOUNTED tiles and the relief mesh is
 built from those same tiles, so the two can never disagree about where the
@@ -1923,8 +2056,8 @@ place, so the `(lon, lat)` Jacobian's longitude column is zero, the first
 iteration reports a degenerate determinant, and EVERY cell returns `null`
 (measured: 0 of 1,128 sampled cells at `center: [0, 90]`, against 357 a tenth
 of a degree away). Everything that unprojects goes with it — `map.unproject`,
-click-to-lonlat, and a `contour` layer's per-cell elevation lookup, so the
-layer paints nothing at all. The start point (like every step the loop makes)
+click-to-lonlat, and (while a contour still sampled per cell) that layer's own
+elevation lookup, so it painted nothing at all. The start point (like every step the loop makes)
 is therefore clamped to `POLE_SAFE_LAT` off the pole; latitude is degenerate
 there whatever the camera is doing, and the iteration only needs a starting
 point, not the exact sub-observer point.
@@ -1950,11 +2083,14 @@ no-endpoint-special-case tangent contract below holds across a limb cut
 exactly as it does across a tile seam. A projection with no `visible`
 capability — every flat one, where `project()` returning NaN is already
 its own exclusion — gets the ring back BY IDENTITY, so the flat path is
-byte-identical. `contour` needs none of this: it reaches its field through
-`unproject()` -> `unprojectSphere`, whose Newton solve is seeded from
+byte-identical. A `contour` used to need none of this — it reached its field
+through `unproject()` -> `unprojectSphere`, whose Newton solve is seeded from
 `centerForCamera(...)` (the near-side sub-observer point) and additionally
-gated on `projection.visible`, so it never resolves a far-side `(lon, lat)`
-in the first place.
+gated on `projection.visible`, so it never resolved a far-side `(lon, lat)` in
+the first place. Now that a contour is geometry it needs exactly the same clip
+as a `line`, and gets it more cheaply: `nearSideVisible` is asked of the
+ELEVATED world vector the stamp has already projected, and only a segment whose
+two endpoints disagree is handed to `visibleStrokeRuns` to bisect.
 
 **A provider-backed `contour` layer holds a tile MOSAIC, not one tile.** A
 `GlyphMapField` answers only inside its own `bounds` (`glyphMapFieldValueAt`

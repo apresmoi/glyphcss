@@ -88,10 +88,26 @@ function labelRuns(map: ReturnType<typeof createGlyphMap>): { row: number; col: 
   return out;
 }
 
-/** The golden UNLABELLED render: 12 interval levels over the visible band, one unbroken 60-cell rule per level, nothing else. */
-const UNLABELLED_INK_ROWS = [11, 12, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27];
+/**
+ * The golden UNLABELLED render: 12 interval levels over the visible band, one
+ * unbroken 60-cell rule per level, nothing else.
+ *
+ * The GLYPH is part of the pin and carries real information now that a
+ * contour is geometry: `inkGlyphForTangent` picks the oriented glyph from the
+ * stroke's own SUB-CELL position, so a horizontal line sitting in the lower
+ * part of its cell reads `_` and one in the upper part `▔`. The per-cell scan
+ * had no sub-cell position to offer and passed 0.5, so every line read `-`
+ * and a level's true height inside a cell was rounded away. Twelve evenly
+ * spaced levels landing alternately low and high in their cells is exactly
+ * what that recovers.
+ */
+const UNLABELLED_INK = new Map<number, string>([
+  [11, "_"], [13, "▔"], [14, "_"], [16, "▔"], [17, "_"], [19, "▔"],
+  [20, "_"], [22, "▔"], [23, "_"], [25, "▔"], [26, "_"], [28, "▔"],
+]);
+const UNLABELLED_INK_ROWS = [...UNLABELLED_INK.keys()];
 const unlabelledGolden = (): string =>
-  Array.from({ length: ROWS }, (_, row) => (UNLABELLED_INK_ROWS.includes(row) ? "-".repeat(COLS) : " ".repeat(COLS))).join("\n");
+  Array.from({ length: ROWS }, (_, row) => (UNLABELLED_INK.get(row) ?? " ").repeat(COLS)).join("\n");
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -139,22 +155,23 @@ describe("createGlyphMap — contour labels", () => {
     map.scene.rerender();
     const lines = linesOf(map);
 
-    // Row 17 carries the 5,000 m contour and row 24 the 10,000 m one — the
+    // Row 17 carries the 5,000 m contour and row 25 the 10,000 m one — the
     // only two of the twelve levels that are multiples of 1000 * 5. Each row
     // is asserted as an EXACT literal: the number sits in a one-cell gap on
-    // both sides, and the rule resumes immediately after it.
-    expect(lines[17]).toBe(` 5000 ${"-".repeat(22)} 5000 ${"-".repeat(26)}`);
-    expect(lines[24]).toBe(` 10000 ${"-".repeat(22)} 10000 ${"-".repeat(24)}`);
+    // both sides, and the rule resumes immediately after it, in that line's
+    // own sub-cell glyph.
+    expect(lines[17]).toBe(` 5000 ${"_".repeat(22)} 5000 ${"_".repeat(26)}`);
+    expect(lines[25]).toBe(` 10000 ${"▔".repeat(22)} 10000 ${"▔".repeat(24)}`);
 
     // Every OTHER contour row is untouched — an unbroken rule, no digits, no
     // stray gap. This is what makes it "every 5th line" rather than "some
     // lines".
-    for (const row of UNLABELLED_INK_ROWS) {
-      if (row === 17 || row === 24) continue;
-      expect({ row, line: lines[row] }).toEqual({ row, line: "-".repeat(COLS) });
+    for (const [row, glyph] of UNLABELLED_INK) {
+      if (row === 17 || row === 25) continue;
+      expect({ row, line: lines[row] }).toEqual({ row, line: glyph.repeat(COLS) });
     }
     // And no digit escapes onto a row that carries no contour at all.
-    expect([...new Set(labelRuns(map).map((r) => r.row))].sort((a, b) => a - b)).toEqual([17, 24]);
+    expect([...new Set(labelRuns(map).map((r) => r.row))].sort((a, b) => a - b)).toEqual([17, 25]);
 
     map.destroy();
     host.remove();
