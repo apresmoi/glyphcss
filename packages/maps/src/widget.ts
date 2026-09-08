@@ -644,12 +644,73 @@ export interface GlyphMapContourLayer {
   readonly density?: number;
 }
 
+/**
+ * How a `fill` sits on the world.
+ *
+ * - `"surface"` (the DEFAULT) — draped: every cap vertex is projected at the
+ *   ground under its own lon/lat, so the wash lies ON the relief. This is
+ *   the correct default because the alternative is the reported defect: with
+ *   a terrain raster mounted at `/maps`' `exaggeration: 24`, a lake drawn on
+ *   the datum is kilometres under the mountains around it and cannot be seen
+ *   at all (Lake Titicaca, 3,812 m, is the report).
+ * - `"flat"` — the datum overlay, and byte-identical to before draping
+ *   existed. A wash on the datum reads as a MAP where a draped one reads as
+ *   a MODEL: it is one plane with every other flat layer, it never wraps a
+ *   ridge, and it cannot be eaten cell by cell by the relief it lies on —
+ *   which is what a reader wants from an administrative or landcover tint
+ *   they are reading rather than flying over.
+ *
+ * With no ground to read (no `raster` layer mounted and no
+ * {@link GlyphMapOptions.groundElevation} supplied) the two are the SAME
+ * render, cell for cell — there is nothing to drape onto, and the datum is
+ * the honest answer.
+ */
+export type GlyphMapFillDrape = "surface" | "flat";
+
+/** Every {@link GlyphMapFillDrape}, for a UI that offers the choice. */
+export const GLYPH_MAP_FILL_DRAPES: readonly GlyphMapFillDrape[] = ["surface", "flat"];
+
+/**
+ * Raw metres (pre-exaggeration, like `GLYPH_MAP_HEATMAP_SURFACE_LIFT_M`)
+ * added on top of the sample a draped `fill` reads.
+ *
+ * A draped fill and the relief under it are the SAME surface reached by two
+ * different meshes: the terrain rasterizes from a quad grid coarsened per
+ * pyramid level, while the drape reads the tile's full-resolution bilinear
+ * field, so between two coarse quad corners the fill can legitimately sit
+ * BEHIND the terrain drawn there and be eaten cell by cell. glyphcss's
+ * depth-test deadband cannot help: it is relative and applies only to a
+ * perspective z-buffer, and every camera here is orthographic, which takes
+ * the plain `>` test.
+ *
+ * It is the same trick, for the same reason and in the same unit, as the
+ * heatmap's own surface lift — small enough to read as "on the surface" at
+ * any exaggeration, large enough to clear both the mesh disagreement and
+ * ETOPO1's whole-metre quantization.
+ *
+ * MEASURED on `widget.fillDrape.test.ts`'s own real-ETOPO1 Titicaca fixture,
+ * cells of the lake's fill that survive the terrain's depth test: **0 at a
+ * lift of 0**, 192 at 1 m, and the full 567 from 3 m upward, unchanged at
+ * 20 m and at 50 m. Zero is not a rounding loss — a draped fill IS the
+ * terrain's surface, and every tie goes to whoever drew first.
+ */
+const GLYPH_MAP_FILL_DRAPE_LIFT_M = 10;
+
 export interface GlyphMapFillLayer {
   readonly type: "fill"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string; readonly colorProperty?: string; readonly colors?: Readonly<Record<string, string>>; readonly density?: number;
+  /**
+   * Whether this layer's polygons lie on the TERRAIN or on the datum —
+   * {@link GlyphMapFillDrape}. Default `"surface"` (draped).
+   *
+   * PER LAYER, not per map: a reader can drape the water and leave the
+   * landcover flat, which is the same grain the density and the label
+   * placement already have.
+   */
+  readonly drape?: GlyphMapFillDrape;
   /**
    * Per-layer render mode — this layer's mounted mesh(es) rasterize under
    * `renderMode` instead of the scene's own (glyphcss's per-mesh
@@ -1376,10 +1437,53 @@ export function glyphMapHeadlightDirection(rotXDeg: number, rotYDeg: number): Ve
   return [sinX * Math.cos(ry), sinX * Math.sin(ry), Math.cos(rx)];
 }
 
+/**
+ * The GROUND under a lon/lat, in metres on the terrain's own axis — the ONE
+ * elevation source everything in a map that stands on the ground reads: a
+ * `line`'s draped vertices, a `symbol`/`circle` marker's anchor, a
+ * `fill-extrusion`'s footing and a draped `fill`'s cap.
+ *
+ * `null` (or a non-finite number) means "I have no ground for that point",
+ * and the caller takes the DATUM there — the same "the honest base is the
+ * datum" rule a map with no terrain at all takes. A source that answers for
+ * some points and not others is therefore fine and needs no bounds of its
+ * own.
+ *
+ * @see GlyphMapOptions.groundElevation
+ */
+export type GlyphMapGroundElevation = (lon: number, lat: number) => number | null;
+
 export interface GlyphMapOptions {
   readonly view: GlyphMapView;
   readonly projection: GlyphMapProjection;
   readonly layers?: readonly GlyphMapLayer[];
+  /**
+   * Where the ground comes from — YOUR own DEM, a constant, a service-backed
+   * lookup. Omitted (the default) the widget derives it from the mounted
+   * `raster` layers' own tiles, finest tier first, and has no ground at all
+   * when none is mounted; supplied, this WINS over that everywhere, so a map
+   * can drape on terrain it never draws.
+   *
+   * WITH NO TERRAIN AND NO SOURCE, EVERYTHING SITS ON THE DATUM, and that is
+   * correct rather than degraded: it is exactly what a flat map looks like,
+   * and it is what every one of the four consumers rendered before any of
+   * them learned to drape. Nothing here is load-bearing on having a ground.
+   *
+   * It is one source for all of them rather than an option per layer family
+   * — a road, the building beside it, the label on it and the lake behind it
+   * must stand on ONE ground or they part company under a tilt. (A `contour`
+   * is the one drape that does NOT read it: its lines are marched from the
+   * mounted raster mosaic's own vertex grids, which is a FIELD rather than a
+   * point lookup, so a caller-supplied source cannot serve it.)
+   *
+   * Read live on every build and every stamp, so a source closing over
+   * mutable state (a DEM still loading) needs no setter here: change what it
+   * answers, then move the camera or re-add the layer. What it cannot do is
+   * announce itself — a `raster` layer's own tile arrivals re-plant mounted
+   * geometry through the widget's ground-change registry, and a caller-owned
+   * source has no such event.
+   */
+  readonly groundElevation?: GlyphMapGroundElevation;
   /**
    * Per-gesture opt-outs. Each defaults to `true`.
    *
@@ -4562,6 +4666,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * unobservable).
    */
   function groundElevationSampler(): ((lon: number, lat: number) => number) | null {
+    // A caller-supplied source WINS and needs no raster layer — see
+    // `GlyphMapOptions.groundElevation`. Its `null` is this function's own
+    // "no ground here" answer, NaN, so every consumer's existing non-finite
+    // fallback covers it unchanged.
+    const supplied = opts.groundElevation;
+    if (supplied) return (lon, lat) => supplied(lon, lat) ?? NaN;
     const runtimes: RasterLayerRuntime[] = [];
     for (let i = layerOrder.length - 1; i >= 0; i--) {
       const state = layerStates.get(layerOrder[i]);
@@ -4962,7 +5072,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           await Promise.all(missing.map(async (key) => {
             const [zStr, xy] = key.split("/");
             const [xStr, yStr] = xy.split("_");
-            fieldCache.set(key, await loadGlyphMapElevationPiece(provider, Number(zStr), Number(xStr), Number(yStr)));
+            try {
+              fieldCache.set(key, await loadGlyphMapElevationPiece(provider, Number(zStr), Number(xStr), Number(yStr)));
+            } catch {
+              // ONE TILE, NOT THE MOSAIC — the same rule the vector sweep
+              // already states ("a tile that 404s/times out resolves EMPTY,
+              // never rejects; one rejection would take down the frame's
+              // whole `Promise.all`"), and a contour needed it more than
+              // anything else here: its mosaic is not re-swept per frame, so
+              // a single failed fetch left `mosaic` unassigned FOREVER and
+              // the layer drew nothing on a page nobody had touched yet.
+              // Reported as "I need to disable it and enable it for it to
+              // load after I refresh the page" — a toggle is a fresh runtime
+              // and a fresh fetch. Deliberately NOT cached as a failure, so
+              // the next sweep retries the tile.
+            }
           }));
           if (disposed) return;
         }
@@ -5127,14 +5251,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       stampGlyphMapContourLabels(grid, placed.map((p) => plan.candidates[Number(p.id)]), plan, layer.color);
     }
 
+    async function update(): Promise<void> {
+      if (isGlyphMapFieldProvider(layer.source)) await updateProvider(layer.source);
+      else scene.rerender();
+    }
+    /**
+     * RE-SWEEP WHEN TERRAIN LANDS. `scheduleTileUpdate` is driven by the
+     * VIEW, so on a page nobody has touched the mount-time sweep is the only
+     * sweep that ever runs — and on a fresh load that sweep races the first
+     * terrain tiles. Whatever it resolved (nothing, a partial set, a
+     * failsafe tile) was then the layer's answer for the life of the map,
+     * which is the reported "I need to disable it and enable it for it to
+     * load after I refresh the page".
+     *
+     * `groundChangeSyncs` is the registry that already exists for exactly
+     * this event — the mounted raster TILE SET, not the camera — and is what
+     * the markers and the planted extrusions take their second chance from.
+     * A re-sweep that resolves the same tiles fetches nothing (they are in
+     * `fieldCache`) and reports no change, so a settled map pays one
+     * candidate-range loop per raster mount and stops there.
+     */
+    const resweep = (): void => { if (isGlyphMapFieldProvider(layer.source)) void update(); };
+    groundChangeSyncs.add(resweep);
+
     return {
-      async update(): Promise<void> {
-        if (isGlyphMapFieldProvider(layer.source)) await updateProvider(layer.source);
-        else scene.rerender();
-      },
+      update,
       stamp,
       dispose(): void {
         disposed = true;
+        groundChangeSyncs.delete(resweep);
         fieldCache.clear();
         mosaic = [];
         geometry = [];
@@ -5365,16 +5510,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     /**
      * The features this layer last built from, and the ground probe answers
-     * that build used — `{lon, lat, ground}` per polygon GROUP, in build
-     * order, recorded by the `groundElevation` callback itself so nothing here
-     * has to know how `glyphMapVectorMesh` groups rings.
+     * that build used — `{lon, lat, ground}` per polygon GROUP for an
+     * extrusion and per distinct probed POINT for a draped fill, recorded by
+     * the ground callback itself so nothing here has to know how
+     * `glyphMapVectorMesh` groups rings or refines faces.
      *
      * Together they are what `syncGround` needs to notice that the terrain
-     * under a mounted extrusion has moved (a finer tier arrived, a raster
-     * layer was added or removed) and rebuild it — a `fill-extrusion` on a
+     * under mounted geometry has moved (a finer tier arrived, a raster layer
+     * was added or removed) and rebuild it — a `fill`/`fill-extrusion` on a
      * STATIC source is otherwise never rebuilt at all, so without this a
      * building mounted before its terrain landed would stay at the datum for
-     * the life of the map.
+     * the life of the map, and so would a lake.
      */
     let lastFeatures: readonly GlyphMapVectorFeature[] = [];
     let groundProbes: { lon: number; lat: number; ground: number }[] = [];
@@ -5406,16 +5552,39 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const facade = layer.type === "fill-extrusion" ? resolveFacade(layer.facade) : undefined;
       if (facade?.texture === GLYPH_MAP_FACADE_TEXTURE) ensureFacadeSampler();
       // Resolved ONCE per build, like `line`'s own per-stamp resolution: it
-      // walks the mounted layer list. `null` = no `raster` layer mounted, and
-      // then no `groundElevation` option is passed at all — the datum, and
-      // byte-identical to before extrusions were planted on terrain.
+      // walks the mounted layer list. `null` = nothing can say where the
+      // ground is (no `raster` layer mounted and no
+      // `GlyphMapOptions.groundElevation` supplied), and then neither ground
+      // option is passed at all — the datum, and byte-identical to before
+      // anything here was planted on terrain.
       //
-      // A `fill` is deliberately NOT planted: it is a flat overlay drawn on
-      // the datum (a shaded country, a lake), not a structure standing on the
-      // ground, and its own mesh carries no walls to stand on.
-      const groundAt = layer.type === "fill-extrusion" ? groundElevationSampler() : null;
+      // An extrusion takes ONE ground per rigid piece; a `fill` is a sheet of
+      // ground and takes one per VERTEX (see `glyphMapVectorMesh`'s `drape`),
+      // unless this layer asked for the flat datum overlay instead.
+      const wantsDrape = layer.type === "fill" && (layer.drape ?? "surface") === "surface";
+      const groundAt = layer.type === "fill-extrusion" || wantsDrape ? groundElevationSampler() : null;
       groundProbes = [];
       builtOnTerrain = groundAt !== null;
+      /**
+       * NOT memoized, measured rather than assumed: the sampler is a pure
+       * function of `(lon, lat)`, so a shared vertex already answers the same
+       * metre count in every face that uses it, and a cache is only ever a
+       * speed question. It is a LOSING one — on the real Zurich tile's 158
+       * water/landcover/landuse/park features (10,012 ring vertices, 9,340
+       * emitted faces, 28,039 probe calls) a `Map` keyed on `"lon,lat"` cost
+       * 9.6 ms of mesh build against 5.8 ms with no cache at all, because
+       * building 28,039 strings is dearer than 28,039 bilinear reads (those
+       * are 1.05 ms of the 5.8).
+       */
+      const drapeAt = groundAt && wantsDrape
+        ? (lon: number, lat: number): number => {
+          const ground = groundAt(lon, lat);
+          groundProbes.push({ lon, lat, ground });
+          // The lift rides ON TOP of the recorded probe, so a terrain change
+          // is compared against the terrain and not against the lift.
+          return Number.isFinite(ground) ? ground + GLYPH_MAP_FILL_DRAPE_LIFT_M : ground;
+        }
+        : undefined;
       mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
         color,
         // Both callbacks read the SAME two numbers, so they are resolved by
@@ -5425,11 +5594,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         height: layer.type === "fill-extrusion"
           ? (f) => Math.max(0, extrusionTopMetres(layer, f) - extrusionBaseMetres(layer, f))
           : undefined,
-        groundElevation: groundAt ? (_f, lon, lat) => {
+        groundElevation: groundAt && !wantsDrape ? (_f, lon, lat) => {
           const ground = groundAt(lon, lat);
           groundProbes.push({ lon, lat, ground });
           return ground;
         } : undefined,
+        drape: drapeAt ? (_f, lon, lat) => drapeAt(lon, lat) : undefined,
         // TRUE metres above that ground — a structure offset, not an
         // elevation. See `GlyphMapFillExtrusionLayer.baseOffsetProperty`.
         // Unparseable (OSM tags carry "20 m" and worse) reads as no offset,
@@ -5452,7 +5622,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * terrain is settled is free.
      */
     function syncGround(): void {
-      if (layer.type !== "fill-extrusion") return;
+      // A `fill` reaches here only while it is draped: a `"flat"` one stands
+      // on nothing, records no probe, and must stay byte-identical through
+      // every tile arrival.
+      if (layer.type !== "fill-extrusion" && !(layer.type === "fill" && (layer.drape ?? "surface") === "surface")) return;
       const groundAt = groundElevationSampler();
       const moved = (groundAt !== null) !== builtOnTerrain
         || (groundAt !== null && groundProbes.some((p) => groundAt(p.lon, p.lat) !== p.ground));
@@ -5460,7 +5633,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter);
     nearSideGeometrySyncs.add(syncWalls);
-    if (layer.type === "fill-extrusion") groundChangeSyncs.add(syncGround);
+    // A draped `fill` needs re-planting for exactly the reason an extrusion
+    // does — its mesh is camera-independent, so a tile sweep never rebuilds
+    // it, and a lake mounted before its terrain landed would sit at the datum
+    // (i.e. buried) for the life of the map.
+    if (layer.type === "fill-extrusion" || layer.type === "fill") groundChangeSyncs.add(syncGround);
     // WALK collision: an extrusion's footprints are the only solid things in
     // the scene. A CALLBACK over the layer's live feature list rather than a
     // snapshot, so a tile arriving needs no re-registration — and the index

@@ -481,6 +481,62 @@ elevation at all.
 Markers are re-planted when the mounted tile set changes, so a label moves
 onto a finer tier's ground in the same frame the terrain does.
 
+### Fills stand on the terrain too — `drape`
+
+```js
+map.addLayer({ type: "fill", source: water, color: "#1e6fd9" });                    // draped (default)
+map.addLayer({ type: "fill", source: landuse, color: "#4a5a3a", drape: "flat" });   // datum overlay
+```
+
+`GlyphMapFillLayer.drape` is `"surface"` (the default) or `"flat"`:
+
+- **`"surface"`** projects every cap vertex at the ground under its own
+  lon/lat, so the wash lies ON the relief. A lake really is at height — Lake
+  Titicaca's surface is 3,812 m — and a fill drawn on the datum under a
+  mounted terrain raster is kilometres beneath the mountains around it, i.e.
+  invisible.
+- **`"flat"`** is the datum overlay: coplanar with every other flat layer,
+  never wrapping a ridge, never eaten by the relief it lies on — which is
+  what an administrative or landcover tint you are *reading* usually wants.
+
+The elevation comes from the terrain, because a vector tile has none: in the
+OpenMapTiles schema `water` carries `class`/`brunnel`/`intermittent`,
+`landcover` `class`/`subclass`, and only `mountain_peak` has an `ele` at all.
+It is sampled per VERTEX, not once per polygon — a fill is a sheet of ground,
+and one elevation for a park that spans a valley floats one end and buries the
+other. Draped fills are re-planted when the mounted tile set changes, exactly
+like markers and extrusions.
+
+With no ground to read (see below) the two settings render identically, cell
+for cell.
+
+### Where the ground comes from — `groundElevation`
+
+Everything that stands on the ground — a `line`'s draped vertices, a
+`symbol`/`circle` marker's anchor, a `fill-extrusion`'s footing, a draped
+`fill`'s cap — reads ONE elevation source. By default that is the mounted
+`raster` layers' own tiles, finest tier first. Supply your own and it wins,
+with no `raster` layer needed at all:
+
+```js
+createGlyphMap(host, {
+  view, projection,
+  // metres, or null where you have no data for that point
+  groundElevation: (lon, lat) => myDem.sample(lon, lat) ?? null,
+  layers: [...],
+});
+```
+
+`null` (or a non-finite number) means the datum for that point, so a source
+that answers for part of the world is fine. **With no terrain and no source
+everything sits on the datum** — that is not a degraded mode, it is what a
+flat map looks like, and it is what all of these rendered before any of them
+learned to drape.
+
+One exception, and it is structural: a `contour` does not read this. Its lines
+are marched from the mounted raster mosaic's own vertex grids — a field, not a
+point lookup — so a caller-supplied function cannot serve it.
+
 ### Long labels wrap
 
 A `symbol` label longer than `GLYPH_MAP_LABEL_WRAP_CELLS` (20 characters) is

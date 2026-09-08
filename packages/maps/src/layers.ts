@@ -720,6 +720,49 @@ export interface GlyphMapVectorMeshOptions {
    */
   readonly groundElevation?: (feature: GlyphMapVectorFeature, lon: number, lat: number) => number;
   /**
+   * DRAPE this feature's cap on the terrain — a per-VERTEX ground elevation
+   * instead of {@link groundElevation}'s one-per-group scalar, so a flat
+   * overlay follows the relief under it instead of lying on the datum
+   * beneath it. Omitted (the default) is the datum and is byte-identical to
+   * before this existed.
+   *
+   * PER VERTEX, and that is the whole difference from {@link
+   * groundElevation}: a structure is RIGID and one ground per piece is what
+   * keeps its cap planar, but a lake or a landuse wash is a SHEET OF GROUND
+   * — one elevation for the piece floats one end of it and buries the other.
+   * Measured on real OpenFreeMap tiles against the real ETOPO1 pyramid this
+   * repo bakes, the ground under ONE polygon's own ring spans (p50 / p90 /
+   * max, metres): `water` 17 / 202 / 520, `landcover` 29 / 254 / 508,
+   * `park` 153 / 625 / 739 at a regional LOD — and at `/maps`' default
+   * `exaggeration: 24` that is up to 15 km of world displacement inside one
+   * piece.
+   *
+   * IT MOVES VERTICES, NEVER THE TESSELLATION. Refinement, the sliver
+   * verdict and the emitted face list are computed exactly as they are for
+   * an undraped cap, so a draped fill has the same faces in the same order
+   * as a flat one. Refining further against the TERRAIN would buy nothing:
+   * measured over those same tiles, a cap face's own chord error against the
+   * ground under its centroid is 0.0 m at the median and 4.5 m at p90,
+   * because a real vector ring is far denser than any elevation grid (median
+   * longest cap edge 0.001-0.005 degrees against 0.125 degrees per global
+   * ETOPO1 sample), and a chord across one bilinear cell has nothing to
+   * learn.
+   *
+   * A non-finite answer means no mounted tile covers that vertex, and the
+   * vertex takes the group's own base instead — the same "the honest base is
+   * the datum" rule a draped stroke vertex and a planted marker take, rather
+   * than a NaN that would crop the whole group.
+   *
+   * Ignored for a feature with a nonzero {@link height}: that is a rigid
+   * structure, its walls need the two scalars {@link GlyphMapVectorWall}
+   * carries, and {@link groundElevation} is its rule.
+   *
+   * Deliberately the SAME signature as {@link groundElevation} — the two are
+   * one quantity read at two granularities, and a caller swaps which one it
+   * hands over rather than learning a second shape.
+   */
+  readonly drape?: (feature: GlyphMapVectorFeature, lon: number, lat: number) => number;
+  /**
    * The feature's own base offset in TRUE METRES above {@link groundElevation}
    * — OSM's `min_height`, i.e. how far up its own footing the drawn part of
    * the structure starts.
@@ -928,6 +971,22 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       if (bottom.some((ring) => ring.some((v) => !finite(v))) || top.some((ring) => ring.some((v) => !finite(v)))) continue;
 
       const capElev = base + height;
+      /**
+       * The cap's elevation at one lon/lat. A flat overlay carrying a
+       * {@link GlyphMapVectorMeshOptions.drape} reads the ground under each
+       * vertex; everything else — every extrusion, and every fill with no
+       * drape — answers the group's own `capElev` for every point, which is
+       * the expression this replaced and is why the undraped path is
+       * byte-identical. A non-finite sample falls back to `capElev` rather
+       * than cropping the group.
+       */
+      const drape = height === 0 ? options.drape : undefined;
+      const capElevAt = drape
+        ? (lon: number, lat: number): number => {
+          const sample = drape(feature, lon, lat);
+          return Number.isFinite(sample) ? sample : capElev;
+        }
+        : (): number => capElev;
       const up = groupUp(projection, rings[0], centre, capElev);
       const flip = up !== null && dot(ringNormal(top[0]), up) < 0;
 
@@ -946,7 +1005,14 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
         refineTriangle(refined, [capLonLat[tris[t]], capLonLat[tris[t + 1]], capLonLat[tris[t + 2]]], project, capElev, 0);
       }
       for (const tri of refined) {
-        const vertices = tri.map(([lon, lat]) => projection.project(lon, lat, capElev));
+        const elevA = capElevAt(tri[0][0], tri[0][1]);
+        const elevB = capElevAt(tri[1][0], tri[1][1]);
+        const elevC = capElevAt(tri[2][0], tri[2][1]);
+        const vertices = [
+          projection.project(tri[0][0], tri[0][1], elevA),
+          projection.project(tri[1][0], tri[1][1], elevB),
+          projection.project(tri[2][0], tri[2][1], elevC),
+        ];
         // A refined vertex is interior to a group whose corners all projected,
         // so this only fires for a projection whose valid window has a hole in
         // it — dropped face by face rather than poisoning the buffer with NaN.
@@ -954,7 +1020,25 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
         const centroidLon = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
         const centroidLat = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
         const faceUp = localUpDirection(projection, centroidLon, centroidLat, capElev);
-        const normal = ringNormal(vertices);
+        /**
+         * The FACING and SLIVER verdicts are taken on the face as it would
+         * be WITHOUT the drape, and only the drawn vertices are draped.
+         *
+         * The alignment test below asks whether a face's own plane is the
+         * local surface, and its threshold (26 degrees off the local up) is
+         * calibrated on the only thing that can tilt an undraped cap face:
+         * ill-conditioning. Terrain tilts a DRAPED one for real, and at
+         * `/maps`' default `exaggeration: 24` a 5-degree hillside is a
+         * 50-degree face — so reading the verdict off the draped normal
+         * would class most of a mountain's fill as slivers, flatten their
+         * shading to the local up and push them all into the per-frame
+         * `walls` cull. Taking it off the flat face instead makes the whole
+         * verdict machinery — facing, sliver, shading normal, wall list —
+         * IDENTICAL to the undraped mesh's, so a drape moves vertices and
+         * nothing else.
+         */
+        const verdictVertices = drape ? tri.map(([lon, lat]) => projection.project(lon, lat, capElev)) : vertices;
+        const normal = ringNormal(verdictVertices);
         let faceFlip = flip;
         let weak = false;
         if (faceUp !== null) {
@@ -1011,7 +1095,14 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
           // already the outward one — the same convention `groupUp` relies on.
           cap.shadingNormal = [faceUp[0] / upLen, faceUp[1] / upLen, faceUp[2] / upLen];
         }
-        if (weak) walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: capElev, elevTop: capElev, cap: tri });
+        // The near-side test re-projects this face at `elev`, so a DRAPED
+        // sliver is tested at the ground it is actually drawn on — the same
+        // rule a wall standing on a mountain takes, and the datum exactly as
+        // before with no drape.
+        if (weak) {
+          const sliverElev = drape ? capElevAt(centroidLon, centroidLat) : capElev;
+          walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: sliverElev, elevTop: sliverElev, cap: tri });
+        }
         out.push(cap);
       }
 

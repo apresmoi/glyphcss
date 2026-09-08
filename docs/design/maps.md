@@ -5388,3 +5388,178 @@ Mutation-checked, each restored from a `cp` backup: unregistering `syncGround` t
 ### Known limit, inherited
 
 A marker whose lon/lat is not covered by any mounted tile falls back to the datum, so it can sit at sea level next to terrain that is drawn — the same limit `line` vertices have, and for the same reason (the alternative is a NaN anchor). `addMarker`'s imperative `GlyphMapMarkerOptions.elevation` is unchanged and still the caller's own absolute number: it is an explicit anchor, not a feature planted on a layer.
+
+---
+
+## A `fill` stands on the terrain: draping water, landcover, landuse and parks
+
+Reported with the terrain raster and the water layer both on: *"lago titicaca is a lake that's on height, right? is there any way to put it on height? because if I look at the map with the terrain layer activated too, I cannot see that lake because it's on the floor below the terrain."*
+
+Every `fill` was built at the datum. That was written down as a decision — *"a `fill` is deliberately NOT planted: it is a flat overlay on the datum, not a structure standing on the ground, and its own mesh carries no walls to stand on"* — and it was the last member of the family still there: the terrain mesh stands on the exaggerated relief by construction, a `fill-extrusion` since `d517143`, a `line`'s vertices since the stroke drape, a `symbol`/`circle` marker since `fddeb9d`, and a `contour` since `3924f61`. Lake Titicaca's surface is 3,812 m, so at `/maps`' default `exaggeration: 24` the datum is ~91 km of world below the ground drawn over it, and not one cell of the lake can win the depth test.
+
+### The tile carries no elevation, so the terrain is the only height there is
+
+Confirmed against the data rather than the schema docs, by enumerating the property keys of every feature in the nine real OpenFreeMap tiles vendored under `fixtures/openfreemap/`:
+
+| source layer | every property key across the vendored tiles |
+|---|---|
+| `water` | `brunnel`, `class`, `id`, `intermittent` |
+| `landcover` | `class`, `subclass` |
+| `landuse` | `class` |
+| `park` | `class`, `rank`, `name` + `name:*` |
+| `mountain_peak` | `class`, `rank`, `ele`, `ele_ft`, `customary_ft`, `name` + `name:*` |
+
+`mountain_peak` is the only layer in the whole schema with an elevation, and it is a point layer. So a fill's height can only come from the ground under it — the same answer, and the same `groundElevationSampler`, that the strokes, the markers and the extrusions already take, and the same reasoning the marker drape settled: *the surface a reader can SEE is the raster's own sample*.
+
+### Per VERTEX, not per group
+
+`glyphMapVectorMesh` samples ONE ground per polygon GROUP for an extrusion, deliberately, because a structure is rigid. A fill is not a structure, it is a sheet of ground — and the numbers say so. Measured on the vendored tiles against the real ETOPO1 pyramid this repo bakes (`website/public/data/geo-tiles`, z0-z4 global plus curated Switzerland z5-z7), the spread of the ground under ONE polygon's own ring:
+
+| tile | layer | groups | ring spread p50 / p90 / max, metres |
+|---|---|---|---|
+| z10 Bariloche | `water` | 23 | 17 / 202 / 520 |
+| z10 Bariloche | `landcover` | 67 | 29 / 254 / 508 |
+| z10 Bariloche | `park` | 15 | 153 / 625 / 739 |
+| z12 Zurich | `landuse` | 158 | 2.0 / 13 / 36 |
+| z14 Zurich city | `landcover` | 179 | 0.14 / 0.71 / 3.1 |
+
+At a city LOD a group is flat enough that the two rules agree to within a metre; at a regional one a single elevation floats one end of a park by up to 739 m and buries the other, which at 24x is 17.7 km of world. Per vertex, then — and it is cheap, because it adds no faces.
+
+### No terrain refinement: the vector data is already finer than the elevation data
+
+The obvious worry is that draping only the ring turns a polygon's interior into a chord across whatever the terrain does in between. Measured instead of assumed: earcut each real polygon, drape its three vertices, and compare the face's own plane at its centroid against the ground actually there.
+
+| tile | layer | faces | \|chord error\| p50 / p90 / p99 / max, m | longest cap edge p50 / max, degrees |
+|---|---|---|---|---|
+| z14 Zurich city | `landcover` | 1,370 | 0.0 / 0.0 / 0.0 / 0.0 | 0.0002 / 0.003 |
+| z12 Zurich | `landuse` | 5,622 | 0.0 / 0.0 / 0.9 / 4.0 | 0.0018 / 0.054 |
+| z10 Bariloche | `water` | 2,757 | 0.0 / 1.0 / 24.0 / 61.8 | 0.0035 / 0.126 |
+| z10 Bariloche | `park` | 2,115 | 0.0 / 4.5 / 162.9 / 278.2 | 0.0048 / 0.454 |
+
+The median is exactly zero everywhere and p90 never exceeds 4.5 m, and the reason is structural rather than lucky: a real vector ring carries a vertex every few hundred metres, so a cap face is 0.001-0.005 degrees across at the median, while the finest elevation grid here is 0.125 degrees per sample globally and 0.0156 degrees curated. A chord that lies inside ONE bilinear cell has nothing to learn from being split. Refining a fill against the terrain would therefore buy tenths of a metre in the tail and cost squared face counts, so it is not built. (The tail is real and named: the largest, sparsest polygons — a 0.45-degree park ring at a regional LOD — reach 264 m of burial in their interior, which is ~5 rows at that view's own scale.)
+
+### No water rule, and why a "flat lake level" is worse than the surface
+
+The brief was right that a lake surface is flat in reality while a landcover polygon follows the ground, and right that this package has chosen a robust statistic over a mean before (`colorSample: "median"`). It does not follow here, and the measurements say why.
+
+**Where the DEM resolves a lake, the per-vertex drape is ALREADY flat.** ETOPO1 encodes a lake surface as a plateau: read at Titicaca, the z4 tier answers exactly 3,815 m at every vertex line across the lake's own footprint (the real lake is 3,812 m). The surface rule gives a planar lake there for free, with no statistic and no special case.
+
+**Where it does not resolve the lake, no level exists that is both visible and honest.** Lago Nahuel Huapi's real surface is 764 m; at the deepest tier that covers it (z4, 13.9 km per sample) the DEM reads 887 to 1,407 m around its own ring — the pyramid has smoothed a valley lake into the mountainside it sits in. Estimators over that ring: min 887, p25 1,116, median 1,220, mean 1,210, centroid 1,269, max 1,407. A median or a mean plants half the lake BELOW the terrain that is actually drawn — i.e. it reintroduces exactly the reported defect, in patches — and only the max avoids that, by floating the whole lake up to 520 m (12.5 km of world at 24x) above its own shore. The per-vertex surface is buried nowhere by construction, because it IS the drawn surface.
+
+So there is ONE rule for every fill type, and the option has two values rather than three.
+
+### The option: `GlyphMapFillLayer.drape`, default `"surface"`
+
+`"surface"` (the default) drapes; `"flat"` is the datum overlay and is byte-identical to before this existed. Per LAYER rather than per map, which is the grain the density, the render mode and the label placement already have — a reader can drape the water and leave the landcover flat.
+
+Draped is the default because flat-with-terrain-mounted is the reported defect, and `"flat"` earns its place rather than merely preserving a bug: a wash on the datum is coplanar with every other flat layer, never wraps a ridge, and cannot be eaten cell by cell by the relief it lies on — which is what a reader wants from an administrative or landcover tint they are READING rather than flying over. A draped one reads as a model of the ground; a flat one reads as a map.
+
+With no ground to read — no `raster` layer mounted and no caller-supplied source — the two settings are the same render, cell for cell. There is nothing to drape onto and the datum is the honest answer.
+
+### `GLYPH_MAP_FILL_DRAPE_LIFT_M`, and why it is not a formality
+
+A draped fill and the relief under it are the SAME surface reached by two different meshes: the terrain rasterizes from a quad grid coarsened per pyramid level (`reliefFractionForLevel`), while the drape reads the tile's full-resolution bilinear field. glyphcss's depth-test deadband cannot arbitrate — it is relative and applies only to a perspective z-buffer, and every camera here is orthographic, which takes the plain `>` test, so every tie goes to whoever drew first (the terrain). Measured on the gate's own real-ETOPO1 Titicaca fixture, cells of the lake that survive:
+
+| lift | 0 | 1 m | 3 m | 5 m | 10 m | 20 m | 50 m |
+|---|---|---|---|---|---|---|---|
+| lake cells drawn | 0 | 192 | 567 | 567 | 567 | 567 | 567 |
+
+Zero at zero. `10` is the shipped value — comfortably inside the plateau, and the same constant and unit (raw metres, pre-exaggeration, so it scales with the relief it must clear) as the heatmap's own `GLYPH_MAP_HEATMAP_SURFACE_LIFT_M`, which exists for precisely this reason and was measured against the same failure.
+
+### The drape moves vertices and nothing else
+
+The facing verdict, the sliver (ill-conditioning) verdict, the authored shading normal and the camera-dependent `walls` list are all computed from the face as it would be WITHOUT the drape; only the emitted vertices are draped. That is not tidiness. The sliver guard drops to a winding-based facing and a `localUpDirection` shading normal whenever a face's normal is more than 26 degrees off the local up, and its threshold is calibrated on the only thing that can tilt an UNDRAPED cap face: ill-conditioning. Terrain tilts a draped one for real, and at 24x a 5-degree hillside is a 50-degree face — so reading the verdict off the draped normal classes most of a mountain's fill as slivers, flattens their shading to the local up and pushes every one of them into the per-frame near-side cull. Gated on the block's own Amazon flank (a patch whose ring spans 500+ m of real relief): draped and flat meshes must have the same polygon count, the same wall count and the same shading-normal population. Mutated to take the verdict off the draped face, that clause prints `expected 2 to be +0`.
+
+### Re-planting, and the memo that was measured and removed
+
+A `fill` on a static source is never rebuilt by `scheduleTileUpdate` — its mesh is camera-independent — so the same `groundChangeSyncs` registry the extrusions and the markers use re-plants it when the mounted raster tile set changes. Without it a lake mounted before its terrain landed sits at the datum, i.e. buried, for the life of the map; `/maps` adds its layers in one turn, so that is the normal case rather than an edge one.
+
+The probe is deliberately NOT memoized. The sampler is a pure function of `(lon, lat)`, so a shared vertex already answers the same metre count in every face that uses it and a cache can only ever be a speed question — and it is a losing one. Measured on the real Zurich z12 tile's 158 water/landcover/landuse/park features (225 groups, 10,012 ring vertices, 9,340 emitted faces, 28,039 probe calls), median of 11 interleaved runs:
+
+| | mesh build | note |
+|---|---|---|
+| flat | 5.27 ms | |
+| draped, `Map` keyed on `"lon,lat"` | 9.60 ms | 28,039 string keys |
+| draped, no cache | 6.21 ms | shipped |
+| draped, no cache, constant ground | 5.19 ms | the sampler is the whole +0.94 ms |
+| re-probe pass (per terrain change) | 1.43 ms | 28,039 points |
+
+So the drape costs **+0.94 ms on a 5.27 ms mesh build (+18%)**, all of it the bilinear reads, plus 1.43 ms per terrain-change event, and nothing per frame — the mesh is retained and re-culled exactly as before. Face count is identical either way.
+
+### Where the ground comes from: `GlyphMapOptions.groundElevation`
+
+Asked directly: *"we can somehow make it configurable and not tightly coupled, because what happens if you don't have the terrain? do we need to hardcode it? or how would somebody do it with the library?"*
+
+The drape family was already library-side, but the ground was implicit — derived from the mounted `raster` layers and unreachable otherwise. `GlyphMapOptions.groundElevation: (lon, lat) => number | null` is the seam: supplied, it WINS everywhere and needs no raster layer, so a consumer drapes on its own DEM, a constant, or a service-backed lookup; omitted, the widget derives the ground exactly as it did. `null` (or a non-finite number) means "no ground for that point" and the caller takes the datum there — the same rule a map with no terrain at all takes — so a source that answers for some points and not others needs no bounds of its own.
+
+**With no terrain and no source, everything sits on the datum, and that is correct rather than degraded**: it is what a flat map looks like, and what all five consumers rendered before any of them learned to drape. Nothing is load-bearing on having a ground.
+
+It is ONE source for the whole family rather than an option per layer type, because a road, the building beside it, the label on it and the lake behind it must stand on one ground or they part company under a tilt. Verified rather than assumed: `line` (`stamp`), `symbol`/`circle` (`markerGroundAt`), `fill-extrusion` and `fill` (`createMeshFeatureRuntime`) all resolve through `groundElevationSampler()`, which is the single function the option short-circuits. **A `contour` is the one exception and it is structural**: since `3924f61` its lines are marched from the mounted raster mosaic's own vertex GRIDS, which is a field, not a point lookup — a caller-supplied `(lon, lat)` function cannot serve marching squares, and pretending otherwise would be a half-answer. That is stated in the option's own doc.
+
+No setter was added. The function is read live on every build and every stamp, so a source closing over mutable state (a DEM still loading) needs none — change what it answers, then move the camera or re-add the layer. What a caller-owned source cannot do is announce itself: a raster layer's tile arrivals re-plant mounted geometry through `groundChangeSyncs`, and there is no such event for a function.
+
+### Gate
+
+`widget.fillDrape.test.ts`, six clauses. The fixture is real ETOPO1: `TITICACA_BLOCK` is a literal 25x25 slice of the z4 tile `4/9` that `bake-geo-tiles.mjs` bakes — lon -71..-68 by lat -17..-14 at the pyramid's own 0.125-degree vertex spacing — because the full pyramid is gitignored and cannot be a test dependency. The lake's own footprint in that block is a flat 3,815 m, the altiplano around it 3,800-5,000 m, and the Amazon flank falls to 386 m.
+
+1. The lake is buried at `"flat"` (0 cells of its colour, with the premise that the terrain is genuinely drawn over it) and drawn at the default (567).
+2. With no ground to read, `"surface"` and `"flat"` are byte-identical `<pre>` innerHTML — asserted at a 40-degree tilt, which is the framing where an elevation is observable at all, and with the premise that the SAME comparison sees a difference when a ground source is supplied. A leaked ground of terrain magnitude cannot hide in it.
+3. A finer tier landing moves the fill onto the ground that tier describes (coarse tiers answer the real z0 reading of 3,302 m, z4 the block's 3,815 m; on the fine tier the fill is buried unless it re-planted).
+4. `GlyphMapOptions.groundElevation` wins over the mounted raster and its `null` is the datum — one clause proves both, since a source answering `null` everywhere over terrain that reads 3,815 m must bury the lake. With no raster layer at all, the same option drapes on the caller's own DEM and moves the fill off the datum's rows.
+5. A steep drape keeps the same faces, walls and shading normals as the flat mesh (the sliver verdict, above).
+6. The draped mesh's vertices are exactly `3,815 x exaggeration / R_earth` further from the globe's centre than the flat mesh's, face for face.
+
+Mutation checks, each restored from a `cp` backup, verbatim from the runner:
+
+- drop the `drape` option at the mesh call: 3 of 6 red — `expected 0 to be greater than 300`, `expected 0 to be greater than 0`, `expected 0 to be greater than 3`.
+- unregister the fill's `syncGround`: 2 of 6 red — `expected 0 to be greater than 300`, `expected 0 to be greater than 0`.
+- leak a terrain-magnitude ground when the sampler is `null`: exactly the byte-identity clause red — `expected '…' to be '…' // Object.is equality`. (A leak of 1 m does NOT redden it, and that is honest: 24 world metres is 1% of a row at that framing. The clause is calibrated to catch a leaked GROUND, which is what a real mistake produces.)
+- ignore `opts.groundElevation`: 2 of 6 red — `expected '…' not to be '…' // Object.is equality` and `expected 503 to be +0`.
+- take the facing verdict off the draped face: the steep clause red — `expected 2 to be +0`.
+
+### Known limits, inherited
+
+A vertex no mounted tile covers falls back to the datum, so a fill can straddle the datum and the terrain at the edge of coverage — the same limit `line` vertices and markers have, and for the same reason. And the interior chord of a very large, very sparse polygon is only as good as its own ring, measured above at up to 264 m in the worst real case.
+
+---
+
+## A contour that could not answer its first sweep stayed empty forever
+
+Reported on a page loaded from a URL with the contour layer on: *"for the contour it's like I need to disable it and enable it for it to load after I refresh the page"*.
+
+### The order is the defect
+
+A contour's mosaic is fetched by its own sweep. That sweep runs at MOUNT and then only from `scheduleTileUpdate`, which is driven by the VIEW. So on a page opened straight from a URL and not touched, the mount-time sweep is the ONLY sweep that will ever run — and on a fresh load it races the first terrain tiles. Since `3924f61` the cut geometry is CACHED on that mosaic, so whatever the sweep resolved is the layer's answer for the life of the map, and "nothing resolved" is a cached nothing. Toggling the layer builds a fresh runtime and sweeps again, which is precisely the workaround the report describes.
+
+Both hypotheses in the brief were checked against the code and against a harness that mounts a raster layer and a contour layer over the same provider IN ONE TURN with every tile still in flight, and neither is what is happening: the contour runtime IS subscribed to the sweep, and the "mosaic changed" trigger DOES fire for the first tiles. Every clean ordering renders — layers in the constructor, layers via `addLayer`, a 120 ms tile latency, `autoSize: true`, and all four combinations — 142 contour cells in each.
+
+What does reproduce it, exactly and permanently, is a single failed tile fetch on that one sweep:
+
+```
+one transient tile failure  terrain inked 10240  contour field range null  contour cells 0
+```
+
+The terrain is fully drawn (the raster runtime fetched its own tiles), `getContourFieldRange` reports `null` — the mosaic was never assigned — and no later render brings it back. A fresh page load is exactly where a tile fetch can 404, time out or be aborted, and a toggle a few seconds later is served from a warm HTTP cache, which is why the workaround works and why the fault does not reproduce on a settled page.
+
+### Two hunks, one for each half
+
+1. **One failed tile must not take the mosaic with it.** The sweep awaited a `Promise.all` over every missing tile, so one rejection rejected the batch, left `mosaic` unassigned and surfaced as an unhandled rejection. A tile that fails now resolves as one MISSING tile — the remaining tiles still form a mosaic, and the failure is deliberately not cached, so the next sweep retries it. This is the rule `@glyphcss/maps`' vector sweep already states in its own words (*"a tile that 404s/times out/is undecodable resolves EMPTY, never rejects — one rejection would take down the frame's whole `Promise.all`"*); the contour needed it more than any other layer, because its mosaic is not re-derived per frame.
+2. **A sweep that resolved nothing must be retried when terrain lands.** The contour runtime now registers in `groundChangeSyncs` — the registry whose event is the mounted raster TILE SET rather than the camera, and the same second chance the markers and the planted extrusions take. A re-sweep that resolves the same tiles fetches nothing (they are in the runtime's own `fieldCache`) and reports no change, so a settled map pays one candidate-range loop per raster mount.
+
+They are independent, and the gate keeps them so.
+
+### Gate
+
+`widget.contourFreshLoad.test.ts`, two clauses, both mounting the layers in one turn with every tile in flight and never touching the view afterwards (a test that mounted the tiles first would pass on the broken tree and prove nothing):
+
+1. One tile of the first sweep fails, **with no raster layer mounted** — deliberately, so the second hunk's re-sweep cannot rescue it and the two hunks can be told apart. The mosaic must survive and the layer must ink.
+2. EVERY tile of the first sweep fails, with a raster layer mounted. Only a terrain tile arriving can rescue it, since the view never changes.
+
+Mutation checks, verbatim:
+
+- remove the per-tile isolation: clause 1 red — `expected null not to be null` (and vitest reports the unhandled `Error: transient tile failure` alongside it).
+- unregister the `groundChangeSyncs` re-sweep: clause 2 red — `expected null not to be null`.
+
+### Found alongside, not fixed here
+
+The RASTER runtime's own sweep has the identical fragility: with two of its tile loads rejecting, the harness rendered **0 inked cells** — one rejection took down the whole mount, not just the tiles that failed. That is a bigger blast radius than the contour's and it is a separate change to a different runtime, so it is reported rather than folded into this hunk.
