@@ -370,6 +370,21 @@ export interface GlyphSceneHandle {
    */
   setInteracting(active: boolean): void;
   /**
+   * The `cols`/`rows` this scene renders at with `interactiveDownscale` NOT
+   * applied — identical to `getOptions()`'s pair whenever the scene is not
+   * interacting, and the ONLY way to recover it while it is.
+   *
+   * `setInteracting(true)` divides `options.cols`/`rows` in place, so
+   * `getOptions()` reports the coarser RENDER grid for the duration of a
+   * gesture. That is right for anything measured in rasterized cells and
+   * wrong for anything measured against the DOM, because the downscale
+   * changes the `<pre>`'s font size and nothing else on the page: a
+   * consumer's own overlay (a hotspot label) keeps its CSS pixel size while
+   * the cell it is expressed in triples. Such a consumer needs the grid its
+   * overlay is actually laid out in, which is this one.
+   */
+  getBaseResolution(): { readonly cols: number; readonly rows: number };
+  /**
    * Set the meshless, viewport-wide output densities that the scene should
    * invoke `transformCells` for. Density `1` is the existing base output and
    * is ignored here; each other positive density gets one transparent `<pre>`
@@ -2949,11 +2964,15 @@ export function createGlyphScene(
     interacting = active;
     if (active) {
       savedInteractFont = pre.style.fontSize;
+      // Captured for BOTH branches, not just the one that restores from it:
+      // `getBaseResolution()` has to answer for an `autoSize` scene too, and
+      // there the exit path re-derives cols/rows from the restored font
+      // rather than reading these back.
+      savedInteractCols = options.cols; savedInteractRows = options.rows;
       pre.style.fontSize = `${baseFontPx() * ds}px`;
       if (options.autoSize) {
         fitToHost(); // re-measures the coarser cell → cols/rows ÷ ds
       } else {
-        savedInteractCols = options.cols; savedInteractRows = options.rows;
         options.cols = Math.max(2, Math.round(options.cols / ds));
         options.rows = Math.max(2, Math.round(options.rows / ds));
         baseCellCache = null; baseFontPxCache = null; hostRectCache = null;
@@ -2969,6 +2988,12 @@ export function createGlyphScene(
       savedInteractFont = null;
     }
     rerender();
+  }
+
+  function getBaseResolution(): { readonly cols: number; readonly rows: number } {
+    return interacting
+      ? { cols: savedInteractCols, rows: savedInteractRows }
+      : { cols: options.cols, rows: options.rows };
   }
 
   function setOptions(partial: Partial<GlyphSceneOptions>): void {
@@ -3164,6 +3189,7 @@ export function createGlyphScene(
     getGlyphSemanticCellFrame: () => semanticCellFrame,
     fit: fitToHost,
     setInteracting,
+    getBaseResolution,
     setViewportOverlayDensities,
     setTextureSamplers,
     setForeignOcclusion,

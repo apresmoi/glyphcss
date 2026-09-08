@@ -2516,6 +2516,45 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow };
   }
 
+  /**
+   * The live render grid restated in the units a DOM OVERLAY is laid out in:
+   * `scaleX`/`scaleY` carry a position from the render grid's cells into that
+   * grid's, and `cellWidth`/`cellHeight` are that grid's own cell in CSS
+   * pixels. At rest the scales are exactly `1` and the cell is the live one,
+   * so nothing downstream moves; they differ for exactly as long as something
+   * holds `scene.setInteracting(true)`.
+   *
+   * `interactiveDownscale` divides `scene.getOptions().cols`/`rows` in place
+   * for the duration of a gesture, and `projectionGrid()` reports that
+   * coarser grid because that is genuinely what the rasterizer is drawing.
+   * For everything measured in rasterized cells — stroke stamping, tile
+   * visibility, depth — that is the right answer. For a `symbol`'s label it
+   * is not: the downscale changes the `<pre>`'s font size and NOTHING else on
+   * the page, so a hotspot `<div>` (a sibling of the `<pre>`, taking its font
+   * from the consumer's stylesheet) keeps its CSS pixel size while the cell
+   * it is measured against triples. The declutter arbiter then reserves a box
+   * three times too wide for every label and suppresses most of them — the
+   * reported "drag and release and all the labels flicker and disappear",
+   * which lasted until the next motion frame swept them at the restored grid,
+   * or forever if the release started no glide. The label's `textOffset` (in
+   * CELLS) had the same defect and slid it three times too far.
+   *
+   * `projectionGrid()` DEFINES `cellWidth` as the rendered width over `cols`,
+   * so `cols * cellWidth` is that width whichever grid is live and the whole
+   * conversion is one scalar per axis. `scene.getBaseResolution()` is the only
+   * source for it: `getOptions()` reports the downscaled pair, and nothing
+   * else on the page records what it was before the gesture.
+   */
+  function labelGrid(grid: ProjectionGrid): { readonly scaleX: number; readonly scaleY: number; readonly cellWidth: number; readonly cellHeight: number } {
+    const base = scene.getBaseResolution();
+    const scaleX = base.cols / grid.cols;
+    const scaleY = base.rows / grid.rows;
+    // A base cell is WIDER in cells and NARROWER in pixels by the same
+    // factor: `cellWidth` is defined as the rendered width over `cols`, so
+    // `cellWidth / scaleX` is that width over `base.cols`.
+    return { scaleX, scaleY, cellWidth: grid.cellWidth / scaleX, cellHeight: grid.cellHeight / scaleY };
+  }
+
   function depthOf(world: Vec3, grid: ProjectionGrid): number {
     return camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid)[2];
   }
@@ -5263,9 +5302,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // (`transform` is otherwise never touched, leaving glyphcss's own
         // centring rule to apply), and only when the string actually changes,
         // so a resize costs one assignment and a pan costs none.
+        // The BASE grid's cell, never the live one — see `labelGrid`. A
+        // label is a DOM sibling of the `<pre>`, so `interactiveDownscale`
+        // does not resize it, and an offset counted in cells has to keep the
+        // pixel length it had before the gesture or the label slides on
+        // grab and slides back on release.
+        const labelUnits = labelGrid(projectionGrid());
         if (placement) {
-          const grid = projectionGrid();
-          const next = placement.transform(grid.cellWidth, grid.cellHeight);
+          const next = placement.transform(labelUnits.cellWidth, labelUnits.cellHeight);
           if (next !== placementTransform) {
             placementTransform = next;
             for (const r of records) r.handle.el.style.transform = next;
@@ -5278,7 +5322,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // `offset` are the other half of the same rule: the box has to be
         // where the label LANDS, or moving a label makes it collide more
         // while the map looks emptier.
-        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col, row: p.row, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
+        // `col`/`row` are carried into the BASE grid too, so the arbiter's
+        // whole frame — positions, the `charWidth`/`height` box it defaults
+        // to, and `offset`'s own cells — is the one unit the labels are drawn
+        // in. Scaling only one of the three would be worse than scaling none.
+        const candidates = records.map((r, i) => { const p = project([r.lon, r.lat]); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
