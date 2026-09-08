@@ -19,7 +19,7 @@ import {
   type LayersFolderInputs,
   type OsmLayerInputs,
 } from "./mapsKit";
-import { MAP_OSM_SUBLAYERS } from "./mapsOsm";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
 
 /**
  * The OSM card after the source became OpenFreeMap's planet.
@@ -48,9 +48,10 @@ function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
     visible: true, onVisible: noop,
     source: "OpenFreeMap · OpenMapTiles · z0–14",
     missing: null,
-    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1 })),
+    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1, anchor: MAP_OSM_DEFAULT_ANCHOR })),
     onSublayer: noop,
     onSublayerDensity: noop,
+    onSublayerAnchor: noop,
     ...overrides,
   };
 }

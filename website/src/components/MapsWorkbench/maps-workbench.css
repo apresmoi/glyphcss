@@ -348,6 +348,38 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* A LABELLED row (`symbol`) carries a placement control instead of a density
+   one, in the widget cell the slider left empty. It has no value of its own
+   to print, so the widget spans columns 2-3 — the same `grid-column: 2 / 4`
+   the Dock's `.controller.option` gives a `<select>`, and the same rule the
+   card's own `<select>` and info rows already take. Without it the toggle
+   would sit in a widget column sized for a slider and a 60px value column
+   would stand empty beside it, which is a narrower control for no reason. */
+.maps-layer-card .maps-layer-body .maps-osm-row--labelled .maps-osm-row-widget {
+  grid-column: 2 / 4;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The rail's own segmented control at ROW scale. `.gx-toggle-btn`'s base
+   padding is `4px 0`, sized for /synth's full-width voice rows; inside a
+   24px card row that makes the row grow. Trimmed to the row's own height
+   here and nowhere else — a descendant selector, never a redeclaration of
+   the shared class (see this file's header). */
+.maps-layer-card .maps-layer-body .maps-osm-anchor .gx-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor .gx-toggle-btn {
+  padding: 1px 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* A row whose DENSITY is gated: the row is switched off, so its control has
    nothing to act on until it comes back. Same treatment as
    `.maps-layer-slider--off` (0.5 opacity, `not-allowed`, tooltip left

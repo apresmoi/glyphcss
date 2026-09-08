@@ -4781,6 +4781,84 @@ per-record write in the sync sweep, and a label that flips anchor between
 frames as the camera pans reads worse than one that disappears (MapLibre damps
 that with its own fade; this widget has no such rule and would need one).
 
+### Per-ROW placement on `/maps`' OSM card, and the URL token it needed
+
+The follow-up ask was one line: *"label per row dude, because its a control
+that is by layer, so since its by layer its independant by row // yes, save
+everything in the url"*. `textAnchor` was already a layer option and the OSM
+card mounts one layer per OpenMapTiles row, so the control had to be per row —
+the same argument that killed the card's master density slider, and a stronger
+one, because placement is a statement about a CLASS of things: a city name
+reads beside its dot while a lake's name reads across the water it names, so
+no single card-wide anchor can be right for two rows at once.
+
+**Which rows get it is derived from each row's own `type === "symbol"`, never
+a list of ids.** That list belongs to `@glyphcss/maps` and it has moved twice:
+`omt-peaks` was a `circle` row before it became a labelled `symbol` one, and
+`omt-parks`/`omt-water-labels` were appended as `symbol` rows later. A
+hardcoded list written when this card was built was already two rows out of
+date. `circle` is deliberately not in the set — it mounts a dot with no text,
+so there is no label to place — which is why this is its own predicate rather
+than the complement of the densityless one.
+
+**The control lands in the widget column those rows freed.** A `symbol` row
+carries no density (nothing in the renderer reads one for a positioned
+hotspot), so since the per-row density work its widget cell held the toggle
+and nothing else and its value cell was empty. The placement control takes
+both (`grid-column: 2 / 4`, the same span the Dock gives a `<select>` and the
+card's own info rows already take) — not a fourth column and not a second
+line. It is the rail's own segmented `IconToggle`, the control /synth's
+field/wave rows, the Projection picker and the Sun toggle all use, trimmed to
+the 24px row through a descendant selector.
+
+FIVE of the nine anchors, not nine: a nine-way segmented control in a 340px
+rail row gives each button ~13px, narrower than the icon inside it, and the
+corners are the placements a character grid distinguishes least (a label
+displaced half its own box diagonally lands within a cell or two of the
+edge-anchored answer beside it). The icon draws BOTH the point and the label
+box, because the vocabulary is MapLibre's and MapLibre's `left` puts the
+label's left EDGE on the point — so the name reads out to the RIGHT of it. An
+icon showing a bar on the left for "left" would be showing the opposite of
+what the option does.
+
+**The builder owns the "default is byte-identical" rule, and owns it once.**
+`glyphMapOpenMapTilesLayers` drops an anchor naming `"center"` and an anchor
+aimed at a non-`symbol` row; `mapOsmLayers` hands its record over whole. The
+first shape had the page filtering too, and the package-side guard then had no
+reachable test — the mutation that removed it stayed green. One owner, one
+test that bites.
+
+**The URL is token `l`, a 13-slot `floatTuple` at step 1, appended LAST.** The
+slot holds an INDEX into `GLYPH_MAP_LABEL_ANCHORS`, so that list is a wire
+format on the same append-only rule as `MAPS_OSM_SUBLAYER_KEYS`, pinned in
+`mapsUrlState.osmLabels.test.ts`. Positional over EVERY row rather than over
+the labelled ones for the reason above: which rows are labelled is a property
+of the package's row TYPES, and those move, so a wire list keyed on that set
+would be silently reinterpreted the next time a row changed type. The empty
+slots cost nothing — the whole token is omitted while every row is centred,
+which is every link ever shared and every untouched card. Width frozen at 13
+for the reason `M` is frozen at 10 (`MAPS_OSM_DENSITY_SLOTS`): a `floatTuple`
+reads its declared width and hands the cursor on, so a fourteenth row means a
+SECOND token, never a wider one. LAST for the reason `M`, `w` and `J` each
+give: `decodePacked` stops at the first token it does not know, so a link
+written here and opened by an older build strands only what is ordered after
+it. `l` and not `L` (`layerMask`) — every upper-case letter was spent by `J`.
+
+Old links are pinned by SNAPSHOT, not by inspection: `mapsUrlState.osmLabels.test.ts`
+carries all eight packed strings vendored across the suite together with the
+exact partial each decoded to before the token existed, and re-encodes the
+longest real one (`p3x6-yc1a…J1a1o1a`, the reported field link carrying both
+density tuples) to the byte-identical string it decoded from.
+
+**Wrap width and max lines are NOT here.** `GLYPH_MAP_LABEL_WRAP_CELLS` (20)
+and `GLYPH_MAP_LABEL_WRAP_MAX_LINES` (3) are module constants, not layer
+options: `glyphMapWrapLabel(label, width, maxLines)` already takes both as
+parameters, but `createPointFeatureRuntime` calls it as `glyphMapWrapLabel(label)`.
+Making them per-row therefore needs two fields on `GlyphMapSymbolLayer` and
+that one call site widened to read them — a `widget.ts` change, which this
+slice did not own. The card is the only thing that would then need two more
+rows and two more URL slots, and both are cheap once the layer options exist.
+
 ## Black lines in the middle of the sea: a `fill`'s tessellation slivers
 
 The report was one line: "also lets fix these black lines in the middle of the

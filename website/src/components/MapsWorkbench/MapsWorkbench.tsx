@@ -22,14 +22,17 @@ import { createVectorTilesProvider } from "../../lib/vectorTilesProvider";
 import { createPlaceTilesProvider } from "../../lib/placeTilesProvider";
 import { createCountryTilesProvider, COUNTRY_PRIORITY_PROPERTY, COUNTRY_PRIORITY_RANGE } from "../../lib/countryTilesProvider";
 import {
+  MAP_OSM_DEFAULT_ANCHOR,
   MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
   createOsmSource,
+  mapOsmAnchorRecord,
   mapOsmDensityRecord,
   mapOsmLayers,
   mapOsmMasterDensity,
   mapOsmMissingTilesLabel,
   mapOsmSourceLabel,
+  type MapOsmAnchors,
 } from "./mapsOsm";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
@@ -103,6 +106,8 @@ import {
   mapsLayerVisibilityFromMask,
   mapsOsmDensitiesExtFromRecord,
   mapsOsmDensitiesFromRecord,
+  mapsOsmAnchorRecordFromTuple,
+  mapsOsmAnchorsFromRecord,
   mapsOsmDensityRecordFromTuple,
   mapsOsmMaskFromSublayers,
   mapsOsmSublayersFromMask,
@@ -230,6 +235,17 @@ export default function MapsWorkbench() {
   // predates them.
   const [osmDensities, setOsmDensities] = useState<Record<string, number>>(
     () => mapsOsmDensityRecordFromTuple(initial.osmDensities, initial.osmDensitiesExt),
+  );
+  // One label placement PER ROW, for the reason the densities are per row and
+  // one more: placement is a CARTOGRAPHIC decision about a class of things
+  // (a city name reads beside its dot, a lake's name across the water it
+  // names), so a card-wide anchor could not be right for two rows at once.
+  // Only a `symbol` row reads one — the record is still complete over every
+  // row, because the link packs it positionally (`mapsUrlState.ts`'s
+  // `osmLabelAnchors`) and which rows are labelled is `@glyphcss/maps`'
+  // answer, not this page's.
+  const [osmAnchors, setOsmAnchors] = useState<MapOsmAnchors>(
+    () => mapsOsmAnchorRecordFromTuple(initial.osmLabelAnchors),
   );
   /**
    * Street-level walk mode — and, from a shared link, the pose to open it at.
@@ -664,9 +680,11 @@ export default function MapsWorkbench() {
         id: spec.id, label: spec.label, type: spec.type,
         on: osmSublayers[spec.id] ?? false,
         density: osmDensities[spec.id] ?? MAP_OSM_DEFAULT_DENSITY,
+        anchor: osmAnchors[spec.id] ?? MAP_OSM_DEFAULT_ANCHOR,
       })),
       onSublayer: (id, on) => setOsmSublayers((prev) => ({ ...prev, [id]: on })),
       onSublayerDensity: (id, density) => setOsmDensities((prev) => ({ ...prev, [id]: density })),
+      onSublayerAnchor: (id, anchor) => setOsmAnchors((prev) => ({ ...prev, [id]: anchor })),
     },
   };
 
@@ -854,6 +872,14 @@ export default function MapsWorkbench() {
       // attributing either needs the rows moved apart.
       setOsmDensityRow: (id: string, value: number) =>
         setOsmDensities((old) => ({ ...old, [id]: value })),
+      // Label placement, whole-card and per-row, mirroring the two density
+      // hooks above: only a `symbol` row reads one, so the whole-card write
+      // is how a scenario moves every label at once without knowing which
+      // rows those are.
+      setOsmLabelAnchors: (anchor: string) =>
+        setOsmAnchors(mapOsmAnchorRecord(anchor as MapOsmAnchors[string])),
+      setOsmLabelAnchorRow: (id: string, anchor: string) =>
+        setOsmAnchors((old) => ({ ...old, [id]: anchor as MapOsmAnchors[string] })),
       // Street-level walk mode, through the page's OWN toggle rather than
       // `map.setWalk` directly, so the React gate (`mapWalkReason`) and the
       // auto-exit are exercised exactly as a reader's click exercises them.
@@ -1319,14 +1345,14 @@ export default function MapsWorkbench() {
     for (const { id } of MAP_OSM_SUBLAYERS) map.removeLayer(id);
     if (showOsm) {
       const enabled = MAP_OSM_SUBLAYERS.filter((s) => osmSublayers[s.id]).map((s) => s.id);
-      for (const layer of mapOsmLayers(osmSource, { enabled, densities: osmDensities })) map.addLayer(layer);
+      for (const layer of mapOsmLayers(osmSource, { enabled, densities: osmDensities, anchors: osmAnchors })) map.addLayer(layer);
     }
     map.scene.rerender();
     setAttributions(map.getAttributions());
     // `provider`/`vectorProvider` are dependencies for the same reason the
     // borders and demo-layer effects list them: those two are what rebuild
     // the widget instance, and a rebuilt widget has no layers on it.
-  }, [showOsm, osmSource, osmSublayers, osmDensities, provider, vectorProvider]);
+  }, [showOsm, osmSource, osmSublayers, osmDensities, osmAnchors, provider, vectorProvider]);
 
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,
@@ -1607,6 +1633,7 @@ export default function MapsWorkbench() {
       osmDensity: mapOsmMasterDensity(osmDensities) ?? MAP_OSM_DEFAULT_DENSITY,
       osmDensities: mapsOsmDensitiesFromRecord(osmDensities),
       osmDensitiesExt: mapsOsmDensitiesExtFromRecord(osmDensities),
+      osmLabelAnchors: mapsOsmAnchorsFromRecord(osmAnchors),
       fillDensity: layerAmount.fillDensity,
       extrusionDensity: layerAmount.extrusionDensity,
       symbolDataset: pointDataset.symbol,
@@ -1630,7 +1657,7 @@ export default function MapsWorkbench() {
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

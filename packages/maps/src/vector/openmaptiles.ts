@@ -36,6 +36,7 @@ import type {
   GlyphMapLineLayer,
   GlyphMapSymbolLayer,
 } from "../widget";
+import type { GlyphMapLabelAnchor } from "../layers";
 
 /**
  * The OpenMapTiles source-layer ids, exactly as the service's own
@@ -541,6 +542,20 @@ export interface GlyphMapOpenMapTilesLayersOptions {
   readonly colors?: Readonly<Record<string, string>>;
   /** Per-layer glyph density, keyed by spec id (glyphcss's per-mesh detail resolution / stroke overlay density). */
   readonly densities?: Readonly<Record<string, number>>;
+  /**
+   * Per-layer label placement, keyed by spec id — `GlyphMapSymbolLayer.textAnchor`,
+   * MapLibre's `text-anchor` vocabulary.
+   *
+   * Only a `symbol` spec reads it; an entry naming any other row is dropped
+   * rather than forwarded, because a caller's record is legitimately keyed
+   * over EVERY row (`/maps` packs one positionally in its URL) and no other
+   * layer type has the option to receive.
+   *
+   * A row omitted here — or naming the `"center"` the layer already draws —
+   * gets no `textAnchor` key at all, so the built layer object is identical
+   * to the one this builder returned before the option existed.
+   */
+  readonly textAnchors?: Readonly<Record<string, GlyphMapLabelAnchor>>;
 }
 
 type GlyphMapOpenMapTilesBuiltLayer =
@@ -590,6 +605,14 @@ export function glyphMapOpenMapTilesLayers(
     });
     const color = opts.colors?.[spec.id] ?? spec.color;
     const density = opts.densities?.[spec.id];
+    // `"center"` is the layer's own default and `glyphMapLabelPlacement`
+    // answers `null` for it, so declaring it would render the same — but
+    // omitting the key is what keeps an untouched caller's layer object
+    // byte-identical rather than merely equivalent.
+    const requestedAnchor = opts.textAnchors?.[spec.id];
+    const textAnchor = spec.type === "symbol" && requestedAnchor !== undefined && requestedAnchor !== "center"
+      ? requestedAnchor
+      : undefined;
     const common = {
       id: spec.id,
       source,
@@ -633,6 +656,7 @@ export function glyphMapOpenMapTilesLayers(
           type: "symbol", ...common,
           textProperty: spec.textProperty,
           ...(text === undefined ? {} : { text }),
+          ...(textAnchor === undefined ? {} : { textAnchor }),
           priorityProperty: spec.priorityProperty,
         });
         break;

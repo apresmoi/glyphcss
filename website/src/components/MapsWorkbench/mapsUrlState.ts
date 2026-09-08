@@ -10,7 +10,7 @@
 import { createUrlCodec, readUrlParam, scheduleCompactedUrlWrite, type UrlField } from "../../lib/urlState";
 import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 import { DEFAULT_MAP_LIGHTING, MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode, type PointDataset } from "./mapsKit";
-import { MAP_OSM_DEFAULT_DENSITY, MAP_OSM_DEFAULT_ON } from "./mapsOsm";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_DEFAULT_DENSITY, MAP_OSM_DEFAULT_ON, MAP_OSM_LABEL_ANCHORS, type MapOsmAnchors } from "./mapsOsm";
 
 // Includes "calibrated" — `DockRendering`'s glyph-palette dropdown always
 // offers it (registered as a side effect of importing that folder, see
@@ -130,6 +130,22 @@ export interface MapsUrlState {
    * {@link MAPS_OSM_DENSITY_EXT_SLOTS}.
    */
   osmDensitiesExt: readonly number[];
+  /**
+   * Where each OSM row places its labels, as an INDEX into
+   * {@link MAP_OSM_LABEL_ANCHORS} — positionally over
+   * {@link MAPS_OSM_SUBLAYER_KEYS}, token `l`, width
+   * {@link MAPS_OSM_ANCHOR_SLOTS}.
+   *
+   * A tuple over EVERY row, not over the labelled ones, even though only a
+   * `symbol` row reads one. Which rows are labelled is a property of
+   * `@glyphcss/maps`' row TYPES, and those move — `omt-peaks` was a `circle`
+   * row and became a labelled `symbol` one — so a wire list keyed on that
+   * set would be silently reinterpreted the next time a row changed type,
+   * while a slot per row cannot be. The empty slots cost nothing: the whole
+   * token is omitted while every row is centred, which is every link ever
+   * shared and every untouched card.
+   */
+  osmLabelAnchors: readonly number[];
   fillDensity: number;
   extrusionDensity: number;
 
@@ -312,6 +328,56 @@ export function mapsOsmDensityRecordFromTuple(tuple: readonly number[], ext: rea
   return Object.fromEntries(MAPS_OSM_SUBLAYER_KEYS.map((key, i) => [key, all[i] ?? MAP_OSM_DEFAULT_DENSITY]));
 }
 
+/**
+ * The per-row label-anchor tuple's FROZEN width (token `l`).
+ *
+ * One slot per OSM row, and frozen for the reason
+ * {@link MAPS_OSM_DENSITY_SLOTS} is: a `floatTuple` reads exactly this many
+ * slots and then hands the cursor to the next token, so the width IS the
+ * wire format and widening it in place would make every already-shared `l`
+ * link decode the token AFTER it as an anchor. A fourteenth row means a
+ * SECOND token on the same rule — which is what `J` is to `M` —
+ * and `mapsUrlState.osmLabels.test.ts` asserts this width still covers the
+ * row list exactly, so the breach is loud.
+ *
+ * Thirteen rather than ten, unlike `M`: `M` was frozen before the row list
+ * grew past it, and this token is being introduced after. Nothing is gained
+ * by starting it short.
+ */
+export const MAPS_OSM_ANCHOR_SLOTS = 13;
+
+/**
+ * Pack the card's placement record into {@link MapsUrlState.osmLabelAnchors}.
+ *
+ * A row the record does not carry — and a row naming an anchor the
+ * vocabulary does not hold — packs at slot `0`, the centred default. Slot
+ * `0` is what the whole token being omitted decodes to, so "unknown" and
+ * "untouched" produce the same link rather than a different one.
+ */
+export function mapsOsmAnchorsFromRecord(anchors: Readonly<Record<string, string>>): number[] {
+  return MAPS_OSM_SUBLAYER_KEYS.map((key) => {
+    const index = MAP_OSM_LABEL_ANCHORS.indexOf(anchors[key] as (typeof MAP_OSM_LABEL_ANCHORS)[number]);
+    return index < 0 ? 0 : index;
+  });
+}
+
+/**
+ * The inverse — always a complete record over {@link MAPS_OSM_SUBLAYER_KEYS}.
+ *
+ * A short tuple (a hand-edited link) and a slot naming an index the
+ * vocabulary does not have (a link written by a build that appended an
+ * anchor) both resolve to {@link MAP_OSM_DEFAULT_ANCHOR} rather than to
+ * `undefined`: the widget would read an absent anchor as its own centred
+ * default anyway, so resolving it here keeps the page's state honest about
+ * what is actually mounted.
+ */
+export function mapsOsmAnchorRecordFromTuple(tuple: readonly number[]): MapOsmAnchors {
+  return Object.fromEntries(MAPS_OSM_SUBLAYER_KEYS.map((key, i) => [
+    key,
+    MAP_OSM_LABEL_ANCHORS[tuple[i] as number] ?? MAP_OSM_DEFAULT_ANCHOR,
+  ]));
+}
+
 /** The sentinel a `null` (unbounded) contour-window end packs as — see `MapsUrlState.contourFloor`. */
 export const MAPS_CONTOUR_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
@@ -372,6 +438,9 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   osmDensity: MAP_OSM_DEFAULT_DENSITY,
   osmDensities: Array(MAPS_OSM_DENSITY_SLOTS).fill(MAP_OSM_DEFAULT_DENSITY),
   osmDensitiesExt: Array(MAPS_OSM_DENSITY_EXT_SLOTS).fill(MAP_OSM_DEFAULT_DENSITY),
+  // Slot 0 is `MAP_OSM_LABEL_ANCHORS[0]` — `"center"`, the placement a
+  // `symbol` layer has always drawn.
+  osmLabelAnchors: Array(MAPS_OSM_ANCHOR_SLOTS).fill(0),
   fillDensity: 1,
   extrusionDensity: 1,
   symbolDataset: POINT_DATASET_DEFAULTS.symbol,
@@ -601,6 +670,30 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    the same clause `M`/`m` and `w`/`W` already carry. It is the one
   //    upper-case letter the schema had left.
   { key: "osmDensitiesExt", token: "J", type: { kind: "floatTuple", length: MAPS_OSM_DENSITY_EXT_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.osmDensitiesExt },
+  // ── The OSM card's PER-ROW LABEL ANCHORS. Appended after `J`, and for the
+  //    eighth time with the same consequence: the codec is TOKEN-keyed, so a
+  //    link carrying no `l` decodes to every row centred — which is every
+  //    link ever shared, since this is the placement a `symbol` layer has
+  //    always drawn. No version bump; nothing was retired, and `M`/`J` still
+  //    decode character-for-character.
+  //
+  //    LAST, for the reason `M`, `w` and `J` each give — `decodePacked`
+  //    stops at the first token it does not recognize, so a link written
+  //    here and opened by a not-yet-updated build strands only what is
+  //    ordered after it, and there is nothing after it. `J` was that token
+  //    until now.
+  //
+  //    A `floatTuple` at step 1 rather than a new codec kind: the slot holds
+  //    an INDEX into `MAP_OSM_LABEL_ANCHORS`, which is an integer, and the
+  //    existing tuple kind already packs one self-delimiting base36 number
+  //    per slot. That makes the anchor LIST a wire format too, on the same
+  //    append-only rule as `MAPS_OSM_SUBLAYER_KEYS` — pinned in
+  //    `mapsUrlState.osmLabels.test.ts`.
+  //
+  //    `l` (not `L`, which is `layerMask`): the token map is case-sensitive,
+  //    the same clause `M`/`m`, `w`/`W` and `J`/`j` already carry. Every
+  //    upper-case letter was spent by `J`.
+  { key: "osmLabelAnchors", token: "l", type: { kind: "floatTuple", length: MAPS_OSM_ANCHOR_SLOTS, step: 1 }, default: MAPS_URL_DEFAULTS.osmLabelAnchors },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";

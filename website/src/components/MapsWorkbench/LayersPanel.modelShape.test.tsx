@@ -67,7 +67,7 @@ function inputs(): LayersFolderInputs {
     osm: {
       visible: false, onVisible: noop,
       source: "OpenFreeMap · OpenMapTiles · z0–14", missing: null,
-      sublayers: [], onSublayer: noop, onSublayerDensity: noop,
+      sublayers: [], onSublayer: noop, onSublayerDensity: noop, onSublayerAnchor: noop,
       density: 1, onDensity: noop,
     },
   };

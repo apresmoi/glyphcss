@@ -50,7 +50,7 @@ import {
   type LayersFolderInputs,
   type OsmLayerInputs,
 } from "./mapsKit";
-import { MAP_OSM_SUBLAYERS } from "./mapsOsm";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -65,9 +65,10 @@ function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
     visible: true, onVisible: noop,
     source: "OpenFreeMap · OpenMapTiles · z0–14",
     missing: null,
-    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 1 })),
+    sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 1, anchor: MAP_OSM_DEFAULT_ANCHOR })),
     onSublayer: noop,
     onSublayerDensity: noop,
+    onSublayerAnchor: noop,
     ...overrides,
   };
 }
@@ -196,7 +197,7 @@ describe("every OSM row carries its own density, on its own line", () => {
 
   it("shows each row's own value", () => {
     const host = render({
-      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: s.id === "omt-roads" ? 3 : 1.5 })),
+      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: s.id === "omt-roads" ? 3 : 1.5, anchor: MAP_OSM_DEFAULT_ANCHOR })),
     });
     expect(readout(row(host, "Roads")).value).toBe("3.0x");
     expect(readout(row(host, "Water")).value).toBe("1.5x");
@@ -224,7 +225,7 @@ describe("every OSM row carries its own density, on its own line", () => {
 
   it("disables a row's density while the row itself is off", () => {
     const host = render({
-      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1 })),
+      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: s.id === "omt-roads", density: 1, anchor: MAP_OSM_DEFAULT_ANCHOR })),
     });
     const on = row(host, "Roads");
     // A `fill` row, so its density is genuinely wired — the only thing
@@ -297,7 +298,7 @@ describe("the master row is gone", () => {
     // The state the master used to read a number in. The card offers only
     // the thirteen rows' own controls now.
     const body = card(render({
-      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 2.5 })),
+      sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: 2.5, anchor: MAP_OSM_DEFAULT_ANCHOR })),
     })).querySelector<HTMLElement>(".maps-layer-body")!;
     expect(sliders(body)).toHaveLength(WIRED_ROWS.length);
     for (const el of sliders(body)) expect(el.closest(".maps-osm-row")).not.toBeNull();
@@ -316,7 +317,7 @@ describe("the card states what the choice costs", () => {
 
   it("counts the overlay grids the current stroke densities actually ask for, live on the card", () => {
     const withStrokes = (d: Record<string, number>) =>
-      MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: d[s.id] ?? 1 }));
+      MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: true, density: d[s.id] ?? 1, anchor: MAP_OSM_DEFAULT_ANCHOR }));
 
     // Every stroke at 1x asks for no overlay at all, so there is no row —
     // the card says nothing about a cost that is not being paid.
@@ -340,6 +341,7 @@ describe("the card states what the choice costs", () => {
     const host = render({
       sublayers: MAP_OSM_SUBLAYERS.map((s) => ({
         ...s,
+        anchor: MAP_OSM_DEFAULT_ANCHOR,
         on: s.id !== "omt-boundaries",
         // Boundaries is the only row holding 4, and it is off. Every stroke
         // row this test is not about sits at 1x, which asks for no overlay

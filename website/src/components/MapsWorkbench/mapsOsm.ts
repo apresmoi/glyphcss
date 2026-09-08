@@ -50,9 +50,11 @@
  * still gets to say so instead of the reader guessing.
  */
 import {
+  GLYPH_MAP_LABEL_ANCHORS,
   GLYPH_MAP_OPENMAPTILES_LAYERS,
   glyphMapOpenFreeMapProvider,
   glyphMapOpenMapTilesLayers,
+  type GlyphMapLabelAnchor,
   type GlyphMapVectorProvider,
   type GlyphMapVectorTile,
 } from "@glyphcss/maps";
@@ -222,6 +224,47 @@ export function mapOsmStrokeOverlayCount(
   return distinct.size;
 }
 
+/**
+ * The label placements the card offers, and their WIRE ORDER.
+ *
+ * `@glyphcss/maps`' own list, re-exported under this page's naming rather
+ * than copied, for the reason {@link MAP_OSM_SUBLAYERS} is derived: the
+ * vocabulary belongs to the package (it is MapLibre's `text-anchor`, and the
+ * package's `glyphMapLabelAnchorFraction` is the one table both halves of a
+ * placement read), and a second copy here could disagree with it.
+ *
+ * The order is a WIRE FORMAT: `mapsUrlState.ts` packs a row's placement as
+ * this list's INDEX, so it is append-only exactly like
+ * `MAPS_OSM_SUBLAYER_KEYS`, and `mapsUrlState.osmLabels.test.ts` pins it.
+ */
+export const MAP_OSM_LABEL_ANCHORS: readonly GlyphMapLabelAnchor[] = GLYPH_MAP_LABEL_ANCHORS;
+
+/**
+ * The placement every labelled row opens on, and the value a row absent from
+ * an anchor record is read as.
+ *
+ * `"center"` is what a `symbol` layer has always drawn — `glyphMapLabelPlacement`
+ * answers `null` for it, so nothing downstream touches the label element's
+ * transform or the declutter arbiter's candidate, and an untouched card is
+ * byte-identical rather than merely equivalent.
+ */
+export const MAP_OSM_DEFAULT_ANCHOR: GlyphMapLabelAnchor = "center";
+
+/** One placement per {@link MAP_OSM_SUBLAYERS} row, keyed by row id. */
+export type MapOsmAnchors = Readonly<Record<string, GlyphMapLabelAnchor>>;
+
+/**
+ * A complete record with every row at `anchor`.
+ *
+ * The card has no gesture that does this — placement is per row, which is
+ * the whole point. It exists for the same two callers
+ * {@link mapOsmDensityRecord} has: a seed over the full row list, and the
+ * bench hook that prices the card as a whole.
+ */
+export function mapOsmAnchorRecord(anchor: GlyphMapLabelAnchor): Record<string, GlyphMapLabelAnchor> {
+  return Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, anchor]));
+}
+
 export interface MapOsmLayerOptions {
   /** Which {@link MAP_OSM_SUBLAYERS} rows are on. Order and membership come straight from the card. */
   readonly enabled: readonly string[];
@@ -241,6 +284,19 @@ export interface MapOsmLayerOptions {
    * both.
    */
   readonly densities: MapOsmDensities;
+  /**
+   * Each row's own label placement, keyed by row id. A row absent from the
+   * record mounts at {@link MAP_OSM_DEFAULT_ANCHOR}, and only a `symbol` row
+   * reads one at all — `glyphMapOpenMapTilesLayers` drops an entry naming
+   * any other row rather than forwarding it.
+   *
+   * Per ROW, not one placement for the card, because it is a cartographic
+   * decision about a CLASS of things: a city name reads best beside its
+   * point (which is what a `circle` row's dot sits on) while a lake's name
+   * reads best across the water it names. One card-wide anchor would be the
+   * same mistake the master density slider was.
+   */
+  readonly anchors?: MapOsmAnchors;
 }
 
 /**
@@ -255,6 +311,14 @@ export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOp
     include: opts.enabled,
     densities: Object.fromEntries(
       opts.enabled.map((id) => [id, opts.densities[id] ?? MAP_OSM_DEFAULT_DENSITY]),
+    ),
+    // Handed over whole, exactly as the densities are. Which entries mean
+    // anything is `glyphMapOpenMapTilesLayers`' call: it drops a row that
+    // draws no labels and a row naming the centred default, so the rule that
+    // keeps an untouched card's layer objects identical lives in ONE place
+    // rather than being enforced here and re-checked there.
+    textAnchors: Object.fromEntries(
+      opts.enabled.map((id) => [id, opts.anchors?.[id] ?? MAP_OSM_DEFAULT_ANCHOR]),
     ),
   });
 }

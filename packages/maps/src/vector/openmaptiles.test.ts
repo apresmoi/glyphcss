@@ -380,6 +380,41 @@ describe("glyphMapOpenMapTilesLayers", () => {
     expect(built[1].density).toBeUndefined();
   });
 
+  it("forwards a per-layer label anchor onto the symbol row that asked for it", () => {
+    const built = glyphMapOpenMapTilesLayers(provider(), {
+      textAnchors: { "omt-places": "left", "omt-water-labels": "bottom" },
+    });
+    const byId = new Map(built.map((l) => [l.id, l]));
+    expect((byId.get("omt-places") as GlyphMapSymbolLayer).textAnchor).toBe("left");
+    expect((byId.get("omt-water-labels") as GlyphMapSymbolLayer).textAnchor).toBe("bottom");
+    // Every other symbol row is untouched.
+    expect(byId.get("omt-peaks")).not.toHaveProperty("textAnchor");
+  });
+
+  it("drops an anchor naming the centred default, so an untouched caller's layers are unchanged", () => {
+    // `glyphMapLabelPlacement` answers `null` for a centred, unoffset label
+    // and nothing downstream then touches the element's transform or the
+    // declutter candidate — so declaring `"center"` RENDERS the same. Omitting
+    // the key is what keeps the built object identical to the one this
+    // builder returned before the option existed, which is the stronger
+    // claim and the one a caller handing over a complete record relies on.
+    const every = Object.fromEntries(GLYPH_MAP_OPENMAPTILES_LAYERS.map((s) => [s.id, "center" as const]));
+    for (const layer of glyphMapOpenMapTilesLayers(provider(), { textAnchors: every })) {
+      expect(layer, layer.id).not.toHaveProperty("textAnchor");
+    }
+  });
+
+  it("drops an anchor aimed at a row that draws no labels", () => {
+    // A caller's record is legitimately keyed over EVERY row — `/maps` packs
+    // one positionally in its URL — and no other layer type has the option
+    // to receive, so the entry must be dropped here rather than forwarded.
+    const every = Object.fromEntries(GLYPH_MAP_OPENMAPTILES_LAYERS.map((s) => [s.id, "top" as const]));
+    for (const layer of glyphMapOpenMapTilesLayers(provider(), { textAnchors: every })) {
+      if (layer.type === "symbol") expect((layer as GlyphMapSymbolLayer).textAnchor, layer.id).toBe("top");
+      else expect(layer, layer.id).not.toHaveProperty("textAnchor");
+    }
+  });
+
   it("carries the required attribution on every layer's source", () => {
     for (const layer of glyphMapOpenMapTilesLayers(provider())) {
       expect((layer.source as { attribution?: unknown }).attribution).toEqual(GLYPH_MAP_OPENFREEMAP_ATTRIBUTION);

@@ -28,6 +28,7 @@ import {
   type GlyphMapClassifier,
   type GlyphMapProjection,
   type GlyphMapKeyLightMode,
+  type GlyphMapLabelAnchor,
   type GlyphMapSunMode,
 } from "@glyphcss/maps";
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
@@ -604,12 +605,96 @@ const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
 /** The two layer types the OSM card mounts that read no `density` at all — so their rows carry no density control. */
 const OSM_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
 
-function OsmSublayerRow({ row, onToggle, onDensity }: {
+/**
+ * The one layer type on this card that DRAWS LABELS — so its rows, and only
+ * its rows, carry the placement control below.
+ *
+ * Derived against each row's own type for the reason
+ * {@link OSM_DENSITYLESS_TYPES} is, and the reason is not hypothetical here:
+ * the row list belongs to `@glyphcss/maps` and it has moved twice already —
+ * `Peaks` was a `circle` row before it became a labelled `symbol` one, and
+ * `Protected areas`/`Water labels` were appended as `symbol` rows later. A
+ * hardcoded id list written when this card was first built was two rows out
+ * of date by the time anyone looked.
+ *
+ * A `circle` row is deliberately NOT in it: it mounts a dot with no text, so
+ * there is no label to place. That is why this is its own set rather than
+ * the complement of the density one.
+ */
+const OSM_LABEL_TYPES = new Set(["symbol"]);
+
+/**
+ * The placements the row control offers, out of the nine
+ * `GlyphMapLabelAnchor` names.
+ *
+ * FIVE, not nine. The four corners are expressible — a caller writing the
+ * layer by hand gets them — but a nine-way segmented control in a 340px rail
+ * row gives each button ~13px, which is narrower than the icon inside it,
+ * and the corner placements are the ones a character grid distinguishes
+ * least: a label displaced half its own box diagonally lands within a cell
+ * or two of the edge-anchored answer beside it. The five here are the ones
+ * that read as different pictures.
+ */
+const OSM_LABEL_ANCHOR_OPTIONS: readonly GlyphMapLabelAnchor[] = ["center", "left", "right", "top", "bottom"];
+
+/**
+ * One icon per placement: the feature's POINT as a filled dot at the centre
+ * of the frame, and the LABEL as a box whose named edge sits on it.
+ *
+ * Drawing both is the whole point, because the vocabulary is MapLibre's and
+ * MapLibre's `left` puts the label's LEFT EDGE on the point — so the label
+ * reads out to the RIGHT of it. A control that showed only a bar on the left
+ * for "left" would be showing the opposite of what the option does. The icon
+ * shows where the label actually goes; the `title` says the rule in words.
+ */
+const OSM_LABEL_ANCHOR_ICONS: Record<GlyphMapLabelAnchor, ReactNode> = (() => {
+  // Half-extents of the label box: 4 across, 2 down, on the 16x16 frame every
+  // `ToggleIcon` uses.
+  const box = (x: number, y: number) => (
+    <ToggleIcon strokeWidth={1.2}>
+      <rect x={x - 4} y={y - 2} width="8" height="4" rx="0.8" />
+      <circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" />
+    </ToggleIcon>
+  );
+  return {
+    center: box(8, 8),
+    left: box(12, 8),
+    right: box(4, 8),
+    top: box(8, 11),
+    bottom: box(8, 5),
+    // Present so the record is total over the type — the control offers the
+    // five above (see `OSM_LABEL_ANCHOR_OPTIONS`), and a corner reaching it
+    // would otherwise render an empty button.
+    "top-left": box(12, 11),
+    "top-right": box(4, 11),
+    "bottom-left": box(12, 5),
+    "bottom-right": box(4, 5),
+  };
+})();
+
+const OSM_LABEL_ANCHOR_DESCRIPTIONS: Record<string, string> = {
+  center: "the label sits ON the point, centred — what a labelled row has always drawn",
+  left: "the label's LEFT edge sits on the point, so the name reads out to the right of it",
+  right: "the label's RIGHT edge sits on the point, so the name reads back to the left of it",
+  top: "the label's TOP edge sits on the point, so the name hangs below it",
+  bottom: "the label's BOTTOM edge sits on the point, so the name sits above it",
+};
+
+const OSM_LABEL_ANCHOR_TOGGLE = OSM_LABEL_ANCHOR_OPTIONS.map((value) => ({
+  value,
+  icon: OSM_LABEL_ANCHOR_ICONS[value],
+  label: value,
+  desc: OSM_LABEL_ANCHOR_DESCRIPTIONS[value],
+}));
+
+function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
   row: OsmSublayerInputs;
   onToggle: (on: boolean) => void;
   onDensity: (v: number) => void;
+  onAnchor: (anchor: GlyphMapLabelAnchor) => void;
 }) {
   const wired = !OSM_DENSITYLESS_TYPES.has(row.type);
+  const labelled = OSM_LABEL_TYPES.has(row.type);
   return (
     <label
       // `maps-osm-row--density-off`, NOT `maps-layer-slider--off`: on this
@@ -618,7 +703,7 @@ function OsmSublayerRow({ row, onToggle, onDensity }: {
       // what `--off` does, name column included) would read as "this control
       // is dead" about a control that is not. A densityless row never takes
       // it: there is nothing there to dim.
-      className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${wired && !row.on ? " maps-osm-row--density-off" : ""}`}
+      className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${wired && !row.on ? " maps-osm-row--density-off" : ""}${labelled ? " maps-osm-row--labelled" : ""}`}
       title={OSM_DENSITY_TITLES[row.type]?.(row.label) ?? `${row.label} — the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
     >
       <span>{row.label}</span>
@@ -637,6 +722,23 @@ function OsmSublayerRow({ row, onToggle, onDensity }: {
               value={row.density}
               style={densityFill(row.density, DENSITY_MIN, DENSITY_MAX)}
               onChange={(e) => onDensity(+e.target.value)}
+            />
+          </span>
+        )}
+        {labelled && (
+          // `preventDefault` on the group, not on each button: the ROW is a
+          // `<label>` whose control is the toggle beside this, and a click
+          // that reaches the label runs its activation behaviour on that
+          // checkbox. The HTML spec already exempts interactive descendants,
+          // so a real browser never forwards a button click here — this is
+          // the guard for anything that does not implement that clause,
+          // which includes the DOM these rows are tested against.
+          <span className="maps-osm-anchor" onClick={(e) => e.preventDefault()}>
+            <IconToggle
+              groupTitle={`${row.label} label placement — which part of the label sits on the feature's own point (MapLibre's text-anchor). It is a per-LAYER cartographic choice, so every labelled row answers it for itself.`}
+              options={OSM_LABEL_ANCHOR_TOGGLE}
+              value={row.anchor}
+              onChange={(v) => onAnchor(v as GlyphMapLabelAnchor)}
             />
           </span>
         )}
@@ -1040,6 +1142,13 @@ export interface OsmSublayerInputs {
   readonly on: boolean;
   /** This row's own density. Ignored for a `symbol`/`circle` row, which renders no density control. */
   readonly density: number;
+  /**
+   * Where this row's labels sit relative to their own point — MapLibre's
+   * `text-anchor`. Read only by a `symbol` row (`OSM_LABEL_TYPES`); every
+   * other row carries the field and renders no control for it, exactly as
+   * `density` is carried and ignored by the two types that read none.
+   */
+  readonly anchor: GlyphMapLabelAnchor;
 }
 
 export interface OsmLayerInputs {
@@ -1057,6 +1166,14 @@ export interface OsmLayerInputs {
    * here: per-row replaced the master rather than joining it.
    */
   onSublayerDensity: (id: string, density: number) => void;
+  /**
+   * A single row's label placement. Writes THAT row and nothing else — the
+   * placement is a decision about one class of things (city names beside
+   * their dot, a lake's name across the water), so there is deliberately no
+   * card-level anchor here for the same reason there is no card-level
+   * density.
+   */
+  onSublayerAnchor: (id: string, anchor: GlyphMapLabelAnchor) => void;
 }
 
 export interface LayersFolderInputs {
@@ -1404,6 +1521,7 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             row={s}
             onToggle={(v) => osm.onSublayer(s.id, v)}
             onDensity={(v) => osm.onSublayerDensity(s.id, v)}
+            onAnchor={(v) => osm.onSublayerAnchor(s.id, v)}
           />
         ))}
       </LayerCard>
