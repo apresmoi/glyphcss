@@ -247,6 +247,46 @@ describe("createGlyphAtlasPaletteQuantizer — pooling and refresh", () => {
     expect(pooledTotal / frames.length).toBeLessThan(frozenTotal / frames.length);
   });
 
+  it("reports the repool its clock gate refused, so a driver can come back for it", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    const reds = frame(Array.from({ length: 200 }, (_, i) => unpackHexColor(0xff0000 | (i & 0xff))));
+    q.resolveGlyphAtlasPalette(reds.char, reds.color, reds.color.length);
+    // Bootstrapped on an exact palette: nothing is owed.
+    expect(q.repoolDeferredMs()).toBeNull();
+
+    const blues = frame(Array.from({ length: 200 }, (_, i) => unpackHexColor(0x0000ff | ((i & 0xff) << 16))));
+    t = 100;
+    q.resolveGlyphAtlasPalette(blues.char, blues.color, blues.color.length);
+    // Drifted, inside the floor: the repool is owed, and this is how long for.
+    expect(q.generation).toBe(1);
+    expect(q.repoolDeferredMs()).toBe(150);
+    // It counts down against the clock rather than latching a stale delay.
+    t = 200;
+    expect(q.repoolDeferredMs()).toBe(50);
+
+    t = 400;
+    q.resolveGlyphAtlasPalette(blues.char, blues.color, blues.color.length);
+    expect(q.generation).toBe(2);
+    // Paid: a driver that armed one settling render must not arm another.
+    expect(q.repoolDeferredMs()).toBeNull();
+  });
+
+  it("owes nothing when the drift gate itself is satisfied", () => {
+    let t = 0;
+    const q = createGlyphAtlasPaletteQuantizer({ now: () => t, refreshMs: 250 });
+    const f = frame(greyRamp(50));
+    q.resolveGlyphAtlasPalette(f.char, f.color, f.color.length);
+    for (let i = 0; i < 5; i++) {
+      t += 10;
+      q.resolveGlyphAtlasPalette(f.char, f.color, f.color.length);
+      // A static scene inside the floor is not "waiting" for anything — its
+      // palette already describes its content, so nothing should be scheduled.
+      expect(q.repoolDeferredMs()).toBeNull();
+    }
+    expect(q.generation).toBe(1);
+  });
+
   it("reset() drops every pooled artifact", () => {
     const q = createGlyphAtlasPaletteQuantizer({ now: () => 0 });
     const f = frame(greyRamp(50));

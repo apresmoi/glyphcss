@@ -493,6 +493,22 @@ export interface GlyphAtlasPaletteQuantizer extends GlyphAtlasPaletteSource {
   beginTransaction(): void;
   /** Close the transaction opened by {@link beginTransaction} and drop the latch. */
   endTransaction(): void;
+  /**
+   * Milliseconds until the clock gate opens for a repool the DRIFT gate has
+   * ALREADY demanded, or `null` when no repool is pending.
+   *
+   * Both gates are only ever evaluated inside
+   * {@link GlyphAtlasPaletteSource.resolveGlyphAtlasPalette}, i.e. only during
+   * a render — so a scene whose colours change and which then goes quiescent
+   * (content streamed in, nothing animating) would stay encoded against its
+   * bootstrap palette forever: the drift gate passed long ago, the clock gate
+   * refused once, and nobody ever asks again. This reports that refusal so a
+   * driver can come back and ask once more when the floor has elapsed. It is
+   * a REPORT, not a policy change — the `refreshMs` floor, the baseline drift
+   * rule and causality are all untouched, and a caller that ignores this
+   * behaves exactly as before.
+   */
+  repoolDeferredMs(): number | null;
   /** Drop all pooled state (palette, pending window, memos). */
   reset(): void;
 }
@@ -531,6 +547,10 @@ export function createGlyphAtlasPaletteQuantizer(
   // CURRENT transaction must share. See `beginTransaction`.
   let inTransaction = false;
   let latched: readonly string[] | undefined;
+  // A repool the drift gate demanded and the clock gate refused. See
+  // `repoolDeferredMs` — the scene reads this to come back once the floor has
+  // elapsed, because nothing else will.
+  let repoolDeferred = false;
 
   function repool(): void {
     if (pending.size === 0) return;
@@ -566,6 +586,7 @@ export function createGlyphAtlasPaletteQuantizer(
     driftCells = 0;
     windowCells = 0;
     lastRepoolAt = now();
+    repoolDeferred = false;
     generation += 1;
   }
 
@@ -584,6 +605,10 @@ export function createGlyphAtlasPaletteQuantizer(
       inTransaction = false;
       latched = undefined;
     },
+    repoolDeferredMs(): number | null {
+      if (!repoolDeferred) return null;
+      return Math.max(0, refreshMs - (now() - lastRepoolAt));
+    },
     reset(): void {
       packedPalette = [];
       hexPalette = undefined;
@@ -593,6 +618,7 @@ export function createGlyphAtlasPaletteQuantizer(
       windowCells = 0;
       lastRepoolAt = 0;
       latched = undefined;
+      repoolDeferred = false;
     },
     resolveGlyphAtlasPalette(char, color, n) {
       const frame = histogramGridColors(char, color, n);
@@ -622,12 +648,18 @@ export function createGlyphAtlasPaletteQuantizer(
 
       if (hexPalette === undefined) {
         repool();
-      } else if (
-        driftCells > 0
-        && driftCells >= windowCells * (baselineDrift + driftFraction)
-        && now() - lastRepoolAt >= refreshMs
-      ) {
+      } else if (!(driftCells > 0 && driftCells >= windowCells * (baselineDrift + driftFraction))) {
+        // The palette is doing no worse than it did on the colours it was
+        // built for. Nothing to come back for.
+        repoolDeferred = false;
+      } else if (now() - lastRepoolAt >= refreshMs) {
         repool();
+      } else {
+        // Drift says repool, the clock says not yet — and nothing schedules a
+        // second look. Record it; `repoolDeferredMs` is how a driver learns to
+        // ask again. The floor itself is unchanged: this window's colours stay
+        // pooled and the repool, when it comes, still trains on them.
+        repoolDeferred = true;
       }
       if (inTransaction) latched = hexPalette;
       return hexPalette;

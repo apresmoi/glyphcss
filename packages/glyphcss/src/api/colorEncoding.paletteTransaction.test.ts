@@ -54,6 +54,7 @@ vi.mock("../render/paletteQuantize", async (importOriginal) => {
         get generation() { return inner.generation; },
         beginTransaction() { calls.push("begin"); transaction = transactionsOpened++; inner.beginTransaction(); },
         endTransaction() { calls.push("end"); transaction = -1; inner.endTransaction(); },
+        repoolDeferredMs() { return inner.repoolDeferredMs(); },
         reset() { inner.reset(); },
         resolveGlyphAtlasPalette(char, color, n) {
           calls.push("resolve");

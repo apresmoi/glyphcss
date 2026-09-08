@@ -849,6 +849,13 @@ export function createGlyphScene(
   // and pooling it would silently override their choice.
   let atlasQuantizer: GlyphAtlasPaletteQuantizer | null = null;
   let atlasPaletteCssGeneration = -1;
+  // One pending settling render for a repool the quantizer's clock gate
+  // deferred, and the palette generation it was armed for — see
+  // `armAtlasRepoolSettleRender`. Both stay null for a `"spans"` scene, for a
+  // pinned `atlasPalette`, and for any atlas scene whose palette already
+  // describes its content.
+  let atlasRepoolSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  let atlasRepoolSettleArmedFor: number | null = null;
   // The atlas WOFF2 is lazily imported (see `render/fontAtlas.ts`), so a scene
   // constructed with `colorEncoding: "atlas"` cannot encode PUA on its first
   // frame — the family does not exist yet and PUA would paint as tofu in the
@@ -2040,6 +2047,57 @@ export function createGlyphScene(
     writeGlyphAtlasPaletteCss();
   }
 
+  /**
+   * Come back once for a repool the quantizer's clock gate refused.
+   *
+   * Both repool gates live inside `resolveGlyphAtlasPalette`, so they are only
+   * ever evaluated DURING a render. A scene whose content streams in
+   * bootstraps its palette on the first colour-bearing frame — for a map, the
+   * coarse relief backstop tier alone — and the frames carrying the real
+   * colours land tens of milliseconds later, inside the 250 ms refresh floor.
+   * The drift gate has long since passed; the clock gate refuses; the page
+   * then goes quiescent and nothing asks again. Measured on `/maps`: 54% of a
+   * settled frame's ink cells further than redmean 32 from any slot, and the
+   * palette CSS byte-identical from 460 ms to 25 s — corrected only by the
+   * user's first wheel notch, because that is the first render.
+   *
+   * So one timer, on the same shape as {@link commitRender}'s
+   * `needsSettlingRender` below: a single extra render on a scene that had
+   * already gone still, never a poll. It is armed at most once per palette
+   * generation, so a settling render that does not clear the deferral (a
+   * blank grid, an output the atlas can't carry) cannot re-arm itself — the
+   * next arming needs a repool to have happened, which is progress by
+   * definition. Lowering `refreshMs` was the alternative and is not one: it
+   * would trade a wrong palette for churn through the mount storm and still
+   * lose this race on a slower machine.
+   *
+   * Costs a static scene nothing beyond one `null` read per commit: the drift
+   * gate holds a correct palette's deferral at `null`, a `"spans"` scene never
+   * allocates a quantizer to ask, and a pinned `atlasPalette` cannot repool.
+   */
+  function armAtlasRepoolSettleRender(): void {
+    // `effectiveColorEncoding`, not `options.colorEncoding`: a scene that has
+    // latched the out-of-atlas-glyph fallback still holds a quantizer, and a
+    // settling render for it would never reach a resolve.
+    const quantizer = effectiveColorEncoding() === "atlas" && !options.atlasPalette ? atlasQuantizer : null;
+    const deferredMs = quantizer?.repoolDeferredMs() ?? null;
+    if (!quantizer || deferredMs === null) {
+      atlasRepoolSettleArmedFor = null;
+      if (atlasRepoolSettleTimer !== null) {
+        clearTimeout(atlasRepoolSettleTimer);
+        atlasRepoolSettleTimer = null;
+      }
+      return;
+    }
+    if (atlasRepoolSettleArmedFor === quantizer.generation) return;
+    atlasRepoolSettleArmedFor = quantizer.generation;
+    if (atlasRepoolSettleTimer !== null) clearTimeout(atlasRepoolSettleTimer);
+    atlasRepoolSettleTimer = setTimeout(() => {
+      atlasRepoolSettleTimer = null;
+      scheduleRender();
+    }, deferredMs);
+  }
+
   function commitRender(plan: RenderCommit): void {
     testRenderStage("commit-write");
     const basePinnedBefore = isGlyphAtlasPinned(pre);
@@ -2127,6 +2185,7 @@ export function createGlyphScene(
       throw error;
     }
     syncGlyphAtlasPaletteCss();
+    armAtlasRepoolSettleRender();
     // The base grid just changed which font it paints in (the atlas arriving,
     // or a frame falling back to spans). Its cell advance changed with it, so
     // the cached measurement — which `autoSize` fit, hotspot placement and
@@ -3178,6 +3237,7 @@ export function createGlyphScene(
     if (destroyed) return;
     destroyed = true;
     if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+    if (atlasRepoolSettleTimer !== null) { clearTimeout(atlasRepoolSettleTimer); atlasRepoolSettleTimer = null; }
     for (const layer of effectLayers) layer.disposed = true;
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
