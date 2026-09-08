@@ -436,6 +436,35 @@ describe("createGlyphScene", () => {
     scene.destroy();
   });
 
+  it("setAt moves a hotspot's projected position and keeps the SAME element", async () => {
+    // The channel `@glyphcss/maps` re-plants a map label on when a finer
+    // terrain tier lands. Remove-and-re-add is the alternative, and it
+    // destroys the element — which loses whatever the consumer wrote on it
+    // and restarts any CSS transition on it, i.e. the flash this exists to
+    // avoid. So both halves are asserted: the position MOVED and the node is
+    // identical by reference, with the consumer's own state still on it.
+    const scene = createGlyphScene(host, { cols: 20, rows: 10, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    const hotspot = scene.addHotspot({ id: "moving", at: [0, 0, 0] });
+    const el = hotspot.el;
+    el.dataset.mine = "kept";
+    await Promise.resolve();
+    scene.rerender();
+    const before = [el.style.left, el.style.top];
+    expect(before[0]).not.toBe("");
+
+    hotspot.setAt([0, 0, 1]);
+    scene.rerender();
+    expect(hotspot.el).toBe(el);
+    expect(el.dataset.mine).toBe("kept");
+    expect([el.style.left, el.style.top]).not.toEqual(before);
+
+    // ...and back: the anchor is read fresh on every render, never latched.
+    hotspot.setAt([0, 0, 0]);
+    scene.rerender();
+    expect([el.style.left, el.style.top]).toEqual(before);
+    scene.destroy();
+  });
+
   it("GlyphMeshHandle.name is undefined when no id is supplied", () => {
     const scene = createGlyphScene(host, { cols: 20, rows: 10 });
     const handle = scene.add(makeSinglePolygon());

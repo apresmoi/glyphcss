@@ -5181,3 +5181,74 @@ The fix is three statements, all in `widget.ts`, and each is a different half of
 Measured after: the same three gestures produce ONE rebuild (the genuine tile-set change), and a screencast over four gestures including that rebuild has a max/min frame size ratio of 1.276 against 1.65 before, with no burst anywhere.
 
 Gate: `widget.symbolRebuildFlash.test.ts`. It cannot observe the animation — no DOM environment can — so it pins the three properties that make the animation impossible, each mutation-checked: element identity survives an unchanged sweep (`+4298 -4298` had identical COUNTS, which is exactly why a count-based trace read clean, so the assertion is reference identity); the layout-read count at the first label insertion equals the count after the arbiter's verdict; and the previous label already carries `opacity: 0` at the instant the next one is appended.
+
+---
+
+## Markers stand on the ground: draping `symbol` and `circle`
+
+Reported with the Peaks row and the terrain raster both on: *"seems that we are putting those labels at the floor so if I combine the peaks layer with the terrain map we have they loop off... do you think we could place those labels at the right height?"*
+
+`createPointFeatureRuntime` anchored every marker at `projection.project(lon, lat, 0)` — the datum — while everything else in a `/maps` scene already stood on the exaggerated relief: the terrain mesh by construction, a `fill-extrusion` since `d517143`, a `line`'s vertices since the stroke drape. Under a tilt that relief has parallax, so the label was drawn wherever sea level happens to be under a camera that is looking at a mountain.
+
+**A peak makes it obvious; it was never a peaks defect.** Every `symbol` and `circle` marker had it — places, water labels, parks, POIs — and the displacement is `elevation x exaggeration x sin(tilt)` of screen, divided by the metres a row covers. Measured on the gate's own alpine framing (globe, `exaggeration: 24`, `tilt: 40`, span 2.16 degrees over 140x63, i.e. ~167 km across): 13.9 rows over 3,089 m of ground. At a city-scale alpine view (span 0.05 degrees, 27.6 m per cell) the same 3,089 m is 862 rows — thirteen screens.
+
+### Which height: the terrain SAMPLE, not the feature's own `ele`
+
+This was the one real question. A `mountain_peak` carries `ele` in true metres, so there were two candidates and they are not the same quantity:
+
+- the **terrain sample** under the peak's lon/lat — where the RENDERED relief is; and
+- the feature's own **`ele`** — where the REAL summit is.
+
+They disagree because a raster pyramid under-samples a summit: a peak is the extreme of its cell, and even the finest tier this repo bakes is ~1.2 km per sample. Read off the real ETOPO1 pyramid (`bake-geo-tiles.mjs`, z0-z4 global plus curated Switzerland z5-z7), `ele - sample` at the finest tier that exists for the point:
+
+| Peak | `ele` | z4 sample | curated z7 sample | `ele - z7` |
+|---|---|---|---|---|
+| Matterhorn | 4478 | 2372.5 | 3089.1 | 1388.9 |
+| Dufourspitze | 4634 | 2957.1 | 3973.3 | 660.7 |
+| Dom | 4545 | 3367.3 | 3650.0 | 895.0 |
+| Jungfrau | 4158 | 2245.9 | 3247.5 | 910.5 |
+| Eiger | 3967 | 1849.0 | 2721.0 | 1246.0 |
+| Piz Bernina | 4049 | 3039.3 | 3353.1 | 695.9 |
+
+**The sample wins, and `max(sample, ele)` is the same mistake at half strength.** A label is a statement about the surface the reader can SEE, and that surface is the raster's own sample — so anchoring at `ele` floats the label above the drawn summit by the difference times the exaggeration. Rendered, not argued: mutating the anchor to `max(sample, ele)` puts the Matterhorn's label **6.25 rows** above the ground it names at the gate's framing, and the same arithmetic is 388 rows at a city-scale alpine view — six screens of sky. (Treating `ele` as a TRUE-METRE quantity through `glyphMapTrueScaleElevation` instead, the way a `fill-extrusion`'s height is exempt from exaggeration, is worse in the other direction: `4478 / 24 = 186.6 m` against 3,089 m of ground, ~810 rows BELOW the drawn summit at that same view.)
+
+It is also the only answer that **generalises**, which is the constraint that settles it independently of the numbers: `ele` exists on peaks and on nothing else, while a place name, a lake label, a park or a POI carries no elevation property at all and still has to stand on its ground. One mechanism, one sampler, every marker.
+
+### The mechanism, and why it needed its own channel
+
+`markerGroundAt` is the whole rule: `groundElevationSampler()` if a raster layer is mounted, the datum otherwise, and the datum again for a non-finite sample (no mounted tile covers the point) rather than a NaN anchor — the same "the honest base is the datum" rule the stroke drape and the extrusion planting both take. It feeds three expressions that used to hard-code `0`: the `addHotspot` anchor, the `circle` branch's near-side probe, and the declutter candidate's `projectOn` (which grew an optional `elev`, defaulting to the datum so every other caller is byte-identical).
+
+**Re-planting could not ride the feature sweep.** A point layer is the ONE runtime that asserts `featuresAreTheWholeInput`, so it skips its rebuild whenever the vector tile set is unchanged — that skip is `b4460d6`, and it is what stops a pan from destroying and re-creating every label `<div>` on screen. A finer TERRAIN tier landing changes no vector tile at all, so the sweep never sees it. `groundChangeSyncs` is the registry that already exists for exactly this event (the mounted tile set, not the camera), and `createPointFeatureRuntime` now registers a `syncGround` beside the `fill-extrusion`'s: re-resolve the sampler, re-probe every record, and move the ones that actually changed. Without it a label planted before its terrain arrived names a summit it is a screenful below for the life of the map — measured as four of this slice's six assertions going red when the registration is deleted, because `/maps` adds its layers in one turn and the labels are built before the first tile lands.
+
+**Moving a marker without destroying it** needed one new thing in glyphcss: `GlyphHotspotHandle.setAt(at)`. The alternative is remove-and-re-add, which destroys the element — losing whatever the consumer wrote on it and restarting any CSS transition on it, i.e. re-opening the flash `b4460d6` closed. `setAt` replaces the anchor and schedules a render; the element and its listeners survive. `sync()` then re-runs the arbiter once, because a label that just moved 14 rows collides with different neighbours than it did before.
+
+### Cost
+
+Measured through the real widget at 4,300 markers (the count the flicker slice measured on the reported view), settled alpine framing, medians of three runs, against the same harness with the drape reverted:
+
+| | baseline | draped |
+|---|---|---|
+| layer build (4,300 markers) | 178.0 ms | 181.2 ms |
+| per render | 118.6 ms | 124.9 ms |
+| ground change (tile set moves) | 182.5 ms | 220.9 ms |
+
+The build cost is the one ground probe per marker: **+3.2 ms over 4,300 markers, 0.75 us each**. The ground change is the re-probe on every `notifyGroundChanged` notification (several per mount sequence, coalesced on a microtask): **+38 ms at 4,300 markers**, on the tile-set-change path only.
+
+**The per-render sweep is unchanged in mechanism** — the ground rides on the record and is never re-sampled per frame, so `sync()` does exactly the work it did, with a nonzero `elev` on a `project()` call that already multiplied one. The +6.3 ms in the table is inside this harness's noise: three runs of the SAME baseline build over flat terrain spread 104.5 / 116.5 / 128.4 ms. (The stroke drape's own precedent — one projection per vertex, and *cheaper* than the offset-and-forgive pass it replaced — holds a fortiori here, where markers are three orders of magnitude fewer than stroke vertices.) At 0 markers both builds sit at ~1.6-2.0 ms per render and ~11 ms per ground change.
+
+### Gate
+
+`widget.markerDrape.test.ts`, six clauses on a real alpine view with real ETOPO1 sample values as the fixture's elevations (2,372 m coarse, 3,089 m fine — the actual z4 and curated-z7 readings under the Matterhorn), asserting staged positions and rendered cells, never that a sampler was called:
+
+1. A peak's label lands on the terrain's own row, ±1, and more than 8 rows off the datum's — with the premise (the ground is genuinely elsewhere on screen, and still on screen) asserted first.
+2. It reads the SAMPLE, not `ele`: the label carries `Matterhorn 4478`, so a mechanism that read `ele` had every chance to, and the two rows are 6+ apart with both on screen.
+3. It coincides with a **draped `line`** through the same point — the rendered `<pre>` cells the label has to sit on. The datum's row is inked by nothing.
+4. A `circle` dot and a label with **no elevation property at all** drape the same way.
+5. It follows the ground: mounted wide so the coarse tier lands first, then zoomed until z4 arrives, and the label is on the fine tier's row and 3+ rows off the coarse one.
+6. **No raster layer mounted is byte-identical**, asserted as the full `outerHTML` of the symbol and circle elements (staged `left`/`top` included) plus a hash of the `<pre>`, captured from the build before the drape existed.
+
+Mutation-checked, each restored from a `cp` backup: unregistering `syncGround` turns 4 of 6 red; `max(sample, ele)` turns 5 of 6 red (6.25 rows off, and the no-raster golden with it); leaking a nonzero ground when the sampler is `null` turns exactly the byte-identity clause red and nothing else. On the glyphcss side, making `setAt` a no-op turns its own clause in `createGlyphScene.test.ts` red.
+
+### Known limit, inherited
+
+A marker whose lon/lat is not covered by any mounted tile falls back to the datum, so it can sit at sea level next to terrain that is drawn — the same limit `line` vertices have, and for the same reason (the alternative is a NaN anchor). `addMarker`'s imperative `GlyphMapMarkerOptions.elevation` is unchanged and still the caller's own absolute number: it is an explicit anchor, not a feature planted on a layer.

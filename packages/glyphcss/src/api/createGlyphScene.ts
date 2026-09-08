@@ -297,6 +297,19 @@ export interface GlyphHotspotOptions {
 
 export interface GlyphHotspotHandle {
   remove(): void;
+  /**
+   * Move this hotspot's 3D anchor without touching its element.
+   *
+   * A hotspot's anchor is not always fixed at creation: a consumer that
+   * PLANTS its overlays on geometry that arrives later (`@glyphcss/maps`
+   * anchors a map label at the ground elevation under it, which changes when
+   * a finer terrain tier lands) otherwise has only one way to move one —
+   * remove and re-add — which destroys and re-creates the element, losing
+   * whatever the consumer wrote on it and restarting any CSS transition on
+   * it. The element and its listeners survive this; only the projected
+   * position changes, on the render it schedules.
+   */
+  setAt(at: Vec3): void;
   /** The absolutely-positioned overlay `<div>` in the hotspot layer. */
   readonly el: HTMLElement;
 }
@@ -2868,6 +2881,10 @@ export function createGlyphScene(
 
     return {
       get el() { return el; },
+      setAt(at: Vec3): void {
+        entry.hotspot.at = at;
+        scheduleRender();
+      },
       remove(): void {
         const idx = hotspots.indexOf(entry);
         if (idx >= 0) hotspots.splice(idx, 1);

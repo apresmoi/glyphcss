@@ -3650,9 +3650,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * then a change between two resolved styles — which a consumer's
    * `transition: opacity` will animate. Hoisting the measurement above the
    * loop is what makes the whole rebuild one style, not N.
+   *
+   * `elev` is the point's own GROUND in metres, on the projection's own
+   * (exaggerated) elevation axis — the marker drape's channel. It defaults to
+   * the datum, so every other caller is the expression it always was.
    */
-  function projectOn(lngLat: readonly [number, number], grid: ProjectionGrid): GlyphMapProjectResult {
-    const world = projection.project(lngLat[0], lngLat[1], 0);
+  function projectOn(lngLat: readonly [number, number], grid: ProjectionGrid, elev = 0): GlyphMapProjectResult {
+    const world = projection.project(lngLat[0], lngLat[1], elev);
     if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) {
       return { col: NaN, row: NaN, visible: false };
     }
@@ -3855,16 +3859,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /**
    * Everything MOUNTED ON the terrain, re-planted when the terrain under it
-   * moves — today just `fill-extrusion` layers, whose base is the ground
-   * elevation `groundElevationSampler` reads off the mounted `raster` tiles.
+   * moves — `fill-extrusion` layers, whose base is the ground elevation
+   * `groundElevationSampler` reads off the mounted `raster` tiles, and every
+   * `symbol`/`circle` MARKER, whose anchor is that same elevation.
    *
    * A separate registry from `nearSideSyncs` because it is driven by a
    * different event: not the camera (every frame) but the mounted TILE SET (a
    * finer tier arriving, a raster layer added or removed), which is exactly
-   * when a ground reading can change and no more often. A `fill-extrusion` on
-   * a STATIC source is never rebuilt by `scheduleTileUpdate` at all — its mesh
-   * is camera-independent by design — so without this a building mounted
-   * before its terrain landed would stand at the datum forever.
+   * when a ground reading can change and no more often. Both consumers are
+   * invisible to the sweep that would otherwise re-derive them: a
+   * `fill-extrusion` on a STATIC source is never rebuilt by
+   * `scheduleTileUpdate` at all (its mesh is camera-independent by design),
+   * and a point layer SKIPS the rebuild whenever the vector tile set is
+   * unchanged — which a terrain tier landing always leaves it. So without
+   * this a building mounted before its terrain landed would stand at the
+   * datum forever, and a label would name a summit it is a screenful below.
    *
    * Coalesced onto a microtask: one raster update mounts tiles across several
    * turns and calls `scene.rerender()` at each, and each listener re-probes
@@ -4519,6 +4528,36 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
+  /**
+   * The elevation a MARKER — a `symbol` label, a `circle` dot — is anchored
+   * at, in metres on the projection's own elevation axis.
+   *
+   * WHICH HEIGHT, and it is the one question this drape had to answer. A
+   * `mountain_peak` carries its own `ele` in true metres and the raster
+   * pyramid under-samples a summit, so the two disagree by a lot: measured on
+   * the real ETOPO1 pyramid this repo bakes, `ele - sample` at the FINEST
+   * tier that exists (curated Switzerland z7) is 1,389 m for the Matterhorn
+   * and 661 m for Piz Bernina. The TERRAIN SAMPLE wins, and `max(sample,
+   * ele)` is not a compromise but the same mistake at half strength: a label
+   * is a statement about the surface a reader can SEE, and that surface is
+   * the raster's own sample, so `ele` floats the label above the drawn summit
+   * by that difference times the exaggeration — 388 rows at a city-scale
+   * alpine view, six screens of sky. It is also the only answer that
+   * GENERALISES: `ele` exists on peaks and nowhere else, while a place, a
+   * lake label or a POI has no elevation property at all and still has to
+   * stand on its ground.
+   *
+   * A non-finite sample (no mounted tile covers the point) falls back to the
+   * datum rather than poisoning the anchor with NaN — the same "the honest
+   * base is the datum" rule {@link groundElevationSampler} states for a map
+   * with no raster layer at all, and the rule a draped stroke's vertex takes.
+   */
+  function markerGroundAt(groundElevationAt: ((lon: number, lat: number) => number) | null, lon: number, lat: number): number {
+    if (!groundElevationAt) return 0;
+    const ground = groundElevationAt(lon, lat);
+    return Number.isFinite(ground) ? ground : 0;
+  }
+
   function createLineLayerRuntime(layer: GlyphMapLineLayer): StrokeLayerRuntime {
     const color = layer.color;
     const isProvider = isGlyphMapVectorProvider(layer.source);
@@ -4985,8 +5024,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * tile set still has to re-mesh when a finer elevation tier lands, and a
      * `fill`/`fill-extrusion` re-probes its ground through its own
      * `groundChangeSyncs` hook rather than here. A point hotspot depends on
-     * the feature and the projection alone, and the projection is the `force`
-     * argument's whole reason for existing.
+     * the feature, the projection and its own GROUND — and the last of those
+     * is re-planted through that same `groundChangeSyncs` hook (see
+     * `createPointFeatureRuntime`'s `syncGround`), precisely so this skip can
+     * stay exact. The projection is the `force` argument's whole reason for
+     * existing.
      */
     let lastInputs: readonly unknown[] | null = null;
     /** Same list, same order, same objects — so `rebuild` would be handed an identical feature array. */
@@ -5275,6 +5317,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let hotspots: GlyphHotspotHandle[] = [];
     /** Takes an optional pre-measured grid — see the rebuild's own `grid`. `nearSideSyncs` calls it with none. */
     let sync: ((measured?: ProjectionGrid) => void) | null = null;
+    /**
+     * One entry per MARKER (a multipoint feature contributes several), held
+     * at the runtime's scope rather than only inside the rebuild because
+     * {@link syncGround} re-plants them when the terrain under them moves.
+     * `ground` is the metre count that anchor was last planted at — see
+     * {@link markerGroundAt}.
+     */
+    interface MarkerRecord {
+      handle: GlyphHotspotHandle;
+      feature: GlyphMapVectorFeature;
+      lon: number;
+      lat: number;
+      ground: number;
+      label: string;
+      lines: readonly string[];
+      priority: number;
+    }
+    let records: MarkerRecord[] = [];
     const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
     let placementTransform: string | null = null;
     /**
@@ -5314,11 +5374,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
       hotspots = [];
-      const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; lines: readonly string[]; priority: number }[] = [];
+      records = [];
+      // Resolved ONCE per rebuild, not per marker: it walks the mounted layer
+      // list, and a world view hands this loop thousands of anchors. `null` =
+      // no raster layer mounted, so the ground IS the datum and every
+      // expression below reduces to `projection.project(lon, lat, 0)` — the
+      // pre-drape expression, byte for byte, with no lookup at all.
+      const groundElevationAt = groundElevationSampler();
       for (const feature of features) for (const point of anchorsOf(feature)) {
         const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
         if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
-        const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], 0) });
+        const ground = markerGroundAt(groundElevationAt, point[0], point[1]);
+        const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], ground) });
         // Written IMMEDIATELY, before anything can resolve style: a label
         // that the declutter arbiter has not ruled on yet is not a label the
         // reader may see. `scene.addHotspot` appends the element itself, so
@@ -5377,7 +5444,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           handle.el.style.backgroundColor = layer.color ?? "currentColor";
         }
         hotspots.push(handle);
-        records.push({ handle, feature, lon: point[0], lat: point[1], label, lines, priority });
+        records.push({ handle, feature, lon: point[0], lat: point[1], ground, label, lines, priority });
       }
       sync = (measured?: ProjectionGrid) => {
         // ONE grid for the whole sweep. The frame paths call this with
@@ -5388,7 +5455,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const live = measured ?? projectionGrid();
         if (layer.type === "circle") {
           records.forEach((r) => {
-            const world = projection.project(r.lon, r.lat, 0);
+            const world = projection.project(r.lon, r.lat, r.ground);
             const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
               && nearSideVisible(r.lon, r.lat, world, live);
             setHotspotNearSide(r.handle.el, visible);
@@ -5426,13 +5493,48 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // whole frame — positions, the `charWidth`/`height` box it defaults
         // to, and `offset`'s own cells — is the one unit the labels are drawn
         // in. Scaling only one of the three would be worse than scaling none.
-        const candidates = records.map((r, i) => { const p = projectOn([r.lon, r.lat], live); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
+        const candidates = records.map((r, i) => { const p = projectOn([r.lon, r.lat], live, r.ground); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
       };
       nearSideSyncs.add(sync); sync(grid);
     }, 2, layer.sourceLayer, layer.filter, true);
-    return { update: runtime.update, dispose() { runtime.dispose(); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; } };
+    /**
+     * Re-plant every marker whose ground actually moved — the `symbol`/
+     * `circle` half of what {@link groundChangeSyncs} exists for, and the
+     * reason a marker's elevation is re-resolved from the sampler on every
+     * notification rather than snapshotted at mount.
+     *
+     * It has to be its own channel and cannot ride the feature sweep: a point
+     * layer is the ONE runtime that asserts `featuresAreTheWholeInput`, so an
+     * unchanged tile set skips the rebuild outright (that skip is what stops
+     * a pan from destroying and re-creating every label `<div>` on screen) —
+     * and a finer terrain tier landing changes no vector tile at all. Without
+     * this a label planted before its terrain arrived would name a summit it
+     * is a screenful below for the life of the map.
+     *
+     * `handle.setAt`, not a rebuild: the elements, their listeners and
+     * whatever the arbiter last decided about them all survive, so a tier
+     * landing MOVES the labels instead of flashing them (the defect
+     * `b4460d6` closed on the sweep). `sync()` then re-runs the arbiter over
+     * the moved boxes, because a label that just moved 14 rows can collide
+     * with a different neighbour than it did before.
+     */
+    function syncGround(): void {
+      if (records.length === 0) return;
+      const groundElevationAt = groundElevationSampler();
+      let moved = false;
+      for (const r of records) {
+        const ground = markerGroundAt(groundElevationAt, r.lon, r.lat);
+        if (ground === r.ground) continue;
+        r.ground = ground;
+        r.handle.setAt(projection.project(r.lon, r.lat, ground));
+        moved = true;
+      }
+      if (moved) sync?.();
+    }
+    groundChangeSyncs.add(syncGround);
+    return { update: runtime.update, dispose() { runtime.dispose(); groundChangeSyncs.delete(syncGround); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; records = []; } };
   }
 
   /**

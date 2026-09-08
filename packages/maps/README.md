@@ -461,6 +461,25 @@ mesh, are stamped into the cell grid after rasterization, and already emit
 oriented stroke glyphs by construction. `symbol`/`circle` mount DOM hotspots
 rather than geometry, so they carry none either.
 
+### Markers stand on the terrain
+
+A `symbol` label and a `circle` dot are anchored at the GROUND elevation under
+their own lon/lat, read from whichever `raster` layers are mounted (finest
+tier first) — the same sampler a `line`'s draped vertices and a
+`fill-extrusion`'s base use. With no `raster` layer mounted the ground is the
+datum and the render is byte-identical, elements included.
+
+The height is the terrain SAMPLE, never a feature's own elevation property. A
+`mountain_peak`'s `ele` is where the real summit is; the sample is where the
+DRAWN one is, and a raster pyramid under-samples a summit by hundreds of
+metres — so anchoring at `ele` floats the label above the mountain it names by
+that difference times the terrain's `exaggeration`. It is also the only rule
+that works for a place name, a lake label or a POI, none of which carry an
+elevation at all.
+
+Markers are re-planted when the mounted tile set changes, so a label moves
+onto a finer tier's ground in the same frame the terrain does.
+
 ### Long labels wrap
 
 A `symbol` label longer than `GLYPH_MAP_LABEL_WRAP_CELLS` (20 characters) is
