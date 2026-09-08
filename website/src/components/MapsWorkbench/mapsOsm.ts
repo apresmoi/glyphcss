@@ -89,7 +89,9 @@ export const MAP_OSM_SOURCE_LAYERS: readonly string[] = [...new Set(MAP_OSM_SUBL
  * `omt-water-labels` is the only one of the three rows appended with the
  * `park`/`aeroway`/`water_name` mapping that passes it: the opening globe
  * gets the four ocean names, and until it existed the world view labelled no
- * water at all. `omt-parks` (`park`, z4+) and `omt-aeroways` (`aeroway`,
+ * water at all. It names LAKES too once the reader zooms in — that took the
+ * row accepting the layer's LINE labels as well as its points, which is a
+ * `@glyphcss/maps` change (`glyphMapLabelAnchorPoint`), not one here. `omt-parks` (`park`, z4+) and `omt-aeroways` (`aeroway`,
  * z10+) draw nothing there and start off, beside `landcover`/`landuse`,
  * which have the same shape of reason.
  *

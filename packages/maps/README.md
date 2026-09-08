@@ -487,6 +487,31 @@ same rule for your own text — for instance inside
 tall), so a long name no longer reserves a strip across a third of the frame.
 Contour labels pass no `lines` and never wrap.
 
+### What a `symbol` labels
+
+A `symbol` layer labels POINT and LINE features. A point — or each point of a
+multipoint — is labelled where it is. A LINE gets ONE anchor,
+`glyphMapLabelAnchorPoint`'s arc-length midpoint of its longest part (with
+longitude weighted by `cos(lat)`, so the midpoint is a ground midpoint):
+
+```ts
+import { glyphMapLabelAnchorPoint } from "@glyphcss/maps";
+
+glyphMapLabelAnchorPoint({ geometryType: "line", rings: [[[0, 0], [1, 0]]] });
+// → [0.5, 0]
+```
+
+Lines are labelled because a vector schema ships an elongated feature's name
+as the PATH a curved-text renderer would run the name along — OpenMapTiles'
+`water_name` does, and every lake in it is a line — while this renderer has no
+curved text. The midpoint is on the polyline by construction, so a lake's name
+lands in the lake rather than on its shore or in a different arm; the longest
+part rather than each part, so a multi-part water body is named once.
+
+A POLYGON is not labelled. Its anchor is a pole of inaccessibility, which is a
+different algorithm, and a point on the boundary would be a wrong answer
+rather than no answer.
+
 ### Label placement
 
 A `symbol` layer's labels are centred on their own point by default. Move

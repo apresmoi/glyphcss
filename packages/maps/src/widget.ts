@@ -105,7 +105,7 @@ import {
   type GlyphMapSkyParams,
 } from "./sky";
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
-import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapLabelAnchorPoint, glyphMapPointHeatmap, glyphMapVectorCullWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh } from "./layers";
 import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
@@ -631,6 +631,21 @@ export interface GlyphMapFillLayer {
    */
   readonly glyphPalette?: string;
 }
+/**
+ * A named marker per feature, positioned as a DOM hotspot rather than
+ * stamped into the grid.
+ *
+ * GEOMETRY. A POINT feature is labelled at its own point (a multipoint at
+ * each of them), and a LINE at ONE anchor derived by
+ * {@link glyphMapLabelAnchorPoint} — the arc-length midpoint of its longest
+ * part. Lines are accepted because a vector schema ships an elongated
+ * feature's name as the PATH a curved-text renderer would run it along
+ * (OpenMapTiles' `water_name` does; every lake is a line), and a layer that
+ * only understood points labelled the oceans and no lake at all. A POLYGON
+ * is still not labelled: its anchor is a pole of inaccessibility, which is a
+ * different algorithm, and a boundary point would be a wrong answer rather
+ * than no answer.
+ */
 export interface GlyphMapSymbolLayer {
   readonly type: "symbol"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
@@ -5147,13 +5162,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let sync: (() => void) | null = null;
     const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
     let placementTransform: string | null = null;
+    /**
+     * The anchor point(s) one feature contributes.
+     *
+     * A POINT-shaped feature contributes each of its own points, exactly as
+     * it always did — a multipoint is several markers, and a source that
+     * omits `geometryType` is still recognised by its one-vertex rings.
+     *
+     * A LINE contributes ONE anchor, and only to a `symbol` layer: this
+     * renderer has no curved text, so a schema that ships an elongated
+     * feature's name as a path (OpenMapTiles' `water_name` — every lake in
+     * the vendored Bariloche tile is a line, and dropping them is the
+     * reported "I see it in the seas but not in the lakes") is reduced to
+     * {@link glyphMapLabelAnchorPoint}'s arc-length midpoint. A `circle`
+     * layer is untouched: a dot marks a place, and a line has none.
+     */
+    const anchorsOf = (feature: GlyphMapVectorFeature): readonly (readonly [number, number])[] => {
+      if (feature.geometryType === "point" || feature.rings.every((r) => r.length === 1)) {
+        return feature.rings.map((ring) => ring[0]).filter((point) => point !== undefined);
+      }
+      if (layer.type !== "symbol") return [];
+      const anchor = glyphMapLabelAnchorPoint(feature);
+      return anchor ? [anchor] : [];
+    };
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       if (sync) nearSideSyncs.delete(sync);
       for (const h of hotspots) h.remove();
       hotspots = [];
       const records: { handle: GlyphHotspotHandle; feature: GlyphMapVectorFeature; lon: number; lat: number; label: string; lines: readonly string[]; priority: number }[] = [];
-      for (const feature of features.filter((f) => f.geometryType === "point" || f.rings.every((r) => r.length === 1))) for (const ring of feature.rings) {
-        const point = ring[0]; if (!point) continue;
+      for (const feature of features) for (const point of anchorsOf(feature)) {
         const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
         if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
         const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], 0) });

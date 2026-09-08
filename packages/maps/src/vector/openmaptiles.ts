@@ -200,6 +200,9 @@ export const GLYPH_MAP_OPENMAPTILES_WATER_COLORS: Readonly<Record<string, string
   swimming_pool: "#4fb0d8",
 };
 
+/** The geometry kinds an MVT source layer mixes, and the axis a row narrows on. */
+export type GlyphMapOpenMapTilesGeometry = "point" | "line" | "polygon";
+
 export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   /** Keep only these `class` values. Omitted/empty = every class. */
   readonly classes?: readonly string[];
@@ -209,8 +212,17 @@ export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   readonly maxRank?: number;
   /** Keep only features carrying a non-empty value for every one of these properties. `["name"]` is what makes a label row a label row: a feature with nothing to print is not a symbol. */
   readonly requireProperties?: readonly string[];
-  /** Keep only this geometry — required to separate `water_name`'s point labels from its line labels, and `transportation`'s z14 polygon aprons from its lines. */
-  readonly geometry?: "point" | "line" | "polygon";
+  /**
+   * Keep only this geometry, or any one of these — required to drop
+   * `transportation`'s z14 pedestrian-apron POLYGONS while keeping its
+   * lines, and to keep BOTH halves of `water_name`, whose names arrive as
+   * points for compact bodies and as label PATHS for elongated ones.
+   *
+   * A list rather than a second axis because it is the same question: an
+   * MVT source layer is a bag of mixed geometry and a row says which kinds
+   * of it that row draws. Omitted = every kind.
+   */
+  readonly geometry?: GlyphMapOpenMapTilesGeometry | readonly GlyphMapOpenMapTilesGeometry[];
   /** Keep only boundaries at or above this administrative importance (i.e. `admin_level >= min`). A feature with no `admin_level` is dropped, never silently kept. */
   readonly minAdminLevel?: number;
   /** Keep only boundaries at or below this administrative importance (`admin_level <= max`); `2` is "international borders only". */
@@ -233,9 +245,11 @@ export function glyphMapOpenMapTilesFeatureFilter(opts: GlyphMapOpenMapTilesFeat
   const flags = opts.excludeFlags && opts.excludeFlags.length > 0 ? opts.excludeFlags : null;
   const required = opts.requireProperties && opts.requireProperties.length > 0 ? opts.requireProperties : null;
   const { geometry, minAdminLevel, maxAdminLevel, maxRank } = opts;
+  const geometries = geometry === undefined ? null
+    : new Set<string>(typeof geometry === "string" ? [geometry] : geometry);
   const checksAdmin = minAdminLevel !== undefined || maxAdminLevel !== undefined;
   return (feature) => {
-    if (geometry && feature.geometryType !== geometry) return false;
+    if (geometries && (feature.geometryType === undefined || !geometries.has(feature.geometryType))) return false;
     if (classes) {
       const cls = glyphMapOpenMapTilesClass(feature);
       if (cls === undefined || !classes.has(cls)) return false;
@@ -282,8 +296,8 @@ export interface GlyphMapOpenMapTilesLayerSpec {
   readonly label: string;
   readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle";
   readonly sourceLayer: GlyphMapOpenMapTilesSourceLayer;
-  /** The geometry this row renders — the axis that separates `transportation`'s lines from its z14 pedestrian-apron polygons. */
-  readonly geometry: "point" | "line" | "polygon";
+  /** The geometry kind(s) this row renders — the axis that separates `transportation`'s lines from its z14 pedestrian-apron polygons, and the one `omt-water-labels` needs BOTH values of. */
+  readonly geometry: GlyphMapOpenMapTilesGeometry | readonly GlyphMapOpenMapTilesGeometry[];
   /** Default `class` narrowing. Omitted = every class in the source layer; a caller narrows further through {@link GlyphMapOpenMapTilesLayersOptions.classes}. */
   readonly classes?: readonly string[];
   /** Default `class` exclusions — see {@link GlyphMapOpenMapTilesFeatureFilterOptions.excludeClasses}. */
@@ -427,10 +441,16 @@ export const GLYPH_MAP_OPENMAPTILES_BUILDING_COLOR_VARIATION = 0.5;
  *    no class at all and keeps only NAMED points — 251 of 299 features in a
  *    z6 tile over the eastern United States are named points, which is a
  *    continent's national parks the map has never shown.
- *  - **`water_name` mixes point and line geometry** in one source layer, so
- *    its row filters to points: the vendored z12 tile's two lake labels are
- *    both lines, and a hotspot would place them at their first vertex. At z0
- *    it is the four oceans, which is the world view's only water label.
+ *  - **`water_name` mixes point and line geometry** in one source layer and
+ *    the row draws BOTH. The split is not arbitrary — a compact body's name
+ *    is a point and an ELONGATED one's is the path a normal renderer runs
+ *    the name along — so filtering to points kept the four oceans at z0 and
+ *    dropped every lake on Earth: the vendored Zurich z12 tile's Zürichsee
+ *    and Greifensee, and the reported `Lago Nahuel Huapi`, which is a line
+ *    at every zoom that carries it. This renderer has no curved text, so a
+ *    line is reduced to one anchor by `glyphMapLabelAnchorPoint` (the
+ *    arc-length midpoint of the longest part), which is what makes the row
+ *    able to accept the geometry at all.
  *  - **Still no `housenumber` or `aerodrome_label` row, on the data.**
  *    `housenumber` is 635 features against 1,991 building footprints in the
  *    vendored Zurich z14 tile, each of which would be a DOM hotspot, and it
@@ -507,7 +527,7 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
   },
   {
     id: "omt-water-labels", label: "Water labels", type: "symbol", sourceLayer: "water_name",
-    geometry: "point", color: "#93c5fd",
+    geometry: ["point", "line"], color: "#93c5fd",
     requireProperties: ["name"], textProperty: "name",
   },
 ];

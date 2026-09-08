@@ -2718,12 +2718,86 @@ including the JFK tile — the one tile in the set that is an airport**.
 |---|---|---|---|
 | `omt-parks` | `park` (z4–14) | `symbol`, points, named only | JFK z14: 9 features → **5** named points (`Bayswater Point State Park`). Live z6 US-East: 299 features, **251 named points** — a continent's national parks the map had never shown |
 | `omt-aeroways` | `aeroway` (z10–14) | `line` | JFK z14: 16 features → **13** (3 runways + 10 taxiways), all carrying `ref` (`13R/31L`, `K3`). The 3 polygons (apron, aerodrome, one polygonal runway) are what the geometry filter drops |
-| `omt-water-labels` | `water_name` (z0–14) | `symbol`, points | z0: the **four oceans** — the world view labelled no water at all. z14 Zürich: 13 lake names. The z12 tile's two lake labels are LINES and are dropped, since a hotspot would place them at their first vertex |
+| `omt-water-labels` | `water_name` (z0–14) | `symbol`, points **and lines** | z0: the **four oceans** — the world view labelled no water at all. z14 Zürich: 13 lake names as points. The z12 tile's Zürichsee and Greifensee are LINES — see "A lake's name is a LINE" below |
 
 `park.class` is confirmed FREE TEXT on the tiles themselves — `"State Park"`,
 `"National Recreation Area"`, `"Biosphärenreservat"`, `"Réserve de la
 biosphère, aire de coopération"` — so the row narrows on no class at all and
 keeps only what it can print.
+
+#### A lake's name is a LINE — reported: "I see it in the seas but not in the lakes"
+
+The `omt-water-labels` row opened with `geometry: "point"`, on the reading
+that `water_name` is a mixed layer and points are the half a hotspot can
+place. Read against the live service instead of against that reading, the
+split is the schema saying what SHAPE a name has: a compact body's label is a
+POINT, an elongated one's is the PATH a curved-text renderer runs the name
+along. Sampled down the pyramid over Bariloche, every lake is a line and only
+the straits and the oceans are points —
+
+| tile | `water_name` | points | lines |
+|---|---|---|---|
+| z0 world | 4 | 4 (the oceans) | 0 |
+| z5 / z6 (Golfo San Matías) | 1 | 1 | 0 |
+| z8 `77/160` | 9 | 3 (2 straits, 1 gulf) | 6 lakes |
+| z9 `154/320` | 8 | 1 | 7 |
+| **z10 `308/640`** | **9** | **1** (`Angostura`) | **8**, incl. `Lago Nahuel Huapi` (95 vertices) |
+| z11 `617/1280` | 6 | 1 | 5 |
+| z12 `1235/2560` | 2 | 0 | 2 |
+
+— and the same holds in the tiles already vendored for other reasons: the
+Zurich z12 tile's Zürichsee and Greifensee are lines, and `z8-60-96-peaks.mvt`
+carries Lake Red Rock and Perry Lake as lines. So the filter was not narrowing
+a mixed layer to the drawable half; it was **keeping the seas and dropping
+every lake on Earth**, which is the report verbatim.
+
+**Where the fix lives.** In the `symbol` layer, not in the table. Pre-reducing
+a line to a point inside `openmaptiles.ts` would have hidden the shape of the
+answer from every other consumer of the layer vocabulary — the Protomaps
+table, a static collection, anyone's own source — and left the widget still
+believing a symbol is a point. `GlyphMapSymbolLayer` now accepts LINE
+geometry and derives one anchor; the table's only edit is
+`geometry: ["point", "line"]`, i.e. it stops discarding. A POLYGON is still
+refused: its anchor is a pole of inaccessibility, a different algorithm, and
+a boundary midpoint would be a wrong answer rather than no answer.
+
+**The anchor: `glyphMapLabelAnchorPoint`, the arc-length midpoint of the
+feature's longest part.** Three properties, each a measured failure avoided:
+
+- **On the polyline by construction**, so it is in the water — the schema drew
+  that path down the middle of the body. The alternative considered, the
+  vertex nearest the polyline's centroid, is not: a bent arm's centroid lies
+  off the arm and the nearest vertex to it sits at the bend, which puts
+  `Brazo Blest` **outside every water polygon in its own tile**
+  (`-71.7258, -41.0236`), and drags `Lago Nahuel Huapi` 0.057° down the
+  `Brazo Tristeza` arm at z11 — the "name in the wrong arm" failure exactly.
+- **ARC LENGTH, not the middle vertex.** The pyramid re-simplifies one feature
+  per level (Nahuel Huapi is 57/95/100 vertices at z9/z10/z11), so an index
+  midpoint slides along the lake as the reader zooms. Longitude is weighted by
+  `cos(lat)` so the length is a ground length; unweighted degrees put the
+  midpoint of a bent line at 60N in the wrong arm.
+- **The LONGEST part, one label per FEATURE.** `Brazo Huemul` arrives at z12 as
+  two parts, 64 vertices and 4; one hotspot per ring prints the name twice,
+  the second time on a 0.005° stub in a corner of the arm.
+
+Not the FIRST vertex, which is the naive reduction: a label line is clipped at
+the tile buffer, so its first vertex is wherever the cut fell. Nahuel Huapi's
+is `-71.8238, -41.0196` — inside no water polygon in its own tile, 24 columns
+outside the Bariloche frame, and a different place again in the neighbouring
+tile.
+
+**Budget.** Nine `water_name` features over Bariloche at 140x63; the map drew
+**1** label (the `Angostura` strait, in the middle of a lake district) and now
+draws **5** — the lake and three of its arms, plus the strait. The four that
+do not draw are off the frame, not decluttered: nothing that was in view lost
+its place. Ocean labels are byte-identical — the z0 world view's twelve
+markers (four names, each a multipoint across the world wrap) compare equal as
+whole `outerHTML` against a point-narrowed row.
+
+Fixtures: `z10-308-640-lakeline.mvt` (the reported lake as a line, with the
+water polygons under it and a `water_name` point in the same tile) and
+`z12-1235-2560-multipart.mvt` (the only multi-part label line in the set).
+Gate: `widget.lineLabelAnchor.test.ts`.
 
 **Why all three are APPENDED rather than filed into the draw order.** The
 table is ordered back-to-front (ground → water → lines → buildings →

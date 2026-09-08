@@ -109,6 +109,7 @@ export {
 } from "./vector/openmaptiles";
 export type {
   GlyphMapOpenMapTilesFeatureFilterOptions,
+  GlyphMapOpenMapTilesGeometry,
   GlyphMapOpenMapTilesLayerSpec,
   GlyphMapOpenMapTilesLayersOptions,
   GlyphMapOpenMapTilesSourceLayer,
@@ -174,6 +175,7 @@ export {
   GLYPH_MAP_LABEL_WRAP_MAX_LINES,
   glyphMapDeclutterLabels,
   glyphMapLabelAnchorFraction,
+  glyphMapLabelAnchorPoint,
   glyphMapWrapLabel,
   glyphMapPointHeatmap,
   glyphMapVectorCullWalls,

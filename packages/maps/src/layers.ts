@@ -239,6 +239,100 @@ export function glyphMapWrapLabel(label: string, width = GLYPH_MAP_LABEL_WRAP_CE
   return lines;
 }
 
+/**
+ * Longitude delta across a segment, taken the SHORT way round — so a segment
+ * that steps over the antimeridian measures its own width rather than the
+ * rest of the world.
+ */
+function shortestLonDelta(from: number, to: number): number {
+  const delta = to - from;
+  if (delta > 180) return delta - 360;
+  if (delta < -180) return delta + 360;
+  return delta;
+}
+
+/**
+ * Ground length of one polyline, in degrees of LATITUDE — longitude weighted
+ * by `cos(lat)` so the two axes are comparable.
+ *
+ * The weighting is not a nicety at the scale this is used on: an L-shaped
+ * label line at 60N has one degree of longitude worth half a degree of
+ * ground, so unweighted degrees would put the midpoint of a bent lake in the
+ * wrong arm.
+ */
+function polylineLength(ring: readonly (readonly [number, number])[]): number {
+  let total = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const [x0, y0] = ring[i - 1];
+    const [x1, y1] = ring[i];
+    total += Math.hypot(shortestLonDelta(x0, x1) * Math.cos((y0 + y1) * 0.5 * Math.PI / 180), y1 - y0);
+  }
+  return total;
+}
+
+/**
+ * Where to put the LABEL of a line feature — the arc-length midpoint of its
+ * longest part, or `null` for anything this cannot answer honestly.
+ *
+ * This renderer has no curved text, so a schema that ships an elongated
+ * feature's name as a PATH (OpenMapTiles' `water_name` does: every lake in
+ * the vendored Bariloche tile is a line, and only the straits and oceans are
+ * points) has to be reduced to one anchor. Three properties make the
+ * reduction safe, and each of them is a real failure avoided rather than a
+ * preference:
+ *
+ *  - **ON the polyline, by construction.** The schema drew that path down the
+ *    middle of the water, so a point on it is a point in the water. A
+ *    centroid is not — a bent arm's centroid lies off the arm, and snapping
+ *    it to the nearest vertex lands at the bend, which put `Brazo Blest`
+ *    ashore in the very tile this was measured on.
+ *  - **ARC LENGTH, not the middle vertex.** A tile pyramid re-simplifies the
+ *    same feature per level (Nahuel Huapi is 57/95/100 vertices at z9/z10/z11),
+ *    so an index midpoint slides along the lake as the reader zooms.
+ *  - **THE LONGEST PART, once per feature.** A multi-part label line
+ *    (`Brazo Huemul` at z12 is 64 vertices plus a 4-vertex stub) would
+ *    otherwise print its name once per part, the second time in a corner of
+ *    a different arm.
+ *
+ * A POLYGON is refused rather than answered: the midpoint of a boundary is
+ * on the rim, and a polygon label wants a pole of inaccessibility, which is
+ * a different problem with a different algorithm. A feature whose
+ * `geometryType` is missing is refused for the same reason — nothing here
+ * can tell a line from a ring.
+ */
+export function glyphMapLabelAnchorPoint(feature: GlyphMapVectorFeature): readonly [number, number] | null {
+  if (feature.geometryType !== "line") return null;
+  let ring: readonly (readonly [number, number])[] | null = null;
+  let longest = -1;
+  for (const candidate of feature.rings) {
+    if (candidate.length === 0) continue;
+    const length = polylineLength(candidate);
+    if (length > longest) { longest = length; ring = candidate; }
+  }
+  if (!ring) return null;
+  // Every vertex in the same place (a real thing in over-simplified tiles):
+  // the one position the feature has IS the answer.
+  if (!(longest > 0)) return ring[0];
+
+  const half = longest / 2;
+  let walked = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const [x0, y0] = ring[i - 1];
+    const [x1, y1] = ring[i];
+    const dx = shortestLonDelta(x0, x1);
+    const step = Math.hypot(dx * Math.cos((y0 + y1) * 0.5 * Math.PI / 180), y1 - y0);
+    if (walked + step >= half) {
+      const t = step > 0 ? (half - walked) / step : 0;
+      // Back into [-180, 180): a segment stepped over the antimeridian the
+      // short way above, so its interpolated point can land outside the range.
+      const lon = ((x0 + dx * t + 180) % 360 + 360) % 360 - 180;
+      return [lon, y0 + (y1 - y0) * t];
+    }
+    walked += step;
+  }
+  return ring[ring.length - 1];
+}
+
 export function glyphMapPointHeatmap(features: readonly GlyphMapVectorFeature[], bounds: GlyphMapBounds, cols: number, rows: number, radius = 2, weightProperty?: string): GlyphMapField {
   if (!(cols > 0 && rows > 0 && radius >= 0)) throw new RangeError("glyphcss/maps: invalid heatmap dimensions or radius.");
   const values = new Float32Array(cols * rows);

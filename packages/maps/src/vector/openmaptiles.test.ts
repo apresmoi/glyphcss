@@ -13,16 +13,21 @@
  * anything about a building at all). A schema drift therefore shows up here
  * as a red test rather than as an empty layer.
  *
- * Four more tiles are vendored, each for something none of those three
+ * Six more tiles are vendored, each for something none of those three
  * carries at all, and each named for what it is the only witness to:
  * `z4-1-6-maritime.mvt` (the one `maritime: 1` boundary line),
  * `z14-3851-6772-hide3d.mvt` (Houston: `hide_3d: true` on 3 of 153
  * buildings), `z14-4834-6165-aeroway.mvt` (JFK, 11.7 KB: the only aeroway
  * LINES in the set — every other tile's `aeroway` features are `helipad`
  * POLYGONS, so a runway row asserted on those would pass while drawing
- * nothing) and `z8-60-96-peaks.mvt` (69 KB: 13 `mountain_peak` points of
+ * nothing), `z8-60-96-peaks.mvt` (69 KB: 13 `mountain_peak` points of
  * which 2 carry no `name`, the only real witness that the peaks row drops
- * a feature it could not label).
+ * a feature it could not label), and two over Bariloche that
+ * `widget.lineLabelAnchor.test.ts` owns — `z10-308-640-lakeline.mvt` (the
+ * reported `Lago Nahuel Huapi` as a LINE label, with the water polygons
+ * under it and a `water_name` POINT in the same tile) and
+ * `z12-1235-2560-multipart.mvt` (the only MULTI-PART label line in the
+ * set).
  *
  * This is a DIFFERENT schema from `protomaps.ts`'s, not a variant of it:
  * OpenMapTiles discriminates on `class` where Protomaps uses `kind`, splits
@@ -705,14 +710,27 @@ describe("`park` / `aeroway` / `water_name` — three source layers the mapping 
     expect(z14.water_name.filter(row("omt-water-labels").filter!)).toHaveLength(13);
   });
 
-  it("the water-labels row drops the layer's LINE labels, which a hotspot cannot place", () => {
-    // `water_name` mixes point and line geometry in one source layer — the
-    // vendored z12 tile's two lake labels are both lines, and
-    // `createPointFeatureRuntime` would place them at their first vertex.
+  it("the water-labels row keeps the layer's LINE labels, which is how a LAKE is named", () => {
+    // `water_name` mixes point and line geometry in one source layer, and the
+    // split is the schema saying what SHAPE the name has: a compact body's
+    // name is a point, an elongated one's is the path a normal renderer runs
+    // the name along. Narrowing the row to points therefore kept the four
+    // oceans at z0 and dropped every lake on Earth — the vendored Zurich z12
+    // tile's Zürichsee and Greifensee here, and the reported Lago Nahuel
+    // Huapi in `widget.lineLabelAnchor.test.ts`, which is a LINE at every
+    // zoom that carries it. `glyphMapLabelAnchorPoint` is what makes a line
+    // placeable; the row's job is only to stop discarding it.
     const z12 = mvt("z12-2145-1434.mvt", 12, 2145, 1434);
     expect(z12.water_name).toHaveLength(2);
     expect(z12.water_name.every((f) => f.geometryType === "line")).toBe(true);
-    expect(z12.water_name.filter(row("omt-water-labels").filter!)).toHaveLength(0);
+    const kept = z12.water_name.filter(row("omt-water-labels").filter!);
+    expect(kept.map((f) => f.properties!.name).sort()).toEqual(["Greifensee", "Zürichsee"]);
+    // And the row still narrows: the same tile's `water` POLYGONS are not
+    // labels, so the axis is two of the three kinds, never "everything".
+    expect(GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === "omt-water-labels")!.geometry)
+      .toEqual(["point", "line"]);
+    const polygon: GlyphMapVectorFeature = { geometryType: "polygon", properties: { name: "Zürichsee" }, rings: [] };
+    expect(row("omt-water-labels").filter!(polygon)).toBe(false);
   });
 });
 
