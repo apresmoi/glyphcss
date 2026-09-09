@@ -68,33 +68,33 @@ const orthoCamera = () => createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom
 /** The near plane sits at `P/100`, i.e. `cssZ = 5` — world `z = 9.9` at this zoom, which the straddling fixture below reaches. */
 const perspectiveCamera = () => createGlyphPerspectiveCamera({ rotX: 0, rotY: 0, perspective: 500, zoom: 160 });
 
-function context(polygons: Polygon[], camera: ReturnType<typeof orthoCamera> | ReturnType<typeof perspectiveCamera>) {
+function context(polygons: Polygon[], camera: ReturnType<typeof orthoCamera> | ReturnType<typeof perspectiveCamera>, doubleSided = true) {
   return buildRasterizeContext({
     camera,
     grid: { cols: COLS, rows: ROWS, cellAspect: ASPECT },
     polygons,
     mode: "solid",
     useColors: false,
-    doubleSided: true,
+    doubleSided,
     directionalLight: LIGHT,
     ambientLight: AMBIENT,
   });
 }
 
 /** The cells this polygon set actually PAINTS, and the depth it leaves in each. */
-function painted(polygons: Polygon[], camera: Parameters<typeof context>[1]) {
-  const grid = rasterizeToCells(context(polygons, camera));
+function painted(polygons: Polygon[], camera: Parameters<typeof context>[1], doubleSided = true) {
+  const grid = rasterizeToCells(context(polygons, camera, doubleSided));
   const cells = new Set<number>();
   for (let i = 0; i < grid.cols * grid.rows; i++) if (Number.isFinite(grid.depth[i]!)) cells.add(i);
   return { cells, depth: grid.depth };
 }
 
 /** The cells the shared id-map says this polygon set OWNS, and the depth it retained. */
-function claimed(polygons: Polygon[], camera: Parameters<typeof context>[1]) {
-  const ctx = context(polygons, camera);
+function claimed(polygons: Polygon[], camera: Parameters<typeof context>[1], doubleSided = true) {
+  const ctx = context(polygons, camera, doubleSided);
   const depth = new Float64Array(COLS * ROWS);
   const idMap = computeOcclusionIds(
-    [{ polygons, id: GROUP_ID }], camera, COLS, ROWS, ASPECT, 1, ctx.metrics, null, depth,
+    [{ polygons, id: GROUP_ID }], camera, COLS, ROWS, ASPECT, 1, ctx.metrics, null, depth, doubleSided,
   );
   const cells = new Set<number>();
   for (let i = 0; i < idMap.length; i++) if (idMap[i] === GROUP_ID) cells.add(i);
@@ -131,6 +131,77 @@ describe("the occlusion id-map claims exactly the cells the paint rasterizer cov
     expect(paint.cells.size).toBeGreaterThan(50);
     expect(sorted(claim.cells)).toEqual(sorted(paint.cells));
   });
+});
+
+/**
+ * The parity above ran entirely with `doubleSided: true` — the ONE mode in
+ * which the paint pass does not back-face cull either, so it could not see a
+ * map that never culls. It does not: a single-sided quad seen from behind is
+ * dropped whole by `scanFillTriangle`'s `area2 > 0` verdict, while the id-map
+ * used to claim its entire footprint (measured 75 cells claimed, 0 painted,
+ * under the orthographic camera; 71 / 0 under the perspective one). Those
+ * claims blank whatever layer is behind them, and nothing paints the hole —
+ * an open mesh seen from its back (a ground plane from below, a wall from
+ * behind, a `fill` cap from beneath) erasing the scene through itself.
+ */
+/**
+ * The parity fixtures above cross cells at ordinary fractions, where the two
+ * inside tests could differ only by a hair and never did. This one puts an
+ * edge INSIDE that hair: a quad whose left edge lands 1e-5 of a cell past an
+ * integer column, so that column's sample points sit just OUTSIDE the
+ * triangle. The paint rasterizer's inside test is the exact sign of three
+ * sub-areas; the id-map's used to be the same quantity NORMALIZED and
+ * compared against `-1e-6`, which accepts a point that far outside — and the
+ * whole column (24 cells, measured) was claimed by a layer that paints none
+ * of it. The offset is not exotic: any camera motion sweeps an edge through
+ * it continuously.
+ */
+describe("the id-map's inside test is the paint rasterizer's, not a looser one", () => {
+  it("an edge landing a hair past an integer column claims nothing there", () => {
+    const camera = orthoCamera();
+    const metrics = context([], camera).metrics;
+    // Learn the world-y → column mapping from the camera itself rather than
+    // hardcoding a magic float, then place the edge at column 10 + 1e-5.
+    const at = (y: number) => camera.project([0, y, 0], COLS, ROWS, ASPECT, metrics)[0];
+    const c0 = at(0), colPerY = at(1) - c0;
+    const y = (10 + 1e-5 - c0) / colPerY;
+    const sliver: Polygon = { vertices: [[-5, y, 0], [5, y, 0], [5, y + 4, 0], [-5, y + 4, 0]], color: "#ffffff" };
+
+    const paint = painted([sliver], camera);
+    const claim = claimed([sliver], camera);
+    expect(paint.cells.size).toBeGreaterThan(50);
+    // Column 10 is the one in question: the quad starts a hair to its right.
+    const inColumn = (cells: Set<number>) => [...cells].filter((i) => i % COLS === 10).length;
+    expect(inColumn(paint.cells)).toBe(0);
+    expect(inColumn(claim.cells)).toBe(0);
+    expect(sorted(claim.cells)).toEqual(sorted(paint.cells));
+  });
+});
+
+describe("the id-map back-face culls exactly when the paint pass does", () => {
+  // `tilted`'s authored winding is the one the paint pass CULLS (glyphcss
+  // projects world-CCW to screen-CW, and `scanFillTriangle` drops `area2 > 0`)
+  // — which is why every clause above had to pass `doubleSided: true` to see
+  // it at all. Reversing it gives the front face.
+  const backFacing: Polygon = tilted;
+  const frontFacing: Polygon = { ...tilted, vertices: [...tilted.vertices].reverse() };
+
+  for (const [name, camera] of [["orthographic", orthoCamera()], ["perspective", perspectiveCamera()]] as const) {
+    it(`${name} — a back-facing single-sided quad claims nothing, because it paints nothing`, () => {
+      // The premise: with `doubleSided: true` this quad covers a large part of
+      // the frame, so "claims nothing" cannot pass for want of geometry.
+      expect(painted([backFacing], camera, true).cells.size).toBeGreaterThan(50);
+      expect(painted([backFacing], camera, false).cells.size).toBe(0);
+      expect(claimed([backFacing], camera, false).cells.size).toBe(0);
+    });
+
+    it(`${name} — the FRONT-facing quad still claims exactly what it paints when single-sided`, () => {
+      const paint = painted([frontFacing], camera, false);
+      const claim = claimed([frontFacing], camera, false);
+      expect(paint.cells.size).toBeGreaterThan(50);
+      expect(sorted(claim.cells)).toEqual(sorted(paint.cells));
+    });
+  }
 });
 
 describe("the id-map's retained depth is the SAME quantity as a pass's own CellGrid.depth", () => {

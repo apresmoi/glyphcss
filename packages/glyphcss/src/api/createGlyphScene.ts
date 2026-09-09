@@ -35,6 +35,7 @@ import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildGlyphPolygonCullChunks, buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import type { GlyphPolygonCullChunk, ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds, buildSurfaceDepth, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
+import type { GlyphOcclusionSlopes } from "../render/rasterize";
 import { buildCellGrid, encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type GlyphTransformCellsLayer, type TransformCells } from "../render/cells";
 import {
   resolveGlyphControlLineage,
@@ -630,21 +631,55 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
     return [nx + px, ny + py, nz + pz];
   }
 
-  return polygons.map((p) => ({
-    ...p,
-    vertices: p.vertices.map(transformVertex),
-    // Pre-transform positions, parallel to the new `vertices` — recovers the
-    // mesh's own local frame for `space: "object"` effects without an
-    // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
-    // returns a fresh array), so aliasing it here is safe and free.
-    objectVertices: p.vertices,
-  }));
+  /**
+   * An authored `shadingNormal` stands for the SURFACE, so the transform has
+   * to move it too — the geometric normal it replaces rotates, and a face
+   * lit by an unrotated authored one lights as if the mesh had never turned.
+   *
+   * Normals transform by the inverse transpose, which for `R * S` is
+   * `R * S⁻¹`: rotate, but divide by the scale rather than multiplying (a
+   * plane flattened in Y has a normal that leans MORE toward Y, not less),
+   * and renormalize. Translation does not reach a direction at all. A zero
+   * scale axis or a degenerate result leaves the field off, which is the
+   * documented fallback to the geometric normal rather than a special case.
+   */
+  const normalScaled = sx !== 1 || sy !== 1 || sz !== 1;
+  const transformNormal = (n: Vec3): Vec3 | undefined => {
+    const v = transformVertex([
+      normalScaled ? (sx !== 0 ? n[0] / (sx * sx) : 0) : n[0],
+      normalScaled ? (sy !== 0 ? n[1] / (sy * sy) : 0) : n[1],
+      normalScaled ? (sz !== 0 ? n[2] / (sz * sz) : 0) : n[2],
+    ]);
+    // `transformVertex` also translates; a direction must not be translated.
+    const x = v[0] - px, y = v[1] - py, z = v[2] - pz;
+    const len = Math.hypot(x, y, z);
+    return len > 0 && isFinite(len) ? [x / len, y / len, z / len] : undefined;
+  };
+
+  return polygons.map((p) => {
+    const out: Polygon = {
+      ...p,
+      vertices: p.vertices.map(transformVertex),
+      // Pre-transform positions, parallel to the new `vertices` — recovers the
+      // mesh's own local frame for `space: "object"` effects without an
+      // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
+      // returns a fresh array), so aliasing it here is safe and free.
+      objectVertices: p.vertices,
+    };
+    if (p.shadingNormal !== undefined) {
+      const n = transformNormal(p.shadingNormal);
+      if (n === undefined) delete out.shadingNormal;
+      else out.shadingNormal = n;
+    }
+    return out;
+  });
 }
 
 /**
  * The shared cross-layer occlusion id-map for one render, plus the base cell
- * metrics every consumer of it needs. `depth` is the sub-cell ownership
- * refinement's own input (see {@link OcclusionMap.depth}).
+ * metrics every consumer of it needs. `depth`/`slopes` are the blanking
+ * verdict's own inputs and are present together or not at all (see
+ * {@link OcclusionMap.slopeCol}).
  */
 interface OcclusionShared {
   idMap: Int32Array;
@@ -655,6 +690,7 @@ interface OcclusionShared {
   chB: number;
   foreign?: boolean;
   depth?: Float64Array;
+  slopes?: GlyphOcclusionSlopes;
 }
 
 export function createGlyphScene(
@@ -1388,13 +1424,12 @@ export function createGlyphScene(
         // read as a black halo around the artwork). Null until textures
         // decode — those frames fall back to the pure-geometry claim, exactly
         // the pre-existing behaviour.
-        // SUB-CELL SEAM REFINEMENT (see `OcclusionMap.depth`): retain the
-        // nearest-depth buffer this pass builds anyway, plus a per-cell local
-        // depth-variation pair, so a finer detail layer can tell "another
-        // layer genuinely covers this cell" apart from "another layer merely
-        // won the id-map cell my own coverage also falls inside" — the
-        // difference between correct occlusion and a black line along every
-        // shared edge.
+        // SAME-POINT OWNERSHIP (see `OcclusionMap.slopeCol`): retain the
+        // nearest-depth buffer this pass builds anyway, plus the winning
+        // triangle's own screen-space depth slope, so a finer detail layer can
+        // evaluate the owner's surface AT ITS OWN CELL instead of half a base
+        // cell away — the difference between correct occlusion and a black
+        // line along every shared edge.
         //
         // Skipped, keeping the pure id-based claim, whenever a group opts into
         // an explicitly id-BASED claim override, because for those two the map
@@ -1406,9 +1441,13 @@ export function createGlyphScene(
         // depth would undo the feature.
         const idClaimOverride = groups.some((g) => (g.occlusionPriority ?? 0) !== 0 || g.occlusionContourPx !== undefined);
         const oCols = options.cols * ss, oRows = options.rows * ss;
-        const depth = idClaimOverride || opaqueDetails.length === 0 ? null : new Float64Array(oCols * oRows);
-        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, resolvedTextureSamplers(), depth);
-        occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth ? { depth } : null) };
+        const refine = !idClaimOverride && opaqueDetails.length > 0;
+        const depth = refine ? new Float64Array(oCols * oRows) : null;
+        const slopes: GlyphOcclusionSlopes | null = refine
+          ? { col: new Float64Array(oCols * oRows), row: new Float64Array(oCols * oRows) }
+          : null;
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, resolvedTextureSamplers(), depth, options.doubleSided, slopes);
+        occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth && slopes ? { depth, slopes } : null) };
       }
     }
     // FOREIGN OCCLUSION (cross-scene): stamp every cell covered by the foreign
@@ -1539,7 +1578,7 @@ export function createGlyphScene(
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
-      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5, depth: occShared.depth }
+      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5, depth: occShared.depth, slopeCol: occShared.slopes?.col, slopeRow: occShared.slopes?.row }
       : null;
     // Hoisted so the effects metadata and the plain-hook layer tag can never
     // drift apart — both describe the SAME identity affine for the base grid.
@@ -2402,7 +2441,7 @@ export function createGlyphScene(
               idMap: occShared.idMap, layerId: group.id, cols: occShared.cols, rows: occShared.rows,
               colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
               rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
-              depth: occShared.depth,
+              depth: occShared.depth, slopeCol: occShared.slopes?.col, slopeRow: occShared.slopes?.row,
             }
           // A `transparent` detail mesh keeps ignoring every LOCAL layer, but a
           // foreign occluder (another scene stacked above) still covers it:
@@ -3146,6 +3185,29 @@ export function createGlyphScene(
     const cols = Math.max(20, Math.floor(w / cell.w));
     const rows = Math.max(8, Math.floor(h / cell.h));
     const cellAspect = cell.h / cell.w;
+    // A refit DURING a gesture (the ResizeObserver firing on a rotation or an
+    // address-bar collapse mid-drag) moves the render grid, so it moves the
+    // BASE grid too — `getBaseResolution()` would otherwise keep answering
+    // the pre-resize pair for the rest of the gesture, and the overlay
+    // consumer it exists for would place boxes at the wrong scale.
+    //
+    // Measured with the pre-gesture font put back rather than divided by
+    // `interactiveDownscale`: the downscale is applied to a font size, and
+    // the cell a font actually lays out at is the browser's answer, not a
+    // proportion (in this repo's own test DOM the ratio comes out 1.63 for a
+    // downscale of 2). Restoring the font for one probe makes this the SAME
+    // computation `setInteracting(false)`'s own `fitToHost()` will run, so
+    // the answer during the gesture and the answer after it cannot disagree.
+    if (interacting) {
+      const downscaled = pre.style.fontSize;
+      pre.style.fontSize = savedInteractFont ?? "";
+      baseCellCache = null; baseFontPxCache = null;
+      const baseCell = measureCell();
+      pre.style.fontSize = downscaled;
+      baseCellCache = null; baseFontPxCache = null;
+      savedInteractCols = Math.max(20, Math.floor(w / baseCell.w));
+      savedInteractRows = Math.max(8, Math.floor(h / baseCell.h));
+    }
     let changed = false;
     if (options.cols !== cols) { options.cols = cols; changed = true; }
     if (options.rows !== rows) { options.rows = rows; changed = true; }

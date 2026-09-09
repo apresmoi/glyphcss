@@ -110,6 +110,46 @@ function projectionMetricsForGrid(
 export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
 
 /**
+ * How far apart two depth samples of the SAME screen point may be and still
+ * count as ONE surface, as a fraction of the local depth scale (the operands
+ * and the slope terms that produced them).
+ *
+ * This is a FLOAT-REPRESENTATION tolerance, not a geometric allowance — the
+ * distinction that killed the depth-gradient allowance described in
+ * `OcclusionMap.slopeCol`. Two triangles meeting along a shared edge
+ * interpolate the SAME plane at the SAME point through different vertex
+ * triples, so their answers differ in the last bits: measured on two
+ * edge-sharing quads of one plane, 1.7e-16 and 3.3e-16 absolute against a
+ * depth scale of 0.5 (1.5 and 3 ULPs), and ~1e-17 where the shared edge sits
+ * at depth zero — which is why the scale includes the SLOPE terms and not
+ * just the sampled values, and why a purely relative tolerance cannot express
+ * it. Left strict, those few ULPs put one layer "behind" the other and blank
+ * a whole map cell for it.
+ *
+ * `1e-9` sits between two measured bounds, both wide: around a million times
+ * the observed rounding error (with room for the barycentric conditioning of
+ * a sliver, which `Polygon.shadingNormal` exists because `@glyphcss/maps`
+ * really produces), and ~800 times SMALLER than the tightest real separation
+ * anything in this repo asks the id-map to honour — `@glyphcss/maps`' `fill`
+ * draped 10 m above the terrain of a globe whose depths run to one Earth
+ * radius, i.e. 1.6e-6 of the depth scale.
+ */
+const OCCLUSION_COINCIDENT_REL = 1e-9;
+
+/**
+ * The owner's per-cell screen-space depth SLOPE, retained beside the id-map's
+ * depth so a pass can evaluate the owner's own surface at ITS cell's exact
+ * position instead of comparing two different points (see
+ * {@link OcclusionMap.slopeCol}). `col`/`row` are depth per one id-map cell
+ * along each axis, taken from the winning triangle's own plane — an exact
+ * derivative, computed once per triangle.
+ */
+export interface GlyphOcclusionSlopes {
+  col: Float64Array;
+  row: Float64Array;
+}
+
+/**
  * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
  * into a `cols × rows` buffer and record, per cell, the id of the layer whose
  * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
@@ -157,6 +197,8 @@ export function computeOcclusionIds(
   metrics: GlyphProjectionMetrics = projectionMetricsForGrid(outCols, outRows, cellAspect, {}),
   textureSamplers: ReadonlyMap<string, TextureSampler> | null = null,
   depthOut: Float64Array | null = null,
+  doubleSided = true,
+  slopeOut: GlyphOcclusionSlopes | null = null,
 ): Int32Array {
   // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
   // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
@@ -209,7 +251,7 @@ export function computeOcclusionIds(
   let eyeScratch = new Float64Array(8);
 
   /** Depth-raster every group into an id map at `outCols*scale × outRows*scale`. */
-  const rasterInto = (scale: number, keepDepth: Float64Array | null = null): Int32Array => {
+  const rasterInto = (scale: number, keepDepth: Float64Array | null = null, slopes: GlyphOcclusionSlopes | null = null): Int32Array => {
     const cols = outCols * scale, rows = outRows * scale;
     const scaledMetrics = scale > 1
       ? {
@@ -222,6 +264,11 @@ export function computeOcclusionIds(
       : metrics;
     const depth = keepDepth !== null && keepDepth.length === cols * rows ? keepDepth.fill(-Infinity) : new Float64Array(cols * rows).fill(-Infinity);
     const idMap = new Int32Array(cols * rows).fill(-1);
+    // Per-cell owner SLOPE (see `OcclusionMap.slopeCol`). Only ever asked for
+    // on the OUTPUT-resolution raster of a scene with no priority classes and
+    // no contour claims — the two features that decide ownership by something
+    // other than depth, and for which the caller withholds it.
+    const slopeBufs = slopes !== null && slopes.col.length === cols * rows ? slopes : null;
     // Priority buffer only exists when some group actually asks for one — the
     // all-zero case (every scene before `occlusionPriority`) takes the exact
     // pre-existing depth-only path.
@@ -286,7 +333,7 @@ export function computeOcclusionIds(
                   wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
                 }
               : null;
-            fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
+            fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex, doubleSided, slopeBufs);
           } else {
             // Straddles the near plane: clip to `eyeDepth > 0` and fan the
             // result, exactly as `rasterizeSolid` does for the paint pass.
@@ -335,7 +382,7 @@ export function computeOcclusionIds(
                       wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
                     }
                   : null;
-                fillDepthTri(qa, qb, qc, depth, idMap, g.id, cols, rows, priority, pri, tex);
+                fillDepthTri(qa, qb, qc, depth, idMap, g.id, cols, rows, priority, pri, tex, doubleSided, slopeBufs);
               }
             }
           }
@@ -350,7 +397,7 @@ export function computeOcclusionIds(
   const outColsEff = outCols * ss, outRowsEff = outRows * ss;
   // The output-resolution map: the exact pre-existing claim set. Every
   // non-contour group's claims come from here untouched.
-  const outMap = rasterInto(ss, depthOut);
+  const outMap = rasterInto(ss, depthOut, slopeOut);
   if (contourK > 1) {
     // Second raster at the FINE internal resolution — per fine cell the alpha
     // claim samples its own texel, so a contour group's fine footprint is its
@@ -500,6 +547,14 @@ function fillDepthTri(
   depth: Float64Array, idMap: Int32Array, id: number, W: number, H: number,
   priority: Int32Array | null = null, pri = 0,
   tex: DepthTexCtx | null = null,
+  // Screen-winding BACK-FACE cull, mirroring `scanFillTriangle`'s own
+  // `!doubleSided && area2 > 0` verdict on the same signed area. Without it
+  // the map claimed cells the paint pass drops outright: a single-sided quad
+  // seen from behind claimed its entire footprint and painted none of it
+  // (measured 75 claimed / 0 painted), so the layer beneath it was blanked by
+  // an owner that never draws.
+  doubleSided = true,
+  slopes: GlyphOcclusionSlopes | null = null,
 ): void {
   const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
   if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
@@ -510,7 +565,16 @@ function fillDepthTri(
   if (minX > maxX || minY > maxY) return;
   const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
   if (Math.abs(area) < 1e-9) return;
+  if (!doubleSided && area > 0) return;
   const inv = 1 / area;
+  const ccw = area > 0;
+  // This triangle's own screen-space depth derivative, in depth per cell.
+  // `z` is affine in `(px, py)` inside a triangle, so this is exact and
+  // constant across it — one evaluation per triangle, none per cell.
+  const slopeCol = slopes !== null ? slopes.col : null;
+  const slopeRow = slopes !== null ? slopes.row : null;
+  const dzdc = slopeCol !== null ? ((y1 - y2) * z0 + (y2 - y0) * z1 + (y0 - y1) * z2) * inv : 0;
+  const dzdr = slopeCol !== null ? ((x2 - x1) * z0 + (x0 - x2) * z1 + (x1 - x0) * z2) * inv : 0;
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       // Sample where the PAINT rasterizer samples — `scanFillTriangle`'s
@@ -524,10 +588,20 @@ function fillDepthTri(
       // what let a stamped road survive along the base of a building that had
       // separated into its own `<pre>`.
       const px = x, py = y;
-      const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
-      const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+      // Inside test in `scanFillTriangle`'s exact form: the UNNORMALIZED
+      // sub-areas, compared against the sign of `area`, inclusive of zero.
+      // The old normalized `w < -1e-6` accepted a hair OUTSIDE the triangle,
+      // which is the one remaining way the map's covered set could differ
+      // from the paint pass's — and the ownership masks below now carry that
+      // set straight into the blanking verdict, so "claimed" and "painted"
+      // have to be the same test, not merely nearly.
+      const sA = (x1 - px) * (y2 - py) - (y1 - py) * (x2 - px);
+      const sB = (x2 - px) * (y0 - py) - (y2 - py) * (x0 - px);
+      const sC = (x0 - px) * (y1 - py) - (y0 - py) * (x1 - px);
+      if (ccw ? (sA < 0 || sB < 0 || sC < 0) : (sA > 0 || sB > 0 || sC > 0)) continue;
+      const w0 = sA * inv;
+      const w1 = sB * inv;
       const w2 = 1 - w0 - w1;
-      if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
       const z = w0 * z0 + w1 * z1 + w2 * z2;
       const idx = y * W + x;
       // Would this triangle claim the cell? Decide first, sample after — so
@@ -569,6 +643,7 @@ function fillDepthTri(
         if (texel === null || texel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
       depth[idx] = z; idMap[idx] = id;
+      if (slopeCol !== null) { slopeCol[idx] = dzdc; slopeRow![idx] = dzdr; }
       if (priority) priority[idx] = pri;
     }
   }
@@ -2601,96 +2676,49 @@ function rasterizeSolid(
     // ignoring every local layer, exactly as `transparent` promises.
     const foreignOnly = occ.foreignOnly === true;
     const invSS = supersample > 1 ? 1 / supersample : 1;
-    // Sub-cell seam refinement (see `OcclusionMap.depth`). Never applied to a
+    // SAME-POINT OWNERSHIP (see `OcclusionMap.slopeCol`). Never applied to a
     // `foreignOnly` layer: a foreign stamp carries no local depth to compare
     // against, and the foreign scene is nearer by definition.
     const odepth = !foreignOnly ? occ.depth ?? null : null;
-    const seamRefine = odepth !== null;
+    const oSlopeC = odepth !== null ? occ.slopeCol ?? null : null;
+    const oSlopeR = odepth !== null ? occ.slopeRow ?? null : null;
+    const refine = odepth !== null && oSlopeC !== null && oSlopeR !== null;
     // The map is a separable affine, so resolve each axis ONCE instead of per
     // cell (`-1` = this output row/column falls outside the map entirely).
+    // `dColOf`/`dRowOf` are the SIGNED offset, in id-map cells, from where the
+    // map's depth was sampled (its cell's own integer point) to where this
+    // output cell sits — the distance the owner's slope is walked over.
+    // The affine maps this pass's cell to the map coordinate of its own
+    // SAMPLE POINT plus half of one of ITS cells (`stepC`/`stepR` map cells
+    // per output cell) — that half is what makes `floor` pick the containing
+    // map cell. Subtracting it back recovers the sample point itself, and the
+    // map cell's own sample point is its integer index, so the difference is
+    // exactly how far the owner's plane has to be walked. For the base grid
+    // `step` is 1 and the offset is identically zero, which is why the base
+    // pass compares a cell against its own depth exactly as before.
+    const stepC = occ.colScale * invSS, stepR = occ.rowScale * invSS;
     const refColOf = new Int32Array(cols);
+    const dColOf = refine ? new Float64Array(cols) : null;
     for (let c = 0; c < cols; c++) {
-      const v = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
+      const f = occ.colScale * (c * invSS) + occ.colOffset;
+      const v = Math.floor(f);
       refColOf[c] = v >= 0 && v < ocols ? v : -1;
+      if (dColOf) dColOf[c] = f - 0.5 * stepC - v;
     }
     const refRowOf = new Int32Array(rows);
+    const dRowOf = refine ? new Float64Array(rows) : null;
     for (let r = 0; r < rows; r++) {
-      const v = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
+      const f = occ.rowScale * (r * invSS) + occ.rowOffset;
+      const v = Math.floor(f);
       refRowOf[r] = v >= 0 && v < orows ? v : -1;
-    }
-    // SUB-CELL OWNERSHIP (see `OcclusionMap.depth`): ONE verdict per ID-MAP
-    // cell — `0` not asked, `1` blank, `2` keep — so that every output cell
-    // inside a map cell gets the same answer and a mesh's `density` can no
-    // longer change who occludes whom.
-    //
-    // The verdict compares the owner's retained depth against this pass's own
-    // depth AT THE SAME SCREEN POINT: the output cell covering the map cell's
-    // own sample point. Both rasterizers sample at their cell's integer
-    // `(col, row)` (see `computeOcclusionIds`), so the forward map's `floor`
-    // inverts to a `floor` too — a map cell's sample point sits at
-    // `F(c) - step/2` for the output cell `c` covering it, hence
-    // `floor((ref - offset + step/2) / step)`. For the BASE grid
-    // (`colScale = ss`, `colOffset = 0.5`, `step = 1`) that is the identity
-    // `c = ref`, i.e. the cell's own depth, exactly as before.
-    //
-    // Where this pass does not reach that point it cannot compare there, and
-    // the answer is its NEAREST depth anywhere inside the map cell. That is
-    // the SEAM: two meshes sharing an edge split a map cell between them, so
-    // the loser covers part of it while the map records only the winner, and
-    // blanking on the winner's claim erases cells nothing else paints — a
-    // black line along every shared edge. Taking the nearest is what closes
-    // it without a tuned allowance: two halves of ONE continuous surface can
-    // never beat each other's nearest sample by more than the surface's own
-    // relief inside a single map cell, while a genuine occluder in front
-    // clears it outright.
-    //
-    // Both phases run up front rather than lazily per output cell, because
-    // the loop below CLEARS `depthBuf` as it goes and a blanked cell would
-    // read `-Infinity`.
-    let verdict: Int8Array | null = null;
-    if (seamRefine) {
-      const nearest = new Float64Array(ocols * orows).fill(-Infinity);
-      for (let r = 0; r < rows; r++) {
-        const rr = refRowOf[r]!;
-        if (rr < 0) continue;
-        const rowBase = r * cols, mapBase = rr * ocols;
-        for (let c = 0; c < cols; c++) {
-          const rc = refColOf[c]!;
-          if (rc < 0) continue;
-          const d = depthBuf[rowBase + c]!;
-          if (d > nearest[mapBase + rc]!) nearest[mapBase + rc] = d;
-        }
-      }
-      verdict = new Int8Array(ocols * orows);
-      const stepC = occ.colScale * invSS, stepR = occ.rowScale * invSS;
-      const invStepC = stepC !== 0 ? 1 / stepC : 0, invStepR = stepR !== 0 ? 1 / stepR : 0;
-      const baseC = stepC / 2 - occ.colOffset, baseR = stepR / 2 - occ.rowOffset;
-      for (let rr = 0; rr < orows; rr++) {
-        const mr = Math.floor((rr + baseR) * invStepR);
-        const rowOk = mr >= 0 && mr < rows;
-        const mrBase = mr * cols, mapBase = rr * ocols;
-        for (let rc = 0; rc < ocols; rc++) {
-          const ref = mapBase + rc;
-          const owner = idm[ref]!;
-          // Only a cell some other LOCAL layer owns can blank anything here.
-          // A foreign stamp overwrites the owner but not the depth under it,
-          // so it is never refined (see the call site).
-          if (owner === -1 || owner === myId || owner === GLYPH_FOREIGN_OCCLUDER_ID) continue;
-          let mine = -Infinity;
-          if (rowOk) {
-            const mc = Math.floor((rc + baseC) * invStepC);
-            if (mc >= 0 && mc < cols) mine = depthBuf[mrBase + mc]!;
-          }
-          if (mine === -Infinity) mine = nearest[ref]!;
-          verdict[ref] = mine !== -Infinity && odepth![ref]! > mine ? 1 : 2;
-        }
-      }
+      if (dRowOf) dRowOf[r] = f - 0.5 * stepR - v;
     }
     for (let r = 0; r < rows; r++) {
       const refRow = refRowOf[r]!;
       if (refRow < 0) continue;
       const refRowBase = refRow * ocols;
       const rowBase = r * cols;
+      const dRow = dRowOf !== null ? dRowOf[r]! : 0;
       for (let c = 0; c < cols; c++) {
         const idx = rowBase + c;
         const myDepth = depthBuf[idx]!;
@@ -2718,7 +2746,18 @@ function rasterizeSolid(
           // to whatever local surface won the cell — and a scene stacked above
           // this one is nearer by definition. Refining against it would
           // compare a layer to itself and never blank.
-          if (seamRefine && owner !== GLYPH_FOREIGN_OCCLUDER_ID && verdict![ref] !== 1) continue;
+          // Compare the two surfaces AT THIS CELL'S OWN POINT: walk the
+          // owner's retained plane from where the map sampled it to where
+          // this cell sits, then test against this cell's own depth. Exact
+          // inside one triangle, so a `density` change moves the point the
+          // question is asked at without moving the answer.
+          if (refine && owner !== GLYPH_FOREIGN_OCCLUDER_ID) {
+            const sc = oSlopeC![ref]!, sr = oSlopeR![ref]!;
+            const here = odepth![ref]! + sc * dColOf![c]! + sr * dRow;
+            const tol = ((here < 0 ? -here : here) + (myDepth < 0 ? -myDepth : myDepth)
+              + (sc < 0 ? -sc : sc) + (sr < 0 ? -sr : sr)) * OCCLUSION_COINCIDENT_REL;
+            if (!(here > myDepth + tol)) continue;
+          }
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
           if (occludedBuf) occludedBuf[idx] = 1;

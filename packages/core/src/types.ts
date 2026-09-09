@@ -177,11 +177,23 @@ export interface Polygon {
   hidden?: boolean;
   /**
    * Authored UNIT shading normal, replacing the geometric one this polygon's
-   * own vertices imply. Lighting only, and solid mode only: visibility is
-   * still the rasterizer's screen-winding back-face verdict, the depth test
-   * and the shadow map read geometry, and `wireframe`/`ink`/`voxel` do no
-   * Lambert shading to redirect. A non-finite or zero-length value falls back
-   * to the geometric normal.
+   * own vertices imply. Solid mode only: visibility is still the rasterizer's
+   * screen-winding back-face verdict, the depth test, the shadow map and the
+   * cross-layer occlusion id-map all read geometry, and
+   * `wireframe`/`ink`/`voxel` do no Lambert shading to redirect. A non-finite
+   * or zero-length value falls back to the geometric normal.
+   *
+   * It reaches TWO things: the Lambert term, and the rasterizer's retained
+   * `CellGrid.normal` — hence the `normal` effect input and the control
+   * tensor's normal channels, which mean "this cell's surface normal" and for
+   * a face whose plane is not its surface that is exactly the authored
+   * vector. `CellGrid.objectNormal` is the counter-case: it is a cross
+   * product of the polygon's own pre-transform vertices and stays geometric.
+   *
+   * A mesh TRANSFORM moves it, as it moves the geometric normal it replaces:
+   * rotated with the mesh, inverse-transposed through a non-uniform scale,
+   * renormalized, and never translated. The Three compatibility subpath's
+   * `transformPolygonsToGlyph` additionally applies the Y-up to Z-up axis map.
    *
    * It exists because a face's own plane is not always the surface it stands
    * for. Triangulating a curved region in a FLAT parameter space emits

@@ -129,6 +129,38 @@ describe("getBaseResolution", () => {
     } finally { done(); }
   });
 
+  /**
+   * A gesture is not the only thing that can move the grid during a gesture:
+   * a `ResizeObserver` fires `fit()` whenever the host changes, and on a
+   * phone that is what a rotation or an address-bar collapse does mid-drag.
+   * The base pair captured on the way IN is stale from that moment, and the
+   * consumer reading it (`@glyphcss/maps`' label placement) reserves boxes at
+   * the wrong scale for the rest of the gesture — silently, since the wrong
+   * answer is a plausible grid.
+   */
+  it("follows a host resize that lands mid-gesture", () => {
+    const { host, scene, done } = mount({ autoSize: true, interactiveDownscale: 2 });
+    try {
+      const before = { cols: scene.getOptions().cols, rows: scene.getOptions().rows };
+      scene.setInteracting(true);
+      expect(scene.getBaseResolution()).toEqual(before);
+
+      // What the ResizeObserver does when the host doubles in width.
+      Object.defineProperty(host, "clientWidth", { value: HOST_W * 2, configurable: true });
+      scene.fit();
+
+      // The render grid followed the host; the base pair has to as well, and
+      // it is the grid the scene WOULD have fitted at full resolution — which
+      // is what `setInteracting(false)` then actually fits.
+      const duringCols = scene.getOptions().cols;
+      expect(duringCols).toBeGreaterThan(scene.getOptions().rows);
+      expect(scene.getBaseResolution().cols).toBeGreaterThan(before.cols);
+
+      scene.setInteracting(false);
+      expect(scene.getBaseResolution()).toEqual({ cols: scene.getOptions().cols, rows: scene.getOptions().rows });
+    } finally { done(); }
+  });
+
   it("is inert when interactiveDownscale is 1 — setInteracting changes nothing to recover", () => {
     const { scene, done } = mount({ autoSize: false });
     try {

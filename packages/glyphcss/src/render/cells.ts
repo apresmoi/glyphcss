@@ -98,8 +98,17 @@ export interface CellGrid {
    */
   objectExit?: Float32Array;
   /**
-   * Interleaved depth-winning geometric face normals: `[x0, y0, z0, ...]`.
-   * Empty cells contain `NaN`. Present only when requested by an effect program.
+   * Interleaved depth-winning SHADING normals: `[x0, y0, z0, ...]`. Empty
+   * cells contain `NaN`. Present only when requested by an effect program.
+   *
+   * The face's own geometric normal, EXCEPT where the polygon authors one
+   * (`Polygon.shadingNormal`), in which case it is the authored vector — the
+   * same value the Lambert term uses. That is deliberate rather than
+   * incidental: the field exists for faces whose plane is not the surface
+   * they stand for (`@glyphcss/maps`' slivers on a globe), so the authored
+   * vector IS this cell's surface normal and the cross product of three
+   * nearly collinear points is not. `objectNormal` is the counter-case and
+   * stays geometric.
    */
   normal?: Float32Array;
   /**

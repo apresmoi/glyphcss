@@ -60,23 +60,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A quad in the z = 0 plane spanning world y in [y0, y1], x in [-3, 3], facing +Z. */
-function quad(y0: number, y1: number) {
+/**
+ * A quad on the plane `z = sx*x + sy*y`, spanning world y in [y0, y1] and
+ * x in [-3, 3], facing +Z. `sx`/`sy` default to the flat `z = 0` fixture.
+ *
+ * The two slopes are not decoration. The shared edge is `y = 0` and runs
+ * along X, so `sx` is depth varying ALONG the shared edge and `sy` is depth
+ * varying ACROSS it — and only the first can make the two halves disagree
+ * about a point they both sit within one base cell of. A flat fixture (both
+ * zero) is the one configuration in which every sample inside a base cell
+ * returns the same depth, so it cannot see an ownership rule that compares
+ * two nearby-but-different screen points.
+ */
+function quad(y0: number, y1: number, sx = 0, sy = 0) {
+  const z = (x: number, y: number) => sx * x + sy * y;
   return [{
-    vertices: [[-3, y0, 0], [3, y0, 0], [3, y1, 0], [-3, y1, 0]] as [number, number, number][],
+    vertices: [
+      [-3, y0, z(-3, y0)], [3, y0, z(3, y0)], [3, y1, z(3, y1)], [-3, y1, z(-3, y1)],
+    ] as [number, number, number][],
     color: "#3388cc",
   }];
 }
 
-function mount(density: number, transparent: boolean) {
+function mount(density: number, transparent: boolean, sx = 0, sy = 0) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const scene = createGlyphScene(host, {
     cols: COLS, rows: ROWS, mode: "solid",
     camera: createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 40 }),
   });
-  scene.add(quad(-4, 0), { density, transparent });
-  scene.add(quad(0, 4), { density, transparent });
+  scene.add(quad(-4, 0, sx, sy), { density, transparent });
+  scene.add(quad(0, 4, sx, sy), { density, transparent });
   scene.rerender();
   return { host, scene, pres: Array.from(host.querySelectorAll<HTMLPreElement>("pre.glyph-output--detail")) };
 }
@@ -103,6 +117,54 @@ function occlusionBlanked(opaque: HTMLPreElement[], clear: HTMLPreElement[]): { 
   }
   return { total, perMesh, columns };
 }
+
+/**
+ * The same guarantee on a surface that is NOT coplanar with the screen.
+ *
+ * The flat fixture above is the one case a per-base-cell ownership rule
+ * cannot get wrong: every point inside a base cell has the same depth, so it
+ * makes no difference WHICH point inside that cell each side is asked about.
+ * The moment depth varies along the shared edge, "the owner's depth here"
+ * and "my depth here" are two samples of one continuous surface taken up to
+ * one output cell apart, and any rule that compares them across a fractional
+ * detail lattice — which every silhouette-fitted detail grid has — decides on
+ * the difference between two different points and blanks the whole base cell
+ * for the loser, including the part of it the winner never paints.
+ *
+ * `sx` (depth along the shared edge) is therefore the discriminator, and the
+ * counts grow with density (`density 3` is worse than `2`), which is exactly
+ * the invariant the mechanism claims: an appearance choice must not change
+ * who occludes whom.
+ */
+describe("cross-layer occlusion — no seam when the shared surface is not flat", () => {
+  const slopes: [string, number, number][] = [
+    ["along the shared edge", 0.4, 0],
+    ["across the shared edge", 0, 0.4],
+    ["both axes", 0.4, 0.3],
+    ["both axes, mirrored", -0.4, -0.3],
+  ];
+  for (const [name, sx, sy] of slopes) {
+    for (const density of [1.4, 2, 3]) {
+      it(`density ${density}, depth sloping ${name}: neither half blanks the other`, () => {
+        stubMonospaceMetrics();
+        const opaque = mount(density, false, sx, sy);
+        const clear = mount(density, true, sx, sy);
+
+        expect(opaque.pres).toHaveLength(2);
+        expect(clear.pres).toHaveLength(2);
+        for (const p of clear.pres) {
+          expect([...(p.textContent ?? "")].filter((ch) => ch !== " " && ch !== "\n").length).toBeGreaterThan(100);
+        }
+
+        const seam = occlusionBlanked(opaque.pres, clear.pres);
+        expect({ perMesh: seam.perMesh, columns: seam.columns }).toEqual({ perMesh: [0, 0], columns: [[], []] });
+
+        opaque.scene.destroy(); opaque.host.remove();
+        clear.scene.destroy(); clear.host.remove();
+      });
+    }
+  }
+});
 
 describe("cross-layer occlusion — no seam between adjacent opaque detail layers", () => {
   // Both fractional and integer: the defect is NOT specific to a fractional

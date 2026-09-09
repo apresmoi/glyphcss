@@ -64,9 +64,21 @@ export const GlyphHotspot = defineComponent({
       unregister();
     });
 
-    watch(() => ({ id: props.id, at: props.at, size: props.size }), () => {
+    // Everything a hotspot cannot change in place: re-register.
+    watch(() => ({ id: props.id, size: props.size }), () => {
       unregister();
       register();
+    }, { deep: false });
+
+    // A moved ANCHOR is not a new hotspot: `setAt` exists precisely so it does
+    // not have to be one (see `GlyphHotspotHandle.setAt`). Re-registering
+    // would destroy the overlay element, and the slot content is TELEPORTED
+    // into it, so the teleport is torn down and rebuilt every time the anchor
+    // moves — for the consumer this was added for (`@glyphcss/maps`
+    // re-anchoring a label when a finer terrain tier lands) that is on its own
+    // schedule, not the user's. Mirrors React's own split effect.
+    watch(() => props.at, (at) => {
+      hotspotRef.value?.setAt(at);
     }, { deep: false });
 
     return () => {

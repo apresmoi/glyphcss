@@ -49,11 +49,24 @@ export class GlyphHotspotElement extends ELEMENT_BASE {
   }
 
   attributeChangedCallback(
-    _name: string,
+    name: string,
     oldValue: string | null,
     newValue: string | null,
   ): void {
     if (oldValue === newValue) return;
+    // A moved ANCHOR is not a new hotspot: `setAt` exists precisely so it does
+    // not have to be one (see `GlyphHotspotHandle.setAt`). Re-registering
+    // destroys the overlay element, and this element's own children have been
+    // MOVED into it — so every anchor change walks them out and back in,
+    // restarting any CSS transition on them and dropping anything a script
+    // had attached to the overlay. Mirrors the React and Vue wrappers.
+    if (name === "at" && this._handle) {
+      const at = parseVec3(newValue);
+      if (at) {
+        this._handle.setAt(at);
+        return;
+      }
+    }
     if (this._handle) {
       this._unregister();
     }

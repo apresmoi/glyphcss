@@ -128,3 +128,79 @@ describe("GlyphHotspot — outside scene", () => {
     }).toThrow();
   });
 });
+
+/**
+ * `GlyphHotspotHandle.setAt` exists so a moving anchor does not destroy the
+ * element: its own doc says remove-and-re-add "destroys and re-creates the
+ * element, losing whatever the consumer wrote on it and restarting any CSS
+ * transition on it". In React it costs more than that — the children are
+ * portalled into that element, so re-creating it unmounts and remounts the
+ * whole subtree and every piece of state in it goes with it.
+ *
+ * The reference case is a consumer that PLANTS its overlays on geometry that
+ * arrives later (`@glyphcss/maps` re-anchors a label when a finer terrain
+ * tier lands), i.e. an `at` that changes on its own, repeatedly, while the
+ * user is doing something else in the tooltip.
+ */
+describe("GlyphHotspot — moving the anchor", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  /** A child that counts its own mounts, so a remount cannot go unnoticed. */
+  function makeChild() {
+    let mounts = 0;
+    const Child = () => {
+      React.useEffect(() => { mounts += 1; }, []);
+      return React.createElement("span", { className: "tooltip" }, "hi");
+    };
+    return { Child, mounts: () => mounts };
+  }
+
+  it("keeps the overlay element and its children across an `at` change", () => {
+    const { Child, mounts } = makeChild();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (at: [number, number, number]) =>
+      act(() => root.render(
+        React.createElement(GlyphPerspectiveCamera, {},
+          React.createElement(GlyphScene, {},
+            React.createElement(GlyphHotspot, { id: "hs-move", at },
+              React.createElement(Child)))),
+      ));
+
+    render([0, 0, 0]);
+    const overlay = container.querySelector("[data-hotspot-id='hs-move']");
+    const child = container.querySelector(".tooltip");
+    expect(overlay).toBeTruthy();
+    expect(mounts()).toBe(1);
+
+    render([0, 5, 0]);
+    // The SAME nodes, not equal-looking replacements.
+    expect(container.querySelector("[data-hotspot-id='hs-move']")).toBe(overlay);
+    expect(container.querySelector(".tooltip")).toBe(child);
+    expect(mounts()).toBe(1);
+    // And exactly one hotspot is registered, not two.
+    expect(container.querySelectorAll("[data-hotspot-id='hs-move']").length).toBe(1);
+  });
+
+  it("still re-registers when the id changes", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const render = (id: string) =>
+      act(() => root.render(
+        React.createElement(GlyphPerspectiveCamera, {},
+          React.createElement(GlyphScene, {},
+            React.createElement(GlyphHotspot, { id, at: [0, 0, 0] },
+              React.createElement("span", { className: "tooltip" }, "hi")))),
+      ));
+    render("first");
+    expect(container.querySelector("[data-hotspot-id='first']")).toBeTruthy();
+    render("second");
+    expect(container.querySelector("[data-hotspot-id='first']")).toBeFalsy();
+    expect(container.querySelector("[data-hotspot-id='second']")).toBeTruthy();
+  });
+});

@@ -128,3 +128,84 @@ describe("GlyphHotspot (Vue) — outside scene", () => {
     expect(() => app.mount(container)).toThrow();
   });
 });
+
+/**
+ * Mirrors React's own "moving the anchor" case (`packages/react/.../
+ * GlyphHotspot.test.tsx`). `GlyphHotspotHandle.setAt` exists so a moving
+ * anchor does not destroy the overlay element — its doc: remove-and-re-add
+ * "destroys and re-creates the element, losing whatever the consumer wrote on
+ * it and restarting any CSS transition on it" — and the slot content is
+ * teleported into that element, so re-creating it tears the teleport down and
+ * builds it again.
+ */
+describe("GlyphHotspot (Vue) — moving the anchor", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  it("keeps the overlay element and its slot content across an `at` change", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const state = { at: [0, 0, 0] as [number, number, number] };
+    const app = createApp({
+      setup() {
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () => h(GlyphScene, {}, {
+              default: () => h(GlyphHotspot, { id: "hs-move", at: state.at }, {
+                default: () => h("span", { class: "tooltip" }, "hi"),
+              }),
+            }),
+          });
+      },
+    });
+    const vm = app.mount(container) as unknown as { $forceUpdate: () => void };
+    await nextTick();
+
+    const overlay = container.querySelector("[data-hotspot-id='hs-move']");
+    const child = container.querySelector(".tooltip");
+    expect(overlay).toBeTruthy();
+    expect(child).toBeTruthy();
+
+    state.at = [0, 5, 0];
+    vm.$forceUpdate();
+    await nextTick();
+    await nextTick();
+
+    // The SAME nodes, not equal-looking replacements.
+    expect(container.querySelector("[data-hotspot-id='hs-move']")).toBe(overlay);
+    expect(container.querySelector(".tooltip")).toBe(child);
+    expect(container.querySelectorAll("[data-hotspot-id='hs-move']").length).toBe(1);
+    app.unmount();
+  });
+
+  it("still re-registers when the id changes", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const state = { id: "first" };
+    const app = createApp({
+      setup() {
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () => h(GlyphScene, {}, {
+              default: () => h(GlyphHotspot, { id: state.id, at: [0, 0, 0] as [number, number, number] }, {
+                default: () => h("span", { class: "tooltip" }, "hi"),
+              }),
+            }),
+          });
+      },
+    });
+    const vm = app.mount(container) as unknown as { $forceUpdate: () => void };
+    await nextTick();
+    expect(container.querySelector("[data-hotspot-id='first']")).toBeTruthy();
+
+    state.id = "second";
+    vm.$forceUpdate();
+    await nextTick();
+    await nextTick();
+    expect(container.querySelector("[data-hotspot-id='first']")).toBeFalsy();
+    expect(container.querySelector("[data-hotspot-id='second']")).toBeTruthy();
+    app.unmount();
+  });
+});

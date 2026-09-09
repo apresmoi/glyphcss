@@ -38,50 +38,63 @@ export interface OcclusionMap {
    */
   foreignOnly?: boolean;
   /**
-   * SUB-CELL OWNERSHIP REFINEMENT (optional; absent keeps the pure id-based
-   * blanking).
+   * SAME-POINT OWNERSHIP (optional; all three together, or none — absent
+   * keeps the pure id-based blanking).
    *
    * The id-map is rasterized at the BASE grid's resolution, but a
-   * `density > 1` detail layer renders FINER and point-samples the map at
-   * each of its own cells' centres. Ownership is therefore all-or-nothing
-   * per id-map cell while coverage is decided per detail cell, so where two
-   * adjacent meshes share an edge the id-map cell straddling it is claimed
-   * by exactly one of them and the other would blank every detail cell it
-   * owns inside that map cell — including the ones the winner does not
-   * cover. Nothing paints those: a black seam along every shared edge, in
-   * both axes (measured on `@glyphcss/maps`' globe: a median 0.75 base cells
-   * over ~1,500 runs per frame at density 1.4, and the same at 2 and 3).
+   * `density > 1` detail layer renders FINER and looks its owner up per
+   * output cell. Ownership is therefore all-or-nothing per id-map cell while
+   * coverage is decided per output cell, so where two adjacent meshes share
+   * an edge the id-map cell straddling it is claimed by exactly one of them
+   * and the other would blank every output cell it owns inside that map cell
+   * — including the ones the winner does not cover. Nothing paints those: a
+   * black seam along every shared edge, in both axes (measured on
+   * `@glyphcss/maps`' globe: a median 0.75 base cells over ~1,500 runs per
+   * frame at density 1.4, and the same at 2 and 3).
    *
    * `depth` is the id-map's own nearest-depth buffer (same resolution,
    * `-Infinity` = empty, larger = nearer — `fillDepthTri`'s convention),
-   * retained by `computeOcclusionIds` rather than discarded. Given it, the
-   * rasterizer takes ONE verdict per id-map cell rather than one per output
-   * cell, so a mesh's `density` — an appearance choice — can never change
-   * who occludes whom.
+   * retained rather than discarded, and it is the SAME quantity a pass's own
+   * `CellGrid.depth` carries. `slopeCol`/`slopeRow` are the WINNING
+   * TRIANGLE'S OWN screen-space depth derivative there, in depth per id-map
+   * cell along each axis — an exact plane derivative, evaluated once per
+   * triangle, not a difference between neighbouring cells.
    *
-   * The verdict compares the owner's retained depth against this pass's own
-   * depth AT THE SAME SCREEN POINT: the output cell covering the map cell's
-   * own sample point (both rasterizers sample at their cell's integer
-   * `(col, row)`, so the forward map's `floor` inverts to a `floor`; for the
-   * base grid that is the identity, i.e. the cell's own depth). Where this
-   * pass does not reach that point it cannot compare there, and the answer
-   * is instead its NEAREST depth anywhere inside the map cell — which is
-   * what closes the seam with no tuned allowance, since two halves of ONE
-   * continuous surface can never beat each other's nearest sample inside a
-   * single map cell while a genuine occluder in front clears it outright.
+   * With them the rasterizer stops comparing two DIFFERENT screen points. It
+   * walks the owner's own plane from where the map sampled it to where the
+   * asking cell actually sits (a signed sub-cell offset, exactly known from
+   * this map's affine) and compares there against that cell's own depth.
+   * Inside one triangle that walk is exact, so:
    *
-   * The superseded form compared the owner's depth at the map cell against
-   * the detail cell's own depth up to half a map cell away and forgave the
-   * difference up to the map's local depth GRADIENT (a dilated first
-   * difference, scaled by a 1.5 safety factor). Under a pitched camera that
+   * - two halves of one continuous surface agree to the last bits and
+   *   neither blanks the other, at any density and at any slope — the seam
+   *   closes with no allowance at all, only the float-noise tolerance
+   *   `OCCLUSION_COINCIDENT_REL` two evaluations of one plane need; and
+   * - a layer genuinely behind another is still blanked everywhere, including
+   *   the outer ring of its own silhouette, where it covers output cells but
+   *   no id-map sample point of its own.
+   *
+   * The superseded form forgave, rather than corrected, the difference
+   * between those two points: an allowance of the map's local depth GRADIENT
+   * (a dilated first difference, scaled 1.5). Under a pitched camera that
    * gradient is the VIEW's own depth ramp rather than the surface's
-   * roughness, so it swallowed genuine separations wholesale:
+   * roughness, so it swallowed genuine separations wholesale —
    * `@glyphcss/maps`' draped `fill` sits 10 m above the terrain and stopped
    * occluding it entirely the moment the terrain left the base grid (a lake
    * took 32 of the terrain's cells at density 1.4 and 0 at 1.8, against 81
-   * per base cell with both layers in the base grid).
+   * per base cell with both layers in the base grid). The slope here is the
+   * same quantity used the other way round — as a CORRECTION applied to the
+   * owner, not as slack granted to the loser — so a real 10 m separation
+   * survives it untouched.
+   *
+   * What it cannot do is follow a FOLD: where the owner's surface bends
+   * within half a map cell of the boundary, the walk stays on the triangle
+   * that won the cell, and the residue is that fold's own second-order term
+   * over a sub-cell distance.
    */
   depth?: Float64Array | null;
+  slopeCol?: Float64Array | null;
+  slopeRow?: Float64Array | null;
 }
 
 /**
