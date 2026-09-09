@@ -852,3 +852,61 @@
     display: none;
   }
 }
+
+/* The View folder's inline `[reset]` — one on the `Tilt °` row, one on
+   `Bearing °`, beside the label rather than in a full-width button row of its
+   own ("NO, THE RESET BUTTONS HAVE TO BE NEXT TO THE TILT ° AND BEARING °
+   LABELS WE CANNOT ADD THOSE HUGE BUTTONS ... tiny reset button").
+   See `mapsKit.tsx`'s `useRowReset` for the wiring.
+
+   It sits in the row's NAME cell, and that is load-bearing: lil-gui gives
+   `.controller > .name` a `min-width: var(--name-width)` and NO max, so
+   anything in there that overflowed 45% would push the widget — and with it
+   the slider TRACK, the part of the row a reader actually drags — narrower.
+   `max-width` pins the cell to the same 45% it already had, so the widget
+   column is exactly the width it was, whatever this button costs. Nothing in
+   this block names `.widget`, `.slider` or an input for the same reason. */
+.dn-floating-controls .lil-gui .controller > .name.maps-view-name {
+  max-width: var(--name-width);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Tiny by construction: 9px monospace, the row scale `/synth` drops
+   `.gx-toggle-btn` to when a control has to share a line rather than own one,
+   and the bracket idiom the Dock's own slider track already draws in
+   (`[ ─█──── ]`). Borderless — a boxed button at this size reads as a second
+   widget on a row that already has one. */
+.dn-floating-controls .lil-gui .maps-view-reset {
+  flex: 0 0 auto;
+  /* lil-gui's own `.lil-gui button` is `width: 100%` and `.lil-gui
+     .controller button` a full `--widget-height` tall — it assumes a button
+     OWNS its row, which is exactly the shape this control exists not to be.
+     Sized to its own text instead. */
+  width: auto;
+  height: auto;
+  font: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 1px 2px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: rgba(255, 232, 184, 0.45);
+  cursor: pointer;
+}
+.dn-floating-controls .lil-gui .maps-view-reset:hover:not(:disabled),
+.dn-floating-controls .lil-gui .maps-view-reset:focus-visible {
+  color: #38bdf8;
+}
+/* At home there is nothing to undo, so the control is really `disabled` (see
+   `useRowReset`) and says so — the same 0.38 the Dock dims a disabled row's
+   own name to, rather than a whole-row dim that would take the live slider
+   beside it down as well. */
+.dn-floating-controls .lil-gui .maps-view-reset:disabled {
+  color: rgba(255, 232, 184, 0.38);
+  opacity: 0.5;
+  cursor: default;
+}

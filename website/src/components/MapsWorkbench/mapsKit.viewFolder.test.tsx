@@ -74,10 +74,23 @@ function render(inputs: ViewFolderInputs): HTMLElement {
   return guiHost;
 }
 
+/**
+ * A row's own label — the name cell's leading TEXT NODE.
+ *
+ * Not the cell's `textContent`: `Tilt °` and `Bearing °` now carry an inline
+ * `[reset]` button inside that same cell (`mapsKit.viewReset.test.tsx`), so
+ * the label is the text lil-gui put there and the button is a sibling
+ * element. Reading the text node is what keeps the labels — and the adjacency
+ * assertions below — about the labels.
+ */
+function nameOf(controller: Element): string | null {
+  return controller.querySelector(".name")?.firstChild?.textContent ?? null;
+}
+
 /** The lil-gui row whose name cell reads `label`. */
 function row(host: HTMLElement, label: string): HTMLElement {
   for (const el of Array.from(host.querySelectorAll<HTMLElement>(".controller"))) {
-    if (el.querySelector(".name")?.textContent === label) return el;
+    if (nameOf(el) === label) return el;
   }
   throw new Error(`no Dock row named ${label}`);
 }
@@ -112,7 +125,7 @@ afterEach(() => {
 describe("View folder — Bearing", () => {
   it("is a row of its own, immediately after Tilt", () => {
     const host = render(baseInputs());
-    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
+    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller")).map(nameOf);
     expect(names).toContain("Bearing °");
     expect(names.indexOf("Bearing °")).toBe(names.indexOf("Tilt °") + 1);
   });
@@ -183,7 +196,7 @@ describe("View folder — Bearing", () => {
 describe("View folder — Walk is not here", () => {
   it("has no Walk row and no Horizon row: a mode is not a setting", () => {
     const host = render(baseInputs());
-    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
+    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller")).map(nameOf);
     expect(names).not.toContain("Walk");
     expect(names).not.toContain("Horizon");
     expect(host.querySelectorAll("input[type=checkbox]").length).toBe(0);
@@ -191,7 +204,7 @@ describe("View folder — Walk is not here", () => {
 
   it("still carries the two rows a walker re-purposes, in order", () => {
     const host = render(baseInputs());
-    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller .name")).map((n) => n.textContent);
+    const names = Array.from(host.querySelectorAll<HTMLElement>(".controller")).map(nameOf);
     expect(names).toContain("Tilt °");
     expect(names.indexOf("Bearing °")).toBe(names.indexOf("Tilt °") + 1);
     // LOD closes the folder, where Walk/Horizon used to sit in front of it.

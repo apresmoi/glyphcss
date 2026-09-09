@@ -33,7 +33,7 @@ import {
 } from "@glyphcss/maps";
 import { PLACE_TILE_LAYERS, type PlaceTileLayer } from "../../lib/placeTilesProvider";
 import { COUNTRY_TILE_LAYERS, type CountryTileLayer } from "../../lib/countryTilesProvider";
-import { useButton, useDockSlot, useFolder, useReadonlyText, useSlider } from "../Dock/primitives";
+import { useDockSlot, useFolder, useReadonlyText, useSlider, type DockController } from "../Dock/primitives";
 import {
   MAP_BEARING_HOME,
   MAP_BEARING_SLIDER_RANGE,
@@ -2085,6 +2085,19 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
     tiltCtrl?.raw.min(tiltRange.min);
     tiltCtrl?.raw.max(tiltRange.max);
   }, [tiltCtrl, tiltRange.min, tiltRange.max]);
+  // Home is NOT zero for both families: an orbit `tilt` is a signed offset on
+  // top of `cameraForCenter` so 0 is the head-on globe, while a sheet's IS
+  // `camera.rotX` so 0 is a plan view looking straight down — a different map
+  // from the one the page opens at. See `mapTiltResetValue`.
+  const tiltHome = mapTiltResetValue(isOrbitProjection);
+  useRowReset(tiltCtrl, {
+    atHome: mapTiltIsLevel(tilt, isOrbitProjection),
+    label: `Reset the pitch to ${tiltHome}°`,
+    title: `Put the pitch back to ${tiltHome}° — ${isOrbitProjection
+      ? "the globe seen head-on, this projection's own base orientation"
+      : "the isometric pitch this page opens at; 0° would be a plan view looking straight down"}.`,
+    onReset: () => onTilt(tiltHome),
+  });
   // Bearing sits immediately under Tilt because they are the two halves of
   // ONE gesture (`controls.tilt`: vertical pitches, horizontal turns), and a
   // reader who finds one should find the other. Unlike Tilt its range is
@@ -2103,28 +2116,41 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
       "Compass heading at the top of the map. 0° = north up, 90° = east up. Ctrl+drag or right-drag sideways to turn.",
     );
   }, [bearingCtrl]);
-  useTiltAndBearingResets(folder, { tilt, bearing, isOrbitProjection, onTilt, onBearing });
+  useRowReset(bearingCtrl, {
+    atHome: mapBearingIsNorth(bearing),
+    label: "Reset the heading to north",
+    title: "Face the map north-up again. A compass has one home on either projection.",
+    onReset: () => onBearing(MAP_BEARING_HOME),
+  });
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 
 /**
- * The "Reset tilt" / "Reset bearing" rows.
+ * The inline `[reset]` beside a View slider's own label.
  *
- * Asked for by name ("can we add some 'reset' buttons on the VIEW section
- * ... maybe we could have a reset for the tilt and bearing"), and built as
- * lil-gui BUTTON ROWS because that is this Dock's own existing reset idiom —
- * `Dock/folders/useCameraFolder.ts`'s "Reset camera" is the same control in
- * the same shell. A small inline button beside each slider was the other
- * candidate and was rejected on geometry, not taste: a number row is
- * `.name` at 45% plus a widget that already ends in a 45..70px value box
- * (`maps-workbench.rowWidths.test.ts` pins exactly that), so an inline
- * affordance buys itself out of the slider TRACK, which is the part of the
- * row a reader actually drags.
+ * Asked for in exactly that shape, and after a first attempt shipped it as two
+ * full-width lil-gui button rows: "NO, THE RESET BUTTONS HAVE TO BE NEXT TO
+ * THE TILT ° AND BEARING ° LABELS WE CANNOT ADD THOSE HUGE BUTTONS ... tiny
+ * reset button ... [reset]". So it is literally that word in brackets, in the
+ * rail's own monospace, at 9px — the same bracket language the Dock's slider
+ * already draws around its track (`[ ─█──── ]`, gallery-workbench.css) and
+ * the same row scale `/synth`'s `.voice-mode-toggle .gx-toggle-btn` uses when
+ * a segmented control has to live inline in a title row rather than own one.
  *
- * They sit AFTER Bearing rather than one under each slider, because Tilt and
- * Bearing are the two halves of one gesture and must stay adjacent
- * (`useViewFolder` above). Same order as the sliders, so the pairing is
- * readable by position.
+ * It goes in the row's NAME cell, not its widget. That was the geometric
+ * objection to inline in the first place — a number row is `.name` at 45%
+ * plus a widget that already ends in a 45..70px value box, so an affordance
+ * in the WIDGET buys itself out of the slider TRACK, the part a reader
+ * drags. The name cell has the room instead: measured in a real browser on
+ * the running page at the Dock's 360px, the cell is 152.09px (148px of
+ * content), the longer of the two labels is 61.6px and this button 43.2px, so
+ * the worse row uses 110.8 of 148 — and `Tilt °`/`Bearing °`/`Span °` all
+ * still report a 120.05px slider track at the same x, unchanged to the third
+ * decimal from before this existed. `.maps-view-name`'s `max-width:
+ * var(--name-width)` then makes the guarantee structural rather than a
+ * measurement that could rot — lil-gui gives `.name` a `min-width` and no
+ * max, so pinning the max to the same 45% means the cell cannot grow into the
+ * widget however long a label gets.
  *
  * Both write through the folder's OWN `onTilt`/`onBearing` — the callbacks
  * the sliders drive, which `MapsWorkbench` wires to `map.setTilt` /
@@ -2132,45 +2158,49 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
  * ceiling, the `[0, 360)` bearing normalization, the widget's single motion
  * loop and the URL write all live behind those two setters.
  *
- * DISABLED at home, which lil-gui renders as the real `disabled` attribute on
- * the row's own button plus its dimmed `.disabled` class — a reset that would
- * do nothing should look like it, and here it is also the INDICATOR that a
- * pitch or a heading is in force at all (the same job the on-map
+ * DISABLED at home — a real `disabled` attribute on a real `<button>`, so it
+ * is inert rather than merely quiet — which also makes it the INDICATOR that
+ * a pitch or a heading is in force at all (the same job the on-map
  * `MapCompass` does, which resets both angles at once and is the
- * discoverable half of this pair).
+ * discoverable half of this pair). The ROW stays enabled: it is the slider's,
+ * and lil-gui's `.controller.disabled` would take the slider down with it.
  */
-function useTiltAndBearingResets(folder: GUI | null, inputs: {
-  tilt: number;
-  bearing: number;
-  isOrbitProjection: boolean;
-  onTilt: (tilt: number) => void;
-  onBearing: (bearing: number) => void;
-}): void {
-  const { tilt, bearing, isOrbitProjection, onTilt, onBearing } = inputs;
-  // Home is NOT zero for both families: an orbit `tilt` is a signed offset on
-  // top of `cameraForCenter` so 0 is the head-on globe, while a sheet's IS
-  // `camera.rotX` so 0 is a plan view looking straight down — a different map
-  // from the one the page opens at. See `mapTiltResetValue`.
-  const tiltHome = mapTiltResetValue(isOrbitProjection);
-  const tiltReset = useButton(folder, "Reset tilt", () => onTilt(tiltHome));
-  useEffect(() => {
-    tiltReset?.setEnabled(!mapTiltIsLevel(tilt, isOrbitProjection));
-    (tiltReset?.raw.domElement as HTMLElement | undefined)?.setAttribute(
-      "title",
-      `Put the pitch back to ${tiltHome}° — ${isOrbitProjection
-        ? "the globe seen head-on, this projection's own base orientation"
-        : "the isometric pitch this page opens at; 0° would be a plan view looking straight down"}.`,
-    );
-  }, [tiltReset, tilt, isOrbitProjection, tiltHome]);
+function useRowReset(
+  ctrl: DockController<number> | null,
+  inputs: { atHome: boolean; label: string; title: string; onReset: () => void },
+): void {
+  const { atHome, label, title, onReset } = inputs;
+  const onResetRef = useRef(onReset);
+  onResetRef.current = onReset;
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
 
-  const bearingReset = useButton(folder, "Reset bearing", () => onBearing(MAP_BEARING_HOME));
   useEffect(() => {
-    bearingReset?.setEnabled(!mapBearingIsNorth(bearing));
-    (bearingReset?.raw.domElement as HTMLElement | undefined)?.setAttribute(
-      "title",
-      "Face the map north-up again. A compass has one home on either projection.",
-    );
-  }, [bearingReset, bearing]);
+    // `.name` is lil-gui's own documented row class (the tests find rows by
+    // it, and `Controller.$name` is not in the published typings), so this
+    // stays on the same public-DOM footing as the `title` writes above.
+    const name = ctrl?.raw.domElement.querySelector<HTMLElement>(".name");
+    if (!name) return;
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "maps-view-reset";
+    el.textContent = "[reset]";
+    el.addEventListener("click", () => onResetRef.current());
+    name.classList.add("maps-view-name");
+    name.appendChild(el);
+    setButton(el);
+    return () => {
+      el.remove();
+      name.classList.remove("maps-view-name");
+      setButton(null);
+    };
+  }, [ctrl]);
+
+  useEffect(() => {
+    if (!button) return;
+    button.disabled = atHome;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", title);
+  }, [button, atHome, label, title]);
 }
 
 // ── Code panel — reuses `GalleryWorkbench/CodePanel`'s shell (tabs, copy,

@@ -1264,36 +1264,63 @@ button, in the same corner, showing whichever of heading and pitch is off home
 resetting both in one click — which is what a map compass has always done, and
 is why this is not a second button beside the first.
 
-**The Dock's own per-axis resets.** The compass is the DISCOVERABLE reset and
-resets both angles together; the reader also asked for the per-axis pair in the
-place the two sliders live, so the View folder carries `Reset tilt` and `Reset
-bearing` as lil-gui BUTTON ROWS — the Dock's existing reset idiom
-(`Dock/folders/useCameraFolder.ts`'s `Reset camera`), not a new control style.
-An inline button beside each slider was the other candidate and lost on
-geometry: a number row is `.name` at 45% plus a widget ending in a 45..70px
-value box (`maps-workbench.rowWidths.test.ts` pins exactly that), so an inline
-affordance would buy itself out of the slider TRACK, the part of the row a
-reader drags. The two rows sit AFTER `Bearing °`, in slider order, rather than
-one under each slider, because `Tilt °` and `Bearing °` are the two halves of
-one gesture and nothing may be inserted between them. Both write through the
-folder's own `onTilt`/`onBearing` — the callbacks the sliders drive, which
+**The Dock's own per-axis resets are INLINE, in each slider's name cell.** The
+compass is the DISCOVERABLE reset and resets both angles together; the reader
+also asked for the per-axis pair in the place the two sliders live. The first
+attempt shipped them as lil-gui BUTTON ROWS — the Dock's existing reset idiom
+(`Dock/folders/useCameraFolder.ts`'s `Reset camera`) — and was rejected on
+sight: "NO, THE RESET BUTTONS HAVE TO BE NEXT TO THE TILT ° AND BEARING °
+LABELS WE CANNOT ADD THOSE HUGE BUTTONS ... tiny reset button ... [reset]". Two
+full-width rows for two angles is a third of the folder spent on undo.
+
+So each row now carries a `[reset]` of its own — literally that word in
+brackets, 9px monospace, borderless — INSIDE its own `.name` cell, and the View
+folder has exactly the rows it had before the feature existed (`Center lon`,
+`Center lat`, `Span °`, `Tilt °`, `Bearing °`, `LOD`). The bracket is the
+rail's own language, not a new one: the Dock's slider already draws its track
+as `[ ─█──── ]`, and 9px inline is the scale `/synth` drops `.gx-toggle-btn` to
+when a control shares a line rather than owning one.
+
+The geometric objection that killed inline the first time was real but aimed at
+the wrong cell. A number row is `.name` at 45% plus a widget that ends in a
+45..70px value box (`maps-workbench.rowWidths.test.ts` pins exactly that), so an
+affordance in the WIDGET does come out of the slider TRACK — the part of the row
+a reader drags. The NAME cell is where the room is. Measured in a real browser
+on the running page at the Dock's 360px: the cell is 152.09px (148px of
+content), the longer label (`Bearing °`) is 61.6px and the button 43.2px, so the
+worse of the two rows uses 110.8 of 148 with the label untruncated
+(`scrollWidth == clientWidth`), while `Tilt °`, `Bearing °` and the untouched
+`Span °` all still report a 120.05px slider track at the same x — identical to
+the third decimal to the measurement taken before the control existed. The
+guarantee is then made structural rather than left to how long a label happens
+to be: lil-gui gives `.controller > .name` a `min-width: var(--name-width)` and
+NO max, so `.maps-view-name` pins `max-width` to that same 45% and the cell can
+never grow into the widget. Gated three ways in `mapsKit.viewReset.test.tsx` —
+the button's cell, the widget subtree left identical to `Span °`'s, and the
+stylesheet clause itself.
+
+Behaviour is unchanged from the rejected shape. Both write through the folder's
+own `onTilt`/`onBearing` — the callbacks the sliders drive, which
 `MapsWorkbench` wires to `map.setTilt`/`map.setBearing` — so the tilt ceiling,
 the `[0, 360)` bearing normalization, the single motion loop and the URL write
 all still happen; nothing here touches page state directly. Home is
 `mapTiltResetValue`/`MAP_BEARING_HOME`, the same pair the compass uses, so the
 tilt reset is 0 on an ORBIT projection and `MAP_TILT_SHEET_HOME` (40) on a
-SHEET — a button that wrote 0 to both would flatten a sheet into a plan view
-and call it a reset. Each row is DISABLED at its own home
-(`mapTiltIsLevel`/`mapBearingIsNorth`, the compass's epsilons), which lil-gui
-renders as the real `disabled` attribute on the row's button plus its dimmed
-`.disabled` class, so the pair doubles as the indicator that a pitch or a
-heading is in force. One asymmetry worth stating rather than hiding: a bearing
-reset leaves the LINK untouched (`b`'s default is 0, so the codec omits it) and
-so does a SHEET tilt reset (`t`'s default is 40), but an ORBIT tilt reset ADDS
-`t` to the link — `MAPS_URL_DEFAULTS.tilt` is one number, 40, while home is
-projection-dependent. That is correct, not a defect: a head-on globe is not the
-map the default describes, so the link has to say so. Gate:
-`mapsKit.viewReset.test.tsx`.
+SHEET — a control that wrote 0 to both would flatten a sheet into a plan view
+and call it a reset. Each is DISABLED at its own home
+(`mapTiltIsLevel`/`mapBearingIsNorth`, the compass's epsilons) as a real
+`disabled` attribute on a real `<button>`, so the pair doubles as the indicator
+that a pitch or a heading is in force. What could NOT carry over is the dim:
+the row now belongs to the SLIDER, and lil-gui's `.controller.disabled` sets
+`pointer-events: none` on every descendant, so disabling the row would take the
+live slider down with the reset — the button dims itself instead (`:disabled`,
+the same 0.38 the Dock dims a disabled row's name to). One asymmetry worth
+stating rather than hiding: a bearing reset leaves the LINK untouched (`b`'s
+default is 0, so the codec omits it) and so does a SHEET tilt reset (`t`'s
+default is 40), but an ORBIT tilt reset ADDS `t` to the link —
+`MAPS_URL_DEFAULTS.tilt` is one number, 40, while home is projection-dependent.
+That is correct, not a defect: a head-on globe is not the map the default
+describes, so the link has to say so.
 
 **`cameraForCenter` is a 2-to-1 inverse, and the widget remembers which
 preimage it is on.** `centerForCamera`'s parametrization
