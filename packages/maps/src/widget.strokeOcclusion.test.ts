@@ -124,7 +124,18 @@ afterEach(() => {
   stubbedHosts.clear();
 });
 
-function mount(tilt: number = TILT) {
+/**
+ * `"none"` is what every clause here used to mount, and it is the reason the
+ * slack defect below was invisible: with no ground source at all
+ * `groundElevationSampler()` is `null`, `drapedRunPerCell` never runs, and
+ * the whole per-cell drape — the thing the third report was about — is not
+ * in the path. `"datum"` supplies a ground that answers ZERO everywhere, so
+ * every projected vertex, every row and every column is bit-identical to
+ * `"none"`; the ONLY difference is that the draped path executes.
+ */
+type GroundSource = "none" | "datum";
+
+function mount(tilt: number = TILT, ground: GroundSource = "none") {
   const host = document.createElement("div");
   document.body.appendChild(host);
   hostsToRemove.push(host);
@@ -133,6 +144,7 @@ function mount(tilt: number = TILT) {
     view: { center: [CENTRE[0], CENTRE[1]], span: SPAN, cols: COLS, rows: ROWS },
     projection: glyphMapGlobe({ exaggeration: 24 }),
     tilt,
+    ...(ground === "datum" ? { groundElevation: () => 0 } : {}),
   });
   mounted.push(map);
   return map;
@@ -177,6 +189,21 @@ const road: GlyphMapVectorFeature = {
   rings: [[[CENTRE[0] - 0.02, CENTRE[1]], [CENTRE[0] + 0.02, CENTRE[1]]]],
 };
 
+/**
+ * The same street turned ninety degrees. Not a variation for its own sake:
+ * a west-east road runs across the screen at CONSTANT camera depth, so every
+ * neighbour a per-cell drape reads is at the same depth as the sample itself
+ * and any allowance measured off those neighbours is zero by construction.
+ * Every occlusion clause in this file used the west-east road, which is
+ * exactly why an allowance that reads the camera's own depth ramp instead of
+ * the ground's rise could never fail one of them.
+ */
+const roadNorthSouth: GlyphMapVectorFeature = {
+  id: "avenue",
+  geometryType: "line",
+  rings: [[[CENTRE[0], CENTRE[1] - 0.02], [CENTRE[0], CENTRE[1] + 0.02]]],
+};
+
 const rows = (map: { scene: { output: { textContent: string | null } } }): string[] => (map.scene.output.textContent ?? "").split("\n");
 
 /** The columns of `row` this render CHANGED relative to `before` — i.e. the cells the stroke layer itself inked. */
@@ -184,6 +211,15 @@ function inkedColumns(before: readonly string[], after: readonly string[], row: 
   const out: number[] = [];
   for (let col = 0; col < COLS; col++) {
     if ((before[row]?.[col] ?? " ") !== (after[row]?.[col] ?? " ")) out.push(col);
+  }
+  return out;
+}
+
+/** The rows of `col` this render CHANGED — the same measurement down a column, for the north-south road. */
+function inkedRows(before: readonly string[], after: readonly string[], col: number): number[] {
+  const out: number[] = [];
+  for (let row = 0; row < ROWS; row++) {
+    if ((before[row]?.[col] ?? " ") !== (after[row]?.[col] ?? " ")) out.push(row);
   }
   return out;
 }
@@ -198,8 +234,8 @@ describe("createGlyphMap — a building occludes a road passing under it", () =>
    * allowance at any pitch, so no other dimension of this test could have
    * exposed it.
    */
-  const roadIsHiddenByTheBuilding = async (metres: number, tilt: number) => {
-    const map = mount(tilt);
+  const roadIsHiddenByTheBuilding = async (metres: number, tilt: number, ground: GroundSource = "none") => {
+    const map = mount(tilt, ground);
     map.addLayer({ type: "fill-extrusion", id: "buildings", source: { features: [building(metres)] }, color: "#94a3b8", heightProperty: "render_height" });
     await settle();
     map.scene.rerender();
@@ -258,6 +294,77 @@ describe("createGlyphMap — a building occludes a road passing under it", () =>
 
   it("an 8 m building at 70 degrees — the pitch is what set the threshold, so the ceiling has to hold too", async () => {
     await roadIsHiddenByTheBuilding(8, 70);
+  });
+
+  /**
+   * THE THIRD REPORT, and the axis this file was blind to. A stroke drawn on
+   * a map that HAS a ground goes through `drapedRunPerCell`, which hands each
+   * sample a `slack` read off its own screen neighbours. Every clause above
+   * mounts no ground at all, so none of them executes that path; and every
+   * clause above uses a west-east road, whose neighbours sit at the same
+   * camera depth, so even with a ground mounted the allowance would be zero.
+   * Both dimensions have to move at once for the defect to show.
+   *
+   * The ground here answers ZERO everywhere, so the picture is bit-identical
+   * to the clauses above — the road is on the datum, the building stands on
+   * the datum, nothing moves. What changes is only that the draped path runs.
+   */
+  const northSouthRoadIsHiddenByTheBuilding = async (metres: number, tilt: number, ground: GroundSource) => {
+    const map = mount(tilt, ground);
+    map.addLayer({ type: "fill-extrusion", id: "buildings", source: { features: [building(metres)] }, color: "#94a3b8", heightProperty: "render_height" });
+    await settle();
+    map.scene.rerender();
+    const before = rows(map);
+
+    map.addLayer({ type: "line", id: "roads", source: { features: [roadNorthSouth] }, color: "#e8c988" });
+    await settle();
+    map.scene.rerender();
+    const after = rows(map);
+
+    // The road runs down the view centre, so its own column is the centre
+    // column — asserted, not assumed, exactly as the row is above.
+    const centre = map.project([CENTRE[0], CENTRE[1]]);
+    const roadCol = Math.floor(centre.col);
+    const south = map.project([CENTRE[0], CENTRE[1] - HALF]);
+    const north = map.project([CENTRE[0], CENTRE[1] + HALF]);
+    const footprintTop = Math.ceil(Math.min(south.row, north.row));
+    const footprintBottom = Math.floor(Math.max(south.row, north.row));
+    expect(footprintBottom - footprintTop).toBeGreaterThan(5);
+
+    const inked = inkedRows(before, after, roadCol);
+
+    // 1. Not one cell strictly inside the building's own footprint.
+    expect(inked.filter((row) => row > footprintTop && row < footprintBottom)).toEqual([]);
+
+    // 2. The same road inks in the open on BOTH sides of it.
+    expect(inked.filter((row) => row < footprintTop - 1).length).toBeGreaterThan(3);
+    expect(inked.filter((row) => row > footprintBottom + 1).length).toBeGreaterThan(3);
+
+    // 3. Those footprint cells still show the BUILDING — occlusion, not a hole.
+    for (let row = footprintTop + 1; row < footprintBottom; row++) {
+      expect(after[row]?.[roadCol]).not.toBe(" ");
+    }
+  };
+
+  it("a north-south road with no ground source — the orientation alone changes nothing", async () => {
+    await northSouthRoadIsHiddenByTheBuilding(LOW_BUILDING_M, TILT, "none");
+  });
+
+  it("a north-south road over a ground that answers zero — the third report", async () => {
+    await northSouthRoadIsHiddenByTheBuilding(LOW_BUILDING_M, TILT, "datum");
+  });
+
+  it("the same, at a 12 m building — the threshold moved with the pitch, so the height axis has to hold too", async () => {
+    await northSouthRoadIsHiddenByTheBuilding(12, TILT, "datum");
+  });
+
+  it("and at 60 degrees, where one row of flat ground spans half again as much depth", async () => {
+    await northSouthRoadIsHiddenByTheBuilding(20, 60, "datum");
+  });
+
+  it("the west-east clauses hold over a ground source too — the draped path must not lose them", async () => {
+    await roadIsHiddenByTheBuilding(LOW_BUILDING_M, TILT, "datum");
+    await roadIsHiddenByTheBuilding(BUILDING_M, TILT, "datum");
   });
 
   it("still draws the road where terrain stands under it — the road lies ON that terrain, and a surface does not occlude what lies on it", async () => {

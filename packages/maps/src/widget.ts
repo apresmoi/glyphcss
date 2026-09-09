@@ -740,7 +740,7 @@ export const GLYPH_MAP_FILL_DRAPES: readonly GlyphMapFillDrape[] = ["surface", "
  * the sea differently writes their own.
  *
  * A feature this answers `"flat"` for is built at the datum EXACTLY — no
- * ground is read for it and {@link GLYPH_MAP_FILL_DRAPE_LIFT_M} is not added,
+ * ground is read for it and {@link GLYPH_MAP_DRAPE_LIFT_M} is not added,
  * because that lift exists to clear the disagreement between the drape and
  * the coarsened relief quads and a sheet at the datum shares no surface with
  * the relief.
@@ -748,30 +748,82 @@ export const GLYPH_MAP_FILL_DRAPES: readonly GlyphMapFillDrape[] = ["surface", "
 export type GlyphMapFillDrapeFor = (feature: GlyphMapVectorFeature) => GlyphMapFillDrape;
 
 /**
- * Raw metres (pre-exaggeration, like `GLYPH_MAP_HEATMAP_SURFACE_LIFT_M`)
- * added on top of the sample a draped `fill` reads.
+ * The TRUE metres (see {@link glyphMapTrueScaleElevation}) anything DRAPED on
+ * the ground clears it by — a `fill` cap and a `line`'s vertices alike. A
+ * TIE-BREAK and nothing more.
  *
- * A draped fill and the relief under it are the SAME surface reached by two
- * different meshes: the terrain rasterizes from a quad grid coarsened per
- * pyramid level, while the drape reads the tile's full-resolution bilinear
- * field, so between two coarse quad corners the fill can legitimately sit
- * BEHIND the terrain drawn there and be eaten cell by cell. glyphcss's
- * depth-test deadband cannot help: it is relative and applies only to a
- * perspective z-buffer, and every camera here is orthographic, which takes
- * the plain `>` test.
+ * A draped surface IS the terrain's own surface, and an orthographic camera
+ * takes the plain `>` depth test, so a fill sitting exactly on the ground
+ * loses every cell of itself to whoever drew first — measured on
+ * `widget.fillDrape.test.ts`'s real-ETOPO1 Titicaca fixture, **0 cells at a
+ * lift of 0**. glyphcss's depth-test deadband cannot help: it is relative and
+ * applies only to a perspective z-buffer, and every camera here is
+ * orthographic.
  *
- * It is the same trick, for the same reason and in the same unit, as the
- * heatmap's own surface lift — small enough to read as "on the surface" at
- * any exaggeration, large enough to clear both the mesh disagreement and
- * ETOPO1's whole-metre quantization.
+ * WHY TRUE METRES, AND WHY THIS IS NO LONGER WHERE THE DISAGREEMENT IS
+ * CLEARED. This lift used to be 10 metres on the PROJECTION's elevation axis,
+ * sized to clear the whole disagreement between the drape (the tile's
+ * full-resolution field) and the coarsened relief quads the terrain
+ * rasterizes from. That axis is the TERRAIN's, and `exaggeration` multiplies
+ * it: at `/maps`' own default 24x, ten of those is 240 TRUE metres of world.
+ * A `fill-extrusion`'s height is true metres and exempt from that factor by
+ * design, so every building inside a landuse or landcover polygon was drawn
+ * BEHIND the polygon it stands in (measured on the Zurich fixture with a
+ * ground source: 0 cells at 6 m, 30 m, 100 m and 200 m against 450 with no
+ * ground at all) and every draped `line` crossing one was deleted whole (0 of
+ * the 70-odd cells inside it).
  *
- * MEASURED on `widget.fillDrape.test.ts`'s own real-ETOPO1 Titicaca fixture,
- * cells of the lake's fill that survive the terrain's depth test: **0 at a
- * lift of 0**, 192 at 1 m, and the full 567 from 3 m upward, unchanged at
- * 20 m and at 50 m. Zero is not a rounding loss — a draped fill IS the
- * terrain's surface, and every tie goes to whoever drew first.
+ * The two frames cannot be reconciled by any constant — what the lift was
+ * sized for is a TERRAIN quantity that scales with exaggeration, and a
+ * building is a true-scale one that does not — so the disagreement is
+ * MEASURED instead ({@link GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS}) and this is
+ * left with only the tie to break. One true metre is below every structure a
+ * vector source carries (the vendored OpenFreeMap tile's shortest
+ * `render_height` is 3 m) and is 4 cm on the elevation axis at `/maps`' 24x,
+ * so it moves no cell of anything standing on the same ground.
+ *
+ * BOTH draped families take it, and that is what lets a road cross a park.
+ * A `line` is stamped post-raster against the depth a `fill` cap wrote, so a
+ * fill even a millimetre above the road deletes the whole crossing (measured:
+ * 0 of the 70-odd cells inside the polygon, at every lift down to one true
+ * metre). Lifting the two by the SAME amount makes them coplanar again, which
+ * is what they are on the ground.
  */
-const GLYPH_MAP_FILL_DRAPE_LIFT_M = 10;
+const GLYPH_MAP_DRAPE_LIFT_M = 1;
+
+/**
+ * How far, in output CELLS, a draped `fill` looks for the ground's own rise
+ * around each vertex — the disagreement its lift has to clear.
+ *
+ * SAME QUANTITY AND SAME REASONING as a stamped stroke's
+ * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS}, and necessarily so: the two
+ * lie on the same ground and are tested against the same terrain. A `fill`
+ * cap reads the tile's full-resolution field while the terrain rasterizes
+ * from quads `reliefFractionForLevel` targets at ONE PER CELL, so between two
+ * quad corners the drape can legitimately sit behind the terrain drawn there
+ * and be eaten cell by cell. The ground's own rise across that span is the
+ * bound on how far the two can disagree, and it is ZERO on flat ground at
+ * every exaggeration — which is what keeps a 6 m building inside a park
+ * visible, and what no constant could do.
+ */
+const GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS = 2;
+
+/**
+ * The eight compass directions, in units of
+ * {@link GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS} cells, that a draped `fill` cap
+ * and a marched `contour` read the ground in around each of their vertices.
+ *
+ * Eight rather than a stroke's two: {@link drapedRunPerCell} takes the
+ * along-line pair from the run's own densified samples and only has to ask
+ * for the rest of the compass, while neither of these has a densified run to
+ * take anything from — a cap is a SHEET and a contour's segments are cut one
+ * quad at a time in the field's own domain.
+ */
+const GLYPH_MAP_GROUND_PROBE_RING: readonly (readonly [number, number])[] = [
+  [1, 0], [-1, 0], [0, 1], [0, -1],
+  [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2],
+  [-Math.SQRT1_2, Math.SQRT1_2], [-Math.SQRT1_2, -Math.SQRT1_2],
+];
 
 export interface GlyphMapFillLayer {
   readonly type: "fill"; readonly id?: string; readonly source: GlyphMapVectorSource;
@@ -2356,8 +2408,45 @@ function reliefFractionForLevel(level: GlyphMapProviderZoomLevel, degPerCell: nu
  * stroke's own per-cell drape samples rather than estimated — so it is zero on
  * flat ground at every pitch and every zoom, which is what keeps a building
  * occluding the road beside it (`widget.strokeOcclusion.test.ts`).
+ *
+ * THAT RISE IS MEASURED IN ELEVATION AND CONVERTED BY THE PROJECTION, NOT
+ * READ OFF THE NEIGHBOURS' CAMERA DEPTH — and the difference is the whole
+ * finding of the third "roads through buildings" report. A sample's `depth`
+ * is `project()[2]`, so two neighbours on PERFECTLY FLAT ground differ by a
+ * full row of the view's own depth ramp whenever the stroke has a
+ * screen-vertical component: ~8 m at `/maps`' 40 degree pitch, ~12 m at 60.
+ * `max(neighbour.depth) - depth` therefore handed a north-south road two rows
+ * of that ramp on ground with no rise in it at all, and a 6-12 m building
+ * stopped occluding the street beside it at 40 degrees, a 20 m one at 60 —
+ * the pitch-indexed threshold `781486f` removed, back through a different
+ * door for one stroke direction. Elevation cannot express the camera: the
+ * neighbours' own ground ELEVATIONS are compared (metres, camera-free), and
+ * only when one of them is genuinely higher is that difference converted into
+ * depth — by re-projecting the sample's OWN lon/lat at that higher elevation,
+ * which is exact for every projection and costs a projection only where
+ * there is real relief to forgive.
  */
 const GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS = 2;
+
+/**
+ * The directions, in the stroke's own along/across frame, that the ground is
+ * read in around a drape sample — the six the run's own samples cannot give.
+ *
+ * The quantity being bounded is the ground's rise anywhere within
+ * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} cells of the stroke, in ANY
+ * direction, because `stampGlyphMapPolyline` reconstructs the surface from a
+ * central difference in BOTH screen axes. The run's own densified samples
+ * already cover the two ALONG-line directions (at every radius, not just the
+ * outer one) — these are the rest of the compass at the support radius.
+ * Measured on the Sahara fixture at the reported view, the two across-line
+ * probes alone left 60 of 240 samples killed and a 8-column hole in a border
+ * that has no occluder at all at `tilt: 0`; the full ring leaves none.
+ */
+const GLYPH_MAP_STROKE_GROUND_RING: readonly (readonly [number, number])[] = [
+  [0, 1], [0, -1],
+  [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2],
+  [-Math.SQRT1_2, Math.SQRT1_2], [-Math.SQRT1_2, -Math.SQRT1_2],
+];
 
 /**
  * The sub-interval of a screen-space segment that can reach the grid, as
@@ -2396,37 +2485,90 @@ function onScreenSegmentSpan(
 }
 
 /**
+ * One drape sample: the stroke vertex the stamper consumes, plus the lon/lat
+ * and the GROUND ELEVATION it was drawn at — the two the slack pass needs and
+ * a projected vertex cannot give back.
+ */
+interface GlyphMapDrapeSample extends GlyphMapStrokeVertex {
+  readonly lon: number;
+  readonly lat: number;
+  /** The elevation this sample was actually projected at (a non-finite ground read has already fallen back to the datum here). */
+  readonly elev: number;
+}
+
+/**
+ * The run's own local direction at sample `i`, as a UNIT vector in the
+ * east/north frame (degrees of longitude are scaled by `cos(lat)` so the two
+ * axes are the same ground length). `[0, 0]` when the neighbours give nothing
+ * to take a direction from.
+ */
+function strokeDirection(out: readonly GlyphMapDrapeSample[], i: number): readonly [number, number] {
+  const a = out[i - 1] ?? out[i];
+  const b = out[i + 1] ?? out[i];
+  const cosLat = Math.max(1e-6, Math.cos((out[i].lat * Math.PI) / 180));
+  const east = (b.lon - a.lon) * cosLat;
+  const north = b.lat - a.lat;
+  const len = Math.hypot(east, north);
+  return len > 0 ? [east / len, north / len] : [0, 0];
+}
+
+/**
+ * How many DEGREES of ground one output cell spans at sample `i`, read off
+ * the run's own consecutive samples — the local scale, taken from the drape
+ * rather than from the view, so it needs no unprojection and stays right
+ * under a tilt and near a globe's limb where a cell spans far more ground
+ * than `span / cols` says. `0` when the neighbours are coincident on screen.
+ */
+function geoDegreesPerCell(out: readonly GlyphMapDrapeSample[], i: number): number {
+  const a = out[i - 1] ?? out[i];
+  const b = out[i + 1] ?? out[i];
+  if (a === b) return 0;
+  const screen = Math.hypot(b.col - a.col, b.row - a.row);
+  if (!(screen > 0) || !Number.isFinite(screen)) return 0;
+  const cosLat = Math.max(1e-6, Math.cos((out[i].lat * Math.PI) / 180));
+  return Math.hypot((b.lon - a.lon) * cosLat, b.lat - a.lat) / screen;
+}
+
+/**
  * Drape one already-visibility-clipped lon/lat run at ONE SAMPLE PER OUTPUT
  * CELL, and give every sample the ground-support slack the depth test needs
  * (see {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS}).
  *
- * `vertexAt` is the caller's own single-vertex drape — one ground read and one
+ * `sampleAt` is the caller's own single-vertex drape — one ground read and one
  * projection — so this adds exactly one of each per sample the stamper was
  * already walking, and only over the part of a segment that can reach the
  * grid. Source vertices are always kept, so a run's own shape is never
- * resampled away.
+ * resampled away. Its optional third argument overrides the ground read with
+ * a given elevation, which is how the slack below is converted into depth.
  *
  * The slack is read off the drape itself rather than probed for: after this
  * pass consecutive samples are at most one cell apart on screen, so the
  * neighbours within {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} cells ARE
- * the ground over the span the comparison reads from, already projected and
- * already in depth units. Distance is tested rather than assumed, so the
- * samples on either side of a long off-screen stretch (which is deliberately
- * not densified) contribute nothing rather than a whole tile's relief.
+ * the ground over the span the comparison reads from, already sampled.
+ * Distance is tested rather than assumed, so the samples on either side of a
+ * long off-screen stretch (which is deliberately not densified) contribute
+ * nothing rather than a whole tile's relief.
+ *
+ * What is compared is their ELEVATION, not their depth — see
+ * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} for the pitch-indexed defect
+ * the depth form was. A sample whose neighbours are all at its own elevation
+ * (every flat-ground case, at every pitch, every zoom and every stroke
+ * direction) takes no slack and costs no extra projection.
  */
 function drapedRunPerCell(
   run: readonly (readonly [number, number])[],
-  vertexAt: (lon: number, lat: number) => GlyphMapStrokeVertex,
+  sampleAt: (lon: number, lat: number, elevOverride?: number) => GlyphMapDrapeSample,
+  groundAt: (lon: number, lat: number) => number,
   cols: number,
   rows: number,
 ): GlyphMapStrokeVertex[] {
   if (run.length === 0) return [];
-  const out: GlyphMapStrokeVertex[] = [vertexAt(run[0][0], run[0][1])];
+  const out: GlyphMapDrapeSample[] = [sampleAt(run[0][0], run[0][1])];
   for (let i = 1; i < run.length; i++) {
     const [lonA, latA] = run[i - 1];
     const [lonB, latB] = run[i];
     const a = out[out.length - 1];
-    const b = vertexAt(lonB, latB);
+    const b = sampleAt(lonB, latB);
     const span = onScreenSegmentSpan(a.col, a.row, b.col, b.row, cols, rows);
     if (span !== null) {
       const [t0, t1] = span;
@@ -2434,7 +2576,7 @@ function drapedRunPerCell(
       for (let k = 0; k <= steps; k++) {
         const t = t0 + ((t1 - t0) * k) / Math.max(1, steps);
         if (t <= 0 || t >= 1) continue;
-        out.push(vertexAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t));
+        out.push(sampleAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t));
       }
     }
     out.push(b);
@@ -2450,16 +2592,64 @@ function drapedRunPerCell(
   for (let i = 0; i < out.length; i++) {
     const v = out[i];
     if (!Number.isFinite(v.depth) || !Number.isFinite(v.col) || !Number.isFinite(v.row)) continue;
-    let highest = v.depth;
+    let highest = v.elev;
     for (const step of [-1, 1]) {
       for (let k = 1, j = i + step; k <= reach && j >= 0 && j < out.length; k++, j += step) {
         const n = out[j];
         if (!Number.isFinite(n.col) || !Number.isFinite(n.row)) break;
         if (Math.hypot(n.col - v.col, n.row - v.row) > support) break;
-        if (n.depth > highest) highest = n.depth;
+        if (n.elev > highest) highest = n.elev;
       }
     }
-    if (highest > v.depth) out[i] = { ...v, slack: highest - v.depth };
+    // ACROSS the stroke as well as along it. The samples above lie ON the
+    // line, so their spread is the ground's rise in ONE direction — and the
+    // comparison in `stampGlyphMapPolyline` is not one-dimensional: it
+    // reconstructs the surface through a central difference in BOTH screen
+    // axes, so a border running along a parallel is tested against ground to
+    // the north and south of it that no sample on the line ever reads.
+    // Measured on the Sahara fixture, the along-line term alone left 122 of
+    // 240 samples killed and the reconstruction's own row term was the largest
+    // single piece of what remained.
+    //
+    // The reach is {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} CELLS, and
+    // cells are not square in ground units: this widget's own default is 8x16
+    // px, so one row spans twice the ground one column does, and a fixed
+    // number of DEGREES either side of the line is the right reach in at most
+    // one direction. So the scale is measured rather than assumed — one
+    // projection of a trial offset says how many cells that offset moves, and
+    // the reach is scaled to `support` of them. The trial is taken at the
+    // sample's OWN elevation (`elevOverride`), so it reads no ground and
+    // asks a pure projection question.
+    const stride = geoDegreesPerCell(out, i);
+    const [aheadEast, aheadNorth] = strokeDirection(out, i);
+    if (stride > 0 && (aheadEast !== 0 || aheadNorth !== 0)) {
+      const cosLat = Math.max(1e-6, Math.cos((v.lat * Math.PI) / 180));
+      // A quarter turn in the east/north frame; the along-line axis is
+      // already covered by the walk above.
+      const acrossEast = -aheadNorth;
+      const acrossNorth = aheadEast;
+      const offset = (deg: number, sign: number): readonly [number, number] =>
+        [v.lon + (sign * acrossEast * deg) / cosLat, v.lat + sign * acrossNorth * deg];
+      const [trialLon, trialLat] = offset(stride, 1);
+      const trial = sampleAt(trialLon, trialLat, v.elev);
+      const trialCells = Math.hypot(trial.col - v.col, trial.row - v.row);
+      const reachDeg = Number.isFinite(trialCells) && trialCells > 0 ? (stride * support) / trialCells : stride * support;
+      for (const [du, dv] of GLYPH_MAP_STROKE_GROUND_RING) {
+        const lon = v.lon + ((acrossEast * dv + aheadEast * du) * reachDeg) / cosLat;
+        const lat = v.lat + (acrossNorth * dv + aheadNorth * du) * reachDeg;
+        const probe = groundAt(lon, lat);
+        if (Number.isFinite(probe) && probe > highest) highest = probe;
+      }
+    }
+    if (highest <= v.elev) continue;
+    // Converted by the PROJECTION, at this sample's own lon/lat: how much
+    // nearer this cell's surface would be if the ground here stood as high as
+    // the highest ground within the support radius. Exact for any projection
+    // (a globe's elevation axis is radial and a sheet's is not, and neither
+    // needs stating here), and never negative — where raising the ground
+    // moves it AWAY from the camera there is nothing to forgive.
+    const raised = sampleAt(v.lon, v.lat, highest).depth;
+    if (Number.isFinite(raised) && raised > v.depth) out[i] = { ...v, slack: raised - v.depth };
   }
   return out;
 }
@@ -4923,6 +5113,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // fallback covers it unchanged.
     const supplied = opts.groundElevation;
     if (supplied) return (lon, lat) => supplied(lon, lat) ?? NaN;
+    const read = rasterGroundElevationReader();
+    if (!read) return null;
+    return (lon, lat) => {
+      const value = read(lon, lat);
+      return Number.isFinite(value) ? value : 0;
+    };
+  }
+
+  /**
+   * The mounted `raster` layers' own ground, topmost first, WITHOUT
+   * {@link groundElevationSampler}'s datum fallback — `NaN` where no mounted
+   * tile covers the point, `null` where no raster layer is mounted at all.
+   *
+   * It exists because one consumer needs to tell "the terrain says zero here"
+   * apart from "the terrain has nothing to say yet": the heatmap keeps a
+   * mosaic of its own as a last resort, and folding a not-yet-mounted tile
+   * into the datum would drop its relief onto the datum instead.
+   */
+  function rasterGroundElevationReader(): ((lon: number, lat: number) => number) | null {
     const runtimes: RasterLayerRuntime[] = [];
     for (let i = layerOrder.length - 1; i >= 0; i--) {
       const state = layerStates.get(layerOrder[i]);
@@ -4934,7 +5143,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const value = runtime.groundElevationAt(lon, lat);
         if (Number.isFinite(value)) return value;
       }
-      return 0;
+      return NaN;
     };
   }
 
@@ -5057,7 +5266,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // `visibleStrokeRuns`. A flat projection returns the ring by
           // identity, so its stamped output is byte-identical to before.
           for (const run of visibleStrokeRuns(ring, baseGrid)) {
-          const vertexAt = (lon: number, lat: number): GlyphMapStrokeVertex => {
+          /** The ground the drape stands on, with the same datum fallback every vertex takes — the raw field, for the slack pass's own cross-stroke probes. */
+          const strokeDrapeLift = groundElevationAt ? glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, projection) : 0;
+          const groundReadAt = (lon: number, lat: number): number => {
+            const sampled = groundElevationAt ? groundElevationAt(lon, lat) : 0;
+            return Number.isFinite(sampled) ? sampled : 0;
+          };
+          const vertexAt = (lon: number, lat: number, elevOverride?: number): GlyphMapDrapeSample => {
             // DRAPED: the vertex is projected at the ground elevation under
             // its own lon/lat, so it is drawn where the terrain it belongs to
             // is drawn. Everything else in the scene already stands on the
@@ -5072,8 +5287,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             // to the datum rather than poisoning the vertex with NaN — the
             // same "the honest base is the datum" rule `groundElevationSampler`
             // states for a map with no raster layer at all.
-            const groundElev = groundElevationAt ? groundElevationAt(lon, lat) : 0;
-            const world = projection.project(lon, lat, Number.isFinite(groundElev) ? groundElev : 0);
+            // `elevOverride` is the slack pass asking what THIS lon/lat would
+            // project to if its ground stood higher — see `drapedRunPerCell`.
+            // It bypasses the ground read entirely, so the answer is a pure
+            // projection question and cannot re-enter the sampler.
+            const sampled = elevOverride !== undefined ? elevOverride : groundElevationAt ? groundElevationAt(lon, lat) : 0;
+            const groundElev = Number.isFinite(sampled) ? sampled : 0;
+            // The same true-metre tie-break a draped `fill` cap takes — see
+            // {@link GLYPH_MAP_DRAPE_LIFT_M} — so a road crossing a park is
+            // coplanar with it rather than a millimetre inside it. It is added
+            // to the PROJECTION and not to `groundElev`, so the slack pass
+            // above still compares raw ground against raw ground; and only
+            // where there is a ground to drape on at all, which is what keeps
+            // a terrain-free map byte-identical.
+            const world = projection.project(lon, lat, groundElev + strokeDrapeLift);
             // `baseGrid` (NOT the live `projectionGrid()`) is what makes this
             // a SCENE/base-grid col/row — see `StrokeLayerRuntime`'s doc.
             // `composedTransformCells` restores `camera`'s zoom/center/
@@ -5093,7 +5320,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             // the same lon/lat taken at the ground, to forgive that offset in
             // the depth test — was the workaround for projecting here at the
             // datum, and it is exactly the projection this line now IS.
-            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
+            return { col: local.col, row: local.row, depth: p[3] ?? p[2], lon, lat, elev: groundElev };
           };
           // PER CELL, not per source vertex, wherever there is a ground to
           // read. `stampGlyphMapPolyline` walks a segment at one sample per
@@ -5111,7 +5338,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // everywhere, there is nothing per cell to sample, and the whole
           // expression stays the pre-drape one, vertex for vertex.
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
-            ? drapedRunPerCell(run, vertexAt, grid.cols, grid.rows)
+            ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows)
             : run.map(([lon, lat]) => vertexAt(lon, lat));
           stampGlyphMapPolyline(grid, verts, { color });
           }
@@ -5421,8 +5648,134 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
        */
       const degPerCell = glyphMapDegreesPerCell(getView());
       const margin = degPerCell > 0 ? (2 * geometryQuadDeg) / degPerCell + 2 : Infinity;
+
+      /**
+       * THE SAME ALLOWANCE A DRAPED `line` TAKES, for the same reason and out
+       * of the same mechanism — see
+       * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS}.
+       *
+       * Since a contour became GEOMETRY it is a vertex-projected polyline
+       * compared, one-sidedly, against the terrain's depth buffer — exactly
+       * the comparison the `line` layer needed this for. Its vertices are cut
+       * on the field's own vertex grid at the level's exact elevation while
+       * the terrain rasterizes from quads coarsened per pyramid level, and
+       * the surface a cell's depth was reconstructed from can stand anywhere
+       * within the comparison's own support of the line. Measured on the real
+       * ETOPO1 Sahara fixture at `tilt: 0` — a pitch at which an orthographic
+       * camera cannot self-occlude, so every kill is a false positive — the
+       * terrain deleted 1,166 contour cells at the reported span, 520 at a
+       * country span and 296 at true scale
+       * (`widget.contourRelief.test.ts`).
+       *
+       * The bound is the ground's own rise across that support, converted by
+       * the projection at the vertex's own lon/lat — never in camera depth,
+       * which cannot tell a rising ground from a pitched camera.
+       */
       const minCol = -margin, maxCol = baseGrid.cols + margin;
       const minRow = -margin, maxRow = baseGrid.rows + margin;
+
+      // The comparison's own support PLUS one relief quad. Both terms are
+      // real and neither subsumes the other: `stampGlyphMapPolyline`
+      // reconstructs the surface from a +/-1 cell central difference
+      // evaluated up to half a cell away, and the surface it reconstructs is
+      // a CHORD across a whole quad of the field — which at a country span is
+      // around six output cells wide, so a reach of two cells reads none of
+      // the ground that chord was cut from. Measured on the Sahara fixture
+      // (`widget.contourRelief.test.ts`), the two-cell reach alone left 134
+      // false kills at the reported view and widening it in CELLS saturated
+      // there; adding the quad took it to 100, and a second quad bought 23
+      // more at the reported view while COSTING at a country span, so one is
+      // where the evidence stops.
+      const supportReachDeg = degPerCell * GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS + geometryQuadDeg;
+      const fieldValueAt = (lon: number, lat: number): number => {
+        for (const piece of mosaic) {
+          const value = piece.valueAt(lon, lat);
+          if (Number.isFinite(value)) return value;
+        }
+        return NaN;
+      };
+      /** How much DEPTH one metre on the elevation axis buys at `(lon, lat)` — the converter the slack above is stated in terms of. One projection; every projection here is affine in elevation, so it is exact and not a linearization. */
+      const depthPerElevation = (lon: number, lat: number, level: number, depth: number): number => {
+        const lifted = camera.project(projection.project(lon, lat, level + 1), baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+        const liftedDepth = lifted[3] ?? lifted[2];
+        return Number.isFinite(liftedDepth) ? liftedDepth - depth : 0;
+      };
+      const slackAt = (lon: number, lat: number, level: number, perMetre: number): number => {
+        if (!(perMetre > 0) || !(supportReachDeg > 0)) return 0;
+        const reachLon = supportReachDeg / Math.max(1e-6, Math.cos((lat * Math.PI) / 180));
+        // The vertex's OWN elevation is the level it was cut at, exactly —
+        // there is nothing to sample for it.
+        let highest = level;
+        for (const [dLon, dLat] of GLYPH_MAP_GROUND_PROBE_RING) {
+          const probe = fieldValueAt(lon + dLon * reachLon, lat + dLat * supportReachDeg);
+          if (Number.isFinite(probe) && probe > highest) highest = probe;
+        }
+        return highest > level ? (highest - level) * perMetre : 0;
+      };
+      /**
+       * One marching segment as a run of stamped vertices — PER OUTPUT CELL,
+       * each carrying its own ground-support slack.
+       *
+       * BOTH HALVES ARE THE `line` LAYER'S, and deliberately so (see
+       * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} and
+       * {@link drapedRunPerCell}); a contour has been a vertex-projected
+       * polyline tested one-sidedly against the terrain's depth buffer ever
+       * since it became geometry, which is exactly the case that mechanism
+       * was written for.
+       *
+       *  1. THE SLACK. The vertices are cut on the field's own vertex grid at
+       *     the level's exact elevation while the terrain rasterizes from
+       *     quads coarsened per pyramid level, so the surface a cell's depth
+       *     was reconstructed from can stand anywhere within the comparison's
+       *     own support of the line. The bound is the ground's own RISE across
+       *     that support, converted by the projection — never a camera-depth
+       *     difference, which cannot tell a rising ground from a pitched
+       *     camera.
+       *  2. THE CHORD. A marching segment is a straight chord across one quad
+       *     of the field, while the isoline inside that quad is the bilinear
+       *     level set — a curve. At a country span one quad is around six
+       *     output cells, and `stampGlyphMapPolyline` interpolates both
+       *     position and depth linearly between the vertices it is handed, so
+       *     the interior of a segment was tested with the average of its two
+       *     ends' evidence and none of its own.
+       *
+       * Measured on the real ETOPO1 Sahara fixture at `tilt: 0` — a pitch at
+       * which an orthographic camera cannot self-occlude, so every kill is a
+       * false positive — the terrain deleted 1,166 contour cells at the
+       * reported span, 520 at a country span and 296 at true scale; with the
+       * slack alone 134 / 14 / 134 survived as kills, and widening its reach
+       * saturated there rather than closing it, because the residual was the
+       * chord and not the support. See `widget.contourRelief.test.ts`.
+       */
+      const contourRun = (
+        aLon: number, aLat: number, bLon: number, bLat: number, level: number,
+        aCol: number, aRow: number, aDepth: number,
+        bCol: number, bRow: number, bDepth: number,
+      ): GlyphMapStrokeVertex[] => {
+        const perMetre = depthPerElevation(aLon, aLat, level, aDepth);
+        const cells = Math.hypot(bCol - aCol, bRow - aRow);
+        // Bounded because a segment straddling the limb can project to a
+        // nonsense length; past this the samples are all inside one cell
+        // anyway.
+        const steps = Number.isFinite(cells) ? Math.max(1, Math.min(64, Math.ceil(cells))) : 1;
+        const out: GlyphMapStrokeVertex[] = [];
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const lon = aLon + (bLon - aLon) * t;
+          const lat = aLat + (bLat - aLat) * t;
+          // Position and depth are LERPED rather than re-projected: this is
+          // the same chord `stampGlyphMapPolyline` would have walked, so the
+          // ink lands where it always did and only the evidence per cell is
+          // new.
+          out.push({
+            col: aCol + (bCol - aCol) * t,
+            row: aRow + (bRow - aRow) * t,
+            depth: aDepth + (bDepth - aDepth) * t,
+            slack: slackAt(lon, lat, level, perMetre),
+          });
+        }
+        return out;
+      };
 
       const polylines: GlyphMapContourPolyline[] = [];
       for (const segment of segments) {
@@ -5459,7 +5812,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const lb = glyphMapSceneToLocalCell(pb[0], pb[1], cellToSceneGrid);
           polylines.push({
             level: segment.level,
-            points: [{ col: la.col, row: la.row, depth: pa[3] ?? pa[2] }, { col: lb.col, row: lb.row, depth: pb[3] ?? pb[2] }],
+            points: contourRun(
+              segment.a[0], segment.a[1], segment.b[0], segment.b[1], segment.level,
+              la.col, la.row, pa[3] ?? pa[2], lb.col, lb.row, pb[3] ?? pb[2],
+            ),
           });
           continue;
         }
@@ -5468,12 +5824,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // repeat its bisection here.
         for (const run of visibleStrokeRuns([segment.a, segment.b], baseGrid)) {
           if (run.length < 2) continue;
-          const points: GlyphMapStrokeVertex[] = run.map(([lon, lat]) => {
+          const placed = run.map(([lon, lat]) => {
             const world = projection.project(lon, lat, segment.level);
             const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
             const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
-            return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
+            return { lon, lat, col: local.col, row: local.row, depth: p[3] ?? p[2] };
           });
+          const points: GlyphMapStrokeVertex[] = [];
+          for (let i = 1; i < placed.length; i++) {
+            const a = placed[i - 1];
+            const b = placed[i];
+            const piece = contourRun(a.lon, a.lat, b.lon, b.lat, segment.level, a.col, a.row, a.depth, b.col, b.row, b.depth);
+            points.push(...(i === 1 ? piece : piece.slice(1)));
+          }
           polylines.push({ level: segment.level, points });
         }
       }
@@ -5739,6 +6102,46 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return option === true ? { texture: GLYPH_MAP_FACADE_TEXTURE } : option;
   }
 
+  /**
+   * How far, ON THE PROJECTION'S OWN ELEVATION AXIS, a straight chord spanning
+   * `reachLon` degrees either side of `centre` falls below the surface it
+   * spans — the SECOND thing a draped cap has to clear, and the one no
+   * elevation reading can see.
+   *
+   * A globe's relief mesh is made of chords, and so is a draped fill's cap;
+   * where the two are triangulated differently they sag by different amounts,
+   * and the fill can end up inside the terrain on ground with no relief in it
+   * at all. Measured on `widget.fillDrape.test.ts`'s tiered provider — a
+   * synthetic terrain whose elevation is UNIFORM per tier, i.e. zero rise
+   * anywhere — the fill still drew 0 cells with only the rise term and the
+   * tie-break, at a span where this sag is 79 m of world.
+   *
+   * Measured rather than derived, and so projection-agnostic by
+   * construction: a SHEET's chords lie in its own plane and this answers
+   * exactly `0`, with no `projection.id` anywhere near it. Once per build —
+   * it is a property of the view's scale, not of any one vertex.
+   */
+  function drapeChordSagElevation(centre: readonly [number, number], reachLon: number): number {
+    const [lon, lat] = centre;
+    const mid = projection.project(lon, lat, 0);
+    const up = projection.project(lon, lat, 1);
+    const upVec: [number, number, number] = [up[0] - mid[0], up[1] - mid[1], up[2] - mid[2]];
+    const upLen = Math.hypot(upVec[0], upVec[1], upVec[2]);
+    if (!(upLen > 0) || !Number.isFinite(upLen)) return 0;
+    const west = projection.project(lon - reachLon, lat, 0);
+    const east = projection.project(lon + reachLon, lat, 0);
+    if (![...west, ...east, ...mid].every(Number.isFinite)) return 0;
+    // The chord's own midpoint against the surface point it spans, resolved
+    // along the local up — a world length, converted to elevation metres by
+    // the same axis it was measured on.
+    const sag =
+      ((mid[0] - (west[0] + east[0]) / 2) * upVec[0] +
+        (mid[1] - (west[1] + east[1]) / 2) * upVec[1] +
+        (mid[2] - (west[2] + east[2]) / 2) * upVec[2]) /
+      upLen;
+    return sag > 0 ? sag / upLen : 0;
+  }
+
   function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
     let handles: GlyphMeshHandle[] = [];
     let mesh: GlyphMapVectorMesh | null = null;
@@ -5849,6 +6252,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // ground and takes one per VERTEX (see `glyphMapVectorMesh`'s `drape`),
       // unless this layer asked for the flat datum overlay instead.
       const groundAt = layer.type === "fill-extrusion" || wantsDrape ? groundElevationSampler() : null;
+      // ONE PER BUILD, like `groundAt` itself. The reach is the view's own
+      // degrees per output cell — the same number `reliefFractionForLevel`
+      // sizes the relief quads by, which is what makes it the span across
+      // which the drape and those quads can disagree. In LONGITUDE it is
+      // widened by `1/cos(lat)` at the layer's own latitude so both axes
+      // cover the same ground, and the whole thing is a scale for a
+      // roughness bound, not a measurement of any one vertex's neighbourhood.
+      const drapeView = getView();
+      const drapeReachDeg = (drapeView.span / Math.max(1, drapeView.cols)) * GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS;
+      const drapeReachLon = drapeReachDeg / Math.max(1e-6, Math.cos((drapeView.center[1] * Math.PI) / 180));
+      const drapeSagLift = drapeChordSagElevation(drapeView.center, drapeReachLon);
       groundProbes = [];
       builtOnTerrain = groundAt !== null;
       /**
@@ -5874,7 +6288,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           groundProbes.push({ lon, lat, ground });
           // The lift rides ON TOP of the recorded probe, so a terrain change
           // is compared against the terrain and not against the lift.
-          return Number.isFinite(ground) ? ground + GLYPH_MAP_FILL_DRAPE_LIFT_M : ground;
+          if (!Number.isFinite(ground)) return ground;
+          // MEASURED, not assumed: the ground's own rise across the span the
+          // terrain's own quads span, plus the true-metre tie-break. Zero rise
+          // (a city on a fine tier, a caller-supplied constant ground, no
+          // raster layer at all) leaves only the tie-break, so nothing
+          // standing on this same ground is buried by it.
+          let highest = ground;
+          for (const [dLon, dLat] of GLYPH_MAP_GROUND_PROBE_RING) {
+            const probe = groundAt(lon + dLon * drapeReachLon, lat + dLat * drapeReachDeg);
+            if (Number.isFinite(probe) && probe > highest) highest = probe;
+          }
+          return highest + drapeSagLift + glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, projection);
         }
         : undefined;
       mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
@@ -5887,7 +6312,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           ? (f) => Math.max(0, extrusionTopMetres(layer, f) - extrusionBaseMetres(layer, f))
           : undefined,
         groundElevation: groundAt && !wantsDrape ? (_f, lon, lat) => {
-          const ground = groundAt(lon, lat);
+          // A non-finite sample falls back to the DATUM rather than being
+          // handed on as NaN, which is `GlyphMapOptions.groundElevation`'s own
+          // contract ("`null` ... means 'I have no ground for that point', and
+          // the caller takes the DATUM there") and the same rule a draped
+          // `line` vertex, a marker anchor and a draped `fill` cap already
+          // take. `glyphMapVectorMesh`'s own `groundElevation` reads a
+          // non-finite answer as "crop, don't clamp" and discards the group —
+          // right for a projection that cannot place a point, wrong for a
+          // caller saying it does not know — and `layers.ts`' `?? 0` does not
+          // catch NaN, so a partial DEM used to delete every building outside
+          // its own coverage (measured: 0 cells against 450).
+          //
+          // The RECORDED probe is the fallen-back value too, so `syncGround`
+          // compares a number against a number: a probe recorded as NaN is
+          // never equal to itself, and such a layer rebuilt on every
+          // ground-change event for the life of the map.
+          const sampled = groundAt(lon, lat);
+          const ground = Number.isFinite(sampled) ? sampled : 0;
           groundProbes.push({ lon, lat, ground });
           return ground;
         } : undefined,
@@ -6241,7 +6683,33 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       mosaic = [...desired].map((key) => fieldCache.get(key)).filter((f): f is GlyphMapElevationPiece => f !== undefined);
     }
 
+    /**
+     * THE ONE GROUND, not a second one. This reader used to answer purely off
+     * its own private sweep of the first mounted raster layer's provider,
+     * which made it the only consumer in the package that neither honoured
+     * `GlyphMapOptions.groundElevation` — a caller-supplied source is
+     * documented to WIN everywhere, and a heatmap sat on the datum on a map
+     * that had one and no raster layer — nor the `raster` layer's own
+     * elevation WINDOW, so over a floored sea its relief hugged the
+     * unclamped seabed.
+     *
+     * Its own mosaic survives as the LAST resort only, and earns that: it
+     * loads inside this runtime's own `update()`, so it can answer during the
+     * window in which the raster layer's sweep has not mounted the tile yet,
+     * where the shared reader would honestly say "nothing here" and this
+     * would drop to the datum.
+     */
     function elevationAt(lon: number, lat: number): number {
+      const supplied = opts.groundElevation;
+      if (supplied) {
+        const value = supplied(lon, lat);
+        return Number.isFinite(value) ? (value as number) : 0;
+      }
+      const read = rasterGroundElevationReader();
+      if (read) {
+        const value = read(lon, lat);
+        if (Number.isFinite(value)) return value;
+      }
       for (const f of mosaic) {
         const value = f.valueAt(lon, lat);
         if (Number.isFinite(value)) return value;
@@ -6255,7 +6723,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // 0 at sea level), so this is its own explicit signal, not inferred
     // from a value.
     function hasTerrain(): boolean {
-      return mosaic.length > 0;
+      return mosaic.length > 0 || rasterGroundElevationReader() !== null || opts.groundElevation !== undefined;
     }
 
     return { resolve, elevationAt, hasTerrain };

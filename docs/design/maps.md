@@ -5945,3 +5945,94 @@ Mutation checks, each restored from a `cp` backup afterwards:
 4. Only the `"fine"` tier is windowed → the floor-tier gate goes red (`expected 0 to be greater than 50`). This one was written twice: the first version of that test stayed GREEN under this mutation, because a clamp hides tier disagreement behind its own closed surface. The gate now targets the one span where the floor is the visible surface.
 5. `terrainWindowOptions` passes the sentinel instead of omitting → 2 red.
 6. The `f`/`o` tokens are inserted before an existing token → the ordering gate goes red.
+
+## The drape family, corrected: what the allowances were measuring, and what they should have been
+
+An adversarial review of the drape commits (`2d27c55..70f2359`) found five defects. Four of them are one mistake in four places: **a quantity stated in the wrong frame**. What follows is the record; the contracts are in `AGENTS.md`.
+
+### The stroke's ground slack was measured in CAMERA DEPTH
+
+`drapedRunPerCell` gave each drape sample `slack = max(neighbour.depth) - depth` over the samples within `GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS` screen cells. `depth` is `project()[2]`. On a flat plane under a pitch, a sample one row nearer the camera is one row of the VIEW's own depth ramp nearer — about 8 m at `/maps`' 40 degree default and 12 m at 60 — so any stroke with a screen-vertical component collected roughly two rows of that ramp on ground with no rise in it at all. That is the slope-scaled allowance `781486f` removed, back through a different door for one stroke direction.
+
+Measured on `widget.strokeOcclusion.test.ts`'s own Zurich fixture (globe, 24x, span 0.006, 140x63, road through a building, counting road cells strictly inside the footprint):
+
+| road direction | ground source | 6 m @40 | 12 m @40 | 20 m @60 |
+|---|---|---|---|---|
+| west-east | none | 0 | 0 | 0 |
+| north-south | none | 0 | 0 | 0 |
+| north-south | `groundElevation: () => 0` | **10** | **10** | **5** |
+
+**Why every gate stayed green.** All four occlusion gates used a WEST-EAST road — screen-horizontal, so its neighbours sit at equal depth and the slack is zero by construction — and none of them mounted a ground at all, so `groundElevationSampler()` was `null` and `drapedRunPerCell` never ran. The gate that exists to pin `781486f` never executed the code `70f2359` added. Both dimensions had to move at once for the defect to appear, which is why the test file now parameterises both.
+
+**The fix is the unit.** Elevation cannot express the camera. The neighbours' own ground ELEVATIONS are compared, and only a genuinely higher one is converted into depth — by re-projecting the sample's own lon/lat at that elevation, which is exact for every projection (all of them are affine in `elev`) and costs a projection only where there is real relief. Flat ground gives `highest === elev` and therefore no slack and no projection, at every pitch, zoom and direction.
+
+**The support had to become 2D.** `stampGlyphMapPolyline` reconstructs the surface through a central difference in BOTH screen axes, so a border running along a parallel is tested against ground to the north and south of it that no sample ON the line ever reads. The densified run supplies the two along-line directions; `GLYPH_MAP_STROKE_GROUND_RING` reads the other six at a reach measured in screen CELLS rather than degrees (one trial projection per sample, because this widget's own 8x16 px cell spans twice the ground in a row that it does in a column, and a fixed number of degrees is the right reach in at most one direction). On the Sahara fixture the two across-line probes alone left 60 of 240 samples killed and an 8-column hole; the full ring leaves none, at a pitch where an orthographic camera cannot self-occlude and so every kill was a false positive.
+
+**Cost**, on a synthetic 80-border load over the Sahara fixture at 140x63 (about 9,600 stamped vertices, five renders averaged): the stamp goes from 0.5-1.0 ms to 1.8-2.0 ms on a 3.3 ms base render. The ring's ground reads are most of it (1.6 ms with the trial projection removed, 0.8 ms with the ring removed). It is a correction, not an allowance, and it buys back the whole of `781486f`'s family in the direction that had lost it.
+
+### The fill's drape lift was `10 x exaggeration` TRUE metres
+
+`GLYPH_MAP_FILL_DRAPE_LIFT_M = 10` was added on the projection's own ELEVATION axis, which `exaggeration` multiplies. A `fill-extrusion`'s height is TRUE metres and exempt from that factor by design, so at `/maps`' 24x the lift was 240 true metres of world.
+
+Measured on the Zurich fixture with `groundElevation: () => 0`, a landuse polygon three times the building footprint, counting cells in the building's own colour family:
+
+| building | no ground source | with ground source |
+|---|---|---|
+| 6 m | 450 | **0** |
+| 30 m | 450 | **0** |
+| 200 m | 450 | **0** |
+
+and a west-east road crossing the same polygon inked **0** of the 70-odd cells inside it.
+
+**No constant reconciles the two frames.** What the lift was sized for — the disagreement between the drape (the tile's full-resolution field) and the coarsened relief quads — is a TERRAIN quantity that scales with exaggeration; a building is a true-scale one that does not. Sweeping the constant in true metres confirmed it: at 72 true metres the Titicaca gate passes and every building is buried; at 3 the buildings survive and the fill draws 0 cells; at ANY positive lift the coplanar road inside the fill is deleted whole.
+
+So the disagreement is measured rather than forgiven, in three separable terms:
+
+1. **The ground's own RISE across the terrain's own quad span** (`GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS`, eight compass probes at the view's degrees-per-cell). The same quantity as a stroke's slack, and necessarily so — the two lie on the same ground and are tested against the same terrain. Zero on flat ground at every exaggeration.
+2. **The CHORD SAG.** A globe's relief mesh is chords and so is a fill's cap; where the two are triangulated differently they sag by different amounts, and the fill lands inside the terrain on ground with no relief in it at all. `widget.fillDrape.test.ts`'s tiered provider is exactly that case — elevation uniform per tier, zero rise anywhere — and it drew 0 cells with only the rise term. It is measured by projecting a chord against the surface it spans and resolving along the local up, so a SHEET answers exactly 0 and no `projection.id` is anywhere near it.
+   Eight directions, not four: the axis probes alone lose `widget.oceanDrape.test.ts`' "draws the sea as a sheet at sea level" clause, so the diagonals are load-bearing and not symmetry for its own sake.
+3. **The TIE-BREAK**, and this is all the constant is now: `GLYPH_MAP_DRAPE_LIFT_M = 1` TRUE metre, below every structure a vector source carries (the vendored OpenFreeMap tile's shortest `render_height` is 3 m). A draped fill IS the terrain's surface and an orthographic camera takes the plain `>` test, so a fill sitting exactly on the ground loses every cell of itself to whoever drew first.
+
+**A draped `line` takes the same tie-break**, and that is what lets a road cross a park: a fill even a millimetre above a stamped stroke deletes the whole crossing, and lifting the two by the same amount makes them coplanar again, which is what they are on the ground.
+
+**Cost.** The rise term is eight extra ground reads per drape vertex, paid on the mesh BUILD and never per frame. Measured on a synthetic 160-polygon / 10,240-ring-vertex city fill set over a rough raster tier at 140x63, add-layer-plus-settle went from a 227-260 ms median to 374-405 ms — about +55% of a rebuild that already runs only when the feature set or the terrain under it changes. The record's own note that a `Map` memo on `"lon,lat"` was measured slower than the reads still holds, and a quantized memo was not taken: it would make the lift piecewise constant and step a draped cap at every quantization boundary.
+
+### The contour had the defect `70f2359` fixed for lines
+
+`3924f61` made a contour real geometry — vertices projected at the level's own elevation and handed to `stampGlyphMapPolyline`. That is the same one-sided test against the terrain's depth buffer that the `line` layer needed the ground-support slack for, and the contour had neither the slack nor the per-cell densification. The record's "the contour was never exposed to this while it sampled per cell" stopped being true when it stopped sampling per cell.
+
+Measured on the real-ETOPO1 Sahara fixture served through a pyramid so the raster and the contour read identical vertex grids, `{ interval: 200 }` at `tilt: 0`:
+
+| view | contour alone | cells the terrain took |
+|---|---|---|
+| the reported Sahara span, 24x | 3,375 | **1,166** |
+| a country span, 24x | 1,371 | **520** |
+| span 3, TRUE scale | 609 | **296** |
+
+With the depth test removed entirely the loss is under 20 in all three, so that is the structural floor and everything above it is a false positive.
+
+The fix is the `line`'s, applied: the same ground-rise slack, converted by the projection at the vertex's own lon/lat, plus per-cell densification of each marching segment. Two things are specific to the contour:
+
+- **The vertex's own elevation is the level it was cut at, exactly.** There is nothing to sample for it, so the probe ring only has to find the ground that RISES above it.
+- **The reach is the comparison's support PLUS one relief quad.** At a country span one quad is around six output cells wide, so a two-cell reach reads none of the ground the surface's chord was actually cut from. Measured: the two-cell reach left 134 / 14 / 134, and widening it in CELLS saturated rather than closing (81 / 10 / 67 at 2x, 42 / 11 / 47 at 3x, 47 / 17 / 37 at 4x, 55 / 26 / 34 at 6x); adding one quad took it to **100 / 15 / 42**. Two quads bought 23 more at the reported view while COSTING 4 at a country span (77 / 19 / 35), and three cost 17 there (61 / 32 / 29), so one is where the evidence stops.
+- **Densifying was measured and kept, but it is not what closed it** (133 / 18 / 128 from densification alone). It is kept because it is the same defect the `line` fixed and it costs one projection per accepted SEGMENT, not per sample: every projection here is affine in elevation, so one probe gives the depth-per-metre and every inserted sample's slack is a multiply.
+
+The remainder is the coarse-quad-versus-fine-field disagreement `AGENTS.md` already records for a `line`, and the gate says so: its ceilings sit BETWEEN the defect and the fix with wide margin either way, in `widget.strokeRelief.test.ts`'s house style, rather than claiming a loss of zero.
+
+### `groundElevation` answering `null` DELETED a `fill-extrusion`
+
+`GlyphMapOptions.groundElevation`'s contract is that `null` (or a non-finite number) means "I have no ground for that point" and the caller takes the DATUM there — "a source that answers for some points and not others is therefore fine and needs no bounds of its own". Every consumer honoured it except the extrusion: the widget handed the sampler's `NaN` straight to `glyphMapVectorMesh`'s `groundElevation`, whose OWN contract is "crop, don't clamp" (a non-finite ground discards the group — right for a projection that cannot place a point), and `layers.ts` read it as `(ground ?? 0) + baseOffset`, which does not catch NaN.
+
+Measured, 60 m building, tilt 40: **450** cells with the option absent, **450** with `() => 0`, **0** with `() => null`, **0** with `() => NaN`. A consumer draping on a partial DEM — the exact use case the option was added for — lost every building outside it.
+
+The fix is in the widget's adapter, not in `layers.ts`: the widget owns the public contract and must translate to the mesh primitive's, so a non-finite sample falls back to the datum before it is handed on. The RECORDED probe is the fallen-back value too, which fixes the side effect the review found alongside it — `syncGround` compared `groundAt(...) !== p.ground`, and a probe recorded as NaN is never equal to itself, so such a layer rebuilt on every ground-change event for the life of the map.
+
+### The heatmap was a second, undocumented ground route
+
+`createHeatmapTerrainReader` swept the first mounted `raster` layer's PROVIDER on its own and read the tiles with its own `elevationAt`. It therefore honoured neither `GlyphMapOptions.groundElevation` (a caller-supplied source is documented to win everywhere — a heatmap sat on the datum on a map that had one and no raster layer) nor the `raster` layer's own elevation WINDOW (over a floored sea its relief hugged the unclamped seabed). The option's doc names the `contour` as the ONE structural exception; this was a second one and was not named.
+
+It now reads the shared source. Its own mosaic survives as the LAST resort only, and earns that: it loads inside the heatmap runtime's own `update()`, so it can answer during the window in which the raster layer's sweep has not mounted the tile yet, where the shared reader would honestly say "nothing here" and the relief would drop to the datum.
+
+### Verified, not fixed here
+
+The review's last P3 — a datum ocean over a floored terrain with mismatched densities leaving about 180 base cells painted by BOTH `<pre>`s — was not re-measured and is not fixed. The mechanism it names is glyphcss's per-id-map-cell cross-layer ownership verdict (`computeOcclusionIds`, `packages/glyphcss/src/render/rasterize.ts`), which this package does not own; and the review's own finding is that nothing reads as a hole, because both surfaces paint the sea. It is recorded here so the next reader of the ownership code knows it is open.
