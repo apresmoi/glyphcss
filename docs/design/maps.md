@@ -1784,6 +1784,141 @@ against 37), so each half has its own gate: `stroke.test.ts` pins the
 reconstruction on a plane with no curvature to hide behind, and the ridge
 pins the allowance.
 
+#### The drape is PER CELL, and the field's own relief is the third term
+
+**The sixth report, and the one the two terms above could not answer.**
+`/maps?m=p3x5fvsday5f5t8js34cst10E1` — globe, centre 26.677E 25.465N, span
+16.81 degrees, `exaggeration: 24`, **`tilt: 0`**, terrain and borders and
+nothing else — "if you only have border + terrain the borders are not being
+shown cutting the terrain anymore". Two thirds of every border over the Sahara
+was gone; the crenellated Aegean ones a few rows above were untouched.
+
+It bisects to **`6d88df2`**, the stroke drape itself, and not to `781486f`.
+Measured on that link with the real ETOPO1 pyramid and the real Natural Earth
+borders at 140x63, counting the BORDER's own cells (the frame with the layer
+diffed against the frame without it) against the 498 the same stroke inks with
+the depth test removed entirely:
+
+| | border cells | rows of 63 |
+|---|---|---|
+| `226aa0c` (the flat 0.03 bias) | 498 | 63 |
+| `9191e4b` (`GLYPH_MAP_STROKE_GROUND_MARGIN`) | 445 | — |
+| **`6d88df2`** (the drape; both allowances gone) | **294** | — |
+| **`781486f`** (curvature, not slope) | **267** | 44 |
+| `34bc007` | 267 | 44 |
+
+`781486f` is real but small here (-27); the drape cost 151. Both are the same
+mechanism seen twice, and it is not faceting.
+
+**The mechanism: a one-sided test against symmetric noise.** A draped stroke
+and the terrain under it are the SAME surface reached two ways — the drape
+reads the elevation FIELD at a vertex, `CellGrid.depth` holds the terrain MESH
+rasterized at cell resolution. At a world view one output cell is 0.12 degrees,
+i.e. ~13 km of real relief, and the two disagree accordingly. Instrumented over
+every stamped sample at the reported view, `atStroke - depth` is centred on
+**+3 m** of ground with quartiles at **-157 m and +172 m**: symmetric NOISE, not
+a bias, against a median allowance of **21 m**. A test that occludes on one
+side of symmetric noise deletes about half of every stroke crossing rough
+ground — and all of one that crosses a lot of it. Over the sea and over flat
+desert the noise is zero and the stroke survives, which is exactly the reported
+picture. At `tilt: 0` EVERY one of those kills is a false positive, because an
+orthographic camera looking straight down at a heightfield has no self-occlusion
+at all.
+
+**Raising `GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE` was measured and rejected.**
+It works numerically — `0.25 -> 1.0` restores 478 of the 498 cells — and no
+existing gate would catch it, because `stroke.test.ts`'s bound clause runs on a
+PLANE, whose second difference is zero at every scale. That is precisely why it
+is the wrong instrument: it is a tuning with no bound behind it, scaled on the
+RENDERED surface's roughness rather than on the disagreement it is paying for,
+and `781486f`'s own derivation (an eighth of the second difference, doubled)
+would become a number chosen to make one link look right.
+
+**Two fixes, each derived, each with its own failing mutation.**
+
+1. **The drape is PER CELL** (`drapedRunPerCell`, `widget.ts`). A CORRECTION,
+   not an allowance: `stampGlyphMapPolyline` walks a segment one sample per
+   cell but interpolates both position and DEPTH linearly between the vertices
+   it is handed, and a border simplified by Visvalingam-Whyatt has none to
+   spare — Natural Earth bakes Egypt's 22 N parallel with Sudan as a single
+   straight run, so 7.6 degrees of ground under it was never sampled. Measured
+   at the reported view the median stamped segment was **2 cells** and the
+   longest **49**; the median failing sample read **195 m** of ground behind
+   the surface, and draping per cell drops that to **52 m** and lifts the count
+   267 -> 333. It costs one projection and one ground read per sample the
+   stamper was already walking, and is FREE in the frame: 18.64 -> 18.32 ms per
+   render at 140x63 on that view, inside the noise of three runs. Only the part
+   of a segment that can reach the grid is densified (`onScreenSegmentSpan`, a
+   Liang-Barsky clip against the grid box grown by one cell), because a border
+   feature's own segment spans a whole 22.5 degree tile and at a street-level
+   span that is hundreds of thousands of cells of work outside the viewport;
+   clipping changes no ink, since an out-of-bounds sample draws nothing anyway.
+   With no ground to read (`groundElevationSampler()` null) nothing is
+   densified at all and the expression stays the pre-drape one, vertex for
+   vertex.
+2. **`GlyphMapStrokeVertex.slack`**, the ground's own rise across the span the
+   comparison reads from (`GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS = 2`). DERIVED,
+   not sized: `grid.depth` is the surface at the cell CENTRE, reconstructed
+   through a +/-1 cell central difference and evaluated up to half a cell from
+   that centre, so the evidence reaches 1.5 cells from the stroke — and the
+   depth at each of those cells was itself rasterized from a quad about a cell
+   across, which is the next half. Within that span the terrain drawn in a cell
+   and the ground the stroke stands on are the same surface reached two ways
+   and their disagreement is evidence of nothing. It is read off the drape's
+   OWN per-cell samples rather than probed for — after the densification
+   consecutive samples are at most one cell apart on screen, so the neighbours
+   within the support ARE the ground over that span, already projected and
+   already in depth units — which makes it FREE (18.74 ms) and, better,
+   correctly anisotropic: the samples are one output CELL apart by
+   construction, where a lon/lat star of the same nominal radius is only under
+   a locally isometric projection. Distance is tested rather than assumed, so
+   the samples either side of a long un-densified off-screen stretch contribute
+   nothing instead of a whole tile's relief. An isotropic 4-probe star of the
+   ground field was built and measured as the alternative: 455 cells against
+   434 for the support-2 neighbours, 61 rows against 63, and **+4 ms per
+   frame** (18.6 -> 22.3) for the extra projections. Rejected on all three.
+
+Together: **267 -> 474 of 498 cells and 44 -> 63 of 63 rows** on the reported
+link, at 18.84 ms/frame against a 18.64 ms baseline. The 22 N parallel goes from
+absent to a 69-column run.
+
+Crucially the slack is ZERO on flat ground at every pitch and every zoom, which
+is what keeps `781486f`'s whole family intact — a Zurich street's ground moves
+by centimetres across two 4.8 m cells, so a 6 m building still occludes the road
+beside it. All four of the gates that could have been weakened
+(`widget.strokeOcclusion.test.ts`, `stroke.test.ts`,
+`widget.strokeDensityOcclusion.test.ts`, `widget.walkDetailOcclusion.test.ts`)
+pass unchanged.
+
+**What DID have to change is three fixtures, and the reason is worth writing
+down.** `widget.stroke.test.ts`'s gate 1, its density-3 sibling and
+`widget.fractionalDensity.test.ts`'s occlusion clause each mount a raster tile
+at 2,000,000 m as "a ridge in front of the line" and assert the line is occluded
+under it. Post-drape that is unsatisfiable in principle: at `tilt: 0` a terrain
+layer occupies exactly its own lon/lat box on screen, so the only stroke it can
+occlude is one it is also the GROUND of — and a draped stroke stands on its
+ground. Those gates read as green only because each feature's two vertices sit
+OUTSIDE the ridge tile; the same fixture at `34bc007` with vertices at lon +/-4
+inks straight through the ridge, so the verdict was a function of vertex spacing
+and never a guarantee. Each now pins `groundElevation: () => 0` — which is what
+their own comments already said ("uniformly raised well above the line's own
+(zero) elevation") — and every assertion in them is unchanged.
+
+Gate: `widget.strokeRelief.test.ts`, on the vendored real-ETOPO1 window
+`fixtures/sahara-border.json` (8x8 degrees of the eastern Sahara at the same
+0.125 degree vertex spacing the z4 pyramid level ships, baked by
+`bake-geo-tiles.mjs --fixture`; the pyramid itself is gitignored and can never
+be a test dependency) plus the two ruler-straight borders that cross it. On that
+fixture the stamp inks **92** cells over 33 rows with no depth test at all,
+**3** over 2 rows at `34bc007`, and **79** over 33 after the fix; the busiest
+row goes 2 -> 47 of 60 columns. Mutations, each printing its own failure:
+
+- drop the per-cell drape, keep the slack: `expected 3 to be greater than 60`,
+  `expected 2 to be greater than 35`.
+- keep the per-cell drape, set the support to 0 cells: `expected 37 to be
+  greater than 60`, `expected 9 to be greater than 35`.
+- make `stampGlyphMapPolyline` ignore the vertex slack: the same two.
+
 **Two allowances died here, and neither was reduced — both had their premise
 removed.** Both existed only because a `line` vertex used to be projected at
 elevation zero:

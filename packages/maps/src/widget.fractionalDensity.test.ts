@@ -96,8 +96,13 @@ describe("createGlyphMap — fractional raster density", () => {
   // at a NON-INTEGER density on both meshes — proving the affine
   // (`cellToSceneGrid`, `kx`/`ky`) and the occlusion id-map sampling stay
   // correct with a fractional `kx`/`ky`, not just an integer one.
+  // `groundElevation: () => 0` pins the stroke at the datum, the same way the
+  // integer-density test does and for the same reason — a `line` is DRAPED, so
+  // with the ridge tile as its only ground source a stroke crossing it stands
+  // ON it and is correctly never occluded by it. See `widget.stroke.test.ts`'s
+  // gate 1 for the full note.
   it("cross-layer occlusion between a stroke layer and a fractional-density detail mesh is still correct", async () => {
-    const { host, map } = mount();
+    const { host, map } = mount({ groundElevation: () => 0 });
     const line: GlyphMapVectorFeature = { id: "equator", rings: [[[-18, 0], [18, 0]]] };
     const source: GlyphMapVectorFeatureCollection = { features: [line] };
     map.addLayer({ type: "line", id: "border", source, color: "#ff0000" });

@@ -2326,6 +2326,144 @@ function reliefFractionForLevel(level: GlyphMapProviderZoomLevel, degPerCell: nu
   return 1;
 }
 
+/**
+ * How far, in output CELLS, the depth comparison a stamped stroke runs
+ * against the terrain reaches for its evidence — and therefore how far the
+ * ground under the stroke is allowed to rise before that comparison stops
+ * being a statement about occlusion at all.
+ *
+ * `stampGlyphMapPolyline` compares against `grid.depth`, which the rasterizer
+ * wrote at the cell CENTRE, reconstructed to the stroke's own sub-cell
+ * position through a +/-1 cell central difference. So the surface it compares
+ * against can have been rasterized from ground up to one full cell either side
+ * of a centre up to half a cell away — 1.5 cells — and 2 is the next whole
+ * sample. Within that span the terrain drawn in a cell and the ground the
+ * stroke stands on are the SAME surface reached two ways, and their
+ * disagreement is not evidence of anything.
+ *
+ * That disagreement is not small at a world view: one cell is 0.12 degrees
+ * there, i.e. ~13 km of real ETOPO1 relief, and measured on the reported
+ * `/maps` link (globe, span 16.81, `exaggeration: 24`, `tilt: 0`) the surface
+ * minus the stroke over every stamped sample is centred on +3 m of ground with
+ * quartiles at -157 m and +172 m. It is symmetric NOISE several times the
+ * curvature allowance, and a one-sided test against symmetric noise deletes
+ * about half of every stroke crossing rough ground: the two ruler-straight
+ * Sahara borders vanished while the crenellated Aegean ones a few rows above
+ * survived, which is the reported "the borders are not being shown cutting the
+ * terrain anymore". `widget.strokeRelief.test.ts` is the gate.
+ *
+ * The allowance is the ground's OWN rise across that span, read off the
+ * stroke's own per-cell drape samples rather than estimated — so it is zero on
+ * flat ground at every pitch and every zoom, which is what keeps a building
+ * occluding the road beside it (`widget.strokeOcclusion.test.ts`).
+ */
+const GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS = 2;
+
+/**
+ * The sub-interval of a screen-space segment that can reach the grid, as
+ * `[t0, t1]` in the segment's own parameter, or `null` when none of it can.
+ * Liang-Barsky against the grid box grown by one cell.
+ *
+ * This exists only to BOUND the per-cell drape below: a border feature's own
+ * segment can span a whole 22.5 degree tile, which at a street-level span is
+ * hundreds of thousands of cells, and draping every one of them would be work
+ * spent entirely outside the viewport. Clipping changes no ink — a sample
+ * outside the grid is skipped by `stampGlyphMapPolyline` anyway — so the
+ * densified interior is exactly the part that can draw.
+ */
+function onScreenSegmentSpan(
+  aCol: number, aRow: number, bCol: number, bRow: number, cols: number, rows: number,
+): readonly [number, number] | null {
+  if (!Number.isFinite(aCol) || !Number.isFinite(aRow) || !Number.isFinite(bCol) || !Number.isFinite(bRow)) return null;
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  const dCol = bCol - aCol;
+  const dRow = bRow - aRow;
+  if (!clip(-dCol, aCol + 1) || !clip(dCol, cols - aCol) || !clip(-dRow, aRow + 1) || !clip(dRow, rows - aRow)) return null;
+  return [t0, t1];
+}
+
+/**
+ * Drape one already-visibility-clipped lon/lat run at ONE SAMPLE PER OUTPUT
+ * CELL, and give every sample the ground-support slack the depth test needs
+ * (see {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS}).
+ *
+ * `vertexAt` is the caller's own single-vertex drape — one ground read and one
+ * projection — so this adds exactly one of each per sample the stamper was
+ * already walking, and only over the part of a segment that can reach the
+ * grid. Source vertices are always kept, so a run's own shape is never
+ * resampled away.
+ *
+ * The slack is read off the drape itself rather than probed for: after this
+ * pass consecutive samples are at most one cell apart on screen, so the
+ * neighbours within {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} cells ARE
+ * the ground over the span the comparison reads from, already projected and
+ * already in depth units. Distance is tested rather than assumed, so the
+ * samples on either side of a long off-screen stretch (which is deliberately
+ * not densified) contribute nothing rather than a whole tile's relief.
+ */
+function drapedRunPerCell(
+  run: readonly (readonly [number, number])[],
+  vertexAt: (lon: number, lat: number) => GlyphMapStrokeVertex,
+  cols: number,
+  rows: number,
+): GlyphMapStrokeVertex[] {
+  if (run.length === 0) return [];
+  const out: GlyphMapStrokeVertex[] = [vertexAt(run[0][0], run[0][1])];
+  for (let i = 1; i < run.length; i++) {
+    const [lonA, latA] = run[i - 1];
+    const [lonB, latB] = run[i];
+    const a = out[out.length - 1];
+    const b = vertexAt(lonB, latB);
+    const span = onScreenSegmentSpan(a.col, a.row, b.col, b.row, cols, rows);
+    if (span !== null) {
+      const [t0, t1] = span;
+      const steps = Math.ceil(Math.hypot(b.col - a.col, b.row - a.row) * (t1 - t0));
+      for (let k = 0; k <= steps; k++) {
+        const t = t0 + ((t1 - t0) * k) / Math.max(1, steps);
+        if (t <= 0 || t >= 1) continue;
+        out.push(vertexAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t));
+      }
+    }
+    out.push(b);
+  }
+  const support = GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS;
+  // The walk is bounded as well as distance-tested, because a source ring can
+  // already be far denser than one vertex per cell — a z3 coastline at a world
+  // view puts hundreds of its own vertices inside one — and an unbounded walk
+  // over "everything within 2 cells" would be quadratic in exactly that case.
+  // Past this many samples the extra ones are all inside the same cell as the
+  // ones already read, so they carry the same ground.
+  const reach = support * 4;
+  for (let i = 0; i < out.length; i++) {
+    const v = out[i];
+    if (!Number.isFinite(v.depth) || !Number.isFinite(v.col) || !Number.isFinite(v.row)) continue;
+    let highest = v.depth;
+    for (const step of [-1, 1]) {
+      for (let k = 1, j = i + step; k <= reach && j >= 0 && j < out.length; k++, j += step) {
+        const n = out[j];
+        if (!Number.isFinite(n.col) || !Number.isFinite(n.row)) break;
+        if (Math.hypot(n.col - v.col, n.row - v.row) > support) break;
+        if (n.depth > highest) highest = n.depth;
+      }
+    }
+    if (highest > v.depth) out[i] = { ...v, slack: highest - v.depth };
+  }
+  return out;
+}
+
 export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphMapHandle {
   // `let`, not `const` — `setProjection` reassigns this to a
   // `glyphMapProjectionTransition` blend mid-animation and to the target
@@ -4919,7 +5057,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // `visibleStrokeRuns`. A flat projection returns the ring by
           // identity, so its stamped output is byte-identical to before.
           for (const run of visibleStrokeRuns(ring, baseGrid)) {
-          const verts: GlyphMapStrokeVertex[] = run.map(([lon, lat]) => {
+          const vertexAt = (lon: number, lat: number): GlyphMapStrokeVertex => {
             // DRAPED: the vertex is projected at the ground elevation under
             // its own lon/lat, so it is drawn where the terrain it belongs to
             // is drawn. Everything else in the scene already stands on the
@@ -4956,7 +5094,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             // the depth test — was the workaround for projecting here at the
             // datum, and it is exactly the projection this line now IS.
             return { col: local.col, row: local.row, depth: p[3] ?? p[2] };
-          });
+          };
+          // PER CELL, not per source vertex, wherever there is a ground to
+          // read. `stampGlyphMapPolyline` walks a segment at one sample per
+          // cell but interpolates DEPTH linearly between the vertices it was
+          // handed, and a simplified border has none to spare — Natural Earth
+          // bakes Egypt's 22 N parallel with Sudan as a single straight run
+          // whose 7.6 degrees of interior ground is never sampled. Measured on
+          // the reported view the median stamped segment was 2 cells and the
+          // longest 49, and the terrain under them moved by a median 195 m of
+          // ground across a chord that moved by none of it. Draping the
+          // inserted vertices too costs one projection per sample the stamp
+          // was already taking (measured: 18.6 -> 18.3 ms per render at 140x63
+          // on the reported view, inside noise) and is a CORRECTION, not an
+          // allowance. With no ground to read the drape is the datum
+          // everywhere, there is nothing per cell to sample, and the whole
+          // expression stays the pre-drape one, vertex for vertex.
+          const verts: GlyphMapStrokeVertex[] = groundElevationAt
+            ? drapedRunPerCell(run, vertexAt, grid.cols, grid.rows)
+            : run.map(([lon, lat]) => vertexAt(lon, lat));
           stampGlyphMapPolyline(grid, verts, { color });
           }
         }

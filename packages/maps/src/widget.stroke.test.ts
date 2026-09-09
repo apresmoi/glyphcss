@@ -32,8 +32,24 @@ function rowText(map: ReturnType<typeof createGlyphMap>, row: number): string {
 }
 
 describe("createGlyphMap — line layer (end-to-end through the real rasterizer)", () => {
+  /**
+   * `groundElevation: () => 0` PINS the stroke's own ground at the datum, and
+   * that is what this fixture has always meant: its comment says the ridge is
+   * "uniformly raised well above the line's own (zero) elevation". A `line`
+   * is DRAPED — its vertices stand on whatever ground is under them — so with
+   * the ridge tile itself as the only ground source, a stroke crossing it
+   * stands ON it and is correctly never occluded by it (at `tilt: 0` a
+   * terrain layer occupies exactly its own lon/lat box on screen, so it can
+   * only ever occlude a stroke it is also the ground of). That was already
+   * true before the per-cell drape: the same fixture with vertices at lon +/-4
+   * inks straight through the ridge at `34bc007`, and it read as occluded here
+   * only because the feature's two vertices both sit outside the ridge's own
+   * tile. Pinning the ground says out loud what the assertions below test —
+   * a stroke at the datum, behind a raised mesh — instead of leaving it to
+   * the vertex spacing.
+   */
   it("gate 1, end-to-end: a border behind a raised ridge mesh is occluded mid-segment, visible on both flanks", async () => {
-    const { host, map } = mount();
+    const { host, map } = mount({ groundElevation: () => 0 });
     const line: GlyphMapVectorFeature = {
       id: "equator",
       rings: [[[-18, 0], [18, 0]]],
@@ -123,8 +139,10 @@ describe("createGlyphMap — a stroke layer crossing a raster layer's own per-me
   // that entirely: each one's own detail grid has NO internal elevation
   // variance, so its occlusion behavior is unambiguous — "ridge" uniformly
   // occludes its whole grid, "flat" uniformly does not.
+  // `groundElevation: () => 0` pins the stroke at the datum — see gate 1's own
+  // note for why a draped stroke otherwise stands ON the ridge it crosses.
   it("ink reaches the detail <pre> and is genuinely depth-tested there — occluded under a nearer mesh, visible over a flush one", async () => {
-    const { host, map } = mount();
+    const { host, map } = mount({ groundElevation: () => 0 });
     const line: GlyphMapVectorFeature = { id: "equator", rings: [[[-18, 0], [18, 0]]] };
     const source: GlyphMapVectorFeatureCollection = { features: [line] };
     map.addLayer({ type: "line", id: "border", source, color: "#ff0000" });
@@ -365,8 +383,10 @@ describe("createGlyphMap — layer density (uniform field, per-type behavior)", 
     host.remove();
   });
 
+  // `groundElevation: () => 0` pins the stroke at the datum — see gate 1's own
+  // note for why a draped stroke otherwise stands ON the ridge it crosses.
   it("a density-3 contour gets a viewport overlay three times finer than density-1 terrain, while a co-routed stroke stays occluded behind a ridge", async () => {
-    const { host, map } = mount();
+    const { host, map } = mount({ groundElevation: () => 0 });
     const terrain = makeTile({ west: -18, east: 18, south: -18, north: 18 }, 8, 8, 0);
     const ridge = makeTile({ west: -5, east: 5, south: -18, north: 18 }, 4, 4, 2_000_000);
     map.addLayer({ type: "raster", id: "terrain", source: terrain, density: 1 });

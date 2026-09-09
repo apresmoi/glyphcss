@@ -36,7 +36,7 @@
 //     `{ name, zoom, bounds, tiles }`, `tiles` the exact list of real
 //     `"x_y"` keys at that level) rather than a second manifest file, so a
 //     reader needs exactly one fetch and never has to probe for 404s.
-//   --fixture: bakes TWO vendored fixtures. The first is ONE small
+//   --fixture: bakes THREE vendored fixtures. The first is ONE small
 //     (10x10-quad, 121-vertex) window written to
 //     `packages/maps/fixtures/geo-tile-parity.json` — the vendored
 //     fixture `packages/maps/src/parity.test.ts` (acceptance gate 3) reads
@@ -49,7 +49,12 @@
 //     second is `packages/maps/fixtures/sea-level-band.json`: four small
 //     20x20-quad windows straddling a coastline (see
 //     `SEA_LEVEL_BAND_WINDOWS`), which pin that a relief quad never paints
-//     land with a below-sea-level band.
+//     land with a below-sea-level band. The third is
+//     `packages/maps/fixtures/sahara-border.json`: one window of the eastern
+//     Sahara at the SAME 0.125-degree vertex spacing the z4 pyramid level
+//     ships, so `widget.strokeRelief.test.ts` can drape a ruler-straight
+//     border over REAL relief at the resolution the map actually renders it
+//     (see `SAHARA_BORDER_WINDOW`).
 //
 // The NetCDF-3 parsing + nearest-vertex sampler below are copied verbatim
 // from `bake-globe.mjs` (same source file, same header format, same
@@ -281,6 +286,25 @@ async function bakeSeaLevelBandFixture(sampler) {
   console.log(`Wrote ${dest}`);
 }
 
+// One window of the eastern Sahara, baked at EXACTLY the 0.125-degree vertex
+// spacing the z4 pyramid level ships (22.5 degrees over 180 quads), so a
+// stroke draped on it meets the same relief, at the same resolution, that a
+// real `/maps` frame rasterizes. `widget.strokeRelief.test.ts` is the
+// consumer: the region carries the two ruler-straight desert borders (Egypt's
+// 22 N parallel with Sudan and its 25 E meridian with Libya) that the reported
+// defect erased, and it is the one place a border crosses hundreds of metres
+// of relief with no vertex of its own in between — which is precisely the
+// combination a datum-free depth test has to survive.
+const SAHARA_BORDER_WINDOW = { west: 24, east: 32, south: 20, north: 28 };
+const SAHARA_BORDER_QUADS = 64;
+
+async function bakeSaharaBorderFixture(sampler) {
+  const tile = bakeGeoTile(sampler, SAHARA_BORDER_WINDOW, SAHARA_BORDER_QUADS, SAHARA_BORDER_QUADS);
+  const dest = path.join(REPO, "packages/maps/fixtures/sahara-border.json");
+  await fs.writeFile(dest, `${JSON.stringify({ ...tile, elevation: Array.from(tile.elevation) }, null, 2)}\n`);
+  console.log(`Wrote ${dest}`);
+}
+
 async function bakeFixture(sampler) {
   // A 10x10-quad window near the equator (lon [10, 30], lat [-10, 10]) —
   // real elevation variance (not the poles, where cos(lat) trivializes most
@@ -491,6 +515,7 @@ async function main() {
   if (fixtureMode) {
     await bakeFixture(sampler);
     await bakeSeaLevelBandFixture(sampler);
+    await bakeSaharaBorderFixture(sampler);
     return;
   }
   await bakeTiles(sampler);

@@ -37,8 +37,9 @@
  * **The surface is RECONSTRUCTED at the stroke's own sub-cell position, and
  * only what that cannot explain is forgiven.**
  *
- * Two different things separate a draped stroke's depth from the surface's,
- * and they want opposite treatments:
+ * THREE different things separate a draped stroke's depth from the surface's,
+ * and they want different treatments — one is corrected, one is bounded from
+ * the depth buffer, and one can only be supplied by the caller that drapes:
  *
  * 1. A SAMPLING OFFSET, which is exactly computable and so is corrected
  *    rather than forgiven. `grid.depth[idx]` was sampled by the rasterizer
@@ -53,6 +54,21 @@
  *    vertex grid) while the terrain rasterizes from a COARSENED quad mesh
  *    whose chord cuts under every rise inside a quad. The two are
  *    near-coplanar, not coplanar.
+ * 3. THE GROUND'S OWN RELIEF across the span this comparison reads from,
+ *    which nothing here can see and which the caller supplies per vertex as
+ *    {@link GlyphMapStrokeVertex.slack}. The two terms above are both
+ *    statements about the DEPTH BUFFER; this one is a statement about the
+ *    FIELD, and at a world view it is the largest of the three by an order of
+ *    magnitude — one output cell is 0.12 degrees there, i.e. ~13 km of real
+ *    relief. Absent, it is zero and this stamp is byte for byte what it was.
+ *
+ * The third term is why a `line` is stamped per CELL rather than per source
+ * vertex: this stamper walks a segment one sample per cell but interpolates
+ * both position AND depth linearly between the vertices it is handed, so a
+ * ruler-straight border with two vertices 600 km apart carries a depth chord
+ * across every mountain in between. `widget.ts` drapes each inserted sample on
+ * its own ground and reads the slack off those samples (`drapedRunPerCell`,
+ * `GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS`).
  *
  * Faceting is a statement about the surface's ROUGHNESS, so the allowance
  * scales with the SECOND difference of the depth buffer and not the first. A
@@ -116,6 +132,23 @@ export interface GlyphMapStrokeVertex {
   readonly row: number;
   /** `project()[3] ?? project()[2]` at this vertex — see this file's depth-contract doc. */
   readonly depth: number;
+  /**
+   * EXTRA depth allowance carried by this vertex, interpolated along each
+   * segment exactly as {@link depth} is. Absent (or `0`) everywhere is byte
+   * for byte the stamp without it, and every caller that hands this stamper
+   * synthetic vertices — {@link stampGlyphMapContourGeometry} included — omits
+   * it.
+   *
+   * It exists because the two OTHER terms here are both statements about the
+   * DEPTH BUFFER (its half-cell sampling offset, corrected; its own second
+   * difference, forgiven) and neither can see the quantity that actually
+   * separates a DRAPED stroke from the terrain under it: the ground's own
+   * relief across the span the comparison reads from. Only the caller that
+   * drapes knows that — it holds the elevation field — so it is supplied per
+   * vertex rather than derived here. See `widget.ts`'s
+   * `GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS`.
+   */
+  readonly slack?: number;
 }
 
 export interface GlyphMapStampOptions {
@@ -268,7 +301,8 @@ export function stampGlyphMapPolyline(
         const atStroke = surfaceDepth + gx * (subCol - 0.5) + gy * (subRow - 0.5);
         const cx = curvature(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
         const cy = curvature(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
-        const allowed = bias + curvatureScale * Math.hypot(cx, cy);
+        const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
+        const allowed = bias + curvatureScale * Math.hypot(cx, cy) + slack;
         if (atStroke - depth > allowed) continue; // occluded by nearer geometry
       }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
