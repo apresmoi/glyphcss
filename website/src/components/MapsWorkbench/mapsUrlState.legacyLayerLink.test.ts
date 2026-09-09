@@ -76,21 +76,19 @@ function expectDefaultMapContent(state: MapsUrlState): void {
   });
   // The OSM card itself is OFF above, so none of this is mounted by any of
   // these links — this is what the reader gets if they then switch the card
-  // on. `omt-water-labels` is `true` because `MAP_OSM_DEFAULT_ON` gained it
-  // when the mapping grew a `water_name` row, and none of these links
-  // carries an `O` token at all, so they take the schema default. That
-  // change was deliberate and is stated here rather than derived, exactly as
-  // this function's doc requires: the four rows that were on before are
-  // still on, and the two rows appended beside it (`omt-parks`,
-  // `omt-aeroways`) draw nothing at the scale these links open at and are
-  // off. `mapsUrlState.layers.test.ts` pins the other half — a link that
-  // carries an EXPLICIT `O` keeps all three appended rows off, since their
-  // bits were clear when it was written.
+  // on. All THREE rows appended since (`omt-parks`, `omt-aeroways`,
+  // `omt-water-labels`) are off, because an omitted `O` decodes to the frozen
+  // `MAPS_OSM_MASK_LINK_DEFAULT` rather than to whatever the page happens to
+  // open on today. `omt-water-labels` was `true` here for as long as the
+  // omission sentinel was derived from `MAP_OSM_DEFAULT_ON`, and these four
+  // links could not tell that that was a break — every one of them has the
+  // card OFF, so nothing rendered either way. `mapsUrlState.osmDefaultLink.test.ts`
+  // covers the link that has it ON, which is where it did render.
   expect(mapsOsmSublayersFromMask(state.osmMask)).toEqual({
     "omt-landcover": false, "omt-landuse": false, "omt-water": true, "omt-waterways": true,
     "omt-roads": true, "omt-buildings": false, "omt-boundaries": true, "omt-places": false,
     "omt-peaks": false, "omt-pois": false,
-    "omt-parks": false, "omt-aeroways": false, "omt-water-labels": true,
+    "omt-parks": false, "omt-aeroways": false, "omt-water-labels": false,
   });
   expect(state.terrainDensity).toBe(1);
   expect(state.borderDensity).toBe(1);

@@ -4599,14 +4599,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (layer.minElevation !== undefined) window.minElevation = layer.minElevation;
     if (layer.maxElevation !== undefined) window.maxElevation = layer.maxElevation;
     /**
-     * The window as plain numbers, for {@link groundElevationAt}: what
-     * stands on this terrain must stand on the surface actually drawn.
+     * The SAME window object {@link groundElevationAt} hands the sampler, so
+     * what stands on this terrain stands on the surface actually drawn.
+     *
+     * It goes INTO `glyphMapGeoTileElevationAt` rather than around it,
+     * because the sampler interpolates and the clamp does not commute with
+     * that: the mesh clamps every vertex and then interpolates, so a ground
+     * reading has to do the two in the same order or it parts company with
+     * the drawn surface across every quad that straddles a bound. See that
+     * function's own `window` doc for the measurement.
      */
-    const groundMin = layer.minElevation ?? -Infinity;
-    const groundMax = layer.maxElevation ?? Infinity;
-    const windowed = groundMin !== -Infinity || groundMax !== Infinity;
-    const clampToWindow = (elev: number): number =>
-      windowed && Number.isFinite(elev) ? Math.min(groundMax, Math.max(groundMin, elev)) : elev;
+
     let staticHandles: GlyphMeshHandle[] = [];
     const tileCache = new Map<string, GlyphMapGeoTile>();
     const activeHandles = new Map<string, GlyphMeshHandle[]>();
@@ -5014,31 +5017,32 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     /**
      * @see RasterLayerRuntime.groundElevationAt
      *
-     * Every answer goes through {@link clampToWindow}, because this reports
-     * the ground things are PLANTED on and the layer's elevation window
-     * moves where that ground is drawn. A road draped at the seabed's own
-     * -4,000 m under a `minElevation: 0` terrain would sit ~96 km of world
-     * below the plane the sea is now drawn at (`exaggeration: 24`) — the
-     * same parting-company-with-the-ground the drape exists to prevent, just
-     * caused by the window instead of by the datum. Unwindowed it is the
-     * identity, so the whole path is unchanged.
+     * Every answer carries the layer's elevation `window`, because this
+     * reports the ground things are PLANTED on and the window moves where
+     * that ground is drawn. A road draped at the seabed's own -4,000 m under
+     * a `minElevation: 0` terrain would sit ~96 km of world below the plane
+     * the sea is now drawn at (`exaggeration: 24`) — the same
+     * parting-company-with-the-ground the drape exists to prevent, just
+     * caused by the window instead of by the datum. Unwindowed the window is
+     * an empty object and the sampler is the identity, so the whole path is
+     * unchanged.
      */
     function groundElevationAt(lon: number, lat: number): number {
       if (!isGlyphMapProvider(layer.source)) {
-        return staticHandles.length > 0 ? clampToWindow(glyphMapGeoTileElevationAt(layer.source, lon, lat)) : NaN;
+        return staticHandles.length > 0 ? glyphMapGeoTileElevationAt(layer.source, lon, lat, window) : NaN;
       }
       for (const tiles of [activeHandles, fallbackHandles]) {
         for (const key of tiles.keys()) {
           const tile = tileCache.get(key);
           if (!tile) continue;
-          const value = glyphMapGeoTileElevationAt(tile, lon, lat);
-          if (Number.isFinite(value)) return clampToWindow(value);
+          const value = glyphMapGeoTileElevationAt(tile, lon, lat, window);
+          if (Number.isFinite(value)) return value;
         }
       }
       if (floorHandles.length > 0) {
         for (const tile of floorTiles) {
-          const value = glyphMapGeoTileElevationAt(tile, lon, lat);
-          if (Number.isFinite(value)) return clampToWindow(value);
+          const value = glyphMapGeoTileElevationAt(tile, lon, lat, window);
+          if (Number.isFinite(value)) return value;
         }
       }
       return NaN;
@@ -7808,6 +7812,45 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     walkGroundElevation = Number.isFinite(elevation) ? elevation : 0;
   }
 
+  /**
+   * The same re-read, driven by the TILE SET instead of by a step — the
+   * {@link groundChangeSyncs} half of standing on the terrain.
+   *
+   * `refreshWalkGround` is called on entry and after every stride, and both
+   * are events the WALKER causes. A COLD LOAD is neither: the reader enters
+   * walk mode while the pyramid is still in flight, the first tile lands a
+   * moment later, and nothing asked the walker to look again — so the eye
+   * stayed at the datum until the first keypress. Measured on a 500 m
+   * plateau entered before its tiles: `getWalk().groundElevation` reported 0
+   * after the load settled and 500 the instant the mode was left and
+   * re-entered, and the picture agreed — the point 100 m ahead AT EYE LEVEL
+   * projected to row -73.8 of a 63-row grid (the plateau 500 m over the
+   * walker's head, off the top of the frame) instead of the centre row.
+   *
+   * A stride re-poses the camera itself; this must, because nothing else
+   * will. The sky dome stands on that same ground, so it is rebuilt rather
+   * than left at the elevation the walk was entered at — `recentreWalkSky`
+   * deliberately will not do it (its trigger is horizontal DISTANCE, and the
+   * walker has not moved a metre). Unchanged ground returns before any of
+   * that, so the tile updates a walk normally causes cost one sampler read.
+   */
+  function syncWalkGround(): void {
+    if (!walk) return;
+    const before = walkGroundElevation;
+    refreshWalkGround();
+    if (walkGroundElevation === before) return;
+    if (skyMesh) {
+      const dome = buildWalkSky();
+      if (dome) {
+        skyDome = dome;
+        skyMesh.setPolygons(dome.polygons);
+        syncWalkSkyLight();
+      }
+    }
+    syncCameraToView(view);
+    scene.rerender();
+  }
+
   // ── WALK MODE: the sky ────────────────────────────────────────────────
   //
   // `sky.ts` owns the geometry and the colour; this owns the LIFECYCLE, and
@@ -8347,6 +8390,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       walkHeldKeys.clear();
       walkRunning = false;
       walkGhost = false;
+      groundChangeSyncs.delete(syncWalkGround);
       detachWalkInput();
       unmountWalkSky();
       view = restore.view;
@@ -8401,6 +8445,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     tiltRequest = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
     appliedTilt = GLYPH_MAP_WALK_HORIZON_TILT_DEG;
     attachWalkInput();
+    // A cold load enters before any tile has landed, so the ground read below
+    // is the datum and the real one arrives later — see `syncWalkGround`.
+    groundChangeSyncs.add(syncWalkGround);
     view = { ...view, span: glyphMapWalkSpan(resolved.far), bounds: undefined };
     refreshWalkGround();
     mountWalkSky();

@@ -256,6 +256,41 @@ export const MAPS_OSM_SUBLAYER_KEYS = [
   "omt-parks", "omt-aeroways", "omt-water-labels",
 ] as const;
 
+/**
+ * What an OMITTED `O` token decodes to — **FROZEN**, and deliberately not
+ * `MAP_OSM_DEFAULT_ON`.
+ *
+ * The codec omits a field at its default, so this value IS the OSM card an
+ * already-shared link describes. Deriving it from the page's own opening
+ * selection made the two move together, and that is a real break rather than
+ * a cosmetic one: `/maps?m=p3L1b` turns the OSM card ON (`layerMask` 11) and
+ * carries no `O` beside it, because its rows were at the default the day it
+ * was written. When `MAP_OSM_DEFAULT_ON` gained `omt-water-labels` that same
+ * link went from mask 92 to mask 4188 and started labelling every ocean —
+ * the same string, a different map. `MAPS_OSM_SUBLAYER_KEYS`' append-only
+ * rule exists to prevent exactly that, and holding the KEY ORDER still while
+ * the omission default moves underneath it keeps only its letter.
+ *
+ * Spelled out as ids rather than as a number so it reads, and never as a
+ * subset expression over `MAP_OSM_DEFAULT_ON` — the point is that the two are
+ * free to diverge. The page's own opening rows stay
+ * {@link MAP_OSM_DEFAULT_ON}: `readInitialMapsState` applies them when the URL
+ * carries no `m` AT ALL (a genuinely fresh load, which describes no link), and
+ * because they differ from this constant a share written from that page
+ * carries an EXPLICIT `O` — so a link shared today still restores exactly what
+ * its author saw.
+ */
+export const MAPS_OSM_LINK_DEFAULT_ON: readonly string[] = ["omt-water", "omt-waterways", "omt-roads", "omt-boundaries"];
+
+const osmMaskFor = (on: readonly string[]): number =>
+  MAPS_OSM_SUBLAYER_KEYS.reduce((mask, key, i) => (on.includes(key) ? mask | (1 << i) : mask), 0);
+
+/** {@link MAPS_OSM_LINK_DEFAULT_ON} as the `O` bitfield — 92. */
+export const MAPS_OSM_MASK_LINK_DEFAULT = osmMaskFor(MAPS_OSM_LINK_DEFAULT_ON);
+
+/** The rows the page opens on with no link at all ({@link MAP_OSM_DEFAULT_ON}) as the `O` bitfield. */
+export const MAPS_OSM_MASK_PAGE_DEFAULT = osmMaskFor(MAP_OSM_DEFAULT_ON);
+
 /** Wire order for the point-dataset enums — append-only for the same reason (`decodePackedEnum` resolves by index). */
 export const MAPS_POINT_DATASET_VALUES: readonly PointDataset[] = ["countries", "places", "capitals", "megacities"];
 /** Wire order for the `model` layer's shape enum — append-only, same reason. */
@@ -457,7 +492,10 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // what the untouched page renders" property cannot drift: the codec omits
   // a field at its default, so these values ARE what an old link decodes to.
   layerMask: MAPS_LAYER_KEYS.reduce((mask, key, i) => (MAPS_LAYER_DEFAULT_ON.includes(key) ? mask | (1 << i) : mask), 0),
-  osmMask: MAPS_OSM_SUBLAYER_KEYS.reduce((mask, key, i) => (MAP_OSM_DEFAULT_ON.includes(key) ? mask | (1 << i) : mask), 0),
+  // ...with ONE exception, and it is the reason {@link MAPS_OSM_MASK_LINK_DEFAULT}
+  // exists: this is the value an OMITTED `O` decodes to, so it is a statement
+  // about links already shared and not about what the page opens on.
+  osmMask: MAPS_OSM_MASK_LINK_DEFAULT,
   terrainDensity: 1,
   borderDensity: 1,
   contourDensity: 1,
@@ -802,7 +840,8 @@ function decodeMapsUrlState(raw: string | null | undefined): Partial<MapsUrlStat
 }
 
 export function readInitialMapsState(): MapsUrlState {
-  const decoded = decodeMapsUrlState(readUrlParam(MAPS_PARAM));
+  const packed = readUrlParam(MAPS_PARAM);
+  const decoded = decodeMapsUrlState(packed);
   // `decoded.projection` is typed `MapProjectionId`, but a legacy link can
   // still decode the retired `"orthographic"` value (see `PROJECTION_VALUES`'
   // doc above) — cast to read it before falling back, same explicit-mapping
@@ -830,6 +869,14 @@ export function readInitialMapsState(): MapsUrlState {
     // partial (never the merged defaults) for the same reason
     // `colorEncoding` above is: an explicit `M` must win over the `Q` a
     // newer link carries beside it.
+    // The page's own opening rows, applied ONLY when there is no `m` at all —
+    // a fresh load, which describes no link. Any `m` that omits `O` IS a link,
+    // and takes the frozen `MAPS_URL_DEFAULTS.osmMask` the merge above already
+    // supplied; see {@link MAPS_OSM_MASK_LINK_DEFAULT} for why the two are
+    // separate constants. Read from the raw packed string rather than from
+    // `decoded`, for the same reason `colorEncoding` reads the raw partial: a
+    // link that carries `O` must win over both.
+    osmMask: decoded.osmMask ?? (packed ? MAPS_URL_DEFAULTS.osmMask : MAPS_OSM_MASK_PAGE_DEFAULT),
     osmDensities: decoded.osmDensities
       ?? Array(MAPS_OSM_DENSITY_SLOTS).fill(decoded.osmDensity ?? MAPS_URL_DEFAULTS.osmDensity),
     // Same seeding rule, second token: a `Q`-only link meant one number

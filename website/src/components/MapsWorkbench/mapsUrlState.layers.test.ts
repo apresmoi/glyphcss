@@ -26,6 +26,8 @@ import {
   MAPS_LAYER_DEFAULT_ON,
   MAPS_LAYER_KEYS,
   MAPS_MODEL_SHAPE_VALUES,
+  MAPS_OSM_MASK_LINK_DEFAULT,
+  MAPS_OSM_MASK_PAGE_DEFAULT,
   MAPS_OSM_SUBLAYER_KEYS,
   MAPS_POINT_DATASET_VALUES,
   MAPS_URL_DEFAULTS,
@@ -63,7 +65,15 @@ describe("mapsUrlState — the layer bitfields' key lists are a wire format", ()
   });
 
   it("the schema's defaults are the page's own, so an absent token is the page's untouched state", () => {
-    expect(MAPS_URL_DEFAULTS.osmMask).toBe(mapsOsmMaskFromSublayers(
+    // `osmMask` is the ONE field this does not hold for, and deliberately: the
+    // codec's omission sentinel is what an already-shared link means, so it is
+    // frozen at the four rows that were on before `omt-water-labels` was
+    // appended, while the page opens on `MAP_OSM_DEFAULT_ON`. See
+    // `MAPS_OSM_MASK_LINK_DEFAULT` and
+    // `mapsUrlState.osmDefaultLink.test.ts`, which pins both halves.
+    expect(MAPS_URL_DEFAULTS.osmMask).toBe(MAPS_OSM_MASK_LINK_DEFAULT);
+    expect(MAPS_OSM_MASK_LINK_DEFAULT).toBe(92);
+    expect(MAPS_OSM_MASK_PAGE_DEFAULT).toBe(mapsOsmMaskFromSublayers(
       Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, MAP_OSM_DEFAULT_ON.includes(s.id)])),
     ));
     expect(MAPS_URL_DEFAULTS.symbolDataset).toBe(POINT_DATASET_DEFAULTS.symbol);
@@ -162,9 +172,9 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
     expect(mapsLayerVisibilityFromMask(decoded.layerMask)).toEqual(
       Object.fromEntries(MAPS_LAYER_KEYS.map((k) => [k, MAPS_LAYER_DEFAULT_ON.includes(k)])),
     );
-    expect(mapsOsmSublayersFromMask(decoded.osmMask)).toEqual(
-      Object.fromEntries(MAP_OSM_SUBLAYERS.map((s) => [s.id, MAP_OSM_DEFAULT_ON.includes(s.id)])),
-    );
+    // The FROZEN link default, not the page's opening rows — an old link's
+    // omitted `O` has to keep meaning what it meant when it was written.
+    expect(decoded.osmMask).toBe(MAPS_OSM_MASK_LINK_DEFAULT);
     expect(decoded.terrainDensity).toBe(1);
     expect(decoded.borderDensity).toBe(1);
     expect(decoded.contourDensity).toBe(1);

@@ -639,7 +639,19 @@ export function glyphMapOpenMapTilesLayers(
       excludeService: spec.excludeService,
       excludeFlags: spec.excludeFlags,
     });
-    const color = opts.colors?.[spec.id] ?? spec.color;
+    // An explicit override REPLACES the row's stock class palette rather than
+    // sitting behind it. The widget's fill runtime prefers
+    // `layer.colors[feature[colorProperty]]` over `layer.color`, so a caller
+    // asking for `#123456` water got a `lake` painted `#2c5c8f` — the override
+    // was present on the built layer and simply never read, which is why the
+    // property assertion in `openmaptiles.test.ts` stayed green. Naming one
+    // colour for the row is naming the row's colour: the classification is
+    // what was replaced, not what the request applies on top of. Rows nobody
+    // overrode keep their palette, and a caller passing no `colors` at all
+    // builds the identical layer objects.
+    const colorOverride = opts.colors?.[spec.id];
+    const color = colorOverride ?? spec.color;
+    const overridden = colorOverride !== undefined;
     const density = opts.densities?.[spec.id];
     // `"center"` is the layer's own default and `glyphMapLabelPlacement`
     // answers `null` for it, so declaring it would render the same — but
@@ -664,8 +676,8 @@ export function glyphMapOpenMapTilesLayers(
       case "fill":
         out.push({
           type: "fill", ...common,
-          ...(spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
-          ...(spec.colors === undefined ? {} : { colors: spec.colors }),
+          ...(overridden || spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
+          ...(overridden || spec.colors === undefined ? {} : { colors: spec.colors }),
           ...(spec.drape === undefined ? {} : { drape: spec.drape }),
         });
         break;

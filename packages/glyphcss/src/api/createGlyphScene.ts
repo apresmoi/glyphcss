@@ -2734,7 +2734,13 @@ export function createGlyphScene(
       // rounding, so `W = cellCols * sx` lands on exactly `colsO`.
       const sx = colsO / colsB, sy = rowsO / rowsB;
       testRenderStage("detail-project");
-      const depth = buildSurfaceDepth(depthPolygons, camera, colsB, rowsB, caB, baseGrid, sx, sy);
+      // ...and the Z-BUFFER depth (`project()[3] ?? [2]`), because what reads
+      // this buffer is a `transformCells` stamp comparing itself against
+      // `CellGrid.depth`, which every paint path fills with exactly that. The
+      // wireframe HLR prepass takes the other branch and must keep it — see
+      // `buildSurfaceDepth`'s `zBufferDepth` doc, and `computeOcclusionIds`'
+      // own note on why `[2]` cannot simply be redefined for everyone.
+      const depth = buildSurfaceDepth(depthPolygons, camera, colsB, rowsB, caB, baseGrid, sx, sy, true);
 
       const n = colsO * rowsO;
       const blankChar: string[] = new Array(n).fill(" ");

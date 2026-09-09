@@ -679,6 +679,31 @@ function fillDepthTri(
  * used. Reuses this function's existing `fillDepthTri`-based machinery
  * rather than a second depth rasterizer, the same discipline this doc
  * already follows for the wireframe HLR prepass.
+ *
+ * `zBufferDepth` picks WHICH of `project()`'s two depths the buffer holds,
+ * and the caller owns the choice because the two callers compare it against
+ * different things. `project()` returns the linear eye-space `cssZ` at `[2]`
+ * and the screen-space-linear z-buffer (`1/denom`) at `[3]`; an ORTHOGRAPHIC
+ * camera omits `[3]`, so the two are one number and the flag is inert.
+ *
+ * - `false` (default) is the WIREFRAME hidden-line prepass, whose stroke
+ *   endpoints are `camera.project(...)[2]` read directly (`rasterize()` and
+ *   the braille path both pass `a[2]`/`b[2]`) — the two sides are already the
+ *   same quantity, and `computeOcclusionIds`' own doc records why `[2]` must
+ *   not be redefined globally to fix somebody else's comparison.
+ * - `true` is the meshless VIEWPORT OVERLAY, whose consumer is a
+ *   `transformCells` stamp reading `CellGrid.depth` — and every PAINT path
+ *   fills that with `[3] ?? [2]`. Filling this buffer with `[2]` instead made
+ *   that comparison dimensionally meaningless under the walk camera and so
+ *   forgave every occluder: measured, a 60 m building 200 m ahead cut a road
+ *   from 140 inked cells to 109 in the base grid and took none of the 280 the
+ *   same road inked in its own density-2 overlay
+ *   (`@glyphcss/maps`' `widget.walkStrokeDensityOcclusion.test.ts`).
+ *
+ * Rewriting `[2]` in place rather than returning a fifth tuple slot is
+ * `computeOcclusionIds`' own resolution of the same fork, and for its reason:
+ * `fillDepthTri`'s `z` and its perspective-correct `qa/qb/qc` (read off `[3]`)
+ * both stay right, and nothing is allocated beyond the array `project` made.
  */
 export function buildSurfaceDepth(
   polygons: Polygon[],
@@ -686,6 +711,7 @@ export function buildSurfaceDepth(
   cellCols: number, cellRows: number, cellAspect: number,
   metrics: GlyphProjectionMetrics,
   sx = 1, sy = 1,
+  zBufferDepth = false,
 ): Float64Array {
   const W = cellCols * sx, H = cellRows * sy;
   const depth = new Float64Array(W * H).fill(-Infinity);
@@ -695,7 +721,7 @@ export function buildSurfaceDepth(
     if (vs.length < 3 || poly.hidden) continue;
     const proj = (v: Vec3): [number, number, number, number?] => {
       const p = camera.project(v, cellCols, cellRows, cellAspect, metrics);
-      return [p[0] * sx, p[1] * sy, p[2], p[3]];
+      return [p[0] * sx, p[1] * sy, zBufferDepth ? p[3] ?? p[2] : p[2], p[3]];
     };
     const p0 = proj(vs[0]! as Vec3);
     let prev = proj(vs[1]! as Vec3);

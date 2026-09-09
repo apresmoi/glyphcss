@@ -97,12 +97,16 @@ export const MAP_OSM_SOURCE_LAYERS: readonly string[] = [...new Set(MAP_OSM_SUBL
  * z10+) draw nothing there and start off, beside `landcover`/`landuse`,
  * which have the same shape of reason.
  *
- * One consequence of turning ANY row on by default, inherent to the
- * append-only bitfield in `mapsUrlState.ts` and accepted there: a link
- * carrying an explicit `O` written before the row existed has that bit
- * clear, so it opens the card without the row, while a link carrying no `O`
- * at all gets this list. No link's RENDER changes either way — the OSM card
- * itself is off by default, so a legacy link mounts no OSM layer at all.
+ * This list is the PAGE's opening selection and nothing else. What an omitted
+ * `O` token decodes to is `MAPS_OSM_MASK_LINK_DEFAULT` (`mapsUrlState.ts`),
+ * frozen at the four rows that were on before this one arrived — deriving the
+ * codec's omission sentinel from this list instead meant a link that turns the
+ * OSM card on and leaves its rows at the default (`/maps?m=p3L1b`) started
+ * labelling every ocean the day the row was appended. A link carrying an
+ * explicit `O` written before the row existed has that bit clear either way,
+ * so it opens the card without the row; and because this list differs from the
+ * frozen one, a share written from a fresh page carries an explicit `O` and
+ * restores exactly what its author saw.
  */
 export const MAP_OSM_DEFAULT_ON: readonly string[] = ["omt-water", "omt-waterways", "omt-roads", "omt-boundaries", "omt-water-labels"];
 

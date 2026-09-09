@@ -2999,6 +2999,19 @@ cannot carry twenty tints and `library` and `kindergarten` are the same thing
 to a reader looking at a block. An unnamed class falls back to the row's own
 colour, so a schema addition is never a hole.
 
+An explicit `colors` OVERRIDE on one of these three rows now REPLACES its
+class palette rather than sitting behind it. The widget's fill runtime prefers
+`layer.colors[feature[colorProperty]]` over `layer.color`, so a caller asking
+`glyphMapOpenMapTilesLayers` for `#123456` water got a `lake` painted
+`#2c5c8f` — the override was present on the built layer, correct, and never
+read. `openmaptiles.test.ts`'s own override clause asserts `built[1].color`,
+i.e. exactly the property that stayed right, which is why it could not see
+this; the new gate (`openmaptiles.colorOverride.test.ts`) asserts the rendered
+`<pre>` cells instead. Naming one colour for a row is naming that row's
+colour — the classification is what the request replaced, not what it applies
+on top of. Rows nobody overrode keep their palettes, and a caller passing no
+`colors` at all builds identical layer objects.
+
 The standing "read the live data, never the docs" rule applies to the table's
 VALUES too, and has a test: every key in the three tables must appear as a
 `class` on a real decoded feature in the vendored set, and `landcover`'s
@@ -3798,6 +3811,40 @@ rather than `camera.rotY`. Every one of its movement, gravity, crouch and
 jump paths would have to be overridden, leaving only the input plumbing —
 which is the part reproduced above. What IS taken from it is its numbers and
 its shape: the look rate, the pitch clamp, and the pointer-lock model.
+
+### The walker is on `groundChangeSyncs`, because a cold load has no stride
+
+`refreshWalkGround` is called on entry and after every stride. Both are events
+the WALKER causes, and a COLD LOAD is neither: the reader enters walk mode
+while the pyramid is still in flight, the first tile lands a moment later, and
+nothing asks the walker to look again — so the eye stays at the datum until the
+first keypress. The widget already owns the registry for exactly this event
+(`groundChangeSyncs`, which a `fill-extrusion`'s base and a marker's anchor
+both ride, and whose own doc says it exists for consumers "invisible to the
+sweep that would otherwise re-derive them"); the walker was simply not on it.
+This is the FOURTH "wrong until you interact" defect of its shape on this
+branch, after the marker, contour and palette paths.
+
+Measured on a 500 m plateau entered before its tiles: `getWalk().groundElevation`
+reported 0 after the load settled and 500 the instant the mode was left and
+re-entered, and the picture agreed — the point 100 m ahead AT EYE LEVEL
+projected to row **-73.8** of a 63-row grid (the plateau 500 m over the
+walker's head, off the top of the frame) instead of the centre row, which is
+where it lands now (31.500 of 31.5).
+
+The sync re-poses the camera itself, because nothing else will, and REBUILDS
+the sky dome — the dome stands on that same ground, and `recentreWalkSky`
+deliberately will not do it (its trigger is horizontal DISTANCE, and a
+stationary walker has not moved a metre). Unchanged ground returns before any
+of that, so the tile updates an ordinary walk causes cost one sampler read.
+Registration is per-WALK, not per-map: `setWalk(null)` removes it, so a tile
+landing after the reader leaves cannot re-pose the orthographic camera off a
+walker's ground.
+
+`widget.walk.test.ts`'s three standing-height clauses structurally cannot see
+this — every one of them awaits `map.on("load")` and only then calls
+`setWalk({})`, so all three enter onto terrain that is already mounted. Gate:
+`widget.walkColdGround.test.ts`, which inverts exactly that ordering.
 
 ### The horizon is 600 m, and it was never the thing limiting the view
 
@@ -5898,6 +5945,8 @@ The clamp moves nothing in the colour channel and everything in the glyph channe
 **Every tier**, through `mountTile` — one resolved window object spread into every `glyphMapPolygons` call. Observable only where a tier is itself the visible surface, i.e. at the span where the floor IS the target LOD and takes no sink; everywhere else an unwindowed backstop is hidden behind a closed windowed surface, which is the clamp's own safety property. Gated there: 135 changed cells with the floor windowed, exactly 0 with it left out.
 
 **`groundElevationSampler`**, because it reports the ground things are PLANTED on and the window moves where that ground is drawn. A road draped at the seabed's own -4,000 m under a floored terrain would sit ~96 km of world below the plane the sea is now drawn at — the same parting-company-with-the-ground the stroke drape exists to prevent (`:1640`), caused by the window instead of by the datum. Mutating the clamp out does not merely displace the stroke, it DELETES it: the gate goes from a stroke on the floor's own row to zero inked cells, buried under the surface it is meant to lie on.
+
+**IN the sampler, per vertex — not around it.** The clamp started life wrapped around `glyphMapGeoTileElevationAt`'s answer, and that is a different function from the one the mesh draws: `glyphMapPolygons` clamps each retained VERTEX and interpolates the clamped values, while a wrapped clamp interpolates the RAW field and clamps afterwards. `max(x, m)` is convex, so the two agree everywhere except across a quad that STRADDLES a bound, where the mesh is strictly higher. `widget.reliefWindowGround.test.ts` could not see it for a structural reason — its provider is `new Float32Array(...).fill(elevM)`, uniform terrain, where clamping every vertex and clamping the blend are the same number at every point of every quad. Measured on a quad falling -4,000 m to +4,000 m under `minElevation: 0`: the drawn surface at its midpoint is +2,000 m and the sampler answered 0, i.e. 48 km of world at `exaggeration: 24` — and again it does not displace the stroke, it DELETES it (0 inked cells against rows 17-20 around the independently predicted +2,000 m row of 19.13). The window is therefore a fourth argument to `glyphMapGeoTileElevationAt` itself (omitted = unbounded and byte-identical), so every consumer of that sampler inherits the right order rather than each having to re-derive it. Gate: `widget.reliefWindowGroundSlope.test.ts`.
 
 **Not a `contour`.** It marches the mounted mosaic's own vertex GRIDS rather than reading the drawn surface, and it carries its own `minElevation`/`maxElevation` for the same job. Coupling them would let one layer's option silently reach into another's. The consequence is real and documented rather than hidden: a contour below the terrain's floor is buried under the flattened surface, and the fix is to set the contour's own floor to match.
 

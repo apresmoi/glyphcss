@@ -72,8 +72,27 @@ function vertexIndex(tile: GlyphMapGeoTile, col: number, row: number): number {
  * Interpolation is over the QUAD the point falls in, so a point exactly on
  * the tile's own east/south edge resolves to the last vertex column/row
  * rather than falling off the end.
+ *
+ * `window` (`GlyphMapPolygonsOptions.minElevation`/`maxElevation`, omitted =
+ * unbounded and byte-identical) is applied PER VERTEX, before the blend,
+ * because that is the order the SURFACE is built in: `glyphMapPolygons`
+ * clamps each retained vertex and the quad between them is the interpolation
+ * of the clamped values. Clamping the blended value instead is a different
+ * function wherever a quad STRADDLES a window bound — `max(x, m)` is convex,
+ * so interpolating clamped corners is never below clamping the interpolation
+ * and is strictly above it across every straddling quad. Measured on a quad
+ * falling from -4,000 m to +4,000 m under `minElevation: 0`: the drawn
+ * surface at its midpoint is +2,000 m and the blend-then-clamp answer was 0,
+ * i.e. 48 km of world at `/maps`' `exaggeration: 24`, which put a draped road
+ * so far under its own terrain that the depth test dropped every cell of it
+ * (`widget.reliefWindowGroundSlope.test.ts`).
  */
-export function glyphMapGeoTileElevationAt(tile: GlyphMapGeoTile, lon: number, lat: number): number {
+export function glyphMapGeoTileElevationAt(
+  tile: GlyphMapGeoTile,
+  lon: number,
+  lat: number,
+  window?: { readonly minElevation?: number; readonly maxElevation?: number },
+): number {
   const { west, east, south, north } = tile.bounds;
   if (lon < west || lon > east || lat < south || lat > north) return NaN;
   const fx = ((lon - west) / (east - west)) * tile.cols;
@@ -83,10 +102,15 @@ export function glyphMapGeoTileElevationAt(tile: GlyphMapGeoTile, lon: number, l
   const tx = fx - c0;
   const ty = fy - r0;
   const e = tile.elevation;
-  const a = e[vertexIndex(tile, c0, r0)]!;
-  const b = e[vertexIndex(tile, c0 + 1, r0)]!;
-  const c = e[vertexIndex(tile, c0, r0 + 1)]!;
-  const d = e[vertexIndex(tile, c0 + 1, r0 + 1)]!;
+  const lo = window?.minElevation ?? -Infinity;
+  const hi = window?.maxElevation ?? Infinity;
+  const clamp = lo === -Infinity && hi === Infinity
+    ? (v: number): number => v
+    : (v: number): number => Math.min(hi, Math.max(lo, v));
+  const a = clamp(e[vertexIndex(tile, c0, r0)]!);
+  const b = clamp(e[vertexIndex(tile, c0 + 1, r0)]!);
+  const c = clamp(e[vertexIndex(tile, c0, r0 + 1)]!);
+  const d = clamp(e[vertexIndex(tile, c0 + 1, r0 + 1)]!);
   return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
 }
 
