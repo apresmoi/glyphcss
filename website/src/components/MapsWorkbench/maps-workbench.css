@@ -44,30 +44,128 @@
   font-size: 12px;
 }
 
-/* Attribution footer — centered along the bottom of the map, Google-Maps-
-   satellite-view style. Derived from mounted layers (MapsWorkbench's
-   `attributions` state, createGlyphMap's `getAttributions()`), never a
-   hardcoded credit line. Positioned above `.synth-export-bar` (bottom-left)
-   so the two never overlap. */
+/* /maps mounts NO `InstrumentTray`, so the 146px `.synth-shell.dn-root`
+   reserves in `--synth-footer-height` for /synth's preset strip is a phantom
+   here: above 760px the shared shell folds it into `--overlay-bottom`, which
+   is what the Dock, the lil-gui panel's own `max-height` and the code window
+   are all positioned from. Measured on the built page at 1440x900 it left the
+   Dock ending at y=728 with 172px of empty shell below it, and put the code
+   window at `bottom: 158px` — the reported "opens floating and separated from
+   the footer". Zeroing the variable (rather than re-deriving `--overlay-
+   bottom`) fixes all three at once, since all three already read it.
+   `mapsShell.ts` owns the class and the record. */
+.dn-root.maps-shell {
+  --synth-footer-height: 0px;
+}
+
+/* Attribution — ONE line along the bottom of the map with the full notice
+   behind a `©` affordance, the shape every map product (Google, Mapbox,
+   MapLibre) ships and for the same reason. `mapsCredits.ts` carries the
+   licence argument and the before/after measurements; `MapCredits.tsx` is
+   the component. Still derived from the mounted layers (createGlyphMap's
+   `getAttributions()`), never a hardcoded credit line.
+
+   `--maps-credit-names` is the number of source names the collapsed line may
+   carry. It lives here, not in the component, because it is a fact about how
+   much room the bottom edge has at this breakpoint — three names fit the
+   desktop map, one fits a 390px phone.
+
+   Anchored bottom-RIGHT rather than centred: centred meant `left: 50%` +
+   `translateX(-50%)`, whose shrink-to-fit width is capped at half the
+   viewport whatever `max-width` says (195px of 390px, measured), and it put
+   the block straight over `.synth-export-bar` at the same 12px baseline. The
+   right edge is free at both breakpoints once `.maps-walk` lifts (below). */
 .maps-attribution {
   position: absolute;
-  left: 50%;
+  right: var(--overlay-right, 12px);
   bottom: 12px;
-  transform: translateX(-50%);
-  z-index: 14;
+  z-index: 17;
+  --maps-credit-names: 3;
   max-width: calc(100% - 24px);
-  pointer-events: none;
-}
-.maps-attribution .model-credit {
-  pointer-events: auto;
   display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* The collapsed line. One row by construction — `white-space: nowrap` plus an
+   ellipsis, so a provider with a long name can shorten the line but can never
+   wrap it into a second row and take a row of terrain with it. */
+.maps-attribution__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
-  border-top: none;
-  background: rgba(5, 7, 12, 0.72);
   padding: 3px 8px;
+  font: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 232, 184, 0.55);
+  background: rgba(5, 7, 12, 0.72);
+  border: 1px solid rgba(255, 232, 184, 0.14);
   border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+.maps-attribution__toggle:hover,
+.maps-attribution__toggle:focus-visible {
+  color: rgba(255, 232, 184, 0.9);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.maps-attribution__notice {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The count of what is behind the affordance — the part that makes the
+   collapse honest rather than a truncation the reader can't see. */
+.maps-attribution__more {
+  flex: 0 0 auto;
+  color: #38bdf8;
+  font-variant-numeric: tabular-nums;
+}
+/* Open, the notice is a popover and outranks the corner controls it grows
+   past — `.maps-walk` sits directly above it at z-index 20 and otherwise
+   punches a hole in the panel's own corner. */
+.maps-attribution.is-open {
+  z-index: 24;
+}
+.maps-attribution.is-open .maps-attribution__toggle {
+  color: rgba(255, 232, 184, 0.9);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+/* The full notice, opened upward so it never covers the line that opened it.
+   `AttributionCredit` renders its clusters inline; one source per ROW here,
+   because the wall of wrapped clusters with orphaned separators is exactly
+   what this replaces. */
+.maps-attribution__detail {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
+  background: rgba(5, 7, 12, 0.96);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.maps-attribution__detail .model-credit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 6px 9px;
+  border-top: none;
+}
+.maps-attribution__detail .model-credit__source {
+  display: block;
+}
+/* The between-source space `AttributionCredit` emits inline; a column layout
+   already separates them, and a stray blank row reads as a missing entry. */
+.maps-attribution__detail .model-credit__sep--source {
+  display: none;
 }
 
 /* "Layers" panel — one EXPANDABLE CARD per layer, filling the whole rail
@@ -701,7 +799,9 @@
 .maps-walk {
   position: absolute;
   right: 12px;
-  bottom: 12px;
+  /* Above the credit line, which owns the bottom-right corner (Google Maps
+     stacks its pegman over its own credit strip for the same reason). */
+  bottom: calc(12px + var(--maps-credit-row, 0px));
   z-index: 20;
   pointer-events: auto;
   display: flex;
@@ -909,4 +1009,65 @@
   color: rgba(255, 232, 184, 0.38);
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── The four map overlays, laid out as ONE system ───────────────────────────
+   `.maps-search`, `.maps-compass`, `.maps-walk`, `.maps-minimap` and the
+   credit line are all `position: absolute` over a surface that is 1099x828 on
+   a desktop and 390x754 on a phone. Each was placed on its own against the
+   desktop figure, and on a phone the corners they were given collide:
+   measured on the built page at 390x844, `.maps-compass` (105x29 at 273,102)
+   sat entirely INSIDE `.maps-search` (366x30 at 12,102), and `.maps-walk`
+   (74x29 at 304,803) and the credit block (195x114 at 98,718) both ran
+   straight through the mobile tab bar (366x44 at 12,788). Together the five
+   covered 18.5% of the map surface against 6.9% at 1440x900 — and the map is
+   a character grid sized from its element, so that is terrain that was never
+   drawn.
+
+   The bottom-right column is a STACK, bottom-up: credit line, then the walk
+   control above it. `--maps-credit-row` is the credit line's own row height
+   (11px text + 3px padding + 1px border either side, plus a 6px gap), stated
+   once so the two agree instead of each carrying its own 12px. */
+.dn-root.maps-shell {
+  --maps-credit-row: 26px;
+}
+
+@media (max-width: 760px) {
+  /* The top row: the search field gives up the compass's lane instead of
+     spanning the full width and being covered by it. Left-anchored, because
+     a centred box of ANY width still runs under a right-anchored compass. */
+  .maps-search {
+    left: var(--overlay-left, 12px);
+    right: calc(var(--overlay-right, 12px) + 113px);
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  /* The bottom edge belongs to the tab bar (`--mobile-panel-bottom` already
+     clears it, and is what every mobile drawer on this shell is measured
+     from). Both overlays sit above it in the same stack order as desktop. */
+  .maps-attribution {
+    bottom: var(--mobile-panel-bottom);
+    /* One name plus `+N`: a 390px phone has ~55 monospace characters on this
+       line, and "© OpenStreetMap contributors" is 29 of them. The rest are
+       one tap away, which is what OSM's own constrained-display guidance
+       asks for (`mapsCredits.ts`). */
+    --maps-credit-names: 1;
+  }
+  .maps-walk {
+    bottom: calc(var(--mobile-panel-bottom) + var(--maps-credit-row));
+  }
+}
+
+/* A finger is not a mouse pointer: the desktop toggle is a 74x29 box, under
+   the 44px minimum every touch guideline sets. Keyed on the POINTER, not a
+   width, so a narrow desktop window keeps the compact control and a tablet
+   gets the bigger one. The compass and the credit toggle are readouts you
+   tap at most once; this one is the page's mode entrance. */
+@media (pointer: coarse) {
+  .maps-walk__toggle {
+    min-height: 44px;
+    padding: 6px 14px;
+  }
 }

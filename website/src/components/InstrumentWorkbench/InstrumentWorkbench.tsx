@@ -5,8 +5,21 @@ function classes(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(" ");
 }
 
-export function InstrumentShell({ kind, children }: { readonly kind: "synth" | "generative"; readonly children: ReactNode }) {
-  return <div className={classes("synth-shell", "dn-root", `dn-root--${kind}`)}>{children}</div>;
+export function InstrumentShell({ kind, className, children }: {
+  readonly kind: "synth" | "generative";
+  /**
+   * Extra root class for a page that wants ALL of `kind`'s layout but has to
+   * override one part of it — /maps zeroes `--synth-footer-height` this way,
+   * because it mounts no `InstrumentTray` and the 146px the shell reserves
+   * for /synth's preset strip is a phantom there (`mapsShell.ts`). A third
+   * `kind` would be the wrong tool: every layout rule in this stylesheet is
+   * keyed on `:is(.dn-root--synth, .dn-root--generative)` and /maps wants
+   * every one of them.
+   */
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  return <div className={classes("synth-shell", "dn-root", `dn-root--${kind}`, className)}>{children}</div>;
 }
 
 export function InstrumentBody({ children }: { readonly children: ReactNode }) {

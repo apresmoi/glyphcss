@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
@@ -159,6 +159,17 @@ interface CodePanelProps {
   /** Extra classes (e.g. `is-mobile-open` to show the panel as a mobile drawer). */
   className?: string;
   id?: string;
+  /**
+   * Extra actions in the panel's own header, before "Copy".
+   *
+   * Below 760px the pages that float an export BAR over the viewport hide it
+   * (it duplicates the mobile tab bar's own Export/Code tab), which strands
+   * any action that lived only there. /synth solved that inside its own
+   * `SynthCodePanel`; this is the same slot on the shared panel, so /maps'
+   * "Copy ASCII" and "Download SVG" stay reachable on a phone. Omitted by
+   * every existing caller, so the gallery's panel is unchanged.
+   */
+  actions?: ReactNode;
 }
 
 // Primitive presets that need a +90° X rotation so their natural Y-up axis maps
@@ -572,7 +583,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, override, className, id }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, override, className, id, actions }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -698,6 +709,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
           ))}
         </div>
         <div className="gw-code-panel__actions">
+          {actions}
           {!override && (
             <button
               type="button"

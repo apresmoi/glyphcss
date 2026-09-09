@@ -46,10 +46,51 @@ export const MAP_WALK_MAX_ENTRY_SPAN_DEG = GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG;
  */
 export const MAP_WALK_TILE_BUDGET_Z = 14;
 
+/**
+ * What the reader's device can actually deliver to the walker.
+ *
+ * Walk mode is driven by `keydown`/`keyup` (WASD, the arrow keys, Shift, G)
+ * and by `mousemove` deltas under `requestPointerLock`, released with Esc —
+ * that is the whole input surface, read off `@glyphcss/maps`' own widget and
+ * its `widget.walk*.test.ts` gates. Neither exists on a phone: iOS Safari
+ * ships no Pointer Lock API at all, and a touch device has no keyboard to
+ * send those keys from.
+ *
+ * A CAPABILITY, never a viewport width — a narrow window on a desktop still
+ * has both, and a tablet with a keyboard case is a real reader.
+ */
+export interface MapWalkInput {
+  /** `matchMedia("(pointer: coarse)")` — the reader's primary pointer cannot hover or aim a pixel, so there is no mouselook to lock. */
+  readonly coarsePointer: boolean;
+  /** Whether the browser implements the Pointer Lock API at all. */
+  readonly pointerLock: boolean;
+}
+
 export interface MapWalkGate {
   readonly projectionId: MapProjectionId;
   /** The live `map.getView().span`, degrees. */
   readonly span: number;
+  /**
+   * The device. Omitted means "assume a drivable one" — the shape every
+   * caller that predates this clause passes, so their verdicts are unchanged.
+   */
+  readonly input?: MapWalkInput;
+}
+
+/**
+ * Why this DEVICE cannot drive walk mode, or `null` when it can.
+ *
+ * Separate from {@link mapWalkReason} because it answers a different kind of
+ * question: the projection and the span are things the reader can change, and
+ * this is not. Offering touch controls instead would be a feature (a virtual
+ * stick, drag-to-look), not a gate — deliberately out of scope here rather
+ * than half-built.
+ */
+export function mapWalkInputReason(input: MapWalkInput): string | null {
+  if (input.coarsePointer || !input.pointerLock) {
+    return "Walk needs a keyboard and a mouse: you move with WASD or the arrow keys and look around with the mouse under pointer lock, and a touch device has neither. Open this map on a laptop or desktop to walk it.";
+  }
+  return null;
 }
 
 /**
@@ -60,6 +101,14 @@ export interface MapWalkGate {
  * is still wrong.
  */
 export function mapWalkReason(gate: MapWalkGate): string | null {
+  // FIRST, ahead of the "cheapest thing to change" ordering below, because
+  // this is the one clause the reader cannot act on at all: telling a phone
+  // to zoom in to 400 m is a lie, since arriving there still would not let
+  // them walk.
+  if (gate.input) {
+    const device = mapWalkInputReason(gate.input);
+    if (device !== null) return device;
+  }
   if (gate.projectionId !== "globe") {
     return "Walk needs the globe. On a flat sheet the ground is measured in degrees and height in Earth radii, so anything standing up — a building, a mountain — draws about 85× too short to see from eye level.";
   }

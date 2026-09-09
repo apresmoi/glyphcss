@@ -35,12 +35,13 @@ import {
   type MapOsmAnchors,
 } from "./mapsOsm";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
-import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { downloadGlyphSvgLayers } from "../../lib/glyphSvgLayers";
 import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
 import { computeGlyphMapCharModeAvailability } from "../../lib/glyphMapCharModeAvailability";
 import { getSolidWeightRamp } from "../GalleryWorkbench/weightedRamp";
 import { StatsOverlay } from "../StatsOverlay";
-import { AttributionCredit } from "../AttributionCredit/AttributionCredit";
+import { MapCredits } from "./MapCredits";
+import { MAPS_SHELL_CLASS, mapsCodePanelClassName } from "./mapsShell";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -92,7 +93,7 @@ import {
   type MapProjectionId,
   type MapSunMode,
 } from "./mapsKit";
-import { mapWalkBudgetLabel, mapWalkLinkEntry, mapWalkReason } from "./mapsWalk";
+import { mapWalkBudgetLabel, mapWalkLinkEntry, mapWalkReason, type MapWalkInput } from "./mapsWalk";
 import { buildGlyphMapModelPolygons, MAP_MODEL_SHAPE_OPTIONS, type MapModelShape } from "./mapPin";
 import { MapSearchBox } from "./MapSearchBox";
 import { MapCompass } from "./MapCompass";
@@ -182,6 +183,31 @@ const MODEL_ANCHOR: readonly [number, number] = [7.7491, 45.9766];
  * `maxSpan` state below so the View folder's span slider offers the range
  * the map can actually show instead of one that snaps back.
  */
+
+/**
+ * The reader's input capability, for `mapsWalk.ts`'s device clause.
+ *
+ * SSR-safe: `MapsWorkbench` is `client:only`, but the first render still has
+ * to produce something, and the safe default is the drivable one — a desktop
+ * that answered `false` for a frame would flash a disabled Walk button.
+ */
+function useWalkInput(): MapWalkInput {
+  const [input, setInput] = useState<MapWalkInput>({ coarsePointer: false, pointerLock: true });
+  useEffect(() => {
+    const query = window.matchMedia("(pointer: coarse)");
+    const read = () => setInput({
+      coarsePointer: query.matches,
+      // The API's presence, not a permission — a browser that has it may
+      // still refuse the lock, and that is a runtime failure the widget
+      // already handles, not a reason to grey the entrance.
+      pointerLock: typeof Element !== "undefined" && "requestPointerLock" in Element.prototype,
+    });
+    read();
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, []);
+  return input;
+}
 
 export default function MapsWorkbench() {
   const initial = useMemo(() => readInitialMapsState(), []);
@@ -649,7 +675,13 @@ export default function MapsWorkbench() {
    * `MapWalkButton` greys and un-greys as the reader zooms rather than
    * needing a refresh.
    */
-  const walkGateReason = mapWalkReason({ projectionId, span });
+  // The DEVICE half of the walk gate. A capability probe, not a breakpoint —
+  // `matchMedia("(pointer: coarse)")` plus the presence of the Pointer Lock
+  // API, which is the pair walk mode actually needs (`mapsWalk.ts`'s
+  // `mapWalkInputReason`). Read once and on `pointer` changes, because a
+  // device does not usually grow a mouse mid-session but a hybrid can.
+  const walkInput = useWalkInput();
+  const walkGateReason = mapWalkReason({ projectionId, span, input: walkInput });
 
   /**
    * Whether the plan-view inset is on screen (`mapsMinimap.ts`). Walking it
@@ -1705,11 +1737,21 @@ export default function MapsWorkbench() {
     setTimeout(() => setCopyState("idle"), 1500);
   }, []);
 
+  // EVERY rendered `<pre>`, not just the base one. A maps scene separates a
+  // layer into its own silhouette-fitted `<pre>` whenever it declares a
+  // density, a mode or a glyph palette of its own, so the roads, the borders,
+  // the contours and the buildings live outside `scene.output` — measured at
+  // eleven `<pre>`s with the OSM card on. `glyphSvgLayers.ts` composites them
+  // at their own font sizes and offsets; "Copy ASCII" above cannot, and that
+  // is stated on its own button rather than silently.
   const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
   const handleDownloadSvg = useCallback(() => {
-    const pre = mapRef.current?.scene.output ?? null;
+    const host = mapRef.current?.scene.host ?? null;
+    const pres = host
+      ? [...host.querySelectorAll<HTMLElement>("pre.glyph-output")]
+      : [];
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const ok = downloadGlyphSvg(pre, `glyphcss-map-${projectionId}-${stamp}.svg`);
+    const ok = downloadGlyphSvgLayers(pres, `glyphcss-map-${projectionId}-${stamp}.svg`);
     setSvgState(ok ? "downloaded" : "error");
     setTimeout(() => setSvgState("idle"), 1500);
   }, [projectionId]);
@@ -1726,25 +1768,86 @@ export default function MapsWorkbench() {
   //    `override` prop (mapsKit.tsx's `buildMapsSnippet` doc: no @glyphcss/
   //    react or /vue bindings exist for maps yet, so every tab shows the
   //    same real vanilla snippet). ────────────────────────────────────────
+  // Every field the page's own `createGlyphMap` call carries — the scene
+  // block, the light, the sun, shadows, each layer's own density and window,
+  // and the OSM stack — so the snippet reproduces the map on screen rather
+  // than the default one. `buildMapsSnippet` still omits anything sitting at
+  // its default, which is why an untouched page's snippet is unchanged.
+  const snippetOsm = useMemo(() => {
+    if (!showOsm) return null;
+    const enabled = MAP_OSM_SUBLAYERS.filter((s) => osmSublayers[s.id]).map((s) => s.id);
+    // Only the DIVERGENT entries: `glyphMapOpenMapTilesLayers` drops a row
+    // naming the default anyway, so spelling thirteen `1`s and thirteen
+    // `"center"`s out would be noise that reads as configuration.
+    const densities = Object.fromEntries(
+      enabled.filter((id) => (osmDensities[id] ?? MAP_OSM_DEFAULT_DENSITY) !== MAP_OSM_DEFAULT_DENSITY)
+        .map((id) => [id, osmDensities[id]!]),
+    );
+    const anchors = Object.fromEntries(
+      enabled.filter((id) => (osmAnchors[id] ?? MAP_OSM_DEFAULT_ANCHOR) !== MAP_OSM_DEFAULT_ANCHOR)
+        .map((id) => [id, osmAnchors[id]!]),
+    );
+    return { enabled, densities, anchors };
+  }, [showOsm, osmSublayers, osmDensities, osmAnchors]);
+
   const mapsSnippet = useMemo(
     () => buildMapsSnippet({
       projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette,
       backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
       contourMinElevation, contourMaxElevation,
+      charMode, colorEncoding, useColors, smoothShading, wireframeJunctions, hiddenLines, solidWeightRamp,
+      density, interactiveDownscale: dragDensityToDownscale(dragDensity),
+      lighting: {
+        azimuth: lighting.lightAzimuth, elevation: lighting.lightElevation, intensity: lighting.lightIntensity,
+        color: lighting.lightColor, ambientIntensity: lighting.ambientIntensity, ambientColor: lighting.ambientColor,
+      },
+      sunMode, sunDay, sunHour, shadows,
+      showTerrain, terrainDensity, terrainMinElevation, terrainMaxElevation,
+      borderDensity, contourDensity, contourLabels,
+      osm: snippetOsm,
     }),
     [
       projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette,
       backgroundColor, showBorders, borderColor, showContour, contourInterval, contourColor,
       contourMinElevation, contourMaxElevation,
+      charMode, colorEncoding, useColors, smoothShading, wireframeJunctions, hiddenLines, solidWeightRamp,
+      density, dragDensity, lighting, sunMode, sunDay, sunHour, shadows,
+      showTerrain, terrainDensity, terrainMinElevation, terrainMaxElevation,
+      borderDensity, contourDensity, contourLabels, snippetOsm,
     ],
   );
+  // The two RENDER exports, as one element rendered in two places: the
+  // desktop export bar over the viewport, and the code window's own action
+  // row (which is the only one of the two that survives the mobile
+  // breakpoint). One definition, so the pair can never diverge.
+  const renderExportActions = (
+    <>
+      <button
+        type="button"
+        className="gw-code-panel__action"
+        onClick={handleCopyAscii}
+        title="Copy the rendered ASCII map to the clipboard. Text is one character grid, so this is the BASE grid — a layer rendering at its own density has a grid of its own and cannot be merged into it. Download SVG carries every layer."
+      >
+        {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
+      </button>
+      <button
+        type="button"
+        className="gw-code-panel__action"
+        onClick={handleDownloadSvg}
+        title="Download the rendered map as an SVG file — every layer, each at its own density"
+      >
+        {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
+      </button>
+    </>
+  );
+
   const mapsSnippets = useMemo(
     () => ({ html: mapsSnippet, vanilla: mapsSnippet, react: mapsSnippet, vue: mapsSnippet }),
     [mapsSnippet],
   );
 
   return (
-    <InstrumentShell kind="synth">
+    <InstrumentShell kind="synth" className={MAPS_SHELL_CLASS}>
       <InstrumentBody>
         <InstrumentRail
           id="maps-layers-panel"
@@ -1780,12 +1883,7 @@ export default function MapsWorkbench() {
             bearing={bearing}
           />
           <div className="synth-export-bar">
-            <button type="button" className="gw-code-panel__action" onClick={handleCopyAscii} title="Copy the rendered ASCII map to the clipboard">
-              {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy ASCII"}
-            </button>
-            <button type="button" className="gw-code-panel__action" onClick={handleDownloadSvg} title="Download the rendered map as an SVG file">
-              {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
-            </button>
+            {renderExportActions}
             <button
               type="button"
               className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
@@ -1796,18 +1894,22 @@ export default function MapsWorkbench() {
               Export
             </button>
           </div>
-          {attributions.length > 0 && (
-            <div className="maps-attribution">
-              <AttributionCredit
-                attributions={attributions.map((a) => ({ creator: a.name, license: a.license, sourceUrl: a.url, date: a.date }))}
-              />
-            </div>
-          )}
+          {/* One compact line naming the sources that legally have to be
+              named, with the full notice (every source, licence, date and
+              link) one tap behind it — `mapsCredits.ts` carries the licence
+              argument and the measurements. Still derived from the mounted
+              layers via `getAttributions()`. */}
+          <MapCredits sources={attributions} />
           {(codeOpen || mobilePanel === "code") && (
             <CodePanel
               id="maps-code-panel"
-              className={mobilePanel === "code" ? "is-mobile-open" : ""}
+              className={mapsCodePanelClassName(mobilePanel)}
               override={{ snippets: mapsSnippets }}
+              // Below 760px `.synth-export-bar` is hidden (it duplicates the
+              // Code tab), so without this the two render exports are
+              // unreachable on a phone — the same hole /synth closed inside
+              // its own `SynthCodePanel`.
+              actions={renderExportActions}
             />
           )}
         </InstrumentMain>
