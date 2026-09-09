@@ -7,42 +7,88 @@ export interface GlyphMapPolygonsOptions {
   /** Per-quad color from the quad's representative elevation (see {@link GlyphMapPolygonsOptions.colorSample}). Omit for uncolored polygons (glyphcss's default gray). `undefined` from this callback also leaves a quad uncolored. */
   readonly color?: (elev: number) => string | undefined;
   /**
-   * Which elevation `color` is handed for a quad. Default `"median"`.
+   * Which elevation `color` is handed for a quad. Default
+   * `"surface-median"`.
    *
-   * - `"median"` — the median of the baked vertices the quad actually
-   *   COVERS (the block `[col..colNext] x [row..rowNext]` of the tile's own
-   *   full-resolution grid, whatever mesh `resolution` is in play).
+   * - `"surface-median"` — the median of the terrain SURFACE the quad
+   *   covers: the level that splits in half the area of the tile's own
+   *   full-resolution bilinear surface over the block
+   *   `[col..colNext] x [row..rowNext]`, whatever mesh `resolution` is in
+   *   play. At the target tier a quad IS one source cell, so this is the
+   *   band covering most of the surface the quad itself draws; on a
+   *   coarsened tier it is the band covering most of the finer terrain the
+   *   quad stands in for, so a tier's colour fidelity still does not degrade
+   *   with its mesh resolution.
    * - `"corner-mean"` — the mean of the quad's own 4 drawn corners, i.e.
    *   the height of the drawn surface at the quad's centre.
    *
-   * `"median"` is the default because a mean crosses classifier boundaries
-   * the terrain never does. A quad straddling a coastline averages deep
-   * ocean with high land and lands BELOW sea level, so an elevation-band
-   * classifier paints it as water even when almost all of it is land —
-   * measured on the real ETOPO1 pyramid, the floor tier's quad covering
-   * Bogota averaged -155 m across its corners over terrain that is 379 of
-   * 441 samples above sea level (median +194 m), and Quito's averaged
-   * -718 m. The deeper the adjacent ocean the further inland it reaches,
-   * which is why the Peru-Chile trench beside the Andes is the worst case.
+   * ## Why an area median, and not a statistic over the samples
    *
-   * The median cannot do that, and not merely usually: if strictly more
-   * than half a quad's covered samples are at or above sea level then more
-   * than half the sorted samples are, so the sample at index `n >> 1` is
-   * too. A majority-land quad therefore can NEVER be classified below sea
-   * level, at any mesh resolution — the property `mesh.seaLevelBand.test.ts`
-   * pins. Point-sampling the quad centre was measured as an alternative and
-   * is WORSE than the mean (it drops into a river, lake or inlet: 268
+   * The two rules this replaced each fail on a real, measured case, and they
+   * fail in opposite directions.
+   *
+   * A MEAN of the 4 corners crosses classifier boundaries the terrain never
+   * does: a quad straddling a coastline averages deep ocean with high land
+   * and lands BELOW sea level, so an elevation-band classifier paints it as
+   * water even when almost all of it is land — measured on the real ETOPO1
+   * pyramid, the floor tier's quad covering Bogota averaged -155 m across its
+   * corners over terrain that is 379 of 441 samples above sea level, and
+   * Quito's averaged -718 m.
+   *
+   * A MEDIAN OF THE COVERED SAMPLES fixes that case and was defended with a
+   * guarantee that only holds for a large block: "if strictly more than half
+   * a quad's covered samples are at or above sea level then so is the sample
+   * at index `n >> 1`". True, and beside the point at the resolution a reader
+   * actually looks at — `widget.ts`'s `reliefFractionForLevel` returns 1 for
+   * every span the target tier is drawn at, so the block is the quad's own
+   * four corners and the statistic degenerates into a 3-of-4 vote that cannot
+   * see magnitude. Reported live over Buenos Aires: the z4 quad under
+   * downtown reads (nw -1, ne -1, sw +12, se -1), three estuary samples
+   * outvote the city, and the quad is painted bathymetric blue with a
+   * straight quad edge visible through Retiro and Palermo — while 72.6% of
+   * the surface drawn between those four corners is above sea level. 2,756
+   * base cells that OpenStreetMap calls land were painted as water there.
+   *
+   * The area median is the same idea as the sample median with the evidence
+   * corrected: it is a majority vote over the terrain the quad covers,
+   * weighted by how much of that terrain each height occupies rather than by
+   * how many baked samples happen to sit on it. Its guarantee is exact at
+   * EVERY block size, n = 4 included, because it is a median's defining
+   * property rather than a claim about counts: a band that less than half the
+   * covered surface occupies cannot contain the level that halves it. The
+   * cost is explicit and was accepted rather than discovered — the surface
+   * between a lone high sample and its low neighbours really is mostly low,
+   * so more quads come out water than the sample vote gave: on the real z4
+   * tiles, 54 of 16,200 quads flip land -> water over Buenos Aires (14 the
+   * other way) and 88 over Amsterdam (42 the other way), and 4 quads of the
+   * Andes fixtures — real cliffs into the Peru-Chile trench, where the
+   * terrain steps and the interpolated surface ramps — go with them.
+   * Point-sampling the quad centre was measured as an alternative and is
+   * WORSE than the mean (it drops into a river, lake or inlet: 268
    * majority-land quads misclassified across an Andes window at full
-   * resolution, against the mean's 65 and the median's 0).
+   * resolution, against the mean's 65).
+   *
+   * ## The surface is the BILINEAR patch, not the two triangles drawn
+   *
+   * glyphcss fan-triangulates a quad from its first vertex, so the surface it
+   * literally rasterizes is two triangles sharing the nw-se diagonal. That
+   * diagonal is an artefact of the fill order, and reading it would make the
+   * statistic depend on it: for the Buenos Aires quad the nw-se split is
+   * 42.6% above sea level and the sw-ne split is 85.2%, on the same four
+   * numbers. The bilinear patch is the diagonal-independent interpolant those
+   * two bracket (72.6%), and it is what a gridded height field means, so it
+   * is what the statistic reads.
    *
    * `"corner-mean"` exists for a caller that needs the DRAWN surface's own
    * centre height rather than the terrain's: `widget.ts`'s `heatmap` layer
    * keys a `Map` on this exact value to recover the per-quad density behind
    * a combined terrain+relief elevation, which needs a statistic that mixes
-   * all four corners (a median IS one of the corner values, and adjacent
-   * quads share corners, so it collides).
+   * all four corners and only them. An area median does neither: it collapses
+   * onto one of the sampled heights wherever a cell is flat, and adjacent
+   * quads share corners, so two quads carrying different densities collide on
+   * one key.
    */
-  readonly colorSample?: "median" | "corner-mean";
+  readonly colorSample?: "surface-median" | "corner-mean";
   /**
    * Emit this many quads per axis instead of the tile's own `cols`/`rows`
    * — the relief mesh's resolution knob (see {@link glyphMapPolygons}'s
@@ -133,8 +179,8 @@ export interface GlyphMapPolygonsOptions {
    * would hand an elevation-band classifier the floor value for every sea
    * quad on Earth, and `GlyphMapClassifiers.etopo1V1`'s first break is 0, so
    * a floor of 0 would paint every ocean in the lowest LAND colour — the
-   * sea-painted-as-land defect `colorSample: "median"` exists to prevent,
-   * this time by construction.
+   * sea-painted-as-land defect `colorSample` exists to prevent, this time by
+   * construction.
    *
    * ## Per VERTEX
    *
@@ -190,37 +236,150 @@ function gridLineIndices(total: number, count: number): Int32Array {
 }
 
 /**
- * The median of the tile's baked elevations over the vertex block a quad
- * covers, inclusive of both edges — see
- * {@link GlyphMapPolygonsOptions.colorSample} for why a quad's colour reads
- * this rather than its 4 corners' mean.
+ * The MINIMUM number of strips a block's surface is read at across the row
+ * (`v`) direction, in {@link surfaceMedianElevation} — per source cell where
+ * the block is one cell deep, divided among the cells where it is deeper.
  *
- * `scratch` is the caller's reusable buffer (one allocation per
- * `glyphMapPolygons` call, not one per quad). Non-finite samples are left
- * out; the quad's own 4 corners are already known finite by the time this
- * runs (a non-finite corner skips the quad entirely), so the collected set
- * is never empty.
+ * The statistic is EXACT along a row and discretized only across rows: for a
+ * fixed `v` the bilinear surface is LINEAR in `u`, so that row's heights are
+ * distributed uniformly between its two edge heights and its contribution to
+ * the surface's value distribution is a closed form, not a sample. Only the
+ * `v` direction is approximated, by a midpoint rule that converges as
+ * `1/k^2`, so a handful of strips is already far more accurate than the same
+ * work spent on a `k x k` lattice of point samples: measured against a
+ * brute-force 64-strip reference over the real z4 tile under Buenos Aires
+ * (16,200 quads), a 16-point lattice disagrees on the BAND of 27 quads and 8
+ * strips on 5, of which 1 crosses sea level. On the vendored fixtures at
+ * every mesh resolution the ladder can pick, 8 strips reproduces the area
+ * majority exactly — zero quads misclassified against a 32x32 reference
+ * lattice, which is what `mesh.seaLevelBand.test.ts` asserts with no
+ * tolerance band; 4 strips leaves one, a quad 49.85% of whose surface is
+ * above sea level.
  */
-function blockMedianElevation(
+const SURFACE_MEDIAN_STRIPS = 8;
+
+/**
+ * The median of the terrain SURFACE over the vertex block a quad covers,
+ * inclusive of both edges — see {@link GlyphMapPolygonsOptions.colorSample}
+ * for why a quad's colour reads this rather than its 4 corners' mean or the
+ * median of the SAMPLES it covers.
+ *
+ * Each source CELL of the block contributes one uniform interval per strip
+ * (from that strip's west height to its east height, see
+ * {@link SURFACE_MEDIAN_STRIPS}), so the block's value distribution is a
+ * mixture of uniforms whose CDF is piecewise linear in the elevation, with a
+ * breakpoint at every
+ * interval end. The median is therefore solved EXACTLY rather than searched
+ * for: sort the ends, binary-search the segment where the CDF crosses one
+ * half, and invert the one linear piece it crosses on.
+ *
+ * `lo`/`hi`/`ends` are the caller's reusable buffers (one allocation per
+ * `glyphMapPolygons` call, not one per quad). A cell with a non-finite corner
+ * is left out rather than poisoning the block; the quad's own 4 corners are
+ * already known finite by the time this runs (a non-finite corner skips the
+ * quad entirely), so the empty-block fallback below is only reachable on a
+ * coarsened tier whose every interior cell is broken.
+ */
+function surfaceMedianElevation(
   tile: GlyphMapGeoTile,
-  scratch: Float64Array,
+  lo: Float64Array,
+  hi: Float64Array,
+  ends: Float64Array,
   col: number,
   colNext: number,
   row: number,
   rowNext: number,
 ): number {
   const stride = tile.cols + 1;
-  let n = 0;
-  for (let r = row; r <= rowNext; r++) {
-    const base = r * stride;
-    for (let c = col; c <= colNext; c++) {
-      const v = tile.elevation[base + c]!;
-      if (Number.isFinite(v)) scratch[n++] = v;
+  // Strips resolve the `v` direction WITHIN a cell, so a block that already
+  // spans several cell rows needs fewer of them: what the accuracy depends on
+  // is how many rows of the block's surface are read in total, and this keeps
+  // that at `SURFACE_MEDIAN_STRIPS` or more however the block is shaped. It
+  // matters because the statistic's work is proportional to the tile's own
+  // cells rather than to the quad count, so without it a coarsened backstop
+  // tier pays as much as the tier a reader is looking at: measured on the real
+  // z4 tile, a 32-quad floor tier costs 3.3 ms/tile with this and 8.2 ms
+  // without, at zero cost in accuracy (`mesh.seaLevelBand.test.ts`'s area
+  // invariant holds identically either way, at every rung of the ladder).
+  const strips = Math.max(1, Math.ceil(SURFACE_MEDIAN_STRIPS / (rowNext - row)));
+  let m = 0;
+  for (let r = row; r < rowNext; r++) {
+    const top = r * stride;
+    const bottom = (r + 1) * stride;
+    for (let c = col; c < colNext; c++) {
+      const nw = tile.elevation[top + c]!;
+      const ne = tile.elevation[top + c + 1]!;
+      const sw = tile.elevation[bottom + c]!;
+      const se = tile.elevation[bottom + c + 1]!;
+      if (!Number.isFinite(nw) || !Number.isFinite(ne) || !Number.isFinite(sw) || !Number.isFinite(se)) continue;
+      for (let j = 0; j < strips; j++) {
+        const v = (j + 0.5) / strips;
+        const west = nw + (sw - nw) * v;
+        const east = ne + (se - ne) * v;
+        lo[m] = west < east ? west : east;
+        hi[m] = west < east ? east : west;
+        m++;
+      }
     }
   }
-  const values = scratch.subarray(0, n);
-  values.sort();
-  return values[n >> 1]!;
+  if (m === 0) {
+    return (
+      tile.elevation[row * stride + col]! +
+      tile.elevation[row * stride + colNext]! +
+      tile.elevation[rowNext * stride + col]! +
+      tile.elevation[rowNext * stride + colNext]!
+    ) / 4;
+  }
+  let n = 0;
+  for (let i = 0; i < m; i++) {
+    ends[n++] = lo[i]!;
+    ends[n++] = hi[i]!;
+  }
+  const sorted = ends.subarray(0, n);
+  sorted.sort();
+  const half = m / 2;
+  // How much of the block's surface sits at or below `h`, in units of
+  // intervals. A FLAT strip (a cell whose east and west heights agree, so
+  // `lo === hi`) is an atom and has to be counted the moment `h` reaches it —
+  // a whole cell of terrain at exactly -1 m is the common case at a coast,
+  // and treating it as "not yet counted" at h = -1 loses half the mass of
+  // such a block and lands the median up on the one sloping corner.
+  const cdf = (h: number): number => {
+    let sum = 0;
+    for (let i = 0; i < m; i++) {
+      const l = lo[i]!;
+      const u = hi[i]!;
+      if (u <= l) {
+        if (h >= l) sum += 1;
+      } else if (h >= u) sum += 1;
+      else if (h > l) sum += (h - l) / (u - l);
+    }
+    return sum;
+  };
+  // The smallest sorted end whose CDF has reached one half. `sorted[n - 1]`
+  // is the block's maximum, where the CDF is `m`, so the search always lands.
+  let loIdx = 0;
+  let hiIdx = n - 1;
+  while (loIdx < hiIdx) {
+    const mid = (loIdx + hiIdx) >> 1;
+    if (cdf(sorted[mid]!) >= half) hiIdx = mid;
+    else loIdx = mid + 1;
+  }
+  const upper = sorted[loIdx]!;
+  if (loIdx === 0) return upper;
+  const lower = sorted[loIdx - 1]!;
+  // No end lies strictly between two consecutive ends, so on this segment
+  // every interval is fully below it, fully above it, or spanning it — and
+  // only the spanning ones vary, each at a constant rate.
+  let rate = 0;
+  for (let i = 0; i < m; i++) {
+    const l = lo[i]!;
+    const u = hi[i]!;
+    if (l <= lower && u >= upper && u > l) rate += 1 / (u - l);
+  }
+  if (rate <= 0) return upper;
+  const at = lower + (half - cdf(lower)) / rate;
+  return at < lower ? lower : at > upper ? upper : at;
 }
 
 interface ProjectedVertex {
@@ -419,13 +578,16 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
   const bias = opts.elevationBias ?? 0;
   const windowMin = opts.minElevation ?? -Infinity;
   const windowMax = opts.maxElevation ?? Infinity;
-  // One buffer for every quad's median, sized to the largest block any quad
-  // can cover (a `gridLineIndices` step is at most `ceil(total / count)`,
-  // plus the shared vertex line on each axis). Only the median path needs
-  // it, and only when a colour is actually being resolved.
-  const scratch = opts.color && !cornerMean
-    ? new Float64Array((Math.ceil(tile.cols / qCols) + 2) * (Math.ceil(tile.rows / qRows) + 2))
-    : null;
+  // One set of buffers for every quad's surface median, sized to the largest
+  // block any quad can cover (a `gridLineIndices` step is at most
+  // `ceil(total / count)` cells per axis) times its strips. Only the surface
+  // path needs them, and only when a colour is actually being resolved.
+  const intervals = opts.color && !cornerMean
+    ? (Math.ceil(tile.cols / qCols) + 1) * (Math.ceil(tile.rows / qRows) + 1) * SURFACE_MEDIAN_STRIPS
+    : 0;
+  const stripLo = intervals > 0 ? new Float64Array(intervals) : null;
+  const stripHi = intervals > 0 ? new Float64Array(intervals) : null;
+  const stripEnds = intervals > 0 ? new Float64Array(intervals * 2) : null;
   const polygons: Polygon[] = [];
   for (let r = 0; r < qRows; r++) {
     const row = rowAt[r];
@@ -439,9 +601,9 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
       const ne = projectVertex(tile, projection, colNext, row, bias, windowMin, windowMax);
       if (!finite(nw.xyz) || !finite(sw.xyz) || !finite(se.xyz) || !finite(ne.xyz)) continue;
       const color = opts.color?.(
-        scratch === null
+        stripLo === null || stripHi === null || stripEnds === null
           ? (nw.elev + sw.elev + se.elev + ne.elev) / 4
-          : blockMedianElevation(tile, scratch, col, colNext, row, rowNext),
+          : surfaceMedianElevation(tile, stripLo, stripHi, stripEnds, col, colNext, row, rowNext),
       );
       const up = localUpDirection(projection, nw.lon, nw.lat, nw.placedElev);
       const normal = cross(sub(sw.xyz, nw.xyz), sub(se.xyz, nw.xyz));

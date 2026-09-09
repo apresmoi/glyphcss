@@ -6801,12 +6801,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // per-mesh detail layer, so only the render mode is forwarded here.
       handle = scene.add(
         // `colorSample: "corner-mean"` is REQUIRED here, not a preference:
-        // `colorByCenter` above is keyed on the 4-corner mean, so the
-        // default `"median"` (which reads terrain, not the drawn surface —
-        // see `glyphMapPolygons`' own doc) would miss every lookup and flatten
-        // the ramp to `colors[0]`. A median could not be substituted on both
-        // sides either: it IS one of the corner values, and adjacent quads
-        // share corners, so two quads with different densities collide on one key.
+        // `colorByCenter` above is keyed on the 4-corner mean, so the default
+        // `"surface-median"` (the level that halves the covered surface's own
+        // AREA, not a height either side can recompute — see
+        // `glyphMapPolygons`' own doc) would miss every lookup and flatten the
+        // ramp to `colors[0]`. Keying both sides on it instead is not open
+        // either: it collapses to one of the sampled heights wherever a cell
+        // is flat, and adjacent quads share corners, so two quads with
+        // different densities collide on one key.
         glyphMapPolygons(tile, projection, { colorSample: "corner-mean", color: (v) => colors[Math.min(colors.length - 1, Math.floor(((colorByCenter.get(v) ?? 0) / reliefHeight) * colors.length))] }),
         meshTransform(layer),
       );

@@ -96,9 +96,11 @@ describe("glyphMapPolygons", () => {
   });
 
   it("colorSample: \"corner-mean\" really does hand `color` the 4-corner mean — the exact float `widget.ts`'s heatmap keys its density map on", () => {
-    // A quad whose corners are 0/0/0/400: mean 100, median (upper, of the
-    // 2x2 block) 0. The two statistics must be distinguishable here, or this
-    // test would pass against either implementation.
+    // A quad whose corners are 0/0/0/400: the 4-corner mean is 100 and the
+    // default `"surface-median"` is the level that halves the drawn surface's
+    // area, ~74.7 m (closed form: 400t where t(1 - ln t) = 1/2). The two
+    // statistics must be distinguishable here, or this test would pass
+    // against either implementation.
     const tile: GlyphMapGeoTile = {
       bounds: { west: 0, east: 1, south: 0, north: 1 },
       cols: 1,
@@ -111,9 +113,13 @@ describe("glyphMapPolygons", () => {
     glyphMapPolygons(tile, glyphMapGlobe(), { colorSample: "corner-mean", color: (e) => { seen.push(e); return undefined; } });
     expect(seen).toEqual([100]);
 
-    const median: number[] = [];
-    glyphMapPolygons(tile, glyphMapGlobe(), { color: (e) => { median.push(e); return undefined; } });
-    expect(median).toEqual([0]);
+    const surface: number[] = [];
+    glyphMapPolygons(tile, glyphMapGlobe(), { color: (e) => { surface.push(e); return undefined; } });
+    expect(surface).toHaveLength(1);
+    // Within 2% of the closed form above, and nowhere near the corner mean —
+    // which is all the heatmap's `Map` key needs (`widget.ts`).
+    expect(surface[0]!).toBeGreaterThan(73);
+    expect(surface[0]!).toBeLessThan(76);
   });
 
   it("leaves polygons uncolored when no color callback is given", () => {

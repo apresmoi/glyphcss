@@ -148,15 +148,147 @@ rather than inventing vertices). It is a target COUNT, not a stride,
 deliberately: a stride must divide the grid evenly or the last row/column
 falls short of the tile's own edge, and 180/90 share only divisors of 90 —
 too coarse a ladder to express the ~1.5-1.75x over-resolution the LOD's own
-2x level steps actually leave. "Crop, don't clamp", the per-quad
-`localUpDirection` winding probe, and the 4-corner average feeding
-`opts.color` are all recomputed from the COARSE quad's own corners.
-Elevation is POINT-sampled at the retained vertices, never aggregated
-(mean/max) over the skipped block: an aggregate would need a symmetric
-window that reaches outside the tile exactly on the boundary ring where
-crack-freedom is decided, and a tile holds only its own samples. The cost is
-peak fidelity — a lone summit between retained vertices is dropped rather
-than averaged in.
+2x level steps actually leave. "Crop, don't clamp" and the per-quad
+`localUpDirection` winding probe are both recomputed from the COARSE quad's
+own corners; the elevation feeding `opts.color` is the deliberate exception
+and reads the tile's own full-resolution surface over the block the coarse
+quad covers (next section). Vertex elevation is POINT-sampled at the
+retained vertices, never aggregated (mean/max) over the skipped block: an
+aggregate would need a symmetric window that reaches outside the tile
+exactly on the boundary ring where crack-freedom is decided, and a tile
+holds only its own samples. The cost is peak fidelity — a lone summit
+between retained vertices is dropped rather than averaged in.
+
+### A quad's colour is the median of the SURFACE it covers
+
+`colorSample: "surface-median"` (the default) hands `opts.color` the level
+that halves the AREA of the tile's own full-resolution bilinear surface over
+the block `[col..colNext] x [row..rowNext]`. Two earlier rules were tried on
+real data and each broke in the opposite direction; this one is not a third
+guess but the same idea as the second with its evidence corrected.
+
+**The 4-corner MEAN painted the Andes as ocean.** Where a quad straddles a
+coastline the mean is dragged below zero by the ocean corner, and the deeper
+the adjacent ocean the further inland it reaches — measured on the real
+ETOPO1 pyramid, the floor tier's quad covering Bogota averaged **-155 m**
+across its corners over terrain that is 379 of 441 samples above sea level
+(Quito's **-718 m**), which `GlyphMapClassifiers.etopo1V1` paints
+bathymetric blue. Point-sampling the quad CENTRE was measured as the obvious
+alternative and is worse than the mean (268 majority-land quads
+misclassified across an Andes window against the mean's 65): it drops into a
+river, lake or inlet.
+
+**The SAMPLE median fixed that and was defended with a guarantee that does
+not hold where it matters.** The claim was: "if strictly more than half a
+quad's covered samples are at or above sea level then more than half the
+sorted samples are, so the sample at index `n >> 1` is too — a majority-land
+quad can NEVER be classified below sea level, at any mesh resolution". The
+arithmetic is right and the premise is not, because `n` is 4 at the tier a
+reader actually looks at: `widget.ts`'s `reliefFractionForLevel` returns 1
+for every span the target tier is drawn at, so a quad's "covered samples"
+are its own four corners and `values[2]` of four is an upper median — a
+3-of-4 vote, ties to land, magnitude ignored. Reported live as Buenos Aires'
+city centre rendered as river: the z4 quad under downtown reads
+`(nw -1, ne -1, sw +12, se -1)`, three estuary samples outvote the city, and
+at the reported span that single 0.125-degree quad covers 54% of the screen
+with a straight edge through Retiro and Palermo. **2,756 base cells that
+OpenStreetMap's own water polygons call land were painted as water** (1,673
+of them visible, the rest under roads), while 72.6% of the surface drawn
+between those four corners is above sea level. The guarantee was never
+wrong about sorted samples; it was measuring the wrong thing. The samples
+were 1:3 and the surface between them 3:1.
+
+**What replaced it, and why this guarantee is exact.** An area median is a
+majority vote over the same terrain, weighted by how much of it each height
+occupies rather than by how many baked samples happen to sit on it. Its
+property needs no `n`: a band that less than half the covered surface
+occupies cannot contain the level that halves that surface. So it holds at
+n = 4 and at 441 alike, in BOTH directions — which is what
+`mesh.seaLevelBand.test.ts` now asserts, against a brute-force 32x32
+reference lattice it does not share with the implementation. Under the
+sample median that clause fails on **94 quads** of the vendored fixtures
+alone, including a quad only 2.2% of whose surface is above sea level
+painted as land.
+
+**It reads the bilinear patch, not the two triangles glyphcss fills.** The
+renderer fan-triangulates a quad from its first vertex, so the surface it
+literally rasterizes is two triangles sharing the nw-se diagonal — and that
+diagonal is an artefact of the fill order, not of the data. Reading it would
+make the statistic depend on it: the same Buenos Aires corners are **42.6%**
+above sea level split nw-se and **85.2%** split sw-ne, bracketing the
+bilinear's 72.6%. The bilinear patch is the diagonal-independent interpolant
+between those two and is what a gridded height field means, so it is what
+the statistic reads. (Nothing per-cell is claimed either way: a quad's
+colour is flat across it, which is why the boundary is a quad edge and not a
+shoreline.)
+
+**Exact along a row, discretized across rows.** For a fixed `v` the bilinear
+surface is LINEAR in `u`, so that row's heights are distributed uniformly
+between its two edge heights — a closed form, not a sample. Each source cell
+of the block therefore contributes one uniform interval per strip, the
+block's value distribution is a mixture of uniforms whose CDF is piecewise
+linear in the elevation with a breakpoint at every interval end, and the
+median is SOLVED (sort the ends, binary-search the segment where the CDF
+reaches one half, invert the single linear piece it crosses) rather than
+searched for. Only the `v` direction is approximated, by a midpoint rule
+that converges as `1/k^2`, which is why this beats spending the same work on
+a `k x k` lattice of point samples: against a 64-strip reference over the
+real z4 tile under Buenos Aires (16,200 quads), a 16-point lattice
+disagrees on the BAND of 27 quads and 8 strips on 5, of which 1 crosses sea
+level. `SURFACE_MEDIAN_STRIPS` is 8 because 4 leaves one quad of the
+fixtures misclassified against the reference lattice (49.85% of its surface
+above sea level) and 8 leaves none, at every rung of the ladder. A FLAT
+strip is an atom in that mixture and has to be counted the moment the level
+reaches it — the first implementation treated `h <= lo` as "not yet
+counted", which loses half the mass of a block whose cells are flat at
+exactly -1 m (the common shape at a coast) and lands the median up on the
+one sloping corner; the fixture clause caught it.
+
+**The cost was measured and accepted, not discovered.** The area rule paints
+MORE water overall, because the surface between a lone high sample and its
+low neighbours really is mostly low. On the real z4 tiles, against the
+sample median: Buenos Aires' own tile `4/5_11` changes 191 of 16,200 quads —
+14 water->land (the reported quad among them) and **56 land->water** —
+and Amsterdam's `4/8_3` changes 722, with 39 water->land and **96
+land->water**. On the fixtures at full resolution: Bogota 13 land->water,
+Quito 9, the Altiplano 5, Amsterdam 6 water->land plus 4 land->water, Buenos
+Aires 3 water->land. Four Bogota quads whose CORNERS are majority land now
+come out water (e.g. `212, 426, -3046, 81` — a coastal cliff into the
+Peru-Chile trench sampled at 0.5 degrees): the terrain there steps and the
+interpolant ramps, so the surface really is mostly below zero and the
+statistic is reporting its own premise faithfully. That is the trade the
+rule makes, and it is the one a reader can see the right side of, because
+the quads it gets wrong are cliffs at a half-degree sample spacing while the
+quad it fixes was a whole city.
+
+**Build cost.** Real z4 tile, same process, medians of ten runs: the target
+tier goes **4.2 -> 6.2 ms/tile** (the mesh with no colour at all is 2.9 ms,
+so the statistic itself roughly triples). The work is proportional to the
+tile's own CELLS rather than to the quad count, so a coarsened tier would
+pay as much as the tier under the reader's eye — 8.2 ms for a 32-quad floor
+tier. The strip count is therefore divided among a coarse block's cell rows
+(a block spanning 3 cell rows takes 3 strips per cell, not 8), keeping at
+least `SURFACE_MEDIAN_STRIPS` rows of surface read per block however it is
+shaped: floor tier **3.3 ms**, fallback tier at 90x45 **3.5 ms**, and the
+area invariant holds identically either way at every rung.
+
+**Below-zero DRY LAND is left alone, and that is a decision, not an
+omission.** The same report covered Amsterdam, where the terrain layer
+paints the polders, Waterland, Flevoland and the IJsselmeer bed as sea. It
+is the DEM's honest answer: 138 of the 187 z4 samples around that view are
+genuinely below 0 m at -1..-6 m, 30 of the 40 quads in frame have at least 3
+corners below zero, and mean, median and area all agree there (the sample
+median was even the best of the three, by a hair, on what are +/-3 m coin
+flips). No per-quad statistic separates a polder from a lake bed at ~13 km
+per sample, so nothing here is a sampling defect. Band 0 means "below the
+datum" and `/maps`' terrain ramp presents that as water; the OSM `water`
+layer, mounted on the same view, is the only real water mask. The two
+alternatives were priced and rejected: reading OSM water to recolour terrain
+is a cross-layer coupling this package does not do (and works only while the
+OSM card is on), and a shallow below-datum land band fixes the polders by
+breaking every shallow sea and estuary at -1..-20 m the other way — the Rio
+de la Plata's own -1 m estuary included, which is the case that sits
+directly beside the defect that WAS fixed.
 
 **No cracks: resolution is resolved per pyramid LEVEL, never per tile.**
 Because the index sequence depends only on `(total, count)`, two tiles at
@@ -229,7 +361,7 @@ problem — the floor still stole 231 cells at its finest possible 2° quads;
 (b) a colour-rule problem — no single colour per 11° quad is right, so
 `corner-mean` merely trades sea-painted-as-land (486 → 14) for
 land-painted-as-sea (52 → 101, and 1,377 for the floor alone), which is the
-Andes/Bogotá defect the median was introduced to fix; (c) a tuning — 20,000 m
+Andes/Bogotá defect the colour statistic exists to prevent; (c) a tuning — 20,000 m
 exceeds Earth's entire solid-surface relief (~19,784 m), which bounds how far
 any coarse chord can rise above a finer sample of the same field, and it is
 in METRES so a projection scales it by the same `exaggeration` it scales the
@@ -5680,7 +5812,7 @@ The median is exactly zero everywhere and p90 never exceeds 4.5 m, and the reaso
 
 ### No water rule, and why a "flat lake level" is worse than the surface
 
-The brief was right that a lake surface is flat in reality while a landcover polygon follows the ground, and right that this package has chosen a robust statistic over a mean before (`colorSample: "median"`). It does not follow here, and the measurements say why.
+The brief was right that a lake surface is flat in reality while a landcover polygon follows the ground, and right that this package has chosen a robust statistic over a mean before (`colorSample: "surface-median"`). It does not follow here, and the measurements say why.
 
 **Where the DEM resolves a lake, the per-vertex drape is ALREADY flat.** ETOPO1 encodes a lake surface as a plateau: read at Titicaca, the z4 tier answers exactly 3,815 m at every vertex line across the lake's own footprint (the real lake is 3,812 m). The surface rule gives a planar lake there for free, with no statistic and no special case.
 
@@ -5938,9 +6070,9 @@ The clamp moves nothing in the colour channel and everything in the glyph channe
 
 ### Where the window is applied, and where it is not
 
-**POSITION only.** A quad's colour still reads the terrain's own unwindowed statistic, exactly as `elevationBias` already does — a windowed mesh is the same map at a different shape, never a differently-classified one. Clamping the colour too would hand an elevation-band classifier the floor value for every sea quad on Earth, and `GlyphMapClassifiers.etopo1V1`'s first break is 0, so a floor of 0 would paint every ocean in the lowest LAND colour: the sea-painted-as-land defect `colorSample: "median"` exists to prevent, this time by construction rather than by accident.
+**POSITION only.** A quad's colour still reads the terrain's own unwindowed statistic, exactly as `elevationBias` already does — a windowed mesh is the same map at a different shape, never a differently-classified one. Clamping the colour too would hand an elevation-band classifier the floor value for every sea quad on Earth, and `GlyphMapClassifiers.etopo1V1`'s first break is 0, so a floor of 0 would paint every ocean in the lowest LAND colour: the sea-painted-as-land defect `colorSample` exists to prevent, this time by construction rather than by accident.
 
-**Per VERTEX**, which is the answer to "median, corners, or vertices". There is no quad-level accept/reject decision, so `colorSample` never enters it. It is also what makes a partially-submerged quad right: its land corners keep their heights while its sea corners sit on the plane, so the coast still slopes into the water instead of stepping. Clamping by a quad's median would move all four corners together and flatten real coastal relief a whole quad at a time (gated: of the coastal quads in the trench fixture, not one comes out flat).
+**Per VERTEX**, which is the answer to "median, corners, or vertices". There is no quad-level accept/reject decision, so `colorSample` never enters it. It is also what makes a partially-submerged quad right: its land corners keep their heights while its sea corners sit on the plane, so the coast still slopes into the water instead of stepping. Clamping by a quad's own colour statistic would move all four corners together and flatten real coastal relief a whole quad at a time (gated: of the coastal quads in the trench fixture, not one comes out flat).
 
 **Every tier**, through `mountTile` — one resolved window object spread into every `glyphMapPolygons` call. Observable only where a tier is itself the visible surface, i.e. at the span where the floor IS the target LOD and takes no sink; everywhere else an unwindowed backstop is hidden behind a closed windowed surface, which is the clamp's own safety property. Gated there: 135 changed cells with the floor windowed, exactly 0 with it left out.
 

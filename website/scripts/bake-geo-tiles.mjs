@@ -254,23 +254,37 @@ function bakeGeoTile(sampler, bounds, cols, rows) {
 // as water: a coarsened relief quad took its colour from the mean of its 4
 // corners, and where those corners straddle a coast the mean falls below sea
 // level even though most of the quad is land (measured: Bogota's floor-tier
-// quad averaged -155 m over terrain whose own median is +194 m).
+// quad averaged -155 m over terrain whose own median is +194 m). A quad's
+// colour now reads the AREA of the surface it covers, so these windows also
+// pin the invariant in the other direction — a quad whose surface is
+// majority below sea level is never painted in a land band.
 //
 // `at` is a lon/lat that lands exactly on a vertex of the window's own grid,
 // so the test can assert the fixture really does hold that place's true
 // elevation before it asserts anything about colour.
+//
+// `buenosAires` is the exception to the shape above and deliberately so: it is
+// baked at EXACTLY the z4 pyramid level's own 0.125-degree vertex spacing
+// (22.5 degrees over 180 quads), because the defect it pins is one a reader
+// sees at the TARGET tier, where a relief quad is one source cell and its
+// colour has no interior sample to read. The window holds the Rio de la Plata
+// estuary beside the city: the vertex under downtown is +12 m and its three
+// neighbours to the north-east are the estuary's -1 m, so the quad between
+// them is majority land by area and majority water by sample count.
 const SEA_LEVEL_BAND_WINDOWS = [
   { name: "bogota", bounds: { west: -79, east: -69, south: 0, north: 10 }, at: [-74, 4.5] },
   { name: "quito", bounds: { west: -84, east: -74, south: -5, north: 5 }, at: [-78.5, 0] },
   { name: "altiplano", bounds: { west: -73, east: -63, south: -27, north: -17 }, at: [-68, -22] },
   { name: "amsterdam", bounds: { west: 0, east: 10, south: 48, north: 58 }, at: [5, 52.5] },
+  { name: "buenosAires", bounds: { west: -60, east: -58, south: -36, north: -34 }, quads: 16, at: [-58.375, -34.625] },
 ];
 const SEA_LEVEL_BAND_QUADS = 20;
 
 async function bakeSeaLevelBandFixture(sampler) {
   const out = {};
   for (const window of SEA_LEVEL_BAND_WINDOWS) {
-    const tile = bakeGeoTile(sampler, window.bounds, SEA_LEVEL_BAND_QUADS, SEA_LEVEL_BAND_QUADS);
+    const quads = window.quads ?? SEA_LEVEL_BAND_QUADS;
+    const tile = bakeGeoTile(sampler, window.bounds, quads, quads);
     out[window.name] = {
       bounds: tile.bounds,
       cols: tile.cols,
