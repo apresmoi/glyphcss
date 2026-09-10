@@ -34,6 +34,15 @@ import {
   mapOsmSourceLabel,
   type MapOsmAnchors,
 } from "./mapsOsm";
+import {
+  MAP_DATASET_DEFAULT_ANCHOR,
+  MAP_DATASET_DEFAULT_DENSITY,
+  MAP_DATASET_ROWS,
+  loadMapDataset,
+  mapDatasetLayers,
+  mapDatasetSourceLabel,
+  type MapDataset,
+} from "./mapsDatasets";
 import { extractAsciiFromPre } from "../../lib/asciiClipboard";
 import { downloadGlyphSvgLayers } from "../../lib/glyphSvgLayers";
 import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
@@ -114,6 +123,12 @@ import {
   mapsOsmDensityRecordFromTuple,
   mapsOsmMaskFromSublayers,
   mapsOsmSublayersFromMask,
+  mapsDatasetAnchorRecordFromTuple,
+  mapsDatasetAnchorsFromRecord,
+  mapsDatasetDensitiesFromRecord,
+  mapsDatasetDensityRecordFromTuple,
+  mapsDatasetMaskFromRows,
+  mapsDatasetRowsFromMask,
   readInitialMapsState,
   writeMapsUrlState,
   type MapCharMode,
@@ -275,6 +290,32 @@ export default function MapsWorkbench() {
   const [osmAnchors, setOsmAnchors] = useState<MapOsmAnchors>(
     () => mapsOsmAnchorRecordFromTuple(initial.osmLabelAnchors),
   );
+  // ── The DATASETS card.
+  //
+  //    Five static world-wide files (`mapsDatasets.ts`), each FETCHED THE
+  //    FIRST TIME ITS ROW IS SWITCHED ON and then held for the life of the
+  //    page. Nothing is fetched on a default load, which is what makes a
+  //    673 KiB (gzipped) land-regions file a cost a reader opts into rather
+  //    than one every visitor carries — the same discipline the OSM card's
+  //    on-demand tiles have.
+  //
+  //    Row state mirrors the OSM card's three records exactly, and for the
+  //    same reasons: per-row visibility, per-row density (only `fill`/`line`
+  //    read one) and per-row label placement (only the `symbol` row does).
+  const [showDatasets, setShowDatasets] = useState(initialLayerVisible.datasets);
+  const [datasetRows, setDatasetRows] = useState<Record<string, boolean>>(
+    () => mapsDatasetRowsFromMask(initial.datasetMask),
+  );
+  const [datasetDensities, setDatasetDensities] = useState<Record<string, number>>(
+    () => mapsDatasetDensityRecordFromTuple(initial.datasetDensities),
+  );
+  const [datasetAnchors, setDatasetAnchors] = useState<MapOsmAnchors>(
+    () => mapsDatasetAnchorRecordFromTuple(initial.datasetLabelAnchors),
+  );
+  /** Row id -> the file, once it has arrived. A row switched on but not here yet simply mounts nothing this render. */
+  const [datasetData, setDatasetData] = useState<Record<string, MapDataset | undefined>>({});
+  /** Row ids whose fetch rejected — the card's `failed` line, and the reason a row can be on and drawing nothing. */
+  const [datasetFailed, setDatasetFailed] = useState<readonly string[]>([]);
   /**
    * Street-level walk mode — and, from a shared link, the pose to open it at.
    *
@@ -740,6 +781,22 @@ export default function MapsWorkbench() {
       onSublayer: (id, on) => setOsmSublayers((prev) => ({ ...prev, [id]: on })),
       onSublayerDensity: (id, density) => setOsmDensities((prev) => ({ ...prev, [id]: density })),
       onSublayerAnchor: (id, anchor) => setOsmAnchors((prev) => ({ ...prev, [id]: anchor })),
+    },
+    datasets: {
+      visible: showDatasets, onVisible: setShowDatasets,
+      source: mapDatasetSourceLabel(datasetData),
+      failed: datasetFailed.length === 0
+        ? null
+        : datasetFailed.map((id) => MAP_DATASET_ROWS.find((r) => r.id === id)?.label ?? id).join(", "),
+      rows: MAP_DATASET_ROWS.map((spec) => ({
+        id: spec.id, label: spec.label, type: spec.type,
+        on: datasetRows[spec.id] ?? false,
+        density: datasetDensities[spec.id] ?? MAP_DATASET_DEFAULT_DENSITY,
+        anchor: datasetAnchors[spec.id] ?? MAP_DATASET_DEFAULT_ANCHOR,
+      })),
+      onRow: (id, on) => setDatasetRows((prev) => ({ ...prev, [id]: on })),
+      onRowDensity: (id, density) => setDatasetDensities((prev) => ({ ...prev, [id]: density })),
+      onRowAnchor: (id, anchor) => setDatasetAnchors((prev) => ({ ...prev, [id]: anchor })),
     },
   };
 
@@ -1418,6 +1475,64 @@ export default function MapsWorkbench() {
     // the widget instance, and a rebuilt widget has no layers on it.
   }, [showOsm, osmSource, osmSublayers, osmDensities, osmAnchors, provider, vectorProvider]);
 
+  // ── The Datasets card: FETCH.
+  //
+  //    One request per row, the first time that row is armed while the card
+  //    is on, and never again — `datasetData` is the cache and a row already
+  //    in it is skipped. `wanted` deliberately reads BOTH `showDatasets` and
+  //    the row's own bit, so arming a row inside a switched-off card costs no
+  //    network either.
+  //
+  //    A rejection is recorded rather than thrown: the row stays armed and
+  //    draws nothing, every other row is unaffected, and the card says so
+  //    (`datasetFailed` -> the card's `failed` line). This is the same
+  //    "degrade, never blank the layer" contract the OSM source's own tile
+  //    loader has. ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!showDatasets) return;
+    let cancelled = false;
+    for (const row of MAP_DATASET_ROWS) {
+      if (!datasetRows[row.id] || datasetData[row.id] || datasetFailed.includes(row.id)) continue;
+      void loadMapDataset(row).then(
+        (loaded) => {
+          if (cancelled) return;
+          setDatasetData((prev) => ({ ...prev, [row.id]: loaded }));
+        },
+        () => {
+          if (cancelled) return;
+          setDatasetFailed((prev) => (prev.includes(row.id) ? prev : [...prev, row.id]));
+        },
+      );
+    }
+    return () => { cancelled = true; };
+  }, [showDatasets, datasetRows, datasetData, datasetFailed]);
+
+  // ── The Datasets card: MOUNT.
+  //
+  //    `mapDatasetLayers` hands back ready-to-mount layers whose `source` is
+  //    a static `GlyphMapVectorFeatureCollection` already carrying its own
+  //    credit, so `map.getAttributions()` picks each licence up from the
+  //    mounted layer itself — nothing here writes an attribution string, and
+  //    switching a row off withdraws its credit. That matters most for the
+  //    submarine cables, which are CC BY-NC-SA 3.0 and whose attribution is
+  //    a licence term rather than a courtesy. ───────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    for (const { id } of MAP_DATASET_ROWS) map.removeLayer(id);
+    if (showDatasets) {
+      const enabled = MAP_DATASET_ROWS.filter((r) => datasetRows[r.id]).map((r) => r.id);
+      for (const layer of mapDatasetLayers(datasetData, { enabled, densities: datasetDensities, anchors: datasetAnchors })) {
+        map.addLayer(layer);
+      }
+    }
+    map.scene.rerender();
+    setAttributions(map.getAttributions());
+    // `provider`/`vectorProvider` for the reason every other mount effect
+    // lists them: those two are what rebuild the widget, and a rebuilt widget
+    // has no layers on it.
+  }, [showDatasets, datasetRows, datasetDensities, datasetAnchors, datasetData, provider, vectorProvider]);
+
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,
   //    since a provider-backed contour re-derives its field asynchronously
@@ -1685,6 +1800,7 @@ export default function MapsWorkbench() {
       // between named state and a record is a UI shape, not a URL one.
       layerMask: mapsLayerMaskFromVisibility({
         terrain: showTerrain, borders: showBorders, contour: showContour, osm: showOsm,
+        datasets: showDatasets,
         ...extraVisible,
       }),
       osmMask: mapsOsmMaskFromSublayers(osmSublayers),
@@ -1717,13 +1833,20 @@ export default function MapsWorkbench() {
       // walker's own pose (center/bearing/tilt above) reaches the URL by the
       // path every other camera change already takes.
       walk: walkOn,
+      // The Datasets card, on the same three-record shape the OSM card's
+      // `O`/`M`/`l` take. The masks are written whole rather than only for
+      // enabled rows, so switching the card off and sharing still restores
+      // which rows were armed inside it.
+      datasetMask: mapsDatasetMaskFromRows(datasetRows),
+      datasetDensities: mapsDatasetDensitiesFromRecord(datasetDensities),
+      datasetLabelAnchors: mapsDatasetAnchorsFromRecord(datasetAnchors),
     });
     // `layerAmount` is depended on by its two persisted ENTRIES, never as a
     // whole: a magnitude slider changes that object's identity, and re-running
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, terrainMinElevation, terrainMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, terrainMinElevation, terrainMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn, showDatasets, datasetRows, datasetDensities, datasetAnchors]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

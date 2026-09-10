@@ -25,6 +25,10 @@ import { describe, expect, it } from "vitest";
 import {
   MAPS_LAYER_DEFAULT_ON,
   MAPS_LAYER_KEYS,
+  MAPS_DATASET_ROW_KEYS,
+  MAPS_DATASET_SLOTS,
+  mapsDatasetMaskFromRows,
+  mapsDatasetRowsFromMask,
   MAPS_MODEL_SHAPE_VALUES,
   MAPS_OSM_MASK_LINK_DEFAULT,
   MAPS_OSM_MASK_PAGE_DEFAULT,
@@ -41,6 +45,7 @@ import {
 } from "./mapsUrlState";
 import { MAP_OSM_DEFAULT_ON, MAP_OSM_SUBLAYERS } from "./mapsOsm";
 import { MAP_MODEL_SHAPES } from "./mapPin";
+import { MAP_DATASET_ROWS } from "./mapsDatasets";
 import { MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, POINT_DATASET_OPTIONS } from "./mapsKit";
 
 describe("mapsUrlState — the layer bitfields' key lists are a wire format", () => {
@@ -56,7 +61,22 @@ describe("mapsUrlState — the layer bitfields' key lists are a wire format", ()
     expect([...MAPS_LAYER_KEYS]).toEqual([
       "terrain", "borders", "contour", "osm",
       "fill", "symbol", "circle", "heatmap", "fill-extrusion", "model",
+      // Appended at bit 10 with the Datasets card. Prefix-stable, which is
+      // the whole rule: every bit before it still means what it always did.
+      "datasets",
     ]);
+  });
+
+  it("the dataset-row wire list covers exactly the rows the card offers, in the card's own order", () => {
+    // The same prefix-stable guard the OSM list gets, and it exists for the
+    // same reason: `MAP_DATASET_ROWS` is a product decision (the rail's own
+    // reading order) and `MAPS_DATASET_ROW_KEYS` is a wire format, so a
+    // reorder on the card has to go red HERE rather than silently
+    // reinterpret every shared `q`.
+    expect([...MAPS_DATASET_ROW_KEYS]).toEqual(MAP_DATASET_ROWS.map((r) => r.id));
+    // ...and the two per-row tuples' frozen width still covers it exactly.
+    // A sixth row means a SECOND token, never a wider one.
+    expect(MAPS_DATASET_SLOTS).toBe(MAP_DATASET_ROWS.length);
   });
 
   it("every wire enum list matches the live option list it stands for", () => {
@@ -90,6 +110,7 @@ describe("mapsUrlState — bitmask round-trip", () => {
     const visible = {
       terrain: false, borders: true, contour: true, osm: true,
       fill: false, symbol: true, circle: false, heatmap: false, "fill-extrusion": true, model: false,
+      datasets: false,
     };
     expect(mapsLayerVisibilityFromMask(mapsLayerMaskFromVisibility(visible))).toEqual(visible);
   });
@@ -118,7 +139,11 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
     const visible = {
       terrain: true, borders: false, contour: true, osm: true,
       fill: true, symbol: false, circle: true, heatmap: false, "fill-extrusion": false, model: true,
+      datasets: true,
     };
+    const datasetRows = Object.fromEntries(
+      MAPS_DATASET_ROW_KEYS.map((id) => [id, id === "ds-cables" || id === "ds-dams"]),
+    );
     const osmSublayers = Object.fromEntries(
       MAPS_OSM_SUBLAYER_KEYS.map((id) => [id, id === "omt-buildings" || id === "omt-places"]),
     );
@@ -140,11 +165,22 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
       contourLabels: true,
       extrusionRenderMode: "wireframe" as const,
       modelRenderMode: "ink" as const,
+      datasetMask: mapsDatasetMaskFromRows(datasetRows),
+      // A non-uniform tuple, so a positional slip would land somewhere
+      // visible rather than on a row that happens to hold the same number.
+      datasetDensities: [1, 2.4, 1.7, 1, 1],
+      // `2` is `MAP_OSM_LABEL_ANCHORS[2]`; the Dams row is the card's only
+      // labelled one, and it is the last slot, so this also pins that the
+      // tuple's width is read to its end.
+      datasetLabelAnchors: [0, 0, 0, 0, 2],
     };
     const decoded = { ...MAPS_URL_DEFAULTS, ...mapsCodec.decode(mapsCodec.encode(state)) };
 
     expect(mapsLayerVisibilityFromMask(decoded.layerMask)).toEqual(visible);
     expect(mapsOsmSublayersFromMask(decoded.osmMask)).toEqual(osmSublayers);
+    expect(mapsDatasetRowsFromMask(decoded.datasetMask)).toEqual(datasetRows);
+    expect(decoded.datasetDensities.map((v) => Number(v.toFixed(1)))).toEqual([1, 2.4, 1.7, 1, 1]);
+    expect(decoded.datasetLabelAnchors).toEqual([0, 0, 0, 0, 2]);
     expect(decoded.osmDensity).toBeCloseTo(2.5, 6);
     expect(decoded.terrainDensity).toBeCloseTo(1.5, 6);
     expect(decoded.borderDensity).toBeCloseTo(2, 6);
