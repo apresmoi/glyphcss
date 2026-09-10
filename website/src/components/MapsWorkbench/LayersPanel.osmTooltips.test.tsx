@@ -74,6 +74,9 @@ function inputs(): LayersFolderInputs {
     fill: glyphOnly, symbol: extra(), circle: extra(), heatmap: glyphOnly,
     fillExtrusion: withMode, model: withMode,
     osm,
+    // The Live card's inputs in their default (card off, no rows) state —
+    // this file is about the OSM card's tooltips.
+    live: { visible: false, onVisible: noop, feeds: [], onFeed: noop },
   };
 }
 

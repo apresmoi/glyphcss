@@ -446,6 +446,34 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/* A LIVE row re-proportions the card body's three columns, because its widget
+   and its value are the opposite shape of every other row's: the widget is a
+   checkbox and nothing else, while the value is a SENTENCE ("383 quakes · 6s")
+   rather than a number. Left on the shared `45% / 1fr / 60px` track the
+   readout wrapped to three lines underneath the checkbox — measured on the
+   real card at the rail's own width. So the name gives a little back, the
+   checkbox takes only what it needs, and the readout takes the rest. */
+.maps-layer-card .maps-layer-body .maps-live-row {
+  grid-template-columns: 38% auto minmax(0, 1fr);
+}
+.maps-layer-card .maps-layer-body .maps-live-row .maps-osm-row-widget {
+  flex: none;
+}
+.maps-layer-card .maps-layer-body .maps-live-row .maps-layer-info-value {
+  grid-column: 3;
+}
+/* The reason line under a failed row. The arrow is a CONTINUATION MARK, not a
+   name, so it takes only its own width and the message takes the rest —
+   otherwise 45% of the row is spent on one glyph and the sentence wraps
+   inside a third of the card. */
+.maps-layer-card .maps-layer-body .maps-live-note {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.maps-layer-card .maps-layer-body .maps-live-note .maps-layer-info-value {
+  grid-column: 2;
+  white-space: normal;
+}
 /* A LABELLED row (`symbol`) carries a placement control instead of a density
    one, in the widget cell the slider left empty. It has no value of its own
    to print, so the widget spans columns 2-3 — the same `grid-column: 2 / 4`

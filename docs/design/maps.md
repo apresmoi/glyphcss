@@ -6977,3 +6977,164 @@ away zooms it out a level.
 Every other case in the file was checked for the same defect — a premise
 satisfied by an unrelated guard — by reading which clause each one would have
 to reach; the two above were the only ones that could not reach theirs.
+
+## Live data: `setLayerSource`, and why the clock is not in this package
+
+Every layer here was static once mounted. `addLayer` captures a source and
+there was no way to hand a runtime a new one, so a dataset that REFRESHES
+could only be expressed as `removeLayer` + `addLayer`. That is wrong twice
+over: it loses the layer's place in `layerOrder`, and for a `symbol`/`circle`
+layer it destroys and re-creates every hotspot `<div>` on every refresh — the
+`+4298 -4298` churn `widget.symbolRebuildFlash.test.ts` exists to prevent, on
+a timer.
+
+### One primitive, and it is idle-neutral
+
+`setLayerSource(id, source)` is the whole package-side surface. It is valid
+for every vector-source layer (`line`, `fill`, `fill-extrusion`, `symbol`,
+`circle`, `heatmap`) and throws a `RangeError` naming the id for anything
+else: `raster` and `contour` read a FIELD, `background` has no source, and a
+`model` is a polygon list.
+
+Mechanically it is three steps. The runtime's held source is replaced and its
+`lastInputs` identity skip cleared (a new source's features are a genuinely
+different input and must not take the skip that stops an unchanged tile set
+from rebuilding); its tile cache is cleared with it, since the cache is keyed
+by `z/x_y` alone and would otherwise serve one provider's tiles for another's
+addresses; and the stored options object is replaced too, so `getAttributions()`
+and every later read see the new source.
+
+`createFeatureLayerRuntime.update()` now captures `source` ONCE at the top of
+a sweep. It awaits, and the binding is replaceable, so reading it after the
+await would let a sweep that started on one source finish on another —
+fetching for the second and rebuilding from the first. `setSource` clears
+`lastInputs` and the caller dispatches a fresh `update()`, so the older
+sweep's result is simply superseded.
+
+**It is idle-neutral, and that is the design constraint, not a side effect.**
+The dispatch goes through the same `trackUpdate` counter `addLayer`'s does, so
+`setLayerSource(id, next); await idle()` resolves once the new features are on
+screen and `map.idle()` keeps its exact meaning.
+
+A `refreshMs` on the LAYER was considered and rejected, because there is no
+third option:
+
+- **Counted in `widgetBusy()`**, `idle()` never resolves. A map that refreshes
+  forever is never idle, literally. Every test that awaits it hangs, so does
+  the bench harness, so does any consumer awaiting quiescence for an export.
+- **Excluded**, the widget holds a timer that `idle()` deliberately does not
+  report. That is a rule with no other instance in the file: all five of
+  `widgetBusy()`'s clauses are state the widget sets synchronously before the
+  work begins, and each is gated by a test that reddens when removed.
+
+There is a second, independent reason. `refreshMs` would force the widget to
+own an abort, an error channel, a backoff, a `document.hidden` gate and a
+per-service rate-limit policy it has no vocabulary for. The repo already
+decided this once: `website/src/components/MapsWorkbench/mapsGeocode.ts` puts
+a live HTTP call, its usage policy and its vendored fixtures in the website
+and keeps this package pure. `mapsLiveRefresh.ts` follows it exactly.
+
+### The marker reconcile
+
+A refresh cannot take the `featuresAreTheWholeInput` skip — the features
+really did change — so without a reconcile a live layer reintroduces exactly
+the churn and the opacity flash that skip was built to remove.
+
+So `createPointFeatureRuntime` RECONCILES whenever the incoming features carry
+unique `id`s: survivors move through `handle.setAt` (the same call `syncGround`
+already uses, for the same reason), departures are removed, arrivals take the
+identical creation path including the `opacity: 0` that keeps a label from
+ever being painted before the arbiter has ruled, and `sync()` runs once at the
+end. A multipoint feature's markers key as `id#index`. Ids absent, empty or
+non-unique fall back to the pre-existing wholesale rebuild — a duplicate key
+would silently make two markers fight over one element, which is worse than
+the churn it saves — so a baked pyramid that never refreshes is unaffected
+either way.
+
+Measured on the real `/maps` page at 384 markers (built site, `astro preview`,
+1440x900), timing `setLayerSource` + `idle()` with a `MutationObserver` on
+`.glyph-hotspot-layer`:
+
+| path | node churn | ms |
+|---|---|---|
+| reconcile (keyed ids) | **+0 / −0** | 5.7 – 8.4 |
+| rebuild (no ids) | +384 / −384 | 6.8 – 9.8 |
+| `removeLayer` + `addLayer` | +384 / −384 | 14.8 – 15.8 |
+
+A full live refresh of that row — fetch, 272 KB JSON parse, reconcile and
+render — is 2.1 – 2.5 ms, and every one of the 384 marker elements survives it
+by reference. The satellite row, which re-propagates 157 objects every second,
+is +0 / −0 and issues zero network requests per tick.
+
+One latent defect was fixed on the way: `placementTransform` persisted across
+rebuilds while `sync` writes the transform only when the STRING changes, so a
+marker created after a placement had already been resolved would never receive
+it and would sit centred among correctly-offset neighbours. A fresh marker now
+takes the resolved transform at creation.
+
+`destroy()` also disposes `feature`-kind runtimes, which it skipped entirely —
+a map torn down with point or mesh layers still mounted leaked every hotspot
+handle, both registry entries, and the mesh handles.
+
+### What the four live rows are, and what they cost
+
+The rows themselves are entirely in the website (`mapsLive.ts`,
+`mapsLiveSatellites.ts`, `mapsLiveRefresh.ts`), with one real captured
+response per feed vendored under `fixtures/live/`. All four are keyless,
+openly licensed, and send `Access-Control-Allow-Origin: *` on a GET carrying a
+real browser `Origin` — verified, not quoted.
+
+| row | source | payload | cadence |
+|---|---|---|---|
+| Earthquakes | USGS `2.5_week.geojson` (US Gov, public domain) | ~270 KB, ~385 events | 5 min (12/h) |
+| Disasters | GDACS event list (EC JRC / UN OCHA) | ~140 KB, 99 events | 15 min (4/h) |
+| Launch sites | Launch Library 2 `upcoming?limit=20&mode=normal` | ~190 KB, 13 distinct pads | hourly (1 of a measured 15/h) |
+| Satellites | CelesTrak `GROUP=visual` element sets | ~26 KB, 157 objects | elements ONCE; motion is local SGP4 |
+
+Three corrections to the feasibility report the work started from, each
+measured:
+
+- **GDACS cyclone TRACKS are real lines, but they are not in the feed.** The
+  event list is 99 `Point` features and nothing else; a track lives behind a
+  per-event geometry endpoint, and one live cyclone's document is 389 KB for
+  48 `LineString`s and 62 polygons. Eighteen live cyclones is ~7 MB across 18
+  requests — a fan-out, not a feed. The row is the event list.
+- **Launch Library's 23 KB `mode=list` carries no pad at all** — no latitude,
+  no longitude, nothing to place a marker with. `mode=normal` is the lightest
+  response that does, and it is ~190 KB, most of it per-launch image and
+  licence metadata this page never reads. There is no field selection on that
+  API.
+- **`mode=normal` is SLOW from a browser**: 10.6 s, 28.2 s and once past 25 s
+  on three consecutive calls, against 1.3 s to curl and 4.4 s for their own
+  `mode=list`. That is what put `MAP_LIVE_TIMEOUT_MS` at 45 s — the first
+  browser run of this feature left the row at "loading..." indefinitely, which
+  is the one failure a reader cannot tell from a bug.
+
+The rows are `circle` for the three quantitative feeds and `symbol` for
+launches, and that split is not a style choice: `circle` runs NO declutter
+arbiter (its `sync` culls the far hemisphere and returns), so it draws every
+point at every zoom — right for a few hundred sized dots, wrong for a few
+hundred names. It is also why 16,560 CelesTrak objects is not a layer and 157
+is.
+
+### Failure, and the CORS trap
+
+No fetch here rejects, and a failed refresh calls no `setLayerSource` at all:
+the layer keeps the features it last had and the row says why it is not newer.
+The card distinguishes STALE (data on screen, last refresh failed) from FAILED
+(nothing ever loaded) because they are different sentences — replacing a
+count with an error would tell a reader the map had gone blank when it had not.
+
+The trap worth knowing about for any feed: several of these services send
+`Access-Control-Allow-Origin` on their 200s and NOT on their error responses,
+so a perfectly readable `429` reaches the browser as an opaque `TypeError`
+with no status, no `Retry-After` and no message. Nothing in the page can tell
+that apart from an outage, and on these services the throttle is the likelier
+of the two, so an unexplained failure is reported as PROBABLY rate limiting.
+A timeout is reported separately, because that one the page does know.
+
+satellite.js is pinned to **6.0.2**, the last pure-JS release. Version 7 ships
+a WebAssembly accelerator whose Emscripten glue uses top-level await and is
+reachable from the package's only entry point, which fails Astro's static
+build outright (`Module format "iife" does not support top-level await`); the
+deep pure-JS modules are not exported, so there is no way to import past it.

@@ -547,6 +547,39 @@ the relief mesh; the rest of `GlyphMapLayer` is MapLibre's
 `fill`/`line`/`contour`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model`
 vocabulary, over the vector sources documented below.
 
+### Replacing a mounted layer's data (`setLayerSource`)
+
+Layers are static once mounted. `setLayerSource(id, source)` hands a MOUNTED
+vector-source layer a new source in place — the one primitive a refreshing
+dataset needs:
+
+```ts
+const id = map.addLayer({ type: "circle", id: "quakes", source: { features: [] }, radiusProperty: "mag" });
+
+// later, on the CONSUMER's own clock
+map.setLayerSource("quakes", { features: next, attribution: [{ name: "Data courtesy of USGS" }] });
+await map.idle();  // resolves with the new features on screen
+```
+
+- Valid for `line`, `fill`, `fill-extrusion`, `symbol`, `circle` and
+  `heatmap`. A `RangeError` naming the id for `raster` and `contour` (they
+  read a FIELD, not a vector source), `background` and `model`.
+- **Idle-neutral.** The rebuild it dispatches is counted exactly as
+  `addLayer`'s is, so `map.idle()` keeps its meaning. There is no `refreshMs`
+  on the layer and there is not going to be one — a repeating timer inside the
+  widget would either make `idle()` never resolve or make it lie. The
+  interval, the abort, the backoff and any rate-limit policy belong to the
+  caller.
+- **A `symbol`/`circle` layer RECONCILES** when the incoming features carry
+  unique `id`s: survivors move (the hotspot element, its listeners and the
+  declutter verdict all survive), departures are removed, arrivals created.
+  Measured at 384 markers: zero node churn, against a full teardown and
+  re-creation of every marker without ids. Supply an `id` on a feed's features
+  and a refresh cannot flash.
+- **Attribution follows the data.** `getAttributions()` derives from the
+  mounted layers and a collection carries its own credit, so a feed's credit
+  appears and withdraws with its features.
+
 ### Per-layer render mode
 
 A map is not one picture in one mode: terrain reads as `solid` while an

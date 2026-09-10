@@ -1389,6 +1389,20 @@ interface ContourLayerRuntime extends StrokeLayerRuntime {
   getFieldRange(): { readonly min: number; readonly max: number } | null;
 }
 
+/**
+ * A `line` layer's runtime — a stroke runtime that can additionally be handed
+ * a NEW source ({@link GlyphMapHandle.setLayerSource}).
+ *
+ * Its own interface rather than a clause on {@link StrokeLayerRuntime}
+ * because a CONTOUR is the other stroke layer and its source is a FIELD, not
+ * a `GlyphMapVectorSource` — there is no vector source to replace, and
+ * widening the shared interface would only force it to implement a method
+ * that could never be called.
+ */
+interface LineLayerRuntime extends StrokeLayerRuntime {
+  setSource(next: GlyphMapVectorSource): void;
+}
+
 // ── Markers ────────────────────────────────────────────────────────────
 
 export interface GlyphMapMarkerOptions {
@@ -1997,6 +2011,43 @@ export interface GlyphMapHandle {
   project(lngLat: readonly [number, number]): GlyphMapProjectResult;
   unproject(cell: readonly [number, number]): readonly [number, number] | null;
   addLayer(layer: GlyphMapLayer, beforeId?: string): string;
+  /**
+   * Hand a MOUNTED vector-source layer a new source, in place.
+   *
+   * The primitive a LIVE feed needs, and the only one: every layer here is
+   * otherwise static once mounted, so a refreshing dataset could previously
+   * only be expressed as `removeLayer` + `addLayer` — which for a
+   * `symbol`/`circle` layer destroys and re-creates every marker element on
+   * every refresh (`widget.symbolRebuildFlash.test.ts` measures that shape at
+   * `+4298 -4298` and a ~200 ms stall) and loses the layer's position in
+   * `layerOrder`.
+   *
+   * Valid for every vector-source layer — `line`, `fill`, `fill-extrusion`,
+   * `symbol`, `circle`, `heatmap`. A `RangeError` naming the id for anything
+   * else: `raster` and `contour` read a FIELD rather than a vector source,
+   * `background` has none, and `model` is a polygon list.
+   *
+   * IDLE-NEUTRAL, and deliberately so. The rebuild this dispatches goes
+   * through the same counter `addLayer`'s does, so
+   * `setLayerSource(id, next); await idle()` resolves once the new features
+   * are on screen and {@link idle} keeps its exact meaning. There is no
+   * `refreshMs` and there is not going to be one: counted, a repeating timer
+   * makes `idle()` never resolve (a map that refreshes forever is never
+   * idle); excluded, it is state the widget holds and `idle()` deliberately
+   * hides, which no other clause does. The interval, the abort, the backoff
+   * and the per-service rate-limit policy belong to the page.
+   *
+   * A `symbol`/`circle` layer RECONCILES rather than rebuilding when the
+   * incoming features carry unique `id`s: survivors move through the
+   * hotspot's own `setAt`, departures are removed and arrivals created, so a
+   * feed whose points only moved costs zero node churn and cannot flash.
+   *
+   * Attribution follows the source with no extra machinery —
+   * {@link getAttributions} derives from the mounted layers, and a collection
+   * carries its own credit, so a feed's credit appears and withdraws with its
+   * data.
+   */
+  setLayerSource(id: string, source: GlyphMapVectorSource): void;
   removeLayer(id: string): void;
   moveLayer(id: string, beforeId?: string): void;
   /** Provenance of every currently mounted layer's data source, deduplicated — see `attribution.ts`. Recomputed on every call, so it always reflects the live layer set (a toggled layer, a curated tile swap). */
@@ -5359,10 +5410,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return Number.isFinite(ground) ? ground : 0;
   }
 
-  function createLineLayerRuntime(layer: GlyphMapLineLayer): StrokeLayerRuntime {
+  function createLineLayerRuntime(layer: GlyphMapLineLayer): LineLayerRuntime {
     const color = layer.color;
-    const isProvider = isGlyphMapVectorProvider(layer.source);
-    let staticFeatures: readonly GlyphMapVectorFeature[] = isProvider ? [] : layer.source.features;
+    let source: GlyphMapVectorSource = layer.source;
+    let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let activeFeatures: readonly GlyphMapVectorFeature[] = [];
     let updateInFlight = false;
@@ -5426,16 +5477,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
 
     async function update(): Promise<void> {
-      if (isGlyphMapVectorProvider(layer.source)) {
-        await updateProvider(layer.source);
+      if (isGlyphMapVectorProvider(source)) {
+        await updateProvider(source);
       } else {
-        staticFeatures = layer.filter ? layer.source.features.filter(layer.filter) : layer.source.features;
+        staticFeatures = layer.filter ? source.features.filter(layer.filter) : source.features;
         scene.rerender();
       }
     }
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
-      const feats = isGlyphMapVectorProvider(layer.source) ? activeFeatures : staticFeatures;
+      const feats = isGlyphMapVectorProvider(source) ? activeFeatures : staticFeatures;
       // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
       // list, and a world view hands this loop tens of thousands of vertices.
       // `null` = no raster layer mounted, so the ground IS the datum and the
@@ -5531,6 +5582,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return {
       update,
       stamp,
+      /**
+       * The stroke half of {@link GlyphMapHandle.setLayerSource}. Both feature
+       * lists are cleared, not just the one the new source will fill: a swap
+       * from a provider to a collection (or back) otherwise leaves the other
+       * branch's stale features standing, and `stamp` reads whichever branch
+       * the CURRENT source selects.
+       */
+      setSource(next: GlyphMapVectorSource): void {
+        source = next;
+        tileCache.clear();
+        activeFeatures = [];
+        staticFeatures = [];
+      },
       dispose(): void {
         disposed = true;
         activeFeatures = [];
@@ -6114,16 +6178,33 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * in world coordinates, so a projection change is the one input to a
    * rebuild that is not the tile set.
    */
-  interface FeatureLayerRuntime { update(force?: boolean): Promise<void>; dispose(): void }
+  interface FeatureLayerRuntime {
+    update(force?: boolean): Promise<void>;
+    /**
+     * Hand this runtime a NEW source — {@link GlyphMapHandle.setLayerSource}'s
+     * mechanism, and the one thing a live feed needs that a mounted layer
+     * could not do.
+     *
+     * Assigning is only half of it: `lastInputs` is the identity skip that
+     * stops a sweep resolving the same tiles from rebuilding, and a new
+     * source's features are a genuinely different input that must not take
+     * it. The tile cache goes with the source for the same reason — it is
+     * keyed by `z/x_y` alone, so tiles fetched from the previous provider
+     * would be served for the next one's addresses.
+     */
+    setSource(next: GlyphMapVectorSource): void;
+    dispose(): void;
+  }
 
   function createFeatureLayerRuntime(
-    source: GlyphMapVectorSource,
+    initialSource: GlyphMapVectorSource,
     rebuild: (features: readonly GlyphMapVectorFeature[]) => void,
     padCells = 2,
     sourceLayer?: string,
     filter?: GlyphMapFeatureFilter,
     featuresAreTheWholeInput = false,
   ): FeatureLayerRuntime {
+    let source = initialSource;
     const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let disposed = false;
     /**
@@ -6168,18 +6249,27 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     async function update(force = false): Promise<void> {
       const maySkip = featuresAreTheWholeInput && !force;
-      if (!isGlyphMapVectorProvider(source)) {
+      // CAPTURED ONCE, at the top of the sweep. `source` is replaceable now
+      // (`setSource`), and this function awaits — so reading the live binding
+      // after the await would let a sweep that started on one source finish
+      // on another, fetching for the second and rebuilding from the first.
+      // `setSource` clears `lastInputs` and dispatches its own `update()`, so
+      // the newer sweep is already on its way and this one's result is simply
+      // superseded.
+      const current = source;
+      if (!isGlyphMapVectorProvider(current)) {
         // A static collection's features never change under it, so the array
         // itself is the whole identity.
-        if (maySkip && sameInputs([source.features])) return;
-        lastInputs = [source.features];
-        rebuild(filter ? source.features.filter(filter) : source.features);
+        if (maySkip && sameInputs([current.features])) return;
+        lastInputs = [current.features];
+        rebuild(filter ? current.features.filter(filter) : current.features);
         return;
       }
+      const provider = current;
       // `getView()`, not raw `view` — see the raster runtime's own
       // `updateProvider` doc for why.
-      const lod = sweepLOD(source);
-      const level = source.zooms.find((z) => z.z === lod);
+      const lod = sweepLOD(provider);
+      const level = provider.zooms.find((z) => z.z === lod);
       if (!level) return;
       const desired: string[] = [];
       const grid = projectionGrid();
@@ -6189,14 +6279,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // Everything else in this sweep is already addressing-agnostic:
       // `isBoundsVisible` asks `source.bounds`, and the cache key, the
       // in-flight guard and the debounce treat `z/x_y` as opaque.
-      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells, source.tileRange);
+      const { x0, x1, y0, y1 } = candidateTileRange(level, padCells, provider.tileRange);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        if (isBoundsVisible(source.bounds(lod, x, y), padCells, grid, geoSamples)) desired.push(`${lod}/${x}_${y}`);
+        if (isBoundsVisible(provider.bounds(lod, x, y), padCells, grid, geoSamples)) desired.push(`${lod}/${x}_${y}`);
       }
       if (!desired.length) desired.push(`${lod}/0_0`);
       await Promise.all(desired.filter((key) => !cache.has(key)).map(async (key) => {
         const [z, xy] = key.split("/"), [x, y] = xy.split("_");
-        const tile = await loadVectorTileSafely(source, +z, +x, +y);
+        const tile = await loadVectorTileSafely(provider, +z, +x, +y);
         if (tile) cache.set(key, tile);
       }));
       if (disposed) return;
@@ -6206,7 +6296,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
       rebuild(filter ? selected.filter(filter) : selected);
     }
-    return { update, dispose() { disposed = true; cache.clear(); lastInputs = null; rebuild([]); } };
+    return {
+      update,
+      setSource(next: GlyphMapVectorSource): void {
+        source = next;
+        cache.clear();
+        lastInputs = null;
+      },
+      dispose() { disposed = true; cache.clear(); lastInputs = null; rebuild([]); },
+    };
   }
 
   /**
@@ -6566,6 +6664,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (layer.type === "fill-extrusion") walkCollisionSources.add(collisionSource);
     return {
       update: runtime.update,
+      setSource: runtime.setSource,
       dispose() {
         nearSideGeometrySyncs.delete(syncWalls);
         groundChangeSyncs.delete(syncGround);
@@ -6591,6 +6690,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * {@link markerGroundAt}.
      */
     interface MarkerRecord {
+      /**
+       * What a REFRESH matches this marker against — `feature.id` (suffixed
+       * by the anchor's index for a multipoint), and the empty string for a
+       * source that carries no ids at all.
+       *
+       * See {@link markerKeys}: it is the difference between moving a live
+       * feed's points and re-creating every one of them.
+       */
+      key: string;
       handle: GlyphHotspotHandle;
       feature: GlyphMapVectorFeature;
       lon: number;
@@ -6599,6 +6707,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       label: string;
       lines: readonly string[];
       priority: number;
+      /** A `circle` row's own resolved pixel radius — kept so a refresh writes the size only when the feature's own magnitude actually moved. Unused by a `symbol` layer. */
+      radius: number;
     }
     let records: MarkerRecord[] = [];
     const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
@@ -6626,6 +6736,164 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const anchor = glyphMapLabelAnchorPoint(feature);
       return anchor ? [anchor] : [];
     };
+    const priorityOf = (feature: GlyphMapVectorFeature): number =>
+      Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
+    const labelOf = (feature: GlyphMapVectorFeature): string =>
+      layer.type !== "symbol" ? ""
+        : layer.text ? layer.text(feature)
+        : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
+    const radiusOf = (feature: GlyphMapVectorFeature): number => {
+      if (layer.type !== "circle") return 0;
+      const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
+      return Number.isFinite(scaled) ? scaled : layer.radius ?? 2;
+    };
+
+    /** One marker's anchor and the feature it came from, keyed for the reconcile. */
+    interface DesiredMarker { readonly key: string; readonly feature: GlyphMapVectorFeature; readonly point: readonly [number, number] }
+
+    /**
+     * The incoming feature list as KEYED markers, or `null` when this source
+     * cannot be reconciled and the wholesale rebuild has to stand.
+     *
+     * `null` for a source whose features carry no `id`, and for one whose ids
+     * are not unique — a duplicate key would silently make two markers fight
+     * over one element, which is worse than the churn it saves. Both cases
+     * keep the pre-existing rebuild exactly, so a baked pyramid that never
+     * refreshes is unaffected either way.
+     *
+     * `GlyphMapVectorFeature.id` is already optional and already carried by
+     * every source here; a LIVE feed must supply it (a USGS event id, a NORAD
+     * catalogue number, a GDACS event id), which costs its adapter nothing
+     * because the identity is in the payload.
+     */
+    function markerKeys(features: readonly GlyphMapVectorFeature[]): readonly DesiredMarker[] | null {
+      const out: DesiredMarker[] = [];
+      const seen = new Set<string>();
+      for (const feature of features) {
+        const id = feature.id;
+        if (id === undefined || id === "") return null;
+        if (layer.type === "symbol" && priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
+        const anchors = anchorsOf(feature);
+        for (let i = 0; i < anchors.length; i++) {
+          const key = anchors.length > 1 ? `${id}#${i}` : id;
+          if (seen.has(key)) return null;
+          seen.add(key);
+          out.push({ key, feature, point: anchors[i]! });
+        }
+      }
+      return out;
+    }
+
+    /**
+     * Create one marker's element, in the state it must first be resolved in.
+     *
+     * Every write here is the one the rebuild has always made; it is a
+     * function only so the reconcile's ARRIVALS take the identical path,
+     * including the `opacity: 0` that keeps a label from ever being painted
+     * before the arbiter has ruled on it.
+     */
+    function createMarker(key: string, feature: GlyphMapVectorFeature, point: readonly [number, number], ground: number): MarkerRecord {
+      const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], ground) });
+      // Written IMMEDIATELY, before anything can resolve style: a label
+      // that the declutter arbiter has not ruled on yet is not a label the
+      // reader may see. `scene.addHotspot` appends the element itself, so
+      // this is the earliest the widget can speak, and `sync` below raises
+      // the winners back to `1` inside the same synchronous rebuild.
+      // Without it a rebuild puts every label on Earth in the document in
+      // the SHOWN state and hides them one moment later — which is the
+      // reported flicker wherever the consumer transitions `opacity`.
+      if (layer.type === "symbol") handle.el.style.opacity = "0";
+      const label = labelOf(feature);
+      // Wrapped ONCE, here, off the finished label — a break depends only
+      // on the string, never on the camera, so `sync` (which runs on every
+      // marker update) must not pay for it.
+      const lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
+      handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
+      if (layer.type === "symbol") {
+        // glyphcss gives every hotspot a `size` box, `[1, 1]` by default —
+        // right for a click anchor, wrong for a LABEL. A 6-character name
+        // in a 1-character box overflows it, and `.glyph-hotspot`'s own
+        // `translate(-50%, -50%)` then centres the ONE-CHARACTER BOX on the
+        // feature's cell while the text runs off to the right of it: the
+        // reported "left-aligned" place name. Dropping the declarations
+        // makes the element shrink-to-fit, so the box IS the label and the
+        // rule centres the label. (It is also what makes `textAnchor`
+        // expressible at all — a percentage of a 1ch box displaces
+        // nothing.)
+        handle.el.style.removeProperty("width");
+        handle.el.style.removeProperty("height");
+        // The placement the LAST sync resolved, applied here rather than
+        // waited for: `sync` writes the transform only when the string
+        // changes, so a marker created after one has already been resolved
+        // would otherwise never receive it and would sit centred among
+        // correctly-offset neighbours.
+        if (placementTransform !== null) handle.el.style.transform = placementTransform;
+      }
+      writeMarkerLabel(handle.el, label, lines);
+      handle.el.style.color = layer.color ?? "";
+      const radius = radiusOf(feature);
+      if (layer.type === "circle") {
+        handle.el.style.width = handle.el.style.height = `${Math.max(1, radius) * 2}px`;
+        handle.el.style.borderRadius = "50%";
+        handle.el.style.backgroundColor = layer.color ?? "currentColor";
+      }
+      return { key, handle, feature, lon: point[0], lat: point[1], ground, label, lines, priority: priorityOf(feature), radius };
+    }
+
+    function writeMarkerLabel(el: HTMLElement, label: string, lines: readonly string[]): void {
+      if (lines.length > 1) {
+        // `white-space` and `text-align` are set HERE rather than left to
+        // the consumer's stylesheet (which is where the rest of a symbol's
+        // presentation lives) because they are the wrap's MECHANISM, not
+        // its styling: the page's own `.glyph-map-symbol` rule sets
+        // `white-space: nowrap`, under which the newlines below render as
+        // spaces and the label is not wrapped at all. `text-align: center`
+        // is the other half of the design — the hotspot element is already
+        // centred on the anchor by `.glyph-hotspot`'s
+        // `translate(-50%, -50%)`, so centring the lines within the
+        // shrink-to-fit box centres them on each other AND on the feature's
+        // own point.
+        el.textContent = lines.join("\n");
+        el.style.whiteSpace = "pre";
+        el.style.textAlign = "center";
+      } else {
+        el.textContent = label;
+      }
+    }
+
+    /**
+     * A SURVIVOR takes the update, never a re-creation.
+     *
+     * `handle.setAt` is the same call {@link syncGround} uses and for the
+     * same reason: the element, its listeners, its class and whatever the
+     * arbiter last decided about it all survive, so a refresh MOVES a marker
+     * instead of flashing it. Every write below is guarded on an actual
+     * change, so a feed whose points did not move costs zero DOM writes.
+     */
+    function updateMarker(r: MarkerRecord, feature: GlyphMapVectorFeature, point: readonly [number, number], ground: number): void {
+      if (point[0] !== r.lon || point[1] !== r.lat || ground !== r.ground) {
+        r.lon = point[0];
+        r.lat = point[1];
+        r.ground = ground;
+        r.handle.setAt(projection.project(point[0], point[1], ground));
+      }
+      r.feature = feature;
+      r.priority = priorityOf(feature);
+      const label = labelOf(feature);
+      if (label !== r.label) {
+        r.label = label;
+        r.lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
+        writeMarkerLabel(r.handle.el, label, r.lines);
+      }
+      if (layer.type === "circle") {
+        const radius = radiusOf(feature);
+        if (radius !== r.radius) {
+          r.radius = radius;
+          r.handle.el.style.width = r.handle.el.style.height = `${Math.max(1, radius) * 2}px`;
+        }
+      }
+    }
+
     const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       // MEASURED FIRST, before a single node is removed or added. Every
       // `getBoundingClientRect()` is a forced style-and-layout flush, so one
@@ -6637,82 +6905,48 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // for the same reason it exists: one measurement for the whole
       // rebuild, not two per record.)
       const grid = projectionGrid();
-      if (sync) nearSideSyncs.delete(sync);
-      for (const h of hotspots) h.remove();
-      hotspots = [];
-      records = [];
       // Resolved ONCE per rebuild, not per marker: it walks the mounted layer
       // list, and a world view hands this loop thousands of anchors. `null` =
       // no raster layer mounted, so the ground IS the datum and every
       // expression below reduces to `projection.project(lon, lat, 0)` — the
       // pre-drape expression, byte for byte, with no lookup at all.
       const groundElevationAt = groundElevationSampler();
-      for (const feature of features) for (const point of anchorsOf(feature)) {
-        const priority = Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
-        if (layer.type === "symbol" && priority < (layer.minPriority ?? -Infinity)) continue;
-        const ground = markerGroundAt(groundElevationAt, point[0], point[1]);
-        const handle = scene.addHotspot({ id: `glyph-map-layer-point-${nextMarkerId++}`, at: projection.project(point[0], point[1], ground) });
-        // Written IMMEDIATELY, before anything can resolve style: a label
-        // that the declutter arbiter has not ruled on yet is not a label the
-        // reader may see. `scene.addHotspot` appends the element itself, so
-        // this is the earliest the widget can speak, and `sync` below raises
-        // the winners back to `1` inside the same synchronous rebuild.
-        // Without it a rebuild puts every label on Earth in the document in
-        // the SHOWN state and hides them one moment later — which is the
-        // reported flicker wherever the consumer transitions `opacity`.
-        if (layer.type === "symbol") handle.el.style.opacity = "0";
-        const label = layer.type !== "symbol" ? ""
-          : layer.text ? layer.text(feature)
-          : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
-        // Wrapped ONCE, here, off the finished label — a break depends only
-        // on the string, never on the camera, so `sync` (which runs on every
-        // marker update) must not pay for it.
-        const lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
-        handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
-        if (layer.type === "symbol") {
-          // glyphcss gives every hotspot a `size` box, `[1, 1]` by default —
-          // right for a click anchor, wrong for a LABEL. A 6-character name
-          // in a 1-character box overflows it, and `.glyph-hotspot`'s own
-          // `translate(-50%, -50%)` then centres the ONE-CHARACTER BOX on the
-          // feature's cell while the text runs off to the right of it: the
-          // reported "left-aligned" place name. Dropping the declarations
-          // makes the element shrink-to-fit, so the box IS the label and the
-          // rule centres the label. (It is also what makes `textAnchor`
-          // expressible at all — a percentage of a 1ch box displaces
-          // nothing.)
-          handle.el.style.removeProperty("width");
-          handle.el.style.removeProperty("height");
+      const desired = markerKeys(features);
+      if (desired) {
+        // RECONCILE. Survivors move, departures leave, arrivals are created
+        // — O(changed) DOM writes and one declutter, instead of destroying
+        // and re-creating every element (`widget.symbolRebuildFlash.test.ts`
+        // measured that at `+4298 -4298` and a ~200 ms stall). A live feed
+        // refreshing on a timer cannot afford the second shape.
+        const held = new Map(records.map((r) => [r.key, r] as const));
+        const next: MarkerRecord[] = [];
+        for (const { key, feature, point } of desired) {
+          const ground = markerGroundAt(groundElevationAt, point[0], point[1]);
+          const survivor = held.get(key);
+          if (survivor) {
+            held.delete(key);
+            updateMarker(survivor, feature, point, ground);
+            next.push(survivor);
+          } else {
+            next.push(createMarker(key, feature, point, ground));
+          }
         }
-        if (lines.length > 1) {
-          // `white-space` and `text-align` are set HERE rather than left to
-          // the consumer's stylesheet (which is where the rest of a symbol's
-          // presentation lives) because they are the wrap's MECHANISM, not
-          // its styling: the page's own `.glyph-map-symbol` rule sets
-          // `white-space: nowrap`, under which the newlines below render as
-          // spaces and the label is not wrapped at all. `text-align: center`
-          // is the other half of the design — the hotspot element is already
-          // centred on the anchor by `.glyph-hotspot`'s
-          // `translate(-50%, -50%)`, so centring the lines within the
-          // shrink-to-fit box centres them on each other AND on the feature's
-          // own point.
-          handle.el.textContent = lines.join("\n");
-          handle.el.style.whiteSpace = "pre";
-          handle.el.style.textAlign = "center";
-        } else {
-          handle.el.textContent = label;
+        for (const gone of held.values()) gone.handle.remove();
+        records = next;
+        hotspots = next.map((r) => r.handle);
+      } else {
+        for (const h of hotspots) h.remove();
+        hotspots = [];
+        records = [];
+        for (const feature of features) for (const point of anchorsOf(feature)) {
+          if (layer.type === "symbol" && priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
+          const record = createMarker("", feature, point, markerGroundAt(groundElevationAt, point[0], point[1]));
+          hotspots.push(record.handle);
+          records.push(record);
         }
-        handle.el.style.color = layer.color ?? "";
-        if (layer.type === "circle") {
-          const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
-          const radius = Number.isFinite(scaled) ? scaled : layer.radius ?? 2;
-          handle.el.style.width = handle.el.style.height = `${Math.max(1, radius) * 2}px`;
-          handle.el.style.borderRadius = "50%";
-          handle.el.style.backgroundColor = layer.color ?? "currentColor";
-        }
-        hotspots.push(handle);
-        records.push({ handle, feature, lon: point[0], lat: point[1], ground, label, lines, priority });
       }
-      sync = (measured?: ProjectionGrid) => {
+      if (!sync) {
+        sync = (measured?: ProjectionGrid) => {
         // ONE grid for the whole sweep. The frame paths call this with
         // nothing and it measures once; the rebuild above hands in the grid
         // it took before it touched the DOM, so a rebuild resolves style
@@ -6762,8 +6996,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const candidates = records.map((r, i) => { const p = projectOn([r.lon, r.lat], live, r.ground); return { id: String(i), col: p.col * labelUnits.scaleX, row: p.row * labelUnits.scaleY, label: r.label, lines: r.lines, priority: r.priority, visible: p.visible, ...placement?.candidate }; }).filter((c) => c.visible);
         const visible = new Set(glyphMapDeclutterLabels(candidates).map((c) => c.id));
         records.forEach((r, i) => { r.handle.el.style.opacity = visible.has(String(i)) ? "1" : "0"; });
-      };
-      nearSideSyncs.add(sync); sync(grid);
+        };
+        nearSideSyncs.add(sync);
+      }
+      sync(grid);
     }, 2, layer.sourceLayer, layer.filter, true);
     /**
      * Re-plant every marker whose ground actually moved — the `symbol`/
@@ -6800,7 +7036,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (moved) sync?.();
     }
     groundChangeSyncs.add(syncGround);
-    return { update: runtime.update, dispose() { runtime.dispose(); groundChangeSyncs.delete(syncGround); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; records = []; } };
+    return { update: runtime.update, setSource: runtime.setSource, dispose() { runtime.dispose(); groundChangeSyncs.delete(syncGround); if (sync) nearSideSyncs.delete(sync); for (const h of hotspots) h.remove(); hotspots = []; records = []; } };
   }
 
   /**
@@ -6994,6 +7230,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }, 2, layer.sourceLayer, layer.filter);
     return {
       async update(): Promise<void> { await terrain.resolve(); await runtime.update(); },
+      setSource: runtime.setSource,
       dispose() { runtime.dispose(); handle?.dispose(); handle = null; },
     };
   }
@@ -7001,7 +7238,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   type LayerState =
     | { readonly kind: "background"; readonly layer: GlyphMapBackgroundLayer }
     | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime }
-    | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: StrokeLayerRuntime }
+    | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: LineLayerRuntime }
     | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: ContourLayerRuntime }
     | { readonly kind: "feature"; readonly layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer; readonly runtime: FeatureLayerRuntime }
     | { readonly kind: "model"; readonly layer: GlyphMapModelLayer; readonly handle: GlyphMeshHandle };
@@ -7411,6 +7648,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (!mapLoaded) initialLoadPromises.push(p);
     }
     return id;
+  }
+
+  /** {@link GlyphMapHandle.setLayerSource} — see its doc for the contract, and `widget.liveSource.test.ts` for the gates. */
+  function setLayerSource(id: string, source: GlyphMapVectorSource): void {
+    const state = layerStates.get(id);
+    if (!state) throw new RangeError(`glyphcss/maps: createGlyphMap.setLayerSource — layer id "${id}" is not a mounted layer.`);
+    if (state.kind === "feature") {
+      // The stored options object is replaced too, not just the runtime's own
+      // copy: `getAttributions()` and every later read go through
+      // `state.layer`, so a credit that arrived with the data would otherwise
+      // never appear (and one that left would never withdraw).
+      layerStates.set(id, { kind: "feature", layer: { ...state.layer, source }, runtime: state.runtime });
+    } else if (state.kind === "line") {
+      layerStates.set(id, { kind: "line", layer: { ...state.layer, source }, runtime: state.runtime });
+    } else {
+      throw new RangeError(`glyphcss/maps: createGlyphMap.setLayerSource — layer id "${id}" is a "${state.layer.type}" layer, which has no vector source to replace.`);
+    }
+    state.runtime.setSource(source);
+    void trackUpdate(state.runtime.update());
   }
 
   function removeLayer(id: string): void {
@@ -10046,6 +10302,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     project,
     unproject,
     addLayer,
+    setLayerSource,
     removeLayer,
     moveLayer,
     getAttributions,
@@ -10098,7 +10355,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       detachWalkInput();
       unmountWalkSky();
       for (const state of layerStates.values()) {
-        if (state.kind === "raster" || state.kind === "line" || state.kind === "contour") state.runtime.dispose();
+        // `feature` included: a point runtime holds hotspot handles and two
+        // registry entries (`nearSideSyncs`, `groundChangeSyncs`), and a mesh
+        // one holds mesh handles and a walk-collision source. `removeLayer`
+        // has always disposed them; `destroy` used to skip the kind
+        // entirely, so a map torn down with layers still mounted leaked
+        // every one of them.
+        if (state.kind !== "background" && state.kind !== "model") state.runtime.dispose();
+        else if (state.kind === "model") state.handle.dispose();
       }
       layerStates.clear();
       layerOrder.length = 0;

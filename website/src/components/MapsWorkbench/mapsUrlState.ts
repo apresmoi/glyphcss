@@ -104,6 +104,17 @@ export interface MapsUrlState {
   layerMask: number;
   /** Which OpenStreetMap rows the OSM card mounts, as a bitfield over {@link MAPS_OSM_SUBLAYER_KEYS}. Same shape and same append-only rule as {@link layerMask}. */
   osmMask: number;
+  /**
+   * Which LIVE feeds are mounted, as a bitfield over
+   * {@link MAPS_LIVE_FEED_KEYS}. Same shape and same append-only rule as
+   * {@link layerMask}.
+   *
+   * Default `0` — every row off. A live row spends somebody else's bandwidth
+   * and the reader's own rate-limit budget, so a link that says nothing about
+   * it must mount nothing, and the codec omitting a field at its default
+   * makes that free.
+   */
+  liveMask: number;
 
   /**
    * Per-layer glyph density (the 1..4 / 0.1 track every density row on the
@@ -231,6 +242,11 @@ export interface MapsUrlState {
 export const MAPS_LAYER_KEYS = [
   "terrain", "borders", "contour", "osm",
   "fill", "symbol", "circle", "heatmap", "fill-extrusion", "model",
+  // Appended when the page grew the LIVE card. Bit 10, so no existing link
+  // changes meaning and a link written before this reads the card as OFF —
+  // which is exactly what it was, and what a card of somebody else's
+  // bandwidth should default to anyway.
+  "live",
 ] as const;
 export type MapsLayerKey = (typeof MAPS_LAYER_KEYS)[number];
 
@@ -290,6 +306,27 @@ export const MAPS_OSM_MASK_LINK_DEFAULT = osmMaskFor(MAPS_OSM_LINK_DEFAULT_ON);
 
 /** The rows the page opens on with no link at all ({@link MAP_OSM_DEFAULT_ON}) as the `O` bitfield. */
 export const MAPS_OSM_MASK_PAGE_DEFAULT = osmMaskFor(MAP_OSM_DEFAULT_ON);
+
+/**
+ * The LIVE card's row bitfield key order (token `0`). Same **APPEND-ONLY**
+ * rule as {@link MAPS_LAYER_KEYS}, and the same reason: bit `i` is
+ * `MAPS_LIVE_FEED_KEYS[i]` in every link ever shared.
+ *
+ * The cross-check that this list still agrees with `MAP_LIVE_FEEDS` lives in
+ * `mapsUrlState.live.test.ts`, so appending a feed on the data side goes red
+ * here rather than quietly rewriting every shared link.
+ */
+export const MAPS_LIVE_FEED_KEYS = ["quakes", "disasters", "launches", "satellites"] as const;
+export type MapsLiveFeedKey = (typeof MAPS_LIVE_FEED_KEYS)[number];
+
+/** Pack the Live card's row record into {@link MapsUrlState.liveMask}. */
+export function mapsLiveMaskFromFeeds(on: Readonly<Record<string, boolean>>): number {
+  return packBitmask(MAPS_LIVE_FEED_KEYS, on);
+}
+/** The inverse — always a complete record over {@link MAPS_LIVE_FEED_KEYS}. */
+export function mapsLiveFeedsFromMask(mask: number): Record<MapsLiveFeedKey, boolean> {
+  return unpackBitmask(MAPS_LIVE_FEED_KEYS, mask);
+}
 
 /** Wire order for the point-dataset enums — append-only for the same reason (`decodePackedEnum` resolves by index). */
 export const MAPS_POINT_DATASET_VALUES: readonly PointDataset[] = ["countries", "places", "capitals", "megacities"];
@@ -496,6 +533,11 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // exists: this is the value an OMITTED `O` decodes to, so it is a statement
   // about links already shared and not about what the page opens on.
   osmMask: MAPS_OSM_MASK_LINK_DEFAULT,
+  // Every live row off. Unlike `osmMask` there is no second "what an old
+  // link means" constant to keep: this field is newer than every link ever
+  // shared, so its omission default and the page's own opening state are the
+  // same thing and are free to stay that way.
+  liveMask: 0,
   terrainDensity: 1,
   borderDensity: 1,
   contourDensity: 1,
@@ -780,6 +822,22 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    and are untouched.
   { key: "terrainFloor", token: "f", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainFloor },
   { key: "terrainCeiling", token: "o", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainCeiling },
+  // ── The LIVE card's row bitfield. Appended LAST for the reason every
+  //    token before it was: `decodePacked` stops at the first token it does
+  //    not recognize, so a link written by this build and opened by an older
+  //    one strands only what is ordered after this, and there is nothing.
+  //
+  //    A DIGIT, because the letters are gone — all 52 of `a-zA-Z` are spent,
+  //    and the codec's only requirement on a token is that it be a unique
+  //    single character read at a fixed cursor (`createUrlCodec` checks
+  //    exactly that). Every value encoding is self-delimiting, so a digit at
+  //    a token-start position is unambiguous; `mapsUrlState.live.test.ts`
+  //    pins a round trip through a link that carries `0` beside the numeric
+  //    fields either side of it.
+  //
+  //    The card's own VISIBILITY is bit 10 of `L` (`MAPS_LAYER_KEYS`), not a
+  //    token of its own — the same place every other card's is.
+  { key: "liveMask", token: "0", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.liveMask },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";

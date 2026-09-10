@@ -38,6 +38,8 @@ import {
   mapsLayerVisibilityFromMask,
   mapsOsmMaskFromSublayers,
   mapsOsmSublayersFromMask,
+  mapsLiveFeedsFromMask,
+  mapsLiveMaskFromFeeds,
 } from "./mapsUrlState";
 import { MAP_OSM_DEFAULT_ON, MAP_OSM_SUBLAYERS } from "./mapsOsm";
 import { MAP_MODEL_SHAPES } from "./mapPin";
@@ -56,6 +58,9 @@ describe("mapsUrlState — the layer bitfields' key lists are a wire format", ()
     expect([...MAPS_LAYER_KEYS]).toEqual([
       "terrain", "borders", "contour", "osm",
       "fill", "symbol", "circle", "heatmap", "fill-extrusion", "model",
+      // APPENDED, never inserted: bit 10, so every bit an existing link
+      // carries still means what it meant.
+      "live",
     ]);
   });
 
@@ -90,6 +95,7 @@ describe("mapsUrlState — bitmask round-trip", () => {
     const visible = {
       terrain: false, borders: true, contour: true, osm: true,
       fill: false, symbol: true, circle: false, heatmap: false, "fill-extrusion": true, model: false,
+      live: false,
     };
     expect(mapsLayerVisibilityFromMask(mapsLayerMaskFromVisibility(visible))).toEqual(visible);
   });
@@ -118,6 +124,7 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
     const visible = {
       terrain: true, borders: false, contour: true, osm: true,
       fill: true, symbol: false, circle: true, heatmap: false, "fill-extrusion": false, model: true,
+      live: true,
     };
     const osmSublayers = Object.fromEntries(
       MAPS_OSM_SUBLAYER_KEYS.map((id) => [id, id === "omt-buildings" || id === "omt-places"]),
@@ -140,6 +147,7 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
       contourLabels: true,
       extrusionRenderMode: "wireframe" as const,
       modelRenderMode: "ink" as const,
+      liveMask: mapsLiveMaskFromFeeds({ quakes: true, disasters: false, launches: false, satellites: true }),
     };
     const decoded = { ...MAPS_URL_DEFAULTS, ...mapsCodec.decode(mapsCodec.encode(state)) };
 
@@ -159,6 +167,9 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
     expect(decoded.contourLabels).toBe(true);
     expect(decoded.extrusionRenderMode).toBe("wireframe");
     expect(decoded.modelRenderMode).toBe("ink");
+    expect(mapsLiveFeedsFromMask(decoded.liveMask)).toEqual({
+      quakes: true, disasters: false, launches: false, satellites: true,
+    });
   });
 
   it("a link with NONE of the new tokens still decodes to today's defaults", () => {

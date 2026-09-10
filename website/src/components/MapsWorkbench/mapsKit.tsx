@@ -694,6 +694,44 @@ const OSM_LABEL_ANCHOR_TOGGLE = OSM_LABEL_ANCHOR_OPTIONS.map((value) => ({
   desc: OSM_LABEL_ANCHOR_DESCRIPTIONS[value],
 }));
 
+/**
+ * One row of the LIVE card: a public feed, its toggle, and what it is
+ * currently showing.
+ *
+ * Geometry is `OsmSublayerRow`'s exactly — name / widget / value, with the
+ * checkbox inside the same `.maps-osm-row-widget` flex head so the card
+ * body's three-column grid is unchanged. The value column carries the
+ * READOUT rather than a control, because a live row has nothing to tune: it
+ * is on or off, and what a reader wants to know is whether it has anything
+ * and how old it is.
+ *
+ * The reason line is a separate row underneath and appears ONLY while
+ * something is wrong. A row showing 385 events whose last refresh failed is
+ * still showing something true, and saying so in a second line is what
+ * distinguishes it from a row that never loaded at all.
+ */
+function LiveFeedRow({ row, onToggle }: { row: LiveFeedInputs; onToggle: (on: boolean) => void }) {
+  return (
+    <>
+      <label className="voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row maps-live-row" title={row.tooltip}>
+        <span>{row.label}</span>
+        <span className="maps-osm-row-widget">
+          <span className="layer-group-check maps-layer-bool-check">
+            <input type="checkbox" checked={row.on} onChange={(e) => onToggle(e.target.checked)} />
+          </span>
+        </span>
+        <span className={`maps-layer-info-value${row.warn ? " maps-layer-info-warn" : ""}`}>{row.value}</span>
+      </label>
+      {row.note === null ? null : (
+        <div className="maps-layer-info-row maps-live-note" title="The last refresh did not land. Whatever the row already had is still on the map; the next refresh tries again.">
+          <span aria-hidden="true">{"\u21b3"}</span>
+          <span className="maps-layer-info-value maps-layer-info-warn">{row.note}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
   row: OsmSublayerInputs;
   onToggle: (on: boolean) => void;
@@ -1227,6 +1265,35 @@ export interface OsmLayerInputs {
   onSublayerAnchor: (id: string, anchor: GlyphMapLabelAnchor) => void;
 }
 
+/**
+ * One row of the LIVE card, already reduced to strings.
+ *
+ * The card renders text and knows nothing about feeds, statuses or fetches —
+ * `mapLiveRowReadout` (`mapsLiveRefresh.ts`) turns a row's state into these
+ * three fields, where a test can reach the wording without mounting
+ * anything. Same one-way rule the OSM card follows: this file imports from
+ * the page's data modules, never the other way round.
+ */
+export interface LiveFeedInputs {
+  readonly id: string;
+  readonly label: string;
+  /** What the feed is, and when it has something to show. */
+  readonly tooltip: string;
+  readonly on: boolean;
+  /** The value column: what the row is currently showing, or why it is not. */
+  readonly value: string;
+  readonly warn: boolean;
+  /** A second line naming what went wrong, or `null` when nothing did. */
+  readonly note: string | null;
+}
+
+export interface LiveLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  /** One row per feed, in `MAP_LIVE_FEEDS` order. */
+  feeds: readonly LiveFeedInputs[];
+  onFeed: (id: string, on: boolean) => void;
+}
+
 export interface LayersFolderInputs {
   background: BackgroundLayerInputs;
   terrain: TerrainLayerInputs;
@@ -1235,6 +1302,7 @@ export interface LayersFolderInputs {
   fill: ExtraLayerInputs; symbol: ExtraLayerInputs; circle: ExtraLayerInputs;
   heatmap: ExtraLayerInputs; fillExtrusion: ExtraLayerInputs; model: ExtraLayerInputs;
   osm: OsmLayerInputs;
+  live: LiveLayerInputs;
 }
 
 /**
@@ -1384,7 +1452,7 @@ export interface ExtraLayerInputs {
   glyphPalette?: MapLayerGlyphPalette; onGlyphPalette?: (v: MapLayerGlyphPalette) => void;
 }
 
-export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model, osm }: LayersFolderInputs) {
+export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model, osm, live }: LayersFolderInputs) {
   const extra = (label: string, value: ExtraLayerInputs) => <LayerCard label={label} visible={value.visible} onVisible={value.onVisible}>
     <ColorRow value={value.color} onChange={value.onColor} />
     {value.dataset && (
@@ -1588,6 +1656,27 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
             onDensity={(v) => osm.onSublayerDensity(s.id, v)}
             onAnchor={(v) => osm.onSublayerAnchor(s.id, v)}
           />
+        ))}
+      </LayerCard>
+      {/*
+        LIVE. Every row is a public, keyless, openly-licensed feed read
+        straight from the reader's own browser, and every row is OFF by
+        default — a live layer costs somebody else's bandwidth and a reader's
+        own rate-limit budget, so it is opted into rather than out of. Each
+        row's tooltip says what it is AND when it has something to show,
+        following the OSM card's own idiom, because "I turned it on and
+        nothing appeared" is the reading a sparse layer invites.
+      */}
+      <LayerCard label="Live" visible={live.visible} onVisible={live.onVisible}>
+        <div
+          className="maps-layer-info-row"
+          title="Four public feeds, fetched by your own browser with no API key and no server in between: USGS earthquakes, GDACS disaster alerts, Launch Library 2 and CelesTrak orbital elements. Each refreshes on its own cadence and credits itself in the map's attribution line while it is on."
+        >
+          <span>source</span>
+          <span className="maps-layer-info-value">public feeds, no key</span>
+        </div>
+        {live.feeds.map((row) => (
+          <LiveFeedRow key={row.id} row={row} onToggle={(on) => live.onFeed(row.id, on)} />
         ))}
       </LayerCard>
     </div>

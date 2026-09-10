@@ -59,6 +59,12 @@ function extra(overrides: Partial<ExtraLayerInputs> = {}): ExtraLayerInputs {
  * filled only so `LayersPanel` renders; none of this file's assertions read
  * them.
  */
+
+/** The Live card's inputs, in their default (card off, every row off) state — this file is about other cards. */
+function live(overrides: Partial<LiveLayerInputs> = {}): LiveLayerInputs {
+  return { visible: false, onVisible: () => {}, feeds: [], onFeed: () => {}, ...overrides };
+}
+
 function inputs(): LayersFolderInputs {
   const glyphOnly = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
   const withMode = extra({
@@ -100,6 +106,7 @@ function inputs(): LayersFolderInputs {
       sublayers: [], onSublayer: () => {}, onSublayerDensity: () => {}, onSublayerAnchor: () => {},
       density: 1, onDensity: () => {},
     },
+    live: live(),
   };
 }
 

@@ -73,6 +73,11 @@ function expectDefaultMapContent(state: MapsUrlState): void {
   expect(mapsLayerVisibilityFromMask(state.layerMask)).toEqual({
     terrain: true, borders: true, contour: false, osm: false,
     fill: false, symbol: false, circle: false, heatmap: false, "fill-extrusion": false, model: false,
+    // Appended after every link in this file was written, so it reads OFF on
+    // all of them — which is the whole point of the append-only rule, and
+    // doubly right here: a live row spends the reader's own rate budget and
+    // must never be turned on by a link that never mentioned it.
+    live: false,
   });
   // The OSM card itself is OFF above, so none of this is mounted by any of
   // these links — this is what the reader gets if they then switch the card

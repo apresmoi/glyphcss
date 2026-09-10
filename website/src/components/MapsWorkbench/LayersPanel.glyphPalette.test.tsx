@@ -52,6 +52,12 @@ function extra(overrides: Partial<ExtraLayerInputs> = {}): ExtraLayerInputs {
 }
 
 /** Every card expanded, so a missing row means "not rendered", never "collapsed". */
+
+/** The Live card's inputs, in their default (card off, every row off) state — this file is about other cards. */
+function live(overrides: Partial<LiveLayerInputs> = {}): LiveLayerInputs {
+  return { visible: false, onVisible: () => {}, feeds: [], onFeed: () => {}, ...overrides };
+}
+
 function inputs(): LayersFolderInputs {
   const mesh = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
   return {
@@ -89,6 +95,7 @@ function inputs(): LayersFolderInputs {
       sublayers: [], onSublayer: () => {}, onSublayerDensity: () => {}, onSublayerAnchor: () => {},
       density: 1, onDensity: () => {},
     },
+    live: live(),
   };
 }
 

@@ -39,6 +39,12 @@ function extra(overrides: Partial<ExtraLayerInputs> = {}): ExtraLayerInputs {
   return { visible: true, onVisible: noop, color: "#ffffff", onColor: noop, sliders: [], ...overrides };
 }
 
+
+/** The Live card's inputs, in their default (card off, every row off) state — this file is about other cards. */
+function live(overrides: Partial<LiveLayerInputs> = {}): LiveLayerInputs {
+  return { visible: false, onVisible: () => {}, feeds: [], onFeed: () => {}, ...overrides };
+}
+
 function inputs(overrides: Partial<LayersFolderInputs> = {}): LayersFolderInputs {
   const mesh = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
   return {
@@ -71,6 +77,7 @@ function inputs(overrides: Partial<LayersFolderInputs> = {}): LayersFolderInputs
       sublayers: [], onSublayer: () => {}, onSublayerDensity: () => {}, onSublayerAnchor: () => {},
       density: 1, onDensity: () => {},
     },
+    live: live(),
     ...overrides,
   };
 }
@@ -159,9 +166,12 @@ describe("/maps layer cards — the Dock's control rows", () => {
   it("still renders every select, checkbox and read-only row the cards had", () => {
     const host = mount();
     // Terrain, Borders, Contour, Fill, Symbol, Circle, Heatmap, Fill
-    // extrusion, Model, OpenStreetMap. (Background is a bare row, not a card.)
-    expect(host.querySelectorAll(".maps-layer-card").length).toBe(10);
-    expect(host.querySelectorAll('.maps-layer-head input[type="checkbox"]').length).toBe(10);
+    // extrusion, Model, OpenStreetMap, Live. (Background is a bare row, not a
+    // card.) The Live card is COLLAPSED here — its `visible` is false in this
+    // file's inputs — so it contributes a head checkbox and no body rows,
+    // which is why the info-value list below is unchanged.
+    expect(host.querySelectorAll(".maps-layer-card").length).toBe(11);
+    expect(host.querySelectorAll('.maps-layer-head input[type="checkbox"]').length).toBe(11);
     expect(host.querySelectorAll(".maps-layer-select-row .gx-select select").length).toBeGreaterThan(0);
     expect(Array.from(host.querySelectorAll(".maps-layer-info-value")).map((n) => n.textContent))
       .toEqual(["nearest", "vw", "8"]);

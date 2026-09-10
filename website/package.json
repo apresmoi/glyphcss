@@ -20,19 +20,20 @@
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.38.2",
     "@glyphcss/effects": "workspace:^",
+    "@glyphcss/fonts": "workspace:*",
     "@glyphcss/maps": "workspace:^",
     "@glyphcss/react": "workspace:^",
     "@layoutit/polycss": "^0.2.7",
-    "glyphcss": "workspace:^",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "astro": "^6.0.8",
-    "lil-gui": "^0.20.0",
+    "glyphcss": "workspace:^",
     "highlight.js": "^11.11.1",
+    "lil-gui": "^0.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "satellite.js": "^6.0.2",
     "sharp": "^0.34.2",
-    "stats-js": "^1.0.1",
-    "@glyphcss/fonts": "workspace:*"
+    "stats-js": "^1.0.1"
   }
 }

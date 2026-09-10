@@ -83,6 +83,12 @@ const DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
 const DENSITYLESS_ROWS = MAP_OSM_SUBLAYERS.filter((s) => DENSITYLESS_TYPES.has(s.type));
 const WIRED_ROWS = MAP_OSM_SUBLAYERS.filter((s) => !DENSITYLESS_TYPES.has(s.type));
 
+
+/** The Live card's inputs, in their default (card off, every row off) state — this file is about other cards. */
+function live(overrides: Partial<LiveLayerInputs> = {}): LiveLayerInputs {
+  return { visible: false, onVisible: () => {}, feeds: [], onFeed: () => {}, ...overrides };
+}
+
 function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs {
   const glyphOnly = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
   const withMode = extra({
@@ -108,6 +114,7 @@ function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs 
     fill: glyphOnly, symbol: extra(), circle: extra(), heatmap: glyphOnly,
     fillExtrusion: withMode, model: withMode,
     osm: osm(osmOverrides),
+    live: live(),
   };
 }
 
