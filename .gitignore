@@ -30,11 +30,11 @@ gadm_410.gdb/
 # Legacy single-tile globe (superseded by the LOD tiles). Regenerable.
 website/public/data/earth.json
 
-# Geographic (lon/lat/elev) tile pyramid baked by bake-geo-tiles.mjs.
-# Regenerable from etopo/; not small enough to vendor (see MAPS.md §13
-# slice 2 / packages/maps README). Only the small parity fixture at
-# packages/maps/fixtures/geo-tile-parity.json is committed.
-website/public/data/geo-tiles/
+# NOT ignored: website/public/data/geo-tiles/ is the baked ETOPO1 pyramid the
+# deployed /maps page fetches (11.8 MB, 358 files). Nothing bakes data at
+# deploy time, so a gitignored pyramid is a 404 and /maps mounts no widget at
+# all. It is committed for the same reason the other five pyramids under
+# website/public/data/ are. Its 800 MB ETOPO1 SOURCE stays out (etopo/, above).
 
 # Full/local PMTiles archives are regenerable and can be enormous. Only tiny
 # reviewed extracts under packages/maps/fixtures/pmtiles/ may be committed.

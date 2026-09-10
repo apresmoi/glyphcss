@@ -387,9 +387,16 @@ as garbage strips; the split is a literal grid slice on a whole-column
 boundary, never a resample. `website/scripts/bake-geo-tiles.mjs` bakes this
 schema from ETOPO1 (`--fixture` for the small vendored parity fixture at
 `packages/maps/fixtures/geo-tile-parity.json`, unchanged plain JSON; the
-default/`--tiles` mode for the full z0-z4 GLOBAL pyramid — 341 tiles, 11.2
-MB on disk — at `website/public/data/geo-tiles/`, gitignored — regenerable,
-and not small enough to vendor, unlike the fixture). Pyramid tiles are baked
+default/`--tiles` mode for the full z0-z4 GLOBAL pyramid — 341 tiles plus a
+16-tile curated overlay, 11.8 MB on disk — at `website/public/data/geo-tiles/`,
+COMMITTED like every other pyramid under that directory: the website deploy
+(`.github/workflows/deploy-website.yml`) checks out, builds and publishes
+`website/dist` with no bake step, so a gitignored pyramid is a 404 on the
+deployed page — and because the terrain provider is what `MapsWorkbench`
+awaits before it constructs the widget at all, that 404 leaves `/maps`
+completely blank, not merely without terrain. The ~800 MB ETOPO1 SOURCE stays
+out; only the baked pyramid is vendored, and the parity fixture stays separate
+so package tests need neither.) Pyramid tiles are baked
 as `{z}/{x}_{y}.bin` — a raw little-endian int16 payload (ETOPO1's own
 elevation values are whole metres in `[-10898, 8271]`, well inside int16
 range, so this is lossless), not JSON; `manifest.json` carries `format:
@@ -2039,8 +2046,8 @@ their own comments already said ("uniformly raised well above the line's own
 Gate: `widget.strokeRelief.test.ts`, on the vendored real-ETOPO1 window
 `fixtures/sahara-border.json` (8x8 degrees of the eastern Sahara at the same
 0.125 degree vertex spacing the z4 pyramid level ships, baked by
-`bake-geo-tiles.mjs --fixture`; the pyramid itself is gitignored and can never
-be a test dependency) plus the two ruler-straight borders that cross it. On that
+`bake-geo-tiles.mjs --fixture`; the pyramid itself lives in the website tree and
+is never a package-test dependency) plus the two ruler-straight borders that cross it. On that
 fixture the stamp inks **92** cells over 33 rows with no depth test at all,
 **3** over 2 rows at `34bc007`, and **79** over 33 after the fix; the busiest
 row goes 2 -> 47 of 60 columns. Mutations, each printing its own failure:
@@ -2300,8 +2307,8 @@ terrain's own depth test with a raster layer mounted, the screen-cull bound at
 a coarse grid, the marching order's tiling invariance, and — on the VENDORED
 real-ETOPO1 tile — that every marching vertex reads back at its own level
 through the tile's own bilinear field. (The full z0-z4 pyramid under
-`website/public/data/geo-tiles/` is gitignored and so cannot be a test
-dependency.) Mutation checks: projecting at the datum reddens three clauses
+`website/public/data/geo-tiles/` belongs to the website tree, so a package
+test never reaches for it.) Mutation checks: projecting at the datum reddens three clauses
 (280 of 280 cells at the datum position); a zero cull margin blanks the coarse
 case; dropping the sort breaks tiling invariance; forcing `requireSurface`
 reddens 16 tests; last-writer `restore` breaks the label gap.
@@ -5874,7 +5881,7 @@ No setter was added. The function is read live on every build and every stamp, s
 
 ### Gate
 
-`widget.fillDrape.test.ts`, six clauses. The fixture is real ETOPO1: `TITICACA_BLOCK` is a literal 25x25 slice of the z4 tile `4/9` that `bake-geo-tiles.mjs` bakes — lon -71..-68 by lat -17..-14 at the pyramid's own 0.125-degree vertex spacing — because the full pyramid is gitignored and cannot be a test dependency. The lake's own footprint in that block is a flat 3,815 m, the altiplano around it 3,800-5,000 m, and the Amazon flank falls to 386 m.
+`widget.fillDrape.test.ts`, six clauses. The fixture is real ETOPO1: `TITICACA_BLOCK` is a literal 25x25 slice of the z4 tile `4/9` that `bake-geo-tiles.mjs` bakes — lon -71..-68 by lat -17..-14 at the pyramid's own 0.125-degree vertex spacing — because the full pyramid lives in the website tree and is not a package-test dependency. The lake's own footprint in that block is a flat 3,815 m, the altiplano around it 3,800-5,000 m, and the Amazon flank falls to 386 m.
 
 1. The lake is buried at `"flat"` (0 cells of its colour, with the premise that the terrain is genuinely drawn over it) and drawn at the default (567).
 2. With no ground to read, `"surface"` and `"flat"` are byte-identical `<pre>` innerHTML — asserted at a 40-degree tilt, which is the framing where an elevation is observable at all, and with the premise that the SAME comparison sees a difference when a ground source is supplied. A leaked ground of terrain magnitude cannot hide in it.

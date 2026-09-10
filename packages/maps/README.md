@@ -254,9 +254,11 @@ resample.
 writes the small vendored parity fixture at `fixtures/geo-tile-parity.json`
 (a few KB — CI needs no ETOPO1 to run the parity gate); `--tiles` writes the
 full z0-z4 global pyramid (341 tiles, ~11 MB) to `website/public/data/
-geo-tiles/` (gitignored — regenerable, and at full resolution not small
-enough to vendor), plus a curated z5-z7 overlay for Switzerland under
-`geo-tiles/curated/`. Tiles are `{z}/{x}_{y}.bin` — a raw little-endian
+geo-tiles/`, plus a curated z5-z7 overlay for Switzerland under
+`geo-tiles/curated/`. Both are COMMITTED: the website deploy builds and
+publishes `website/dist` with no bake step, so `/maps` fetches whatever the
+checkout holds. The ETOPO1 SOURCE stays out of git — only the baked pyramid
+is vendored. Tiles are `{z}/{x}_{y}.bin` — a raw little-endian
 int16 payload, not JSON — decoded with the root-exported
 `glyphMapDecodeGeoTileInt16(bytes, meta)`; `manifest.json` records
 `format: "int16"`/`version: 2` (a reader must gate on both) and, when a
