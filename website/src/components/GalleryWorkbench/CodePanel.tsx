@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
@@ -47,7 +47,7 @@ function subdivideTexturedPolygons(polygons: Polygon[], levels: number): Polygon
   return out;
 }
 
-type Tab = "html" | "vanilla" | "react" | "vue";
+export type Tab = "html" | "vanilla" | "react" | "vue";
 
 const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
   { key: "orbit", label: "Orbit" },
@@ -136,15 +136,40 @@ function postToCodepen(prefill: { action: string; data: string }): void {
   form.remove();
 }
 
+/**
+ * `override` lets a NON-gallery caller (e.g. `MapsWorkbench`) reuse this
+ * same shell — tabs, copy button, collapse — with its OWN pre-built
+ * snippets, instead of this file's gallery-specific mesh/preset/effect
+ * codegen (which has no equivalent concept for a `createGlyphMap` widget).
+ * When set, the gallery-only static-export / CodePen controls and the
+ * `meshUrl`/`selectedPreset`/`effectState`/`effectDefinition` props are all
+ * unused — reuse the COMPONENT, not a second one, per MAPS.md §13 slice 5.
+ */
+interface CodePanelOverride {
+  readonly snippets: Record<Tab, string>;
+}
+
 interface CodePanelProps {
-  meshUrl: string;
-  options: SceneOptionsState;
-  selectedPreset: PresetModel;
-  effectState: GalleryEffectState;
-  effectDefinition: GalleryEffectDefinition | null;
+  meshUrl?: string;
+  options?: SceneOptionsState;
+  selectedPreset?: PresetModel;
+  effectState?: GalleryEffectState;
+  effectDefinition?: GalleryEffectDefinition | null;
+  override?: CodePanelOverride;
   /** Extra classes (e.g. `is-mobile-open` to show the panel as a mobile drawer). */
   className?: string;
   id?: string;
+  /**
+   * Extra actions in the panel's own header, before "Copy".
+   *
+   * Below 760px the pages that float an export BAR over the viewport hide it
+   * (it duplicates the mobile tab bar's own Export/Code tab), which strands
+   * any action that lived only there. /synth solved that inside its own
+   * `SynthCodePanel`; this is the same slot on the shared panel, so /maps'
+   * "Copy ASCII" and "Download SVG" stay reachable on a phone. Omitted by
+   * every existing caller, so the gallery's panel is unchanged.
+   */
+  actions?: ReactNode;
 }
 
 // Primitive presets that need a +90° X rotation so their natural Y-up axis maps
@@ -203,13 +228,21 @@ function vec3(v: [number, number, number]): string {
   return `[${fmt(v[0])}, ${fmt(v[1])}, ${fmt(v[2])}]`;
 }
 
+interface GallerySnippetInputs {
+  meshUrl: string;
+  options: SceneOptionsState;
+  selectedPreset: PresetModel;
+  effectState: GalleryEffectState;
+  effectDefinition: GalleryEffectDefinition | null;
+}
+
 function generateSnippets({
   meshUrl,
   options,
   selectedPreset,
   effectState,
   effectDefinition,
-}: CodePanelProps): Record<Tab, string> {
+}: GallerySnippetInputs): Record<Tab, string> {
   const url = absoluteMeshUrl(meshUrl);
   const isPrimitive = selectedPreset.kind === "primitive";
   const geometryName = isPrimitive ? primitiveGeometryName(selectedPreset.id) : "";
@@ -550,14 +583,20 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, className, id }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, override, className, id, actions }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const snippets = useMemo(
-    () => generateSnippets({ meshUrl, options, selectedPreset, effectState, effectDefinition }),
-    [meshUrl, options, selectedPreset, effectState, effectDefinition],
-  );
+  const snippets = useMemo(() => {
+    if (override) return override.snippets;
+    return generateSnippets({
+      meshUrl: meshUrl ?? "",
+      options: options!,
+      selectedPreset: selectedPreset!,
+      effectState: effectState!,
+      effectDefinition: effectDefinition ?? null,
+    });
+  }, [override, meshUrl, options, selectedPreset, effectState, effectDefinition]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -587,6 +626,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
   // decimated glyphcss snippet and open it as a new CodePen. Polygons are loaded
   // from the same source the gallery uses (URL mesh or built-in primitive).
   const handleCodepen = useCallback(async () => {
+    if (override || !selectedPreset || !effectState || !options) return; // gallery-only export path
     setExporting(true);
     try {
       const title = (selectedPreset as { label?: string }).label ?? "glyphcss";
@@ -650,7 +690,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
     } finally {
       setExporting(false);
     }
-  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate, effectState]);
+  }, [override, meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate, effectState]);
 
   return (
     <aside id={id} className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}${className ? ` ${className}` : ""}`}>
@@ -669,15 +709,18 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
           ))}
         </div>
         <div className="gw-code-panel__actions">
-          <button
-            type="button"
-            className="gw-code-panel__action gw-code-panel__action--codepen"
-            onClick={handleCodepen}
-            disabled={exporting}
-            title="Compile this model + chosen interactions into a new CodePen"
-          >
-            {exporting ? "Exporting…" : "CodePen"}
-          </button>
+          {actions}
+          {!override && (
+            <button
+              type="button"
+              className="gw-code-panel__action gw-code-panel__action--codepen"
+              onClick={handleCodepen}
+              disabled={exporting}
+              title="Compile this model + chosen interactions into a new CodePen"
+            >
+              {exporting ? "Exporting…" : "CodePen"}
+            </button>
+          )}
           <button
             type="button"
             className="gw-code-panel__action"
@@ -699,6 +742,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
       </header>
       {!collapsed && (
         <div className="gw-code-panel__body">
+          {!override && (
           <div className="gw-code-panel__float" title="What to compile into the CodePen export">
             <label
               className={`gw-code-panel__chip gw-code-panel__chip--static${staticMode ? " is-active" : ""}`}
@@ -744,6 +788,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
               </label>
             ))}
           </div>
+          )}
           <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
         </div>
       )}

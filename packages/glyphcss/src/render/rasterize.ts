@@ -1,6 +1,6 @@
-import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
+import type { GlyphPolygonCullChunk, RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
 import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
-import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
+import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
 import {
@@ -36,6 +36,14 @@ import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 /** Minimal camera shape needed to project for the occlusion depth pass. */
 interface ProjectCamera {
   project(v: Vec3, cols: number, rows: number, cellAspect: number, metrics?: GlyphProjectionMetrics): [number, number, number, number?];
+  /**
+   * Signed distance past the near plane, `> 0` visible — the same probe
+   * `rasterizeSolid` clips its triangles against. Optional because this
+   * interface is the minimum a caller must supply; an orthographic camera
+   * answers `+Infinity` everywhere, so a camera that omits it entirely is
+   * treated the same way and never clipped.
+   */
+  eyeDepth?(v: Vec3): number;
 }
 
 /**
@@ -102,6 +110,46 @@ function projectionMetricsForGrid(
 export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
 
 /**
+ * How far apart two depth samples of the SAME screen point may be and still
+ * count as ONE surface, as a fraction of the local depth scale (the operands
+ * and the slope terms that produced them).
+ *
+ * This is a FLOAT-REPRESENTATION tolerance, not a geometric allowance — the
+ * distinction that killed the depth-gradient allowance described in
+ * `OcclusionMap.slopeCol`. Two triangles meeting along a shared edge
+ * interpolate the SAME plane at the SAME point through different vertex
+ * triples, so their answers differ in the last bits: measured on two
+ * edge-sharing quads of one plane, 1.7e-16 and 3.3e-16 absolute against a
+ * depth scale of 0.5 (1.5 and 3 ULPs), and ~1e-17 where the shared edge sits
+ * at depth zero — which is why the scale includes the SLOPE terms and not
+ * just the sampled values, and why a purely relative tolerance cannot express
+ * it. Left strict, those few ULPs put one layer "behind" the other and blank
+ * a whole map cell for it.
+ *
+ * `1e-9` sits between two measured bounds, both wide: around a million times
+ * the observed rounding error (with room for the barycentric conditioning of
+ * a sliver, which `Polygon.shadingNormal` exists because `@glyphcss/maps`
+ * really produces), and ~800 times SMALLER than the tightest real separation
+ * anything in this repo asks the id-map to honour — `@glyphcss/maps`' `fill`
+ * draped 10 m above the terrain of a globe whose depths run to one Earth
+ * radius, i.e. 1.6e-6 of the depth scale.
+ */
+const OCCLUSION_COINCIDENT_REL = 1e-9;
+
+/**
+ * The owner's per-cell screen-space depth SLOPE, retained beside the id-map's
+ * depth so a pass can evaluate the owner's own surface at ITS cell's exact
+ * position instead of comparing two different points (see
+ * {@link OcclusionMap.slopeCol}). `col`/`row` are depth per one id-map cell
+ * along each axis, taken from the winning triangle's own plane — an exact
+ * derivative, computed once per triangle.
+ */
+export interface GlyphOcclusionSlopes {
+  col: Float64Array;
+  row: Float64Array;
+}
+
+/**
  * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
  * into a `cols × rows` buffer and record, per cell, the id of the layer whose
  * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
@@ -129,6 +177,15 @@ export const GLYPH_FOREIGN_OCCLUDER_ID = -3;
  * texel at all skip the per-cell sampling outright (checked once per sampler,
  * cached), so fully opaque textured geometry pays nothing. Omitting the
  * parameter (every caller before it existed) keeps the pure-geometry claims.
+ *
+ * `depthOut`, when supplied, receives the same nearest-depth buffer this pass
+ * already builds and would otherwise discard (at the id-map's own
+ * `outCols*ss × outRows*ss` resolution; `-Infinity` = empty). It exists for
+ * {@link OcclusionMap.depth}'s sub-cell seam refinement — see the
+ * cross-layer blanking loop in `rasterize` — and costs nothing beyond the
+ * caller's own allocation, since the buffer is computed either way. Only the
+ * OUTPUT-resolution raster fills it; `occlusionContourPx`'s finer internal
+ * raster does not.
  */
 export function computeOcclusionIds(
   groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
@@ -139,6 +196,9 @@ export function computeOcclusionIds(
   supersample = 1,
   metrics: GlyphProjectionMetrics = projectionMetricsForGrid(outCols, outRows, cellAspect, {}),
   textureSamplers: ReadonlyMap<string, TextureSampler> | null = null,
+  depthOut: Float64Array | null = null,
+  doubleSided = true,
+  slopeOut: GlyphOcclusionSlopes | null = null,
 ): Int32Array {
   // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
   // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
@@ -159,8 +219,39 @@ export function computeOcclusionIds(
   const CONTOUR_K = 4;
   const contourK = groups.some((g) => g.occlusionContourPx !== undefined) ? CONTOUR_K : 1;
 
+  /**
+   * Project one vertex for the id-map, with the DEPTH the rest of the renderer
+   * means.
+   *
+   * `project()` returns two different depths: `[2]` is the linear eye-space
+   * `cssZ` and `[3]` is the screen-space-linear z-buffer (`1/denom`), and
+   * every paint path — `scanFillTriangle`'s calls, and therefore
+   * `CellGrid.depth` — uses `[3] ?? [2]`. An ORTHOGRAPHIC camera omits `[3]`
+   * entirely, so the two were the same number for as long as glyphcss had
+   * only orbit cameras and nothing here had to choose. Under a POSITIONED
+   * PERSPECTIVE camera they are different quantities in different units, and
+   * the id-map's retained depth is compared directly against a pass's own
+   * `depthBuf` by the sub-cell seam refinement in `rasterizeSolid` — so
+   * filling it with `[2]` made that comparison dimensionally meaningless and,
+   * measured on `@glyphcss/maps`' street-level walk, refused every blank:
+   * the sky dome read `267.44` (a z-buffer value) against a building's
+   * `-7.8e-5` (a `cssZ`), so the base grid was never occluded at all.
+   *
+   * Rewriting `[2]` in place rather than returning a fifth tuple keeps
+   * `fillDepthTri`'s own `z` and the perspective-correct `qa/qb/qc` (read off
+   * `[3]`) both right, allocates nothing beyond the array `project` already
+   * made, and is a no-op wherever `[3]` is absent.
+   */
+  const project = (v: Vec3, cols: number, rows: number, m: GlyphProjectionMetrics): [number, number, number, number?] => {
+    const p = rawCamera.project(v, cols, rows, cellAspect, m);
+    p[2] = p[3] ?? p[2];
+    return p;
+  };
+  const eyeDepthOf = typeof rawCamera.eyeDepth === "function" ? rawCamera.eyeDepth.bind(rawCamera) : null;
+  let eyeScratch = new Float64Array(8);
+
   /** Depth-raster every group into an id map at `outCols*scale × outRows*scale`. */
-  const rasterInto = (scale: number): Int32Array => {
+  const rasterInto = (scale: number, keepDepth: Float64Array | null = null, slopes: GlyphOcclusionSlopes | null = null): Int32Array => {
     const cols = outCols * scale, rows = outRows * scale;
     const scaledMetrics = scale > 1
       ? {
@@ -171,8 +262,13 @@ export function computeOcclusionIds(
           centerRow: metrics.centerRow !== undefined ? metrics.centerRow * scale : undefined,
         }
       : metrics;
-    const depth = new Float64Array(cols * rows).fill(-Infinity);
+    const depth = keepDepth !== null && keepDepth.length === cols * rows ? keepDepth.fill(-Infinity) : new Float64Array(cols * rows).fill(-Infinity);
     const idMap = new Int32Array(cols * rows).fill(-1);
+    // Per-cell owner SLOPE (see `OcclusionMap.slopeCol`). Only ever asked for
+    // on the OUTPUT-resolution raster of a scene with no priority classes and
+    // no contour claims — the two features that decide ownership by something
+    // other than depth, and for which the caller withholds it.
+    const slopeBufs = slopes !== null && slopes.col.length === cols * rows ? slopes : null;
     // Priority buffer only exists when some group actually asks for one — the
     // all-zero case (every scene before `occlusionPriority`) takes the exact
     // pre-existing depth-only path.
@@ -201,23 +297,95 @@ export function computeOcclusionIds(
             if (s && samplerHasTransparency(s)) sampler = s;
           }
         }
-        const p0 = rawCamera.project(vs[0]!, cols, rows, cellAspect, scaledMetrics);
-        let prev = rawCamera.project(vs[1]!, cols, rows, cellAspect, scaledMetrics);
+        const p0 = project(vs[0]!, cols, rows, scaledMetrics);
+        let prev = project(vs[1]!, cols, rows, scaledMetrics);
+        // Near-plane distances, in the SAME order as `vs`. `+Infinity` when the
+        // camera declines the probe (and what an orthographic one answers
+        // anyway), so `straddles` is false and the whole clip below is dead
+        // code on every scene glyphcss had before positioned cameras existed.
+        // Written into one scratch buffer reused across every polygon of the
+        // raster: this loop already runs over the whole scene once per render
+        // (the +10.4 ms/frame a single separated layer costs), so a per-polygon
+        // array here would be a per-frame allocation on the orbit path too.
+        let eye: Float64Array | null = null;
+        if (eyeDepthOf !== null) {
+          if (eyeScratch.length < vs.length) eyeScratch = new Float64Array(vs.length);
+          for (let i = 0; i < vs.length; i++) eyeScratch[i] = eyeDepthOf(vs[i] as Vec3);
+          eye = eyeScratch;
+        }
         for (let k = 2; k < vs.length; k++) {
-          const cur = rawCamera.project(vs[k]!, cols, rows, cellAspect, scaledMetrics);
+          const cur = project(vs[k]!, cols, rows, scaledMetrics);
           // Fan triangle (v0, v[k-1], v[k]) — mirror the UV assignment
           // `rasterizeSolid`'s fan uses so both rasterizers sample the same
           // texel for the same screen cell.
-          const tex: DepthTexCtx | null = sampler !== null && polyUvs !== null
-            ? {
-                sampler,
-                ua: polyUvs[0]![0], va: polyUvs[0]![1],
-                ub: polyUvs[k - 1]![0], vb: polyUvs[k - 1]![1],
-                uc: polyUvs[k]![0], vc: polyUvs[k]![1],
-                qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
-              }
+          const uvTri: [Vec2, Vec2, Vec2] | null = polyUvs !== null
+            ? [polyUvs[0]! as Vec2, polyUvs[k - 1]! as Vec2, polyUvs[k]! as Vec2]
             : null;
-          fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex);
+          const straddles = eye !== null && !(eye[0]! > 0 && eye[k - 1]! > 0 && eye[k]! > 0);
+          if (!straddles) {
+            const tex: DepthTexCtx | null = sampler !== null && uvTri !== null
+              ? {
+                  sampler,
+                  ua: uvTri[0][0], va: uvTri[0][1],
+                  ub: uvTri[1][0], vb: uvTri[1][1],
+                  uc: uvTri[2][0], vc: uvTri[2][1],
+                  qa: p0[3] ?? 1, qb: prev[3] ?? 1, qc: cur[3] ?? 1,
+                  wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
+                }
+              : null;
+            fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows, priority, pri, tex, doubleSided, slopeBufs);
+          } else {
+            // Straddles the near plane: clip to `eyeDepth > 0` and fan the
+            // result, exactly as `rasterizeSolid` does for the paint pass.
+            // Without this a polygon with ANY vertex behind the eye projects to
+            // NaN and drops out of the id-map entirely — so the layer that owns
+            // those cells never claims them and nothing is ever occluded there.
+            // A street-level camera stands INSIDE the geometry that surrounds
+            // it (the ground under the walker, the sky dome around them), which
+            // is the whole of what a walk frame is made of.
+            const tri: Vec3[] = [vs[0]! as Vec3, vs[k - 1]! as Vec3, vs[k]! as Vec3];
+            const triD = [eye![0]!, eye![k - 1]!, eye![k]!];
+            const cw: Vec3[] = [];
+            const cuv: Vec2[] | null = uvTri ? [] : null;
+            for (let e = 0; e < 3; e++) {
+              const nx = (e + 1) % 3;
+              const de = triD[e]!, dn = triD[nx]!;
+              if (de > 0) {
+                cw.push(tri[e]!);
+                if (cuv && uvTri) cuv.push(uvTri[e]!);
+              }
+              if ((de > 0) !== (dn > 0)) {
+                const t = de / (de - dn);
+                const ve = tri[e]!, vn = tri[nx]!;
+                cw.push([
+                  ve[0] + t * (vn[0] - ve[0]),
+                  ve[1] + t * (vn[1] - ve[1]),
+                  ve[2] + t * (vn[2] - ve[2]),
+                ] as Vec3);
+                if (cuv && uvTri) {
+                  const ue = uvTri[e]!, un = uvTri[nx]!;
+                  cuv.push([ue[0] + t * (un[0] - ue[0]), ue[1] + t * (un[1] - ue[1])]);
+                }
+              }
+            }
+            if (cw.length >= 3) {
+              const cp = cw.map((w) => project(w, cols, rows, scaledMetrics));
+              for (let f = 1; f < cw.length - 1; f++) {
+                const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
+                const tex: DepthTexCtx | null = sampler !== null && cuv !== null
+                  ? {
+                      sampler,
+                      ua: cuv[0]![0], va: cuv[0]![1],
+                      ub: cuv[f]![0], vb: cuv[f]![1],
+                      uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
+                      qa: qa[3] ?? 1, qb: qb[3] ?? 1, qc: qc[3] ?? 1,
+                      wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
+                    }
+                  : null;
+                fillDepthTri(qa, qb, qc, depth, idMap, g.id, cols, rows, priority, pri, tex, doubleSided, slopeBufs);
+              }
+            }
+          }
           prev = cur;
         }
       }
@@ -229,7 +397,7 @@ export function computeOcclusionIds(
   const outColsEff = outCols * ss, outRowsEff = outRows * ss;
   // The output-resolution map: the exact pre-existing claim set. Every
   // non-contour group's claims come from here untouched.
-  const outMap = rasterInto(ss);
+  const outMap = rasterInto(ss, depthOut, slopeOut);
   if (contourK > 1) {
     // Second raster at the FINE internal resolution — per fine cell the alpha
     // claim samples its own texel, so a contour group's fine footprint is its
@@ -305,6 +473,36 @@ export function computeOcclusionIds(
 }
 
 /**
+ * `Polygon.textureWrap` as a per-cell integer, so the hot loop branches on a
+ * number instead of a string. `0` (clamp-to-edge) is the default and the exact
+ * pre-existing behaviour — `sampleUv` already clamps — so an unset `textureWrap`
+ * costs one integer compare and changes nothing.
+ */
+const WRAP_CLAMP = 0, WRAP_REPEAT = 1, WRAP_MIRROR = 2;
+
+/**
+ * Fold one UV axis into `[0, 1)` per its wrap mode. Honouring `repeat` is what
+ * lets a wall quad carry its real bay/floor COUNT in its UVs
+ * (`[[0,0],[bays,0],[bays,floors],[0,floors]]`) and tile ONE small facade image
+ * across it, instead of the caller pre-tiling a distinct image per
+ * `(bays, floors)` pair — measured at 101 images / 1.8 MB for 900 m of Zurich,
+ * against a single 12x12 tile here.
+ *
+ * `mirrored-repeat` reflects on odd tiles; `Math.floor(t) & 1` is already the
+ * right parity for negative `t` under two's complement.
+ */
+function wrapUvCoord(t: number, mode: number): number {
+  if (mode === WRAP_CLAMP) return t;
+  const f = t - Math.floor(t);
+  return mode === WRAP_REPEAT || (Math.floor(t) & 1) === 0 ? f : 1 - f;
+}
+
+/** `Polygon.textureWrap` for one axis as a {@link WRAP_CLAMP} code. */
+function wrapCode(mode: PolyTextureWrapMode | undefined): number {
+  return mode === "repeat" ? WRAP_REPEAT : mode === "mirrored-repeat" ? WRAP_MIRROR : WRAP_CLAMP;
+}
+
+/**
  * Per-triangle texture context for `fillDepthTri`'s alpha-aware occlusion
  * claim (see `computeOcclusionIds`). `qa/qb/qc` are the projected vertices'
  * perspective factors (`project()[3]`, 1 under ortho) so UVs interpolate
@@ -316,6 +514,8 @@ interface DepthTexCtx {
   ub: number; vb: number;
   uc: number; vc: number;
   qa: number; qb: number; qc: number;
+  /** {@link wrapCode}s for u and v — see {@link wrapUvCoord}. */
+  wrapS: number; wrapT: number;
 }
 
 /**
@@ -347,6 +547,14 @@ function fillDepthTri(
   depth: Float64Array, idMap: Int32Array, id: number, W: number, H: number,
   priority: Int32Array | null = null, pri = 0,
   tex: DepthTexCtx | null = null,
+  // Screen-winding BACK-FACE cull, mirroring `scanFillTriangle`'s own
+  // `!doubleSided && area2 > 0` verdict on the same signed area. Without it
+  // the map claimed cells the paint pass drops outright: a single-sided quad
+  // seen from behind claimed its entire footprint and painted none of it
+  // (measured 75 claimed / 0 painted), so the layer beneath it was blanked by
+  // an owner that never draws.
+  doubleSided = true,
+  slopes: GlyphOcclusionSlopes | null = null,
 ): void {
   const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
   if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
@@ -357,14 +565,43 @@ function fillDepthTri(
   if (minX > maxX || minY > maxY) return;
   const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
   if (Math.abs(area) < 1e-9) return;
+  if (!doubleSided && area > 0) return;
   const inv = 1 / area;
+  const ccw = area > 0;
+  // This triangle's own screen-space depth derivative, in depth per cell.
+  // `z` is affine in `(px, py)` inside a triangle, so this is exact and
+  // constant across it — one evaluation per triangle, none per cell.
+  const slopeCol = slopes !== null ? slopes.col : null;
+  const slopeRow = slopes !== null ? slopes.row : null;
+  const dzdc = slopeCol !== null ? ((y1 - y2) * z0 + (y2 - y0) * z1 + (y0 - y1) * z2) * inv : 0;
+  const dzdr = slopeCol !== null ? ((x2 - x1) * z0 + (x0 - x2) * z1 + (x1 - x0) * z2) * inv : 0;
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      const px = x + 0.5, py = y + 0.5;
-      const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
-      const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+      // Sample where the PAINT rasterizer samples — `scanFillTriangle`'s
+      // integer `(col, row)`, not a cell centre. A depth/id map exists to say
+      // which cells another pass will actually cover, and testing coverage
+      // half a cell away from where that pass tests it makes the two disagree
+      // by a whole cell along every bottom and right silhouette edge,
+      // systematically (a face ending at `y = 32.2` paints row 32 and claimed
+      // only to row 31). The texel lookup below already sampled at `(x, y)`
+      // for exactly this reason; the inside test did not, and that residue is
+      // what let a stamped road survive along the base of a building that had
+      // separated into its own `<pre>`.
+      const px = x, py = y;
+      // Inside test in `scanFillTriangle`'s exact form: the UNNORMALIZED
+      // sub-areas, compared against the sign of `area`, inclusive of zero.
+      // The old normalized `w < -1e-6` accepted a hair OUTSIDE the triangle,
+      // which is the one remaining way the map's covered set could differ
+      // from the paint pass's — and the ownership masks below now carry that
+      // set straight into the blanking verdict, so "claimed" and "painted"
+      // have to be the same test, not merely nearly.
+      const sA = (x1 - px) * (y2 - py) - (y1 - py) * (x2 - px);
+      const sB = (x2 - px) * (y0 - py) - (y2 - py) * (x0 - px);
+      const sC = (x0 - px) * (y1 - py) - (y0 - py) * (x1 - px);
+      if (ccw ? (sA < 0 || sB < 0 || sC < 0) : (sA > 0 || sB > 0 || sC > 0)) continue;
+      const w0 = sA * inv;
+      const w1 = sB * inv;
       const w2 = 1 - w0 - w1;
-      if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
       const z = w0 * z0 + w1 * z1 + w2 * z2;
       const idx = y * W + x;
       // Would this triangle claim the cell? Decide first, sample after — so
@@ -386,14 +623,11 @@ function fillDepthTri(
       if (tex !== null) {
         // Alpha-aware claim: a transparent texel does not cover this cell, so
         // it must not occlude the layer beneath (mirrors `scanFillTriangle`'s
-        // pre-depth-write coverage test). Sample at the PAINT rasterizer's
-        // sample point — integer (x, y), not this loop's (x+0.5, y+0.5)
-        // inside-test point — with fresh barycentric weights, so the id-map's
-        // claimed set and the paint path's covered set read the same texel
-        // for the same cell. Perspective-correct via q, affine under ortho.
-        const tw0 = ((x1 - x) * (y2 - y) - (x2 - x) * (y1 - y)) * inv;
-        const tw1 = ((x2 - x) * (y0 - y) - (x0 - x) * (y2 - y)) * inv;
-        const tw2 = 1 - tw0 - tw1;
+        // pre-depth-write coverage test). The weights are the inside test's
+        // own, which is the paint rasterizer's sample point, so the id-map's
+        // claimed set and the paint path's covered set read the same texel for
+        // the same cell. Perspective-correct via q, affine under ortho.
+        const tw0 = w0, tw1 = w1, tw2 = w2;
         let tu: number, tv: number;
         if (tex.qa !== 1 || tex.qb !== 1 || tex.qc !== 1) {
           const invQ = 1 / (tw0 * tex.qa + tw1 * tex.qb + tw2 * tex.qc);
@@ -403,10 +637,13 @@ function fillDepthTri(
           tu = tw0 * tex.ua + tw1 * tex.ub + tw2 * tex.uc;
           tv = tw0 * tex.va + tw1 * tex.vb + tw2 * tex.vc;
         }
-        const texel = sampleTexel(tex.sampler, tu, tv);
+        const texel = sampleTexel(
+          tex.sampler, wrapUvCoord(tu, tex.wrapS), wrapUvCoord(tv, tex.wrapT),
+        );
         if (texel === null || texel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
       depth[idx] = z; idMap[idx] = id;
+      if (slopeCol !== null) { slopeCol[idx] = dzdc; slopeRow![idx] = dzdr; }
       if (priority) priority[idx] = pri;
     }
   }
@@ -425,13 +662,56 @@ function fillDepthTri(
  * depth buffer at SUBCELL resolution with no second projection pass, and
  * `sx=1, sy=1` (the ASCII path, and braille's coarser per-cell option)
  * builds it at cell resolution directly.
+ *
+ * Exported for `createGlyphScene.ts`'s meshless viewport overlay (a
+ * `line`/`contour` stroke layer's own independent-density output grid):
+ * called with `cellCols`/`cellRows`/`metrics` the BASE grid's own UNCHANGED
+ * values and `sx`/`sy` the overlay's exact `colsOverlay/colsBase` ratio —
+ * this SAME subcell-precision mechanism, not `computeOcclusionIds`'s own
+ * independent `cellWidth`/`centerCol` metrics-scaling: when the base grid's
+ * cell size is unmeasured (SSR, or a headless/test environment with no real
+ * layout), the camera falls back to a fixed `BASE_TILE / cellAspect`
+ * constant that isn't itself scaled by `density`, so independently scaling
+ * `cellWidth` while leaving that fallback alone silently desyncs a stroke's
+ * own vertices (projected through the SAME unchanged base grid) from this
+ * depth pass. Multiplying the OUTPUT screen coordinate instead keeps both
+ * in lockstep regardless of which cell-size source the camera actually
+ * used. Reuses this function's existing `fillDepthTri`-based machinery
+ * rather than a second depth rasterizer, the same discipline this doc
+ * already follows for the wireframe HLR prepass.
+ *
+ * `zBufferDepth` picks WHICH of `project()`'s two depths the buffer holds,
+ * and the caller owns the choice because the two callers compare it against
+ * different things. `project()` returns the linear eye-space `cssZ` at `[2]`
+ * and the screen-space-linear z-buffer (`1/denom`) at `[3]`; an ORTHOGRAPHIC
+ * camera omits `[3]`, so the two are one number and the flag is inert.
+ *
+ * - `false` (default) is the WIREFRAME hidden-line prepass, whose stroke
+ *   endpoints are `camera.project(...)[2]` read directly (`rasterize()` and
+ *   the braille path both pass `a[2]`/`b[2]`) — the two sides are already the
+ *   same quantity, and `computeOcclusionIds`' own doc records why `[2]` must
+ *   not be redefined globally to fix somebody else's comparison.
+ * - `true` is the meshless VIEWPORT OVERLAY, whose consumer is a
+ *   `transformCells` stamp reading `CellGrid.depth` — and every PAINT path
+ *   fills that with `[3] ?? [2]`. Filling this buffer with `[2]` instead made
+ *   that comparison dimensionally meaningless under the walk camera and so
+ *   forgave every occluder: measured, a 60 m building 200 m ahead cut a road
+ *   from 140 inked cells to 109 in the base grid and took none of the 280 the
+ *   same road inked in its own density-2 overlay
+ *   (`@glyphcss/maps`' `widget.walkStrokeDensityOcclusion.test.ts`).
+ *
+ * Rewriting `[2]` in place rather than returning a fifth tuple slot is
+ * `computeOcclusionIds`' own resolution of the same fork, and for its reason:
+ * `fillDepthTri`'s `z` and its perspective-correct `qa/qb/qc` (read off `[3]`)
+ * both stay right, and nothing is allocated beyond the array `project` made.
  */
-function buildSurfaceDepth(
+export function buildSurfaceDepth(
   polygons: Polygon[],
   camera: ProjectCamera,
   cellCols: number, cellRows: number, cellAspect: number,
   metrics: GlyphProjectionMetrics,
   sx = 1, sy = 1,
+  zBufferDepth = false,
 ): Float64Array {
   const W = cellCols * sx, H = cellRows * sy;
   const depth = new Float64Array(W * H).fill(-Infinity);
@@ -441,7 +721,7 @@ function buildSurfaceDepth(
     if (vs.length < 3 || poly.hidden) continue;
     const proj = (v: Vec3): [number, number, number, number?] => {
       const p = camera.project(v, cellCols, cellRows, cellAspect, metrics);
-      return [p[0] * sx, p[1] * sy, p[2], p[3]];
+      return [p[0] * sx, p[1] * sy, zBufferDepth ? p[3] ?? p[2] : p[2], p[3]];
     };
     const p0 = proj(vs[0]! as Vec3);
     let prev = proj(vs[1]! as Vec3);
@@ -1424,6 +1704,127 @@ function rasterizeInk(
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
+/**
+ * Margin keeping a run whose extreme normal is exactly edge-on on the DRAW
+ * side of {@link GlyphPolygonCullChunk}'s back-face test. Small enough that a
+ * genuinely far-side run (whose axis dot approaches 1) still rejects.
+ */
+const CONE_FACING_EPSILON = 1e-6;
+
+/**
+ * Whether EVERY normal in a run's cone is back-facing under the unit facing
+ * gradient `(gx, gy, gz)` from {@link deriveFacingGradient} — the run-level
+ * form of `rasterizeSolid`'s own `area2 > 0` test.
+ *
+ * With `a` the cone axis and `cosHalf` its half-angle cosine, the smallest
+ * `n̂ · Ĝ` over the cone is `cos(angle(a, Ĝ) + halfAngle)`, so all of them are
+ * back-facing (`> 0`) exactly when `a · Ĝ > sin(halfAngle)`. A cone wider than
+ * a hemisphere (`coneCos <= 0`) can never satisfy that, and an unusable cone
+ * is flagged with `coneCos: -1`, so both fall out for free.
+ *
+ * {@link CONE_FACING_EPSILON} keeps the boundary case — a run whose extreme
+ * normal is exactly edge-on — on the DRAW side. Such a triangle projects to
+ * zero area and paints nothing either way, so the margin costs nothing and
+ * buys immunity to the float difference between this world-space test and the
+ * rasterizer's own projected-coordinate one.
+ */
+export function glyphChunkIsBackFacing(
+  chunk: GlyphPolygonCullChunk,
+  gx: number, gy: number, gz: number,
+): boolean {
+  const cosHalf = chunk.coneCos;
+  if (!(cosHalf > 0)) return false;
+  const d = chunk.coneX * gx + chunk.coneY * gy + chunk.coneZ * gz;
+  return d > Math.sqrt(1 - cosHalf * cosHalf) + CONE_FACING_EPSILON;
+}
+
+/**
+ * The UNIT linear functional `Ĝ` with `sign(Ĝ · n) === sign(area2)` for a
+ * triangle with world face normal `n` — the rasterizer's own back-face
+ * criterion expressed in world space, recovered from `camera.project` by
+ * evaluation. Returns `null` when the camera's screen map is not affine (a
+ * perspective camera), when a probe does not project finitely, or when the
+ * functional is degenerate — in every one of those cases the caller must draw
+ * every run.
+ *
+ * The probes are placed at, and scaled by, the geometry the chunks actually
+ * cover, so a scene authored at any world scale is probed at its own scale
+ * rather than at an arbitrary unit one: a probe far smaller than the scene
+ * would lose the perspective divergence this check exists to detect, and one
+ * far larger could fall outside a camera's valid window.
+ */
+export function deriveFacingGradient(
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  chunks: readonly GlyphPolygonCullChunk[],
+): [number, number, number] | null {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const c of chunks) {
+    if (c.minX < minX) minX = c.minX;
+    if (c.minY < minY) minY = c.minY;
+    if (c.minZ < minZ) minZ = c.minZ;
+    if (c.maxX > maxX) maxX = c.maxX;
+    if (c.maxY > maxY) maxY = c.maxY;
+    if (c.maxZ > maxZ) maxZ = c.maxZ;
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY)
+    || !Number.isFinite(maxY) || !Number.isFinite(minZ) || !Number.isFinite(maxZ)) return null;
+  const ex = maxX - minX, ey = maxY - minY, ez = maxZ - minZ;
+  const extent = Math.max(ex, ey, ez);
+  const h = extent > 0 ? extent / 8 : 1;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+
+  const a = facingGradientAt(camera, cols, rows, cellAspect, metrics, cx, cy, cz, h);
+  if (a === null) return null;
+  // Second probe: displaced by a large fraction of the scene's own extent and
+  // at a different scale, so an affine map reproduces `a` exactly while a
+  // perspective one cannot.
+  const b = facingGradientAt(camera, cols, rows, cellAspect, metrics,
+    cx + ex * 0.31 + h, cy - ey * 0.27 - h, cz + ez * 0.23 + h, h / 2);
+  if (b === null) return null;
+  const len = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  if (!(len > 0) || !Number.isFinite(len)) return null;
+  const tol = len * 1e-6;
+  if (Math.abs(a[0] - b[0]) > tol || Math.abs(a[1] - b[1]) > tol || Math.abs(a[2] - b[2]) > tol) return null;
+  return [a[0] / len, a[1] / len, a[2] / len];
+}
+
+/**
+ * One probe of {@link deriveFacingGradient}: the `area2` of three triangles
+ * built at `(px, py, pz)` whose `u x v` face normals are `h^2` along each
+ * world axis, divided back out by `h^2`.
+ */
+function facingGradientAt(
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  px: number, py: number, pz: number, h: number,
+): [number, number, number] | null {
+  const p0: Vec3 = [px, py, pz];
+  const dx: Vec3 = [px + h, py, pz];
+  const dy: Vec3 = [px, py + h, pz];
+  const dz: Vec3 = [px, py, pz + h];
+  const q0 = camera.project(p0, cols, rows, cellAspect, metrics);
+  const qx = camera.project(dx, cols, rows, cellAspect, metrics);
+  const qy = camera.project(dy, cols, rows, cellAspect, metrics);
+  const qz = camera.project(dz, cols, rows, cellAspect, metrics);
+  for (const q of [q0, qx, qy, qz]) if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) return null;
+  // `area2` of (p0, p1, p2) is `(p1-p0) x (p2-p0)` in screen space — the exact
+  // expression `rasterizeSolid`'s own hoisted back-face cull evaluates.
+  const area2 = (u: readonly [number, number, number, (number | undefined)?],
+    v: readonly [number, number, number, (number | undefined)?]): number =>
+    (u[0] - q0[0]) * (v[1] - q0[1]) - (u[1] - q0[1]) * (v[0] - q0[0]);
+  const inv = 1 / (h * h);
+  // (p0, p0+h*ey, p0+h*ez) has `u x v = h^2 * ex`, and cyclically.
+  return [area2(qy, qz) * inv, area2(qz, qx) * inv, area2(qx, qy) * inv];
+}
+
 function rasterizeSolid(
   scene: RasterizeContext,
   outCols: number,
@@ -1671,10 +2072,33 @@ function rasterizeSolid(
 
   // Build shadow map (null when shadows are disabled or no casters).
   // Zero cost when scene.shadow is undefined.
+  //
+  // The caster set is the WHOLE SCENE's when the caller supplies one
+  // (`RasterizeContext.shadowCasters`), not this pass's own polygons: a mesh
+  // that separated into its own detail grid is still a caster onto every
+  // other grid, and one light must produce one light-space volume for all of
+  // them. With no override this is `(polygons, castShadowFlags)` — the
+  // single-pass behaviour, bit for bit.
   const shadowOpts = scene.shadow;
-  const shadowMap: ShadowMapData | null = (shadowOpts != null && castShadowFlags.length > 0)
-    ? buildShadowMap(polygons, castShadowFlags, lx, ly, lz)
-    : null;
+  const casterPolygons = scene.shadowCasters?.polygons ?? polygons;
+  const casterFlags = scene.shadowCasters?.flags ?? castShadowFlags;
+  const shadowMapCache = scene.shadowMapCache;
+  let shadowMap: ShadowMapData | null = null;
+  if (shadowOpts != null && casterFlags.length > 0) {
+    // The map is a pure function of (caster set, light direction), both
+    // frame-constant and scene-level, so a frame's second and later passes
+    // reuse the first one's instead of re-rasterizing every caster per
+    // output grid.
+    if (shadowMapCache?.built === true) {
+      shadowMap = (shadowMapCache.map ?? null) as ShadowMapData | null;
+    } else {
+      shadowMap = buildShadowMap(casterPolygons, casterFlags, lx, ly, lz);
+      if (shadowMapCache !== undefined) {
+        shadowMapCache.built = true;
+        shadowMapCache.map = shadowMap;
+      }
+    }
+  }
   const shadowOpacity = shadowOpts?.opacity ?? 0.25;
   const shadowLift = shadowOpts?.lift ?? 0.05;
   const shadowColorHex = shadowOpts?.color ?? "#000000";
@@ -1689,6 +2113,81 @@ function rasterizeSolid(
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
   const projScratch: [number, number, number, number?][] = [];
+  // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
+  // A contiguous run whose world AABB provably projects entirely off the grid
+  // is skipped without projecting one of its vertices. The two fidelity rules
+  // this must obey, both load-bearing:
+  //   1. A box that is not WHOLLY in front of the near plane is ALWAYS
+  //      accepted. glyphcss's own near-plane clipping stays authoritative;
+  //      behind the eye the projective map stops being one, so the 2D hull of
+  //      the projected corners no longer bounds the projected contents. Both
+  //      shipped cameras signal that by projecting a corner at or past the
+  //      near plane to NaN (orthographic has no eye and never does), so the
+  //      NaN test below IS this rule — pinned by
+  //      `rasterize.cullChunks.test.ts`'s "near-plane NaN contract".
+  //   2. Nothing is ever reordered — a run is skipped or drawn in place —
+  //      because `depthEpsilon` resolves coplanar ties by draw order.
+  // For points strictly in front of the near plane the projection IS a
+  // projective map, so the image of the box's convex hull is the convex hull
+  // of its 8 projected corners, and their 2D bounding box therefore bounds
+  // every projected point inside the run. Rejecting on that is exact.
+  const cullChunks = scene.cullChunks ?? null;
+  let cullCursor = 0;
+  const cullCorner: Vec3 = [0, 0, 0];
+  const chunkIsOffGrid = (chunk: GlyphPolygonCullChunk): boolean => {
+    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
+    for (let c = 0; c < 8; c++) {
+      cullCorner[0] = (c & 1) !== 0 ? chunk.maxX : chunk.minX;
+      cullCorner[1] = (c & 2) !== 0 ? chunk.maxY : chunk.minY;
+      cullCorner[2] = (c & 4) !== 0 ? chunk.maxZ : chunk.minZ;
+      const p = camera.project(cullCorner, cols, rows, cellAspect, scaledMetrics);
+      const px = p[0], py = p[1];
+      if (px !== px || py !== py) return false; // rule 1
+
+      if (px < bMinX) bMinX = px;
+      if (px > bMaxX) bMaxX = px;
+      if (py < bMinY) bMinY = py;
+      if (py > bMaxY) bMaxY = py;
+    }
+    return bMinX >= cols || bMaxX < 0 || bMinY >= rows || bMaxY < 0;
+  };
+  // ── Pre-projection BACK-FACE run rejection ──────────────────────────────
+  // The AABB test above is structurally blind to a globe's far hemisphere: a
+  // far-side run still projects inside the near side's own disc, so its box is
+  // on-grid and it survives to be projected and then thrown away one triangle
+  // at a time. Measured on /maps at 2560x1440, that category is 17.3% of every
+  // triangle submitted.
+  //
+  // The rejection needs the sign convention that decides "back-facing", and
+  // guessing it is how geometry vanishes. It is DERIVED from the camera
+  // instead, per pass, and never assumed:
+  //
+  //   `rasterizeSolid`'s own back-face test is `area2 > 0`, where `area2` is
+  //   the 2D cross product of the two projected edge vectors. When the camera's
+  //   screen map is AFFINE — `s(v) = M v + t` for a 2x3 `M` with rows r1, r2 —
+  //   that cross product is exactly `(r1 x r2) · (u x v)`, i.e. a fixed LINEAR
+  //   functional of the triangle's own world face normal `n = u x v`. Call it
+  //   `G`: `area2 = G · n`, so back-facing is exactly `G · n > 0`.
+  //
+  //   `G` is recovered by EVALUATION, not by algebra over the camera's axis
+  //   convention, rotation order, or handedness (any of which could change
+  //   under this file without anyone noticing here): three probe triangles
+  //   built to have face normals `h^2 * e_x`, `h^2 * e_y`, `h^2 * e_z` under
+  //   the SAME `u x v` the rasterizer uses are projected through the SAME
+  //   `camera.project`, and their `area2` values ARE `G`'s components.
+  //
+  // Affinity is likewise verified rather than assumed: the probe is repeated at
+  // a second, well-separated base point and a different scale, and the whole
+  // mechanism disables itself unless both agree. A perspective camera's screen
+  // map is not affine — its scale varies with depth — so it fails that check
+  // and keeps drawing every run, which is the correct conservative outcome
+  // rather than a `camera.kind` branch.
+  let facingX = 0, facingY = 0, facingZ = 0, facingOk = false;
+  if (cullChunks !== null && !doubleSided && cullChunks.length > 0) {
+    const g = deriveFacingGradient(camera, cols, rows, cellAspect, scaledMetrics, cullChunks);
+    if (g !== null) { facingX = g[0]; facingY = g[1]; facingZ = g[2]; facingOk = true; }
+  }
+
   // Cross-frame shading cache (camera-invariant per-triangle intensities + lit
   // color). `triT` is a positional triangle index — incremented for every fan
   // triangle regardless of culling — so cache slots stay aligned frame to frame.
@@ -1705,12 +2204,22 @@ function rasterizeSolid(
     const uvA = toLightUV(wa, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
     const uvB = toLightUV(wb, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
     const uvC = toLightUV(wc, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+    // The receiver's own depth gradient per light-space TEXEL, solved from the
+    // triangle's affine map. A degenerate triangle (zero light-space area) is
+    // seen edge-on from the light and covers no texel, so it gets no guard.
+    const eu1 = uvB[0] - uvA[0], ev1 = uvB[1] - uvA[1], ed1 = uvB[2] - uvA[2];
+    const eu2 = uvC[0] - uvA[0], ev2 = uvC[1] - uvA[1], ed2 = uvC[2] - uvA[2];
+    const det = eu1 * ev2 - ev1 * eu2;
+    const slopeBias = det === 0
+      ? 0
+      : SHADOW_SLOPE_BIAS_TEXELS * (Math.abs((ed1 * ev2 - ed2 * ev1) / det) + Math.abs((ed2 * eu1 - ed1 * eu2) / det));
     return {
       map: sm,
       luA: uvA[0], lvA: uvA[1], ldA: uvA[2],
       luB: uvB[0], lvB: uvB[1], ldB: uvB[2],
       luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
       lift: shadowLift,
+      slopeBias,
       opacity: shadowOpacity,
       ambientIntensity: ambIntensity,
       shadowColorRgb,
@@ -1719,6 +2228,21 @@ function rasterizeSolid(
     };
   };
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
+    if (cullChunks !== null) {
+      while (cullCursor < cullChunks.length && cullChunks[cullCursor]!.end <= polyIdx) cullCursor++;
+      const chunk = cullChunks[cullCursor];
+      // Cone first: a handful of multiplies, against `chunkIsOffGrid`'s eight
+      // corner projections.
+      if (chunk !== undefined && chunk.start === polyIdx
+        && ((facingOk && glyphChunkIsBackFacing(chunk, facingX, facingY, facingZ)) || chunkIsOffGrid(chunk))) {
+        // `triT` must advance by the run's whole triangle count so the
+        // positional cross-frame shadeCache stays aligned frame to frame,
+        // exactly as the per-polygon `poly.hidden` skip below does.
+        triT += chunk.triangles;
+        polyIdx = chunk.end - 1;
+        continue;
+      }
+    }
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
@@ -1806,15 +2330,29 @@ function rasterizeSolid(
       const shadeCacheHit = shadeCache !== null && shadeCache.iA[triT] !== undefined;
       let fnxN = 0, fnyN = 0, fnzN = 0;
       if (normalBuf !== null || !shadeCacheHit) {
-        const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
-        const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
-        const fnx = uy * vvz - uz * vvy;
-        const fny = uz * vvx - ux * vvz;
-        const fnz = ux * vvy - uy * vvx;
-        const fnLen = Math.hypot(fnx, fny, fnz) || 1;
-        fnxN = fnx / fnLen;
-        fnyN = fny / fnLen;
-        fnzN = fnz / fnLen;
+        // An AUTHORED shading normal (`Polygon.shadingNormal`) wins over the
+        // one this triangle's own vertices imply — see its declaration: a face
+        // whose plane is not the surface it stands for (a tessellation sliver
+        // on a curved projection) has a meaningless geometric normal, and its
+        // consumer knows the real one. Visibility is untouched; the back-face
+        // verdict below is still the projected winding's.
+        const authored = poly.shadingNormal;
+        const authoredLen = authored === undefined ? 0 : Math.hypot(authored[0], authored[1], authored[2]);
+        if (authored !== undefined && authoredLen > 0 && Number.isFinite(authoredLen)) {
+          fnxN = authored[0] / authoredLen;
+          fnyN = authored[1] / authoredLen;
+          fnzN = authored[2] / authoredLen;
+        } else {
+          const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+          const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
+          const fnx = uy * vvz - uz * vvy;
+          const fny = uz * vvx - ux * vvz;
+          const fnz = ux * vvy - uy * vvx;
+          const fnLen = Math.hypot(fnx, fny, fnz) || 1;
+          fnxN = fnx / fnLen;
+          fnyN = fny / fnLen;
+          fnzN = fnz / fnLen;
+        }
       }
       // Object-space face normal (VOLUMETRIC-4.md "Phase 0"): same cross
       // product as the world normal above, but against the PRE-transform
@@ -1916,6 +2454,52 @@ function rasterizeSolid(
         }
       }
 
+      // Empty-coverage skip. `scanFillTriangle` clamps the triangle's screen
+      // bbox to whole cells (`ceil(min)` .. `floor(max)`) and returns
+      // immediately when that range is empty — no cell CENTRE can lie inside a
+      // triangle narrower than the gap between two integers. The test below is
+      // that same first test, byte-for-byte the same arithmetic on the same
+      // inputs, hoisted to the call site so the sub-cell triangles it rejects
+      // never pay the shading block, the shadow context, or the 60-argument
+      // call itself.
+      //
+      // This is not a micro-optimization on a rare case: it is the dominant
+      // case for any mesh finer than the glyph grid. Measured on `/maps` at
+      // 2560x1440 (283x105 cells, 212,373 triangles surviving the backface and
+      // off-grid culls), 145,935 of those — 68.7% — clamp to an empty box and
+      // paint nothing, and the mean number of cells scanned per surviving call
+      // is 0.61. A relief mesh is built at roughly one quad per cell at the
+      // sub-observer point, but a sphere's own foreshortening (both from
+      // latitude and from the limb) shrinks most of those quads well below a
+      // cell, so most of the fill budget was argument marshalling for calls
+      // that returned on their first branch.
+      //
+      // Restricted to `nanCount === 0`: a near-plane-straddling triangle is
+      // clipped below and its sub-triangles have their own, different screen
+      // coordinates, so this bbox does not bound what actually gets filled.
+      //
+      // It sits BELOW the shading block rather than above it, and that
+      // placement is load-bearing rather than incidental. `litCache` is keyed
+      // on the base colour plus the triangle's key intensity QUANTIZED to 8
+      // bits, but the colour it stores is computed from that triangle's own
+      // UNQUANTIZED intensity — so which triangle first populates a bucket
+      // decides the colour every later triangle in it receives. Skipping ahead
+      // of the shading block changes that arrival order, and a scene whose
+      // glyph grid was byte-for-byte unchanged still resolved different
+      // colours (measured: 0 of 29,715 glyph cells differing across all eight
+      // fidelity waypoints, yet six of the eight innerHTML digests moved).
+      // Below the block, every cache is populated exactly as before and only
+      // the shadow context, the texture context and the call itself are
+      // skipped.
+      if (nanCount === 0) {
+        const bMinX = Math.min(pa[0], pb[0], pc[0]);
+        const bMaxX = Math.max(pa[0], pb[0], pc[0]);
+        if (Math.max(0, Math.ceil(bMinX)) > Math.min(cols - 1, Math.floor(bMaxX))) continue;
+        const bMinY = Math.min(pa[1], pb[1], pc[1]);
+        const bMaxY = Math.max(pa[1], pb[1], pc[1]);
+        if (Math.max(0, Math.ceil(bMinY)) > Math.min(rows - 1, Math.floor(bMaxY))) continue;
+      }
+
       const receiveShadow = receiveShadowFlags[polyIdx] ?? false;
       // Per-mesh depth bias (z-fight resolution): scale the screen-linear depth so
       // a biased mesh wins coincident/coplanar cells. Larger zbuf = nearer.
@@ -1941,6 +2525,7 @@ function rasterizeSolid(
           tintR: ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255,
           tintG: ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255,
           tintB: ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255,
+          wrapS: wrapCode(poly.textureWrap?.s), wrapT: wrapCode(poly.textureWrap?.t),
         };
       }
 
@@ -2047,6 +2632,25 @@ function rasterizeSolid(
                   uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
                 }
               : null;
+            // Same for the BITMAP sampler: the clip already interpolated this
+            // sub-triangle's UVs into `cuv`, so a textured face keeps being
+            // sampled per cell across the crossing. Without it the road you are
+            // standing on — the one quad guaranteed to straddle the eye under a
+            // street-level perspective camera — fell back to its flat colour and
+            // painted the bottom of the frame as a single tone. The tint is a
+            // per-TRIANGLE light multiplier and clipping does not move the face,
+            // so it carries over from `texCtx` unchanged, exactly as `litColor`
+            // does on this same path.
+            const clippedTexCtx: ScanFillTexCtx | null = texCtx !== null && cuv
+              ? {
+                  sampler: texCtx.sampler,
+                  ua: cuv[0]![0], va: cuv[0]![1],
+                  ub: cuv[f]![0], vb: cuv[f]![1],
+                  uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
+                  tintR: texCtx.tintR, tintG: texCtx.tintG, tintB: texCtx.tintB,
+                  wrapS: texCtx.wrapS, wrapT: texCtx.wrapT,
+                }
+              : null;
             scanFillTriangle(
               qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, qa[3] ?? 1, ci[0]!,
               qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, qb[3] ?? 1, ci[f]!,
@@ -2062,10 +2666,7 @@ function rasterizeSolid(
               onxN, onyN, onzN, objectNormalBuf,
               clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
-              // Near-plane-clipped sub-triangles do not yet rebuild the bitmap
-              // texture sampling context; fall back to flat color for that rare
-              // eye-straddling case. Surface-effect UVs remain available above.
-              null,
+              clippedTexCtx,
               polyIdx,
               winnerPolygonBuf,
               albedoRgbBuf,
@@ -2086,6 +2687,14 @@ function rasterizeSolid(
   // so it works for plain text AND colored spans; clearing depth lets the
   // supersample downsample skip the blanked subcells.
   const occ = scene.occlusion;
+  // Which cells belong to ANOTHER layer — the one fact `glyphBuf`/`depthBuf`
+  // cannot carry, since a blanked cell and an empty one are the same `" "` at
+  // `-Infinity`. See `CellGrid.occluded`. Allocated only when a shared id-map
+  // exists AND something will actually read it, so a scene with no detail
+  // layer, and one with no `transformCells` hook, both pay nothing — including
+  // the loop's own `myDepth === -Infinity` fast path, which stays exactly as
+  // it was whenever this buffer is absent.
+  let occludedBuf: Uint8Array | null = occ && scene.transformCells ? new Uint8Array(cols * rows) : null;
   if (occ) {
     const idm = occ.idMap, ocols = occ.cols, orows = occ.rows, myId = occ.layerId;
     // `foreignOnly` layers (transparent detail meshes under a foreign occluder)
@@ -2093,23 +2702,91 @@ function rasterizeSolid(
     // ignoring every local layer, exactly as `transparent` promises.
     const foreignOnly = occ.foreignOnly === true;
     const invSS = supersample > 1 ? 1 / supersample : 1;
+    // SAME-POINT OWNERSHIP (see `OcclusionMap.slopeCol`). Never applied to a
+    // `foreignOnly` layer: a foreign stamp carries no local depth to compare
+    // against, and the foreign scene is nearer by definition.
+    const odepth = !foreignOnly ? occ.depth ?? null : null;
+    const oSlopeC = odepth !== null ? occ.slopeCol ?? null : null;
+    const oSlopeR = odepth !== null ? occ.slopeRow ?? null : null;
+    const refine = odepth !== null && oSlopeC !== null && oSlopeR !== null;
+    // The map is a separable affine, so resolve each axis ONCE instead of per
+    // cell (`-1` = this output row/column falls outside the map entirely).
+    // `dColOf`/`dRowOf` are the SIGNED offset, in id-map cells, from where the
+    // map's depth was sampled (its cell's own integer point) to where this
+    // output cell sits — the distance the owner's slope is walked over.
+    // The affine maps this pass's cell to the map coordinate of its own
+    // SAMPLE POINT plus half of one of ITS cells (`stepC`/`stepR` map cells
+    // per output cell) — that half is what makes `floor` pick the containing
+    // map cell. Subtracting it back recovers the sample point itself, and the
+    // map cell's own sample point is its integer index, so the difference is
+    // exactly how far the owner's plane has to be walked. For the base grid
+    // `step` is 1 and the offset is identically zero, which is why the base
+    // pass compares a cell against its own depth exactly as before.
+    const stepC = occ.colScale * invSS, stepR = occ.rowScale * invSS;
+    const refColOf = new Int32Array(cols);
+    const dColOf = refine ? new Float64Array(cols) : null;
+    for (let c = 0; c < cols; c++) {
+      const f = occ.colScale * (c * invSS) + occ.colOffset;
+      const v = Math.floor(f);
+      refColOf[c] = v >= 0 && v < ocols ? v : -1;
+      if (dColOf) dColOf[c] = f - 0.5 * stepC - v;
+    }
+    const refRowOf = new Int32Array(rows);
+    const dRowOf = refine ? new Float64Array(rows) : null;
     for (let r = 0; r < rows; r++) {
-      const refRow = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
-      if (refRow < 0 || refRow >= orows) continue;
+      const f = occ.rowScale * (r * invSS) + occ.rowOffset;
+      const v = Math.floor(f);
+      refRowOf[r] = v >= 0 && v < orows ? v : -1;
+      if (dRowOf) dRowOf[r] = f - 0.5 * stepR - v;
+    }
+    for (let r = 0; r < rows; r++) {
+      const refRow = refRowOf[r]!;
+      if (refRow < 0) continue;
       const refRowBase = refRow * ocols;
       const rowBase = r * cols;
+      const dRow = dRowOf !== null ? dRowOf[r]! : 0;
       for (let c = 0; c < cols; c++) {
         const idx = rowBase + c;
-        if (depthBuf[idx] === -Infinity) continue;
-        const refCol = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
-        if (refCol < 0 || refCol >= ocols) continue;
-        const owner = idm[refRowBase + refCol]!;
+        const myDepth = depthBuf[idx]!;
+        // Nothing of this pass's own here, so there is nothing to blank — but
+        // the cell may still BELONG to another layer, and `occluded` is an
+        // ownership answer rather than an "was erased" one (a base grid whose
+        // meshes all separated has no depth anywhere, and every cell a detail
+        // layer covers is still that layer's). Without the buffer this is the
+        // original fast path, unchanged.
+        if (myDepth === -Infinity && occludedBuf === null) continue;
+        const refCol = refColOf[c]!;
+        if (refCol < 0) continue;
+        const ref = refRowBase + refCol;
+        const owner = idm[ref]!;
         // A different layer is nearest here → this cell is occluded. Owner === myId
         // (or empty) → keep; a layer never occludes itself. `foreignOnly` layers
         // blank solely under the foreign occluder's stamp.
         if (foreignOnly ? owner === GLYPH_FOREIGN_OCCLUDER_ID : (owner !== -1 && owner !== myId)) {
+          // Owned by another layer with nothing of ours to erase: record the
+          // ownership and stop. There is no local depth to refine against, and
+          // every buffer is already at its empty value.
+          if (myDepth === -Infinity) { occludedBuf![idx] = 1; continue; }
+          // The foreign stamp (`setForeignOcclusion`) overwrites the id-map's
+          // owner but NOT its depth — the retained depth there still belongs
+          // to whatever local surface won the cell — and a scene stacked above
+          // this one is nearer by definition. Refining against it would
+          // compare a layer to itself and never blank.
+          // Compare the two surfaces AT THIS CELL'S OWN POINT: walk the
+          // owner's retained plane from where the map sampled it to where
+          // this cell sits, then test against this cell's own depth. Exact
+          // inside one triangle, so a `density` change moves the point the
+          // question is asked at without moving the answer.
+          if (refine && owner !== GLYPH_FOREIGN_OCCLUDER_ID) {
+            const sc = oSlopeC![ref]!, sr = oSlopeR![ref]!;
+            const here = odepth![ref]! + sc * dColOf![c]! + sr * dRow;
+            const tol = ((here < 0 ? -here : here) + (myDepth < 0 ? -myDepth : myDepth)
+              + (sc < 0 ? -sc : sc) + (sr < 0 ? -sr : sr)) * OCCLUSION_COINCIDENT_REL;
+            if (!(here > myDepth + tol)) continue;
+          }
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
+          if (occludedBuf) occludedBuf[idx] = 1;
           if (shadeBuf) shadeBuf[idx] = NaN;
           if (colorBuf) colorBuf[idx] = null;
           if (worldPosBuf) {
@@ -2264,6 +2941,28 @@ function rasterizeSolid(
     // being a no-op alongside `temporalBlend` reprojection.
     finalWeight = null;
   }
+  // `occluded` at OUTPUT resolution (see `CellGrid.occluded`). Under
+  // supersampling a cell is only foreign-owned when NONE of its own subcells
+  // survived (`finalDepth === -Infinity`) and at least one of them was
+  // blanked: a cell that kept any of its own surface still has real content
+  // of its own for the hook to test against, and must not be treated as
+  // belonging to another layer over a partially covered edge.
+  if (occludedBuf && supersample > 1) {
+    const ds = new Uint8Array(outCols * outRows);
+    for (let r = 0; r < outRows; r++) {
+      for (let c = 0; c < outCols; c++) {
+        const o = r * outCols + c;
+        if (finalDepth[o] !== -Infinity) continue;
+        let any = 0;
+        for (let sy = 0; sy < supersample && !any; sy++) {
+          const base = (r * supersample + sy) * cols + c * supersample;
+          for (let sx = 0; sx < supersample; sx++) if (occludedBuf[base + sx]) { any = 1; break; }
+        }
+        ds[o] = any;
+      }
+    }
+    occludedBuf = ds;
+  }
   // Post-rasterize cell hook (M4 composition effects). No-op + byte-identical
   // when scene.transformCells is absent (block skipped entirely). Output-res
   // depth/surface fields share one representative winner after downsampling.
@@ -2281,6 +2980,7 @@ function rasterizeSolid(
       finalExitPos,
       finalWinnerMesh,
       finalObjectNormal,
+      occludedBuf,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -2873,6 +3573,41 @@ const BAYER_4X4 = new Float64Array([
 
 const SHADOW_MAP_SIZE = 256;
 
+/**
+ * The acne guard, in SHADOW-MAP TEXELS of the receiver's own light-space depth
+ * slope. Added to `shadow.lift` (which stays an absolute world length the
+ * caller owns) on every receiver comparison.
+ *
+ * WHY IT IS SLOPE-SCALED AND NOT A CONSTANT. Self-shadow acne here is not a
+ * depth-precision artefact — the buffer is `Float64Array` — it is a POSITION
+ * quantization artefact, and its size is derivable exactly. The map stores one
+ * depth per texel, sampled at the texel's integer point; a receiver reads it at
+ * `tu = lu | 0`, i.e. the texel BELOW-LEFT of where it actually is. So a
+ * surface is compared against its own depth taken up to one full texel away in
+ * each light-space axis, and the resulting error is `|dd/du| + |dd/dv|` — the
+ * two per-texel components of the surface's own depth gradient. One texel of
+ * each is the exact bound, so `1` is the smallest guard that provably closes
+ * the case and everything above it is headroom; `floor` (not round) makes the
+ * offset SYSTEMATIC rather than symmetric, which is why an unguarded surface
+ * that both casts and receives does not speckle but goes almost uniformly dark.
+ *
+ * WHY A WORLD-UNIT CONSTANT CANNOT DO THIS JOB. `shadow.lift`'s `0.05` is an
+ * absolute length, and the quantity it has to cover scales with the fitted
+ * volume: the same scene is 5% of a room and 318 km of a unit-radius globe.
+ * `@glyphcss/maps` measured both ends — a city block spans ~1e-5 world units
+ * there, four orders of magnitude from a room — so no single number is right
+ * for both and the guard has to be expressed in the map's OWN texels. The
+ * gradient is computed per receiver triangle from the same light-space triple
+ * the sampling uses, so it costs three subtractions and no extra state.
+ *
+ * The price of the guard is peter-panning: a caster standing less than one
+ * texel-gradient above its receiver loses its shadow. That bound is the shadow
+ * map's own resolution talking — a shadow shorter than a texel is not
+ * representable at all — so the guard makes an existing limit explicit rather
+ * than adding one.
+ */
+const SHADOW_SLOPE_BIAS_TEXELS = 1.25;
+
 interface ShadowMapData {
   buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
   right: [number, number, number];
@@ -2889,6 +3624,8 @@ interface ScanFillShadowCtx {
   luB: number; lvB: number; ldB: number;
   luC: number; lvC: number; ldC: number;
   lift: number;
+  /** Slope-scaled acne guard in light-space depth units — see {@link SHADOW_SLOPE_BIAS_TEXELS}. */
+  slopeBias: number;
   opacity: number;
   ambientIntensity: number;
   shadowColorRgb: [number, number, number];
@@ -2905,6 +3642,8 @@ interface ScanFillTexCtx {
   ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
   // Per-triangle light multiplier (ambient + key·lambert) applied to each texel.
   tintR: number; tintG: number; tintB: number;
+  /** {@link wrapCode}s for u and v — see {@link wrapUvCoord}. */
+  wrapS: number; wrapT: number;
 }
 
 /** Authored face UVs retained for a post-rasterize surface-space cell effect. */
@@ -2985,8 +3724,8 @@ function scanFillShadowTriangle(
  * lightDepth (+ bias lift) is less than the stored maximum caster depth at that texel.
  */
 function buildShadowMap(
-  polygons: Polygon[],
-  castFlags: boolean[],
+  polygons: readonly Polygon[],
+  castFlags: readonly boolean[],
   lx: number, ly: number, lz: number,  // normalized source vector toward light
 ): ShadowMapData | null {
   // Build an orthonormal basis for the light view.
@@ -3021,9 +3760,25 @@ function buildShadowMap(
   }
   if (!hasCasters) return null;
 
-  // Pad the bounds slightly to avoid edge clipping.
-  const uPad = (uMax - uMin) * 0.05 + 0.01;
-  const vPad = (vMax - vMin) * 0.05 + 0.01;
+  // Pad the bounds slightly to avoid edge clipping. RELATIVE to the caster
+  // set's own extent, never a fixed world length: this volume is divided into
+  // SHADOW_MAP_SIZE texels, so an absolute term silently sets a smallest
+  // scene the shadow map can resolve at all. The `+ 0.01` this replaced was a
+  // room-scale assumption — `@glyphcss/maps` works on a unit-radius globe
+  // where a city block spans ~1e-5 world units, so that term made the padded
+  // volume 500x the casters and left every building a sub-texel speck: not
+  // one shadow was drawn anywhere on the map.
+  //
+  // The additive term exists only for a DEGENERATE axis — a caster set that
+  // is flat in one light-space direction (a single wall seen edge-on from the
+  // light) has zero span there, which the 5% pad cannot open and `toLightUV`
+  // would divide by. That case borrows the other axis's span, and only a set
+  // collapsed to one point falls back to an absolute epsilon.
+  const uSpan = uMax - uMin;
+  const vSpan = vMax - vMin;
+  const spanFallback = Math.max(uSpan, vSpan) || 1e-9;
+  const uPad = (uSpan || spanFallback) * 0.05;
+  const vPad = (vSpan || spanFallback) * 0.05;
   uMin -= uPad; uMax += uPad; vMin -= vPad; vMax += vPad;
 
   const buf = new Float64Array(SHADOW_MAP_SIZE * SHADOW_MAP_SIZE).fill(-Infinity);
@@ -3175,7 +3930,9 @@ function scanFillTriangle(
         const tv = perspectiveAttributes
           ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * tq
           : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
-        cellTexel = sampleTexel(tex.sampler, tu, tv);
+        cellTexel = sampleTexel(
+          tex.sampler, wrapUvCoord(tu, tex.wrapS), wrapUvCoord(tv, tex.wrapT),
+        );
         if (cellTexel === null || cellTexel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
@@ -3315,9 +4072,11 @@ function scanFillTriangle(
             const mapDepth = sh.map.buf[tv * SHADOW_MAP_SIZE + tu]!;
             // Surface is in shadow when the closest caster depth at this texel
             // is greater than the surface's projected lightDepth (+ bias lift).
-            // The lift nudges the surface slightly toward the light to prevent
-            // self-acne on flat lit surfaces.
-            if (mapDepth > -Infinity && ld + sh.lift < mapDepth) {
+            // Two terms nudge the surface toward the light: the caller's
+            // absolute `lift`, and the derived slope-scaled acne guard
+            // (`SHADOW_SLOPE_BIAS_TEXELS`) that makes a surface which both
+            // casts and receives safe at ANY world scale.
+            if (mapDepth > -Infinity && ld + sh.lift + sh.slopeBias < mapDepth) {
               // Shadows attenuate only direct/key light. Ambient is independent
               // scene fill, so with key intensity 0 the shadow map must be a no-op.
               const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));

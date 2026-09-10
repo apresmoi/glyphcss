@@ -265,6 +265,10 @@ function bake(
     cellToSceneGrid: [1, 0, 0, 1, 0, 0],
     sceneGridSize: [options.cols, options.rows],
     localCellFootprint: [1, 1],
+    // What a `transformCells` hook would be told about this grid. A static
+    // export has exactly one output and never runs such a hook, so this is
+    // only ever the base grid's own identity tag.
+    transformCellsLayer: { detail: false, cellToSceneGrid: [1, 0, 0, 1, 0, 0] },
     ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
   };
 

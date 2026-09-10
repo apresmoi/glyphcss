@@ -113,7 +113,7 @@ function fromRuntimeZoom(runtimeZoom: number): number {
   return runtimeZoom / GALLERY_ZOOM_COMPAT;
 }
 
-function dragDensityToDownscale(dragDensity: number): number {
+export function dragDensityToDownscale(dragDensity: number): number {
   if (!Number.isFinite(dragDensity)) return 2;
   return 1 / Math.min(Math.max(dragDensity, 0.1), 1);
 }

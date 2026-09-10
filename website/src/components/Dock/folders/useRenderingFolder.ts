@@ -21,6 +21,22 @@ export interface RenderingFolderInputs {
   featureEdges: number;
   glyphPalette: SceneOptionsState["glyphPalette"];
   charMode: SceneOptionsState["charMode"];
+  /** Real reason the currently selected `charMode` isn't doing anything
+   *  right now (`null`/omitted when it is) — see `/maps`'s
+   *  `../../../lib/glyphMapCharModeAvailability.ts`. Optional: a caller that
+   *  doesn't pass it (gallery, synth, wordart) keeps the pre-existing
+   *  render-mode-only gating below unchanged. */
+  charModeReason?: string | null;
+  /** The "Character mode" dropdown's own option list. Defaults to every
+   *  charMode the library supports (`CHAR_MODE_OPTIONS` below) — every
+   *  existing caller (gallery, synth, wordart) keeps that full list. `/maps`
+   *  passes a trimmed list with Braille removed: with Terrain pinned to
+   *  `solid` and no scene-wide render mode, Braille (wireframe-only — it
+   *  encodes binary sub-cell coverage and can't carry solid mode's shading
+   *  ramp) can never do anything on that page, so it's dropped from the
+   *  picker entirely rather than shown disabled (`charModeReason` already
+   *  covers the OTHER, live-condition no-ops). */
+  charModeOptions?: Record<string, SceneOptionsState["charMode"]>;
   wireframeJunctions: boolean;
   hiddenLines: SceneOptionsState["hiddenLines"];
   solidWeightRamp: boolean;
@@ -33,6 +49,51 @@ export interface RenderingFolderInputs {
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
+  /** Show the "Density ×" row. Default `true` — every existing caller
+   *  (gallery, this folder's own tests) keeps a scene-wide density slider.
+   *  `MapsWorkbench` passes `false`: maps expose density per-layer instead
+   *  (the left-rail Terrain/Borders/Contour cards), so a second, scene-wide
+   *  "Density" control in the right Dock would be a confusing duplicate of
+   *  a concept that page already surfaces elsewhere. "Drag density" stays
+   *  visible regardless — it governs interaction PERFORMANCE (how coarse
+   *  the render gets while actively dragging), a concern that exists
+   *  independent of any per-layer resolution. */
+  showDensity?: boolean;
+  /**
+   * Show the "Render mode" row. Default `true` — every existing caller
+   *  (gallery, this folder's own tests) keeps a scene-wide render-mode
+   *  dropdown. `MapsWorkbench` passes `false`: a map is not one picture in
+   *  one mode — terrain is `solid` while a border or contour overlay is
+   *  `ink` — so mode belongs to the LAYER (the left-rail cards' own "mode"
+   *  row, wired to `@glyphcss/maps`' `GlyphMapLayer.renderMode`), and a
+   *  scene-wide dropdown in this Dock could only fight it.
+   */
+  showRenderMode?: boolean;
+  /**
+   * Show the "Glyph palette" row. Default `true` — every existing caller
+   *  (gallery, this folder's own tests) keeps a scene-wide glyph-palette
+   *  dropdown. `MapsWorkbench` passes `false`: a map is not one picture in
+   *  one character ramp — the ramp belongs to the LAYER
+   *  (`GlyphMapLayer.glyphPalette` in `@glyphcss/maps`), and a scene-wide
+   *  dropdown here could only fight it.
+   */
+  showGlyphPalette?: boolean;
+  /**
+   * Show the "Feature edges °" row. Default `true`. `MapsWorkbench` passes
+   *  `false`: `featureEdges` is a mesh-BUILD-time wireframe threshold for
+   *  re-deriving edges from raw triangle soup (`trianglesToFeatureEdges`,
+   *  packages/core), and `glyphMapPolygons` already emits well-defined
+   *  quads — the control had nothing to apply to there and was never
+   *  forwarded to the map's scene at all.
+   */
+  showFeatureEdges?: boolean;
+  /**
+   * Show the "Crease angle °" row. Default `true`. `MapsWorkbench` passes
+   *  `false`: it is the threshold `smoothShading` uses, and a relief mesh
+   *  has no authored hard creases to protect, so the map keeps the library
+   *  default (60°) and exposes only the on/off toggle.
+   */
+  showCreaseAngle?: boolean;
   onRenderModeChange: (mode: GalleryRenderPresentation) => void;
   onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "solidWeightRamp" | "colorEncoding" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
@@ -76,7 +137,7 @@ const COLOR_ENCODING_OPTIONS: Record<string, SceneOptionsState["colorEncoding"]>
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
-  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, colorEncoding, atlasReason, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
+  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, charModeReason = null, charModeOptions = CHAR_MODE_OPTIONS, wireframeJunctions, hiddenLines, solidWeightRamp, colorEncoding, atlasReason, density, dragDensity, showDensity = true, showRenderMode = true, showGlyphPalette = true, showFeatureEdges = true, showCreaseAngle = true, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
@@ -97,16 +158,25 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     select.addEventListener("keydown", onKeyDown);
     return () => select.removeEventListener("keydown", onKeyDown);
   }, [onRenderModeChange, renderModeControl, semanticAvailable]);
-  useSlider(folder, "Feature edges °", { min: 0, max: 90, step: 1 }, featureEdges, (value) =>
+  useEffect(() => {
+    renderModeControl?.setVisible(showRenderMode);
+  }, [renderModeControl, showRenderMode]);
+  const featureEdgesControl = useSlider(folder, "Feature edges °", { min: 0, max: 90, step: 1 }, featureEdges, (value) =>
     onUpdateScene({ featureEdges: value }),
   );
-  useOption<GlyphPaletteId>(folder, "Glyph palette", GLYPH_PALETTE_OPTIONS, glyphPalette as GlyphPaletteId, (value) =>
+  useEffect(() => {
+    featureEdgesControl?.setVisible(showFeatureEdges);
+  }, [featureEdgesControl, showFeatureEdges]);
+  const glyphPaletteControl = useOption<GlyphPaletteId>(folder, "Glyph palette", GLYPH_PALETTE_OPTIONS, glyphPalette as GlyphPaletteId, (value) =>
     onUpdateScene({ glyphPalette: value }),
   );
+  useEffect(() => {
+    glyphPaletteControl?.setVisible(showGlyphPalette);
+  }, [glyphPaletteControl, showGlyphPalette]);
   const charModeControl = useOption<SceneOptionsState["charMode"]>(
     folder,
     "Character mode",
-    CHAR_MODE_OPTIONS,
+    charModeOptions,
     charMode,
     (value) => onUpdateScene({ charMode: value }),
   );
@@ -117,8 +187,24 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     // presentation, so the control is enabled for wireframe OR solid and
     // dimmed otherwise — whichever option doesn't apply to the active render
     // mode is simply a documented no-op once selected (same as before).
-    charModeControl?.setEnabled(renderMode === "wireframe" || renderMode === "solid", { dim: true });
-  }, [charModeControl, renderMode]);
+    //
+    // `charModeReason` (optional — only `/maps` passes it, same
+    // `computeGlyph*Availability` -> `setEnabled`/`title` idiom
+    // `colorEncodingControl` below already uses for the atlas control) is a
+    // SECOND, independent reason the current selection can be a no-op even
+    // while the mode-level check above passes — e.g. `/maps` pins the scene
+    // to `solid` yet braille is still permanently unavailable there, or
+    // halfblock/quadrant stop applying the instant a stroke layer starts
+    // owning the scene's one `transformCells` hook. A caller that never
+    // passes it (gallery, synth, wordart) gets `null` here and this effect
+    // is byte-identical to before.
+    if (!charModeControl) return;
+    const modeApplies = renderMode === "wireframe" || renderMode === "solid";
+    charModeControl.setEnabled(modeApplies && charModeReason === null, { dim: true });
+    charModeControl.raw.$name.title = charModeReason !== null
+      ? `Character mode — "${charMode}" isn't doing anything right now: ${charModeReason}`
+      : "";
+  }, [charModeControl, renderMode, charMode, charModeReason]);
   const junctionsControl = useToggle(folder, "Box junctions (wireframe)", wireframeJunctions, (value) =>
     onUpdateScene({ wireframeJunctions: value }),
   );
@@ -178,14 +264,39 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   useToggle(folder, "Smooth shading", smoothShading, (value) =>
     onUpdateScene({ smoothShading: value }),
   );
-  useSlider(folder, "Crease angle °", { min: 0, max: 180, step: 1 }, creaseAngle, (value) =>
+  const creaseAngleControl = useSlider(folder, "Crease angle °", { min: 0, max: 180, step: 1 }, creaseAngle, (value) =>
     onUpdateScene({ creaseAngle: value }),
   );
-  useSlider(folder, "Density ×", { min: 0.5, max: 4, step: 0.1 }, density, (value) =>
+  useEffect(() => {
+    creaseAngleControl?.setVisible(showCreaseAngle);
+  }, [creaseAngleControl, showCreaseAngle]);
+  // Both sliders already read the SAME direction as each other — 1 is the
+  // baseline in both, higher is sharper — "Drag density" is just density's
+  // own value expressed as a fraction of it (`dragDensityToDownscale`,
+  // `../../GlyphScene/GlyphScene.tsx`) rather than an independent range:
+  // it structurally cannot exceed 1 (dragging can only match or coarsen the
+  // base density, never sharpen past it), which is why its slider tops out
+  // at 1 while Density's own goes to 4×. Unifying the two sliders' numeric
+  // range/step would change this exact control on every OTHER page that
+  // shares this folder (gallery) — instead the tooltips below spell out the
+  // relationship so the pair reads as coherent without touching that shared
+  // range.
+  const densityControl = useSlider(folder, "Density ×", { min: 0.5, max: 4, step: 0.1 }, density, (value) =>
     onUpdateScene({ density: value }),
   );
-  useSlider(folder, "Drag density ×", { min: 0.5, max: 1, step: 0.05 }, dragDensity, (value) =>
+  useEffect(() => {
+    if (!densityControl) return;
+    densityControl.raw.$name.title = "Density — the scene's base render resolution, as a multiplier of the default cell size. 1× is the default; higher is sharper (more cells, more render cost).";
+  }, [densityControl]);
+  useEffect(() => {
+    densityControl?.setVisible(showDensity);
+  }, [densityControl, showDensity]);
+  const dragDensityControl = useSlider(folder, "Drag density ×", { min: 0.5, max: 1, step: 0.05 }, dragDensity, (value) =>
     onUpdateScene({ dragDensity: value }),
   );
+  useEffect(() => {
+    if (!dragDensityControl) return;
+    dragDensityControl.raw.$name.title = "Drag density — resolution used WHILE actively dragging, as a fraction of Density. 1× keeps full Density during a drag (no reduction); lower renders coarser while dragging and restores full detail on release. Always ≤ Density — dragging can only match or coarsen the base resolution, never sharpen past it.";
+  }, [dragDensityControl]);
   return folder;
 }

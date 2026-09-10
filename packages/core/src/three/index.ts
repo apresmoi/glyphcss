@@ -346,14 +346,47 @@ export function transformPointToGlyph(point: Vector3, object: Object3D): Vec3 {
   return threeToGlyphPoint(object.localToWorld(point.clone()));
 }
 
+/**
+ * A DIRECTION in the object's local frame, in glyphcss's world frame: the
+ * object's rotation and the inverse transpose of its scale, then the Y-up →
+ * Z-up axis map — no translation, since a direction has no origin.
+ *
+ * `Polygon.shadingNormal` is the caller of this. A normal that is copied
+ * through verbatim lights the mesh as if neither the object's rotation nor
+ * the axis map had happened, and the axis map alone is a 90 degree turn, so
+ * "verbatim" is wrong even for an object at the identity transform.
+ */
+function transformNormalToGlyph(n: Vec3, object: Object3D): Vec3 | undefined {
+  const { x: sx, y: sy, z: sz } = object.scale;
+  const scaled = new Vector3(
+    sx !== 0 ? n[0] / sx : 0,
+    sy !== 0 ? n[1] / sy : 0,
+    sz !== 0 ? n[2] / sz : 0,
+  );
+  const world = rotateByEuler(scaled, object.rotation);
+  const len = Math.hypot(world.x, world.y, world.z);
+  if (!(len > 0) || !isFinite(len)) return undefined;
+  return threeToGlyphDirection(world.multiplyScalar(1 / len));
+}
+
 export function transformPolygonsToGlyph(polygons: Polygon[], object: Object3D): Polygon[] {
-  return polygons.map((polygon) => ({
-    ...polygon,
-    vertices: polygon.vertices.map((v) => {
-      const point = new Vector3(v[0], v[1], v[2]);
-      return transformPointToGlyph(point, object);
-    }),
-  }));
+  return polygons.map((polygon) => {
+    const out: Polygon = {
+      ...polygon,
+      vertices: polygon.vertices.map((v) => {
+        const point = new Vector3(v[0], v[1], v[2]);
+        return transformPointToGlyph(point, object);
+      }),
+    };
+    if (polygon.shadingNormal !== undefined) {
+      const n = transformNormalToGlyph(polygon.shadingNormal, object);
+      // A degenerate result leaves the field off, which is the documented
+      // fallback to the geometric normal rather than a special case.
+      if (n === undefined) delete out.shadingNormal;
+      else out.shadingNormal = n;
+    }
+    return out;
+  });
 }
 
 function rotateByEuler(v: Vector3, euler: Euler): Vector3 {

@@ -1,0 +1,295 @@
+---
+title: OpenStreetMap
+description: Stream the OSM planet as ASCII through OpenFreeMap — roads, water, boundaries, places and 3D buildings, with no API key.
+---
+
+`@glyphcss/maps` reads OpenStreetMap two ways. **OpenFreeMap is the shipped
+path**: a public, no-key vector tile service the widget sweeps live, so you get
+the planet on demand. PMTiles is the other, for a self-hosted archive or a small
+vendored extract.
+
+Both carry ODbL data. [Attribution is not optional](#attribution).
+
+## OpenFreeMap
+
+```ts
+import {
+  createGlyphMap,
+  glyphMapEquirectangular,
+  glyphMapOpenFreeMapProvider,
+  glyphMapOpenMapTilesLayers,
+} from "@glyphcss/maps";
+
+const map = createGlyphMap(host, {
+  view: { center: [8.54, 47.375], span: 0.06, cols: 140, rows: 63 },  // Zurich
+  projection: glyphMapEquirectangular({ exaggeration: 24 }),
+  layers: [{ type: "background", color: "#05070c" }],
+  tilt: 55,
+});
+
+const osm = glyphMapOpenFreeMapProvider();
+
+for (const layer of glyphMapOpenMapTilesLayers(osm, {
+  include: ["omt-water", "omt-roads", "omt-buildings", "omt-places"],
+})) {
+  map.addLayer(layer);
+}
+```
+
+That is the whole setup. No API key, no registration, no account.
+
+### The provider
+
+`glyphMapOpenFreeMapProvider(opts?)` mounts
+`https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf` as a real
+`GlyphMapVectorProvider`, so the widget's own tile sweep streams it.
+
+| Option | Default |
+|---|---|
+| `id` | `"openfreemap"` |
+| `tileUrl` | `GLYPH_MAP_OPENFREEMAP_TILE_URL` |
+| `layers` | every source layer the tile carries |
+| `minZoom` | `0` (`GLYPH_MAP_OPENFREEMAP_MIN_ZOOM`) |
+| `maxZoom` | `14` (`GLYPH_MAP_OPENFREEMAP_MAX_ZOOM`) |
+| `tileResolution` | `256` |
+| `attribution` | `GLYPH_MAP_OPENFREEMAP_ATTRIBUTION` |
+| `fetchTile` | real `fetch` |
+| `onError` | none |
+
+**A tile that 404s, times out, or does not decode resolves empty — it never
+rejects.** One rejection would take down the whole frame's `Promise.all`, so a
+missing tile is a blank tile and nothing more. Pass `onError` to hear about it:
+
+```ts
+const osm = glyphMapOpenFreeMapProvider({
+  onError: (error, { z, x, y }) => console.warn("tile", z, x, y, error),
+});
+```
+
+### Why Web Mercator works here
+
+Every pyramid this package bakes is addressed on an **equal-angle** quadtree.
+OpenFreeMap, like every slippy-map service, is **Web Mercator**. At z12 the
+Zurich tile sits at Mercator `y = 1434` and equal-angle `y = 1025` — a sweep on
+the wrong grid requests tiles that do not exist and misses the ones that do.
+
+The fix is a provider **capability**, exactly as projections do it: a provider
+may declare `tileRange`, and `createGlyphMap` keys on that field's presence,
+never on a provider id.
+
+```ts
+import { glyphMapMercatorTileRange, glyphMapMercatorZooms } from "@glyphcss/maps";
+
+const provider = {
+  id: "my-mvt",
+  zooms: glyphMapMercatorZooms(0, 14),     // tileResolution defaults to 256
+  tileRange: glyphMapMercatorTileRange,    // ← the opt-in
+  bounds: mercatorBounds,
+  loadTile: myLoader,
+};
+```
+
+A provider that declares nothing keeps this package's equal-angle indexer and is
+byte-identical.
+
+`tileResolution` is `256` because that is the pixel size the tiles were
+generalized *for*. The MVT extent of 4096 is coordinate precision, not detail —
+feeding it to the LOD picker makes z0 look like it already resolves street
+detail, and the ladder never deepens. `GLYPH_MAP_MERCATOR_MAX_LAT`
+(85.0511287798066) is Web Mercator's own latitude limit; above it the strategy
+returns an empty range rather than clamping.
+
+Volume falls out of that: one tile at a world view, at most a couple of dozen at
+a country or city view, and it caps at the pyramid's own max zoom rather than
+requesting z18.
+
+## The OpenMapTiles schema
+
+The service's source layers are **not** map layers. `transportation` holds
+motorways, footpaths and railways together, `water` holds lakes as polygons while
+`waterway` holds rivers as lines, `boundary` carries a numeric `admin_level`
+rather than a kind. So the mapping is
+`(source layer, class, geometry) → glyph layer type`, and this package ships it
+as a table.
+
+```ts
+import { GLYPH_MAP_OPENMAPTILES_LAYERS, glyphMapOpenMapTilesLayers } from "@glyphcss/maps";
+```
+
+| Spec id | Layer type | Source layer | Notes |
+|---|---|---|---|
+| `omt-landcover` | `fill` | `landcover` | coloured by `class` |
+| `omt-landuse` | `fill` | `landuse` | coloured by `class` |
+| `omt-water` | `fill` | `water` | ocean flat, lakes draped |
+| `omt-waterways` | `line` | `waterway` | excludes tunnels |
+| `omt-roads` | `line` | `transportation` | excludes tunnels, driveways, parking aisles, indoor |
+| `omt-buildings` | `fill-extrusion` | `building` | `render_height` / `render_min_height`, facades on |
+| `omt-boundaries` | `line` | `boundary` | international only (`admin_level ≤ 2`), no maritime or disputed |
+| `omt-places` | `symbol` | `place` | labelled by `name`, priority `rank` |
+| `omt-peaks` | `symbol` | `mountain_peak` | label is `name` + elevation |
+| `omt-pois` | `circle` | `poi` | `rank ≤ 20` |
+| `omt-parks` | `symbol` | `park` | requires a `name` |
+| `omt-aeroways` | `line` | `aeroway` | |
+| `omt-water-labels` | `symbol` | `water_name` | points **and** lines |
+
+**Every name in that table was read out of the live service's own TileJSON and
+tiles**, vendored under `packages/maps/fixtures/openfreemap/`, not out of the
+published schema documentation.
+
+`glyphMapOpenMapTilesLayers(source, opts?)` builds ready-to-mount layers:
+
+| Option | Meaning |
+|---|---|
+| `include` | Spec ids to build, **in that order**. Default: all of them |
+| `classes` | Per source layer, narrow to these `class` values |
+| `colors` | Per spec id, replace the colour (this *replaces* a class→colour table, it does not layer over it) |
+| `densities` | Per spec id, a `density` |
+| `textAnchors` | Per `symbol` spec id, a `textAnchor` |
+
+Every spec is always built, even where the current view has no data for it —
+"does this layer have data" is a property of the view, not of a live provider.
+
+Three helpers read the schema's own discriminators, so you can write a `filter`
+without hardcoding property names:
+
+```ts
+import {
+  glyphMapOpenMapTilesClass,
+  glyphMapOpenMapTilesAdminLevel,
+  glyphMapOpenMapTilesBrunnel,
+} from "@glyphcss/maps";
+
+map.addLayer({
+  type: "line",
+  source: osm,
+  sourceLayer: "transportation",
+  filter: (f) => glyphMapOpenMapTilesClass(f) === "motorway",
+});
+```
+
+### Sharing tile requests
+
+Each mounted layer runs its own sweep, so mounting ten rows off one provider
+costs ten requests for the same `0/0/0`. The library does not dedupe for you —
+wrap `fetchTile` if you mount several rows:
+
+```ts
+const inflight = new Map<string, Promise<ArrayBuffer>>();
+
+const osm = glyphMapOpenFreeMapProvider({
+  fetchTile: (url) => {
+    let p = inflight.get(url);
+    if (!p) {
+      p = fetch(url).then((r) => r.arrayBuffer()).finally(() => inflight.delete(url));
+      inflight.set(url, p);
+    }
+    return p;
+  },
+});
+```
+
+This is what the [maps workbench](/maps) does behind its OSM card.
+
+## PMTiles and the Protomaps basemap
+
+The other path is a **self-hosted or vendored archive**.
+
+```ts
+import {
+  glyphMapPMTilesProvider,
+  glyphMapPMTilesBufferSource,
+  glyphMapProtomapsExtract,
+  glyphMapProtomapsLayers,
+} from "@glyphcss/maps";
+
+const bytes = await (await fetch("/data/osm/zurich-z12.pmtiles")).arrayBuffer();
+const extract = await glyphMapProtomapsExtract(glyphMapPMTilesBufferSource(bytes));
+
+extract.bounds;       // the archive header's own bbox — outside it there is no data
+extract.kinds.roads;  // ["ferry", "highway", "major_road", "minor_road", "path", "rail"]
+
+for (const layer of glyphMapProtomapsLayers(extract, {
+  include: ["osm-roads", "osm-water", "osm-buildings"],
+  kinds: { roads: ["highway", "major_road"] },
+})) {
+  map.addLayer(layer);
+}
+```
+
+`glyphMapPMTilesProvider(urlOrSource, opts?)` is the raw archive reader —
+range-reads with `pmtiles`, decodes MVT with `@mapbox/vector-tile` and `pbf`,
+reports the header's own `extent`, and defaults `attribution` to
+`GLYPH_MAP_PROTOMAPS_ATTRIBUTION` and `tileResolution` to `4096` (a generic
+archive has no basemap-specific LOD assumption to make).
+
+`glyphMapProtomapsExtract` is the schema mapping on top: it reads the archive as
+an **extract** — one feature collection per source layer, decoded up front — not
+as a mounted provider. `maxTiles` (default `64`) throws rather than pulling an
+oversized archive into memory. An extract is a handful of tiles at one zoom, so
+there is no LOD ladder for a provider to select across.
+
+The Protomaps table is its own mapping, discriminated by `kind` (or `pmap:kind`
+on pre-v4 archives) rather than `class`:
+
+| Spec id | Layer type | Source layer |
+|---|---|---|
+| `osm-earth` | `fill` | `earth` |
+| `osm-landuse` | `fill` | `landuse` |
+| `osm-water` | `fill` | `water` (polygons) |
+| `osm-waterway` | `line` | `water` (lines) |
+| `osm-roads` | `line` | `roads` |
+| `osm-buildings` | `fill-extrusion` | `buildings` |
+| `osm-boundaries` | `line` | `boundaries` |
+| `osm-places` | `symbol` | `places` |
+| `osm-pois` | `circle` | `pois` |
+
+It is deliberately **not** a generalization of the OpenMapTiles table. The two
+schemas disagree on the discriminator, the layer names, the height property, and
+whether a landmass polygon exists at all — one table that covered both would be
+wrong about each.
+
+Generate a small extract without downloading the planet:
+
+```sh
+pmtiles extract https://build.protomaps.com/DATE.pmtiles region.pmtiles \
+  --bbox=WEST,SOUTH,EAST,NORTH --maxzoom=MAX_ZOOM
+```
+
+## Attribution
+
+OpenStreetMap data is **ODbL**, and anything derived from it must say so. This is
+a licence obligation, not a courtesy.
+
+Both providers carry their credit at the type level, so it rides into
+`map.getAttributions()` from the mounted layer itself:
+
+```ts
+import { GLYPH_MAP_OPENFREEMAP_ATTRIBUTION } from "@glyphcss/maps";
+
+// [
+//   { name: "OpenStreetMap contributors", url: ".../copyright", license: "ODbL" },
+//   { name: "OpenMapTiles",               url: "...",           license: "CC-BY 4.0" },
+//   { name: "OpenFreeMap",                url: "...",           license: "ODbL" },
+// ]
+```
+
+`GLYPH_MAP_PROTOMAPS_ATTRIBUTION` is the PMTiles equivalent (OpenStreetMap +
+Protomaps, both ODbL).
+
+Render it. The list is derived from the layers actually mounted and recomputed on
+every call, so it appears when you mount an OSM layer and withdraws when you
+remove it:
+
+```ts
+const credit = document.querySelector("#credit")!;
+function paintCredit() {
+  credit.innerHTML = map.getAttributions()
+    .map((a) => (a.url ? `<a href="${a.url}">${a.name}</a>` : a.name))
+    .join(" · ");
+}
+map.on("load", paintCredit);
+```
+
+OpenFreeMap's own line it calls optional but recommended; it ships anyway,
+because "optional" is not a reason to drop the credit of the people hosting the
+planet for free. The OpenStreetMap line is not optional at all.

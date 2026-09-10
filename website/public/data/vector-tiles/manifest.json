@@ -1,0 +1,73 @@
+{
+  "zooms": [
+    {
+      "z": 0,
+      "cols": 1,
+      "rows": 1,
+      "tileLonSpan": 360,
+      "tileLatSpan": 180,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 1,
+      "cols": 2,
+      "rows": 2,
+      "tileLonSpan": 180,
+      "tileLatSpan": 90,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 2,
+      "cols": 4,
+      "rows": 4,
+      "tileLonSpan": 90,
+      "tileLatSpan": 45,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 3,
+      "cols": 8,
+      "rows": 8,
+      "tileLonSpan": 45,
+      "tileLatSpan": 22.5,
+      "tileCols": 180,
+      "tileRows": 90
+    }
+  ],
+  "source": "natural-earth",
+  "simplify": "visvalingam-whyatt",
+  "attribution": [
+    {
+      "name": "Natural Earth",
+      "url": "https://www.naturalearthdata.com",
+      "license": "Public domain",
+      "date": "v5.1.1 (via world-atlas)"
+    }
+  ],
+  "curated": [
+    {
+      "name": "Switzerland",
+      "zoom": {
+        "z": 4,
+        "cols": 16,
+        "rows": 16,
+        "tileLonSpan": 22.5,
+        "tileLatSpan": 11.25,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": 5.9706597065970755,
+        "east": 10.456304563045649,
+        "south": 45.82938223100982,
+        "north": 47.7754421027023
+      },
+      "tiles": [
+        "8_3"
+      ]
+    }
+  ]
+}

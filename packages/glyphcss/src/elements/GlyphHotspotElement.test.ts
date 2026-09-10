@@ -131,4 +131,43 @@ describe("GlyphHotspotElement", () => {
     // No hotspot overlay should appear.
     expect(sceneEl.querySelectorAll(".glyph-hotspot").length).toBe(0);
   });
+
+  /**
+   * Mirrors the React and Vue wrappers' own "moving the anchor" case.
+   * `GlyphHotspotHandle.setAt` exists so a moving anchor does not destroy the
+   * overlay element — its doc: remove-and-re-add "destroys and re-creates the
+   * element, losing whatever the consumer wrote on it and restarting any CSS
+   * transition on it". Here the element's own children have been MOVED into
+   * that overlay, so a re-registration walks them out and back in on every
+   * anchor change.
+   */
+  it("moves a changed `at` in place, keeping the overlay element and its children", () => {
+    const child = document.createElement("span");
+    child.className = "tooltip";
+    hotspot.appendChild(child);
+    hotspot.setAttribute("hotspot-id", "hs-move");
+    hotspot.setAttribute("at", "0,0,0");
+    sceneEl.appendChild(hotspot);
+
+    const overlay = camEl.querySelector("[data-hotspot-id='hs-move']");
+    expect(overlay).toBeTruthy();
+    expect(overlay!.contains(child)).toBe(true);
+
+    hotspot.setAttribute("at", "0,5,0");
+    // The SAME overlay, still holding the SAME child node.
+    expect(camEl.querySelector("[data-hotspot-id='hs-move']")).toBe(overlay);
+    expect(overlay!.contains(child)).toBe(true);
+    expect(camEl.querySelectorAll("[data-hotspot-id='hs-move']").length).toBe(1);
+  });
+
+  it("still re-registers when the hotspot-id changes", () => {
+    hotspot.setAttribute("hotspot-id", "first");
+    hotspot.setAttribute("at", "0,0,0");
+    sceneEl.appendChild(hotspot);
+    expect(camEl.querySelector("[data-hotspot-id='first']")).toBeTruthy();
+
+    hotspot.setAttribute("hotspot-id", "second");
+    expect(camEl.querySelector("[data-hotspot-id='first']")).toBeFalsy();
+    expect(camEl.querySelector("[data-hotspot-id='second']")).toBeTruthy();
+  });
 });

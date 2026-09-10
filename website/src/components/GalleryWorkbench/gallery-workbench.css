@@ -1573,7 +1573,11 @@
     left: var(--overlay-left);
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Auto-flow rather than `repeat(4, …)`: /gallery and /synth have four
+       tabs and /maps has three, and a hardcoded four left a quarter of the
+       bar empty there. Exactly equivalent for four. */
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     gap: 6px;
     pointer-events: auto;
   }

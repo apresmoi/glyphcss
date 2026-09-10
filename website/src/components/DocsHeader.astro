@@ -12,9 +12,16 @@ const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
 const fetchLiveStars = import.meta.env.PROD;
 const isSynth = pathname.startsWith('/synth');
+const isMaps = pathname.startsWith('/maps');
 
 const topLinks = [
-  { href: '/', label: 'Home', active: pathname === '/' },
+  // `mobileHidden`: dropped from the nav row below 38rem. At 390px the seven
+  // links measure 434px against a 402px row, so the last one ("WordArt") is
+  // clipped and the reader has to discover that a nav bar scrolls. Home is
+  // the one link that is genuinely duplicated there — the `[ glyphcss ]`
+  // brand in the same header IS the home link — so dropping it costs the
+  // reader nothing and buys back more than the overflow.
+  { href: '/', label: 'Home', active: pathname === '/', mobileHidden: true },
   {
     href: '/quickstart',
     label: 'Usage',
@@ -22,6 +29,7 @@ const topLinks = [
   },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
   { href: '/synth', label: 'Synth', active: pathname.startsWith('/synth') },
+  { href: '/maps', label: 'Maps', active: pathname.startsWith('/maps') },
   { href: '/examples/world', label: 'Examples', active: pathname.startsWith('/examples') },
   { href: '/wordart', label: 'WordArt', active: pathname.startsWith('/wordart') },
 ];
@@ -31,14 +39,14 @@ const topLinks = [
   <div class="title-wrapper sl-flex">
     <SiteTitle />
   </div>
-  {!isLanding && !isGallery && !isSynth && (
+  {!isLanding && !isGallery && !isSynth && !isMaps && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
   )}
   <nav class="docs-top-nav print:hidden" aria-label="Site sections">
     {topLinks.map((link) => (
-      <a href={link.href} class:list={[{ active: link.active }]}>
+      <a href={link.href} class:list={[{ active: link.active, 'mobile-hidden': link.mobileHidden }]}>
         <span class="nav-label">
           <span class="nav-label__short">{link.labelShort ?? link.label}</span>
           {link.labelLong && <span class="nav-label__long">{link.labelLong}</span>}
@@ -296,6 +304,11 @@ const topLinks = [
          fit without a scrollbar. The active item keeps its "[ … ]" brackets. */
       .docs-top-nav a::before {
         content: "";
+      }
+
+      /* See `topLinks`' own comment: the brand above already goes home. */
+      .docs-top-nav a.mobile-hidden {
+        display: none;
       }
 
       .docs-top-nav .nav-label__long {

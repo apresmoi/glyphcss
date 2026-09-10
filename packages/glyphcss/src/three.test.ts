@@ -64,3 +64,53 @@ describe("glyphcss/three", () => {
     expect(filled).toBeGreaterThan(10);
   });
 });
+
+/**
+ * `Polygon.shadingNormal` is a DIRECTION in the polygon's own frame, so the
+ * Three adapter owes it the same two things it owes a vertex: the object's
+ * own rotation/scale, and the Y-up → Z-up axis map. Copied through verbatim
+ * it stays in the authoring frame and lights the mesh as if neither had
+ * happened — and because the axis map is a rotation about X, "verbatim" is
+ * wrong even for an object at the identity transform.
+ */
+describe("transformPolygonsToGlyph and Polygon.shadingNormal", () => {
+  const withNormal = (n: [number, number, number]) => [{
+    vertices: [[0, 0, 0], [1, 0, 0], [1, 0, 1]] as [number, number, number][],
+    color: "#ffffff",
+    shadingNormal: n,
+  }];
+
+  it("axis-maps a normal even at the identity transform", () => {
+    // Three's +Y (up) is glyphcss's +Z, exactly as `threeToGlyphDirection` says.
+    const out = transformPolygonsToGlyph(withNormal([0, 1, 0]), new Object3D());
+    expect(out[0]!.shadingNormal!.map((v) => Math.round(v * 1e6) / 1e6)).toEqual([0, -0, 1]);
+  });
+
+  it("rotates it with the object, and never translates it", () => {
+    const object = new Object3D();
+    object.position.set(10, -4, 7);
+    object.rotation.set(0, 0, Math.PI / 2); // +X → +Y in Three
+    const out = transformPolygonsToGlyph(withNormal([1, 0, 0]), object);
+    const n = out[0]!.shadingNormal!;
+    // Three (0, 1, 0) → glyph (0, -0, 1). The position must not appear in it.
+    expect(n[0]).toBeCloseTo(0, 9);
+    expect(n[1]).toBeCloseTo(0, 9);
+    expect(n[2]).toBeCloseTo(1, 9);
+    expect(Math.hypot(n[0], n[1], n[2])).toBeCloseTo(1, 9);
+  });
+
+  it("inverse-transposes a non-uniform scale", () => {
+    const object = new Object3D();
+    object.scale.set(1, 0.1, 1);
+    const n = transformPolygonsToGlyph(withNormal([1, 1, 0]), object)[0]!.shadingNormal!;
+    // Flattening Y makes the normal lean MORE toward Y (glyph Z), not less:
+    // (1, 10, 0) normalized in Three, i.e. glyph (0.0995, 0, 0.995).
+    expect(n[0]).toBeCloseTo(1 / Math.hypot(1, 10), 9);
+    expect(n[2]).toBeCloseTo(10 / Math.hypot(1, 10), 9);
+  });
+
+  it("leaves a polygon without one alone", () => {
+    const out = transformPolygonsToGlyph([{ vertices: [[0, 0, 0], [1, 0, 0], [1, 0, 1]], color: "#fff" }], new Object3D());
+    expect("shadingNormal" in out[0]!).toBe(false);
+  });
+});

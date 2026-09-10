@@ -1,0 +1,190 @@
+{
+  "recorded": "2026-09-07",
+  "query": "eiffel tower",
+  "view": {
+    "lon": 0.0,
+    "lat": 0.0,
+    "span": 360.0
+  },
+  "url": "https://photon.komoot.io/api/?q=eiffel+tower&limit=6&lang=en&lat=0.00000&lon=0.00000&zoom=0&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 5013364,
+          "osm_key": "man_made",
+          "osm_value": "tower",
+          "type": "house",
+          "housenumber": "5",
+          "name": "Eiffel Tower",
+          "street": "Avenue Anatole France",
+          "locality": "Gros-Caillou",
+          "district": "Paris",
+          "city": "Paris",
+          "state": "Île-de-France",
+          "country": "France",
+          "postcode": "75007",
+          "countrycode": "FR",
+          "extent": [
+            2.2933119,
+            48.8590453,
+            2.2956897,
+            48.8574753
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            2.2945006,
+            48.8582599
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 2689315641,
+          "osm_key": "natural",
+          "osm_value": "peak",
+          "type": "other",
+          "name": "Eiffel Tower",
+          "county": "Improvement District No. 9",
+          "state": "Alberta",
+          "country": "Canada",
+          "countrycode": "CA"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -116.235,
+            51.3336
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 909515324,
+          "osm_key": "man_made",
+          "osm_value": "tower",
+          "type": "house",
+          "name": "Eiffel Tower",
+          "county": "Hanover",
+          "state": "Virginia",
+          "country": "United States",
+          "postcode": "23047",
+          "countrycode": "US",
+          "extent": [
+            -77.4455335,
+            37.8401152,
+            -77.4450428,
+            37.8397402
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -77.4452828,
+            37.8399146
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 354915873,
+          "osm_key": "leisure",
+          "osm_value": "park",
+          "type": "other",
+          "name": "Eiffel Tower Park",
+          "district": "Hancock",
+          "city": "Paris",
+          "county": "Henry",
+          "state": "Tennessee",
+          "country": "United States",
+          "countrycode": "US",
+          "extent": [
+            -88.3032658,
+            36.2883488,
+            -88.298259,
+            36.2856481
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -88.3007407,
+            36.2870954
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1051308117,
+          "osm_key": "leisure",
+          "osm_value": "park",
+          "type": "other",
+          "name": "Eiffel Tower Park",
+          "district": "Hancock",
+          "city": "Paris",
+          "county": "Henry",
+          "state": "Tennessee",
+          "country": "United States",
+          "countrycode": "US",
+          "extent": [
+            -88.3079641,
+            36.288519,
+            -88.3033215,
+            36.2855243
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -88.305595,
+            36.2870171
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1422964661,
+          "osm_key": "leisure",
+          "osm_value": "park",
+          "type": "other",
+          "name": "Eiffel Tower Park Bharia Town",
+          "district": "Bahria Town Karachi",
+          "city": "Karachi",
+          "county": "Karāchi District",
+          "state": "Sindh",
+          "country": "Pakistan",
+          "countrycode": "PK",
+          "extent": [
+            67.3489761,
+            25.1375206,
+            67.3507935,
+            25.1356687
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            67.349969,
+            25.1366204
+          ]
+        }
+      }
+    ]
+  }
+}

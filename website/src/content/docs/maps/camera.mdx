@@ -1,0 +1,333 @@
+---
+title: Camera & Navigation
+description: Pan, zoom, tilt, bearing, flights, and street-level walk mode — one motion loop, at most one render per displayed frame.
+---
+
+The widget owns one `requestAnimationFrame` motion loop. Input handlers update
+state synchronously and only the *render* is deferred, so a drag, an inertial
+glide, a `flyTo` and a projection transition all issue **at most one render per
+displayed frame**.
+
+## Gestures
+
+| Gesture | Sheet projection | Orbit projection (globe) |
+|---|---|---|
+| Drag | Pan, clamped in world space | Orbit the camera |
+| Wheel / pinch | Zoom | Zoom |
+| **Ctrl+drag** or **right-drag** | Orient: vertical pitches, horizontal turns | Same |
+| Click | `click` event with `lngLat` | Same, `null` past the limb |
+
+Each has an opt-out, and each defaults to `true`:
+
+```ts
+createGlyphMap(host, {
+  view, projection,
+  controls: { drag: true, wheel: true, tilt: false },
+});
+```
+
+`controls.tilt` is its own surface, independent of `drag` — a map that pins its
+centre may still want the reader to look across it. It covers **both axes** of
+the orient stroke, because it is one press and one stroke; a diagonal drag under
+two separate opt-outs would do half of what the hand asked. While it is enabled
+the widget suppresses the host's context menu, so the right-button half is
+usable.
+
+## Span, and the cover rule
+
+```ts
+map.setView({ center: [8.54, 47.37], span: 0.06 });
+map.getView();
+map.getMaxSpan();
+map.fitBounds({ west: 5.9, east: 10.5, south: 45.8, north: 47.8 });
+```
+
+`minSpan` (default `0.001`) is the floor. The **ceiling** is `getMaxSpan()`, and
+it is live — read it, do not cache it:
+
+- On a **sheet** projection it is the **cover** limit: the widest view that still
+  fills the viewport on both axes, so no page background is ever visible around
+  the map's edges. It moves with the host's shape, the camera `tilt`, the
+  projection, and (where a projection's scale varies across its domain) the view
+  centre. Panning is clamped in world space so the visible *window* stays inside
+  the projection's extent, not just the centre.
+- On an **orbit** projection there is no cover limit — a globe legitimately
+  floats in space — and it is the projection's domain width.
+
+An explicit `maxSpan` **opts out of the cover rule entirely**, for both the span
+and the pan clamp. "Overview margin around the whole projection" is exactly what
+cover exists to remove, so the two cannot both hold and the explicit request
+wins.
+
+Where a map genuinely cannot fill an axis, that axis is **centred** rather than
+pinned to an edge — one fixed point, so a drag against it settles instead of
+oscillating.
+
+## Tilt
+
+`tilt` is a pitch **about the surface point under the view centre**, with the
+pivot distance equal to the camera's altitude — the Google Earth / Cesium model.
+
+```ts
+map.setTilt(55);
+map.getTilt();      // the APPLIED pitch
+map.getMaxTilt();   // the live ceiling
+```
+
+`map.project(map.getView().center)` therefore lands at the centre of the grid at
+every pitch and every span, and two very different feels fall out of one rule
+with no threshold: zoomed out the pivot is far below the camera relative to the
+view, so pitching swings the globe and the limb enters tangentially; zoomed in
+the pivot is directly beneath, so pitching reads as raising your head off the
+ground — which is what makes 3D buildings legible.
+
+The default differs by projection kind, and so does what the number means:
+
+- A **sheet** has no view-driven base orientation, so `tilt` *is* the total
+  `camera.rotX`. Default `40`.
+- An **orbit** projection has one — `cameraForCenter(lon, lat)` — that `tilt`
+  *adds* to. Default `0`, head-on.
+
+`getMaxTilt()` is the **horizon angle at the view's own scale**,
+`asin(R / (R + h))` for the frame's world half-height `h`, capped at
+`GLYPH_MAP_MAX_TILT` (85). That gives roughly 21° at a 360° span — where 80°
+would aim past the limb at empty space — about 50° at 40°, and the cap by city
+scale. A sheet has no limb, so its ceiling is the cap at every span.
+
+The clamp is **non-destructive**: the request is remembered unclamped, so zooming
+back in restores the full pitch, while `getTilt()` reports what the camera
+actually has.
+
+## Bearing
+
+`bearing` is the compass heading, in degrees, that points **up** on screen. `0`
+(the default) is north up; `90` puts east up — MapLibre's convention, so the
+picture turns counter-clockwise as the number grows.
+
+```ts
+map.setBearing(137);
+map.getBearing();   // normalized to [0, 360)
+```
+
+It is a rotation about the **surface normal at the pivot** — the same point
+`tilt` pitches about — and **not** a roll about the view axis. The two are
+identical at zero pitch and diverge exactly where this feature exists: a
+view-axis roll *tips the horizon* on a pitched camera, and no map product does
+that. Turning about the pivot's local up swings the camera around a cone at
+constant pitch, so the horizon stays level and only the heading changes. In
+glyphcss's own frame the composition reads `RotX(tilt) · RotZ(−bearing) ·
+RotX(trueRotX) · RotZ(rotY)`: navigate, then turn, then pitch.
+
+At bearing `0` **no camera matrix is installed at all** and the render is
+bit-for-bit what it was before the feature existed — the same string, the same
+`project()` cells, the same `getMaxSpan()`. At any other heading the widget
+installs it through `GlyphCamera.mat`/`useMat`, glyphcss's public rotation
+override, so `rotX`/`rotY` keep their meanings underneath.
+
+Two consequences worth knowing: a drag still pans the way the picture *looks*
+(the pixel delta is rotated back through the bearing before it becomes
+navigation), and a sheet's cover ceiling **tightens**, because a turned viewport
+is a rotated rectangle whose reach along each world axis is
+`w|cos b| + h|sin b|` — worst at 45°.
+
+### The orient gesture
+
+One stroke, both axes, no axis lock:
+
+| Axis | Rate | Constant |
+|---|---|---|
+| Vertical → pitch | 0.5°/px | `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` |
+| Horizontal → bearing | 0.8°/px | `GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` |
+
+Both are MapLibre's own rates. **Dragging right increases the bearing**, turning
+the picture anti-clockwise, so the near ground — the lower half of a pitched
+picture, the half the hand is on — follows the hand.
+
+Neither angle carries inertia, and the pitch clamps live to `getMaxTilt()` as
+the zoom changes it. The gesture accumulates from the **applied** pitch, so it
+has no dead travel against a lowered ceiling, while the remembered request
+survives a zoom out and back.
+
+## Flights
+
+```ts
+await map.flyTo({ center: [8.54, 47.37], span: 0.06 }, { durationMs: 1200 });
+await map.flyTo({ bounds: { west: 5.9, east: 10.5, south: 45.8, north: 47.8 } });
+```
+
+A flight target is a centre and/or a span, **or** a bounds box to frame (the same
+framing `fitBounds` computes) — not both. `durationMs: 0` applies the target
+instantly.
+
+`bow` is how far the flight may zoom **out** at mid-arc, as a multiple of the
+larger endpoint span; `1` flies a straight log-span interpolation with no bow.
+The bow exists because a long ground move at a city span is a blur — pulling out
+and back is how a reader keeps their bearings.
+
+`setProjection` is the other flight; see
+[Projections](/maps/projections#animated-transitions).
+
+## Waiting for the settled frame
+
+```ts
+map.setView({ center: [8.54, 47.37], span: 0.02 });
+await map.idle();
+const settled = map.scene.output.textContent;
+```
+
+Everything the widget does is fire-and-forget. A view change *arms* a 180 ms
+debounce; the sweep it then issues fetches three tiers of tiles in phases; each
+landing tile re-plants whatever stands on it — extrusions, markers, a contour's
+mosaic — which dispatches more work; a flight or a projection blend runs on the
+motion loop. Nothing awaits any of it, so a caller that wants to **read** the
+settled picture has nothing to wait on but a guess at a duration, and a guess is
+wrong in both directions: it idles on a fast machine and reads a half-built frame
+on a loaded one.
+
+`map.idle()` is the widget's own account of being done: no armed sweep, no
+dispatched or queued layer update, no pending re-plant, no owed motion frame, no
+flight, no projection blend. Call it **after** the mutation that provokes the work
+— a pending debounce counts as busy, so the sweep it will issue is included. On a
+settled map it resolves on the next event-loop turn; on a destroyed map,
+immediately. It does not time out: a widget that never goes quiet is a real hang,
+and answering "settled" would be the same lie a fixed sleep tells.
+
+The counterpart of MapLibre's `once("idle")` / `loaded()`.
+
+## Street-level walk mode
+
+`setWalk` drops the camera to eye height and hands it a perspective lens. It is
+the one mode that is *not* a map view.
+
+```ts
+map.setWalk({});                    // enter with every default
+map.setWalk({ far: 900, sky: false, collision: false });
+map.getWalk();                      // GlyphMapWalkState, or null
+map.setWalk(null);                  // leave
+```
+
+Walk mode is **not** a `createGlyphMap` option — it is only reachable through the
+handle, after mount.
+
+### It needs an orbit projection
+
+```ts
+map.setWalk({});
+// RangeError: walk mode needs a projection navigated by orbiting the camera …
+```
+
+`setWalk` throws a `RangeError` when the projection declares no
+`cameraForCenter`/`centerForCamera`, i.e. on any flat sheet — where a metre of
+height and a metre of ground are different world units. Capability-gated, never
+`projection.id`.
+
+### It does not gate on zoom
+
+`setWalk` pins `view.span` to the horizon (`2 * far` converted to degrees)
+**regardless of the span you were at**, and it does not refuse a call made from
+a whole-world view. `GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG` (`0.05`, about 5.6 km)
+is the span walk mode is *meant* to be entered from, and enforcing it is the
+application's job:
+
+```ts
+import { GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG } from "@glyphcss/maps";
+
+if (map.getView().span <= GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG) map.setWalk({});
+else map.flyTo({ span: GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG });
+```
+
+Enter from too far out and you land on terrain with no street data around you —
+a blank walk, not an error.
+
+### Options
+
+| Option | Default | Constant |
+|---|---|---|
+| `eyeHeight` | `1.7` m | `GLYPH_MAP_WALK_EYE_HEIGHT_M` |
+| `fov` | `56`° horizontal | `GLYPH_MAP_WALK_FOV_DEG` |
+| `near` | `0.5` m | `GLYPH_MAP_WALK_NEAR_M` |
+| `far` | `600` m | `GLYPH_MAP_WALK_FAR_M` |
+| `speed` | `6` m/s | `GLYPH_MAP_WALK_SPEED_M_PER_S` |
+| `maxPitch` | `84`° either side of horizontal | `GLYPH_MAP_WALK_MAX_PITCH_DEG` |
+| `collision` | `true` | — |
+| `sky` | `true` | — |
+
+`far` is the local horizon: it bounds both the tile footprint and the picture,
+and it is the sky dome's own radius. `speed` is deliberately not the ~1.4 m/s
+anatomical pace — a real one is tedious on a 600 m horizon.
+
+### Controls
+
+| Input | Effect |
+|---|---|
+| `W`/`A`/`S`/`D`, arrow keys | Move — held keys accumulate into a normalized axis, so a diagonal is not faster |
+| `Shift` (held) | Run, ×3 (`GLYPH_MAP_WALK_RUN_MULTIPLIER`) |
+| `G` (held) | Ghost — pass through buildings for as long as it is down |
+| Mouse move under pointer lock | Look |
+| Drag | Look, where pointer lock is unavailable or refused (touch) |
+| `Esc` | Release pointer lock |
+| Wheel | Nothing — zoom is meaningless at eye height |
+
+Pointer lock is requested on the first mouse `pointerdown`. Losing window focus
+clears held keys, the run flag and the ghost flag, so a dropped `keyup` cannot
+leave the walker sprinting forever.
+
+Pitch is clamped to `90 ± maxPitch` — `getMaxTilt()` reports the neck ceiling
+while walking, and `getWalk().pitch` reports pitch above the horizontal with `+`
+looking up.
+
+### Collision
+
+The widget wires collision itself. You do not build an index: it maintains one
+from the mounted **`fill-extrusion`** layers, invalidates it when their tile set
+changes, and rebuilds it lazily. Only extrusion footprints are ever solid —
+`fill` layers (landuse, water, parks) are always walkable.
+
+A blocked step **slides** along the wall tangent rather than stopping dead, and a
+walker already inside a footprint is never trapped. With nothing mounted the
+resolver returns the requested destination verbatim.
+
+The pieces are exported if you want the model outside the widget:
+
+```ts
+import {
+  glyphMapWalkFootprints,
+  createGlyphMapWalkCollisionIndex,
+  glyphMapWalkResolveStep,
+  GLYPH_MAP_WALK_BODY_RADIUS_M,        // 0.3 m
+} from "@glyphcss/maps";
+
+const index = createGlyphMapWalkCollisionIndex(glyphMapWalkFootprints(features));
+const next = glyphMapWalkResolveStep({ index, from, to, radiusM: GLYPH_MAP_WALK_BODY_RADIUS_M });
+```
+
+### The sky
+
+Walk mode mounts a **sky dome** — a hemisphere of geometry plus a glyphcss
+appearance program that paints a horizon-to-zenith gradient, quantized to
+`GLYPH_MAP_SKY_BANDS` (32) steps, with a sun disc where a light direction is
+known.
+
+It mounts only when three things hold: walking, `sky !== false`, and the scene is
+in `solid` mode (the appearance program cannot run in the others, so it is not
+mounted there at all rather than mounted inert). `sky: false` mounts **no dome
+and no program** — not a hidden one, zero extra polygons.
+
+The dome's light direction is the scene's real sun if one is set, otherwise the
+scene's own `directionalLight.direction`. A **headlight** is deliberately
+excluded: a headlight is a statement about the viewer, not about the world, and a
+sky lit by one would put the sun wherever you happened to be looking.
+
+The dome is re-centred on the walker as they move — rebuilt rather than
+translated — and rebuilt when the ground elevation or the scene mode changes.
+
+### Leaving
+
+`setWalk(null)` restores `view`, `tilt`, `bearing` and the camera **verbatim** to
+what was captured on entry, and the rendered text is byte-for-byte the pre-walk
+render. The sky dome is disposed, not hidden: the polygon count returns to its
+baseline.
+
+Calling `setWalk` again while already walking **reconfigures in place** — no
+restore, no re-capture. A `setProjection` while walking leaves walk mode instead
+of blending through it.

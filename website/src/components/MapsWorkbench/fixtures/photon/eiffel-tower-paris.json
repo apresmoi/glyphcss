@@ -1,0 +1,191 @@
+{
+  "recorded": "2026-09-07",
+  "query": "eiffel tower",
+  "view": {
+    "lon": 2.35,
+    "lat": 48.86,
+    "span": 0.5
+  },
+  "url": "https://photon.komoot.io/api/?q=eiffel+tower&limit=6&lang=en&lat=48.86000&lon=2.35000&zoom=9&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 5013364,
+          "osm_key": "man_made",
+          "osm_value": "tower",
+          "type": "house",
+          "housenumber": "5",
+          "name": "Eiffel Tower",
+          "street": "Avenue Anatole France",
+          "locality": "Gros-Caillou",
+          "district": "Paris",
+          "city": "Paris",
+          "state": "Île-de-France",
+          "country": "France",
+          "postcode": "75007",
+          "countrycode": "FR",
+          "extent": [
+            2.2933119,
+            48.8590453,
+            2.2956897,
+            48.8574753
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            2.2945006,
+            48.8582599
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 3422228434,
+          "osm_key": "information",
+          "osm_value": "screen",
+          "type": "house",
+          "housenumber": "5",
+          "name": "Eiffel Tower",
+          "street": "Avenue Anatole France",
+          "locality": "Gros-Caillou",
+          "district": "Paris",
+          "city": "Paris",
+          "state": "Île-de-France",
+          "country": "France",
+          "postcode": "75007",
+          "countrycode": "FR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            2.2943909,
+            48.8587851
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 5589969421,
+          "osm_key": "information",
+          "osm_value": "office",
+          "type": "house",
+          "name": "Eiffel Tower",
+          "street": "Quai Jacques Chirac",
+          "locality": "Gros-Caillou",
+          "district": "Paris",
+          "city": "Paris",
+          "state": "Île-de-France",
+          "country": "France",
+          "postcode": "75007",
+          "countrycode": "FR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            2.2939989,
+            48.8585238
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 629397144,
+          "osm_key": "building",
+          "osm_value": "miniature",
+          "type": "house",
+          "name": "Eiffel Tower",
+          "street": "Avenue de Bouchout - Boechoutlaan",
+          "locality": "Heysel - Heizel",
+          "district": "Laeken - Laken",
+          "city": "Brussels",
+          "county": "Brussels-Capital",
+          "state": "Brussels-Capital",
+          "country": "Belgium",
+          "postcode": "1020",
+          "countrycode": "BE",
+          "extent": [
+            4.3391618,
+            50.894322,
+            4.339263,
+            50.8942581
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            4.3392174,
+            50.8942907
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "N",
+          "osm_id": 5833922814,
+          "osm_key": "amenity",
+          "osm_value": "restaurant",
+          "type": "house",
+          "housenumber": "190",
+          "name": "Eiffel Tower Diner",
+          "street": "Avenue François Mitterrand",
+          "locality": "Résidence Arthur Van Hecke",
+          "city": "Sains-en-Gohelle",
+          "county": "Pas-de-Calais",
+          "state": "Hauts-de-France",
+          "country": "France",
+          "postcode": "62114",
+          "countrycode": "FR"
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            2.6880646,
+            50.4499393
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1364458526,
+          "osm_key": "leisure",
+          "osm_value": "garden",
+          "type": "other",
+          "name": "Eiffel Tower",
+          "locality": "Travbyen",
+          "city": "Billund",
+          "state": "Region of Southern Denmark",
+          "country": "Denmark",
+          "countrycode": "DK",
+          "extent": [
+            9.1283801,
+            55.7349952,
+            9.1284263,
+            55.7349701
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            9.1284022,
+            55.7349874
+          ]
+        }
+      }
+    ]
+  }
+}

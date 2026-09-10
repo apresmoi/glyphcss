@@ -1,0 +1,1073 @@
+/* /maps — page-specific chrome. Layout/dock/mobile-drawer structure comes
+   entirely from instrument-workbench.css + gallery-workbench.css (shared
+   with /synth and /loaders); this file only carries what's genuinely unique
+   to the map surface: drag cursor/touch handling on the host (same fix
+   `/examples/flatmap.astro`/`world.astro` needed — capturing pointer drag on
+   a `<pre>` that rewrites its own contents every frame), the rail's Layers
+   cards, marker labels, the provider-load error banner, and the place-search
+   overlay. The rail's old Places/"Jump to" list was removed entirely (user
+   ask: "remove the places from the left sidebar" plus "remove the jump to
+   from the right sidebar") and the rail is Layers only; search came back
+   later as chrome ON the map instead — `.maps-search` at the foot of this
+   file, top-centre, the way a map's search box is everywhere else. The
+   Projection picker used to live here too
+   (`.maps-projection-picker`); it now portals inline into the Dock
+   (`mapsKit.tsx`'s `MapsProjectionControls`), styled entirely by the shared
+   `.dock-subcell`/`.dock-subcell-label` rules in instrument-workbench.css —
+   no page-specific CSS of its own left to carry. */
+
+.maps-viewport {
+  touch-action: none;
+}
+.maps-viewport .glyph-output {
+  color: rgba(226, 232, 240, 0.94);
+  cursor: grab;
+  touch-action: none;
+}
+.maps-viewport .glyph-output:active {
+  cursor: grabbing;
+}
+
+/* Above `.maps-search` (z-index 20), which shares the top edge: when terrain
+   fails to load, the banner explaining why must not be painted over by the
+   search box. */
+.maps-error {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  z-index: 22;
+  padding: 10px 14px;
+  background: rgba(30, 8, 8, 0.9);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: rgba(254, 202, 202, 0.95);
+  font-size: 12px;
+}
+
+/* /maps mounts NO `InstrumentTray`, so the 146px `.synth-shell.dn-root`
+   reserves in `--synth-footer-height` for /synth's preset strip is a phantom
+   here: above 760px the shared shell folds it into `--overlay-bottom`, which
+   is what the Dock, the lil-gui panel's own `max-height` and the code window
+   are all positioned from. Measured on the built page at 1440x900 it left the
+   Dock ending at y=728 with 172px of empty shell below it, and put the code
+   window at `bottom: 158px` — the reported "opens floating and separated from
+   the footer". Zeroing the variable (rather than re-deriving `--overlay-
+   bottom`) fixes all three at once, since all three already read it.
+   `mapsShell.ts` owns the class and the record. */
+.dn-root.maps-shell {
+  --synth-footer-height: 0px;
+}
+
+/* Attribution — ONE line along the bottom of the map with the full notice
+   behind a `©` affordance, the shape every map product (Google, Mapbox,
+   MapLibre) ships and for the same reason. `mapsCredits.ts` carries the
+   licence argument and the before/after measurements; `MapCredits.tsx` is
+   the component. Still derived from the mounted layers (createGlyphMap's
+   `getAttributions()`), never a hardcoded credit line.
+
+   `--maps-credit-names` is the number of source names the collapsed line may
+   carry. It lives here, not in the component, because it is a fact about how
+   much room the bottom edge has at this breakpoint — three names fit the
+   desktop map, one fits a 390px phone.
+
+   Anchored bottom-RIGHT rather than centred: centred meant `left: 50%` +
+   `translateX(-50%)`, whose shrink-to-fit width is capped at half the
+   viewport whatever `max-width` says (195px of 390px, measured), and it put
+   the block straight over `.synth-export-bar` at the same 12px baseline. The
+   right edge is free at both breakpoints once `.maps-walk` lifts (below). */
+.maps-attribution {
+  position: absolute;
+  right: var(--overlay-right, 12px);
+  bottom: 12px;
+  z-index: 17;
+  --maps-credit-names: 3;
+  max-width: calc(100% - 24px);
+  display: flex;
+  justify-content: flex-end;
+}
+/* The collapsed line. One row by construction — `white-space: nowrap` plus an
+   ellipsis, so a provider with a long name can shorten the line but can never
+   wrap it into a second row and take a row of terrain with it. */
+.maps-attribution__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 8px;
+  font: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 232, 184, 0.55);
+  background: rgba(5, 7, 12, 0.72);
+  border: 1px solid rgba(255, 232, 184, 0.14);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+.maps-attribution__toggle:hover,
+.maps-attribution__toggle:focus-visible {
+  color: rgba(255, 232, 184, 0.9);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.maps-attribution__notice {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The count of what is behind the affordance — the part that makes the
+   collapse honest rather than a truncation the reader can't see. */
+.maps-attribution__more {
+  flex: 0 0 auto;
+  color: #38bdf8;
+  font-variant-numeric: tabular-nums;
+}
+/* Open, the notice is a popover and outranks the corner controls it grows
+   past — `.maps-walk` sits directly above it at z-index 20 and otherwise
+   punches a hole in the panel's own corner. */
+.maps-attribution.is-open {
+  z-index: 24;
+}
+.maps-attribution.is-open .maps-attribution__toggle {
+  color: rgba(255, 232, 184, 0.9);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+/* The full notice, opened upward so it never covers the line that opened it.
+   `AttributionCredit` renders its clusters inline; one source per ROW here,
+   because the wall of wrapped clusters with orphaned separators is exactly
+   what this replaces. */
+.maps-attribution__detail {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
+  background: rgba(5, 7, 12, 0.96);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 3px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.maps-attribution__detail .model-credit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 6px 9px;
+  border-top: none;
+}
+.maps-attribution__detail .model-credit__source {
+  display: block;
+}
+/* The between-source space `AttributionCredit` emits inline; a column layout
+   already separates them, and a stray blank row reads as a missing entry. */
+.maps-attribution__detail .model-credit__sep--source {
+  display: none;
+}
+
+/* "Layers" panel — one EXPANDABLE CARD per layer, filling the whole rail
+   (mapsKit.tsx's `LayersPanel` doc — user ask: "some kind of UI like the
+   synth voices, but in this case its map layers"). Reuses SynthWorkbench's
+   own collapsible `LayerGroup` shell verbatim (`.layer-group`/
+   `.layer-group-head`/`.layer-group-toggle`+`.layer-group-caret`/
+   `.layer-group-body`, `.layer-group-check` for the bracket enable
+   checkbox) from instrument-workbench.css — a collapsed card is just the
+   enable checkbox + name; expanding it reveals that layer's own controls.
+   Those controls are the DOCK's rows, not /synth's voice rows: the shared
+   `.voice-slider`/`.voice-slider-track`/`.voice-slider-readout` markup is
+   reused for the slider itself (instrument-workbench.css documents it as a
+   pixel match for the Dock's `.controller.number` bar), and everything
+   around it — row geometry, `<select>` skin, colour swatch + hex field,
+   read-only and gated states — is reproduced from the Dock below. */
+.maps-layers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.12);
+}
+.maps-layer-check {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+/* The collapse/expand caret button sits at the head row's trailing edge —
+   `.layer-group-head` is a plain flex row with no `justify-content`
+   assumption of its own, so this is the one rule needed to push it there. */
+
+/* Background — not a `.layer-group` card: it has no toggleable STATE (a
+   flat CSS colour is either applied or it isn't) and no density (no glyph
+   resolution to multiply), so it is one plain always-present row, same
+   card-weight border/background as `.layer-group` but no head/body split,
+   caret, or checkbox. It carries ONE Dock row (`mapsKit.tsx`'s `ColorRow`,
+   named "Background" rather than the in-card "color") instead of a card
+   header plus a separately-labelled swatch — the doubled label that
+   structure produced had no equivalent anywhere in the Dock. */
+.maps-layer-background-row {
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  background: #030509;
+}
+/* Card-header weight for the one row that IS a card in the stack's rhythm,
+   while its geometry stays the shared Dock row below. */
+.maps-layer-background-row .maps-layer-color-row > span:first-child {
+  font-size: 12px;
+}
+
+/* ── The Dock's controller row, reproduced ───────────────────────────────
+   The right-hand Dock is lil-gui restyled by `.dn-floating-controls .lil-gui
+   …` (gallery-workbench.css). One `.controller` there is a flex row of
+   `.name` (`--name-width: 45%`, `flex-shrink: 0`, `padding-right:
+   --spacing`, `line-height: --widget-height`) followed by `.widget` (flex,
+   `width: 100%`, `min-height: --widget-height`). With that panel's own
+   variables (`--padding: 6px`, `--spacing: 5px`, `--widget-height: 24px`)
+   this is a 24px-tall row on a 5px vertical rhythm, an 11px name at
+   rgba(255, 232, 184, 0.70), and — on a number row — a 10px bracketed
+   slider whose widget reserves 8px each side for the `[ ]` pseudos,
+   followed by a right-aligned cyan value INPUT (`min-width: 45px`,
+   `max-width: 70px`), not a label: the Dock's numbers have always been
+   type-to-set, which is the behaviour these rows were missing.
+
+   Reproduced here as a three-column grid rather than flex, because this
+   markup is authored (a `<label>` with its own children) instead of built
+   by lil-gui: column 1 = the name at the Dock's own 45%, column 2 = the
+   widget, column 3 = the value. A row with no value of its own — a
+   `<select>`, a read-only provenance string — spans its widget across
+   columns 2-3, exactly as the Dock's `.widget` fills everything after
+   `.name`.
+
+   ONE deliberate divergence, and it is on WIDTH: the Dock sizes column 3
+   `clamp(45px, 27% of the widget, 70px)`, which on its own 360px panel
+   (`Dock.tsx` → `useGui`'s default width) lands at 50px. This rail is
+   340px and its card body is inset twice over, so the same formula would
+   land on the 45px floor and clip an 8-character readout ("12 cells",
+   Heatmap's radius). 60px is still inside the Dock's own 45-70px band —
+   the same system, a different point in it — and fits every readout this
+   page prints. Track, brackets, fill, type scale, colours and states are
+   the Dock's, unchanged.
+
+   Every selector below is scoped under a maps-only ancestor.
+   `.voice-slider`/`.voice-slider-track`/`.voice-slider-readout`/
+   `.gx-select` are declared in instrument-workbench.css, which /synth and
+   /loaders load verbatim; a bare redeclaration here would either fight
+   those on bundle order or leak if it were ever hoisted into the shared
+   file. `maps-workbench.rowWidths.test.ts` pins that. */
+.maps-layer-card .maps-layer-body {
+  gap: 5px;
+}
+.maps-layer-card .maps-layer-body .voice-slider,
+.maps-layer-card .maps-layer-body .maps-layer-select-row,
+.maps-layer-card .maps-layer-body .maps-layer-color-row,
+.maps-layer-card .maps-layer-body .maps-layer-info-row,
+.maps-layer-card .maps-layer-body .maps-layer-bool-row,
+.maps-layer-background-row .maps-layer-color-row {
+  display: grid;
+  grid-template-columns: 45% minmax(0, 1fr) 60px;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  font-size: 11px;
+}
+/* The name column — the Dock's `.controller .name`: 11px, 0.70 amber,
+   `white-space: pre` (never wraps; a long one is clipped, and every row
+   carries its own `title`). */
+.maps-layer-card .maps-layer-body > label > span:first-child,
+.maps-layer-card .maps-layer-body > div > span:first-child,
+.maps-layer-background-row .maps-layer-color-row > span:first-child {
+  color: rgba(255, 232, 184, 0.70);
+  letter-spacing: 0.02em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A widget with no value column of its own fills columns 2-3, mirroring
+   `.controller.option`/`.controller.disabled`, whose `.widget` takes all of
+   the row after `.name`. */
+.maps-layer-card .maps-layer-body .maps-layer-select-row .gx-select,
+.maps-layer-card .maps-layer-body .maps-layer-info-value,
+.maps-layer-card .maps-layer-body .maps-layer-bool-check {
+  grid-column: 2 / 4;
+}
+/* The checkbox itself — `.layer-group-check` (instrument-workbench.css)
+   already supplies the `[ ]`/`[x]` pseudo-content idiom shared with
+   `LayerCard`'s own visibility checkbox; this only cancels its flex gap
+   (nothing else sits in the widget) and lets it sit at the row's own 11px,
+   matching every other row in this grid rather than that rule's 11px+cursor
+   defaults meant for a header label immediately next to its own checkbox. */
+.maps-layer-card .maps-layer-body .maps-layer-bool-check {
+  gap: 0;
+  cursor: default;
+}
+/* The value input. The shared base already gives it the Dock's colour,
+   weight, right alignment and dotted underline; what is left is the 5px
+   gutter the base cancels with `margin-left: -7px` (it hugs the `]` on
+   /synth) — the Dock instead separates value from slider by `--spacing`,
+   which this grid's own `gap` supplies. */
+.maps-layer-card .maps-layer-body .voice-slider-readout {
+  margin-left: 0;
+}
+/* `<select>` — the Dock's `.controller.option .display`, not `.gx-select`'s
+   own darker/cyan-caret treatment: translucent amber fill, amber border,
+   an ORANGE caret, and a cyan border on focus. `.gx-select select` keeps
+   its own `appearance: none` reset from the shared file; only the skin
+   changes here. */
+.maps-layer-card .maps-layer-body .gx-select select,
+.maps-layer-background-row .gx-select select {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 22px 2px 8px;
+  background: rgba(255, 232, 184, 0.03);
+  color: rgba(255, 232, 184, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+}
+.maps-layer-card .maps-layer-body .gx-select::after,
+.maps-layer-background-row .gx-select::after {
+  content: "▾";
+  right: 5px;
+  font-size: 10px;
+  color: #f97316;
+}
+.maps-layer-card .maps-layer-body .gx-select select:focus,
+.maps-layer-background-row .gx-select select:focus {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* Colour — the Dock's `.controller.color`: the swatch is a 10px bracketed
+   bar filling the widget (its own `[ ]` come from `.voice-slider-track`,
+   shared with the sliders so both read as one control family), with the
+   real `<input type="color">` as the bar itself, plus an editable hex
+   field in the value column. Replaces an 18px square swatch that had no
+   counterpart in the Dock and no way to type a colour. */
+.maps-layer-swatch input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.25);
+}
+.maps-layer-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.maps-layer-swatch input[type="color"]::-webkit-color-swatch { border: none; }
+.maps-layer-swatch input[type="color"]::-moz-color-swatch { border: none; }
+/* The hex field — the Dock's `.controller.color input[type="text"]`: the
+   value readout's chrome, at the Dock's dimmer amber rather than the
+   number rows' cyan. */
+.maps-layer-hex {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: right;
+  padding: 1px 0;
+  color: rgba(255, 232, 184, 0.65);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.maps-layer-hex:hover { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.maps-layer-hex:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+  border-bottom-color: rgba(56, 189, 248, 0.8);
+}
+/* Read-only provenance — the Dock's own read-only row (`useReadonlyText`
+   calls `setEnabled(false, { dim: false })`, so the row is NOT dimmed and
+   only its input is disabled): a plain right-aligned cyan number at the
+   same 11px, no bar and no border. */
+.maps-layer-info-value {
+  color: #38bdf8;
+  font-size: 11px;
+  text-align: right;
+}
+/* A tile that did not arrive is a THINNER frame, not an error — amber (the
+   page's own text colour), never red. */
+.maps-layer-info-warn {
+  color: rgba(255, 232, 184, 0.55);
+}
+/* A GATED row — the Dock's `.controller.disabled`: the whole row at
+   `opacity: 0.5` with its name dimmed to 0.38, and the value input
+   stripped of its underline rather than dimmed a second time (lil-gui's
+   disabled input keeps `opacity: 1` and lets the row's own opacity carry
+   it; the shared base instead dims the input to 0.6, which would compound
+   here). `pointer-events: none` — which lil-gui also sets — is deliberately
+   NOT copied: these rows explain their gating through a `title`, and a row
+   that ignores the pointer has no tooltip. */
+.maps-layer-slider--off {
+  opacity: 0.5;
+}
+.maps-layer-slider--off > span:first-child {
+  color: rgba(255, 232, 184, 0.38);
+}
+.maps-layer-slider--off input[type="range"] {
+  cursor: not-allowed;
+}
+.maps-layer-card .maps-layer-body .voice-slider-readout:disabled {
+  opacity: 1;
+  border-bottom-color: transparent;
+}
+
+/* ── The OpenStreetMap card's rows ───────────────────────────────────────
+   Each row carries BOTH the layer's toggle and that layer's own density, on
+   one line, so the checkbox shares the WIDGET column with the slider instead
+   of spanning the value column the way a plain `.maps-layer-bool-row`'s
+   does (that rule still applies — it is simply inert once the checkbox sits
+   inside a flex parent rather than directly in the row's grid). The row
+   keeps the card body's three-column geometry unchanged: name / widget /
+   value, with the readout in the value column like every other row.
+
+   A `symbol`/`circle` row renders NO density control (nothing in the
+   renderer reads one for it), so its widget column holds the checkbox alone
+   and its value column is empty. Nothing here needs a rule for that: the
+   grid's three columns are declared on the row, not inferred from its
+   children, and the checkbox keeps its place because it is still the first
+   item of the same flex widget. */
+.maps-layer-card .maps-layer-body .maps-osm-row-widget {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-row-widget .maps-layer-bool-check {
+  flex: none;
+}
+.maps-layer-card .maps-layer-body .maps-osm-row-widget .voice-slider-track {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A LABELLED row (`symbol`) carries a placement control instead of a density
+   one, in the widget cell the slider left empty. It has no value of its own
+   to print, so the widget spans columns 2-3 — the same `grid-column: 2 / 4`
+   the Dock's `.controller.option` gives a `<select>`, and the same rule the
+   card's own `<select>` and info rows already take. Without it the toggle
+   would sit in a widget column sized for a slider and a 60px value column
+   would stand empty beside it, which is a narrower control for no reason. */
+.maps-layer-card .maps-layer-body .maps-osm-row--labelled .maps-osm-row-widget {
+  grid-column: 2 / 4;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The rail's own segmented control at ROW scale. `.gx-toggle-btn`'s base
+   padding is `4px 0`, sized for /synth's full-width voice rows; inside a
+   24px card row that makes the row grow. Trimmed to the row's own height
+   here and nowhere else — a descendant selector, never a redeclaration of
+   the shared class (see this file's header). */
+.maps-layer-card .maps-layer-body .maps-osm-anchor .gx-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor .gx-toggle-btn {
+  padding: 1px 0;
+}
+.maps-layer-card .maps-layer-body .maps-osm-anchor svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* A row whose DENSITY is gated: the row is switched off, so its control has
+   nothing to act on until it comes back. Same treatment as
+   `.maps-layer-slider--off` (0.5 opacity, `not-allowed`, tooltip left
+   reachable) but scoped to the density control, because the TOGGLE on this
+   row is live and dimming the name beside it would say otherwise.
+
+   The `symbol`/`circle` rows used to take this class too. They no longer
+   carry a density control at all, so there is nothing left to dim. */
+.maps-osm-row--density-off .voice-slider-track,
+.maps-osm-row--density-off .voice-slider-readout {
+  opacity: 0.5;
+}
+.maps-osm-row--density-off input[type="range"] {
+  cursor: not-allowed;
+}
+
+/* ── Point-layer hotspots (`symbol`/`circle`) ────────────────────────────
+   `@glyphcss/maps` tags each point layer's hotspot element with
+   `.glyph-map-symbol` / `.glyph-map-circle` and sets only what the LAYER
+   knows (label text, colour, and — for a circle — its own diameter and
+   border-radius). Everything else about how a city reads on an ASCII map is
+   presentation, so it lives here rather than in the library: without it a
+   symbol label inherited the page's body font at full size and rendered as
+   unstyled dark text over the terrain.
+
+   `pointer-events: none` on both: these are decoration over the map, and
+   glyphcss's base `.glyph-hotspot` rule turns pointer events ON (it is built
+   for clickable anchors). Leaving them clickable would swallow the drag
+   gestures that pan the map wherever a dot happens to sit. */
+.glyph-scene .glyph-map-symbol,
+.glyph-scene .glyph-map-circle {
+  pointer-events: none;
+  cursor: default;
+}
+.glyph-scene .glyph-map-symbol {
+  font: 500 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  /* An outline rather than a filled plate: a box would blank the glyph grid
+     under it, which is the whole picture on this page. */
+  text-shadow:
+    0 0 2px rgba(5, 7, 12, 0.95),
+    0 1px 0 rgba(5, 7, 12, 0.95),
+    0 -1px 0 rgba(5, 7, 12, 0.95),
+    1px 0 0 rgba(5, 7, 12, 0.95),
+    -1px 0 0 rgba(5, 7, 12, 0.95);
+  transition: opacity 120ms linear;
+}
+.glyph-scene .glyph-map-circle {
+  border: 1px solid rgba(5, 7, 12, 0.85);
+  box-sizing: border-box;
+  opacity: 0.75;
+}
+
+/* ── Place search — an OVERLAY on the map, top centre ────────────────────
+   Not a header bar and not in the document flow: the same overlay idiom as
+   the gallery's `.dn-floating-controls` (`position: absolute`, an
+   `--overlay-*` inset, `z-index: 20`, `pointer-events: auto`) and this
+   page's own `.synth-export-bar` (bottom-left, `--overlay-left`), with
+   `left: 50%` + a translate where those take an edge inset. The `--overlay-*`
+   variables come from `.dn-root` (gallery-workbench.css), which
+   `InstrumentShell` is.
+
+   The element covers only its own box, so every drag and wheel gesture
+   outside it still reaches the map — there is no transparent full-viewport
+   layer here to swallow them. Inside it, `pointer-events: auto` is explicit
+   for the same reason `.dn-floating-controls` states it: these controls sit
+   over a surface whose whole job is to capture the pointer.
+
+   Skin is the Dock's, matching the layer cards next door: a translucent
+   amber fill on the page's own near-black, an amber border that turns cyan
+   on focus, an orange marker glyph, 11px names at
+   rgba(255, 232, 184, 0.94) with the dim 0.70 for secondary text, and the
+   readout cyan (#38bdf8) for the one number a row carries. */
+.maps-search {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+.maps-search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.maps-search-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* The Dock's own orange marker (`.gx-select::after`'s caret colour), used
+   here as the prompt character — a magnifier glyph has no counterpart
+   anywhere else on this page, and the surface is a terminal. */
+.maps-search-glyph {
+  color: #f97316;
+  font-size: 11px;
+  line-height: 1;
+}
+.maps-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 1px 0;
+}
+.maps-search-input::placeholder {
+  color: rgba(255, 232, 184, 0.38);
+}
+.maps-search-clear {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.maps-search-clear:hover {
+  color: rgba(255, 232, 184, 0.94);
+}
+.maps-search-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+/* Three columns for the three things that tell two same-named results apart:
+   the name, the country/continent it is in, and its own prominence. Same
+   left-to-right reading as a Dock row (name, widget, value), and the value
+   column is the Dock's cyan. */
+.maps-search-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.07);
+}
+.maps-search-option:last-child {
+  border-bottom: none;
+}
+.maps-search-option.is-active {
+  background: rgba(56, 189, 248, 0.14);
+}
+.maps-search-name,
+.maps-search-context,
+.maps-search-metric {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.maps-search-name {
+  color: rgba(255, 232, 184, 0.94);
+  letter-spacing: 0.02em;
+}
+.maps-search-context {
+  color: rgba(255, 232, 184, 0.55);
+}
+.maps-search-metric {
+  text-align: right;
+  font-size: 10px;
+}
+.maps-search-metric--place {
+  color: #38bdf8;
+}
+.maps-search-metric--country {
+  color: rgba(255, 232, 184, 0.45);
+}
+/* The seam between the two halves of the list, named. The reader must be able
+   to tell an instant, baked, offline row from one that came off the network a
+   moment ago — same register as a Dock folder heading, and a rule above it so
+   it reads as a divider rather than as a result. */
+.maps-search-group {
+  padding: 4px 8px 2px;
+  border-top: 1px solid rgba(255, 232, 184, 0.16);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.45);
+}
+.maps-search-group:first-child {
+  border-top: none;
+}
+/* An OSM row's metric is a WORD (`tower`, `street`), not a number, so it does
+   not take the readout cyan the population column has — that colour means
+   "measured value" everywhere else on this page. */
+.maps-search-metric--osm {
+  color: rgba(255, 232, 184, 0.45);
+  font-style: italic;
+}
+/* The egress disclosure and the OSM credit, in one line under the field.
+   Rendered from focus, before a single keystroke has left the machine, which
+   is the only time saying so is worth anything. Quieter than
+   `.maps-search-note` — it is standing text, not a status. */
+.maps-search-egress {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(255, 232, 184, 0.42);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.12);
+}
+.maps-search-egress a {
+  color: rgba(255, 232, 184, 0.68);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.maps-search-egress a:hover {
+  color: #38bdf8;
+}
+.maps-search-note {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: rgba(255, 232, 184, 0.55);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+}
+
+@media (max-width: 760px) {
+  /* Clear of the mobile tab bar's own chrome; still centred, still an
+     overlay. */
+  .maps-search {
+    width: calc(100% - 24px);
+  }
+  .maps-search-list {
+    max-height: min(38vh, 240px);
+  }
+}
+
+/* On-map pitch readout + reset ("Level"). Chrome ON the map, the way every
+   map product puts its compass there, because the Dock's Tilt slider is
+   exactly what readers did not find. Right edge of the top row: `.maps-search`
+   owns the centre and `.maps-error` spans the full width above both
+   (z-index 22), so this sits at the same z-index as the search box and never
+   collides with it. Rendered only while the camera is off-level
+   (`MapTiltReset.tsx`), so it costs nothing on the view most readers keep. */
+.maps-compass {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  right: 12px;
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.maps-compass:hover,
+.maps-compass:focus-visible {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* The angle carries the same orange the Dock uses for a live value, so the
+   readout reads as state and the word next to it reads as the action. */
+.maps-compass__angles {
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+}
+/* The needle points where north is, so it has to sit on the text baseline's
+   optical centre rather than on the baseline itself. */
+.maps-compass__needle {
+  display: inline-flex;
+  align-self: center;
+  color: rgba(255, 232, 184, 0.8);
+}
+.maps-compass__label {
+  color: rgba(255, 232, 184, 0.62);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The Shadows row's "nothing mounted casts" note (`mapShadowCasterReason`).
+   Same register as `.maps-search-note` — a quiet line UNDER the control it
+   qualifies, not a badge on it — because the toggle stays live on purpose: a
+   reader about to mount a buildings layer must still be able to arm it. Only
+   rendered while shadows are ON; a caveat under an off switch is noise. */
+.dn-floating-controls .lil-gui .maps-shadow-note {
+  margin: 2px 0 4px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(255, 232, 184, 0.5);
+}
+
+/* The on-map WALK control — the third of this page's map overlays, matching
+   `.maps-compass` (top right) and `.maps-search` (top centre) in register and
+   in stacking, and taking the bottom-right corner, which is the one corner
+   nothing else claims (`.synth-export-bar` is bottom left, `.maps-attribution`
+   bottom centre). See `MapWalkButton.tsx` for why walk is chrome ON the map
+   rather than a Dock row. */
+.maps-walk {
+  position: absolute;
+  right: 12px;
+  /* Above the credit line, which owns the bottom-right corner (Google Maps
+     stacks its pegman over its own credit strip for the same reason). */
+  bottom: calc(12px + var(--maps-credit-row, 0px));
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.maps-walk__toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.maps-walk__toggle:hover:not(:disabled),
+.maps-walk__toggle:focus-visible {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* Greyed, never hidden — the reader is one zoom (or one projection) away, and
+   the reason is on the control's own `title`. Google's pegman greys in exactly
+   the same situation and for exactly the same reason. */
+.maps-walk__toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Live: the same orange the Dock uses for a value that is in force, so the
+   control reads as state rather than as a button that was pressed once. */
+.maps-walk__toggle.is-walking {
+  color: #f97316;
+  border-color: rgba(249, 115, 22, 0.55);
+}
+.maps-walk__label {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+/* The keys, shown only while walking: pointer lock hides the cursor, so
+   nothing else on screen hints at them. */
+.maps-walk__legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  margin: 0;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 5px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 232, 184, 0.7);
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.18);
+}
+.maps-walk__legend kbd {
+  font: inherit;
+  padding: 0 4px;
+  color: rgba(255, 232, 184, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.3);
+}
+.maps-walk__budget {
+  color: #f97316;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The plan-view MINIMAP — the fourth of this page's map overlays, in the same
+   register and the same stacking as `.maps-search` (top centre),
+   `.maps-compass` (top right) and `.maps-walk` (bottom right). It takes the
+   bottom LEFT, stacked directly above `.synth-export-bar` (12px + its own
+   34px row), which is the last corner with room; `.maps-attribution` keeps
+   the bottom centre.
+
+   `pointer-events: none` on the whole thing, which is the one place this
+   differs from its three siblings: they are controls and this is an
+   INSTRUMENT. It is not a map you drive (`MapMinimap.tsx` mounts it with
+   every control off), so a click on it belongs to the map underneath rather
+   than being swallowed by a 200px box sitting over the drag surface. */
+.maps-minimap {
+  position: absolute;
+  left: var(--overlay-left, 12px);
+  bottom: calc(12px + 34px);
+  z-index: 16;
+  pointer-events: none;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  background: rgba(5, 7, 12, 0.9);
+}
+/* Shrink-to-fit around the `<pre>`, so the cone's percentage width is a
+   percentage of the RENDERED grid rather than of some box the grid happens to
+   sit inside. `.glyph-scene` is `display: block` and the `<pre>` inside it is
+   `inline-block`, so an inline-block frame takes the grid's own width. */
+.maps-minimap__frame {
+  position: relative;
+  display: inline-block;
+  vertical-align: bottom;
+}
+/* 48x26 cells at a 7px cell is a ~202x182 px inset — `line-height: 1` comes
+   from glyphcss's own base styles, so the cell is one advance by one
+   font-size and this is the only number that sets the inset's size. */
+.maps-minimap__host {
+  font-size: 7px;
+}
+.maps-minimap__host .glyph-output {
+  color: rgba(226, 232, 240, 0.94);
+  cursor: default;
+}
+/* The view cone: the walker's own field of view and their own horizon, so its
+   width is `2 * far / span` of the inset and its half-angle is the walk
+   camera's FOV. It points straight UP and never rotates — the inset is
+   heading-up, so up IS where the reader is facing. */
+.maps-minimap__cone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  fill: rgba(56, 189, 248, 0.18);
+  stroke: rgba(56, 189, 248, 0.5);
+  stroke-width: 2;
+}
+/* The reader. The same orange the Dock uses for a value that is in force,
+   because that is what this is: a position, not a control. */
+.maps-minimap__here {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 0 1px rgba(5, 7, 12, 0.85);
+}
+
+/* Under the mobile breakpoint the drawers own the bottom edge and the map
+   surface is a fraction of its desktop size, where a fixed 202px inset is a
+   quarter of the picture rather than a corner of it. Dropped entirely, which
+   also destroys the widget behind it (`MapMinimap.tsx` mounts on `visible`)
+   — the same trade `.synth-export-bar` makes two breakpoint blocks up. */
+@media (max-width: 760px) {
+  .maps-minimap {
+    display: none;
+  }
+}
+
+/* The View folder's inline `[reset]` — one on the `Tilt °` row, one on
+   `Bearing °`, beside the label rather than in a full-width button row of its
+   own ("NO, THE RESET BUTTONS HAVE TO BE NEXT TO THE TILT ° AND BEARING °
+   LABELS WE CANNOT ADD THOSE HUGE BUTTONS ... tiny reset button").
+   See `mapsKit.tsx`'s `useRowReset` for the wiring.
+
+   It sits in the row's NAME cell, and that is load-bearing: lil-gui gives
+   `.controller > .name` a `min-width: var(--name-width)` and NO max, so
+   anything in there that overflowed 45% would push the widget — and with it
+   the slider TRACK, the part of the row a reader actually drags — narrower.
+   `max-width` pins the cell to the same 45% it already had, so the widget
+   column is exactly the width it was, whatever this button costs. Nothing in
+   this block names `.widget`, `.slider` or an input for the same reason. */
+.dn-floating-controls .lil-gui .controller > .name.maps-view-name {
+  max-width: var(--name-width);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Tiny by construction: 9px monospace, the row scale `/synth` drops
+   `.gx-toggle-btn` to when a control has to share a line rather than own one,
+   and the bracket idiom the Dock's own slider track already draws in
+   (`[ ─█──── ]`). Borderless — a boxed button at this size reads as a second
+   widget on a row that already has one. */
+.dn-floating-controls .lil-gui .maps-view-reset {
+  flex: 0 0 auto;
+  /* lil-gui's own `.lil-gui button` is `width: 100%` and `.lil-gui
+     .controller button` a full `--widget-height` tall — it assumes a button
+     OWNS its row, which is exactly the shape this control exists not to be.
+     Sized to its own text instead. */
+  width: auto;
+  height: auto;
+  font: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 1px 2px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: rgba(255, 232, 184, 0.45);
+  cursor: pointer;
+}
+.dn-floating-controls .lil-gui .maps-view-reset:hover:not(:disabled),
+.dn-floating-controls .lil-gui .maps-view-reset:focus-visible {
+  color: #38bdf8;
+}
+/* At home there is nothing to undo, so the control is really `disabled` (see
+   `useRowReset`) and says so — the same 0.38 the Dock dims a disabled row's
+   own name to, rather than a whole-row dim that would take the live slider
+   beside it down as well. */
+.dn-floating-controls .lil-gui .maps-view-reset:disabled {
+  color: rgba(255, 232, 184, 0.38);
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── The four map overlays, laid out as ONE system ───────────────────────────
+   `.maps-search`, `.maps-compass`, `.maps-walk`, `.maps-minimap` and the
+   credit line are all `position: absolute` over a surface that is 1099x828 on
+   a desktop and 390x754 on a phone. Each was placed on its own against the
+   desktop figure, and on a phone the corners they were given collide:
+   measured on the built page at 390x844, `.maps-compass` (105x29 at 273,102)
+   sat entirely INSIDE `.maps-search` (366x30 at 12,102), and `.maps-walk`
+   (74x29 at 304,803) and the credit block (195x114 at 98,718) both ran
+   straight through the mobile tab bar (366x44 at 12,788). Together the five
+   covered 18.5% of the map surface against 6.9% at 1440x900 — and the map is
+   a character grid sized from its element, so that is terrain that was never
+   drawn.
+
+   The bottom-right column is a STACK, bottom-up: credit line, then the walk
+   control above it. `--maps-credit-row` is the credit line's own row height
+   (11px text + 3px padding + 1px border either side, plus a 6px gap), stated
+   once so the two agree instead of each carrying its own 12px. */
+.dn-root.maps-shell {
+  --maps-credit-row: 26px;
+}
+
+@media (max-width: 760px) {
+  /* The top row: the search field gives up the compass's lane instead of
+     spanning the full width and being covered by it. Left-anchored, because
+     a centred box of ANY width still runs under a right-anchored compass. */
+  .maps-search {
+    left: var(--overlay-left, 12px);
+    right: calc(var(--overlay-right, 12px) + 113px);
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  /* The bottom edge belongs to the tab bar (`--mobile-panel-bottom` already
+     clears it, and is what every mobile drawer on this shell is measured
+     from). Both overlays sit above it in the same stack order as desktop. */
+  .maps-attribution {
+    bottom: var(--mobile-panel-bottom);
+    /* One name plus `+N`: a 390px phone has ~55 monospace characters on this
+       line, and "© OpenStreetMap contributors" is 29 of them. The rest are
+       one tap away, which is what OSM's own constrained-display guidance
+       asks for (`mapsCredits.ts`). */
+    --maps-credit-names: 1;
+  }
+  .maps-walk {
+    bottom: calc(var(--mobile-panel-bottom) + var(--maps-credit-row));
+  }
+}
+
+/* A finger is not a mouse pointer: the desktop toggle is a 74x29 box, under
+   the 44px minimum every touch guideline sets. Keyed on the POINTER, not a
+   width, so a narrow desktop window keeps the compact control and a tablet
+   gets the bigger one. The compass and the credit toggle are readouts you
+   tap at most once; this one is the page's mode entrance. */
+@media (pointer: coarse) {
+  .maps-walk__toggle {
+    min-height: 44px;
+    padding: 6px 14px;
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "recorded": "2026-09-07",
+  "query": "avenida corrientes",
+  "view": {
+    "lon": -58.44,
+    "lat": -34.6,
+    "span": 0.5
+  },
+  "url": "https://photon.komoot.io/api/?q=avenida+corrientes&limit=6&lang=en&lat=-34.60000&lon=-58.44000&zoom=9&location_bias_scale=0.4",
+  "status": 200,
+  "body": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 684889563,
+          "osm_key": "highway",
+          "osm_value": "tertiary",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1042AAC",
+          "countrycode": "AR",
+          "extent": [
+            -58.3908247,
+            -34.6041698,
+            -58.3894175,
+            -34.6042893
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3901211,
+            -34.6042295
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 1268297576,
+          "osm_key": "highway",
+          "osm_value": "secondary",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "district": "Balvanera",
+          "county": "Comuna 3",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1045AAP",
+          "countrycode": "AR",
+          "extent": [
+            -58.3963496,
+            -34.6044513,
+            -58.3953125,
+            -34.6045173
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.395836,
+            -34.6044623
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 47304455,
+          "osm_key": "highway",
+          "osm_value": "service",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1043ABN",
+          "countrycode": "AR",
+          "extent": [
+            -58.3865415,
+            -34.6039322,
+            -58.3851325,
+            -34.604015
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3858369,
+            -34.6039752
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 683440012,
+          "osm_key": "highway",
+          "osm_value": "tertiary",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1042AAD",
+          "countrycode": "AR",
+          "extent": [
+            -58.3923106,
+            -34.6042893,
+            -58.3908247,
+            -34.6044006
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3915676,
+            -34.6043449
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 684889569,
+          "osm_key": "highway",
+          "osm_value": "tertiary",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "locality": "Microcentro",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1042AAA",
+          "countrycode": "AR",
+          "extent": [
+            -58.3879091,
+            -34.6039408,
+            -58.3865522,
+            -34.6040444
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3872306,
+            -34.6039926
+          ]
+        }
+      },
+      {
+        "type": "Feature",
+        "properties": {
+          "osm_type": "W",
+          "osm_id": 681596397,
+          "osm_key": "highway",
+          "osm_value": "service",
+          "type": "street",
+          "name": "Avenida Corrientes",
+          "district": "San Nicolás",
+          "city": "Buenos Aires",
+          "county": "Comuna 1",
+          "state": "Autonomous City of Buenos Aires",
+          "country": "Argentina",
+          "postcode": "C1042AAQ",
+          "countrycode": "AR",
+          "extent": [
+            -58.3923055,
+            -34.6043577,
+            -58.3908227,
+            -34.6044657
+          ]
+        },
+        "geometry": {
+          "type": "Point",
+          "coordinates": [
+            -58.3915642,
+            -34.6044107
+          ]
+        }
+      }
+    ]
+  }
+}

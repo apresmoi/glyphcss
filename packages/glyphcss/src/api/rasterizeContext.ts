@@ -9,7 +9,7 @@ import type { TransformCells, GlyphColorEncoding } from "../render/cells";
 import type { GlyphAtlasPaletteInput, GlyphAtlasPaletteSource } from "../render/paletteQuantize";
 import { GLYPH_FONT_ATLAS, type GlyphFontAtlas } from "../render/fontAtlas";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowCasters, GlyphShadowMapCache, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 /**
  * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
@@ -37,6 +37,111 @@ export interface OcclusionMap {
    * while still yielding to a scene stacked above it. Default false.
    */
   foreignOnly?: boolean;
+  /**
+   * SAME-POINT OWNERSHIP (optional; all three together, or none — absent
+   * keeps the pure id-based blanking).
+   *
+   * The id-map is rasterized at the BASE grid's resolution, but a
+   * `density > 1` detail layer renders FINER and looks its owner up per
+   * output cell. Ownership is therefore all-or-nothing per id-map cell while
+   * coverage is decided per output cell, so where two adjacent meshes share
+   * an edge the id-map cell straddling it is claimed by exactly one of them
+   * and the other would blank every output cell it owns inside that map cell
+   * — including the ones the winner does not cover. Nothing paints those: a
+   * black seam along every shared edge, in both axes (measured on
+   * `@glyphcss/maps`' globe: a median 0.75 base cells over ~1,500 runs per
+   * frame at density 1.4, and the same at 2 and 3).
+   *
+   * `depth` is the id-map's own nearest-depth buffer (same resolution,
+   * `-Infinity` = empty, larger = nearer — `fillDepthTri`'s convention),
+   * retained rather than discarded, and it is the SAME quantity a pass's own
+   * `CellGrid.depth` carries. `slopeCol`/`slopeRow` are the WINNING
+   * TRIANGLE'S OWN screen-space depth derivative there, in depth per id-map
+   * cell along each axis — an exact plane derivative, evaluated once per
+   * triangle, not a difference between neighbouring cells.
+   *
+   * With them the rasterizer stops comparing two DIFFERENT screen points. It
+   * walks the owner's own plane from where the map sampled it to where the
+   * asking cell actually sits (a signed sub-cell offset, exactly known from
+   * this map's affine) and compares there against that cell's own depth.
+   * Inside one triangle that walk is exact, so:
+   *
+   * - two halves of one continuous surface agree to the last bits and
+   *   neither blanks the other, at any density and at any slope — the seam
+   *   closes with no allowance at all, only the float-noise tolerance
+   *   `OCCLUSION_COINCIDENT_REL` two evaluations of one plane need; and
+   * - a layer genuinely behind another is still blanked everywhere, including
+   *   the outer ring of its own silhouette, where it covers output cells but
+   *   no id-map sample point of its own.
+   *
+   * The superseded form forgave, rather than corrected, the difference
+   * between those two points: an allowance of the map's local depth GRADIENT
+   * (a dilated first difference, scaled 1.5). Under a pitched camera that
+   * gradient is the VIEW's own depth ramp rather than the surface's
+   * roughness, so it swallowed genuine separations wholesale —
+   * `@glyphcss/maps`' draped `fill` sits 10 m above the terrain and stopped
+   * occluding it entirely the moment the terrain left the base grid (a lake
+   * took 32 of the terrain's cells at density 1.4 and 0 at 1.8, against 81
+   * per base cell with both layers in the base grid). The slope here is the
+   * same quantity used the other way round — as a CORRECTION applied to the
+   * owner, not as slack granted to the loser — so a real 10 m separation
+   * survives it untouched.
+   *
+   * What it cannot do is follow a FOLD: where the owner's surface bends
+   * within half a map cell of the boundary, the walk stays on the triangle
+   * that won the cell, and the residue is that fold's own second-order term
+   * over a sub-cell distance.
+   */
+  depth?: Float64Array | null;
+  slopeCol?: Float64Array | null;
+  slopeRow?: Float64Array | null;
+}
+
+/**
+ * A contiguous run of `polygons` plus its world-space AABB, so the whole run
+ * can be rejected BEFORE any of its vertices are projected.
+ *
+ * Why runs and not a per-mesh box: measured on /maps' globe over 12 poses,
+ * a whole-mesh AABB rejects only 2.4% of triangles (every terrain tile is
+ * partly on screen), while runs of ~48 polygons reject 39.3% — most of the
+ * 42.9% that a per-triangle post-projection test finds off-grid anyway,
+ * except now the projection is never paid. Runs must be CONTIGUOUS and
+ * skipping must never reorder anything: `depthEpsilon` deliberately resolves
+ * coplanar ties by draw order, so a reordered list is a different picture.
+ */
+export interface GlyphPolygonCullChunk {
+  /** First polygon index of the run. */
+  readonly start: number;
+  /** One past the run's last polygon index. */
+  readonly end: number;
+  /** Fan triangles in the run — a skip must advance the positional shade-cache index by exactly this. */
+  readonly triangles: number;
+  readonly minX: number;
+  readonly minY: number;
+  readonly minZ: number;
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly maxZ: number;
+  /**
+   * Unit axis of a bounding CONE over every fan triangle's world-space face
+   * normal in the run, with {@link coneCos} the cosine of its half-angle
+   * (`min` over the run of `normal · axis`). Together they let the whole run
+   * be rejected as BACK-FACING before a vertex is projected — the category an
+   * AABB structurally cannot see, because a globe's far hemisphere still
+   * projects inside the near one's disc.
+   *
+   * `coneCos <= 0` means the run's normals span more than a hemisphere and no
+   * back-facing conclusion is possible; the rejection test treats that (and a
+   * zero-length or non-finite normal anywhere in the run) as "always draw".
+   * The cone is a valid bound, not a minimal one — it is built from the mean
+   * normal direction, so it can be wider than necessary, which only ever
+   * costs a rejection, never a wrong one.
+   */
+  readonly coneX: number;
+  readonly coneY: number;
+  readonly coneZ: number;
+  /** Cosine of the normal cone's half-angle; `-1` = unusable, always draw. */
+  readonly coneCos: number;
 }
 
 export interface RasterizeContextOptions {
@@ -291,6 +396,28 @@ export interface RasterizeContextOptions {
    */
   temporalBlend?: number;
   shadow?: GlyphShadowOptions;
+  /**
+   * The caster set the shadow MAP is built from, when it is not this pass's
+   * own `polygons`/`castShadowFlags`.
+   *
+   * A scene's casters are not all in one pass: a mesh carrying its own
+   * `density`, `mode`, `glyphPalette`, `ambientIntensity` or `transparent`
+   * rasterizes into its own detail grid (`isDetailMesh`), and a shadow map
+   * built per pass would then see only the casters that pass happens to
+   * hold. Every pass of one frame is handed the SAME whole-scene caster set
+   * here, so a detail layer casts onto the base grid, the base grid casts
+   * into a detail layer, and two detail layers cast onto each other — one
+   * light, one volume, one map. Omitted = this pass's own polygons, which is
+   * the single-pass behaviour exactly.
+   */
+  shadowCasters?: GlyphShadowCasters;
+  /**
+   * Per-frame holder so every pass shares ONE built shadow map instead of
+   * re-rasterizing the whole caster set per output grid. Purely a cache: the
+   * map is a pure function of ({@link shadowCasters}, light direction), both
+   * of which are frame-constant and scene-level. Omitted = build per pass.
+   */
+  shadowMapCache?: GlyphShadowMapCache;
   /** Per-polygon cast flag (parallel to `polygons` array). True = this poly's mesh has castShadow. */
   castShadowFlags?: boolean[];
   /** Per-polygon receive flag (parallel to `polygons` array). True = this poly's mesh has receiveShadow. */
@@ -307,6 +434,15 @@ export interface RasterizeContextOptions {
    */
   polygonMeshIds?: number[];
   /**
+   * Optional contiguous world-AABB runs over `polygons`, in order and
+   * covering it — see {@link GlyphPolygonCullChunk}. A run whose box provably
+   * projects entirely off the grid is skipped without projecting a single one
+   * of its vertices. Purely a cost reduction: the surviving polygons, their
+   * order, and every per-cell decision are identical with or without it.
+   * Solid mode only (the wireframe/voxel path has its own loop).
+   */
+  cullChunks?: readonly GlyphPolygonCullChunk[];
+  /**
    * Global depth-test deadband (0 = exact, the default). A polygon replaces the
    * current cell only when nearer by more than this relative fraction, so
    * near-coplanar surfaces (overlapping brushes, decals, a translucent plane
@@ -322,7 +458,7 @@ export interface RasterizeContextOptions {
    * explicit input for pure/headless callers; interactive scenes populate the
    * same field after browser decoding.
    */
-  textureSamplers?: Map<string, TextureSampler> | null;
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
   /** Retain the final solid-mode per-cell shading scalar for an effect input. */
   retainShade?: boolean;
   /** Retain depth-winning world positions for an effect input. */
@@ -487,11 +623,17 @@ export interface RasterizeContext {
   supersample: number;
   temporalBlend: number;
   shadow: GlyphShadowOptions | undefined;
+  /** Whole-scene caster set — see {@link RasterizeContextOptions.shadowCasters}. */
+  shadowCasters?: GlyphShadowCasters;
+  /** Shared per-frame shadow map — see {@link RasterizeContextOptions.shadowMapCache}. */
+  shadowMapCache?: GlyphShadowMapCache;
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
   depthBiases?: number[];
   /** Per-polygon owning-mesh id — see {@link RasterizeContextOptions.polygonMeshIds}. */
   polygonMeshIds?: number[];
+  /** Pre-projection cull runs — see {@link RasterizeContextOptions.cullChunks}. */
+  cullChunks?: readonly GlyphPolygonCullChunk[];
   /** Global depth-test deadband — see {@link RasterizeContextOptions.depthEpsilon}. */
   depthEpsilon?: number;
   /** Optional cross-frame shading cache (see {@link ShadeCache}). */
@@ -502,7 +644,7 @@ export interface RasterizeContext {
    * the texture per cell (full image, glyph-resolution) instead of using the
    * flat baked `poly.color`. Built by the scene via `buildTextureSamplers`.
    */
-  textureSamplers?: Map<string, TextureSampler> | null;
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
@@ -630,6 +772,8 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     supersample: opts.supersample ?? 1,
     temporalBlend: opts.temporalBlend ?? 0,
     shadow: opts.shadow,
+    ...(opts.shadowCasters === undefined ? {} : { shadowCasters: opts.shadowCasters }),
+    ...(opts.shadowMapCache === undefined ? {} : { shadowMapCache: opts.shadowMapCache }),
     castShadowFlags: opts.castShadowFlags ?? [],
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
     retainShade: opts.retainShade ?? false,
@@ -644,10 +788,137 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.polygonMeshIds ? { polygonMeshIds: opts.polygonMeshIds } : {}),
+    ...(opts.cullChunks ? { cullChunks: opts.cullChunks } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
     ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),
     ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
     ...(opts.solidWeightRamp ? { solidWeightRamp: opts.solidWeightRamp } : {}),
   };
+}
+
+/**
+ * Default polygons per {@link GlyphPolygonCullChunk}. Chosen by measurement,
+ * not roundness: on /maps' globe over 12 poses, runs of 45 rejected 39.3% of
+ * triangles before projection, 90 rejected 30.5%, 180 rejected 27.8%, and a
+ * whole-mesh box rejected 2.4% — against a 42.9% ceiling (what the existing
+ * per-triangle post-projection test finds off-grid). Finer runs keep chasing
+ * that ceiling but pay 8 corner projections each; ~48 sits where the curve
+ * flattens.
+ */
+export const GLYPH_CULL_CHUNK_POLYGONS = 48;
+
+/**
+ * Below this many polygons a mesh is not worth chunking at all — 8 corner
+ * projections per run would cost more than the vertices they might save.
+ */
+export const GLYPH_CULL_CHUNK_MIN_POLYGONS = 256;
+
+/**
+ * Builds contiguous world-AABB runs over `polygons` for
+ * {@link RasterizeContextOptions.cullChunks}. Returns `null` for a list too
+ * small to be worth chunking.
+ *
+ * The AABB and the normal cone are both over the polygons' CURRENT (already
+ * world-space) vertices, so the result is only valid while those vertices
+ * are: a caller caching it must invalidate on the same events that invalidate
+ * the cross-frame shade cache.
+ */
+export function buildGlyphPolygonCullChunks(
+  polygons: readonly Polygon[],
+  chunkSize: number = GLYPH_CULL_CHUNK_POLYGONS,
+): readonly GlyphPolygonCullChunk[] | null {
+  if (polygons.length < GLYPH_CULL_CHUNK_MIN_POLYGONS || chunkSize < 1) return null;
+  const chunks: GlyphPolygonCullChunk[] = [];
+  for (let start = 0; start < polygons.length; start += chunkSize) {
+    const end = Math.min(polygons.length, start + chunkSize);
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let triangles = 0;
+    let finite = true;
+    for (let i = start; i < end; i++) {
+      const verts = polygons[i]!.vertices;
+      if (verts.length >= 3) triangles += verts.length - 2;
+      for (const v of verts) {
+        const x = v[0], y = v[1], z = v[2];
+        // A NaN/Infinite vertex (a projection's own "outside my window"
+        // sentinel can reach geometry) would poison the box into rejecting a
+        // run that must be drawn. Mark the run un-cullable instead.
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) { finite = false; continue; }
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+    const cone = buildChunkNormalCone(polygons, start, end);
+    chunks.push(finite && minX <= maxX
+      ? { start, end, triangles, minX, minY, minZ, maxX, maxY, maxZ, ...cone }
+      // An un-cullable run: an infinite box is never off-grid, so it always draws.
+      : { start, end, triangles, minX: -Infinity, minY: -Infinity, minZ: -Infinity, maxX: Infinity, maxY: Infinity, maxZ: Infinity, ...cone });
+  }
+  return chunks;
+}
+
+/** Reused across runs so a per-mesh chunk build allocates one array, not one per run. */
+let coneScratch = new Float64Array(3 * 256);
+
+/**
+ * A bounding cone over every fan triangle's unit face normal in
+ * `polygons[start..end)` — see {@link GlyphPolygonCullChunk.coneX}.
+ *
+ * Two passes over the run's triangles: the first normalizes each face normal
+ * (the SAME `u x v` on the SAME fan triangulation `rasterizeSolid` itself
+ * uses, so the cone bounds exactly the normals the back-face test will see)
+ * and accumulates their sum; the second measures the widest deviation from
+ * that mean direction. The mean is not the minimal enclosing cone's axis, but
+ * it is a valid one, and being wider than necessary can only lose a
+ * rejection.
+ *
+ * Any degenerate (zero-length or non-finite) normal, or a normal set whose
+ * mean cancels to nothing, yields `coneCos: -1` — "never conclude anything
+ * about this run."
+ */
+function buildChunkNormalCone(
+  polygons: readonly Polygon[],
+  start: number,
+  end: number,
+): { coneX: number; coneY: number; coneZ: number; coneCos: number } {
+  const UNUSABLE = { coneX: 0, coneY: 0, coneZ: 0, coneCos: -1 };
+  let n = 0;
+  let sx = 0, sy = 0, sz = 0;
+  for (let i = start; i < end; i++) {
+    const verts = polygons[i]!.vertices;
+    for (let f = 1; f < verts.length - 1; f++) {
+      const v0 = verts[0]!, v1 = verts[f]!, v2 = verts[f + 1]!;
+      const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+      const vx = v2[0] - v0[0], vy = v2[1] - v0[1], vz = v2[2] - v0[2];
+      const nx = uy * vz - uz * vy;
+      const ny = uz * vx - ux * vz;
+      const nz = ux * vy - uy * vx;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (!(len > 0) || !Number.isFinite(len)) return UNUSABLE;
+      const ex = nx / len, ey = ny / len, ez = nz / len;
+      if (3 * n + 3 > coneScratch.length) {
+        const grown = new Float64Array(Math.max(coneScratch.length * 2, 3 * n + 3));
+        grown.set(coneScratch);
+        coneScratch = grown;
+      }
+      coneScratch[3 * n] = ex; coneScratch[3 * n + 1] = ey; coneScratch[3 * n + 2] = ez;
+      sx += ex; sy += ey; sz += ez;
+      n++;
+    }
+  }
+  if (n === 0) return UNUSABLE;
+  const sLen = Math.sqrt(sx * sx + sy * sy + sz * sz);
+  if (!(sLen > 0)) return UNUSABLE;
+  const ax = sx / sLen, ay = sy / sLen, az = sz / sLen;
+  let minDot = Infinity;
+  for (let i = 0; i < n; i++) {
+    const d = coneScratch[3 * i]! * ax + coneScratch[3 * i + 1]! * ay + coneScratch[3 * i + 2]! * az;
+    if (d < minDot) minDot = d;
+  }
+  return { coneX: ax, coneY: ay, coneZ: az, coneCos: minDot };
 }

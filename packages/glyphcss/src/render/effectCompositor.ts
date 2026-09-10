@@ -1,4 +1,4 @@
-import type { CellGrid } from "./cells";
+import type { CellGrid, GlyphTransformCellsLayer } from "./cells";
 import { cloneCellGrid, isSingleCellGlyph } from "./cells";
 import {
   GlyphEffectNoColor,
@@ -63,6 +63,17 @@ export interface GlyphEffectOutputMetadata {
   readonly sceneGridSize: readonly [number, number];
   readonly localCellFootprint: readonly [number, number];
   readonly worldToSceneScale?: number;
+  /**
+   * This output's identity as the legacy `transformCells` hook is told it —
+   * the SAME tag `withTransformCellsLayer` binds when no effect is mounted.
+   *
+   * It rides on the metadata rather than on a render-scoped variable because
+   * the hook runs on TWO paths: inside a full geometry render (where the
+   * live metadata is at hand) and again on every retained recompose, which
+   * iterates outputs that were retained frames earlier and has nothing else
+   * left to say which grid each one is.
+   */
+  readonly transformCellsLayer: GlyphTransformCellsLayer;
 }
 
 /**
@@ -800,6 +811,27 @@ export function composeRetainedGlyphEffectOutput(
     workingGrid.objectNormal.set(baseGrid.objectNormal);
   }
   if (workingGrid.winnerMesh && baseGrid.winnerMesh) workingGrid.winnerMesh.set(baseGrid.winnerMesh);
+  // CELL OWNERSHIP (`CellGrid.occluded`) rides ACROSS the compositor by
+  // reference rather than being copied into `workingGrid`.
+  //
+  // It has to reach the far side at all: the grid this function returns is the
+  // one handed to the user's own `transformCells` hook, so without this a hook
+  // that PAINTS loses the only field that can tell a cell another output layer
+  // owns apart from open sky — byte for byte the same `" "` at `-Infinity` —
+  // the moment any effect layer is mounted. `@glyphcss/maps` walks straight
+  // into that: its street-level sky is coloured by a mesh-targeted appearance
+  // program, so entering walk mode silently disabled the ownership test its
+  // `line` layers had been honouring since `a3b7c56`, and a road drew through
+  // a building that had separated for a `density` of its own.
+  //
+  // By reference, because unlike every buffer above this one is not the
+  // compositor's to own: the rasterizer allocates it fresh per pass, nothing
+  // here reads or writes it, and it is absent on every grid rendered without a
+  // shared occlusion id-map. Assigning it also sidesteps the pooled-scratch
+  // trap `cellGridShapeMatches` guards for the copied fields — there is no
+  // pre-sized destination to go stale.
+  if (baseGrid.occluded) workingGrid.occluded = baseGrid.occluded;
+  else delete workingGrid.occluded;
   workingGrid.screenX.set(baseGrid.screenX);
   workingGrid.screenY.set(baseGrid.screenY);
   if (workingGrid.surfaceUv && baseGrid.surfaceUv) workingGrid.surfaceUv.set(baseGrid.surfaceUv);

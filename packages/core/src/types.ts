@@ -139,10 +139,13 @@ export interface Polygon {
   material?: PolyMaterial;
   /**
    * Texture sampler wrap mode for UVs outside [0, 1]. glTF imports and the
-   * fonts extruder preserve sampler.wrapS / wrapT here so a renderer that
-   * tiles textures can repeat the UVs. The ASCII renderer bakes textures to a
-   * flat per-face color and ignores this; unset keeps single-image behavior.
-   * @internal
+   * fonts extruder preserve sampler.wrapS / wrapT here.
+   *
+   * glyphcss's solid rasterizer HONOURS this per cell: with `repeat`, a face's
+   * UVs carry the real tile COUNT (`[[0,0],[bays,0],[bays,floors],[0,floors]]`)
+   * and one small image tiles across it, instead of the caller pre-tiling a
+   * distinct image per count pair. Unset (the default) is `clamp-to-edge` and
+   * keeps single-image behavior.
    */
   textureWrap?: PolyTextureWrap;
   /**
@@ -172,6 +175,38 @@ export interface Polygon {
    * between renders, without re-adding the mesh. Default `false`.
    */
   hidden?: boolean;
+  /**
+   * Authored UNIT shading normal, replacing the geometric one this polygon's
+   * own vertices imply. Solid mode only: visibility is still the rasterizer's
+   * screen-winding back-face verdict, the depth test, the shadow map and the
+   * cross-layer occlusion id-map all read geometry, and
+   * `wireframe`/`ink`/`voxel` do no Lambert shading to redirect. A non-finite
+   * or zero-length value falls back to the geometric normal.
+   *
+   * It reaches TWO things: the Lambert term, and the rasterizer's retained
+   * `CellGrid.normal` — hence the `normal` effect input and the control
+   * tensor's normal channels, which mean "this cell's surface normal" and for
+   * a face whose plane is not its surface that is exactly the authored
+   * vector. `CellGrid.objectNormal` is the counter-case: it is a cross
+   * product of the polygon's own pre-transform vertices and stays geometric.
+   *
+   * A mesh TRANSFORM moves it, as it moves the geometric normal it replaces:
+   * rotated with the mesh, inverse-transposed through a non-uniform scale,
+   * renormalized, and never translated. The Three compatibility subpath's
+   * `transformPolygonsToGlyph` additionally applies the Y-up to Z-up axis map.
+   *
+   * It exists because a face's own plane is not always the surface it stands
+   * for. Triangulating a curved region in a FLAT parameter space emits
+   * near-collinear SLIVERS, and three nearly collinear points on a sphere have
+   * a circumcircle whose centre is tens of degrees away — so their plane is a
+   * great circle's rather than the surface's, and their geometric normal is up
+   * to 90 degrees off the real one. Such a face is a legitimate piece of the
+   * surface with a meaningless plane: shaded by that plane it can light as if
+   * lit from inside, and the only alternative without this field is to DROP it
+   * and leave a hole. `@glyphcss/maps`' vector `fill` on a globe is the
+   * reference consumer — it sets the projection's own local up here.
+   */
+  shadingNormal?: Vec3;
 }
 
 // ── Glyphcss-specific (ASCII rendering) ─────────────────────────

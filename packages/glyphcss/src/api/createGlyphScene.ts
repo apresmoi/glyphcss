@@ -32,10 +32,11 @@ import type {
 import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
-import { buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
-import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
-import { rasterize, rasterizeToCells, computeOcclusionIds, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
-import { encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type GlyphTransformCellsLayer, type TransformCells } from "../render/cells";
+import { buildGlyphPolygonCullChunks, buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
+import type { GlyphPolygonCullChunk, ShadeCache, TemporalHistory } from "./rasterizeContext";
+import { rasterize, rasterizeToCells, computeOcclusionIds, buildSurfaceDepth, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
+import type { GlyphOcclusionSlopes } from "../render/rasterize";
+import { buildCellGrid, encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type GlyphTransformCellsLayer, type TransformCells } from "../render/cells";
 import {
   resolveGlyphControlLineage,
   validateGlyphControlMetadata,
@@ -65,7 +66,7 @@ import { injectGlyphBaseStyles, ensureGlyphAtlasFontFaceStyles } from "../styles
 import { GLYPH_FONT_ATLAS, buildGlyphAtlasFontPaletteValuesCss, type GlyphFontAtlas } from "../render/fontAtlas";
 import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type GlyphAtlasPaletteQuantizer } from "../render/paletteQuantize";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowCasters, GlyphShadowMapCache, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 export interface GlyphSceneOptions {
@@ -297,6 +298,19 @@ export interface GlyphHotspotOptions {
 
 export interface GlyphHotspotHandle {
   remove(): void;
+  /**
+   * Move this hotspot's 3D anchor without touching its element.
+   *
+   * A hotspot's anchor is not always fixed at creation: a consumer that
+   * PLANTS its overlays on geometry that arrives later (`@glyphcss/maps`
+   * anchors a map label at the ground elevation under it, which changes when
+   * a finer terrain tier lands) otherwise has only one way to move one —
+   * remove and re-add — which destroys and re-creates the element, losing
+   * whatever the consumer wrote on it and restarting any CSS transition on
+   * it. The element and its listeners survive this; only the projected
+   * position changes, on the render it schedules.
+   */
+  setAt(at: Vec3): void;
   /** The absolutely-positioned overlay `<div>` in the hotspot layer. */
   readonly el: HTMLElement;
 }
@@ -370,6 +384,49 @@ export interface GlyphSceneHandle {
    */
   setInteracting(active: boolean): void;
   /**
+   * The `cols`/`rows` this scene renders at with `interactiveDownscale` NOT
+   * applied — identical to `getOptions()`'s pair whenever the scene is not
+   * interacting, and the ONLY way to recover it while it is.
+   *
+   * `setInteracting(true)` divides `options.cols`/`rows` in place, so
+   * `getOptions()` reports the coarser RENDER grid for the duration of a
+   * gesture. That is right for anything measured in rasterized cells and
+   * wrong for anything measured against the DOM, because the downscale
+   * changes the `<pre>`'s font size and nothing else on the page: a
+   * consumer's own overlay (a hotspot label) keeps its CSS pixel size while
+   * the cell it is expressed in triples. Such a consumer needs the grid its
+   * overlay is actually laid out in, which is this one.
+   */
+  getBaseResolution(): { readonly cols: number; readonly rows: number };
+  /**
+   * Set the meshless, viewport-wide output densities that the scene should
+   * invoke `transformCells` for. Density `1` is the existing base output and
+   * is ignored here; each other positive density gets one transparent `<pre>`
+   * with its own geometry depth pass and a full-viewport cell affine. Passing
+   * an empty list removes every such output. Values are deduplicated.
+   *
+   * This is a scene-handle capability rather than a scene option: React, Vue,
+   * and custom-element consumers already expose the same handle, so no second
+   * component prop or lifecycle owner is needed.
+   */
+  setViewportOverlayDensities(densities: readonly number[]): void;
+  /**
+   * Supply decoded texture pixels DIRECTLY, keyed by the same string a polygon's
+   * `texture` names, instead of letting the scene fetch and decode that name as
+   * a URL. Merged OVER the decoded map, so a caller-supplied key wins and every
+   * other texture keeps loading normally; `null` (the default) clears them all.
+   *
+   * This is what makes a PROCEDURAL texture usable: `@glyphcss/maps` generates a
+   * facade image in plain JS and registers it under `"glyph-map:facade"`, with
+   * no image fetch, no canvas, and therefore no browser requirement — the same
+   * code path runs under a test DOM and under SSR.
+   *
+   * A scene-handle capability rather than a scene option, for the same reason
+   * {@link setViewportOverlayDensities} is: every wrapper already exposes the
+   * handle, so no second component prop or lifecycle owner is needed.
+   */
+  setTextureSamplers(samplers: ReadonlyMap<string, TextureSampler> | null): void;
+  /**
    * Inject another scene's opaque coverage (its `getOpaqueCoverage()` result)
    * as a FOREIGN occluder: every layer of THIS scene — base grid, opaque
    * detail layers, and `transparent` detail layers alike — blanks its cells
@@ -425,6 +482,47 @@ interface MeshEntry {
   transform: GlyphMeshTransform;
 }
 
+/**
+ * One detail OUTPUT — the meshes that share a single silhouette-fitted `<pre>`,
+ * one rasterizer pass, and one id in the shared cross-layer occlusion id-map.
+ *
+ * Without `GlyphMeshTransform.detailGroup` every detail mesh is its own group
+ * of one, which is the pre-existing shape exactly. With it, the meshes naming
+ * the same group render on ONE cell lattice, which is what removes the seam
+ * two abutting meshes in two differently-phased lattices leave along the edge
+ * they share (see the transform option's doc).
+ */
+interface DetailGroup {
+  /**
+   * The layer id: a lone mesh keeps its OWN mesh id (so an ungrouped scene's
+   * id-map, effect-output ids and `<pre>` keys are unchanged), while a named
+   * group gets one id of its own from the same monotonic counter, stable for
+   * as long as the scene lives.
+   */
+  id: number;
+  /** The `detailGroup` name, or `null` for a lone mesh. */
+  name: string | null;
+  /**
+   * The transform every shared decision is read from: cell metrics, render
+   * mode, palette, ambient, transparency and id-map claim shaping. Every
+   * member is checked to agree on all of them, so "the first member's" and
+   * "the group's" are the same value.
+   */
+  transform: GlyphMeshTransform;
+  /** Members in mount order; polygons concatenate in this order. */
+  members: MeshEntry[];
+}
+
+/**
+ * The transform fields a shared detail output can only have ONE of. A group
+ * whose members disagree on any of them has no single answer to give the
+ * rasterizer or the id-map, so it throws rather than silently picking one.
+ */
+const DETAIL_GROUP_SHARED_KEYS = [
+  "density", "fontSize", "lineHeight", "transparent", "glyphPalette",
+  "ambientIntensity", "mode", "occlusionPriority", "occlusionClaim", "occlusionContourPx",
+] as const;
+
 interface DetailLayerState {
   pre: HTMLPreElement;
   key: string;
@@ -440,6 +538,11 @@ interface DetailCommit {
   removed: DetailLayerState[];
 }
 
+interface ViewportOverlayCommit {
+  next: Map<number, DetailLayerState>;
+  removed: DetailLayerState[];
+}
+
 interface StagedHotspotStyle { el: HTMLElement; display: string; left?: string; top?: string; zIndex?: string }
 
 interface RenderCommit {
@@ -450,6 +553,7 @@ interface RenderCommit {
    */
   writes: Array<{ pre: HTMLPreElement; encoded: string; atlas: boolean }>;
   details: DetailCommit;
+  overlays: ViewportOverlayCommit;
   hotspots: StagedHotspotStyle[];
   retained: Map<string, RetainedGlyphEffectOutput> | null;
 }
@@ -527,15 +631,66 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
     return [nx + px, ny + py, nz + pz];
   }
 
-  return polygons.map((p) => ({
-    ...p,
-    vertices: p.vertices.map(transformVertex),
-    // Pre-transform positions, parallel to the new `vertices` — recovers the
-    // mesh's own local frame for `space: "object"` effects without an
-    // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
-    // returns a fresh array), so aliasing it here is safe and free.
-    objectVertices: p.vertices,
-  }));
+  /**
+   * An authored `shadingNormal` stands for the SURFACE, so the transform has
+   * to move it too — the geometric normal it replaces rotates, and a face
+   * lit by an unrotated authored one lights as if the mesh had never turned.
+   *
+   * Normals transform by the inverse transpose, which for `R * S` is
+   * `R * S⁻¹`: rotate, but divide by the scale rather than multiplying (a
+   * plane flattened in Y has a normal that leans MORE toward Y, not less),
+   * and renormalize. Translation does not reach a direction at all. A zero
+   * scale axis or a degenerate result leaves the field off, which is the
+   * documented fallback to the geometric normal rather than a special case.
+   */
+  const normalScaled = sx !== 1 || sy !== 1 || sz !== 1;
+  const transformNormal = (n: Vec3): Vec3 | undefined => {
+    const v = transformVertex([
+      normalScaled ? (sx !== 0 ? n[0] / (sx * sx) : 0) : n[0],
+      normalScaled ? (sy !== 0 ? n[1] / (sy * sy) : 0) : n[1],
+      normalScaled ? (sz !== 0 ? n[2] / (sz * sz) : 0) : n[2],
+    ]);
+    // `transformVertex` also translates; a direction must not be translated.
+    const x = v[0] - px, y = v[1] - py, z = v[2] - pz;
+    const len = Math.hypot(x, y, z);
+    return len > 0 && isFinite(len) ? [x / len, y / len, z / len] : undefined;
+  };
+
+  return polygons.map((p) => {
+    const out: Polygon = {
+      ...p,
+      vertices: p.vertices.map(transformVertex),
+      // Pre-transform positions, parallel to the new `vertices` — recovers the
+      // mesh's own local frame for `space: "object"` effects without an
+      // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
+      // returns a fresh array), so aliasing it here is safe and free.
+      objectVertices: p.vertices,
+    };
+    if (p.shadingNormal !== undefined) {
+      const n = transformNormal(p.shadingNormal);
+      if (n === undefined) delete out.shadingNormal;
+      else out.shadingNormal = n;
+    }
+    return out;
+  });
+}
+
+/**
+ * The shared cross-layer occlusion id-map for one render, plus the base cell
+ * metrics every consumer of it needs. `depth`/`slopes` are the blanking
+ * verdict's own inputs and are present together or not at all (see
+ * {@link OcclusionMap.slopeCol}).
+ */
+interface OcclusionShared {
+  idMap: Int32Array;
+  cols: number;
+  rows: number;
+  ss: number;
+  cwB: number;
+  chB: number;
+  foreign?: boolean;
+  depth?: Float64Array;
+  slopes?: GlyphOcclusionSlopes;
 }
 
 export function createGlyphScene(
@@ -633,6 +788,7 @@ export function createGlyphScene(
   let currentEffectOutputMetadata: GlyphEffectOutputMetadata | null = null;
   let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string; atlas: boolean }> | null = null;
   let stagedDetailCommit: DetailCommit | null = null;
+  let stagedViewportOverlayCommit: ViewportOverlayCommit | null = null;
   let semanticCellFrame: GlyphSemanticCellFrame | null = null;
   // Cross-SCENE occlusion (see `setForeignOcclusion`/`getOpaqueCoverage`):
   // another scene's opaque per-cell coverage, stamped into this scene's shared
@@ -657,6 +813,13 @@ export function createGlyphScene(
   // and pooling it would silently override their choice.
   let atlasQuantizer: GlyphAtlasPaletteQuantizer | null = null;
   let atlasPaletteCssGeneration = -1;
+  // One pending settling render for a repool the quantizer's clock gate
+  // deferred, and the palette generation it was armed for — see
+  // `armAtlasRepoolSettleRender`. Both stay null for a `"spans"` scene, for a
+  // pinned `atlasPalette`, and for any atlas scene whose palette already
+  // describes its content.
+  let atlasRepoolSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  let atlasRepoolSettleArmedFor: number | null = null;
   // The atlas WOFF2 is lazily imported (see `render/fontAtlas.ts`), so a scene
   // constructed with `colorEncoding: "atlas"` cannot encode PUA on its first
   // frame — the family does not exist yet and PUA would paint as tofu in the
@@ -777,8 +940,18 @@ export function createGlyphScene(
     }
   }
 
-  function runLegacyCellHook(grid: CellGrid): CellGrid {
-    return options.transformCells?.(grid) ?? grid;
+  /**
+   * The user's `transformCells` hook on the EFFECTS path.
+   *
+   * `layer` is the same {@link GlyphTransformCellsLayer} the direct path
+   * binds through {@link withTransformCellsLayer} — it is not optional in
+   * practice and only reads that way because a retained output composed
+   * before this field existed cannot carry one. Dropping it here is what made
+   * a detail grid indistinguishable from the base grid for any hook that
+   * mounts an effect layer (`createGlyphScene.effectLayerIdentity.test.ts`).
+   */
+  function runLegacyCellHook(grid: CellGrid, layer: GlyphTransformCellsLayer | undefined): CellGrid {
+    return options.transformCells?.(grid, layer) ?? grid;
   }
 
   /**
@@ -808,7 +981,7 @@ export function createGlyphScene(
     // `retainGlyphEffectOutput` documents.
     const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
-    return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
+    return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects), currentEffectOutputMetadata.transformCellsLayer);
   };
 
   function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string, atlas = false): void {
@@ -832,7 +1005,7 @@ export function createGlyphScene(
     try {
       for (const output of retainedEffectOutputs.values()) {
         testRenderStage("effect-compose");
-        const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
+        const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared), output.metadata.transformCellsLayer);
         const attemptedEncoding = effectiveColorEncoding();
         const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette(), fontAtlas);
         // A generic effect program's realized glyph set is data-driven (the
@@ -851,6 +1024,7 @@ export function createGlyphScene(
     commitRender({
       writes: staged.map(({ output, encoded, atlas }) => ({ pre: output.metadata.pre, encoded, atlas })),
       details: { next: new Map(detailLayers), removed: [] },
+      overlays: { next: new Map(viewportOverlayLayers), removed: [] },
       hotspots: [],
       retained: retainedEffectOutputs,
     });
@@ -883,6 +1057,71 @@ export function createGlyphScene(
   // options change. Shadow changes do NOT invalidate it — shadows are blended
   // per cell at scan-fill, not baked into the cached lit color.
   const shadeCache: ShadeCache = { iA: [], iB: [], iC: [], lit: [] };
+  /**
+   * Per-mesh pre-projection cull runs (`buildGlyphPolygonCullChunks`), keyed
+   * by the TRANSFORMED polygon array identity. A mesh with no
+   * position/scale/rotation gets the identical array back from
+   * `applyTransform` every render, so its runs are built once and reused for
+   * the life of the mesh — which is the case that matters (a terrain tile).
+   * A transformed mesh gets a fresh array per render and so rebuilds its
+   * boxes each time: one linear pass over vertices it was about to project
+   * anyway, and still a large net win at the sizes this gates on.
+   *
+   * A WeakMap, so a disposed mesh's boxes are collected with its polygons and
+   * this can never become a leak. Keying on array IDENTITY matches the
+   * invalidation discipline the cross-frame shade cache already relies on:
+   * mutating a mounted mesh's vertices in place without telling the scene is
+   * already outside the contract.
+   */
+  const cullChunkCache = new WeakMap<readonly Polygon[], readonly GlyphPolygonCullChunk[] | null>();
+  function cullChunksFor(polygons: Polygon[]): readonly GlyphPolygonCullChunk[] | null {
+    let chunks = cullChunkCache.get(polygons);
+    if (chunks === undefined) {
+      chunks = buildGlyphPolygonCullChunks(polygons);
+      cullChunkCache.set(polygons, chunks);
+    }
+    return chunks;
+  }
+
+  /**
+   * The base grid's runs are over the CONCATENATION of every base mesh's
+   * polygons, which is a fresh array every render — so the concatenated list
+   * is memoized on the ordered identities of its parts instead. A settled
+   * scene rebuilds nothing; adding, removing or reordering a mesh rebuilds
+   * only the shifted index bookkeeping, since each part's own boxes still
+   * come from `cullChunkCache`.
+   */
+  let baseCullKey: readonly Polygon[][] = [];
+  let baseCullChunks: readonly GlyphPolygonCullChunk[] | undefined;
+  function resolveBaseCullChunks(parts: readonly Polygon[][]): readonly GlyphPolygonCullChunk[] | undefined {
+    if (parts.length === baseCullKey.length && parts.every((p, i) => p === baseCullKey[i])) return baseCullChunks;
+    const merged: GlyphPolygonCullChunk[] = [];
+    let offset = 0;
+    let any = false;
+    for (const part of parts) {
+      const chunks = cullChunksFor(part);
+      if (chunks === null) {
+        // Too small to chunk: cover it with one always-drawn run so the list
+        // still tiles `allPolygons` contiguously and the cursor stays in step.
+        if (part.length > 0) {
+          let triangles = 0;
+          for (const poly of part) if (poly.vertices.length >= 3) triangles += poly.vertices.length - 2;
+          merged.push({ start: offset, end: offset + part.length, triangles,
+            minX: -Infinity, minY: -Infinity, minZ: -Infinity, maxX: Infinity, maxY: Infinity, maxZ: Infinity,
+            // `coneCos: -1` is the "no back-facing conclusion possible" flag,
+            // matching the infinite box's "never off-grid": always drawn.
+            coneX: 0, coneY: 0, coneZ: 0, coneCos: -1 });
+        }
+      } else {
+        any = true;
+        for (const c of chunks) merged.push({ ...c, start: c.start + offset, end: c.end + offset });
+      }
+      offset += part.length;
+    }
+    baseCullKey = parts;
+    baseCullChunks = any ? merged : undefined;
+    return baseCullChunks;
+  }
   // Retained previous-frame buffer for temporal AA; `rasterize` resizes/seeds it.
   const temporalHistory: TemporalHistory = {
     idx: new Float32Array(0), r: new Float32Array(0), g: new Float32Array(0), b: new Float32Array(0), cols: 0, rows: 0, cam: null,
@@ -911,10 +1150,16 @@ export function createGlyphScene(
   }
 
   function publishRendererState(nextShadeCache: ShadeCache, nextTemporalHistory: TemporalHistory): void {
-    shadeCache.iA.splice(0, shadeCache.iA.length, ...nextShadeCache.iA);
-    shadeCache.iB.splice(0, shadeCache.iB.length, ...nextShadeCache.iB);
-    shadeCache.iC.splice(0, shadeCache.iC.length, ...nextShadeCache.iC);
-    shadeCache.lit.splice(0, shadeCache.lit.length, ...nextShadeCache.lit);
+    // Reassign rather than splice-spread the incoming values in: `nextShadeCache`'s
+    // arrays are always freshly built per render (a literal or `cloneShadeCache`'s
+    // own `.slice()`s) and never aliased elsewhere, so no identity needs preserving
+    // here — and spreading a large array as call arguments hits V8's argument-count
+    // ceiling (safe under ~100k, throws at 200k+; a real terrain mesh's per-triangle
+    // shade cache routinely exceeds that).
+    shadeCache.iA = nextShadeCache.iA;
+    shadeCache.iB = nextShadeCache.iB;
+    shadeCache.iC = nextShadeCache.iC;
+    shadeCache.lit = nextShadeCache.lit;
     temporalHistory.idx = nextTemporalHistory.idx;
     temporalHistory.r = nextTemporalHistory.r;
     temporalHistory.g = nextTemporalHistory.g;
@@ -932,6 +1177,26 @@ export function createGlyphScene(
   let textureSamplers: Map<string, TextureSampler> | null = null;
   let textureToken = 0;
   let textureSamplerKey = "";
+  /** Caller-supplied decoded pixels — see {@link GlyphSceneHandle.setTextureSamplers}. */
+  let suppliedSamplers: ReadonlyMap<string, TextureSampler> | null = null;
+  /**
+   * The map a render actually samples: whatever decoded from URLs, with the
+   * caller's own entries laid over it. Recomputed per render rather than cached,
+   * because both halves change independently and the merge is a handful of map
+   * writes against a full grid raster.
+   */
+  function resolvedTextureSamplers(): ReadonlyMap<string, TextureSampler> | null {
+    if (suppliedSamplers === null || suppliedSamplers.size === 0) return textureSamplers;
+    const merged = new Map(textureSamplers ?? []);
+    for (const [url, sampler] of suppliedSamplers) merged.set(url, sampler);
+    return merged;
+  }
+  function setTextureSamplers(samplers: ReadonlyMap<string, TextureSampler> | null): void {
+    const next = samplers && samplers.size > 0 ? samplers : null;
+    if (next === suppliedSamplers) return;
+    suppliedSamplers = next;
+    scheduleRender();
+  }
   function refreshTextureSamplers(): void {
     const polys: Polygon[] = [];
     const urls = new Set<string>();
@@ -1033,11 +1298,40 @@ export function createGlyphScene(
     const transformedByEntry = new Map<number, Polygon[]>();
     const globalPolygonOffsets = new Map<number, number>();
     const semanticPolygons: Polygon[] = [];
+    const baseCullParts: Polygon[][] = [];
+    // The WHOLE SCENE's casters, base grid and detail grids alike.
+    //
+    // A mesh separates into its own `<pre>` for reasons that have nothing to
+    // do with shadows — a `density`, a private `mode`, `glyphPalette`,
+    // `ambientIntensity`, `transparent` — and until this existed that also
+    // silently took it out of the shadow map, because the map was built from
+    // whichever polygons the pass in hand happened to hold. A building given
+    // a density stopped casting; the ground given one stopped receiving.
+    // Both are collected here instead, ONCE, and the same set is handed to
+    // the base pass and to every detail pass, so the light and its
+    // light-space volume are properties of the SCENE and not of an output
+    // grid. Built only when shadows are actually on: with `shadow`
+    // undefined this stays empty and every pass takes the exact path it took
+    // before (`shadowCasters` is then never supplied at all).
+    const shadowsOn = options.shadow != null;
+    const sceneShadowCasterPolygons: Polygon[] = [];
+    const sceneShadowCasterFlags: boolean[] = [];
+    let anySceneShadowCaster = false;
     for (const entry of meshes.values()) {
       const transformed = applyTransform(entry.polygons, entry.transform);
       globalPolygonOffsets.set(entry.id, semanticPolygons.length);
-      semanticPolygons.push(...transformed);
+      // Loop, not `push(...transformed)`: a large single mesh (e.g. a terrain
+      // grid) can exceed V8's call-argument-count ceiling for a spread (safe
+      // under ~100k, throws at 200k+).
+      for (const polygon of transformed) semanticPolygons.push(polygon);
       transformedByEntry.set(entry.id, transformed);
+      if (shadowsOn && (entry.transform.castShadow ?? false)) {
+        anySceneShadowCaster = true;
+        for (const polygon of transformed) {
+          sceneShadowCasterPolygons.push(polygon);
+          sceneShadowCasterFlags.push(true);
+        }
+      }
       // Meshes with their own cell metrics render in a separate, finer <pre>.
       if (isDetailMesh(entry.transform)) { detailEntries.push(entry); continue; }
       const cast = entry.transform.castShadow ?? false;
@@ -1045,6 +1339,7 @@ export function createGlyphScene(
       const bias = entry.transform.depthBias ?? 0;
       if (bias !== 0) anyDepthBias = true;
       const globalOffset = globalPolygonOffsets.get(entry.id)!;
+      baseCullParts.push(transformed);
       for (let polygonIndex = 0; polygonIndex < transformed.length; polygonIndex++) {
         const p = transformed[polygonIndex]!;
         allPolygons.push(p);
@@ -1055,6 +1350,14 @@ export function createGlyphScene(
         depthBiases.push(bias);
       }
     }
+    // One caster set and one built map per frame, shared by every pass. The
+    // cache is a plain holder the rasterizer fills on first use; passing the
+    // same one to N passes is what keeps the whole-scene set from costing N
+    // shadow-map rasterizations.
+    const sceneShadowCasters: GlyphShadowCasters | undefined = anySceneShadowCaster
+      ? { polygons: sceneShadowCasterPolygons, flags: sceneShadowCasterFlags }
+      : undefined;
+    const sceneShadowMapCache: GlyphShadowMapCache | undefined = sceneShadowCasters ? {} : undefined;
 
     // Validate every semantic prerequisite before allocating a winner buffer,
     // projecting geometry, creating detail DOM, or assigning any output.
@@ -1069,8 +1372,13 @@ export function createGlyphScene(
     // Layer ids: base meshes share id 0; each opaque detail mesh uses its own id.
     const BASE_LAYER = 0;
     const baseGrid = baseProjectionGrid();
-    let occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number; foreign?: boolean } | null = null;
-    const opaqueDetails = detailEntries.filter((e) => e.transform.transparent !== true);
+    let occShared: OcclusionShared | null = null;
+    // Detail OUTPUTS, not detail meshes: meshes sharing a `detailGroup` are one
+    // layer here, so they share an id-map id (they cannot blank each other) and
+    // one cell lattice (no sub-cell sliver falls between two of them).
+    const detailGroups = buildDetailGroups(detailEntries);
+    const opaqueDetails = detailGroups.filter((g) => g.transform.transparent !== true);
+    const opaqueDetailEntries = detailEntries.filter((e) => e.transform.transparent !== true);
     // The shared id-map is also the ONLY thing `getOpaqueCoverage` can read, so
     // it is built for three reasons, not one: a local opaque detail layer needs
     // it to occlude against, a foreign occluder needs somewhere to stamp, and
@@ -1093,13 +1401,21 @@ export function createGlyphScene(
         // cells regardless of depth — see the transform option's doc.
         // `occlusionClaim` / `occlusionContourPx` (ADDITIVE, 2026-08): per-mesh
         // claim shaping — see the transform options' docs.
-        for (const e of opaqueDetails) {
+        for (const g of opaqueDetails) {
+          // Every member's polygons under ONE id — that is what makes a group
+          // a single occluder: within it, cells are resolved by the group's own
+          // depth buffer, never by one member blanking another's.
+          const polygons: Polygon[] = [];
+          for (const m of g.members) {
+            const mp = transformedByEntry.get(m.id) ?? applyTransform(m.polygons, m.transform);
+            for (const polygon of mp) polygons.push(polygon);
+          }
           groups.push({
-            polygons: applyTransform(e.polygons, e.transform),
-            id: e.id,
-            occlusionPriority: e.transform.occlusionPriority ?? 0,
-            occlusionClaim: e.transform.occlusionClaim,
-            occlusionContourPx: e.transform.occlusionContourPx,
+            polygons,
+            id: g.id,
+            occlusionPriority: g.transform.occlusionPriority ?? 0,
+            occlusionClaim: g.transform.occlusionClaim,
+            occlusionContourPx: g.transform.occlusionContourPx,
           });
         }
         // `textureSamplers` makes the id-map ALPHA-AWARE: a textured sprite
@@ -1108,8 +1424,30 @@ export function createGlyphScene(
         // read as a black halo around the artwork). Null until textures
         // decode — those frames fall back to the pure-geometry claim, exactly
         // the pre-existing behaviour.
-        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, textureSamplers);
-        occShared = { idMap, cols: options.cols * ss, rows: options.rows * ss, ss, cwB: bc.w, chB: bc.h };
+        // SAME-POINT OWNERSHIP (see `OcclusionMap.slopeCol`): retain the
+        // nearest-depth buffer this pass builds anyway, plus the winning
+        // triangle's own screen-space depth slope, so a finer detail layer can
+        // evaluate the owner's surface AT ITS OWN CELL instead of half a base
+        // cell away — the difference between correct occlusion and a black
+        // line along every shared edge.
+        //
+        // Skipped, keeping the pure id-based claim, whenever a group opts into
+        // an explicitly id-BASED claim override, because for those two the map
+        // deliberately no longer means "whose surface is nearest here":
+        // `occlusionPriority` claims regardless of depth, and
+        // `occlusionContourPx` claims cells around a mesh's ink that the mesh
+        // itself does not cover (so the retained depth belongs to whatever
+        // actually won the cell, not to the claimant). Refining either against
+        // depth would undo the feature.
+        const idClaimOverride = groups.some((g) => (g.occlusionPriority ?? 0) !== 0 || g.occlusionContourPx !== undefined);
+        const oCols = options.cols * ss, oRows = options.rows * ss;
+        const refine = !idClaimOverride && opaqueDetails.length > 0;
+        const depth = refine ? new Float64Array(oCols * oRows) : null;
+        const slopes: GlyphOcclusionSlopes | null = refine
+          ? { col: new Float64Array(oCols * oRows), row: new Float64Array(oCols * oRows) }
+          : null;
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss, baseGrid, resolvedTextureSamplers(), depth, options.doubleSided, slopes);
+        occShared = { idMap, cols: oCols, rows: oRows, ss, cwB: bc.w, chB: bc.h, ...(depth && slopes ? { depth, slopes } : null) };
       }
     }
     // FOREIGN OCCLUSION (cross-scene): stamp every cell covered by the foreign
@@ -1217,10 +1555,14 @@ export function createGlyphScene(
       depthEpsilon: options.depthEpsilon,
       temporalBlend: options.temporalBlend,
       shadow: options.shadow,
+      ...(sceneShadowCasters === undefined ? {} : { shadowCasters: sceneShadowCasters, shadowMapCache: sceneShadowMapCache }),
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
       polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? basePolygonMeshIds : undefined,
+      // Solid mode only — the wireframe/voxel/ink paths run their own polygon
+      // loops and do not read this.
+      cullChunks: options.mode === "solid" ? resolveBaseCullChunks(baseCullParts) : undefined,
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
@@ -1231,25 +1573,33 @@ export function createGlyphScene(
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
-    ctx.textureSamplers = textureSamplers;
+    ctx.textureSamplers = resolvedTextureSamplers();
     if (options.glyphOutput === "visible") ctx.temporalHistory = nextTemporalHistory;
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
-      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5 }
+      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5, depth: occShared.depth, slopeCol: occShared.slopes?.col, slopeRow: occShared.slopes?.row }
       : null;
+    // Hoisted so the effects metadata and the plain-hook layer tag can never
+    // drift apart — both describe the SAME identity affine for the base grid.
+    const baseCellToSceneGrid: readonly [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
+    // ONE tag for both paths — the effects metadata carries the same object
+    // the direct path binds, so a hook cannot be told a different thing about
+    // the same grid depending on whether an effect happens to be mounted.
+    const baseTransformCellsLayer: GlyphTransformCellsLayer = { detail: false, cellToSceneGrid: baseCellToSceneGrid };
     currentEffectOutputMetadata = effectsActive ? {
       id: "base",
       pre,
       isBase: true,
-      cellToSceneGrid: [1, 0, 0, 1, 0, 0],
+      cellToSceneGrid: baseCellToSceneGrid,
       sceneGridSize: [options.cols, options.rows],
       localCellFootprint: [1, 1],
+      transformCellsLayer: baseTransformCellsLayer,
       ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
     } : null;
     // With no effect layer, preserve the direct legacy/no-hook byte path.
     ctx.transformCells = options.glyphOutput === "visible"
-      ? (effectsActive ? transformEffectCells : withTransformCellsLayer({ detail: false }))
+      ? (effectsActive ? transformEffectCells : withTransformCellsLayer(baseTransformCellsLayer))
       : undefined;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -1286,7 +1636,7 @@ export function createGlyphScene(
 
     // Detail meshes — each in its own finer, translated <pre> overlay.
     renderDetailLayers(
-      detailEntries,
+      detailGroups,
       occShared,
       baseGrid,
       retainBaseShade,
@@ -1300,7 +1650,10 @@ export function createGlyphScene(
       semanticLineage,
       globalPolygonOffsets,
       transformedByEntry,
+      sceneShadowCasters,
+      sceneShadowMapCache,
     );
+    renderViewportOverlayLayers(allPolygons, opaqueDetailEntries, baseGrid, transformedByEntry);
 
     // Nothing above this line publishes a detail node, style, transform, or
     // encoded frame. A failed projection/encode therefore leaves the prior
@@ -1309,6 +1662,7 @@ export function createGlyphScene(
     commitRender({
       writes: stagedFullEffectWrites,
       details: stagedDetailCommit ?? { next: new Map(detailLayers), removed: [] },
+      overlays: stagedViewportOverlayCommit ?? { next: new Map(viewportOverlayLayers), removed: [] },
       hotspots: hotspotStyles,
       retained: options.glyphOutput === "visible" ? (collectingEffectOutputs ?? new Map()) : null,
     });
@@ -1329,6 +1683,7 @@ export function createGlyphScene(
       activePreparedEffects = null;
       stagedFullEffectWrites = null;
       stagedDetailCommit = null;
+      stagedViewportOverlayCommit = null;
     }
   }
 
@@ -1363,7 +1718,12 @@ export function createGlyphScene(
     // layer even at the base cell size (see the transform's doc).
     // `ambientIntensity` forces separation for the same reason: the shared
     // `<pre>` is lit in one pass under ONE ambient.
-    return (t.density != null && t.density !== 1) || t.fontSize != null || t.lineHeight != null || t.transparent === true || t.glyphPalette != null || t.ambientIntensity != null;
+    // `mode` likewise — but only when it is GENUINELY private: a mode is a
+    // small closed enum compared exactly, so a mesh declaring the mode the
+    // scene already renders in stays in the shared grid and costs no extra
+    // pass (a `glyphPalette` can't be compared that way — an unrecognized
+    // name resolves to the default ramp, so two names can mean one ramp).
+    return (t.density != null && t.density !== 1) || t.fontSize != null || t.lineHeight != null || t.transparent === true || t.glyphPalette != null || t.ambientIntensity != null || (t.mode != null && t.mode !== options.mode);
   }
 
   // Measure one monospace cell (px) from a live <pre>, honoring its inherited /
@@ -1470,6 +1830,55 @@ export function createGlyphScene(
     return (baseFontPxCache ??= parseFloat((host.ownerDocument!.defaultView ?? globalThis).getComputedStyle(pre).fontSize) || 13);
   }
   const detailLayers = new Map<number, DetailLayerState>();
+  /**
+   * `detailGroup` name → its stable layer id. Allocated from the same
+   * monotonic counter mesh ids come from, so a group id can never alias a
+   * mesh id in the occlusion id-map. Held for the scene's lifetime: a group
+   * whose every member is disposed and later re-added (a tile pyramid churns
+   * constantly) comes back on the SAME id and therefore the same `<pre>`,
+   * rather than recreating DOM on every pan.
+   */
+  const detailGroupIds = new Map<string, number>();
+
+  /**
+   * Coalesce the render's detail meshes into detail OUTPUTS. A mesh with no
+   * `detailGroup` is a group of one carrying its own mesh id — the exact
+   * pre-existing shape, one `<pre>` per detail mesh.
+   */
+  function buildDetailGroups(entries: readonly MeshEntry[]): DetailGroup[] {
+    const out: DetailGroup[] = [];
+    let byName: Map<string, DetailGroup> | null = null;
+    for (const entry of entries) {
+      const name = entry.transform.detailGroup;
+      if (name === undefined) {
+        out.push({ id: entry.id, name: null, transform: entry.transform, members: [entry] });
+        continue;
+      }
+      byName ??= new Map();
+      const existing = byName.get(name);
+      if (existing) {
+        for (const key of DETAIL_GROUP_SHARED_KEYS) {
+          if (existing.transform[key] !== entry.transform[key]) {
+            throw new RangeError(
+              `glyphcss: meshes in detailGroup "${name}" disagree on "${key}" `
+              + `(${String(existing.transform[key])} vs ${String(entry.transform[key])}). `
+              + "One shared detail output has one cell size, one render mode and one occlusion claim.",
+            );
+          }
+        }
+        existing.members.push(entry);
+        continue;
+      }
+      let id = detailGroupIds.get(name);
+      if (id === undefined) { id = nextMeshId++; detailGroupIds.set(name, id); }
+      const group: DetailGroup = { id, name, transform: entry.transform, members: [entry] };
+      byName.set(name, group);
+      out.push(group);
+    }
+    return out;
+  }
+  const viewportOverlayLayers = new Map<number, DetailLayerState>();
+  let viewportOverlayDensities: readonly number[] = [];
 
   // Apply (or clear) the atlas font stack on one output `<pre>`, driven by
   // whether the string being committed to it was REALLY atlas-encoded — not
@@ -1552,6 +1961,11 @@ export function createGlyphScene(
         setGlyphAtlasFontOn(layer.pre, false);
         if (layerWasPinned) layer.key = "";
       }
+      for (const layer of viewportOverlayLayers.values()) {
+        const layerWasPinned = isGlyphAtlasPinned(layer.pre);
+        setGlyphAtlasFontOn(layer.pre, false);
+        if (layerWasPinned) layer.key = "";
+      }
     }
   }
 
@@ -1579,6 +1993,9 @@ export function createGlyphScene(
     for (const layer of detailLayers.values()) {
       if (isGlyphAtlasPinned(layer.pre)) layer.pre.style.setProperty("font-palette", atlasPaletteName);
     }
+    for (const layer of viewportOverlayLayers.values()) {
+      if (isGlyphAtlasPinned(layer.pre)) layer.pre.style.setProperty("font-palette", atlasPaletteName);
+    }
   }
 
   /**
@@ -1597,6 +2014,57 @@ export function createGlyphScene(
     writeGlyphAtlasPaletteCss();
   }
 
+  /**
+   * Come back once for a repool the quantizer's clock gate refused.
+   *
+   * Both repool gates live inside `resolveGlyphAtlasPalette`, so they are only
+   * ever evaluated DURING a render. A scene whose content streams in
+   * bootstraps its palette on the first colour-bearing frame — for a map, the
+   * coarse relief backstop tier alone — and the frames carrying the real
+   * colours land tens of milliseconds later, inside the 250 ms refresh floor.
+   * The drift gate has long since passed; the clock gate refuses; the page
+   * then goes quiescent and nothing asks again. Measured on `/maps`: 54% of a
+   * settled frame's ink cells further than redmean 32 from any slot, and the
+   * palette CSS byte-identical from 460 ms to 25 s — corrected only by the
+   * user's first wheel notch, because that is the first render.
+   *
+   * So one timer, on the same shape as {@link commitRender}'s
+   * `needsSettlingRender` below: a single extra render on a scene that had
+   * already gone still, never a poll. It is armed at most once per palette
+   * generation, so a settling render that does not clear the deferral (a
+   * blank grid, an output the atlas can't carry) cannot re-arm itself — the
+   * next arming needs a repool to have happened, which is progress by
+   * definition. Lowering `refreshMs` was the alternative and is not one: it
+   * would trade a wrong palette for churn through the mount storm and still
+   * lose this race on a slower machine.
+   *
+   * Costs a static scene nothing beyond one `null` read per commit: the drift
+   * gate holds a correct palette's deferral at `null`, a `"spans"` scene never
+   * allocates a quantizer to ask, and a pinned `atlasPalette` cannot repool.
+   */
+  function armAtlasRepoolSettleRender(): void {
+    // `effectiveColorEncoding`, not `options.colorEncoding`: a scene that has
+    // latched the out-of-atlas-glyph fallback still holds a quantizer, and a
+    // settling render for it would never reach a resolve.
+    const quantizer = effectiveColorEncoding() === "atlas" && !options.atlasPalette ? atlasQuantizer : null;
+    const deferredMs = quantizer?.repoolDeferredMs() ?? null;
+    if (!quantizer || deferredMs === null) {
+      atlasRepoolSettleArmedFor = null;
+      if (atlasRepoolSettleTimer !== null) {
+        clearTimeout(atlasRepoolSettleTimer);
+        atlasRepoolSettleTimer = null;
+      }
+      return;
+    }
+    if (atlasRepoolSettleArmedFor === quantizer.generation) return;
+    atlasRepoolSettleArmedFor = quantizer.generation;
+    if (atlasRepoolSettleTimer !== null) clearTimeout(atlasRepoolSettleTimer);
+    atlasRepoolSettleTimer = setTimeout(() => {
+      atlasRepoolSettleTimer = null;
+      scheduleRender();
+    }, deferredMs);
+  }
+
   function commitRender(plan: RenderCommit): void {
     testRenderStage("commit-write");
     const basePinnedBefore = isGlyphAtlasPinned(pre);
@@ -1607,9 +2075,10 @@ export function createGlyphScene(
     // make just that one grid unencodable while the base stays atlas).
     const writesPinnedBefore = new Map<HTMLPreElement, boolean>();
     for (const entry of plan.writes) writesPinnedBefore.set(entry.pre, isGlyphAtlasPinned(entry.pre));
-    const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
+    const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...Array.from(viewportOverlayLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
     const outputs = Array.from(outputNodes, (node) => ({ node, html: node.innerHTML, text: node.textContent ?? "", style: node.getAttribute("style") }));
     const oldDetails = new Map(detailLayers);
+    const oldOverlays = new Map(viewportOverlayLayers);
     const oldRetained = retainedEffectOutputs;
     const oldHotspots = plan.hotspots.map(({ el }) => ({ el, style: el.getAttribute("style") }));
     try {
@@ -1623,6 +2092,11 @@ export function createGlyphScene(
       }
       testRenderStage("commit-style");
       for (const [, layer] of plan.details.next) {
+        layer.pre.style.fontSize = layer.fontSize;
+        layer.pre.style.lineHeight = layer.lineHeight;
+        layer.pre.style.transform = layer.transform;
+      }
+      for (const [, layer] of plan.overlays.next) {
         layer.pre.style.fontSize = layer.fontSize;
         layer.pre.style.lineHeight = layer.lineHeight;
         layer.pre.style.transform = layer.transform;
@@ -1642,14 +2116,22 @@ export function createGlyphScene(
       for (const [id, layer] of plan.details.next) {
         if (!detailLayers.has(id)) fragment.appendChild(layer.pre);
       }
+      for (const [density, layer] of plan.overlays.next) {
+        if (!viewportOverlayLayers.has(density)) fragment.appendChild(layer.pre);
+      }
       // Native fragment insertion into this owned div is the terminal commit
       // operation: no user code, stage hook, or renderer work follows it.
       for (const layer of plan.details.removed) {
         if (layer.pre.parentNode === sceneEl) sceneEl.removeChild(layer.pre);
       }
+      for (const layer of plan.overlays.removed) {
+        if (layer.pre.parentNode === sceneEl) sceneEl.removeChild(layer.pre);
+      }
       if (fragment.firstChild) sceneEl.insertBefore(fragment, hotspotLayer);
       detailLayers.clear();
       for (const [id, layer] of plan.details.next) detailLayers.set(id, layer);
+      viewportOverlayLayers.clear();
+      for (const [density, layer] of plan.overlays.next) viewportOverlayLayers.set(density, layer);
       if (plan.retained) retainedEffectOutputs = plan.retained;
     } catch (error) {
       for (const state of outputs) {
@@ -1664,10 +2146,13 @@ export function createGlyphScene(
       }
       detailLayers.clear();
       for (const [id, layer] of oldDetails) detailLayers.set(id, layer);
+      viewportOverlayLayers.clear();
+      for (const [density, layer] of oldOverlays) viewportOverlayLayers.set(density, layer);
       retainedEffectOutputs = oldRetained;
       throw error;
     }
     syncGlyphAtlasPaletteCss();
+    armAtlasRepoolSettleRender();
     // The base grid just changed which font it paints in (the atlas arriving,
     // or a frame falling back to spans). Its cell advance changed with it, so
     // the cached measurement — which `autoSize` fit, hotspot placement and
@@ -1695,6 +2180,9 @@ export function createGlyphScene(
       for (const layer of detailLayers.values()) {
         if (layer.pre === entry.pre) { layer.key = ""; break; }
       }
+      for (const layer of viewportOverlayLayers.values()) {
+        if (layer.pre === entry.pre) { layer.key = ""; break; }
+      }
       needsSettlingRender = true;
     }
     if (needsSettlingRender) scheduleRender();
@@ -1707,9 +2195,54 @@ export function createGlyphScene(
    * size, so the mesh occupies the same CSS-pixel footprint as the shared grid
    * with more glyph cells inside it.
    */
+  /**
+   * Per-polygon mesh ids for a detail group, in the order `tp` concatenates. A
+   * group of one repeats its single member's id — exactly what the
+   * pre-grouping code produced.
+   */
+  function detailPolygonMeshIds(group: DetailGroup, memberPolys: readonly Polygon[][]): number[] {
+    const ids: number[] = [];
+    for (let m = 0; m < group.members.length; m++) {
+      const id = group.members[m]!.id;
+      for (let i = 0; i < memberPolys[m]!.length; i++) ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
+   * Per-polygon `receiveShadow` for a detail group, in the order `tp`
+   * concatenates — read per MEMBER, not from the group's shared transform:
+   * `receiveShadow` is not one of the layer-level options a group's members
+   * are required to agree on (it does not change how the group rasterizes,
+   * only how each surface in it is shaded), so a group can legitimately hold
+   * a receiver beside a non-receiver.
+   */
+  function detailReceiveShadowFlags(group: DetailGroup, memberPolys: readonly Polygon[][]): boolean[] {
+    const flags: boolean[] = [];
+    for (let m = 0; m < group.members.length; m++) {
+      const receive = group.members[m]!.transform.receiveShadow ?? false;
+      for (let i = 0; i < memberPolys[m]!.length; i++) flags.push(receive);
+    }
+    return flags;
+  }
+
+  /** Global (scene-order) polygon indexes for a detail group's own `tp`. */
+  function detailSemanticIndexes(
+    group: DetailGroup,
+    memberPolys: readonly Polygon[][],
+    globalPolygonOffsets: ReadonlyMap<number, number>,
+  ): number[] {
+    const out: number[] = [];
+    for (let m = 0; m < group.members.length; m++) {
+      const offset = globalPolygonOffsets.get(group.members[m]!.id)!;
+      for (let i = 0; i < memberPolys[m]!.length; i++) out.push(offset + i);
+    }
+    return out;
+  }
+
   function renderDetailLayers(
-    entries: MeshEntry[],
-    occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number; foreign?: boolean } | null,
+    groups: DetailGroup[],
+    occShared: OcclusionShared | null,
     baseGrid: GridSize,
     retainBaseShade: boolean,
     retainWorldPosition: boolean,
@@ -1722,11 +2255,16 @@ export function createGlyphScene(
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
     transformedByEntry: ReadonlyMap<number, Polygon[]>,
+    // The scene's whole caster set and the frame's shared built map — see
+    // the collection loop in `render()`. Both undefined whenever shadows are
+    // off or nothing casts, which is what keeps this path byte-identical.
+    sceneShadowCasters: GlyphShadowCasters | undefined,
+    sceneShadowMapCache: GlyphShadowMapCache | undefined,
   ): void {
     const effectsActive = activePreparedEffects !== null;
     const nextLayers = new Map<number, DetailLayerState>();
     const removed = Array.from(detailLayers.entries())
-      .filter(([id]) => !entries.some((entry) => entry.id === id))
+      .filter(([id]) => !groups.some((group) => group.id === id))
       .map(([, layer]) => layer);
 
     const camera = options.camera;
@@ -1745,8 +2283,15 @@ export function createGlyphScene(
     const baseCenterRow = baseGrid.centerRow ?? rowsB * baseCenter[1];
 
     try {
-      for (const entry of entries) {
-        const current = detailLayers.get(entry.id);
+      for (const group of groups) {
+        // Every shared decision below reads the GROUP's transform (which every
+        // member is checked to agree on) and the group's own layer id; only the
+        // polygons, the per-polygon mesh ids and the semantic indexes are
+        // per-member. `entry` is that shared transform.
+        const shared = group.transform;
+        const memberPolys = group.members.map((m) => transformedByEntry.get(m.id) ?? applyTransform(m.polygons, m.transform));
+        const soleMeshName = group.members.length === 1 ? group.members[0]!.transform.id : undefined;
+        const current = detailLayers.get(group.id);
         let layer: DetailLayerState;
         if (current) {
           layer = { ...current };
@@ -1770,13 +2315,17 @@ export function createGlyphScene(
         // attribute — markup unchanged for every pre-existing caller. Assigned
         // per render, not once at creation: `setTransform({ id })` can rename
         // a mesh, or name one that had no id when its layer was created.
-        if (entry.transform.id != null) dpre.dataset.glyphMeshId = entry.transform.id;
+        // A grouped output has no single mesh name to carry, so the attribute is
+        // dropped there and the group's own name is exposed instead.
+        if (soleMeshName != null) dpre.dataset.glyphMeshId = soleMeshName;
         else delete dpre.dataset.glyphMeshId;
+        if (group.name != null) dpre.dataset.glyphDetailGroup = group.name;
+        else delete dpre.dataset.glyphDetailGroup;
         testRenderStage("detail-measure");
-        const density = entry.transform.density;
+        const density = shared.density;
         // Explicit fontSize/lineHeight OVERRIDE density (the low-level escape hatch
         // wins); density is the default convenience knob.
-        const hasExplicit = entry.transform.fontSize != null || entry.transform.lineHeight != null;
+        const hasExplicit = shared.fontSize != null || shared.lineHeight != null;
         if (!hasExplicit && density != null && density > 0) {
           // density path: cell = base cell ÷ density, derived exactly from the base
           // font (no per-frame layout measurement). fontSize scales linearly, so
@@ -1813,9 +2362,9 @@ export function createGlyphScene(
           }
         } else {
           // legacy escape hatch: explicit fontSize / lineHeight (CSS-measured).
-          const fs = entry.transform.fontSize;
+          const fs = shared.fontSize;
           const fsStr = fs == null ? "" : typeof fs === "number" ? `${fs}px` : fs;
-          const lhStr = entry.transform.lineHeight == null ? "" : String(entry.transform.lineHeight);
+          const lhStr = shared.lineHeight == null ? "" : String(shared.lineHeight);
           // The font stack joins the key for the same reason the base cell
           // joins the density key above: the measured advance depends on it.
           const key = `${fsStr}|${lhStr}|${dpre.style.fontFamily}`;
@@ -1829,14 +2378,15 @@ export function createGlyphScene(
           }
         }
         let cwD = layer.cw, chD = layer.ch;
-        if (!(cwD > 0) || !(chD > 0)) { nextLayers.set(entry.id, layer); continue; }
+        if (!(cwD > 0) || !(chD > 0)) { nextLayers.set(group.id, layer); continue; }
 
         // Render the mesh IN PLACE (no centering) into a bbox-fitted sub-window.
         // Works for ANY camera (ortho / perspective / FPV): real world positions
         // are kept so foreshortening stays correct. The finer resolution comes from
         // the detail grid's measured cell size; zoom and fovScale stay the same as
         // the base layer so depth and apparent size cannot drift.
-        const tp = transformedByEntry.get(entry.id) ?? applyTransform(entry.polygons, entry.transform);
+        // ONE polygon list for the whole group — one lattice, one depth buffer.
+        const tp = memberPolys.length === 1 ? memberPolys[0]! : memberPolys.flat();
 
         // Mesh screen bbox in BASE cells (base zoom + center + fovScale).
         camera.zoom = baseZoom; camera.center = originalCenter; camera.fovScale = baseFovScale;
@@ -1848,7 +2398,7 @@ export function createGlyphScene(
           if (pr[0] < minC) minC = pr[0]; if (pr[0] > maxC) maxC = pr[0];
           if (pr[1] < minR) minR = pr[1]; if (pr[1] > maxR) maxR = pr[1];
         }
-        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(entry.id, layer); continue; } // off-screen / clipped
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(group.id, layer); continue; } // off-screen / clipped
 
         // Clamp the bbox to the visible grid (+margin), THEN size the detail grid.
         // A mesh near or enclosing the camera projects some verts to huge coords
@@ -1857,7 +2407,7 @@ export function createGlyphScene(
         const PADB = 1; // base-cell margin around the silhouette
         minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
         minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
-        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(entry.id, layer); continue; } // fully off-screen
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); nextLayers.set(group.id, layer); continue; } // fully off-screen
         let kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
         // Cap the detail grid: the viewport clamp bounds the bbox in BASE cells, but the
         // grid is bbox×density, so an absurd density (or tiny fontSize) still explodes it.
@@ -1886,18 +2436,19 @@ export function createGlyphScene(
         // Detail cell c center → base-output ref (minC + (c+0.5)/kx), then × ss to
         // index the supersampled id-map (detail layers render at ss=1, so invSS=1).
         const oss = occShared ? occShared.ss : 1;
-        const occ = (occShared && entry.transform.transparent !== true)
+        const occ = (occShared && shared.transparent !== true)
           ? {
-              idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
+              idMap: occShared.idMap, layerId: group.id, cols: occShared.cols, rows: occShared.rows,
               colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
               rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
+              depth: occShared.depth, slopeCol: occShared.slopes?.col, slopeRow: occShared.slopes?.row,
             }
           // A `transparent` detail mesh keeps ignoring every LOCAL layer, but a
           // foreign occluder (another scene stacked above) still covers it:
           // same id-map, blanking only on the foreign stamp.
           : (occShared?.foreign === true
             ? {
-                idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
+                idMap: occShared.idMap, layerId: group.id, cols: occShared.cols, rows: occShared.rows,
                 colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
                 rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
                 foreignOnly: true,
@@ -1919,7 +2470,11 @@ export function createGlyphScene(
           camera,
           grid: detailGrid,
           polygons: tp,
-          mode: options.mode,
+          // PER-MESH mode override (GlyphMeshTransform.mode): this detail
+          // layer rasterizes in its own render mode. Scene mode when the mesh
+          // declares none — and a mesh declaring the SCENE's mode never
+          // reaches here at all (`isDetailMesh` keeps it in the base grid).
+          mode: shared.mode ?? options.mode,
           directionalLight: options.directionalLight,
           // PER-MESH ambient override (GlyphMeshTransform.ambientIntensity):
           // this detail layer rasterizes under its OWN ambient intensity —
@@ -1928,13 +2483,13 @@ export function createGlyphScene(
           // that value for this mesh alone. ADDITIVE: omitted = scene light,
           // behaviour unchanged. Colour, direction and the key light stay
           // scene-level.
-          ambientLight: entry.transform.ambientIntensity != null
-            ? { ...options.ambientLight, intensity: entry.transform.ambientIntensity }
+          ambientLight: shared.ambientIntensity != null
+            ? { ...options.ambientLight, intensity: shared.ambientIntensity }
             : options.ambientLight,
           // PER-MESH ramp override (GlyphMeshTransform.glyphPalette): this
           // detail layer rasterizes against its own solid ramp; every other
           // knob stays scene-level. Scene palette when the mesh declares none.
-          glyphPalette: entry.transform.glyphPalette ?? options.glyphPalette,
+          glyphPalette: shared.glyphPalette ?? options.glyphPalette,
           charMode: options.charMode,
           wireframeJunctions: options.wireframeJunctions,
           hiddenLines: options.hiddenLines,
@@ -1956,7 +2511,20 @@ export function createGlyphScene(
           supersample: 1,
           depthEpsilon: options.depthEpsilon,
           temporalBlend: 0,
-          shadow: undefined,
+          // A detail grid RECEIVES like any other: the caster set is the
+          // scene's (base + every detail group), so the ground under a
+          // building darkens whether or not either of them was given its own
+          // density. `shadowCasters` is supplied only when the scene has a
+          // caster AND `shadow` is set, so with shadows off this whole block
+          // collapses to the `shadow: undefined` it replaced.
+          ...(sceneShadowCasters === undefined
+            ? { shadow: undefined }
+            : {
+                shadow: options.shadow,
+                shadowCasters: sceneShadowCasters,
+                shadowMapCache: sceneShadowMapCache,
+                receiveShadowFlags: detailReceiveShadowFlags(group, memberPolys),
+              }),
           retainShade: retainBaseShade,
           retainWorldPosition,
           retainNormal,
@@ -1975,35 +2543,45 @@ export function createGlyphScene(
           // mounted, so a mesh-targeted layer's `targetCoverage` can match
           // this detail grid's own real per-cell winner (VOLUMETRIC-3.md §1
           // — "detail grids already carry a real mesh id").
-          polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? tp.map(() => entry.id) : undefined,
+          // Each polygon carries its OWN mesh's id, not the group's — a
+          // mesh-targeted effect layer matches per-cell winners against real
+          // mesh ids, and a group is a rendering unit, not a mesh.
+          polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? detailPolygonMeshIds(group, memberPolys) : undefined,
           retainObjectExit,
           retainWinnerMesh,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
-        ctx.textureSamplers = textureSamplers;
+        ctx.textureSamplers = resolvedTextureSamplers();
         ctx.occlusion = occ;
+        // Hoisted so the effects metadata and the plain-hook layer tag can
+        // never drift apart — both describe the SAME detail-grid affine.
+        const detailCellToSceneGrid: readonly [number, number, number, number, number, number] = [1 / kx, 0, 0, 1 / ky, minC, minR];
+        // ONE tag for both paths — see the base grid's own note above.
+        const detailTransformCellsLayer: GlyphTransformCellsLayer = {
+          detail: true,
+          cellToSceneGrid: detailCellToSceneGrid,
+          ...(soleMeshName !== undefined ? { mesh: soleMeshName } : {}),
+          ...(shared.density !== undefined ? { density: shared.density } : {}),
+        };
         currentEffectOutputMetadata = effectsActive ? {
-          id: `detail:${entry.id}`,
+          id: `detail:${group.id}`,
           pre: dpre,
           isBase: false,
-          cellToSceneGrid: [1 / kx, 0, 0, 1 / ky, minC, minR],
+          cellToSceneGrid: detailCellToSceneGrid,
           sceneGridSize: [options.cols, options.rows],
           localCellFootprint: [1 / kx, 1 / ky],
+          transformCellsLayer: detailTransformCellsLayer,
           ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
         } : null;
         ctx.transformCells = options.glyphOutput === "visible"
-          ? (effectsActive ? transformEffectCells : withTransformCellsLayer({
-              detail: true,
-              ...(entry.transform.id !== undefined ? { mesh: entry.transform.id } : {}),
-              ...(entry.transform.density !== undefined ? { density: entry.transform.density } : {}),
-            }))
+          ? (effectsActive ? transformEffectCells : withTransformCellsLayer(detailTransformCellsLayer))
           : undefined;
         testRenderStage("detail-raster");
         const out = options.glyphOutput === "semantic"
           ? (testRenderStage("detail-encode"), encodeSemanticCells(
               rasterizeToCells(ctx),
               semanticLineage!,
-              tp.map((_, index) => globalPolygonOffsets.get(entry.id)! + index),
+              detailSemanticIndexes(group, memberPolys, globalPolygonOffsets),
               options.useColors,
             ))
           : (testRenderStage("detail-encode"), rasterize(ctx));
@@ -2012,7 +2590,7 @@ export function createGlyphScene(
         // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
         testRenderStage("detail-transform");
         layer.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
-        nextLayers.set(entry.id, layer);
+        nextLayers.set(group.id, layer);
       }
       stagedDetailCommit = { next: nextLayers, removed };
     } finally {
@@ -2020,6 +2598,171 @@ export function createGlyphScene(
       camera.center = originalCenter;
       camera.fovScale = baseFovScale;
     }
+  }
+
+  /**
+   * Render each requested meshless, viewport-wide overlay density into its
+   * own transparent `<pre>`, spanning the FULL base viewport (never a
+   * silhouette bbox — there is no mesh here to fit one to) at
+   * `density`× the base grid's resolution. The overlay carries no geometry
+   * of its own: its only purpose is to give a `transformCells` hook (a
+   * `line`/`contour` stroke layer in `@glyphcss/maps` is the reference
+   * consumer) a finer output grid than the base to stamp into, so a stroke
+   * layer's own resolution can be independent of every mesh's.
+   *
+   * Occlusion is NOT the shared cross-layer id-map (`ctx.occlusion`) — that
+   * mechanism blanks a layer's cells wherever a DIFFERENT layer's id owns
+   * them, which would blank this layer's ENTIRE output (it owns no
+   * geometry, so it never wins the id-map). What a stroke stamped into this
+   * grid needs instead is a real per-cell DEPTH value to compare itself
+   * against (`stroke.ts`'s `stampGlyphMapPolyline`/`stampGlyphMapContour`
+   * both read `CellGrid.depth`), so a nearer mesh — rendered at a DIFFERENT
+   * density, on the base grid or in its own detail `<pre>` — still occludes
+   * a farther stroke stamped here. `buildSurfaceDepth` (the same
+   * `fillDepthTri` machinery `computeOcclusionIds` itself uses) builds that
+   * depth buffer at this overlay's own resolution, from every opaque mesh
+   * in the scene (base meshes plus every OPAQUE detail mesh's own
+   * transformed polygons — a `transparent` detail mesh never occludes,
+   * mirroring the shared id-map's own filter above).
+   *
+   * With no overlay density requested (the default), this returns before
+   * touching `stagedViewportOverlayCommit` at all — zero allocation, zero
+   * depth pass, zero `<pre>`, byte-identical to a scene that never called
+   * `setViewportOverlayDensities`.
+   */
+  function renderViewportOverlayLayers(
+    allPolygons: Polygon[],
+    opaqueDetails: MeshEntry[],
+    baseGrid: GridSize,
+    transformedByEntry: ReadonlyMap<number, Polygon[]>,
+  ): void {
+    // Semantic output has no lineage for a meshless grid (AGENTS.md: even a
+    // per-mesh detail layer's cells are excluded from the semantic frame for
+    // having "no base-cell address" — a viewport overlay has less identity
+    // than that), so it degrades to "no overlay" exactly like an empty
+    // density list.
+    const activeDensities = options.glyphOutput === "visible" ? viewportOverlayDensities : [];
+    if (activeDensities.length === 0 && viewportOverlayLayers.size === 0) return;
+
+    const camera = options.camera;
+    const colsB = options.cols, rowsB = options.rows, caB = options.cellAspect;
+    const baseCell = baseCellMetrics();
+    const cwB = baseGrid.cellWidth ?? baseCell.w, chB = baseGrid.cellHeight ?? baseCell.h;
+    if (!(cwB > 0) || !(chB > 0)) {
+      stagedViewportOverlayCommit = { next: new Map(viewportOverlayLayers), removed: [] };
+      return; // not laid out yet (SSR / detached)
+    }
+    const nextLayers = new Map<number, DetailLayerState>();
+    const removed = Array.from(viewportOverlayLayers.entries())
+      .filter(([density]) => !activeDensities.includes(density))
+      .map(([, layer]) => layer);
+
+    if (activeDensities.length === 0) {
+      stagedViewportOverlayCommit = { next: nextLayers, removed };
+      return;
+    }
+
+    const depthPolygons: Polygon[] = allPolygons.slice();
+    for (const entry of opaqueDetails) {
+      const tp = transformedByEntry.get(entry.id) ?? applyTransform(entry.polygons, entry.transform);
+      for (const polygon of tp) depthPolygons.push(polygon);
+    }
+
+    for (const density of activeDensities) {
+      const current = viewportOverlayLayers.get(density);
+      let layer: DetailLayerState;
+      if (current) {
+        layer = { ...current };
+      } else {
+        testRenderStage("detail-element");
+        const el = host.ownerDocument!.createElement("pre") as HTMLPreElement;
+        el.className = "glyph-output glyph-output--detail";
+        el.style.cssText =
+          "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
+        el.dataset.glyphOverlayDensity = String(density);
+        // Mirror the base grid's current pinning, same rationale as a density
+        // detail layer's own first measurement — see `renderDetailLayers`.
+        setGlyphAtlasFontOn(el, isGlyphAtlasPinned(pre));
+        layer = { pre: el, key: "", cw: 0, ch: 0, fontSize: "", lineHeight: "", transform: "translate(0px, 0px)" };
+      }
+      const dpre = layer.pre;
+
+      // Same font-metrics caching as a density detail layer's own density
+      // path (`renderDetailLayers`): derive the cell straight from the base
+      // font while this layer shares the base's atlas pin, measure its own
+      // painted stack once that diverges.
+      const sameFontAsBase = isGlyphAtlasPinned(dpre) === isGlyphAtlasPinned(pre);
+      const key = `${density}:${cwB}:${chB}:${sameFontAsBase ? "same" : dpre.style.fontFamily}`;
+      if (layer.key !== key) {
+        const fontSizePx = baseFontPx() / density;
+        layer.fontSize = `${fontSizePx}px`;
+        layer.lineHeight = "";
+        if (sameFontAsBase) {
+          layer.cw = cwB / density; layer.ch = chB / density;
+        } else {
+          const m = measureDetailCell(layer.fontSize, "", dpre.style.fontFamily);
+          layer.cw = m.w; layer.ch = m.h;
+        }
+        layer.key = key;
+      }
+
+      // Full-viewport resolution at this density — never a silhouette bbox.
+      const colsO = Math.max(2, Math.round(colsB * density));
+      const rowsO = Math.max(2, Math.round(rowsB * density));
+
+      // Project at the BASE grid's own UNCHANGED resolution/metrics, then
+      // scale the resulting screen x/y by (sx, sy) — `buildSurfaceDepth`'s
+      // own documented braille-subcell mechanism (AGENTS.md's `charMode:
+      // "braille"` precedent: sx=2, sy=4 builds a depth buffer at SUBCELL
+      // resolution with no second projection pass). This is NOT equivalent
+      // to independently scaling `cellWidth`/`centerCol` the way
+      // `computeOcclusionIds`'s own `rasterInto(scale)` does for its
+      // integer supersample factor: when `baseGrid.cellWidth` is
+      // unmeasured (SSR, or — as here — a headless/test environment with no
+      // real layout), `camera.project` falls back to a FIXED `BASE_TILE /
+      // cellAspect` constant unrelated to any `cwB`/`chB` heuristic and,
+      // crucially, NOT itself scaled by `colsO`/`rowsO` growing — dividing
+      // that unknown fallback by `density` isn't expressible without
+      // reaching into the camera's own internals. Projecting through
+      // `baseGrid` UNCHANGED and multiplying the OUTPUT screen coordinate
+      // by `sx`/`sy = colsO/colsB, rowsO/rowsB` sidesteps the fallback
+      // entirely — whatever cell size the camera actually used (measured or
+      // fallback), the stroke layer's own vertices are projected through
+      // this SAME unchanged `baseGrid`, so multiplying both sides by the
+      // same exact ratio keeps them in lockstep. Exact ratios (not the raw
+      // `density`) absorb `colsO`/`rowsO`'s own `Math.max(2, Math.round(...))`
+      // rounding, so `W = cellCols * sx` lands on exactly `colsO`.
+      const sx = colsO / colsB, sy = rowsO / rowsB;
+      testRenderStage("detail-project");
+      // ...and the Z-BUFFER depth (`project()[3] ?? [2]`), because what reads
+      // this buffer is a `transformCells` stamp comparing itself against
+      // `CellGrid.depth`, which every paint path fills with exactly that. The
+      // wireframe HLR prepass takes the other branch and must keep it — see
+      // `buildSurfaceDepth`'s `zBufferDepth` doc, and `computeOcclusionIds`'
+      // own note on why `[2]` cannot simply be redefined for everyone.
+      const depth = buildSurfaceDepth(depthPolygons, camera, colsB, rowsB, caB, baseGrid, sx, sy, true);
+
+      const n = colsO * rowsO;
+      const blankChar: string[] = new Array(n).fill(" ");
+      let grid: CellGrid = buildCellGrid(blankChar, null, depth, colsO, rowsO);
+
+      const overlayCellToSceneGrid: readonly [number, number, number, number, number, number] = [1 / density, 0, 0, 1 / density, 0, 0];
+      const hook = withTransformCellsLayer({ detail: true, viewport: true, cellToSceneGrid: overlayCellToSceneGrid, density });
+      testRenderStage("detail-raster");
+      if (hook) grid = hook(grid) ?? grid;
+
+      testRenderStage("detail-encode");
+      const attemptedEncoding = effectiveColorEncoding();
+      const encoded = encodeCellGridOutput(grid, options.useColors, options.colorTolerance, attemptedEncoding, activeAtlasPalette(), fontAtlas);
+      if (encoded.encoding !== "atlas") {
+        noteAtlasGlyphFallback(attemptedEncoding, hasGlyphOutsideFontAtlas(grid.char, grid.cols, grid.rows, fontAtlas));
+      }
+      writeOrStageFullOutput(dpre, encoded.text, encoded.encoding === "atlas");
+
+      nextLayers.set(density, layer);
+    }
+
+    stagedViewportOverlayCommit = { next: nextLayers, removed };
   }
 
   function stageHotspots(): StagedHotspotStyle[] {
@@ -2170,6 +2913,10 @@ export function createGlyphScene(
 
     return {
       get el() { return el; },
+      setAt(at: Vec3): void {
+        entry.hotspot.at = at;
+        scheduleRender();
+      },
       remove(): void {
         const idx = hotspots.indexOf(entry);
         if (idx >= 0) hotspots.splice(idx, 1);
@@ -2187,6 +2934,18 @@ export function createGlyphScene(
     renderGeneration += 1;
     pendingRender = false;
     doRender();
+  }
+
+  function setViewportOverlayDensities(densities: readonly number[]): void {
+    const deduped: number[] = [];
+    for (const d of densities) {
+      if (!(d > 0) || d === 1) continue; // density 1 is the existing base output
+      if (!deduped.includes(d)) deduped.push(d);
+    }
+    const prev = viewportOverlayDensities;
+    if (prev.length === deduped.length && deduped.every((d) => prev.includes(d))) return;
+    viewportOverlayDensities = deduped;
+    scheduleRender();
   }
 
   function setForeignOcclusion(coverage: GlyphOcclusionCoverage | null): void {
@@ -2254,11 +3013,15 @@ export function createGlyphScene(
     interacting = active;
     if (active) {
       savedInteractFont = pre.style.fontSize;
+      // Captured for BOTH branches, not just the one that restores from it:
+      // `getBaseResolution()` has to answer for an `autoSize` scene too, and
+      // there the exit path re-derives cols/rows from the restored font
+      // rather than reading these back.
+      savedInteractCols = options.cols; savedInteractRows = options.rows;
       pre.style.fontSize = `${baseFontPx() * ds}px`;
       if (options.autoSize) {
         fitToHost(); // re-measures the coarser cell → cols/rows ÷ ds
       } else {
-        savedInteractCols = options.cols; savedInteractRows = options.rows;
         options.cols = Math.max(2, Math.round(options.cols / ds));
         options.rows = Math.max(2, Math.round(options.rows / ds));
         baseCellCache = null; baseFontPxCache = null; hostRectCache = null;
@@ -2276,6 +3039,12 @@ export function createGlyphScene(
     rerender();
   }
 
+  function getBaseResolution(): { readonly cols: number; readonly rows: number } {
+    return interacting
+      ? { cols: savedInteractCols, rows: savedInteractRows }
+      : { cols: options.cols, rows: options.rows };
+  }
+
   function setOptions(partial: Partial<GlyphSceneOptions>): void {
     const nextGlyphOutput = "glyphOutput" in partial ? (partial.glyphOutput ?? "visible") : options.glyphOutput;
     const nextMode = partial.mode ?? options.mode;
@@ -2291,7 +3060,12 @@ export function createGlyphScene(
       }
       validateGlyphControlMetadata(nextSceneManifest, nextDictionary);
       const polygons: Polygon[] = [];
-      for (const entry of meshes.values()) polygons.push(...applyTransform(entry.polygons, entry.transform));
+      // Loop, not `push(...applyTransform(...))`: a large single mesh can exceed
+      // V8's call-argument-count ceiling for a spread (safe under ~100k, throws
+      // at 200k+) — same defect class as the shade-cache publish above.
+      for (const entry of meshes.values()) {
+        for (const polygon of applyTransform(entry.polygons, entry.transform)) polygons.push(polygon);
+      }
       if (polygons.length > 0) resolveGlyphControlLineage(polygons, nextSceneManifest, nextDictionary);
     }
     if (partial.mode !== undefined) assertEffectMode(partial.mode);
@@ -2417,6 +3191,29 @@ export function createGlyphScene(
     const cols = Math.max(20, Math.floor(w / cell.w));
     const rows = Math.max(8, Math.floor(h / cell.h));
     const cellAspect = cell.h / cell.w;
+    // A refit DURING a gesture (the ResizeObserver firing on a rotation or an
+    // address-bar collapse mid-drag) moves the render grid, so it moves the
+    // BASE grid too — `getBaseResolution()` would otherwise keep answering
+    // the pre-resize pair for the rest of the gesture, and the overlay
+    // consumer it exists for would place boxes at the wrong scale.
+    //
+    // Measured with the pre-gesture font put back rather than divided by
+    // `interactiveDownscale`: the downscale is applied to a font size, and
+    // the cell a font actually lays out at is the browser's answer, not a
+    // proportion (in this repo's own test DOM the ratio comes out 1.63 for a
+    // downscale of 2). Restoring the font for one probe makes this the SAME
+    // computation `setInteracting(false)`'s own `fitToHost()` will run, so
+    // the answer during the gesture and the answer after it cannot disagree.
+    if (interacting) {
+      const downscaled = pre.style.fontSize;
+      pre.style.fontSize = savedInteractFont ?? "";
+      baseCellCache = null; baseFontPxCache = null;
+      const baseCell = measureCell();
+      pre.style.fontSize = downscaled;
+      baseCellCache = null; baseFontPxCache = null;
+      savedInteractCols = Math.max(20, Math.floor(w / baseCell.w));
+      savedInteractRows = Math.max(8, Math.floor(h / baseCell.h));
+    }
     let changed = false;
     if (options.cols !== cols) { options.cols = cols; changed = true; }
     if (options.rows !== rows) { options.rows = rows; changed = true; }
@@ -2436,6 +3233,7 @@ export function createGlyphScene(
     if (destroyed) return;
     destroyed = true;
     if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+    if (atlasRepoolSettleTimer !== null) { clearTimeout(atlasRepoolSettleTimer); atlasRepoolSettleTimer = null; }
     for (const layer of effectLayers) layer.disposed = true;
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
@@ -2464,6 +3262,9 @@ export function createGlyphScene(
     getGlyphSemanticCellFrame: () => semanticCellFrame,
     fit: fitToHost,
     setInteracting,
+    getBaseResolution,
+    setViewportOverlayDensities,
+    setTextureSamplers,
     setForeignOcclusion,
     getOpaqueCoverage,
     destroy,

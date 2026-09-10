@@ -32,6 +32,12 @@ export default defineConfig({
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
         {
+          // Root entry only — `@glyphcss/maps/node` is fs-backed and never
+          // reaches the browser bundle.
+          find: /^@glyphcss\/maps$/,
+          replacement: repoPath('../packages/maps/src/index.ts'),
+        },
+        {
           find: /^glyphcss\/elements$/,
           replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
         },
@@ -100,6 +106,17 @@ export default defineConfig({
             { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
             { label: 'Coding agents', slug: 'guides/coding-agents' },
+          ],
+        },
+        {
+          label: 'Maps',
+          items: [
+            { label: 'Overview', slug: 'maps/overview' },
+            { label: 'Projections', slug: 'maps/projections' },
+            { label: 'Layers', slug: 'maps/layers' },
+            { label: 'Camera & Navigation', slug: 'maps/camera' },
+            { label: 'Terrain', slug: 'maps/terrain' },
+            { label: 'OpenStreetMap', slug: 'maps/openstreetmap' },
           ],
         },
         {

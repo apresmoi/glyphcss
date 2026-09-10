@@ -64,6 +64,7 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
   it("forwards every per-mesh option onto the registered transform", () => {
     const { container } = renderMesh({
       glyphPalette: "dense",
+      mode: "ink",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
       occlusionClaim: "geometry",
@@ -71,6 +72,7 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
     });
     expect(addCalls[0]).toMatchObject({
       glyphPalette: "dense",
+      mode: "ink",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
       occlusionClaim: "geometry",
@@ -83,6 +85,7 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
     const { container } = renderMesh({});
     const t = addCalls[0]!;
     expect(t.glyphPalette).toBeUndefined();
+    expect(t.mode).toBeUndefined();
     expect(t.ambientIntensity).toBeUndefined();
     expect(t.occlusionPriority).toBeUndefined();
     expect(t.occlusionClaim).toBeUndefined();
@@ -109,6 +112,20 @@ describe("GlyphMesh (React) — per-mesh ramp / ambient / occlusion props", () =
     const { container } = renderMesh({ glyphPalette: "dense" });
     // Two `<pre>`s: the shared base grid plus this mesh's own detail layer.
     expect(container.querySelectorAll("pre.glyph-output").length).toBe(2);
+    container.remove();
+  });
+
+  it("a per-mesh mode alone pops the mesh into its own <pre>", () => {
+    // The scene's own mode is `solid` (createGlyphScene's default), so `ink`
+    // is genuinely different and needs its own rasterizer pass.
+    const { container } = renderMesh({ mode: "ink" });
+    expect(container.querySelectorAll("pre.glyph-output").length).toBe(2);
+    container.remove();
+  });
+
+  it("a per-mesh mode equal to the scene's keeps the mesh in the shared <pre>", () => {
+    const { container } = renderMesh({ mode: "solid" });
+    expect(container.querySelectorAll("pre.glyph-output").length).toBe(1);
     container.remove();
   });
 

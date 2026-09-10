@@ -881,8 +881,15 @@
     --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
   }
 
+  /* The tab COUNT is the page's, not this stylesheet's: /synth has four and
+     /maps has three, and a hardcoded four left a quarter of the bar empty
+     there. The shared rule in gallery-workbench.css already lays the bar out
+     by auto-flow, which is exactly equivalent for four — so this override
+     only has to stop pinning a count. */
   :is(.dn-root--synth, .dn-root--generative) .dn-mobile-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: none;
   }
 
   /* Voices rail: out of the flex flow so `.synth-main` fills the full width,

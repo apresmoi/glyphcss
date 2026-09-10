@@ -332,8 +332,8 @@ const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
 |---|---|---|---|
 | `color` | `string` | `"#000000"` | Shadow tint hex color |
 | `opacity` | `number` | `0.25` | Darkness 0..1 toward `color` |
-| `lift` | `number` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
-| `maxExtend` | `number` | `2000` | Half-extent of the light-space projection volume |
+| `lift` | `number` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces. A WORLD-UNIT length, so the default assumes a room-scale scene; a scene whose unit is (say) an Earth radius must set its own, or every shadow is biased away |
+| `maxExtend` | `number` | `2000` | **Accepted but not read.** The light-space volume is fitted to the casters' own bounds; this value has no effect on any render |
 
 ## Lifecycle methods (vanilla)
 
@@ -344,6 +344,8 @@ const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
 | `mesh.setTransform(transform)` | Replace a mesh's transform |
 | `mesh.dispose()` | Remove a mesh |
 | `scene.addHotspot(opts, onClick?)` | Register a hotspot overlay, returns a `GlyphHotspotHandle` |
+| `hotspot.setAt(at)` | Move a hotspot's 3D anchor without touching its element — the element, its listeners and anything you wrote on it survive, and only the projected position changes |
+| `hotspot.remove()` | Remove a hotspot overlay |
 | `scene.setOptions(partial)` | Update any scene option and trigger a re-render |
 | `scene.getOptions()` | Return a snapshot of current options |
 | `scene.rerender()` | Force an immediate re-rasterize |

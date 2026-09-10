@@ -46,12 +46,16 @@ function GlyphHotspotInner({
   // Register with the scene's hotspot system
   const atKey = useMemo(() => at.join(","), [at]);
   const sizeKey = size ? size.join(",") : "";
+  // Read inside the registration effect, which deliberately does NOT depend on
+  // `at` — see the move effect below.
+  const atRef = useRef(at);
+  atRef.current = at;
 
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     const handle = scene.addHotspot(
-      { id, at, size },
+      { id, at: atRef.current, size },
       () => onClickRef.current?.({} as Parameters<NonNullable<typeof onClick>>[0]),
     );
     hotspotRef.current = handle;
@@ -62,7 +66,19 @@ function GlyphHotspotInner({
       setOverlayEl(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRef, id, atKey, sizeKey]);
+  }, [sceneRef, id, sizeKey]);
+
+  // A moved ANCHOR is not a new hotspot: `setAt` exists precisely so it does
+  // not have to be one (see `GlyphHotspotHandle.setAt`). Re-registering would
+  // destroy the overlay element, and since the children are PORTALLED into it
+  // that unmounts and remounts the whole subtree — every piece of state in a
+  // tooltip lost each time the anchor moves, which for the consumer this was
+  // added for (`@glyphcss/maps` re-anchoring a label when a finer terrain tier
+  // lands) happens while the user is inside that tooltip.
+  useEffect(() => {
+    hotspotRef.current?.setAt(atRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atKey, overlayEl]);
 
   // Wire the onClick handler to the overlay element.
   useEffect(() => {

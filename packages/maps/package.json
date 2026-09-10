@@ -1,0 +1,78 @@
+{
+  "name": "@glyphcss/maps",
+  "version": "0.1.6",
+  "description": "Geographic raster data → glyphcss. Deterministic sample/classify/compile pipeline for baking a georeferenced field to static ASCII, with zero runtime.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "maps",
+    "gis",
+    "raster",
+    "static",
+    "ssg"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/maps"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "files": [
+    "dist",
+    "fixtures"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "node": [
+        "dist/node.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
+    "earcut": "^3.0.1",
+    "glyphcss": "workspace:^",
+    "pbf": "^5.1.2",
+    "pmtiles": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.0.0",
+    "@types/node": "^20.11.0",
+    "@types/pbf": "^3.0.5",
+    "@vitest/coverage-v8": "^3.1.1",
+    "d3-geo-projection": "^4.0.0",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1"
+  }
+}

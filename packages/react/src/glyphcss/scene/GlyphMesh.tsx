@@ -9,7 +9,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { resolveGeometry, recenterPolygons, loadMesh } from "@glyphcss/core";
-import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
+import type { Vec3, Polygon, GlyphGeometryName, RenderMode } from "@glyphcss/core";
 import type { GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { useGlyphSceneContext } from "./context";
 import { registerMeshElement, unregisterMeshElement } from "./events";
@@ -75,6 +75,14 @@ export interface GlyphMeshProps {
    */
   glyphPalette?: string;
   /**
+   * Per-mesh render mode — this mesh rasterizes in `mode` instead of the
+   * scene's. Like `glyphPalette`, a genuinely different mode pops the mesh into
+   * its own `<pre>` (the shared grid is rasterized in one pass under one mode);
+   * declaring the mode the scene is already in keeps it in the shared grid at
+   * no cost. Each distinct mode is a full extra rasterizer pass.
+   */
+  mode?: RenderMode;
+  /**
    * Per-mesh ambient light intensity (solid mode) — this mesh's layer shades
    * under `{ ...scene.ambientLight, intensity }`. Like `glyphPalette`, setting
    * it pops the mesh into its own `<pre>` (the shared grid is lit in one pass
@@ -88,6 +96,18 @@ export interface GlyphMeshProps {
    * can never occlude. Default `0`. No effect on `transparent` meshes.
    */
   occlusionPriority?: number;
+  /**
+   * Share ONE detail output `<pre>` with every other detail mesh naming the
+   * same group: one grid, one rasterizer pass, one occlusion id. It exists for
+   * correctness at a shared edge — two abutting meshes in two separate detail
+   * outputs sample coverage on differently-phased lattices, so a sub-cell
+   * sliver along the edge they share can fall inside neither and reads as a
+   * dark seam. Never separates a mesh by itself, so it is inert at
+   * `density: 1`. Every member must agree on `density`/`fontSize`/
+   * `lineHeight`/`transparent`/`glyphPalette`/`ambientIntensity`/`mode` and
+   * the occlusion-claim options, or the render throws.
+   */
+  detailGroup?: string;
   /**
    * Claim shape for this opaque detail mesh. `"alpha"` (default) claims only
    * cells whose sampled texel is opaque; `"geometry"` claims the full triangle
@@ -135,10 +155,12 @@ function GlyphMeshInner({
   lineHeight,
   transparent,
   glyphPalette,
+  mode,
   ambientIntensity,
   occlusionPriority,
   occlusionClaim,
   occlusionContourPx,
+  detailGroup,
   className,
   style,
   children,
@@ -186,11 +208,13 @@ function GlyphMeshInner({
     lineHeight,
     transparent,
     glyphPalette,
+    mode,
     ambientIntensity,
     occlusionPriority,
     occlusionClaim,
     occlusionContourPx,
-  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent, glyphPalette, ambientIntensity, occlusionPriority, occlusionClaim, occlusionContourPx]);
+    detailGroup,
+  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent, glyphPalette, mode, ambientIntensity, occlusionPriority, occlusionClaim, occlusionContourPx, detailGroup]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {

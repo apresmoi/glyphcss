@@ -63,6 +63,7 @@ describe("GlyphMesh (Vue) — per-mesh ramp / ambient / occlusion props", () => 
   it("forwards every per-mesh option onto the registered transform", async () => {
     await mountMesh({
       glyphPalette: "dense",
+      mode: "ink",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
       occlusionClaim: "geometry",
@@ -70,6 +71,7 @@ describe("GlyphMesh (Vue) — per-mesh ramp / ambient / occlusion props", () => 
     });
     expect(addCalls[0]).toMatchObject({
       glyphPalette: "dense",
+      mode: "ink",
       ambientIntensity: 0.75,
       occlusionPriority: 1,
       occlusionClaim: "geometry",
@@ -81,6 +83,7 @@ describe("GlyphMesh (Vue) — per-mesh ramp / ambient / occlusion props", () => 
     await mountMesh({});
     const t = addCalls[0]!;
     expect(t.glyphPalette).toBeUndefined();
+    expect(t.mode).toBeUndefined();
     expect(t.ambientIntensity).toBeUndefined();
     expect(t.occlusionPriority).toBeUndefined();
     expect(t.occlusionClaim).toBeUndefined();
@@ -110,6 +113,18 @@ describe("GlyphMesh (Vue) — per-mesh ramp / ambient / occlusion props", () => 
     const container = await mountMesh({ glyphPalette: "dense" });
     // Two `<pre>`s: the shared base grid plus this mesh's own detail layer.
     expect(container.querySelectorAll("pre.glyph-output").length).toBe(2);
+  });
+
+  it("a per-mesh mode alone pops the mesh into its own <pre>", async () => {
+    // The scene's own mode is `solid` (createGlyphScene's default), so `ink`
+    // is genuinely different and needs its own rasterizer pass.
+    const container = await mountMesh({ mode: "ink" });
+    expect(container.querySelectorAll("pre.glyph-output").length).toBe(2);
+  });
+
+  it("a per-mesh mode equal to the scene's keeps the mesh in the shared <pre>", async () => {
+    const container = await mountMesh({ mode: "solid" });
+    expect(container.querySelectorAll("pre.glyph-output").length).toBe(1);
   });
 
   it("a mesh with no per-mesh option stays in the shared <pre>", async () => {

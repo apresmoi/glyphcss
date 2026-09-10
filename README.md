@@ -369,6 +369,7 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 | `@glyphcss/effects` | `@glyphcss/effects` | Reusable spatial effect definitions; framework-agnostic and clock-free. |
 | `@glyphcss/fonts` | `@glyphcss/fonts` | Font/text to extruded polygon-mesh generation. |
 | `@glyphcss/compile` | `@glyphcss/compile` | Static compiler, CLI, Vite plugin, and Node API. |
+| `@glyphcss/maps` | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
 
 ## License
 
