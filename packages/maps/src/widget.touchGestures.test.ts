@@ -431,10 +431,13 @@ describe("createGlyphMap — taps", () => {
     await map.idle();
     const span0 = map.getView().span;
     const now = vi.spyOn(performance, "now");
-    now.mockReturnValue(0);
+    // NOT zero: `lastTapAt` doubles as the "a tap is pending" flag (`> 0`), so
+    // a first tap stamped 0 leaves the second tap unrecognisable whatever the
+    // interval is, and the timeout this test exists for is never consulted.
+    now.mockReturnValue(1000);
     touch(host, "pointerdown", 1, [400, 300]);
     touch(host, "pointerup", 1, [400, 300]);
-    now.mockReturnValue(GLYPH_MAP_DOUBLE_TAP_MAX_MS + 50);
+    now.mockReturnValue(1000 + GLYPH_MAP_DOUBLE_TAP_MAX_MS + 50);
     touch(host, "pointerdown", 2, [400, 300]);
     touch(host, "pointerup", 2, [400, 300]);
     now.mockRestore();
@@ -691,5 +694,345 @@ describe("createGlyphMap — the host declares it consumes touches", () => {
     map.destroy();
     expect(host.style.touchAction).toBe("pan-y");
     host.remove();
+  });
+});
+
+// ── The adversarial review's findings, each with the property it broke ──
+
+describe("createGlyphMap — a two-finger gesture is measured between COHERENT pairs", () => {
+  const MAXED = { center: [8, 46] as const, span: 360, cols: COLS, rows: ROWS };
+
+  it("a pure two-finger PAN at the span clamp leaves the span exactly where it was", async () => {
+    const { map, host, done } = mount({ view: { ...MAXED }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const span0 = map.getView().span;
+    expect(span0).toBe(360);
+
+    // A Pointer Event carries ONE finger, so a two-finger translation arrives
+    // as a stream of half-updated pairs whose SEPARATION oscillates by a whole
+    // step. 80px apart, 8px of travel: the mixed pair reads 72px, which is
+    // 0.152 zoom levels — past the 0.1 threshold. At the clamp the spurious
+    // zoom OUT is refused and the matching zoom back IN is not, so a pure pan
+    // walks the span down.
+    touch(host, "pointerdown", 1, [520, 504]);
+    touch(host, "pointerdown", 2, [600, 504]);
+    touch(host, "pointermove", 1, [522, 504]);
+    touch(host, "pointermove", 2, [602, 504]);
+    touch(host, "pointermove", 1, [530, 504]);
+    touch(host, "pointermove", 2, [610, 504]);
+    touch(host, "pointerup", 1, [530, 504]);
+    touch(host, "pointerup", 2, [610, 504]);
+    await map.idle();
+
+    expect(map.getView().span).toBe(span0);
+    done();
+  });
+
+  it("a constant-distance TWIST at the span clamp leaves the span exactly where it was", async () => {
+    const { map, host, done } = mount({ view: { ...MAXED }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const span0 = map.getView().span;
+
+    // The same mechanism at the other extreme: one big turn delivered finger
+    // by finger. The half-turned pair is 240*cos(25deg) = 217.5px apart, which
+    // is 0.142 zoom levels — and the fingers never changed their distance at
+    // all.
+    twoFingerDown(host, pair(560, 504, 240, 0));
+    twoFingerPath(host, twistPath(560, 504, 240, 0, 20), 10);   // arm the turn
+    const b0 = map.getBearing();
+    expect(b0).not.toBe(0);
+    const to = pair(560, 504, 240, 70);
+    touch(host, "pointermove", 1, to[0]);
+    touch(host, "pointermove", 2, to[1]);
+    twoFingerUp(host, to);
+    await map.idle();
+
+    expect(map.getView().span).toBe(span0);
+    expect(map.getBearing()).toBeCloseTo(b0 - 50, 6);
+    done();
+  });
+
+  it("at the maximum span, a grip that wobbles cannot RATCHET the span down", async () => {
+    const { map, host, done } = mount({ view: { ...MAXED }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+
+    // Pinch IN at the clamp: the zoom arms (200px to 150px is 0.415 levels)
+    // and every span it asks for is past the maximum, so the map cannot move.
+    twoFingerDown(host, pair(560, 504, 200));
+    twoFingerPath(host, pinchPath(560, 504, 200, 150), 10);
+    expect(map.getView().span).toBe(360);
+    // Now wobble. Each 10px is 0.093 levels — under the threshold, but the
+    // zoom is already armed, so every one of them is applied. A span built by
+    // MULTIPLYING per-event factors banks the refused half of that wobble and
+    // never gives it back: the outward halves are clamped away and the
+    // inward halves are not, so the span walks down (337.5 measured).
+    for (const d of [160, 150, 160, 150, 160]) twoFingerPath(host, pinchPath(560, 504, d === 160 ? 150 : 160, d), 1);
+    twoFingerUp(host, pair(560, 504, 160));
+    await map.idle();
+
+    expect(map.getView().span).toBe(360);
+    done();
+  });
+
+  it("a pinch with one finger ANCHORED keeps zooming, event by event", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(1000);
+    // A thumb holding the map still reports NOTHING — a stationary finger
+    // emits no `pointermove` at all — so a pair that waits for both fingers
+    // every time would run this gesture at one increment per grace window.
+    touch(host, "pointerdown", 1, [460, 504]);
+    touch(host, "pointerdown", 2, [660, 504]);
+    touch(host, "pointermove", 2, [664, 504]);
+    now.mockReturnValue(1105);
+    touch(host, "pointermove", 2, [668, 504]);        // the grace expires: A is at rest
+    const span0 = map.getView().span;
+    for (let i = 1; i <= 20; i++) {
+      now.mockReturnValue(1105 + i * 5);
+      touch(host, "pointermove", 2, [668 + i * 16, 504]);
+    }
+    touch(host, "pointerup", 1, [460, 504]);
+    touch(host, "pointerup", 2, [988, 504]);
+    now.mockRestore();
+    await map.idle();
+
+    // Armed at 224px apart (the first step past the 0.1-level threshold) and
+    // released at 528px: every increment in between was applied.
+    expect(map.getView().span).toBeCloseTo(span0 * 224 / 528, 6);
+    done();
+  });
+
+  it("a second finger that starts moving a grace window LATE is not a two-finger pitch", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }), tilt: 10 });
+    await map.idle();
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(1000);
+    const base = pair(560, 504, 200);
+    twoFingerDown(host, base);
+    // A leads by 4px...
+    touch(host, "pointermove", 1, [base[0][0], base[0][1] - 4]);
+    // ...and B only starts 250ms later, well past the 100ms grace. Two fingers
+    // that did not move TOGETHER are not one two-finger drag.
+    now.mockReturnValue(1250);
+    touch(host, "pointermove", 2, [base[1][0], base[1][1] - 4]);
+    for (let i = 1; i <= 10; i++) {
+      now.mockReturnValue(1250 + i * 8);
+      touch(host, "pointermove", 1, [base[0][0], base[0][1] - 4 - i * 2]);
+      touch(host, "pointermove", 2, [base[1][0], base[1][1] - 4 - i * 2]);
+    }
+    twoFingerUp(host, shift(base, 0, -24));
+    now.mockRestore();
+    await map.idle();
+
+    expect(map.getTilt()).toBe(10);
+    done();
+  });
+});
+
+describe("createGlyphMap — the anchored zoom holds on the GLOBE, not only on a sheet", () => {
+  const anchorDrift = async (center: readonly [number, number], tilt: number, TX: number, TY: number) => {
+    const { map, host, done } = mount({
+      view: { center, span: 12, cols: COLS, rows: ROWS },
+      projection: glyphMapGlobe({ exaggeration: 0 }), tilt,
+    });
+    await map.idle();
+    const under = map.unproject([TX / CELL_W, TY / CELL_H])!;
+    expect(under).toBeTruthy();
+    touch(host, "pointerdown", 1, [TX, TY]);
+    touch(host, "pointerup", 1, [TX, TY]);
+    touch(host, "pointerdown", 2, [TX, TY]);
+    touch(host, "pointerup", 2, [TX, TY]);
+    await map.idle();
+    const back = map.project(under);
+    const drift = Math.hypot(back.col * CELL_W - TX, back.row * CELL_H - TY);
+    done();
+    return drift;
+  };
+
+  it("a double-tap in the corner of a globe leaves the tapped ground under the tap", async () => {
+    expect(await anchorDrift([8, 46], 0, 300, 200)).toBeLessThan(1);
+  });
+
+  it("...at high latitude, where a degree of longitude is a fraction of a degree of ground", async () => {
+    expect(await anchorDrift([8, 80], 0, 300, 200)).toBeLessThan(1);
+  });
+
+  it("...and under a pitch, where the vertical rate varies down the screen", async () => {
+    expect(await anchorDrift([8, 0], 60, 300, 200)).toBeLessThan(1);
+  });
+
+  it("never leaves the ground FURTHER from the tap than the zoom alone would", async () => {
+    // There are views where no local model of the re-pin converges: at
+    // latitude 88 the corner of the grid unprojects 119 degrees of longitude
+    // away, and doubling the zoom throws it hundreds of pixels off the grid.
+    // The iteration then wanders — so it has to keep the best point it found
+    // rather than wherever it stopped, and "doing nothing" is a point it
+    // always has. `controls: { drag: false }` IS doing nothing: the anchoring
+    // is off there, so the double-tap zooms about the centre and nothing pans.
+    const drift = async (center: readonly [number, number], tilt: number, drag: boolean) => {
+      const { map, host, done } = mount({
+        view: { center, span: 12, cols: COLS, rows: ROWS },
+        projection: glyphMapGlobe({ exaggeration: 0 }), tilt, controls: { drag },
+      });
+      await map.idle();
+      const under = map.unproject([300 / CELL_W, 200 / CELL_H])!;
+      expect(under).toBeTruthy();
+      touch(host, "pointerdown", 1, [300, 200]);
+      touch(host, "pointerup", 1, [300, 200]);
+      touch(host, "pointerdown", 2, [300, 200]);
+      touch(host, "pointerup", 2, [300, 200]);
+      await map.idle();
+      const back = map.project(under);
+      const d = Math.hypot(back.col * CELL_W - 300, back.row * CELL_H - 200);
+      done();
+      return d;
+    };
+    for (const [lat, tilt] of [[88, 75], [88, 40], [80, 75], [46, 0]] as const) {
+      const repinned = await drift([8, lat], tilt, true);
+      const zoomOnly = await drift([8, lat], tilt, false);
+      expect(repinned).toBeLessThanOrEqual(zoomOnly + 1e-9);
+    }
+  });
+
+  it("a PINCH on the globe is anchored on the midpoint", async () => {
+    const { map, host, done } = mount({
+      view: { center: [8, 46], span: 12, cols: COLS, rows: ROWS },
+      projection: glyphMapGlobe({ exaggeration: 0 }),
+    });
+    await map.idle();
+    const MX = 300, MY = 200;
+    twoFingerDown(host, pair(MX, MY, 120));
+    twoFingerPath(host, pinchPath(MX, MY, 120, 150), 6);
+    const under = map.unproject([MX / CELL_W, MY / CELL_H])!;
+    twoFingerPath(host, pinchPath(MX, MY, 150, 400), 20);
+    twoFingerUp(host, pair(MX, MY, 400));
+    await map.idle();
+    const back = map.project(under);
+    expect(Math.hypot(back.col * CELL_W - MX, back.row * CELL_H - MY)).toBeLessThan(1);
+    expect(map.getView().span).toBeLessThan(12 / 2);
+    done();
+  });
+});
+
+describe("createGlyphMap — an interrupted gesture cleans up, it never navigates", () => {
+  it("`pointercancel` on one of two stationary fingers is not a two-finger tap", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const span0 = map.getView().span;
+    twoFingerDown(host, pair(560, 480, 120));
+    touch(host, "pointercancel", 1, [500, 480]);
+    touch(host, "pointercancel", 2, [620, 480]);
+    await map.idle();
+    expect(map.getView().span).toBe(span0);
+    done();
+  });
+
+  it("`pointercancel` on a single finger is not a tap, so it can never arm a double-tap zoom", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const span0 = map.getView().span;
+    let clicks = 0;
+    map.on("click", () => { clicks++; });
+    touch(host, "pointerdown", 1, [400, 300]);
+    touch(host, "pointercancel", 1, [400, 300]);
+    touch(host, "pointerdown", 2, [400, 300]);
+    touch(host, "pointerup", 2, [400, 300]);
+    await map.idle();
+    // ONE click, from the press that actually completed — the cancelled one
+    // emitted none, and left nothing behind for the real one to complete.
+    expect(clicks).toBe(1);
+    expect(map.getView().span).toBe(span0);
+    done();
+  });
+});
+
+describe("createGlyphMap — a fully disabled map consumes no touch", () => {
+  it("leaves the host's own `touch-action` alone when nothing is enabled", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    stubMonospaceMetrics(host);
+    const map = createGlyphMap(host, {
+      view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }),
+      controls: { drag: false, wheel: false, tilt: false },
+    });
+    expect(host.style.touchAction).toBe("");
+    map.destroy();
+    host.remove();
+  });
+
+  it("still claims them when any ONE capability is live", () => {
+    for (const controls of [{ drag: false, wheel: false }, { drag: false, tilt: false }, { wheel: false, tilt: false }]) {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      stubMonospaceMetrics(host);
+      const map = createGlyphMap(host, { view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }), controls });
+      expect(host.style.touchAction).toBe("none");
+      map.destroy();
+      host.remove();
+    }
+  });
+});
+
+describe("createGlyphMap — a third contact never strands the fingers still down", () => {
+  it("the finger that outlives the extra one still pans", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    twoFingerDown(host, pair(560, 504, 200));
+    twoFingerPath(host, pinchPath(560, 504, 200, 300), 10);
+    touch(host, "pointerdown", 3, [700, 700]);          // a third finger, ignored
+    touch(host, "pointerup", 1, [410, 504]);            // the pair breaks...
+    touch(host, "pointerup", 3, [700, 700]);            // ...and so does the extra
+    const c0 = map.getView().center;
+    touch(host, "pointermove", 2, [750, 504]);          // finger 2 is still down
+    expect(map.getView().center).not.toEqual(c0);
+    touch(host, "pointerup", 2, [750, 504]);
+    await map.idle();
+    done();
+  });
+});
+
+describe("createGlyphMap — `drag: false` pins the centre without removing a zoom", () => {
+  it("the one-handed double-tap-drag zoom still runs, continuously", async () => {
+    const { map, host, done } = mount({
+      view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }), controls: { drag: false },
+    });
+    await map.idle();
+    touch(host, "pointerdown", 1, [400, 300]);
+    touch(host, "pointerup", 1, [400, 300]);
+    touch(host, "pointerdown", 2, [400, 300]);
+    touch(host, "pointermove", 2, [400, 310]);          // arm past the 3px click tolerance
+    const span0 = map.getView().span;
+    for (let i = 1; i <= 16; i++) touch(host, "pointermove", 2, [400, 310 + i * 4]);
+    touch(host, "pointerup", 2, [400, 374]);
+    await map.idle();
+    expect(Math.log2(span0 / map.getView().span)).toBeCloseTo(64 * GLYPH_MAP_TAP_DRAG_ZOOM_LEVELS_PER_PX, 6);
+    expect(map.getView().center).toEqual(GLOBE.center);
+    done();
+  });
+});
+
+describe("createGlyphMap — a two-finger gesture that MOVED is not a tap, even undecided", () => {
+  it("one finger dragging far while the other rests is not a two-finger tap", async () => {
+    const { map, host, done } = mount({ view: { ...GLOBE }, projection: glyphMapGlobe({ exaggeration: 0 }) });
+    await map.idle();
+    const span0 = map.getView().span;
+    const now = vi.spyOn(performance, "now");
+    now.mockReturnValue(1000);
+    const base = pair(560, 504, 200);
+    twoFingerDown(host, base);
+    // ONE finger travels 40px — far past a tap's 30px tolerance — inside the
+    // grace window, so the gesture is still `undecided` when both fingers
+    // come up promptly. Only `moved` stands between that and a zoom out.
+    for (let i = 1; i <= 8; i++) {
+      now.mockReturnValue(1000 + i * 5);
+      touch(host, "pointermove", 1, [base[0][0] + i * 5, base[0][1]]);
+    }
+    now.mockReturnValue(1050);
+    twoFingerUp(host, [[base[0][0] + 40, base[0][1]], base[1]]);
+    now.mockRestore();
+    await map.idle();
+    expect(map.getView().span).toBe(span0);
+    done();
   });
 });

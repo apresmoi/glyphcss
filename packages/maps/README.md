@@ -463,18 +463,36 @@ needs `GLYPH_MAP_TOUCH_ROTATE_THRESHOLD_PX` (25) pixels of ARC along the
 circle the fingers describe — 28.6 degrees at a 100px grip, 7.2 at 400px — so
 the threshold is as easy to reach either way. Lifting one finger of a
 two-finger gesture hands the stroke back to the other as an ordinary pan, from
-where that finger actually is.
+where that finger actually is — including when a third contact joined the
+gesture and left in between, so the finger still on the glass is never
+stranded.
+
+Every gesture is measured between COHERENT finger pairs. A Pointer Event
+carries exactly one pointer, so the pair right after any single event holds one
+live position and one stale one — a configuration the fingers were never in —
+and measuring it invents motion: two fingers 80px apart sliding 8px the SAME
+way read as 72px apart for one event, which is past the pinch threshold. Every
+increment therefore waits until each finger has reported, or until the grace
+window says a silent finger is genuinely at rest (a thumb anchoring a pinch
+reports nothing at all) rather than merely late.
+
+An interrupted gesture (`pointercancel`) cleans up and never navigates. It
+completes no tap, arms no double-tap and emits no `click`.
 
 There is no separate `controls.touch`: the three existing flags are
-CAPABILITIES, so `wheel` covers the pinch and both tap zooms, `tilt` covers
-the two-finger pitch and the twist, and `drag` covers panning — with
-`drag: false` a pinch still zooms, about the centre. Walk mode has no
-two-finger vocabulary and refuses these outright.
+CAPABILITIES, so `wheel` covers the pinch, both tap zooms and the one-handed
+drag-zoom, `tilt` covers the two-finger pitch and the twist, and `drag` covers
+panning — with `drag: false` a pinch still zooms, about the centre, and so
+does the double-tap-drag. Walk mode has no two-finger vocabulary and refuses
+these outright.
 
 `createGlyphMap` sets `touch-action: none` on the host and restores the
 caller's own inline value on `destroy()`. Without it the browser claims a pan
 or a pinch for the page before script ever sees it, and there are no touch
-gestures at all.
+gestures at all. It is set only when the widget has a gesture to claim: with
+`drag`, `wheel` and `tilt` all off, the host's own value is left untouched, so
+an inert map inside a scrolling article does not swallow the swipe that
+scrolls it.
 
 ### Cover, not contain
 

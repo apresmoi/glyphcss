@@ -36,11 +36,18 @@ straightening the map. The tilt is **exclusive**: once a two-finger drag is
 recognised as a pitch it stays one for the rest of the stroke, and one that
 was not can never become one — without that lock, no hand is steady enough to
 tilt without also zooming and turning. Lifting one finger hands the stroke
-back to the other as an ordinary pan.
+back to the other as an ordinary pan — including when a third finger joined
+and left in between.
 
 The widget sets `touch-action: none` on the host (and restores your own inline
 value on `destroy()`), because otherwise the browser claims a pan or a pinch
-for the page before script sees it.
+for the page before script sees it. It sets it only when it has a gesture to
+claim: with `drag`, `wheel` and `tilt` all off, the host is left alone so a map
+embedded in a scrolling article does not swallow the swipe that scrolls it.
+
+An interrupted gesture (`pointercancel` — a system gesture, a palm rejection)
+cleans up and never navigates: it completes no tap, arms no double-tap, and
+leaves nothing behind for the next press to finish.
 
 Each has an opt-out, and each defaults to `true`:
 
@@ -62,7 +69,8 @@ There is no separate touch flag. These three are **capabilities**, not
 devices: `wheel` is zoom (notches, the pinch, both tap zooms, the one-handed
 drag-zoom), `tilt` is orient (the mouse stroke's two axes, the two-finger
 pitch, the twist), and `drag` is pan. With `drag: false` a pinch still zooms —
-about the centre, since the centre is pinned.
+about the centre, since the centre is pinned — and so does the one-handed
+double-tap-drag, which is a zoom and not a pan.
 
 ## Span, and the cover rule
 

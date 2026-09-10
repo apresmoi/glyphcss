@@ -6517,6 +6517,17 @@ MapLibre's, adopted verbatim, with this widget's constant names:
    grace window the gesture stays UNDECIDED and moves nothing; past it, a
    still-lonely finger means pinch/twist after all.
 
+   The first version of this checked the elapsed time only on the branch
+   where ONE finger had moved, so once both had, the window was not consulted
+   at all — and whether both had moved by the time the recogniser ran depended
+   on whether an unrelated event happened to arrive during the wait. A finger
+   that led by 250ms then classified as a pitch. It is now stated on the
+   evidence directly: `firstMoveAtA` and `firstMoveAtB` are stamped from the
+   RAW event (ahead of the coherence gate below, which would otherwise have
+   swallowed the lead — the pair arrives complete and the lead is gone), and
+   the pitch needs `|firstMoveAtA - firstMoveAtB| < grace`. Same constant,
+   same window, now unconditional.
+
 ### The two thresholds are a RATIO and an ARC, and neither is a pixel count
 
 `GLYPH_MAP_TOUCH_ZOOM_THRESHOLD_LEVELS` is `0.1` ZOOM LEVELS of
@@ -6547,14 +6558,14 @@ Mutate either threshold away and exactly those two go red while the
 perfect-gesture tests stay green — which is the whole reason they are in the
 file.
 
-### Every event that arrives UNDECIDED applies nothing, including the one that resolves
+### Nothing is measured from an INCOHERENT pair — one rule, the whole gesture
 
 This is the one place the implementation is not simply MapLibre's, and it is
 forced by Pointer Events rather than chosen. MapLibre's handlers read
 `TouchEvent.touches`, so every event carries BOTH fingers' current positions
 and a "finger pair" is always a real simultaneous sample. A Pointer Event
-carries exactly one pointer, so a pair assembled inside the recognition window
-holds one live position and one stale one.
+carries exactly one pointer, so a pair assembled after any single event holds
+one live position and one stale one.
 
 Using such a pair as the reference configuration leaves the gesture owing a
 fraction of a finger's travel — and the zoom that follows then MAGNIFIES it.
@@ -6565,15 +6576,68 @@ what identified it. It is not drift in the ordinary sense (each individual
 increment is exact, and the whole stroke telescopes correctly), it is one
 wrong starting configuration being scaled up.
 
-The fix is to re-base on a pair sampled after BOTH fingers have reported: any
-event that enters the recogniser undecided advances the last-event baselines
-and returns, the resolving event included. From there every increment is a
-true similarity between two real configurations, and the composition
-`E_n o ... o E_1` telescopes to exactly the transform the fingers describe —
-which is why every rate assertion in the gate file is a TWO-PHASE stroke that
-arms the gesture, reads the state, and only then makes the movement it
-measures. The cost is one event of travel, and it is the same event the
-threshold was already spending.
+The first fix covered RECOGNITION only: any event that entered the recogniser
+undecided advanced the last-event baselines and returned, the resolving event
+included. From there every increment is a true similarity between two real
+configurations, and the composition `E_n o ... o E_1` telescopes to exactly the
+transform the fingers describe — which is why every rate assertion in the gate
+file is a TWO-PHASE stroke that arms the gesture, reads the state, and only
+then makes the movement it measures. The cost is one event of travel, and it is
+the same event the threshold was already spending.
+
+**That fix was incomplete, and the half it left out was worse than the half it
+covered.** Recognition was fixed; the RESOLVED gesture still read a mixed pair
+on every event. That does not merely blur an increment, it invents motion that
+is not there: two fingers 80px apart sliding 8px THE SAME WAY read as 72px
+apart for exactly one event, and `|log2(72/80)|` is 0.152 — past the 0.1 zoom
+threshold. So a pure two-finger PAN activates the pinch.
+
+The spurious zoom out and the matching zoom back in telescope to nothing —
+UNTIL something refuses one of them, and `clampViewToCover` at the maximum span
+refuses exactly the first. Measured on a globe at span 360, fingers at
+`(520,504)`/`(600,504)`, moved 8px right one finger at a time: the separation
+never changes and the span settles at **324°**, which is `360 * 72/80` to the
+digit. A constant-distance twist from 20° to 70° delivered the same way (the
+half-turned pair is `240 * cos 25°` = 217.5px apart, 0.142 levels) settled at
+**326.27°**.
+
+The rule is therefore ONE rule for the whole gesture, not two patches:
+
+> A pair is measured only once every finger has reported since the last
+> measured sample — or once the grace window says a silent finger is genuinely
+> AT REST rather than late.
+
+`sampledA`/`sampledB` record who has spoken since the last measured sample and
+`pendingSince` opens the round; an event that does not complete the round
+updates `touchPoints` and the raw `firstMoveAt*` stamps and returns. The
+"at rest" clause is not defensive: a finger held still on glass emits no
+`pointermove` at all, so a pair that waited for both fingers unconditionally
+would run an ANCHORED pinch — thumb still, index sliding — at one increment
+per grace window. After a whole window of silence the quiet finger is marked
+`resting` and the gesture stops waiting for it until it speaks again, which
+costs one event of latency when the roles swap and nothing otherwise.
+
+The same rule subsumes the pitch's own grace clause (test 4 above): both are
+"do not classify from state you should not be reading". They are one
+mechanism with one constant.
+
+### The span is an ABSOLUTE function of the grip, not a product of factors
+
+The coherence rule removes the ACCIDENTAL zoom, but the mechanism it exposed —
+a clamp that swallows one increment and honours its inverse — is real for a
+genuine gesture too. `span *= lastDist / dist` per event banks whatever the
+clamp refuses: at the maximum span, finger jitter that crosses the (already
+armed) zoom is clamped away on the outward half and applied on the inward one,
+so the span walks down and never back. Measured: a grip wobbling 150↔160px at
+span 360 ends at **337.5°**.
+
+The span is now `zoomBaseSpan * zoomBaseDist / dist`, measured from the grip
+that CROSSED the threshold (so the threshold's own travel is still spent on
+recognition and never replayed as a jump). Nothing can be banked, because
+nothing accumulates: put the fingers back at `zoomBaseDist` and the span is
+`zoomBaseSpan` again, to the bit. The rate assertions are unchanged, because a
+telescoping product and an absolute ratio agree exactly wherever nothing
+clamps — which is every one of them.
 
 ### The pinch is anchored, and one re-pin does all three components
 
@@ -6602,13 +6666,97 @@ is `markMotionDirty()`: the one motion loop, never a second render path, and
 never a scene write from an input handler (the rule "The frame budget"
 above exists for).
 
-The re-pin ITERATES, up to `GLYPH_MAP_TOUCH_ANCHOR_PASSES` (3). `applyDragState`
-turns pixels into degrees through a linearization (`degPerPx = 1 / camera.zoom`)
-that is exact only in the limit — fine for a pinch's few-pixel increments, not
-fine for a double-tap's whole zoom level taken in the corner of the grid.
-Measuring the residual and feeding it back is a contraction, so it converges in
-two passes in practice; the loop also bails the moment a pass stops improving,
-which is what a cover clamp refusing the pan looks like from the inside.
+The re-pin ITERATES, and the iteration is a SECANT one — which it was not at
+first, and the difference is the whole of whether it converges.
+
+`applyDragState` turns pixels into degrees through a linearization
+(`degPerPx = 1 / camera.zoom`) that is exact only in the limit — fine for a
+pinch's few-pixel increments, not fine for a double-tap's whole zoom level
+taken in the corner of the grid. The first version fed the raw residual back
+and called that a contraction. It is one on a SHEET, where a pixel is a pixel
+everywhere. It is not one on a globe: that gain is the VIEW CENTRE's, the
+anchor is not at the view centre, and a degree of `rotY` is a degree of ground
+only on the equator — at latitude 80 the same pixel ask moves the anchor about
+`1 / cos 80` = 5.8x too far. Feeding the residual back then OVERSHOOTS by
+4.8x, the loop's "stopped improving" bail fires on the very next pass, and the
+gesture stops with the ground nowhere near the finger.
+
+Measured on a 1120x1008 host, globe, span 12, double-tap at `(300,200)` — the
+ground originally under the tap ends up:
+
+| view | drift, raw residual, 3 passes | raw residual, 8 passes | secant, 8 passes |
+|---|---|---|---|
+| lat 46, tilt 0 | 10.9 px | < 1 px | 0.0011 px |
+| lat 80, tilt 0 | 178.0 px | 93.1 px | 0.0022 px |
+| lat 0, tilt 60 | 63.8 px | 3.4 px | 0.000003 px |
+
+The middle column is the point: **three passes were never the problem, the step
+size was.** More passes fix the mildly wrong gain and cannot fix the divergent
+one.
+
+Each pass now measures what the LAST ask actually bought and divides the next
+one by it. Per screen axis, not as a scalar, because `bearingDragDelta` has
+already brought the pixels back onto the navigation frame, which leaves the
+Jacobian diagonally dominant. `GLYPH_MAP_TOUCH_ANCHOR_PASSES` (8) is a ceiling
+rather than a cost: it converges to `GLYPH_MAP_TOUCH_ANCHOR_STOP_PX` (0.005) in
+four or five and exits. The stop is chosen for the PINCH rather than for a lone
+tap, because a pinch spends one re-pin per event and the slack accumulates —
+end to end on a globe (150px to 400px, anchored in the grid's corner, 24
+anchored transforms) the ground finishes **0.76px** away at a `0.1` stop and
+**0.0002px** away at `0.005`, for the same four passes per event either way.
+Tightening it to `0.001` buys nothing visible and costs a pass.
+
+The end of the loop is now "the last ask bought nothing", which is what a cover
+clamp REFUSING the pan actually looks like from in here — the old
+non-improving-residual test was a proxy for it that also fired on a healthy
+overshoot.
+
+### ...and where no local model converges at all, the loop keeps its best point
+
+The secant fixes the gain. It does not make every view solvable, and it must
+not be allowed to pretend otherwise. A double-tap in the CORNER of a globe
+centred at latitude 88 unprojects to a point 119 degrees of longitude away —
+near the pole a screen corner is most of a hemisphere — and doubling the zoom
+throws it to `(-480, -444)`, hundreds of pixels off a 1120x1008 grid. Bringing
+it back is not a correction, it is a journey across a pole, and the iteration
+simply wanders: with the raw residual, and with the secant, and (checked)
+whatever the pass count.
+
+So the loop now **cannot end worse than the best point it found**. Every ask is
+accumulated since the last improvement and the sum is undone at the end. In the
+orbit branch that is EXACT — `camera.rotX`/`rotY` are additive in the ask and
+`degPerPx` is constant for the whole loop, since nothing inside it touches
+`camera.zoom` — so the negated sum restores the pose bit for bit. The last
+iteration only MEASURES, spending no budget, so the step taken with the final
+pass is judged like every other rather than accepted unseen.
+
+Swept across 147 globe views (latitudes 0/30/60/80/88 x tilts 0/40/75 x spans
+0.5/12/120/359 x four tap points, dropping taps that unproject to nothing):
+
+| | over 0.005 px | worst |
+|---|---|---|
+| fixed gain, 3 passes | 81 of 147 | 574.6 px |
+| secant, 8 passes, best-point guard | 6 of 147 | 548.5 px |
+
+All six remaining are at latitude 60 and above with the tap far off centre, and
+every one of the six is closer than the old loop left it at the same view
+(277.1→27.1, 447.3→20.1, 268.0→187.3, 574.6→548.5, 282.1→280.9, 306.3→274.2).
+Twelve views the old loop happened to nail exactly now finish 1.4e-5 to 1.2e-3
+px out, which is the stop threshold declining to spend a pass on a
+six-hundredth of a character cell.
+
+`applyDragState` also gained a `dx === 0 && dy === 0` early return (both of its
+branches re-derive `view.center` by round-tripping the camera, exact only to
+float noise, so a zero-delta event — the first `pointermove` after a hand-over
+resumes from exactly where the surviving finger already is — used to nudge the
+centre for nothing) and now measures `projectionGrid()` only in the SHEET
+branch, which is the only one that uses it: it reads two
+`getBoundingClientRect`s, and the re-pin calls it several times per event.
+
+The anchor gates cover the GLOBE, at latitude 46, at latitude 80 and under a
+60-degree pitch, for both the double-tap and the pinch. They did not before —
+they exercised sheets only, which is exactly why the orbit branch shipped with
+178px of drift.
 
 The origin the client coordinates are measured from is `touchOrigin()`, which
 walks the SAME fallback ladder `projectionGrid()` itself walks — the output
@@ -6683,7 +6831,7 @@ scrolling article that must not swallow a one-finger drag — is
 `controls.drag`, plus the `touch-action` note below, and would not be served
 by a flag that also killed the pinch.
 
-### `touch-action: none`, which is not optional
+### `touch-action: none`, which is not optional — but IS conditional
 
 Without it there are no touch gestures at all. A browser hands a touch to the
 page's own scrolling and pinch-zoom first and merely REPORTS it to script;
@@ -6694,6 +6842,67 @@ caller's own inline value on `destroy()` — which is exactly what glyphcss's
 own `createGlyphOrbitControls` / `createGlyphMapControls` / `createGlyphFirstPersonControls`
 do, for exactly this reason. `/maps` already had the equivalent rule in
 `maps-workbench.css`; every other consumer used to need it and now does not.
+
+It is set only when the widget has a gesture to claim. With
+`controls: { drag: false, wheel: false, tilt: false }` there is no touch
+gesture left, and claiming the page's touches anyway makes an inert map a HOLE
+in the page: a swipe that starts over it scrolls nothing. That is precisely the
+case the `controls` section above names as the nearest real use for
+`controls.drag` — a map inside a scrolling article — so declaring consumption
+of gestures the widget then refuses would have defeated it. One condition, on
+the same three capability flags; anything less than all three off still sets
+it, because any one of them still consumes touches.
+
+### An interrupted gesture cleans up; it never navigates
+
+`pointercancel` used to share `onPointerUp` outright, on the reasoning that a
+pointer that goes away is a pointer that went up. It is not: the browser has
+TAKEN the pointer — a system edge gesture, a palm rejection, a lost capture —
+and the reader completed nothing. Sharing the release handler meant a
+cancelled press could still be RECOGNISED, and both recognisers fired:
+
+- two stationary fingers plus a `pointercancel` on either of them inside the
+  tap window read as a two-finger tap and zoomed the map out a level
+  (measured, span 12 to 24);
+- a cancelled single press stamped `lastTapAt`, arming a double-tap that the
+  next genuine press then completed.
+
+`onPointerCancel` is now its own handler. It drops the contact, releases the
+capture, clears `doubleTapArmed` and `lastTapAt`, ends a pair WITHOUT
+`endTwoFinger`'s tap recognition, emits no `click` and starts no glide. It
+still hands the stroke back to a finger still on the glass, because that
+finger is real and did not go anywhere.
+
+### A third contact is ignored, and must not strand the fingers that are not
+
+Every gesture here is defined on exactly two fingers, so a third is ignored
+rather than re-forming the pair under the reader's hand. Ignoring it turned out
+to be harder than not: the hand-over to a surviving finger lived at the END OF
+THE PAIR (`endTwoFinger`), and with a third contact down, "the pair ended" and
+"one finger is left" are different moments. Pinch with A and B, add C, lift A:
+the pair ends with TWO fingers still down, so there is nobody to hand to and
+`activePointerId` is cleared. Lift C and B is alone on the glass — pressed,
+and driving nothing. The reader had to lift and touch down again.
+
+`handBackToLoneFinger` is therefore called from every release that takes the
+count to one: from `endTwoFinger`, from the ordinary touch release, and from
+`onPointerCancel`. The condition is a state, not an event.
+
+### `drag: false` pins the centre; it does not remove a zoom
+
+`onPointerDown` returned early under `controls: { drag: false }` before it
+established `activePointerId` — correctly for a pan, wrongly for the
+double-tap-drag, which is steered by exactly that pointer. So the one-handed
+zoom silently collapsed: the drag moved nothing, and the release then applied
+the DISCRETE double-tap zoom, a whole level for a stroke the reader was still
+making. That contradicts the section above: the one-handed drag-zoom is listed
+under `wheel`, the ZOOM capability, and `drag: false` is not supposed to touch
+it.
+
+The press is now established when it is the armed second tap of a double-tap,
+whatever `drag` says. It carries `tapZoomOnlyPointer`, which suppresses the map
+`click` on release — so a `drag: false` map emits exactly the clicks it emitted
+before (none from touch), rather than gaining one only on second taps.
 
 ### Walk mode is not reachable from a touch device, and the guard says so
 
@@ -6718,8 +6927,8 @@ heaviest gesture on the page ran at full density from that moment on. It is a
 
 ### Gate
 
-`widget.touchGestures.test.ts`, 31 cases. Six mutation checks were run against
-it, each restored from a `cp` backup afterwards:
+`widget.touchGestures.test.ts`, 48 cases. Six mutation checks were run against
+the original 31, each restored from a `cp` backup afterwards:
 
 | Mutation | Went red |
 |---|---|
@@ -6729,3 +6938,42 @@ it, each restored from a `cp` backup afterwards:
 | pinch ratio threshold removed | 3 |
 | the anchor re-pin skipped | 2 |
 | `sideBySide` forced true | 1 |
+
+Thirteen more were run against the seventeen cases added for the review
+findings above, same protocol:
+
+| Mutation | Went red |
+|---|---|
+| coherence gate disabled (`if (false)`) | 2 (pan 324°, twist 326.27°) |
+| `together` forced true | 1 (pitch 20° instead of 10°) |
+| span back to `lastDist / dist` | 2 (ratchet 337.5°; anchored pinch 4.73 vs 5.09) |
+| `resting` marking removed | 1 (anchored pinch stops at the arm, span 12) |
+| secant gain removed (`dx` for `dx / gainX`) | 2 (lat 80: 93.1px; tilt 60: 3.4px) |
+| best-point undo removed | 1 (lat 88, tilt 75: 723.9px against 274.2px) |
+| `pointercancel` back on `onPointerUp` | 2 (span 24; two clicks) |
+| `touch-action` unconditional | 1 |
+| the second `handBackToLoneFinger` call site removed | 1 |
+| `drag: false` early return restored | 1 (one whole level, not 0.5) |
+| the double-tap TIMEOUT comparison deleted | 1 (span 6 instead of 12) |
+| `!g.moved` deleted from the two-finger tap | 1 (span 24) |
+| the `dx === 0 && dy === 0` guard removed | 1 |
+
+**Two of those exist because the tests they belong to were BLIND.**
+
+The double-tap timeout case stamped its first tap at `performance.now() === 0`,
+and `lastTapAt` doubles as the "a tap is pending" flag (`lastTapAt > 0`) — so
+the second tap was unrecognisable whatever the interval was, and the timeout
+the case is named for was never consulted. Deleting the comparison left it
+green. Stamped `1000 -> 1550` instead, the mutation prints span 6.
+
+"A two-finger gesture that MOVED is not a two-finger tap" drove a two-finger
+PITCH, which the tap recogniser already refuses on `g.mode !== "undecided"`, so
+`!g.moved` — the clause it is named for — could be deleted with the case still
+green. The guard's real subject is a gesture that travels far while staying
+UNDECIDED, which only one finger moving inside the grace window produces: the
+added case drags one finger 40px with the other still, and mutating `!g.moved`
+away zooms it out a level.
+
+Every other case in the file was checked for the same defect — a premise
+satisfied by an unrelated guard — by reading which clause each one would have
+to reach; the two above were the only ones that could not reach theirs.
