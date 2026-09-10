@@ -167,6 +167,33 @@ and back is how a reader keeps their bearings.
 `setProjection` is the other flight; see
 [Projections](/maps/projections#animated-transitions).
 
+## Waiting for the settled frame
+
+```ts
+map.setView({ center: [8.54, 47.37], span: 0.02 });
+await map.idle();
+const settled = map.scene.output.textContent;
+```
+
+Everything the widget does is fire-and-forget. A view change *arms* a 180 ms
+debounce; the sweep it then issues fetches three tiers of tiles in phases; each
+landing tile re-plants whatever stands on it — extrusions, markers, a contour's
+mosaic — which dispatches more work; a flight or a projection blend runs on the
+motion loop. Nothing awaits any of it, so a caller that wants to **read** the
+settled picture has nothing to wait on but a guess at a duration, and a guess is
+wrong in both directions: it idles on a fast machine and reads a half-built frame
+on a loaded one.
+
+`map.idle()` is the widget's own account of being done: no armed sweep, no
+dispatched or queued layer update, no pending re-plant, no owed motion frame, no
+flight, no projection blend. Call it **after** the mutation that provokes the work
+— a pending debounce counts as busy, so the sweep it will issue is included. On a
+settled map it resolves on the next event-loop turn; on a destroyed map,
+immediately. It does not time out: a widget that never goes quiet is a real hang,
+and answering "settled" would be the same lie a fixed sleep tells.
+
+The counterpart of MapLibre's `once("idle")` / `loaded()`.
+
 ## Street-level walk mode
 
 `setWalk` drops the camera to eye height and hands it a perspective lens. It is

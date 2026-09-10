@@ -226,14 +226,13 @@ async function mountAtSpan(span: number): Promise<{
     tilt: TILT,
   });
   map.addLayer({ type: "raster", id: "terrain", source: raster });
-  await vi.waitFor(() => expect(map.scene.output.textContent ?? "").not.toBe(""), { timeout: 5000 });
-  await new Promise((r) => setTimeout(r, 300));
+  await map.idle();
   map.scene.rerender();
   const before = map.scene.output.textContent ?? "";
 
   const degPerCell = glyphMapDegreesPerCell(map.getView());
   map.addLayer({ type: "line", id: "borders", source: vector.provider, color: "#ff0000" });
-  await new Promise((r) => setTimeout(r, 400));
+  await map.idle();
   map.scene.rerender();
   const after = map.scene.output.textContent ?? "";
 

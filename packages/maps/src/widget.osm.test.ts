@@ -104,8 +104,8 @@ describe("real OSM geometry reaches the grid", () => {
       "osm-buildings", "osm-boundaries", "osm-places", "osm-pois",
     ]);
     for (const layer of layers) map.addLayer(layer);
+    await map.idle();
     map.scene.rerender();
-    await new Promise((r) => setTimeout(r, 20));
     expect((map.scene.output.textContent ?? "").replace(/[\s\n]/g, "").length).toBeGreaterThan(200);
     for (const layer of layers) map.removeLayer(layer.id!);
     map.scene.rerender();

@@ -42,8 +42,21 @@ jobs:
       - name: Build packages (DTS + JS)
         run: pnpm build:packages
 
+      # ONE package's vitest at a time. pnpm's default
+      # `--workspace-concurrency` of 4 ran four packages' vitest processes
+      # together, each taking `cpus - 1` forks — 12 forks plus 4 mains on a
+      # 4-vCPU runner. Vitest orders files largest-first on a fresh checkout,
+      # so `@glyphcss/maps`' two biggest integration files landed in that
+      # window every run and timed out on correct work. vitest cannot see
+      # across package boundaries, so no `maxWorkers`/`pool` setting can fix
+      # it. The env var rather than a flag: the flag would have to live inside
+      # the root `test` script and would serialize a developer's machine too.
+      # Full record, including why not a separate `maps` job:
+      # docs/design/maps.md, "`map.idle()`".
       - name: Run tests
         run: pnpm test
+        env:
+          NPM_CONFIG_WORKSPACE_CONCURRENCY: 1
 
       - name: Type-check against built declarations
         run: pnpm -r --if-present run test:types

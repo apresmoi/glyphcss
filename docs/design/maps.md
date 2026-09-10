@@ -6224,3 +6224,183 @@ It now reads the shared source. Its own mosaic survives as the LAST resort only,
 ### Verified, not fixed here
 
 The review's last P3 — a datum ocean over a floored terrain with mismatched densities leaving about 180 base cells painted by BOTH `<pre>`s — was not re-measured and is not fixed. The mechanism it names is glyphcss's per-id-map-cell cross-layer ownership verdict (`computeOcclusionIds`, `packages/glyphcss/src/render/rasterize.ts`), which this package does not own; and the review's own finding is that nothing reads as a hole, because both surfaces paint the sea. It is recorded here so the next reader of the ownership code knows it is open.
+
+## `map.idle()`: the completion signal the widget never had, and why the sleeps had to go
+
+Three `@glyphcss/maps` tests timed out in CI three runs in a row —
+`widget.test.ts`'s z0..z4 LOD ladder at 5,495 ms and 6,084 ms, the ocean-sheet
+render at 6,020 ms and 7,584 ms, and the b3 high-latitude sweep at 32,949 ms
+against its own 30,000 ms budget — while all three passed locally in 1.7-2.9 s.
+Nothing about them was wrong. Reproduced on an 18-core machine by throttling to
+one worker with `CI=true` and 200 busy-loop processes, the committed versions
+fail identically (6,026 / 5,375 / 45,360 ms), and both failed CI runs' log
+timestamps put every failure inside the same ~40 s window: `pnpm -r` runs four
+packages' vitest at pnpm's default `--workspace-concurrency` of 4, each of those
+takes `cpus - 1` forks, and a 4-vCPU hosted runner was therefore carrying 12
+forks plus 4 main processes plus a happy-dom apiece. Vitest's `BaseSequencer`
+orders files largest-first when there is no results cache, which a fresh
+checkout never has, so this package's two biggest integration files started at
+the contention peak every single run. After the window maps ran alone for 74 s
+and passed everything else.
+
+**Three fixes, in the order their leverage runs.**
+
+**The runner.** `NPM_CONFIG_WORKSPACE_CONCURRENCY: 1` on CI's test step —
+one package's vitest at a time. It is the layer that owns the cause: vitest
+cannot see across package boundaries, so no `maxWorkers`, `pool` or
+`--no-file-parallelism` in any package's config addresses cross-package
+oversubscription (and `--no-file-parallelism` alone costs 134 s locally, ~9x,
+for the contention it *can* see). The env var rather than a flag because the
+flag would have to go inside the root `test` script — itself a recursive pnpm
+invocation — and would serialize an 18-core developer machine for nothing. The
+alternative priced against it was a separate `maps` job, which costs ~0 wall
+because runners are parallel; it lost because this workflow must run
+`build:packages` before tests (the compile package's parity test executes the
+real built CLI), so a second job duplicates checkout, install and that build,
+and buys a wall-clock saving inside a step that runs ~150 s against a 15-minute
+timeout.
+
+**A budget floor.** `testTimeout`/`hookTimeout` 30 s in
+`packages/maps/vitest.config.ts`. 83 of this package's 125 files are `widget.*`
+integration tests and account for 118.5 s of its 120.4 s cumulative test time;
+their cost is real CPU work over real-shaped pyramids, and a hosted runner is
+2-2.5x slower per thread before any contention. vitest's 5 s default left under
+2x headroom on a 2 s test. Tests whose cost is genuinely large still declare
+their own budget inline with a line naming the work — that is the number a
+reader should see; the floor only stops the next `widget.sky` / `mesh` /
+`widget.contourElevation`-shaped test from being the next report.
+
+**The signal.** `map.idle()`.
+
+### Why a settle helper was the wrong layer
+
+The first attempt at this added a test-only `settleTiles(traffic)`: wrap a
+provider's `loadTile`, count starts and completions, and resolve once nothing is
+in flight and nothing has started for 220 ms (one debounce window plus a
+margin). It read as principled and it is not. Its own docstring conceded the
+premise — *"the sweep has no completion signal of its own"* — and then inferred
+one from silence in a single provider's traffic:
+
+- **It has a 220 ms floor per call**, so its docstring's "returns as soon as the
+  widget is finished" is false. With a synchronous provider the whole sweep
+  completes inside the microtask queue before any timer fires and it still waits
+  the window. Measured on the ladder test under load it saved ~0 ms (2,362 ms
+  against the sleeping version's 2,122 at 51 burners; 3,420 against 3,390 at
+  105).
+- **A stall straddling the debounce deadline is a false settle, deterministically.**
+  Node runs expired timers in expiry order, so if the loop is blocked from
+  before +180 ms to after +220 ms — a synchronous 65k-polygon `scene.rerender()`
+  inside the sweep, a GC pause, a descheduled fork — a poll due at +17x runs
+  first, sees a quiet window with nothing in flight, and returns before the
+  sweep it was meant to observe has started. A model of exactly that rule gave
+  0/100 false settles unloaded and **20/20** with one 150 ms synchronous stall.
+- **It sees one provider.** A second raster/contour/vector provider, a
+  cache-only sweep that calls no `loadTile`, and the motion loop (happy-dom
+  polyfills `requestAnimationFrame` onto `setImmediate`, so a flight re-arms the
+  debounce every frame) are all invisible to it.
+- **It could not be spread** to the other ~25 sleeping files without carrying
+  all of that, and the sleeps it would replace are 40, 60, 80, 150, 220, 250,
+  300 and 600 ms against a 180 ms debounce with no principle relating any number
+  to any wait. The disease is *a number standing in for a signal*, and the
+  helper keeps the number.
+
+It shipped, and CI's next run failed not on a timeout but on a real assertion —
+`expected +0 to be 1` at the ladder's `expect(Math.max(...loadedZ))`, i.e. the
+predicted false settle, asserting on a frame whose sweep had not run. The same
+defect surviving a round means the previous fix aimed at the wrong layer. The
+layer that owns "am I finished" is the widget, which already keeps every piece
+of the answer.
+
+### The contract
+
+`idle()` resolves once `widgetBusy()` is false, polled by yielding a whole
+event-loop turn (a `setTimeout(…, 0)` runs in the timers phase and lets the
+check phase — where the rAF polyfill lives — and every resolved fetch's
+microtasks run before the predicate is asked again). The yield carries no
+duration of its own, so there is no window a unit of work can start and finish
+inside of and be missed. Five clauses:
+
+| Clause | What it catches |
+|---|---|
+| `tileUpdateTimer !== null` | A sweep is ARMED and has not run. This is what makes `setView(); await idle()` wait through the 180 ms debounce *and* the sweep it issues, instead of answering about the frame the previous view left. |
+| `pendingUpdates > 0` | A dispatched layer sweep is running. Every `runtime.update()` in `widget.ts` is `void`-ed; `trackUpdate` counts the promises at the dispatch sites. One counter covers all three runtimes' in-flight guards without reaching inside them, because each runtime's own promise already spans its queued re-entry (`updateProvider`'s `finally` AWAITS the re-entrant call). |
+| `groundChangeQueued` | A tile set changed and the registry that re-plants extrusions, markers and contour sweeps onto it has not run. `removeLayer` of a raster is the one public path that arms real async work from a synchronous call with nothing else outstanding — every other caller notifies from inside a sweep, where `pendingUpdates` covers the chain anyway. |
+| `motionActive()` | An inertial glide, a `flyTo`, a `setProjection` blend, a held walk key, or an unrendered input-handler change. The only signal where there is no rAF at all (SSR, bare jsdom) and `motionStep` runs synchronously. |
+| `motionRafId !== null` | A frame already SCHEDULED whose render is still owed. It outlives the state that armed it: `cancelCameraGlide` clears the flight and the glide and leaves the frame queued. |
+
+It deliberately does **not** time out. A widget that never goes quiet is a real
+hang; reporting it as a settle is the same lie a fixed sleep tells, and the
+test's own budget is where a hang should surface. A destroyed map resolves
+immediately.
+
+It is public API, not a harness: every map library ships one
+(`map.once("idle")`, `loaded()`), and the consumers that need it here are the
+same ones a test is — an export, a screenshot, anything reading
+`scene.output.textContent` after a mutation.
+
+**Gated clause by clause.** `widget.idle.test.ts` holds one test per clause,
+each red when its clause is deleted, plus `widget.oceanDrape.test.ts`'s
+re-plant test for `pendingUpdates`. The two motion clauses are gated as a
+pair — a `flyTo` sets both, and each alone is sufficient for that case; the
+table above names the case each covers that the other does not. Mutating
+`idle()` to resolve immediately reproduces CI's own failure verbatim
+(`AssertionError: expected +0 to be 1` at `widget.test.ts:1228`).
+
+### The rule that replaces the sleeps
+
+Stated in `AGENTS.md`'s "Tests & build": **settle on the component's own idle
+signal, never on the wall clock.** A `setTimeout` in a test body is legitimate
+only when the duration is the quantity under test — a paced loader, the sun
+tick, a mid-transition probe — and a stability poll ("the same frame three times
+in a row") is the same guess wearing a coat. `vi.waitFor` takes an explicit
+`{ timeout }`; its 1,000 ms default is not sized for a runner several times
+slower than a laptop.
+
+Converted here: `widget.test.ts` (the ladder, the b3 sweep, the density-raise
+LOD test, the post-`fitBounds` render), `widget.oceanDrape.test.ts` (its whole
+`render()` helper), `widget.contourFreshLoad.test.ts` (an 800 ms sleep loop, now
+378 ms for the file), `widget.markerDrape.test.ts` (a frame-stability poll of up
+to 4 s, now 567 ms), `widget.contourElevation.test.ts`, `widget.osm.test.ts` and
+`widget.tiltedTileCulling.test.ts`. `tileSettle.harness.ts` is deleted — two
+settle mechanisms is one too many, and the one with the unsound contract is the
+one that goes.
+
+The constrained reproduction then turned up the next class, which `idle()` does
+not cover because these tests are not waiting for a settle at all: five probes
+that sample a MOVING camera at a wall-clock instant — `flyTo`'s mid-arc bow, its
+"genuinely in flight" and shorter-arc checks, its interrupt hand-over, and
+`setProjection`'s J4/J5. A flight's progress is a function of real time, so
+"180 ms into a 400 ms flight" is a race a loaded machine wins: at 105
+background CPU processes the sleep landed after the flight had finished and the
+bow was gone, and at ~210 it took the J4/J5 pair with it. Each is now a
+condition on the widget's own frames instead — `trackFlight` collects the whole
+trajectory off the `"move"` event stream, so "the bow rises above both
+endpoints" reads `Math.max(...spans)` over the path rather than one sample of
+it, and the shorter-arc check now holds for EVERY frame instead of one. **Where
+an interrupt happens is the discriminator, so the interrupt points are poses,
+not instants**: the divergence a re-derived `from` framing produces grows with
+how far the blend has come, so a hand-over near t=0 catches nothing. Both
+interrupt tests advance to 45% of a MEASURED destination (J4 reads the
+destination pose off an identical map taken there instantly; the flight reads
+its own target longitude) and then assert the premise — that the first
+transition has not settled — rather than hoping for it. Verified against the
+same mutations the wall-clock versions caught, at the same magnitudes: the
+re-derived `fromFraming` shows as a 31.8-degree rotX snap (39.1 at HEAD), a
+flight re-derived from the previous flight's origin as 32.2, and removing the
+bow term reddens the bow test.
+
+Unfinished: 45 `widget.*` files still contain a `setTimeout`
+(some legitimately) and 69 of 83 `vi.waitFor` calls still ride the default.
+
+### Considered and not taken: a `slow` vitest project
+
+The ~10 real-fixture rendering tests (`widget.strokeDrape`, `widget.reliefWindow`,
+`widget.fillDrape`, `widget.walkStrokePlacement`, the multi-tier pyramid tests)
+are rendering-regression gates, not unit tests, and a `test.projects` split with
+its own 60 s budget would let the fast half finish in ~30 s of CI wall. It is
+not taken here because it does not act on this failure: the split's value is
+wall-clock shape, and serializing the packages already removed the contention
+that made the budget thin, while the 30 s floor already gives those tests a
+budget matching their nature. Taking both at once would also make it impossible
+to say which one made CI green. It stays on the table as a wall-clock
+optimization once this is proven quiet.

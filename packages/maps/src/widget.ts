@@ -2014,6 +2014,33 @@ export interface GlyphMapHandle {
   on<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
   off<T extends GlyphMapEvent["type"]>(type: T, handler: GlyphMapEventHandler<Extract<GlyphMapEvent, { type: T }>>): void;
   resize(): void;
+  /**
+   * Resolves when the map is QUIESCENT BY ITS OWN ACCOUNT: no tile sweep
+   * armed or running, no ground-change re-plant pending, no motion frame
+   * owed, no inertial glide, `flyTo` or `setProjection` blend in progress.
+   * The counterpart of MapLibre's `once("idle")` / `loaded()`, and the one
+   * correct way to wait for the settled frame.
+   *
+   * The widget's own work is all fire-and-forget — a sweep is debounced 180
+   * ms, its provider promises resolve in their own microtasks, and mounting
+   * tiles schedules the next round of re-planting — so a caller that wants
+   * to READ the settled picture (an export, a screenshot, a test asserting
+   * on `scene.output.textContent`) previously had to guess a duration. A
+   * guess is wrong in both directions: it idles on a fast machine and asserts
+   * on a half-built frame on a loaded one. `idle()` is the signal that guess
+   * was standing in for, and it is exact — there is no polling window a unit
+   * of work can start and finish inside of, because every clause is state the
+   * widget sets synchronously before the work begins.
+   *
+   * Call it AFTER the mutation that provokes the work
+   * (`map.setView(...); await map.idle();`): a pending debounce counts as
+   * busy, so the armed sweep is included. On a settled map it resolves on the
+   * next event-loop turn. A `destroy()`ed map resolves immediately; nothing
+   * else is owed. It does NOT time out — a widget that never goes quiet is a
+   * real hang, and reporting it as a settle would be the same lie a fixed
+   * sleep tells.
+   */
+  idle(): Promise<void>;
   destroy(): void;
 }
 
@@ -4457,6 +4484,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * Layer-runtime work this widget has dispatched and not yet seen finish —
+   * the async half of {@link GlyphMapHandle.idle}.
+   *
+   * Every `runtime.update()` in this file is fire-and-forget (`void`): a
+   * sweep is issued from a debounce timer, from `addLayer`, from a
+   * projection reprojection and from the ground-change registry, and no
+   * caller of those awaits anything. That is the right shape for the widget
+   * and the reason it had no completion signal at all, so a consumer wanting
+   * the settled frame could only guess at a duration. Counting the dispatched
+   * promises turns the guess into a fact: each runtime's own promise already
+   * spans its whole sweep including the queued-update tail (`updateProvider`'s
+   * `finally` AWAITS the re-entrant call), so one counter over the dispatch
+   * sites covers all three in-flight guards without reaching inside them.
+   */
+  let pendingUpdates = 0;
+  function trackUpdate<T>(p: Promise<T>): Promise<T> {
+    pendingUpdates++;
+    const settle = (): void => { pendingUpdates--; };
+    p.then(settle, settle);
+    return p;
+  }
+
+  /**
    * Hide/show a hotspot for the NEAR/FAR-hemisphere reason, on a CSS channel
    * glyphcss does not own.
    *
@@ -5907,7 +5957,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * `fieldCache`) and reports no change, so a settled map pays one
      * candidate-range loop per raster mount and stops there.
      */
-    const resweep = (): void => { if (isGlyphMapFieldProvider(layer.source)) void update(); };
+    const resweep = (): void => { if (isGlyphMapFieldProvider(layer.source)) void trackUpdate(update()); };
     groundChangeSyncs.add(resweep);
 
     return {
@@ -7203,7 +7253,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     } else if (layer.type === "raster") {
       const runtime = createRasterLayerRuntime(layer, id);
       layerStates.set(id, { kind: "raster", layer, runtime });
-      const p = runtime.update();
+      const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "line") {
       const runtime = createLineLayerRuntime(layer);
@@ -7211,7 +7261,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       strokeLayerCount++;
       syncStrokeHookInstalled(); // BEFORE update() so its rerender already carries this layer's stamps
       syncViewportOverlayDensities();
-      const p = runtime.update();
+      const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "contour") {
       const runtime = createContourLayerRuntime(layer);
@@ -7219,7 +7269,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       strokeLayerCount++;
       syncStrokeHookInstalled();
       syncViewportOverlayDensities();
-      const p = runtime.update();
+      const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
     } else if (layer.type === "model") {
       const handle = scene.add([...layer.polygons], meshTransform(layer, layer.density));
@@ -7229,7 +7279,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         ? createMeshFeatureRuntime(layer)
         : layer.type === "heatmap" ? createHeatmapRuntime(layer) : createPointFeatureRuntime(layer);
       layerStates.set(id, { kind: "feature", layer, runtime });
-      const p = runtime.update();
+      const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
     }
     return id;
@@ -7292,7 +7342,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     for (const layerId of layerOrder) {
       const s = layerStates.get(layerId);
-      if (s?.kind === "raster") void s.runtime.update();
+      if (s?.kind === "raster") void trackUpdate(s.runtime.update());
     }
   }
 
@@ -7370,7 +7420,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // FORCED: a projection change moves every vertex and every hotspot
       // anchor, and neither is re-derived by anything else — the tile set it
       // came from is unchanged, so the sweep's own skip would drop it.
-      else if (state.kind === "feature") void state.runtime.update(true);
+      else if (state.kind === "feature") void trackUpdate(state.runtime.update(true));
     }
   }
 
@@ -8215,8 +8265,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     tileUpdateTimer = setTimeout(() => {
       tileUpdateTimer = null;
       for (const state of layerStates.values()) {
-        if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void state.runtime.update();
-        else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void state.runtime.update();
+        if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void trackUpdate(state.runtime.update());
+        else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void trackUpdate(state.runtime.update());
         // A static (non-provider) `line`/`contour` source has nothing to
         // re-fetch — `stamp()` already re-samples live off the CURRENT
         // camera on every render (every view-changing gesture already calls
@@ -8224,7 +8274,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // below), so gating this on the provider check, not the layer kind
         // alone, is intentional and mirrors `line`'s own gate exactly — not
         // an oversight to "fix" by dropping the condition.
-        else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void state.runtime.update();
+        else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void trackUpdate(state.runtime.update());
         // A `fill-extrusion`'s mesh is camera-INDEPENDENT: its far-side wall
         // cull is re-applied per rendered frame from `nearSideSyncs`, not
         // baked in at build time, so a static source has nothing to redo as
@@ -8233,10 +8283,67 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // would cost a full re-triangulation (measured 13.7ms on the real z0
         // admin_0 tile) for a picture the cull has already produced.
         else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) {
-          void state.runtime.update();
+          void trackUpdate(state.runtime.update());
         }
       }
     }, 180);
+  }
+
+  /**
+   * Everything this widget owes itself, in one predicate — see
+   * {@link GlyphMapHandle.idle} for the contract it answers.
+   *
+   * Five clauses, each an existing piece of the widget's own state rather
+   * than an inference from elapsed time:
+   *
+   * - `tileUpdateTimer` — a sweep is ARMED but has not run. This is what
+   *   makes `setView(...); await idle()` wait through the 180 ms debounce
+   *   AND the sweep it then issues, instead of answering about the frame the
+   *   previous view left behind.
+   * - `pendingUpdates` — a dispatched layer sweep is still running (or has a
+   *   queued re-entry behind it, which its own promise covers).
+   * - `groundChangeQueued` — a tile set changed and the registry that
+   *   re-plants extrusions, markers and contour sweeps onto it has not run
+   *   yet. Those syncs dispatch more work, so answering before them would be
+   *   answering about a frame standing on the wrong ground.
+   * - `motionActive()` and `motionRafId` — the two halves of "in motion", and
+   *   neither implies the other. `motionActive()` is an inertial glide, a
+   *   `flyTo`, a `setProjection` blend, a held walk key or an unrendered
+   *   input-handler change, and is the only signal where there is no rAF at
+   *   all (SSR, bare jsdom) and `motionStep` runs synchronously.
+   *   `motionRafId` is a frame already SCHEDULED whose render is still owed,
+   *   which outlives the state that armed it — `cancelCameraGlide` clears
+   *   the flight and the glide and leaves the frame queued.
+   *
+   * Every clause is gated by a test that goes red when it is removed
+   * (`widget.idle.test.ts`, plus `widget.oceanDrape.test.ts`'s re-plant test
+   * for `pendingUpdates`); the two motion clauses are gated as a pair,
+   * because a `flyTo` sets both.
+   */
+  function widgetBusy(): boolean {
+    return tileUpdateTimer !== null
+      || pendingUpdates > 0
+      || groundChangeQueued
+      || motionRafId !== null
+      || motionActive();
+  }
+
+  /**
+   * Resolve once {@link widgetBusy} is false — see the public doc on
+   * {@link GlyphMapHandle.idle}.
+   *
+   * The loop yields a whole event-loop turn per iteration rather than
+   * sleeping a slice: a `setTimeout(0)` runs in the timers phase and lets
+   * the check phase (where a `requestAnimationFrame` polyfilled onto
+   * `setImmediate` lives) and every resolved fetch's microtasks run before
+   * the predicate is asked again. So the wait is the WIDGET's — the yield
+   * carries no duration of its own, and nothing here is a window that work
+   * can finish inside of and be missed.
+   */
+  async function idle(): Promise<void> {
+    while (!destroyed && widgetBusy()) {
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    }
   }
 
   function getView(): GlyphMapView {
@@ -9139,6 +9246,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       listeners.get(type)?.delete(handler as GlyphMapEventHandler<GlyphMapEvent>);
     },
     getMaxSpan: () => maxViewSpan(),
+    idle,
     resize(): void {
       scene.fit();
       // The host's SHAPE decides which axis binds the cover limit, so a

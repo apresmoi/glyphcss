@@ -200,18 +200,17 @@ function stagedCell(el: HTMLElement): { col: number; row: number } {
 
 const marker = (host: HTMLElement, selector = ".glyph-map-symbol") => host.querySelector<HTMLElement>(selector)!;
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
-
-async function settleFrames(map: { scene: { rerender(): void; output: { textContent: string | null } } }): Promise<void> {
-  let previous = "";
-  let stable = 0;
-  for (let i = 0; i < 80 && stable < 3; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    map.scene.rerender();
-    const frame = map.scene.output.textContent ?? "";
-    stable = frame === previous ? stable + 1 : 0;
-    previous = frame;
-  }
+/**
+ * A settled frame. This used to poll for a frame that repeated three times in
+ * a row, up to 4 s — a stability heuristic, which is the same wall-clock
+ * guess a fixed sleep is: two identical frames mid-sweep read as settled, and
+ * a slow runner spends the budget re-rendering. `map.idle()` is the widget's
+ * own account of being done; the `rerender()` after it is kept because these
+ * tests read staged marker ELEMENTS, which are positioned by a commit.
+ */
+async function settleFrames(map: { idle(): Promise<void>; scene: { rerender(): void } }): Promise<void> {
+  await map.idle();
+  map.scene.rerender();
 }
 
 describe("createGlyphMap — a marker is anchored on the ground under it", () => {

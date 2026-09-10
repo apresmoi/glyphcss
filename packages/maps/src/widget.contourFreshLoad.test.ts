@@ -134,7 +134,11 @@ async function freshLoad(contourProvider: GlyphMapProvider, withTerrain = true):
     ],
   });
   mounted.push(map);
-  for (let i = 0; i < 80; i++) await new Promise((r) => setTimeout(r, 10));
+  // The whole point of this file is a chain the widget drives itself — the
+  // mount sweep, its failures, and the re-sweep the landing terrain
+  // provokes — so the wait has to be the widget's own account of being done
+  // with it, not 800 ms of hoping.
+  await map.idle();
   map.scene.rerender();
   return map;
 }

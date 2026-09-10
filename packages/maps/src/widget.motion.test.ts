@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createGlyphMap } from "./widget";
 import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
+import type { GlyphMapViewEvent } from "./widget";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -47,6 +48,52 @@ function countRenders<T>(run: () => T): { renders: number; result: T } {
 
 const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Every view a flight actually passed through, sampled from the widget's own
+ * `"move"` events — `advanceFlight` emits one per frame, so this IS the
+ * trajectory.
+ *
+ * A mid-arc probe taken by sleeping N ms into an M ms flight is a race the
+ * machine wins whenever it is loaded: measured under 105 background CPU
+ * processes, `wait(180)` inside a 400 ms flight landed AFTER the flight had
+ * finished and the bow was already gone, failing `span > 60` on correct code.
+ * The bow, the shorter arc and "genuinely in flight" are all claims about the
+ * PATH, not about where the camera happens to be at one wall-clock instant, so
+ * the path is what they read. See AGENTS.md's "Tests & build".
+ */
+function trackFlight(map: ReturnType<typeof createGlyphMap>) {
+  const spans: number[] = [];
+  const lons: number[] = [];
+  const onMove = (e: GlyphMapViewEvent): void => {
+    spans.push(e.view.span);
+    lons.push(e.view.center[0]);
+  };
+  map.on("move", onMove);
+  return { spans, lons, stop: (): void => map.off("move", onMove) };
+}
+
+/**
+ * Resolves once the live flight has covered `fraction` of its longitude
+ * travel, observed from the flight's own frames.
+ *
+ * WHERE a flight is when it is interrupted is the discriminator — a hand-over
+ * near t=0 has nothing to be discontinuous with — so this is a POSE, not an
+ * instant. 260 ms of wall clock is 43% of a 600 ms flight on an idle machine
+ * and past the end of it on a loaded one, which leaves the test asserting
+ * continuity across nothing. See AGENTS.md's "Tests & build".
+ */
+function afterFlightFraction(map: ReturnType<typeof createGlyphMap>, fromLon: number, toLon: number, fraction: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const onMove = (e: GlyphMapViewEvent): void => {
+      if ((e.view.center[0] - fromLon) / (toLon - fromLon) >= fraction) {
+        map.off("move", onMove);
+        resolve();
+      }
+    };
+    map.on("move", onMove);
+  });
+}
 
 /**
  * The rule the motion loop exists to enforce: input events accumulate state,
@@ -304,13 +351,12 @@ describe("createGlyphMap — flyTo", () => {
   it("eases to the requested centre and span, and lands exactly on them", async () => {
     const { host, map } = mount();
     await frame();
+    const track = trackFlight(map);
     const flight = map.flyTo({ center: [120, -30], span: 20 }, { durationMs: 300 });
-    await wait(120);
-    const mid = map.getView();
-    // Genuinely in flight: neither endpoint.
-    expect(mid.center[0]).toBeGreaterThan(0);
-    expect(mid.center[0]).toBeLessThan(120);
     await flight;
+    track.stop();
+    // Genuinely in flight: it passed through longitudes that are neither endpoint.
+    expect(track.lons.some((lon) => lon > 0 && lon < 120)).toBe(true);
     expect(map.getView().center[0]).toBeCloseTo(120, 6);
     expect(map.getView().center[1]).toBeCloseTo(-30, 6);
     expect(map.getView().span).toBeCloseTo(20, 6);
@@ -321,12 +367,13 @@ describe("createGlyphMap — flyTo", () => {
   it("bows the span OUT at mid-arc so a long flight never skims at final detail", async () => {
     const { host, map } = mount({ view: { center: [0, 20], span: 60, cols: 80, rows: 40 } });
     await frame();
+    const track = trackFlight(map);
     const flight = map.flyTo({ center: [170, -40], span: 6 }, { durationMs: 400, bow: 3 });
-    await wait(180);
-    // Mid-arc span is ABOVE both endpoints — that is the bow, and it is what
-    // bounds how much fine terrain is ever needed mid-flight.
-    expect(map.getView().span).toBeGreaterThan(60);
     await flight;
+    track.stop();
+    // Mid-arc span goes ABOVE both endpoints — that is the bow, and it is what
+    // bounds how much fine terrain is ever needed mid-flight.
+    expect(Math.max(...track.spans)).toBeGreaterThan(60);
     expect(map.getView().span).toBeCloseTo(6, 6);
     map.destroy();
     host.remove();
@@ -335,10 +382,12 @@ describe("createGlyphMap — flyTo", () => {
   it("bow: 1 flies a straight log-span interpolation with no zoom-out", async () => {
     const { host, map } = mount({ view: { center: [0, 20], span: 60, cols: 80, rows: 40 } });
     await frame();
+    const track = trackFlight(map);
     const flight = map.flyTo({ center: [170, -40], span: 6 }, { durationMs: 300, bow: 1 });
-    await wait(140);
-    expect(map.getView().span).toBeLessThanOrEqual(60);
     await flight;
+    track.stop();
+    // NO point of the path rises above the wider endpoint.
+    expect(Math.max(...track.spans)).toBeLessThanOrEqual(60);
     map.destroy();
     host.remove();
   });
@@ -346,13 +395,17 @@ describe("createGlyphMap — flyTo", () => {
   it("takes the SHORTER longitude arc across the antimeridian", async () => {
     const { host, map } = mount({ view: { center: [170, 0], span: 60, cols: 80, rows: 40 } });
     await frame();
+    const track = trackFlight(map);
     const flight = map.flyTo({ center: [-170, 0] }, { durationMs: 300 });
-    await wait(140);
-    // 20 degrees east through 180, never 340 degrees west through 0.
-    const lon = map.getView().center[0];
-    expect(lon).toBeGreaterThan(169);
-    expect(lon).toBeLessThan(191);
     await flight;
+    track.stop();
+    // 20 degrees east through 180, never 340 degrees west through 0 — of the
+    // WHOLE path, not of one sample of it.
+    expect(track.lons.length).toBeGreaterThan(0);
+    for (const lon of track.lons) {
+      expect(lon).toBeGreaterThan(169);
+      expect(lon).toBeLessThan(191);
+    }
     map.destroy();
     host.remove();
   });
@@ -389,10 +442,19 @@ describe("createGlyphMap — flyTo", () => {
   it("an interrupted flight hands over CONTINUOUSLY from where the camera is, never snapping", async () => {
     const { host, map } = mount();
     await frame();
-    const first = map.flyTo({ center: [170, -50], span: 8 }, { durationMs: 600 });
-    await wait(260);
+    const startLon = map.getView().center[0];
+    let firstSettled = false;
+    const first = map.flyTo({ center: [170, -50], span: 8 }, { durationMs: 1500 })
+      .then(() => { firstSettled = true; });
+    // Interrupt with the first flight well underway, and assert that premise
+    // rather than hoping for it.
+    await afterFlightFraction(map, startLon, 170, 0.45);
+    expect(firstSettled).toBe(false);
     const before = { rotX: map.scene.camera.rotX, rotY: map.scene.camera.rotY, zoom: map.scene.camera.zoom };
 
+    // Left at 600 ms: only this flight's FIRST frame is measured, so its
+    // length is not the subject and a longer one would only soften the
+    // assertion.
     const second = map.flyTo({ center: [-40, 60], span: 90 }, { durationMs: 600 });
     await frame();
     await frame();

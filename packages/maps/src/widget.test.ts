@@ -6,7 +6,6 @@ import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapPolygons } from "./mesh";
 import { glyphMapCuratedProvider } from "./curated";
-import { countTiles, settleTiles } from "./tileSettle.harness";
 
 function makeTile(bounds: GlyphMapGeoTile["bounds"], cols: number, rows: number, elev = 100): GlyphMapGeoTile {
   const elevation = new Float32Array((cols + 1) * (rows + 1)).fill(elev);
@@ -697,7 +696,7 @@ describe("createGlyphMap — a live cols/rows change is reflected everywhere (J2
     // `.rows` (the widget's own closure field) do NOT change on their own.
     map.scene.setOptions({ cols: 180, rows: 88 });
     map.setView({}); // the "next view->camera sync" a real gesture eventually triggers
-    await new Promise((r) => setTimeout(r, 250)); // past scheduleTileUpdate's 180ms debounce
+    await map.idle(); // past scheduleTileUpdate's 180ms debounce AND the sweep it issues
 
     expect(Math.max(...loadedZ)).toBeGreaterThan(initialMaxZ);
 
@@ -763,6 +762,26 @@ describe("createGlyphMap — orthographic wheel notches stay smooth through the 
   });
 });
 
+/** One turn of the widget's own motion loop. */
+const frame = (): Promise<void> => new Promise<void>((r) => { requestAnimationFrame(() => r()); });
+
+/**
+ * Advance the motion loop until `cond` holds. A transition's progress is a
+ * function of REAL time, so "300 ms into a 600 ms blend" is a race a loaded
+ * machine wins: measured under 105 background CPU processes, both tests below
+ * overshot the whole transition and ended up asserting continuity across
+ * nothing (and then failing, on correct code). What they actually need is a
+ * POSE — the blend has visibly moved the camera and has not finished — and
+ * that is a condition, not an instant. See AGENTS.md's "Tests & build".
+ */
+async function untilFrame(cond: () => boolean, what: string, maxFrames = 100_000): Promise<void> {
+  for (let i = 0; i < maxFrames; i++) {
+    if (cond()) return;
+    await frame();
+  }
+  throw new Error(`the motion loop never reached: ${what}`);
+}
+
 /**
  * J4 (P1, "worst single jump") / J5 (P1, "same root as J2a"): both fixed by
  * `setProjection` capturing the camera's CURRENT live framing as a plain
@@ -781,12 +800,36 @@ describe("createGlyphMap — setProjection framing tracks the live camera, not a
     const equirect = glyphMapEquirectangular();
     const mercator = glyphMapMercator();
 
-    const done1 = map.setProjection(equirect, { durationMs: 600 });
-    await new Promise((r) => setTimeout(r, 300)); // mid-transition, t ~ 0.5
+    // WHERE the blend is when it is interrupted is the whole discriminator —
+    // the re-derived `from` framing diverges from the live camera in
+    // proportion to how far in the blend has come, so an interrupt near t=0
+    // catches nothing. It is a POSE, not an instant: a fixed 300 ms into a
+    // 600 ms blend overshot the whole transition on a loaded runner and left
+    // this asserting continuity across nothing. The destination pose is
+    // MEASURED off an identical map taken there instantly, never assumed.
+    const probe = mountFlat({
+      view: { center: [100, 20], span: 140, cols: 120, rows: 60 },
+      projection: glyphMapGlobe(),
+      tilt: 40,
+    });
+    await probe.map.setProjection(glyphMapEquirectangular(), { durationMs: 0 });
+    const endRotX = probe.map.scene.camera.rotX;
+    probe.map.destroy();
+    probe.host.remove();
+
+    const startRotX = map.scene.camera.rotX;
+    expect(Math.abs(endRotX - startRotX)).toBeGreaterThan(10); // the premise: the blend has somewhere to go
+    let done1Settled = false;
+    const done1 = map.setProjection(equirect, { durationMs: 1500 }).then(() => { done1Settled = true; });
+    await untilFrame(
+      () => (map.scene.camera.rotX - startRotX) / (endRotX - startRotX) >= 0.45,
+      "the blend to reach 45% of its rotX travel",
+    );
+    expect(done1Settled).toBe(false); // the premise: genuinely still in flight
     const before = { rotX: map.scene.camera.rotX, rotY: map.scene.camera.rotY, zoom: map.scene.camera.zoom };
 
-    const done2 = map.setProjection(mercator, { durationMs: 600 }); // interrupt
-    await new Promise((r) => setTimeout(r, 20)); // the new transition's first frame(s)
+    const done2 = map.setProjection(mercator, { durationMs: 1500 }); // interrupt
+    await frame(); // the new transition's very first frame
     const after = { rotX: map.scene.camera.rotX, rotY: map.scene.camera.rotY, zoom: map.scene.camera.zoom };
 
     // Pre-fix this measured a -35.4deg rotX, -50.5deg rotY, x0.0637 zoom
@@ -829,8 +872,11 @@ describe("createGlyphMap — setProjection framing tracks the live camera, not a
     const equirect = glyphMapEquirectangular();
     const donePromise = map.setProjection(equirect, { durationMs: 600 });
     // The FIRST frame, before any real interpolation has had time to move
-    // things far — pre-fix, THIS was already a x1.277 snap on its own.
-    await new Promise((r) => setTimeout(r, 16));
+    // things far — pre-fix, THIS was already a x1.277 snap on its own. ONE
+    // turn of the motion loop, not 16 ms of wall clock: a loaded machine
+    // overshoots the latter into the middle of the blend, where legitimate
+    // interpolation has moved the zoom on its own.
+    await frame();
     const zoomFirstFrame = map.scene.camera.zoom;
 
     expect(zoomFirstFrame / zoomBeforeSetProjection).toBeGreaterThan(0.9);
@@ -1151,9 +1197,9 @@ describe("createGlyphMap — layers", () => {
     // `setView`'s own synchronous `scene.rerender()` still shows the OLD
     // (pre-fitBounds) tile set for a moment — `vi.waitFor` on non-blank text
     // alone would pass vacuously against that stale frame. The tile SWAP
-    // itself is on `scheduleTileUpdate`'s 180ms debounce, so wait past it
-    // before asserting on the settled render.
-    await new Promise((r) => setTimeout(r, 400));
+    // itself is on `scheduleTileUpdate`'s 180ms debounce, and `idle()` covers
+    // it AND the sweep it issues.
+    await map.idle();
     expect(nonSpaceCount()).toBeGreaterThan(0);
 
     map.destroy();
@@ -1188,7 +1234,7 @@ describe("createGlyphMap — layers", () => {
       const latMax = 90 - y * level.tileLatSpan;
       return { west: lonMin, east: lonMin + level.tileLonSpan, south: latMax - level.tileLatSpan, north: latMax };
     };
-    const { provider, traffic } = countTiles<GlyphMapProvider>({
+    const provider: GlyphMapProvider = {
       id: "real-shape-geo-tiles",
       zooms,
       bounds: (z, x, y) => tileBounds(zooms.find((l) => l.z === z)!, x, y),
@@ -1197,7 +1243,7 @@ describe("createGlyphMap — layers", () => {
         const level = zooms.find((l) => l.z === z)!;
         return makeTile(tileBounds(level, x, y), level.tileCols, level.tileRows);
       },
-    });
+    };
 
     // cols=120 matches `provider.test.ts`'s own real-pyramid progression
     // fixture: span 400/150/70/35/15 -> degPerCell 3.33/1.25/0.583/0.292/0.125
@@ -1218,13 +1264,14 @@ describe("createGlyphMap — layers", () => {
     const expectedMaxZ = [1, 2, 3, 4];
     for (let i = 0; i < spans.length; i++) {
       map.setView({ span: spans[i] });
-      // Past `scheduleTileUpdate`'s 180ms debounce AND past the sweep it then
-      // issues. A flat 250ms sleep covered the debounce and then asserted on
-      // whatever had happened to arrive — which on a loaded runner is a
-      // half-finished ladder, and is why this test timed out in CI at 5,000ms
-      // while taking 1.25s here. The assertion is untouched: still the EXACT
-      // deepest level, so a sweep that overshoots to z+1 fails as it did.
-      await settleTiles(traffic);
+      // The widget's own quiescence — past `scheduleTileUpdate`'s 180ms
+      // debounce AND past the sweep it then issues. A flat 250ms sleep
+      // covered the debounce and then asserted on whatever had happened to
+      // arrive, which on a loaded runner is a half-finished ladder; that is
+      // why this test timed out in CI at 5,000ms while taking 1.25s here.
+      // The assertion is untouched: still the EXACT deepest level, so a
+      // sweep that overshoots to z+1 fails as it did.
+      await map.idle();
       expect(Math.max(...loadedZ)).toBe(expectedMaxZ[i]);
     }
 
@@ -1333,7 +1380,7 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
     // identical sets and `unproject`/`project` return bit-identical values,
     // so the discriminator is intact and only the mesh detail nothing asserts
     // on is gone.
-    const { provider, traffic } = countTiles<GlyphMapProvider>({
+    const provider: GlyphMapProvider = {
       id: "deep-no-bounds-globe",
       zooms: [{ z: 7, cols: 128, rows: 128, tileLonSpan, tileLatSpan, tileCols: 1, tileRows: 1 }],
       bounds: (_z, x, y) => {
@@ -1348,7 +1395,7 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
         const latMax = 90 - y * tileLatSpan;
         return makeTile({ west: lonMin, east: lonMin + tileLonSpan, south: latMax - tileLatSpan, north: latMax }, 1, 1);
       },
-    });
+    };
 
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1363,7 +1410,7 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
     });
 
     await vi.waitFor(() => expect(boundsXY.size).toBeGreaterThan(0));
-    await settleTiles(traffic); // past scheduleTileUpdate's debounce AND the sweep it issues
+    await map.idle(); // past scheduleTileUpdate's debounce AND the sweep it issues
 
     // Ground truth from the widget itself, never hand-derived: the lon/lat
     // under two cells near the east and west edges of the middle row, and

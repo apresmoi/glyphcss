@@ -337,6 +337,35 @@ on a projection's `id`:
   pan-with-domain-clamp, with no `if (projection is globe)` anywhere in
   `widget.ts`.
 
+### Waiting for the settled frame — `map.idle()`
+
+```ts
+map.setView({ center: [8.54, 47.37], span: 0.02 });
+await map.idle();
+const settled = map.scene.output.textContent;
+```
+
+Everything the widget does is fire-and-forget. A view change ARMS a 180 ms
+debounce; the sweep it then issues fetches three tiers of tiles in phases;
+each landing tile re-plants whatever stands on it (extrusions, markers, a
+contour's mosaic), which dispatches more work; a `flyTo` or a `setProjection`
+blend runs on the motion loop. None of that is awaited by any caller, so a
+consumer that wants to READ the settled picture — an export, a screenshot,
+a test — used to have nothing to wait on but a guess at a duration. A guess
+is wrong in both directions: it idles on a fast machine and reads a
+half-built frame on a loaded one.
+
+`map.idle()` is that missing signal, and it is the widget's own account of
+itself rather than a window: an armed debounce, a dispatched or queued layer
+sweep, a pending ground-change re-plant, an owed motion frame, a flight, and
+a projection blend. Call it AFTER the mutation that provokes the work — a
+pending debounce counts as busy, so the sweep it will issue is included. On a
+settled map it resolves on the next event-loop turn; on a destroyed map,
+immediately. It does NOT time out: a widget that never goes quiet is a real
+hang, and answering "settled" would be the same lie a fixed sleep tells.
+
+The counterpart of MapLibre's `once("idle")` / `loaded()`.
+
 ### Camera pitch
 
 `tilt` pitches the camera ABOUT THE SURFACE POINT UNDER THE VIEW CENTRE, with

@@ -366,7 +366,7 @@ describe("createGlyphMap — a contour stands at its own elevation", () => {
     const source = rampProvider(M_PER_DEG);
     map.addLayer({ type: "raster", id: "terrain", source, colors: ["#204020", "#608060"] });
     await vi.waitFor(() => expect((map.scene.output.textContent ?? "").trim().length).toBeGreaterThan(200), { timeout: 3000 });
-    await new Promise((r) => setTimeout(r, 250));
+    await map.idle();
     map.scene.rerender();
     const withoutContour = map.scene.output.textContent ?? "";
 

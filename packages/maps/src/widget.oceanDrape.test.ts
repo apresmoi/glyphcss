@@ -78,7 +78,6 @@ import { glyphMapVectorMesh } from "./layers";
 import { glyphMapBreaks } from "./classify";
 import { glyphMapDecodeMVT } from "./vector/pmtiles";
 import { GLYPH_MAP_OPENMAPTILES_LAYERS, glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
-import { countTiles, settleTiles } from "./tileSettle.harness";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -304,8 +303,8 @@ function cellGrid(pre: HTMLElement): (string | null)[][] {
  * ~450 ms of doing nothing on this machine and, on a slower contended runner,
  * a floor UNDER the ~1 s of real projection work the same window has to
  * cover: this file spent 1.2 s of its 5 s budget asleep and timed out in CI
- * with the work unfinished. `settleTiles` waits on the widget's own tile
- * traffic instead. Verified byte-identical to the 600 ms version on all four
+ * with the work unfinished. `map.idle()` waits on the widget's own quiescence
+ * instead. Verified byte-identical to the 600 ms version on all four
  * scenarios in this file (same `output.innerHTML`), so every cell count and
  * colour asserted below is the number it was measured at.
  */
@@ -322,7 +321,7 @@ async function render(options: {
   const host = document.createElement("div");
   document.body.appendChild(host);
   hosts.push(host);
-  const terrain = options.terrain === false ? null : countTiles(options.provider ?? makeProvider());
+  const terrain = options.terrain === false ? null : (options.provider ?? makeProvider());
   const map = createGlyphMap(host, {
     view: { center: [CENTER[0], CENTER[1]], span: SPAN, cols: COLS, rows: ROWS },
     projection: glyphMapGlobe({ exaggeration: EXAGGERATION }),
@@ -330,13 +329,13 @@ async function render(options: {
     bearing: BEARING,
     groundElevation: options.groundElevation,
     layers: [
-      ...(terrain === null ? [] : [{ type: "raster" as const, id: "terrain", source: terrain.provider, classifier, colors: TERRAIN_COLORS }]),
+      ...(terrain === null ? [] : [{ type: "raster" as const, id: "terrain", source: terrain, classifier, colors: TERRAIN_COLORS }]),
       { type: "fill" as const, id: "water", source: { features: options.features }, color: options.color ?? OCEAN, drape: options.drape },
     ],
     scene: { mode: "solid", useColors: true },
   });
   mounted.push(map);
-  await settleTiles(terrain?.traffic ?? null);
+  await map.idle();
   map.scene.rerender();
   return { text: map.scene.output.textContent ?? "", grid: cellGrid(map.scene.output), map };
 }
