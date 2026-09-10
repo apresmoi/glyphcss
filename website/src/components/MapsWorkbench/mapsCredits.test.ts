@@ -35,6 +35,22 @@ describe("which credits are obligations", () => {
     expect(mapCreditRequiresNotice("CC-BY 4.0")).toBe(true);
   });
 
+  /**
+   * The Datasets card's submarine cables. CC BY-NC-SA 3.0 is the strictest
+   * licence anything on this page carries — attribution AND share-alike AND
+   * non-commercial — so it must never be compressed behind the `+N`
+   * affordance while a public-domain courtesy credit takes the line.
+   *
+   * It falls out of the rule rather than needing a case of its own (the list
+   * is of licences that impose NO term, so anything unrecognised is an
+   * obligation), which is exactly why it is worth pinning: the guarantee is
+   * currently defended by an absence, and an absence is easy to fill in by
+   * accident.
+   */
+  it("treats the cables' CC BY-NC-SA as an obligation", () => {
+    expect(mapCreditRequiresNotice("CC BY-NC-SA 3.0")).toBe(true);
+  });
+
   // The safe direction to be wrong in: a provider whose licence string this
   // page has never seen gets NAMED rather than silently compressed away.
   it("treats an unknown or missing licence as an obligation", () => {
@@ -82,6 +98,22 @@ describe("the always-visible line", () => {
     expect(s.sources.map((x) => x.license)).toEqual([
       "Public domain", "Public domain", "ODbL", "CC-BY 4.0", "ODbL",
     ]);
+  });
+
+  it("never compresses the cables' credit away in favour of a public-domain one", () => {
+    // The real mounted set with the Datasets card's cables on and its two
+    // Natural Earth rows on beside them, in `getAttributions()` order: the
+    // public-domain sources are mounted FIRST, so a naive "first N" would
+    // spend the whole line on them and hide the one obligation.
+    const withCables: readonly MapCreditSource[] = [
+      { name: "NOAA NCEI (ETOPO1)", license: "Public domain", date: "2009" },
+      { name: "Natural Earth", license: "Public domain" },
+      { name: "TeleGeography", license: "CC BY-NC-SA 3.0" },
+    ];
+    const s = mapCreditSummary(withCables, { maxNames: 1 });
+    expect(s.named).toEqual(["TeleGeography"]);
+    expect(mapCreditNoticeText(s)).toBe("© TeleGeography");
+    expect(s.hiddenCount).toBe(2);
   });
 
   it("credits one provider once when two layers mount it", () => {

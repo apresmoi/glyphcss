@@ -72,6 +72,12 @@ function inputs(): LayersFolderInputs {
       sublayers: [], onSublayer: noop, onSublayerDensity: noop, onSublayerAnchor: noop,
       density: 1, onDensity: noop,
     },
+    // The Datasets card is a sibling on the same rail; these files are
+    // about other cards, so it is supplied inert exactly as `osm` above is.
+    datasets: {
+      visible: false, onVisible: noop, source: "nothing fetched yet", failed: null,
+      rows: [], onRow: noop, onRowDensity: noop, onRowAnchor: noop,
+    },
   };
 }
 

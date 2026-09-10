@@ -48,6 +48,7 @@ import {
   type OsmLayerInputs,
 } from "./mapsKit";
 import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
+import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "./mapsDatasets";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -104,6 +105,15 @@ function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs 
     fill: glyphOnly, symbol: extra(), circle: extra(), heatmap: glyphOnly,
     fillExtrusion: withMode, model: withMode,
     osm: osm(osmOverrides),
+    // The Datasets card is a sibling of the OSM card on the same rail and
+    // `LayersPanel` renders both; these files are about the OSM one, so it
+    // is supplied inert. `LayersPanel.datasets.test.tsx` is where it is
+    // exercised.
+    datasets: {
+      visible: false, onVisible: noop, source: "nothing fetched yet", failed: null,
+      rows: MAP_DATASET_ROWS.map((r) => ({ ...r, on: false, density: 1, anchor: MAP_DATASET_DEFAULT_ANCHOR })),
+      onRow: noop, onRowDensity: noop, onRowAnchor: noop,
+    },
   };
 }
 
