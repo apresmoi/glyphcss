@@ -18,6 +18,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { GLYPH_FONT_ATLAS, isGlyphInFontAtlas } from "glyphcss";
+import { glyphMapAsciiLabel, GLYPH_MAP_POINT_RAMP } from "@glyphcss/maps";
 import {
   MAP_LIVE_CELESTRAK_ATTRIBUTION,
   MAP_LIVE_DISASTERS_REFRESH_MS,
@@ -33,6 +35,8 @@ import {
   mapLiveAlertRank,
   mapLiveLayer,
   mapLiveLayerId,
+  mapLiveOpenFeature,
+  mapLiveQuakeLabelScore,
   parseMapLiveDisasters,
   parseMapLiveLaunches,
   parseMapLiveQuakes,
@@ -334,19 +338,89 @@ describe("fetching, and failing", () => {
 });
 
 describe("layers", () => {
-  it("mounts each row as the layer kind its data wants", () => {
+  it("mounts every row as a `glyph` layer — marks in the grid, not DOM nodes", () => {
     const empty = { features: [] };
-    expect(mapLiveLayer("quakes", empty)).toMatchObject({ type: "circle", id: "live-quakes", radiusProperty: "mag" });
-    expect(mapLiveLayer("disasters", empty)).toMatchObject({ type: "circle", id: "live-disasters", radiusProperty: "alertRank" });
-    expect(mapLiveLayer("satellites", empty)).toMatchObject({ type: "circle", id: "live-satellites" });
-    // `symbol`, not `circle`: only `symbol` runs the declutter arbiter, and a
-    // dozen pad NAMES need arbitrating where a few hundred sized dots do not.
-    expect(mapLiveLayer("launches", empty)).toMatchObject({ type: "symbol", id: "live-launches", textProperty: "title" });
+    // All four, because the reader asked for all four: "lets not use that for
+    // the live datasets, lets use glyphs for them". The page's other point
+    // rows are deliberately not converted.
+    expect(mapLiveLayer("quakes", empty)).toMatchObject({ type: "glyph", id: "live-quakes", sizeProperty: "mag", textProperty: "title", priorityProperty: "labelScore" });
+    expect(mapLiveLayer("disasters", empty)).toMatchObject({ type: "glyph", id: "live-disasters", sizeProperty: "alertRank", ramp: ["⊙", "⊚", "◉"] });
+    // A star, at its real orbital altitude in TRUE metres — `altKm` is what
+    // SGP4 already produced.
+    expect(mapLiveLayer("satellites", empty)).toMatchObject({ type: "glyph", id: "live-satellites", ramp: ["★"], size: 0, altitudeProperty: "altKm", altitudeScale: 1000 });
+    expect(mapLiveLayer("launches", empty)).toMatchObject({ type: "glyph", id: "live-launches", ramp: ["▲"], textProperty: "title" });
+  });
+
+  it("arms `onSelect` only for a row whose own features carry a url", () => {
+    // Read off the DATA, never off the row id: a mark that opens nothing must
+    // not advertise a pointer cursor.
+    const quakes = parseMapLiveQuakes(capture(CAPTURES.quakes).body, 1_789_070_925_000)!;
+    expect(mapLiveLayer("quakes", quakes).onSelect).toBeTypeOf("function");
+    expect(mapLiveLayer("satellites", { features: [] }).onSelect).toBeUndefined();
+    expect(mapLiveLayer("quakes", { features: [] }).onSelect).toBeUndefined();
+  });
+
+  it("opens a feature's own url in a new tab, and refuses a scheme that is not http(s)", () => {
+    const opened: string[] = [];
+    const open = (url: string) => { opened.push(url); };
+    mapLiveOpenFeature({ id: "a", geometryType: "point", rings: [[[0, 0]]], properties: { url: "https://example.test/q" } }, open);
+    // A url is untrusted text out of a network payload, and
+    // `window.open("javascript:...")` runs in THIS origin.
+    mapLiveOpenFeature({ id: "b", geometryType: "point", rings: [[[0, 0]]], properties: { url: "javascript:alert(1)" } }, open);
+    mapLiveOpenFeature({ id: "c", geometryType: "point", rings: [[[0, 0]]], properties: {} }, open);
+    expect(opened).toEqual(["https://example.test/q"]);
+  });
+
+  it("ranks a quake's label by magnitude AND recency, with recency worth at most 1.5 magnitudes", () => {
+    const now = 1_789_070_925_000;
+    const hoursAgo = (h: number) => now - h * 3_600_000;
+    // A fresh small quake outranks an old one of the same size...
+    expect(mapLiveQuakeLabelScore(3, hoursAgo(0.1), now)).toBeGreaterThan(mapLiveQuakeLabelScore(3, hoursAgo(120), now));
+    // ...but never outranks one 1.5 magnitudes larger, however fresh.
+    expect(mapLiveQuakeLabelScore(4, now, now)).toBeLessThan(mapLiveQuakeLabelScore(5.6, hoursAgo(168), now));
+    // A missing timestamp scores its magnitude alone rather than being
+    // treated as infinitely old — an event with a missing field is still an
+    // event.
+    expect(mapLiveQuakeLabelScore(5, null, now)).toBe(5);
+    // Measured on the vendored USGS week: the top of the list is the two
+    // events of the last two hours, then the week's largest.
+    const week = parseMapLiveQuakes(capture(CAPTURES.quakes).body, now)!;
+    const top = [...week.features]
+      .sort((a, b) => Number(b.properties!.labelScore) - Number(a.properties!.labelScore))
+      .slice(0, 4)
+      .map((f) => String(f.properties!.title));
+    expect(top[0]).toContain("southern East Pacific Rise");
+    expect(top[1]).toContain("Lospalos");
+    expect(top.every((t) => t.startsWith("M 5"))).toBe(true);
   });
 
   it("carries the source it was handed, so a refresh is a source swap and nothing else", () => {
     const source = parseMapLiveQuakes(capture(CAPTURES.quakes).body)!;
     expect(mapLiveLayer("quakes", source).source).toBe(source);
+  });
+
+  it("draws every row out of the COLOUR-FONT ATLAS, or the whole map loses its zero-span encoding", () => {
+    // Not a style check. `/maps` renders with `colorEncoding: "atlas"`, and
+    // glyphcss latches the WHOLE SCENE back to the span encoder for any frame
+    // containing a glyph the atlas does not carry — so one exotic marker
+    // would quietly cost the entire map its encoding, at every zoom, for as
+    // long as the row is on.
+    const empty = { features: [] };
+    const marks = (["quakes", "disasters", "launches", "satellites"] as const)
+      .flatMap((id) => mapLiveLayer(id, empty).ramp ?? GLYPH_MAP_POINT_RAMP);
+    expect(marks.length).toBeGreaterThan(4);
+    for (const glyph of marks) expect(isGlyphInFontAtlas(glyph, GLYPH_FONT_ATLAS), glyph).toBe(true);
+
+    // And the LABELS, which are the half that actually broke: 385 real USGS
+    // titles carry `î é ā ü í ó ū á` and a right single quote, none of them
+    // in the atlas. `glyphMapAsciiLabel` is what folds them; without it the
+    // whole map silently drops to the span encoder.
+    const titles = parseMapLiveQuakes(capture(CAPTURES.quakes).body, 1_789_070_925_000)!
+      .features.map((f) => String(f.properties!.title));
+    const raw = new Set([...titles.join("")].filter((c) => c !== " " && !isGlyphInFontAtlas(c, GLYPH_FONT_ATLAS)));
+    expect(raw.size, "the fixture must still contain out-of-atlas characters or this proves nothing").toBeGreaterThan(0);
+    const folded = [...titles.map(glyphMapAsciiLabel).join("")].filter((c) => c !== " " && !isGlyphInFontAtlas(c, GLYPH_FONT_ATLAS));
+    expect(folded).toEqual([]);
   });
 
   it("credits CelesTrak by the citation they ask for", () => {

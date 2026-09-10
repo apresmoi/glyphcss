@@ -7138,3 +7138,294 @@ a WebAssembly accelerator whose Emscripten glue uses top-level await and is
 reachable from the package's only entry point, which fails Astro's static
 build outright (`Module format "iife" does not support top-level await`); the
 deep pure-JS modules are not exported, so there is no way to import past it.
+
+## Stamped point marks: the `glyph` layer
+
+The four live rows landed as `circle`/`symbol` layers — DOM nodes positioned
+over the `<pre>` — and the report on seeing them was:
+
+> "lets not use that for the live datasets, lets use glyphs for them :/ also,
+> the satellites are super tiny, don't we have also the height at which the
+> satellites are orbiting? so we can make them at the right height? and maybe
+> we can make them bigger?"
+
+and, on the labels:
+
+> "lets put the label of magnitude + title for the quake /// and lets make the
+> size dependant of the magnitude too -- if you click it you open the url in a
+> new tab"
+>
+> "ofc we cannot put labels for all the quakes, if there are too many we will
+> need to decide which ones we label, probably depending on magnitude and how
+> long has it happened"
+
+### A THIRD point layer, not a mode on the two that exist
+
+`symbol` and `circle` are DOM by CONTRACT rather than by implementation
+accident. A `symbol` exists so a reader can select and copy a place name; a
+`circle` sizes itself in CSS pixels. Every option either carries has meaning
+only in that medium — `textAnchor` resolves to a CSS percentage of a
+laid-out box, `radiusScale` to `style.width`, `minPriority` to
+`style.opacity` — and none of it survives a translation into cells. A
+`mode: "glyph"` flag on them would be a discriminated union hiding inside one
+interface, with two disjoint runtimes and two disjoint option sets behind one
+name.
+
+What the new layer IS, meanwhile, already existed and is exact: `line` and
+`contour` are stamped layers composed into the scene's single `transformCells`
+hook, depth-tested per cell against whatever geometry won it, and clipped to
+the projection's own horizon. `createGlyphPointLayerRuntime` is structurally
+`createLineLayerRuntime` with a point where a polyline was — the same
+provider-sweep/static-collection feature loading read live by `stamp()` on
+every render, rather than `createFeatureLayerRuntime`'s mount/rebuild cycle,
+which exists to manage DOM elements this layer does not have.
+
+The three are complementary and all three stay. The page's other point rows
+(places, peaks, POIs, countries, every OSM sublayer) are deliberately
+untouched: converting them is a separate decision about a shipped surface.
+
+### The depth test is the stroke's, lifted verbatim
+
+`glyphMapSurfaceOccludes` is `stampGlyphMapPolyline`'s inner loop moved out of
+it unchanged — the sampling-offset CORRECTION (evaluate the surface where the
+stamp actually is, not at the cell centre `grid.depth` was sampled at) and the
+second-difference ALLOWANCE (forgive the terrain's own faceting, never the
+camera's foreshortening). A mark planted on the terrain is coplanar with it to
+within that terrain's own faceting, exactly as a draped stroke is, and a
+second independently-tuned test for the same question would be a second answer
+to it.
+
+The test runs PER CELL of a mark, not per mark: a mark large enough to span
+several cells can straddle a ridge, and the half behind it must go dark
+exactly as a stroke crossing the same ridge does.
+`stampGlyphMapPoint` returns the CELL COUNT it inked, and that count is the
+visibility answer everything downstream keys on — a mark that inked nothing is
+not clickable and gets no label, for free and by construction rather than by a
+second visibility rule that could disagree with the picture.
+
+### Size is a glyph, and there is one rule for it
+
+A `circle` expresses magnitude as a CSS pixel radius, which a character grid
+cannot draw: the smallest paintable thing is one cell and everything below
+that rounds to the same dot. The unit here is a disc radius in CELL ROWS, and
+`glyphMapPointCells` is the whole rule — rasterize the disc (columns stretched
+by `cellAspect`, or a "circle" on a 2:1 grid renders as a vertical ellipse),
+then pick each cell's glyph by HOW MUCH OF THAT CELL THE DISC COVERS out of an
+ordered ramp of increasing ink.
+
+That is the solid rasterizer's own rule (glyphcss picks a cell's glyph from a
+`CharRamp` by intensity) applied to a disc instead of to a Lambert term, and
+it is what makes ONE expression serve both halves of "bigger": under one cell
+the disc grows by climbing the ramp, past one cell it grows by covering more
+cells, with the partially-covered rim automatically landing on the smaller
+ramp entries. No threshold, no second mode. Coverage is measured with 16
+sub-samples per cell (`GLYPH_MAP_POINT_COVERAGE_SAMPLES`), which is about how
+finely the ANSWER is quantized rather than how exact the integral is: with a
+3-entry ramp the boundaries sit at 1/3 and 2/3 and 16 samples resolve those to
++/-1/16 of a cell's area.
+
+`GLYPH_MAP_POINT_RAMP` is `. dot bullet` — U+00B7, U+2022, U+25CF. Three
+properties decided it, in order: they are the SAME SHAPE at three sizes (a
+ramp of `.` `+` `*` `#` also increases in ink but reads as four different
+marks a reader has to learn the order of); they are CENTRED in the cell (a
+full stop sits on the baseline, so a ramp starting at `.` puts the smallest
+mark visibly below its own feature); and all three are in `GLYPH_FONT_ATLAS`
+AND in ordinary system monospace stacks. The ramp stops at U+25CF rather than
+reaching for U+2B24 (BLACK LARGE CIRCLE) for the second half of that: U+2B24
+is in the atlas but missing from most monospace fonts, where it renders as
+tofu at a non-monospace advance and tears the grid.
+
+`size: 0` — the default — is exactly ONE cell carrying the ramp's largest
+glyph, and it is the rule an IDENTITY mark takes. That is not a degenerate
+case but the answer to a measured problem: across 100 sub-cell placements, a
+multi-cell disc with a core-and-halo ramp (`. . . star` at radius 0.55-0.7
+rows) draws ZERO cores 5-36% of the time and TWO cores 11-62% of the time,
+i.e. it loses the star or doubles the satellite depending on where the object
+happens to land. A disc rasterizer cannot express "one bright core plus a
+halo"; a one-cell mark can.
+
+`GLYPH_MAP_POINT_MAX_SIZE_ROWS` (8) is a blast radius, not a design limit:
+`size` comes from a feature's own property, and a source shipping a population
+column where a magnitude was expected would otherwise walk a viewport-sized
+bounding box per feature.
+
+### Altitude is TRUE METRES, and the limb needed no new code
+
+`altitudeProperty x altitudeScale` is a height above the ground in true
+metres, converted with `glyphMapTrueScaleElevation` exactly as a
+`fill-extrusion`'s height is, and measured FROM the exaggerated relief the
+drape puts under the mark — the same split that paragraph already argues for.
+At `/maps`' default `exaggeration: 24` the exempt answer puts a 550 km orbit
+at 8.6% of a radius and the un-exempt one at 207%, two Earth radii past the
+far side of the planet.
+
+The limb falls out of what is already there. `glyphMapGlobe.visible` grew a
+raised-point test for `fill-extrusion` walls — a point behind the centre plane
+is visible exactly when it lies outside the sphere's silhouette CYLINDER,
+which is the ship's-mast-before-the-hull effect — and a satellite is that same
+question at a much larger height. Measured through the real renderer at
+`span: 150` centred on `[0, 0]`: an object at 550 km and lon 100 draws ink
+BEYOND the datum's own silhouette column (nothing on the surface can reach
+those columns), and one at lon 175 draws nothing at all. The horizon reaches
+`acos(R / (R + h))` = 23.1 degrees past the datum's 90, so visibility ends
+around 113 degrees from the sub-observer point, and both sides of that are
+gated.
+
+**An earthquake's depth is NOT an altitude.** USGS ships it in km, positive
+downward, and the vendored week reaches 608 km. Fed to `altitudeProperty` with
+a negative scale it is stamped inside the planet and blanked by the surface
+the reader can see — rendered, not argued: `widget.glyphPoint.test.ts` mounts
+exactly that and counts zero cells for the deep event beside a surface control
+that draws. The epicentre is where a map says an earthquake is, and the depth
+stays a property.
+
+### Labels: folded to ASCII, and rationed by score
+
+A stamped label is characters IN the render, which brings a constraint a DOM
+label never had. `/maps` renders with `colorEncoding: "atlas"`, and glyphcss
+latches the WHOLE SCENE back to the span encoder for any frame containing a
+glyph the 212-glyph colour font does not carry. Real place names carry exactly
+such glyphs: measured on the vendored USGS week, 385 titles contain `i` and
+`e` and `a` with diacritics, `u`, `o`, and a right single quote — 25
+characters in all, none in the atlas, and ONE of them anywhere on screen costs
+the entire map its zero-span rendering. It was observed in a real browser
+before it was reasoned about: the page's own `<pre>` reported
+`font-family: monospace` with the live rows on, and `GlyphCssAtlas` with them
+off.
+
+`glyphMapAsciiLabel` folds a label to printable ASCII (NFD decomposition with
+combining marks stripped, plus a substitution table for what has no
+decomposition — stroked letters, ligatures, typographic punctuation). It is
+applied UNCONDITIONALLY rather than only when the scene is on the atlas,
+because nothing can know: the encoder a frame lands on is decided by that
+frame's own glyphs, i.e. after this text is already in the grid. Given a
+stripped diacritic against a scene-wide silent downgrade, the diacritic goes.
+A label that folds to empty (a wholly non-Latin script) draws nothing, which
+is the honest answer — this atlas cannot write those scripts and a row of
+substitution boxes would be worse than a name the reader looks up elsewhere.
+
+The RATIONING is `priorityProperty` through the same greedy
+`glyphMapDeclutterLabels` a `symbol` uses, in the stamped grid's own cells. A
+SCORE and not a threshold: the arbiter drops a label only when it actually
+collides with a higher-ranked one, so the set thins smoothly as the view zooms
+out instead of switching on at some scale, and the MARKS are never rationed —
+every quake is drawn at its own magnitude whether or not it keeps its name.
+
+`/maps`' own score (`mapLiveQuakeLabelScore`, in the website) is
+`mag + 1.5 * exp(-ageHours / 12)`. Magnitude is the UNIT and needs no scaling:
+the Richter scale is already logarithmic in energy, which is what every
+seismological map draws. Recency is a DECAY rather than a linear age, because
+the difference between an hour ago and two hours ago is enormous and the
+difference between five days and six is nothing; a 12-hour constant leaves 61%
+of the bonus after 6 h, 37% after 12 h, 14% after a day and nothing after
+three, against a rolling seven-day window.
+
+`1.5` is a statement a reader can check — a quake minutes old outranks one up
+to 1.5 magnitudes larger from earlier in the week, and nothing under M4 can
+outrank a M5.5 however fresh. Measured on the vendored week (385 events,
+M2.46-M5.6, the top of the list): at `1.5` it is the two events of the last
+two hours (M5.4 southern East Pacific Rise, 1.8 h; M5.3 Lospalos, 1.4 h) and
+then the week's M5.5s and M5.6s, with a fresh M4.8 (Cliza, 8 h) and M5.0
+(Quepos, 11.7 h) among them. At `2.0` an M4.1 from two hours ago outranks
+every M5.5 on the planet, which is the wrong trade; at `1.0` recency barely
+reorders anything and the score is magnitude with extra steps.
+
+Showing recency on the DOT as well was considered and not built — the user
+asked for it on the labels, the mark's one visual channel is already spent on
+magnitude, and a second encoding on the same mark is its own decision.
+
+### Selection is a hit test, not an element
+
+A glyph is not a node and cannot receive a click, and the fix must not be "put
+a `<div>` back", which is the thing being removed. The stamp RETAINS each
+drawn mark's scene cell (`GlyphMapPointHit`), and `onPointerUp` matches a
+click's own cell against that list. One handler for a whole layer instead of
+one element per point, no second projection, no second visibility rule, and no
+second declutter: a mark that was not drawn left no record.
+
+Four details carry it:
+
+- **It rides the existing `!didDrag` branch**, the same guard the widget's own
+  `click` event uses (set past 3 px of travel, and by the touch path too), so
+  a pan that happens to end over a mark opens nothing. Reusing that branch
+  rather than adding a second one is what makes the two answers unable to
+  disagree.
+- **The threshold is in CELLS**, not pixels — `GLYPH_MAP_POINT_HIT_CELLS` = 2
+  cell ROWS, with columns divided by `cellAspect` so the target is round on
+  screen rather than round in cells. A pixel threshold would shrink to nothing
+  on a dense grid and swallow half a continent on a coarse one, and this
+  widget changes its own grid resolution mid-gesture
+  (`interactiveDownscale`). At `/maps`' 140x63 on 1440x900 a cell is about
+  10 x 14 px, so two rows either side is a 40 x 56 px box — just past the
+  44 px both Apple's and Google's guidelines ask for. A mark's own `size` is
+  added on top, so a large mark is selectable across its whole disc.
+- **The widget resolves WHICH feature and nothing else.** What a click MEANS
+  belongs to the consumer; a library calling `window.open` itself would be
+  choosing a navigation policy for every page that mounts it. The page's own
+  `mapLiveOpenFeature` passes `noopener,noreferrer` (without it the opened
+  third-party document gets a live handle on this one) and CHECKS THE SCHEME
+  — `url` came out of a network payload, and `window.open("javascript:...")`
+  executes in this origin.
+- **A row with nothing to open is inert, and that is read off the DATA.** Only
+  the USGS feed ships a `url`; `featuresCarryUrls` decides, so it is a
+  property of what arrived rather than a `case "quakes":`. No `onSelect` means
+  no hit test and no cursor — a mark that opens nothing must not advertise
+  that it would.
+
+The HOVER affordance is the one place there was no alternative to a
+per-pointermove test: the whole map is a single element, so there is no
+`:hover` rule to write and no per-feature node to hang `cursor: pointer` on.
+It runs only while a layer declares `onSelect`, only while no button is down,
+reads the list the last render already built, and writes `style.cursor` only
+on a real change.
+
+### What the four rows became, and what it looks like
+
+Verified in a real headed browser against the vendored captures (routed
+through Playwright, so no network), at 1440x900 on the page's own 140x63 grid:
+
+| Row | Mark | Size |
+|---|---|---|
+| quakes | the default disc ramp | `mag * 0.2` rows (M2.46-M5.6 -> 0.49-1.12) |
+| disasters | a ring ramp | `alertRank * 0.25` rows |
+| launches | one `▲` | `0` (one cell) |
+| satellites | one `★` | `0` (one cell) |
+
+At a WORLD view (span 140 centred on the Pacific): 136 quake cells, 71
+disaster-ring cells, 55 satellite stars standing clear of the globe's own
+limb, one launch pad, and 25 label lines — the week's notable quakes and the
+last few hours' named along the Indonesian and Melanesian arcs, the rest drawn
+but unnamed. At a REGIONAL view (span 20 over Japan): 33 quake cells, 6 rings,
+one star, 3 label lines. `<pre>` `font-family` is `GlyphCssAtlas` at both, and
+`document.querySelectorAll(".glyph-map-circle")` and `.glyph-hotspot` are both
+EMPTY — which is the whole report answered.
+
+A satellite went from a 4 px CSS circle (about 11% of a cell's drawn area) to
+a full-cell `★` — roughly seven times the area and 2.6x linear at this page's
+cell — and from invisible at a world view to legible at one.
+
+### Gates
+
+- `point.test.ts` — the disc-to-cells rule (one cell at `size: 0`, the ramp
+  climb, the footprint growth and its aspect, monotonicity, the cap, the
+  coverage floor), the depth test including the per-cell straddle and the
+  cross-`<pre>` skip, and the ASCII fold.
+- `widget.glyphPoint.test.ts` — no DOM node and a changed `<pre>`;
+  byte-identical on removal; size varies with magnitude at TWO views and the
+  large mark is genuinely multi-cell; hidden behind terrain (with the
+  negative control that the clear mark still draws) and round the limb; the
+  altitude exemption against the exaggerated candidate AND the ground; the
+  mast-before-the-hull pair; the buried negative altitude; `onSelect` on a
+  click, not on a drag, not in open space, and inert without it; the cursor;
+  and the label arbitration.
+- `mapsLive.test.ts` — every row is a `glyph` layer, every mark glyph and
+  every folded label is in `GLYPH_FONT_ATLAS`, `onSelect` is armed only where
+  the data carries urls, the scheme check, and the score's two bounds plus
+  what it actually selects on the vendored week.
+
+Mutation-checked: removing `glyphMapTrueScaleElevation` from the elevation
+reddens 2 clauses (the satellite lands 14.2 columns off and the mast pair
+draws nothing); disabling `glyphMapSurfaceOccludes` in the point stamp reddens
+4 across both files; disabling `nearSideVisible` reddens the two limb clauses;
+and returning the label unfolded reddens the atlas gate with the 25 real
+characters listed.

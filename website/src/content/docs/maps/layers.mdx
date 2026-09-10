@@ -1,6 +1,6 @@
 ---
 title: Layers
-description: The ten map layer types — background, raster, line, contour, fill, fill-extrusion, symbol, circle, heatmap, model — and what each one takes.
+description: The eleven map layer types — background, raster, line, contour, fill, fill-extrusion, symbol, circle, glyph, heatmap, model — and what each one takes.
 ---
 
 A map is an **ordered list of layers**. Declare them at construction, or mutate
@@ -32,15 +32,16 @@ and that split matters more here than it does in a GPU renderer:
 | `fill-extrusion` | An extruded polygon mesh with walls and a cap | see [below](#fill-extrusion) |
 | `symbol` | A positioned DOM label | see [below](#symbol) |
 | `circle` | A positioned DOM dot | `source`, `sourceLayer`, `filter`, `radius`, `radiusProperty`, `radiusScale`, `color`, `density` |
+| `glyph` | A post-raster **stamp** of a point mark, and its label | see [below](#glyph) |
 | `heatmap` | A density relief mesh | `source`, `sourceLayer`, `filter`, `radius`, `weightProperty`, `colors`, `bounds`, `height`, `threshold`, plus appearance |
 | `model` | A mesh from polygons you supply | `polygons`, `attribution`, plus appearance |
 
 **Mesh-backed** layers (`raster`, `fill`, `fill-extrusion`, `heatmap`, `model`)
 are geometry: they project, depth-test, and can cast and receive shadows.
-**Stamped** layers (`line`, `contour`) own no geometry — they are written into an
-output grid after rasterization and depth-tested against whatever surface
-already won each cell. **DOM** layers (`symbol`, `circle`) mount positioned
-elements over the `<pre>`.
+**Stamped** layers (`line`, `contour`, `glyph`) own no geometry — they are
+written into an output grid after rasterization and depth-tested against
+whatever surface already won each cell. **DOM** layers (`symbol`, `circle`)
+mount positioned elements over the `<pre>`.
 
 That split explains most of the asymmetries below: only mesh-backed layers carry
 `renderMode`/`glyphPalette`, and only mesh-backed layers can *receive* a shadow.
@@ -129,7 +130,7 @@ all, so the layer stays in the base pass. That escape lives in this package
 because two *equal* names always resolve to one ramp, while glyphcss cannot
 compare in general.
 
-`line`, `contour`, `symbol` and `circle` carry neither `renderMode` nor
+`line`, `contour`, `glyph`, `symbol` and `circle` carry neither `renderMode` nor
 `glyphPalette`, and never will — the first two are strokes stamped after
 shading, the last two are DOM.
 
@@ -346,6 +347,67 @@ glyphMapLabelAnchorPoint({ geometryType: "line", rings: [[[0, 0], [1, 0]]] });
 // → [0.5, 0]
 ```
 
+## `glyph`
+
+A point feature drawn as **glyphs in the grid** rather than as a DOM node — the
+third point layer, and the only one that is part of the picture. It stamps
+through the same post-raster path `line` and `contour` use, so its marks survive
+"copy the text", are depth-tested per cell against whatever geometry won it, and
+disappear round the limb of a globe.
+
+```ts
+map.addLayer({
+  type: "glyph",
+  source: { features: quakes },
+  color: "#ff6b4a",
+  sizeProperty: "mag", sizeScale: 0.2, size: 0.5,
+  altitudeProperty: "altKm", altitudeScale: 1000,
+  textProperty: "title", priorityProperty: "score", textAnchor: "top", textOffset: [0, -1],
+  onSelect: (feature) => window.open(String(feature.properties?.url), "_blank", "noopener,noreferrer"),
+});
+```
+
+| Option | Meaning |
+|---|---|
+| `size`, `sizeProperty`, `sizeScale` | The mark's disc radius **in cell rows** — not a pixel radius. `size: 0` (the default) is exactly one cell. |
+| `ramp` | Ordered mark glyphs, least ink first. Default `["·", "•", "●"]`. |
+| `altitude`, `altitudeProperty`, `altitudeScale` | Height above the ground in **true metres**, exempt from the terrain's `exaggeration`. |
+| `textProperty` / `text`, `textAnchor`, `textOffset`, `priorityProperty` | An optional stamped label and its placement. |
+| `onSelect` | Called with the feature a click landed on. |
+
+**Size is a glyph.** A character grid cannot draw a 3-pixel dot, so `size` is a
+disc radius in cell rows (columns stretched by the cell aspect). The disc is
+rasterized and each cell's glyph is picked by **its own coverage** out of
+`ramp` — so under one cell the mark grows by climbing the ramp, and past one
+cell it grows by covering more cells, with the partial rim landing on the
+smaller entries. `ramp` defaults to three centred discs of increasing ink, which
+reads as one shape getting bigger rather than as three different symbols. A
+one-entry `ramp` with `size: 0` is a fixed identity mark — a `▲` for a launch
+pad, a `★` for a satellite.
+
+**Altitude is true metres.** Like a `fill-extrusion`'s height, and for the same
+reason: an orbital altitude is a measured length, not relief, so it does not
+take the terrain's exaggeration. The ground it is measured from *is* the
+exaggerated relief. A satellite at 550 km therefore stands 8.6% of a radius off
+the surface on a globe, clears the limb from altitude, and is hidden when it is
+behind the Earth — all from the projection's existing horizon test.
+
+**Labels are rationed, marks are not.** `priorityProperty` feeds the same greedy
+declutter arbiter a `symbol` uses, so labels thin out smoothly as the view zooms
+out while every feature keeps its mark. A stamped label is folded to printable
+ASCII (`glyphMapAsciiLabel`), because a glyph outside the colour-font atlas
+would latch the whole scene to the span encoder.
+
+**Selection is a hit test.** A glyph is not an element, so `onSelect` is resolved
+by matching a click against the marks the last render actually stamped — one
+handler for the whole layer, drag-guarded by the same rule the `click` event
+uses, within two cell rows of a mark plus its own size. A layer without
+`onSelect` arms neither the test nor the pointer cursor. What a click *means* is
+yours: the widget resolves which feature and nothing else.
+
+Use `symbol`/`circle` instead when the mark must be a real element — a name a
+reader selects and copies, or a marker with its own hover chrome.
+
 ## `model`
 
 Your own polygons, in map world space:
@@ -375,6 +437,6 @@ marker.remove();
 it lifts along the locally-correct up direction with no separate anchoring
 concept. Default `0` — exactly at the geographic point, Leaflet's convention.
 
-`symbol` and `circle` labels, by contrast, are anchored at the **ground
+`symbol`, `circle` and `glyph` marks, by contrast, are anchored at the **ground
 elevation** under their own lon/lat — never a feature's own elevation property.
 See [Terrain](/maps/terrain#where-the-ground-comes-from).

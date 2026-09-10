@@ -60,8 +60,7 @@
  */
 import type {
   GlyphMapAttribution,
-  GlyphMapCircleLayer,
-  GlyphMapSymbolLayer,
+  GlyphMapGlyphLayer,
   GlyphMapVectorFeature,
   GlyphMapVectorFeatureCollection,
 } from "@glyphcss/maps";
@@ -172,7 +171,7 @@ export const MAP_LIVE_FEEDS: readonly MapLiveFeedSpec[] = [
     id: "quakes",
     label: "Earthquakes",
     tooltip:
-      "Every magnitude 2.5+ earthquake worldwide in the past seven days, from the USGS summary feed (US Government work, public domain). Dot size is magnitude. Always has something to show — the planet produces a few hundred a week, and they trace the plate boundaries, which is the shape a character grid draws best.",
+      "Every magnitude 2.5+ earthquake worldwide in the past seven days, from the USGS summary feed (US Government work, public domain). Drawn as glyphs in the grid, sized by magnitude; the biggest and the most recent also get their name. Click one to open its USGS page. Always has something to show — the planet produces a few hundred a week, and they trace the plate boundaries, which is the shape a character grid draws best.",
     url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson",
     refreshMs: MAP_LIVE_QUAKES_REFRESH_MS,
     attribution: MAP_LIVE_USGS_ATTRIBUTION,
@@ -185,7 +184,7 @@ export const MAP_LIVE_FEEDS: readonly MapLiveFeedSpec[] = [
     id: "disasters",
     label: "Disasters",
     tooltip:
-      "GDACS' active event list — earthquakes, tropical cyclones, floods, wildfires, droughts and volcanoes currently being tracked by the European Commission's JRC with UN OCHA. Dot size is the alert level, so a red event reads larger than a green one. Around a hundred events at any time, worldwide.",
+      "GDACS' active event list — earthquakes, tropical cyclones, floods, wildfires, droughts and volcanoes currently being tracked by the European Commission's JRC with UN OCHA. Drawn as rings, sized by alert level, so a red event reads larger than a green one and none of them can be mistaken for a quake. Around a hundred events at any time, worldwide.",
     url: "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist=EQ;TC;FL;VO;DR;WF",
     refreshMs: MAP_LIVE_DISASTERS_REFRESH_MS,
     attribution: MAP_LIVE_GDACS_ATTRIBUTION,
@@ -198,7 +197,7 @@ export const MAP_LIVE_FEEDS: readonly MapLiveFeedSpec[] = [
     id: "launches",
     label: "Launch sites",
     tooltip:
-      "The next twenty orbital launches, labelled at the pad they fly from (Launch Library 2, free and keyless). One marker per PAD, carrying its soonest launch — around a dozen distinct sites at a time, so it is a sparse layer that reads at country zoom and disappears at world zoom.",
+      "The next twenty orbital launches, labelled at the pad they fly from (Launch Library 2, free and keyless). One glyph per PAD, carrying its soonest launch — around a dozen distinct sites at a time, so it is a sparse layer that reads at country zoom and disappears at world zoom.",
     // `mode=list` is 23 KB and carries no pad at all — no latitude, no
     // longitude, nothing to place a marker with. `mode=normal` is the
     // lightest response that does, and most of its bulk is per-launch image
@@ -216,7 +215,7 @@ export const MAP_LIVE_FEEDS: readonly MapLiveFeedSpec[] = [
     id: "satellites",
     label: "Satellites",
     tooltip:
-      "CelesTrak's named 'visual' group — the ~150 brightest objects in orbit, the ones actually visible from the ground. The orbital elements are fetched ONCE and the positions are propagated in your own browser, so the dots move continuously at no network cost at all. This is the only genuinely moving layer on the page.",
+      "CelesTrak's named 'visual' group — the ~150 brightest objects in orbit, the ones actually visible from the ground. Drawn as stars at their REAL orbital altitude, so on a globe they stand clear of the surface and vanish behind the far side. The elements are fetched ONCE and the positions are propagated in your own browser, so they move continuously at no network cost at all. This is the only genuinely moving layer on the page.",
     url: "https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle",
     refreshMs: MAP_LIVE_SATELLITES_REFRESH_MS,
     attribution: MAP_LIVE_CELESTRAK_ATTRIBUTION,
@@ -297,6 +296,16 @@ export interface MapLiveRequest {
    * moving with no further request.
    */
   readonly adapt?: (payload: unknown) => GlyphMapVectorFeatureCollection | null;
+  /**
+   * The instant this response is being read AT, milliseconds — supplied by
+   * the controller so its own clock seam reaches the readers.
+   *
+   * One reader needs it: a quake's label priority is a function of its AGE
+   * (see {@link mapLiveQuakeLabelScore}), and a score baked from
+   * `Date.now()` inside a pure reader would make every test of it depend on
+   * when it ran.
+   */
+  readonly now?: number;
 }
 
 const defaultFetch: MapLiveFetch = (url, signal) => fetch(url, { signal });
@@ -345,15 +354,15 @@ export async function fetchMapLiveFeed(request: MapLiveRequest): Promise<MapLive
     request.signal?.removeEventListener("abort", forward);
   }
   if (request.signal?.aborted) return { kind: "aborted" };
-  const collection = (request.adapt ?? ((body: unknown) => parseMapLiveFeed(request.feed, body)))(payload);
+  const collection = (request.adapt ?? ((body: unknown) => parseMapLiveFeed(request.feed, body, request.now)))(payload);
   if (!collection) return { kind: "failed", reason: "unreadable response", rateLimited: false };
   return { kind: "ok", collection };
 }
 
 /** Route a feed's raw payload to its own reader. `null` = not a body this feed can produce. */
-export function parseMapLiveFeed(feed: MapLiveFeedId, payload: unknown): GlyphMapVectorFeatureCollection | null {
+export function parseMapLiveFeed(feed: MapLiveFeedId, payload: unknown, now = Date.now()): GlyphMapVectorFeatureCollection | null {
   switch (feed) {
-    case "quakes": return parseMapLiveQuakes(payload);
+    case "quakes": return parseMapLiveQuakes(payload, now);
     case "disasters": return parseMapLiveDisasters(payload);
     case "launches": return parseMapLiveLaunches(payload);
     // Element sets are not features — they are an orbit each, and the
@@ -385,6 +394,60 @@ function pointFeature(id: string, point: readonly [number, number], properties: 
 }
 
 /**
+ * How much a JUST-HAPPENED quake is worth, in MAGNITUDE POINTS, when the
+ * declutter arbiter is deciding whose name to draw.
+ *
+ * The user asked for the trade in these words: "probably depending on
+ * magnitude and how long has it happened". Both axes, as one score, so the
+ * arbiter's existing greedy rule does the work and the label set thins
+ * smoothly as the view zooms out instead of switching on at a threshold.
+ *
+ * MAGNITUDE IS THE UNIT, and it needs no scaling of its own: the Richter
+ * scale is already logarithmic in energy, which is what every seismological
+ * map draws, so `mag` enters the score unmodified and this constant is
+ * simply how many steps of it recency is allowed to be worth.
+ *
+ * `1.5` is a statement a reader can check: a quake that happened MINUTES ago
+ * outranks one up to 1.5 magnitudes larger from earlier in the week, and
+ * nothing under M4 can outrank a M5.5 however fresh it is. Measured on the
+ * vendored USGS week (385 events, M2.46-M5.6): at 1.5 the top of the list is
+ * the two events of the last two hours, then the week's M5.5s and M5.6s with
+ * a fresh M4.8 and M5.0 among them. At `2.0` an M4.1 from two hours ago
+ * outranks every M5.5 on the planet, which is the wrong trade; at `1.0`
+ * recency barely reorders anything and the score is just magnitude with
+ * extra steps.
+ */
+export const MAP_LIVE_QUAKE_RECENCY_WEIGHT = 1.5;
+
+/**
+ * The time constant of the recency term, HOURS.
+ *
+ * A DECAY rather than a linear term, because the difference between "an hour
+ * ago" and "two hours ago" is enormous and the difference between five days
+ * and six is nothing — a linear age would spend the same amount of score on
+ * both. Twelve hours puts the bonus at 61% after 6 h, 37% after 12 h, 14%
+ * after a day and effectively nothing after three, which matches how long an
+ * event stays news against a rolling SEVEN-day window.
+ */
+export const MAP_LIVE_QUAKE_RECENCY_TAU_H = 12;
+
+/**
+ * One quake's label priority: its magnitude plus a decaying recency bonus.
+ *
+ * A quake with no usable timestamp scores its magnitude alone rather than
+ * being dropped or treated as infinitely old — an event with a missing field
+ * is still an event, and magnitude is the axis that never goes missing.
+ *
+ * Only LABELS are rationed by this. Every quake is still drawn at its own
+ * magnitude size; losing a name does not make an event invisible.
+ */
+export function mapLiveQuakeLabelScore(mag: number, timeMs: number | null, now: number): number {
+  if (timeMs === null || !Number.isFinite(timeMs)) return mag;
+  const ageHours = Math.max(0, (now - timeMs) / 3_600_000);
+  return mag + MAP_LIVE_QUAKE_RECENCY_WEIGHT * Math.exp(-ageHours / MAP_LIVE_QUAKE_RECENCY_TAU_H);
+}
+
+/**
  * USGS' summary GeoJSON.
  *
  * `id` is the event id (`us7000tgf2`) and it is what makes a refresh a
@@ -394,12 +457,15 @@ function pointFeature(id: string, point: readonly [number, number], properties: 
  *
  * `geometry.coordinates` is `[lon, lat, depthKm]` — a THREE-element point,
  * where the third number is DEPTH IN KILOMETRES BELOW the surface, not an
- * elevation. It is carried as a property rather than handed to the
- * projection: a marker is a positioned `<div>` over the grid, so it has no
- * depth to be drawn at, and feeding a negative elevation would only sink the
- * anchor through the terrain.
+ * elevation. It stays a PROPERTY and is never fed to the elevation axis,
+ * and now that the mark is drawn in the grid that is a measured decision
+ * rather than a convenience: a `glyph` layer's `altitudeProperty` would take
+ * it happily, and the vendored week reaches 608 km down, so the mark would
+ * be stamped inside the planet and blanked by the surface the reader can
+ * see. `widget.glyphPoint.test.ts` renders exactly that and counts zero
+ * cells. The epicentre is where a map says an earthquake IS.
  */
-export function parseMapLiveQuakes(payload: unknown): GlyphMapVectorFeatureCollection | null {
+export function parseMapLiveQuakes(payload: unknown, now = Date.now()): GlyphMapVectorFeatureCollection | null {
   const body = record(payload);
   if (!body || !Array.isArray(body.features)) return null;
   const features: GlyphMapVectorFeature[] = [];
@@ -420,6 +486,10 @@ export function parseMapLiveQuakes(payload: unknown): GlyphMapVectorFeatureColle
       place: typeof p.place === "string" ? p.place : "",
       depthKm: Number.isFinite(depth) ? depth : null,
       time: typeof p.time === "number" ? p.time : null,
+      // What the declutter arbiter ranks this quake's LABEL by. Baked at
+      // parse time because that is where both inputs are, and re-baked on
+      // every refresh, which is what keeps the recency term moving.
+      labelScore: mapLiveQuakeLabelScore(mag, typeof p.time === "number" ? p.time : null, now),
       url: typeof p.url === "string" ? p.url : "",
     }));
   }
@@ -565,46 +635,141 @@ export const MAP_LIVE_COLORS: Readonly<Record<MapLiveFeedId, string>> = {
 };
 
 /**
+ * Whether this collection's features carry a URL worth opening.
+ *
+ * Read off the DATA, not off the row id: only the USGS feed ships a `url`
+ * today, and a `case "quakes": onSelect` would make that a hard-coded fact
+ * about one row rather than a property of what arrived. A collection with no
+ * urls declares no `onSelect`, so the widget arms neither the hit test nor
+ * the pointer cursor — a mark that opens nothing must not advertise that it
+ * would.
+ */
+function featuresCarryUrls(source: GlyphMapVectorFeatureCollection): boolean {
+  return source.features.some((f) => typeof f.properties?.url === "string" && (f.properties.url as string) !== "");
+}
+
+/**
+ * Open a live feature's own `url` in a new tab.
+ *
+ * TWO deliberate details.
+ *
+ * `noopener,noreferrer` in the window features is what strips
+ * `window.opener` from the page being opened: without it the third-party
+ * document gets a live handle on this one and can navigate it. That is a
+ * real capability being handed to a page whose content this page does not
+ * control.
+ *
+ * The scheme is CHECKED. `url` came out of a network payload, so it is
+ * untrusted text, and `window.open("javascript:...")` executes in this
+ * origin. Only `http`/`https` are opened; anything else is silently ignored,
+ * which is the right answer for a click on a marker rather than an error a
+ * reader could not act on. `open` is a seam so the test can assert what
+ * would have been opened without opening it.
+ */
+export function mapLiveOpenFeature(
+  feature: GlyphMapVectorFeature,
+  open: (url: string) => void = (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
+): void {
+  const url = feature.properties?.url;
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return;
+  open(url);
+}
+
+/**
  * The layer one row mounts.
  *
- * `circle` for the three quantitative rows and `symbol` for launches, and
- * the split is not a style choice: `circle` runs NO declutter arbiter (its
- * `sync` culls the far hemisphere and returns), so it draws every point it
- * is given at every zoom — right for a few hundred sized dots, wrong for a
- * few hundred names. `symbol` runs the arbiter, which is what makes a dozen
- * pad labels legible instead of a pile.
+ * ALL FOUR ROWS ARE `glyph` LAYERS — marks stamped into the character grid,
+ * not `<div>`s positioned above it. Asked for in these words, on seeing the
+ * DOM version: "lets not use that for the live datasets, lets use glyphs for
+ * them :/". Three things come with it beyond the look: the marks survive
+ * "Copy ASCII", they are occluded by the terrain in front of them, and they
+ * disappear round the limb of a globe — none of which a `<div>` can do. The
+ * page's OTHER point rows (places, peaks, POIs, countries, the OSM
+ * sublayers) are deliberately untouched and stay `symbol`/`circle`: a name a
+ * reader selects and copies is a genuinely different thing from a mark, and
+ * converting the whole page is its own decision.
  *
- * Every layer takes a COLLECTION, never a provider: these feeds are one
- * document each, with no tile pyramid and nothing to sweep, and a static
- * source is exactly the kind the widget leaves inert until told
- * (`scheduleTileUpdate` re-sweeps only provider-backed layers). A live layer
- * should move when its data moves, not when the camera does.
+ * ## What each row's mark IS
+ *
+ * The default ramp (`GLYPH_MAP_POINT_RAMP`, three centred discs of
+ * increasing ink) carries a MAGNITUDE; a row whose mark carries an IDENTITY
+ * instead supplies its own one- or two-entry ramp:
+ *
+ * - **quakes** — the disc ramp, sized by magnitude, plus a label.
+ * - **disasters** — a ring ramp (`⊙ ⊚ ◉`) sized by alert level, so an alert
+ *   is distinguishable from a quake in the two cases colour cannot help:
+ *   `useColors: false`, and a reader who does not know which hue is which.
+ *   The rings are the ramp's own ink profile, not a three-value scale — the
+ *   ALERT LEVEL is carried by the size, exactly as a quake's magnitude is.
+ * - **launches** — `▲`, one cell, a pad. Nothing here has a magnitude, so
+ *   the mark is fixed and the row's information is its label.
+ * - **satellites** — `★`, one cell. CelesTrak's `visual` group is literally
+ *   the brightest objects in orbit, so a star is what they are, and a
+ *   full-cell glyph is the answer to "the satellites are super tiny": about
+ *   seven times the drawn area of the 4-px CSS dot it replaces. It takes
+ *   `size: 0` — the exact-one-cell rule — rather than a disc, because an
+ *   IDENTITY mark must stay one mark: measured across sub-cell placements, a
+ *   multi-cell disc with a core-and-halo ramp draws zero cores 5-36% of the
+ *   time and two cores 11-62% of the time, i.e. it loses the star or doubles
+ *   the satellite depending on where the object happens to land.
+ *
+ * ## Sizes
+ *
+ * `sizeScale` is CELL ROWS per unit of the property, and both quantitative
+ * rows are linear in a scale that is ALREADY logarithmic in what it measures
+ * (Richter magnitude; a three-step alert ladder), which is why neither takes
+ * an offset or a curve.
  */
 export function mapLiveLayer(
   id: MapLiveFeedId,
   source: GlyphMapVectorFeatureCollection,
-): GlyphMapCircleLayer | GlyphMapSymbolLayer {
+  onSelect: (feature: GlyphMapVectorFeature) => void = mapLiveOpenFeature,
+): GlyphMapGlyphLayer {
   const layerId = mapLiveLayerId(id);
   const color = MAP_LIVE_COLORS[id];
+  const selectable = featuresCarryUrls(source) ? { onSelect } : {};
   switch (id) {
     case "quakes":
-      // Radius from magnitude. The scale is what turns a 2.5..7.5 range into
-      // a 4..12 px radius: small enough that the densest plate boundary is
-      // still a chain of dots rather than a bar, large enough that a great
-      // earthquake reads at world zoom.
-      return { type: "circle", id: layerId, source, color, radiusProperty: "mag", radiusScale: 1.6, radius: 3 };
-    case "disasters":
-      // Alert level, 1..3, at 3 px a step.
-      return { type: "circle", id: layerId, source, color, radiusProperty: "alertRank", radiusScale: 3, radius: 3 };
-    case "satellites":
-      return { type: "circle", id: layerId, source, color, radius: 2 };
-    case "launches":
-      // `textOffset` a cell up: the label would otherwise sit ON the pad it
-      // names. `priorityProperty` is the arbiter's tie-break and these have
-      // no natural ranking, so the soonest launch wins by carrying the
-      // larger number (see `parseMapLiveLaunches`).
       return {
-        type: "symbol", id: layerId, source, color,
+        type: "glyph", id: layerId, source, color, ...selectable,
+        // M2.5..M5.6 becomes a 0.5..1.1 row radius: the smallest is a
+        // sub-cell dot and the largest a disc four columns across, so the
+        // densest plate boundary is still a chain of marks rather than a bar
+        // while a great earthquake reads at world zoom.
+        sizeProperty: "mag", sizeScale: 0.2, size: 0.5,
+        // USGS' own `title` already begins with the magnitude ("M 5.3 - 83
+        // km E of Lospalos, Timor Leste"), so prefixing one would print it
+        // twice. `labelScore` is the magnitude-and-recency trade
+        // (`mapLiveQuakeLabelScore`); the arbiter drops the losers, and every
+        // quake keeps its MARK either way.
+        textProperty: "title", priorityProperty: "labelScore",
+        textAnchor: "top", textOffset: [0, -1],
+      };
+    case "disasters":
+      return {
+        type: "glyph", id: layerId, source, color, ...selectable,
+        ramp: ["⊙", "⊚", "◉"],
+        sizeProperty: "alertRank", sizeScale: 0.25, size: 0.25,
+      };
+    case "satellites":
+      return {
+        type: "glyph", id: layerId, source, color, ...selectable,
+        ramp: ["★"], size: 0,
+        // THE HEIGHT THE READER ASKED ABOUT. `altKm` is the geodetic height
+        // SGP4 already produces, and it is TRUE metres: the `glyph` layer
+        // divides it back out of the terrain's exaggeration, so the ISS sits
+        // 8.6% of a radius above the surface instead of two radii past the
+        // far side of the planet at `/maps`' default 24x.
+        altitudeProperty: "altKm", altitudeScale: 1000,
+      };
+    case "launches":
+      return {
+        type: "glyph", id: layerId, source, color, ...selectable,
+        ramp: ["▲"],
+        // `textOffset` a cell up: the label would otherwise sit ON the pad it
+        // names. `priorityProperty` is the arbiter's tie-break and these have
+        // no natural ranking, so the soonest launch wins by carrying the
+        // larger number (see `parseMapLiveLaunches`).
         textProperty: "title", textAnchor: "top", textOffset: [0, -1],
         priorityProperty: "priority",
       };

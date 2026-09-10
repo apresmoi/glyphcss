@@ -234,7 +234,7 @@ function surfaceSlope(d: number, back: number, forward: number): number {
  * shared id-map (no detail layer in the scene), where this is byte-identical
  * to the test not existing.
  */
-function foreignOwned(grid: CellGrid, idx: number): boolean {
+export function glyphMapForeignOwned(grid: CellGrid, idx: number): boolean {
   return grid.occluded !== undefined && grid.occluded[idx] === 1;
 }
 
@@ -243,6 +243,50 @@ function curvature(d: number, back: number, forward: number): number {
   const b = Number.isFinite(forward) ? forward - d : NaN;
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
   return Math.abs(a - b);
+}
+
+/**
+ * The ONE depth verdict every post-raster stamp in this package takes:
+ * whether the surface already in `grid` at cell `idx` stands NEARER than
+ * something being stamped at depth `depth`, at the stamp's own sub-cell
+ * position `(subCol, subRow)`.
+ *
+ * Lifted out of {@link stampGlyphMapPolyline}'s inner loop verbatim — the
+ * sampling-offset CORRECTION (evaluate the surface where the stamp actually
+ * is, not at the cell centre `grid.depth` was sampled at) and the
+ * second-difference ALLOWANCE (forgive the terrain's own faceting, never the
+ * camera's foreshortening) are two different quantities and only the second
+ * is an allowance. See this file's header.
+ *
+ * It is exported because a stamped POINT (`point.ts`) is the same problem: a
+ * mark drawn at a lon/lat on the exaggerated relief is coplanar with the
+ * terrain it stands on to within that terrain's own faceting, exactly as a
+ * draped stroke is, and a second, independently-tuned test for it would be a
+ * second answer to one question.
+ *
+ * `true` = occluded, leave the cell alone. A cell the base render left EMPTY
+ * (`grid.depth` non-finite) is never occluded — there is no surface there to
+ * be behind.
+ */
+export function glyphMapSurfaceOccludes(
+  grid: CellGrid,
+  colI: number,
+  rowI: number,
+  subCol: number,
+  subRow: number,
+  depth: number,
+  allowance: number,
+  curvatureScale: number,
+): boolean {
+  const idx = rowI * grid.cols + colI;
+  const surfaceDepth = grid.depth[idx];
+  if (!Number.isFinite(surfaceDepth)) return false;
+  const gx = surfaceSlope(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
+  const gy = surfaceSlope(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
+  const atStroke = surfaceDepth + gx * (subCol - 0.5) + gy * (subRow - 0.5);
+  const cx = curvature(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
+  const cy = curvature(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
+  return atStroke - depth > allowance + curvatureScale * Math.hypot(cx, cy);
 }
 
 /**
@@ -286,25 +330,17 @@ export function stampGlyphMapPolyline(
       const rowI = Math.floor(row);
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) continue;
       const idx = rowI * grid.cols + colI;
-      if (foreignOwned(grid, idx)) continue;
+      if (glyphMapForeignOwned(grid, idx)) continue;
       const depth = a.depth + (b.depth - a.depth) * t;
       const subCol = col - colI;
       const subRow = row - rowI;
       const surfaceDepth = grid.depth[idx];
       if (requireSurface && !Number.isFinite(surfaceDepth)) continue; // nothing rendered here — no surface to annotate
-      if (Number.isFinite(surfaceDepth)) {
-        // Correct the sampling offset, then forgive only the faceting — two
-        // different quantities, and only the second one is an allowance. See
-        // this file's doc.
-        const gx = surfaceSlope(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
-        const gy = surfaceSlope(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
-        const atStroke = surfaceDepth + gx * (subCol - 0.5) + gy * (subRow - 0.5);
-        const cx = curvature(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
-        const cy = curvature(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
-        const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
-        const allowed = bias + curvatureScale * Math.hypot(cx, cy) + slack;
-        if (atStroke - depth > allowed) continue; // occluded by nearer geometry
-      }
+      // Correct the sampling offset, then forgive only the faceting — two
+      // different quantities, and only the second one is an allowance. See
+      // `glyphMapSurfaceOccludes`, which is that loop body verbatim.
+      const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
+      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) continue;
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;

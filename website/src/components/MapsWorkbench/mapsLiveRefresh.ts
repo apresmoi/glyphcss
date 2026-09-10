@@ -289,6 +289,9 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
     const outcome: MapLiveOutcome = await fetchMapLiveFeed({
       feed: id,
       signal: abort.signal,
+      // The controller's own clock seam reaches the readers: a quake's label
+      // priority is a function of its age (`mapLiveQuakeLabelScore`).
+      now: now(),
       ...(opts.fetchResponse ? { fetchResponse: opts.fetchResponse } : {}),
       ...(adapt ? { adapt } : {}),
     });
