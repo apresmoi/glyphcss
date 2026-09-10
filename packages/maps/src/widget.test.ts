@@ -6,6 +6,7 @@ import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapPolygons } from "./mesh";
 import { glyphMapCuratedProvider } from "./curated";
+import { countTiles, settleTiles } from "./tileSettle.harness";
 
 function makeTile(bounds: GlyphMapGeoTile["bounds"], cols: number, rows: number, elev = 100): GlyphMapGeoTile {
   const elevation = new Float32Array((cols + 1) * (rows + 1)).fill(elev);
@@ -1187,7 +1188,7 @@ describe("createGlyphMap — layers", () => {
       const latMax = 90 - y * level.tileLatSpan;
       return { west: lonMin, east: lonMin + level.tileLonSpan, south: latMax - level.tileLatSpan, north: latMax };
     };
-    const provider: GlyphMapProvider = {
+    const { provider, traffic } = countTiles<GlyphMapProvider>({
       id: "real-shape-geo-tiles",
       zooms,
       bounds: (z, x, y) => tileBounds(zooms.find((l) => l.z === z)!, x, y),
@@ -1196,7 +1197,7 @@ describe("createGlyphMap — layers", () => {
         const level = zooms.find((l) => l.z === z)!;
         return makeTile(tileBounds(level, x, y), level.tileCols, level.tileRows);
       },
-    };
+    });
 
     // cols=120 matches `provider.test.ts`'s own real-pyramid progression
     // fixture: span 400/150/70/35/15 -> degPerCell 3.33/1.25/0.583/0.292/0.125
@@ -1217,13 +1218,25 @@ describe("createGlyphMap — layers", () => {
     const expectedMaxZ = [1, 2, 3, 4];
     for (let i = 0; i < spans.length; i++) {
       map.setView({ span: spans[i] });
-      await new Promise((r) => setTimeout(r, 250)); // past scheduleTileUpdate's 180ms debounce
+      // Past `scheduleTileUpdate`'s 180ms debounce AND past the sweep it then
+      // issues. A flat 250ms sleep covered the debounce and then asserted on
+      // whatever had happened to arrive — which on a loaded runner is a
+      // half-finished ladder, and is why this test timed out in CI at 5,000ms
+      // while taking 1.25s here. The assertion is untouched: still the EXACT
+      // deepest level, so a sweep that overshoots to z+1 fails as it did.
+      await settleTiles(traffic);
       expect(Math.max(...loadedZ)).toBe(expectedMaxZ[i]);
     }
 
     map.destroy();
     host.remove();
-  });
+    // An explicit budget, like the other heavy sweep tests in this package.
+    // What is left is REAL work: five levels of a real-manifest-shaped
+    // pyramid (180x90 vertices per tile) fetched and mounted as the span
+    // walks z0 -> z4, measured at ~1.0s of CPU inside a 1.9s wall (2.0s
+    // before, of which 1.0s was the four flat sleeps). The fixture's shape IS
+    // the discriminator here, so the work cannot be cut without weakening it.
+  }, 30000);
 });
 
 /**
@@ -1308,9 +1321,21 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
     const tileLatSpan = 180 / 128;
     const boundsXY = new Set<string>();
     const loadedXY = new Set<string>();
-    const provider: GlyphMapProvider = {
+    // `tileCols`/`tileRows` of 1 — one quad per tile. This view really does
+    // see 2,574 of the level's tiles (the sweep enumerates all 16,384
+    // candidates and the tilted window at lat 66.4 keeps that many), and at
+    // 8x8 that was 329k polygons mounted and torn down inside the test body:
+    // 2.7s of pure compute here (cpu/wall 1.04), 26s under a 10x-oversubscribed
+    // machine, and a blown 30,000ms budget in CI. Nothing here reads a
+    // polygon: the assertions are about which tile ADDRESSES the sweep
+    // enumerated and fetched. Measured at both resolutions on this exact
+    // view, `boundsXY` (16,384 keys) and `loadedXY` (2,574 keys) are
+    // identical sets and `unproject`/`project` return bit-identical values,
+    // so the discriminator is intact and only the mesh detail nothing asserts
+    // on is gone.
+    const { provider, traffic } = countTiles<GlyphMapProvider>({
       id: "deep-no-bounds-globe",
-      zooms: [{ z: 7, cols: 128, rows: 128, tileLonSpan, tileLatSpan, tileCols: 8, tileRows: 8 }],
+      zooms: [{ z: 7, cols: 128, rows: 128, tileLonSpan, tileLatSpan, tileCols: 1, tileRows: 1 }],
       bounds: (_z, x, y) => {
         boundsXY.add(`${x}_${y}`);
         const lonMin = -180 + x * tileLonSpan;
@@ -1321,9 +1346,9 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
         loadedXY.add(`${x}_${y}`);
         const lonMin = -180 + x * tileLonSpan;
         const latMax = 90 - y * tileLatSpan;
-        return makeTile({ west: lonMin, east: lonMin + tileLonSpan, south: latMax - tileLatSpan, north: latMax }, 8, 8);
+        return makeTile({ west: lonMin, east: lonMin + tileLonSpan, south: latMax - tileLatSpan, north: latMax }, 1, 1);
       },
-    };
+    });
 
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1338,7 +1363,7 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
     });
 
     await vi.waitFor(() => expect(boundsXY.size).toBeGreaterThan(0));
-    await new Promise((r) => setTimeout(r, 250)); // past scheduleTileUpdate's debounce
+    await settleTiles(traffic); // past scheduleTileUpdate's debounce AND the sweep it issues
 
     // Ground truth from the widget itself, never hand-derived: the lon/lat
     // under two cells near the east and west edges of the middle row, and
@@ -1369,14 +1394,16 @@ describe("createGlyphMap — deep tile sweep candidate bound at high latitude + 
 
     map.destroy();
     host.remove();
-    // An explicit budget, like the other heavy sweep tests in this package
-    // (`widget.extrusionWalls`, `widget.antimeridianRing`,
-    // `widget.reliefResolution`): this one mounts a real 128x128 z7 pyramid
-    // and awaits the debounced sweep, and it measured 3.4s running alone
-    // against 4.6s under a full `pnpm test` — i.e. it was already spending
-    // 92% of the default 5s cap on machine contention alone, so ANY test file
-    // added anywhere in this package tipped it over. Nothing is weakened: the
-    // assertions above are untouched, only the wall clock they are allowed.
+    // The budget stays, but it is no longer what keeps this test green — and
+    // it could not be: it was 30,000ms already and CI blew straight through
+    // it. The cost was the 8x8 mesh per tile across 2,574 mounted tiles,
+    // 329k polygons built and torn down inside the test body, which is
+    // CPU-bound (cpu/wall 1.04) and therefore scales with contention: 2.8s
+    // running alone, 26s on a ~10x-oversubscribed machine. At one quad per
+    // tile it is 283ms, so the budget below is headroom for a slow runner
+    // rather than cover for wall-clock sleeping. Nothing is weakened: the
+    // assertions above are untouched, and the sets they read are identical
+    // at both mesh resolutions.
   }, 30000);
 });
 

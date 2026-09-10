@@ -462,7 +462,15 @@ describe("an ocean `fill` stands at the datum, not on the seabed", () => {
     const flatLength = flatRuns.cells / flatRuns.runs;
     const drapedLength = drapedRuns.cells / drapedRuns.runs;
     expect(flatLength).toBeGreaterThan(drapedLength * 1.5);
-  });
+    // An explicit budget, like the other heavy renders in this package. What
+    // is left after the fixed sleep went away is REAL work and nothing else:
+    // two full settled renders of the ocean over the real ETOPO1-shaped
+    // pyramid, measured at 675 ms wall against 1,692 ms before, of which
+    // ~500 ms is CPU (cpu/wall 0.61 before, and the sleep was the rest). The
+    // default 5,000 ms left under 4x headroom for that on a slower contended
+    // runner and CI spent it; nothing here is weakened, only the wall clock
+    // it is allowed.
+  }, 30000);
 
   it("leaves no gap between adjacent faces of one ocean ring", async () => {
     const ocean = oceanOnly(waterFeatures());

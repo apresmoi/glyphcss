@@ -61,10 +61,8 @@ export function countTiles<P extends GlyphMapProvider | GlyphMapVectorProvider>(
   provider: P,
 ): { readonly provider: P; readonly traffic: GlyphMapTileTraffic } {
   const traffic: GlyphMapTileTraffic = { starts: 0, done: 0, lastStart: 0 };
-  return {
-    traffic,
-    provider: { ...provider, loadTile: trackedLoad(traffic, provider.loadTile.bind(provider)) } as P,
-  };
+  const load = provider.loadTile.bind(provider) as (z: number, x: number, y: number) => Promise<unknown>;
+  return { traffic, provider: { ...provider, loadTile: trackedLoad(traffic, load) } as P };
 }
 
 /**
