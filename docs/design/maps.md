@@ -6404,3 +6404,328 @@ that made the budget thin, while the 30 s floor already gives those tests a
 budget matching their nature. Taking both at once would also make it impossible
 to say which one made CI green. It stays on the table as a wall-clock
 optimization once this is proven quiet.
+
+## Touch gestures: the two-finger vocabulary, and telling its three members apart
+
+The reported gap was blunt and correct: "there is something missing for
+mobile, we don't have the gestures like pinching or moving two fingers away to
+zoom in / zoom out. also the two fingers moving together in one direction
+should change the tilt and bearing, right? lets do exactly what google maps
+does". A phone has no wheel, no Ctrl key and no second mouse button, so every
+gesture this widget had shipped up to here — the wheel zoom, the Ctrl/right
+drag that owns both pitch and heading — was unreachable from a touch device.
+What a touch reader actually had was ONE gesture, drag to pan, and no way at
+all to zoom, turn or pitch a map that has spent this entire design document
+acquiring a pitch and a heading.
+
+### Google publishes the vocabulary and none of the numbers
+
+The instruction was "exactly what Google Maps does", so the first job was to
+establish what that is rather than to reconstruct it from memory. Google's
+Maps SDK for Android documents the SET, in its own words:
+
+| Gesture | Google's wording |
+|---|---|
+| pan | "scroll (pan) around the map by dragging the map with their finger" |
+| zoom | "two finger pinch/stretch" |
+| zoom in | "Double tap to increase the zoom level by 1" |
+| zoom out | "Two finger tap to decrease the zoom level by 1" |
+| one-handed zoom | "double tapping but not releasing on the second tap, and then sliding the finger up to zoom out, or down to zoom in" |
+| tilt | "placing two fingers on the map and moving them down or up together to increase or decrease the tilt angle" |
+| rotate | "placing two fingers on the map and applying a rotate motion" |
+
+The iOS SDK says the same in fewer words. **What Google publishes nowhere is a
+single threshold, rate or arbitration rule** — not in the Android SDK docs,
+not in the iOS ones, not in the Maps JavaScript API's `gestureHandling`
+documentation, and the Maps SDK does not expose its own gesture detector's
+constants either. There is therefore nothing of Google's to copy for the part
+that decides how a gesture FEELS.
+
+MapLibre GL JS is: it is open source, it is the library this file has already
+taken `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5) and
+`GLYPH_MAP_BEARING_DRAG_DEG_PER_PX` (0.8) from, and its numbers are the ones
+that survived contact with Google's on the same hardware. Every threshold
+below is read out of `src/ui/handler/two_fingers_touch.ts`,
+`tap_recognizer.ts`, `tap_drag_zoom.ts` and `handler_manager.ts`, not
+recalled.
+
+One place the two sources genuinely disagree, and it is worth recording
+because the disagreement is in WRITING rather than in behaviour: Google's
+Android doc says two fingers moving DOWN increase the tilt. MapLibre GL JS
+(`degreesPerPixelMoved = -0.5`, applied to the average finger y-delta),
+MapLibre Native Android (`pitch -= 0.1 * deltaPixels`) and the Google Maps app
+itself all raise the pitch on an UPWARD drag; Google's iOS doc declines to say
+which. This widget follows UP, on two grounds: it is what the products do, and
+it is what this widget's own Ctrl+drag stroke has always done, so a reader who
+learns the pitch with a mouse does not have to unlearn it with a thumb.
+
+### The hard part is that "two fingers are moving" describes all three
+
+Pinch, twist and two-finger pitch are the same physical event — two contact
+points changing position — and they differ only in WHICH component of the
+finger pair's motion is the intent. A finger pair has exactly four degrees of
+freedom: translation (2), scale (1), rotation (1). Pan, pinch and twist ARE
+those components; the pitch is a re-reading of the translation component as
+something else entirely. Nobody's hand isolates one of them: a pinch always
+turns a few degrees, a twist always spreads a few percent, and a two-finger
+drag always does both. So a naive implementation that simply applies all the
+components every frame produces the failure the reader would have reported
+next — every tilt drifts the bearing, every pinch turns the map.
+
+The resolution has two halves, and both are taken from MapLibre's arbitration
+(`handler_manager.ts`'s `allowed` lists) rather than invented:
+
+**1. Pan, pinch and twist COMPOSE.** MapLibre's `touchPan`, `touchZoom` and
+`touchRotate` each list the other two as allowed-while-active. That is the
+right answer because they are the three components of ONE similarity
+transform, and a reader zooming into a corner while straightening the map is
+making a single movement. Each gets its own ACTIVATION threshold, so a gesture
+that is purely one of them moves only that one; past its threshold each rides
+the same state write.
+
+**2. The pitch is EXCLUSIVE, and it is decided ONCE.** MapLibre's `touchPitch`
+has no allowed list at all, and its recogniser latches: `gestureBeginsVertically`
+returns `this._valid` immediately once it has ever been set, so a gesture ruled
+not-a-pitch can never become one however vertical it turns later. MapLibre
+Native Android reaches the same shape from the other direction, with explicit
+`shoveScaleSet` / `shoveRotateSet` mutual-exclusion sets. Nothing weaker would
+do: a pitch that left pinch and twist live would zoom and turn the map on
+every stroke, for the reason above.
+
+### The four tests a two-finger drag must pass to be a pitch
+
+MapLibre's, adopted verbatim, with this widget's constant names:
+
+1. **The fingers landed SIDE BY SIDE.** `isVertical(points[0].sub(points[1]))`
+   in MapLibre; `sideBySide` here, evaluated once at the second `pointerdown`.
+   With the fingers STACKED, "both fingers moved down" and "the fingers
+   closed" are literally the same pixels — a pitch is not distinguishable from
+   a pinch at that grip — so the pitch is refused for the whole stroke rather
+   than guessed at.
+2. **Both fingers have travelled at least
+   `GLYPH_MAP_TOUCH_TILT_THRESHOLD_PX` (2).** Not an activation distance —
+   a recognised pitch moves the camera from its very next pixel — but the
+   distance below which a finger's DIRECTION is noise.
+3. **Each finger's travel is more vertical than horizontal, and both the same
+   way.** `isVertical(vectorA) && isVertical(vectorB) && isSameDirection`.
+4. **Neither finger is allowed to lead for longer than
+   `GLYPH_MAP_TOUCH_SINGLE_TOUCH_GRACE_MS` (100).** This is the clause that
+   is easy to leave out and impossible to do without. Two fingers never move
+   at the same instant, so the start of every honest two-finger drag has a
+   window in which one has travelled and the other has not — and one finger
+   moving alone is also the exact signature of a pinch or a twist. Inside the
+   grace window the gesture stays UNDECIDED and moves nothing; past it, a
+   still-lonely finger means pinch/twist after all.
+
+### The two thresholds are a RATIO and an ARC, and neither is a pixel count
+
+`GLYPH_MAP_TOUCH_ZOOM_THRESHOLD_LEVELS` is `0.1` ZOOM LEVELS of
+`|log2(distance / startDistance)|` — a 7.2% change in finger separation. It is
+expressed as a ratio because a pinch held 400px apart and one held 80px apart
+are the same gesture, and a fixed pixel threshold would make the narrow grip
+hair-trigger. It is what keeps a TWIST from zooming: rotating two fingers
+about their midpoint holds their distance constant, so it never trips.
+
+`GLYPH_MAP_TOUCH_ROTATE_THRESHOLD_PX` is `25` PIXELS OF ARC along the circle
+the fingers describe — the mirror of the same argument. A given ANGLE is a far
+longer and more deliberate movement at a wide grip than at a narrow one, so a
+fixed angle would be unreachable close in and hair-trigger far apart. The
+angle it stands for is `25 / (pi * minDistance) * 360`: 28.6 degrees at a
+100px grip, 14.3 at 200px, 7.2 at 400px. It is measured against the SMALLEST
+spacing seen so far in the gesture, because a pinch closes and the threshold
+must not get easier as it does. It is what keeps a PINCH from turning the map:
+closing two fingers along their own line changes no angle at all.
+
+Neither threshold is protecting against a PERFECT gesture — a perfect pinch
+changes no angle and a perfect twist changes no distance, so the geometry
+already protects those. They exist for the imperfect one, and the gates say so
+explicitly: `widget.touchGestures.test.ts` drives a pinch with 8 degrees of
+incidental turn (a realistically sloppy hand, inside the 23.9-degree threshold
+of the narrowest grip in that stroke) and asserts the bearing does not move at
+all, and a twist with 5% of incidental spread and asserts the span does not.
+Mutate either threshold away and exactly those two go red while the
+perfect-gesture tests stay green — which is the whole reason they are in the
+file.
+
+### Every event that arrives UNDECIDED applies nothing, including the one that resolves
+
+This is the one place the implementation is not simply MapLibre's, and it is
+forced by Pointer Events rather than chosen. MapLibre's handlers read
+`TouchEvent.touches`, so every event carries BOTH fingers' current positions
+and a "finger pair" is always a real simultaneous sample. A Pointer Event
+carries exactly one pointer, so a pair assembled inside the recognition window
+holds one live position and one stale one.
+
+Using such a pair as the reference configuration leaves the gesture owing a
+fraction of a finger's travel — and the zoom that follows then MAGNIFIES it.
+Measured on the anchoring gate before the fix: a synthetic pinch whose fingers
+alternate by 10px left a 5px reference error, which grew to 5.38px at 1.08x,
+6.15px at 1.23x and 6.92px at 1.38x — exactly `5 * magnification`, which is
+what identified it. It is not drift in the ordinary sense (each individual
+increment is exact, and the whole stroke telescopes correctly), it is one
+wrong starting configuration being scaled up.
+
+The fix is to re-base on a pair sampled after BOTH fingers have reported: any
+event that enters the recogniser undecided advances the last-event baselines
+and returns, the resolving event included. From there every increment is a
+true similarity between two real configurations, and the composition
+`E_n o ... o E_1` telescopes to exactly the transform the fingers describe —
+which is why every rate assertion in the gate file is a TWO-PHASE stroke that
+arms the gesture, reads the state, and only then makes the movement it
+measures. The cost is one event of travel, and it is the same event the
+threshold was already spending.
+
+### The pinch is anchored, and one re-pin does all three components
+
+"Anchored on the midpoint" is not decoration: zooming about the view centre —
+what `applyWheel` does, correctly, for a wheel that has no anchor to offer —
+slides the ground out from under a hand that is holding it. Google anchors
+both the zoom and the rotation on the pinch centre, and so does MapLibre
+(`pinchAround`).
+
+`applyTouchTransform(spanFactor, bearingDelta, fromX, fromY, toX, toY)` is the
+single write, and its contract is one sentence: multiply the span, turn the
+heading, and leave the ground that was under `(fromX, fromY)` under
+`(toX, toY)`. Expressing it as ONE re-pin rather than as three separately
+anchored operations is both simpler and exact, because the span change, the
+heading change and the fingers' own translation all move the anchor on screen
+and correcting once for where it ended up covers all three. The rotation then
+turns about the pinch centre for free, without a second rotation-about-a-point
+implementation.
+
+Everything inside it goes through the existing setters —
+`clampViewToCover` + `syncCameraToView` for the span, `applyBearingState` for
+the heading, `applyDragState` for the pan — so the cover clamp, the bearing
+normalization, the orbit branch's non-canonical-preimage bookkeeping and the
+`emitViewChange` contract all apply exactly as they do to a mouse. The repaint
+is `markMotionDirty()`: the one motion loop, never a second render path, and
+never a scene write from an input handler (the rule "The frame budget"
+above exists for).
+
+The re-pin ITERATES, up to `GLYPH_MAP_TOUCH_ANCHOR_PASSES` (3). `applyDragState`
+turns pixels into degrees through a linearization (`degPerPx = 1 / camera.zoom`)
+that is exact only in the limit — fine for a pinch's few-pixel increments, not
+fine for a double-tap's whole zoom level taken in the corner of the grid.
+Measuring the residual and feeding it back is a contraction, so it converges in
+two passes in practice; the loop also bails the moment a pass stops improving,
+which is what a cover clamp refusing the pan looks like from the inside.
+
+The origin the client coordinates are measured from is `touchOrigin()`, which
+walks the SAME fallback ladder `projectionGrid()` itself walks — the output
+`<pre>` when it has been laid out, the host otherwise — because the two have
+to agree or the pinch anchors on a point the reader is not touching.
+
+### Taps
+
+A double-tap is one zoom level IN about the tapped point and a two-finger tap
+one level OUT about the point between the fingers, which is Google's own
+binding in Google's own words. The tolerances are MapLibre's `TapRecognizer`:
+`MAX_TAP_INTERVAL` 500ms between the taps, `MAX_TOUCH_TIME` 500ms for one
+press, `MAX_DIST` 30px both for how far a tap may travel and for how far apart
+the two taps may land.
+
+Both are applied OUTRIGHT rather than eased, which is where this departs from
+MapLibre's 300ms `easeTo` — for the reason `applyWheel` already gives about
+the wheel: an eased `view.span` makes `getView().span` disagree with the
+gesture the caller just made and feeds tile LOD a span the reader never asked
+for. Smoothness in this widget comes from frame coalescing, not from lag.
+
+A double-tap still emits a `click`, as does the first tap, which is what
+MapLibre does too — a double-tap on a marker should also select it. A
+two-finger gesture emits none: the moment a second finger lands, the first
+finger's press stops being a map click and stops being able to fling.
+
+### The one-handed zoom was INCLUDED, and why
+
+Google's double-tap-hold-drag is the one gesture on the list it would have
+been defensible to leave out, so the reason to keep it is worth stating: it is
+the only zoom on the list that a reader holding a phone in one hand can
+perform, and that is most readers most of the time. It cost one more
+`gestureMode` and no new machinery — the double-tap recogniser already had to
+exist for the zoom-in, and the drag is the same `applyTouchTransform` anchored
+on the tap point.
+
+`GLYPH_MAP_TAP_DRAG_ZOOM_LEVELS_PER_PX` is MapLibre's `1/128` — 128px of
+travel is one doubling — and the SIGN is the one place Google and MapLibre
+agree explicitly: dragging DOWN zooms IN. That reads backwards written down
+and is right in the hand, because a thumb on the phone it is holding reaches
+down comfortably and up awkwardly, so the common direction gets the
+comfortable half.
+
+It differs from MapLibre in one detail: MapLibre enters the drag-zoom on the
+first `touchmove` with no movement threshold at all, so a double-tap whose
+second tap wobbles by a pixel becomes a 1/128-level drag instead of a zoom.
+This enters on the widget's own existing 3px `didDrag` click tolerance, so a
+wobbling tap is still the double-tap the reader meant; 3px is 0.023 of a zoom
+level, which nobody can see.
+
+### No new `controls` flag: the three that exist are CAPABILITIES
+
+The obvious fourth flag — `controls.touch` — was considered and not added.
+`drag`, `wheel` and `tilt` are already named for capabilities rather than for
+devices (the `tilt` flag's own doc says so: ONE flag covers both axes of the
+orient stroke "because it is one press"), and every touch gesture here IS one
+of those three capabilities arriving through a different device:
+
+- `wheel` is the ZOOM capability — wheel notches, the pinch, both tap zooms,
+  and the one-handed drag-zoom.
+- `tilt` is the ORIENT capability — the Ctrl/right-drag stroke's two axes, the
+  two-finger pitch, and the twist.
+- `drag` is the PAN capability — a one-finger drag, the two-finger pan, and
+  (because an anchored zoom moves the centre) the pinch's anchoring. With
+  `drag: false` a pinch still zooms, about the CENTRE, which is the only thing
+  "the centre is pinned" can mean.
+
+A `controls.touch` on top of those would be a second gate on every gesture
+answering a question no caller has asked; a caller who wants a fully inert map
+sets the three it already has. The nearest real use case — a map inside a
+scrolling article that must not swallow a one-finger drag — is
+`controls.drag`, plus the `touch-action` note below, and would not be served
+by a flag that also killed the pinch.
+
+### `touch-action: none`, which is not optional
+
+Without it there are no touch gestures at all. A browser hands a touch to the
+page's own scrolling and pinch-zoom first and merely REPORTS it to script;
+until the element declares that it consumes them, the pointer events for a pan
+or a pinch are cancelled the moment the browser claims the gesture.
+`createGlyphMap` now sets `host.style.touchAction = "none"` and restores the
+caller's own inline value on `destroy()` — which is exactly what glyphcss's
+own `createGlyphOrbitControls` / `createGlyphMapControls` / `createGlyphFirstPersonControls`
+do, for exactly this reason. `/maps` already had the equivalent rule in
+`maps-workbench.css`; every other consumer used to need it and now does not.
+
+### Walk mode is not reachable from a touch device, and the guard says so
+
+Entering walk needs Pointer Lock (which iOS Safari does not ship) and a
+keyboard, so `mapsWalk.ts` already refuses it on touch. The two-finger
+recogniser refuses independently: `beginTwoFinger` returns immediately while
+`walk` is non-null, so a walker's single-finger LOOK drag is untouched and
+`view.span` — which DESCRIBES the horizon there rather than framing it — is
+never handed a pinch. That is a guard rather than an assumption, which is the
+same distinction the rest of this widget's capability checks draw.
+
+### The interleaving is also why the page's drag-density had to change
+
+`/maps` drives `interactiveDownscale` itself, from a generic `pointerdown` /
+`pointermove` / `pointerup` triple, and it held the press as a BOOLEAN. Every
+two-finger gesture is two pointers, and the first finger to leave one of them
+is not the end of the gesture: the boolean settled back to full detail
+mid-pinch and — because the surviving finger's moves then found `pointerDown`
+already false — never went coarse again for the rest of the stroke, so the
+heaviest gesture on the page ran at full density from that moment on. It is a
+`Set` of pointer ids now, and the downscale lifts when the LAST finger leaves.
+
+### Gate
+
+`widget.touchGestures.test.ts`, 31 cases. Six mutation checks were run against
+it, each restored from a `cp` backup afterwards:
+
+| Mutation | Went red |
+|---|---|
+| pitch mode no longer exclusive (`tilt` branch dropped) | 4 |
+| `isSameDirection` clause forced true | 6 |
+| rotate arc threshold removed | 3 |
+| pinch ratio threshold removed | 3 |
+| the anchor re-pin skipped | 2 |
+| `sideBySide` forced true | 1 |

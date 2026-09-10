@@ -435,6 +435,47 @@ pitch clamps live to `getMaxTilt()` as the zoom changes it, neither angle
 carries inertia, and the gesture shares the widget's one animation frame with
 every other one — at most one render per displayed frame.
 
+### Touch gestures
+
+On a touch device the widget speaks Google Maps' vocabulary:
+
+| Gesture | Does | Rate |
+|---|---|---|
+| one finger, drag | pan | as the mouse |
+| two fingers, pinch | zoom, **anchored on the midpoint** | 1:1 with the finger separation |
+| two fingers, twist | bearing | 1:1 degrees; the picture turns WITH the fingers |
+| two fingers, drag together vertically | tilt — UP raises the pitch | `GLYPH_MAP_TILT_DRAG_DEG_PER_PX` (0.5), the Ctrl+drag rate |
+| double-tap | zoom IN one level, about the tapped point | |
+| two-finger tap | zoom OUT one level | |
+| double-tap, hold, drag | one-handed zoom — DOWN zooms in | `GLYPH_MAP_TAP_DRAG_ZOOM_LEVELS_PER_PX` (1/128 level per px) |
+
+Pan, pinch and twist COMPOSE — they are the three components of one movement,
+so you can zoom into a corner while straightening the map. **The tilt is
+exclusive**: a two-finger drag recognised as a pitch stays a pitch for the
+rest of the stroke, and one that was not can never become one. Without that
+lock every tilt would drift the zoom and the heading, because no hand holds
+two fingers rigid.
+
+The activation thresholds are MapLibre's, and deliberately not pixel counts: a
+pinch needs a 7.2% change in finger separation (`GLYPH_MAP_TOUCH_ZOOM_THRESHOLD_LEVELS`,
+0.1 zoom levels) so a wide and a narrow grip behave the same, and a twist
+needs `GLYPH_MAP_TOUCH_ROTATE_THRESHOLD_PX` (25) pixels of ARC along the
+circle the fingers describe — 28.6 degrees at a 100px grip, 7.2 at 400px — so
+the threshold is as easy to reach either way. Lifting one finger of a
+two-finger gesture hands the stroke back to the other as an ordinary pan, from
+where that finger actually is.
+
+There is no separate `controls.touch`: the three existing flags are
+CAPABILITIES, so `wheel` covers the pinch and both tap zooms, `tilt` covers
+the two-finger pitch and the twist, and `drag` covers panning — with
+`drag: false` a pinch still zooms, about the centre. Walk mode has no
+two-finger vocabulary and refuses these outright.
+
+`createGlyphMap` sets `touch-action: none` on the host and restores the
+caller's own inline value on `destroy()`. Without it the browser claims a pan
+or a pinch for the page before script ever sees it, and there are no touch
+gestures at all.
+
 ### Cover, not contain
 
 A SHEET projection (no `cameraForCenter` — equirectangular, Mercator,

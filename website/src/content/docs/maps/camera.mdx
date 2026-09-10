@@ -13,9 +13,34 @@ displayed frame**.
 | Gesture | Sheet projection | Orbit projection (globe) |
 |---|---|---|
 | Drag | Pan, clamped in world space | Orbit the camera |
-| Wheel / pinch | Zoom | Zoom |
+| Wheel | Zoom | Zoom |
 | **Ctrl+drag** or **right-drag** | Orient: vertical pitches, horizontal turns | Same |
 | Click | `click` event with `lngLat` | Same, `null` past the limb |
+
+### Touch
+
+Google Maps' vocabulary, on MapLibre's thresholds.
+
+| Gesture | Does |
+|---|---|
+| One finger, drag | Pan / orbit |
+| Two fingers, **pinch** | Zoom, anchored on the midpoint |
+| Two fingers, **twist** | Bearing — the picture turns with the fingers |
+| Two fingers, **drag together vertically** | Tilt; up raises the pitch |
+| **Double-tap** | Zoom in one level, about the tapped point |
+| **Two-finger tap** | Zoom out one level |
+| **Double-tap, hold, drag** | One-handed zoom; down zooms in |
+
+Pan, pinch and twist compose, so one movement can zoom into a corner while
+straightening the map. The tilt is **exclusive**: once a two-finger drag is
+recognised as a pitch it stays one for the rest of the stroke, and one that
+was not can never become one — without that lock, no hand is steady enough to
+tilt without also zooming and turning. Lifting one finger hands the stroke
+back to the other as an ordinary pan.
+
+The widget sets `touch-action: none` on the host (and restores your own inline
+value on `destroy()`), because otherwise the browser claims a pan or a pinch
+for the page before script sees it.
 
 Each has an opt-out, and each defaults to `true`:
 
@@ -32,6 +57,12 @@ the orient stroke, because it is one press and one stroke; a diagonal drag under
 two separate opt-outs would do half of what the hand asked. While it is enabled
 the widget suppresses the host's context menu, so the right-button half is
 usable.
+
+There is no separate touch flag. These three are **capabilities**, not
+devices: `wheel` is zoom (notches, the pinch, both tap zooms, the one-handed
+drag-zoom), `tilt` is orient (the mouse stroke's two axes, the two-finger
+pitch, the twist), and `drag` is pan. With `drag: false` a pinch still zooms —
+about the centre, since the centre is pinned.
 
 ## Span, and the cover rule
 
