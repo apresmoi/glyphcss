@@ -2168,6 +2168,134 @@ export const GLYPH_MAP_TILT_DRAG_DEG_PER_PX = 0.5;
 export const GLYPH_MAP_BEARING_DRAG_DEG_PER_PX = 0.8;
 
 /**
+ * TOUCH GESTURES — the two-finger vocabulary, and the thresholds that tell
+ * its three members apart.
+ *
+ * A phone has no wheel, no Ctrl key and no second mouse button, so every
+ * gesture above this line is unreachable there: before this the widget
+ * offered a touch reader exactly ONE gesture (drag to pan) and no way at all
+ * to zoom, turn or pitch. The vocabulary taken is Google Maps' — one finger
+ * pans; two fingers pinch to zoom, twist to turn, and drag TOGETHER and
+ * VERTICALLY to pitch; a double-tap zooms in one level; a two-finger tap
+ * zooms out one level; a double-tap held and dragged is the one-handed zoom
+ * — because it is the vocabulary every hand on the planet already has.
+ *
+ * The NUMBERS are MapLibre GL JS's (`src/ui/handler/two_fingers_touch.ts`,
+ * `tap_recognizer.ts`, `tap_drag_zoom.ts`), taken for the same reason the
+ * mouse rates above are MapLibre's: Google documents the gesture SET and not
+ * one threshold or rate behind it, so there is nothing of Google's to copy
+ * here, and MapLibre's are the numbers that survived contact with Google's on
+ * the same hardware. Where the two do disagree in writing — Google's Android
+ * doc says two fingers moving DOWN increase the tilt, while MapLibre,
+ * MapLibre Native and the Google Maps app itself all raise the pitch on an
+ * UPWARD drag — this widget follows UP, which is also what its own
+ * Ctrl+drag gesture already does ({@link GLYPH_MAP_TILT_DRAG_DEG_PER_PX}).
+ *
+ * The hard part is not any one gesture; it is that "two fingers are moving"
+ * describes pinch, twist and pitch at once, and the whole difference between
+ * them lives in the thresholds below.
+ */
+
+/**
+ * How far the finger DISTANCE must change before a two-finger gesture is a
+ * PINCH, in zoom levels — `|log2(distance / startDistance)|`.
+ *
+ * `0.1` levels is a distance ratio of `2^0.1` = 1.072: the fingers must
+ * separate or close by 7.2% of their own spacing. A RATIO rather than a pixel
+ * count on purpose — a pinch held 400px apart and one held 80px apart are the
+ * same gesture, and a fixed pixel threshold would make the narrow grip
+ * hair-trigger. This is what keeps a TWIST from zooming: rotating two fingers
+ * about their midpoint holds their distance constant, so it never trips and
+ * `view.span` is never touched.
+ */
+export const GLYPH_MAP_TOUCH_ZOOM_THRESHOLD_LEVELS = 0.1;
+
+/**
+ * How far the finger ANGLE must turn before a two-finger gesture is a TWIST,
+ * measured in PIXELS OF ARC along the circle the two fingers describe.
+ *
+ * Not degrees — the mirror of the reason the zoom threshold is not pixels. A
+ * given angle is a far longer and more deliberate movement at a wide grip
+ * than at a narrow one, so a fixed ANGLE would be unreachable close in and
+ * hair-trigger far apart. `25`px of arc is MapLibre's `ROTATION_THRESHOLD`,
+ * and it is measured against the SMALLEST spacing seen so far in the gesture
+ * (a pinch closes, and the threshold must not get easier as it does), so the
+ * angle it stands for is `25 / (pi * minDistance) * 360` degrees — 28.6 at a
+ * 100px grip, 14.3 at 200px, 7.2 at 400px. This is what keeps a PINCH from
+ * turning the map: closing two fingers along their own line changes no angle
+ * at all, so it never trips and `bearing` is never touched.
+ */
+export const GLYPH_MAP_TOUCH_ROTATE_THRESHOLD_PX = 25;
+
+/**
+ * How far EACH finger must have travelled before a two-finger gesture can be
+ * judged a PITCH, in pixels. MapLibre's own `threshold` inside
+ * `gestureBeginsVertically`.
+ *
+ * Small on purpose. This is not an activation DISTANCE — a recognised pitch
+ * moves the camera from its very next pixel — it is the distance below which
+ * a finger's DIRECTION is noise rather than an intention, and a larger number
+ * would only make the map ignore the start of a gesture it has already
+ * understood.
+ */
+export const GLYPH_MAP_TOUCH_TILT_THRESHOLD_PX = 2;
+
+/**
+ * How long ONE finger may lead the other before a two-finger gesture is ruled
+ * NOT a pitch, in milliseconds. MapLibre's `ALLOWED_SINGLE_TOUCH_TIME`.
+ *
+ * Two fingers never move at the same instant, so the start of every genuine
+ * two-finger drag has a window where one has travelled and the other has not
+ * — and one finger moving alone is also the exact signature of a pinch or a
+ * twist. This grace period is what separates them: inside it the gesture
+ * stays UNDECIDED and moves nothing at all, and past it a still-lonely finger
+ * means pinch/twist after all. Without it, a two-finger drag whose fingers
+ * are 30ms out of step zooms before it pitches — which is precisely the
+ * "every tilt drifts something else" failure.
+ */
+export const GLYPH_MAP_TOUCH_SINGLE_TOUCH_GRACE_MS = 100;
+
+/**
+ * Zoom levels per pixel of vertical travel in the one-finger
+ * DOUBLE-TAP-AND-DRAG zoom — MapLibre's `TapDragZoomHandler` rate, `1/128`.
+ *
+ * 128px of travel is one doubling, and the SIGN is the one both Google and
+ * MapLibre document: dragging DOWN zooms IN. That reads backwards written
+ * down and is right in the hand, because this is the ONE-HANDED zoom: a thumb
+ * on the phone it is holding reaches down comfortably and up awkwardly, so
+ * the common direction — in — gets the comfortable half.
+ */
+export const GLYPH_MAP_TAP_DRAG_ZOOM_LEVELS_PER_PX = 1 / 128;
+
+/**
+ * What a DOUBLE-TAP (in) or a TWO-FINGER TAP (out) is worth, in zoom levels.
+ * ONE level: `view.span` halves or doubles. Google's Android SDK documents
+ * both in exactly those words, and MapLibre binds the same two.
+ *
+ * Applied OUTRIGHT rather than eased, which is where this departs from
+ * MapLibre's 300ms `easeTo` — for the reason {@link applyWheel} already gives
+ * about the wheel: an eased `view.span` makes `getView().span` disagree with
+ * the gesture the caller just made and feeds tile LOD a span the reader never
+ * asked for. Smoothness in this widget comes from frame coalescing, not lag.
+ */
+export const GLYPH_MAP_TAP_ZOOM_LEVELS = 1;
+
+/**
+ * The double-tap window, milliseconds — MapLibre's `MAX_TAP_INTERVAL`, which
+ * is also the window in which a held second tap becomes the drag-zoom.
+ */
+export const GLYPH_MAP_DOUBLE_TAP_MAX_MS = 500;
+
+/**
+ * How far apart the two taps of a double-tap may land, and how far a single
+ * tap may travel and still be a tap, in pixels. MapLibre's `MAX_DIST`.
+ */
+export const GLYPH_MAP_DOUBLE_TAP_MAX_MOVE_PX = 30;
+
+/** How long one press may last and still be a TAP, milliseconds. MapLibre's `MAX_TOUCH_TIME`. */
+export const GLYPH_MAP_TAP_MAX_MS = 500;
+
+/**
  * The depth bias {@link GlyphMapShadowOptions} applies to glyphcss's shadow
  * map, in the projection's own world units. ZERO, and derived rather than
  * tuned.
@@ -8687,7 +8815,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * and once per frame by the inertial glide.
    */
   function applyDragState(dxPx: number, dyPx: number): void {
-    const grid = projectionGrid();
+    // A drag of no pixels moves nothing. Both branches below re-derive
+    // `view.center` by round-tripping the camera through `centerForCamera` /
+    // `tryUnproject`, which is exact only to float noise, so without this a
+    // zero-delta event (the first `pointermove` after a hand-over resumes
+    // from exactly where the surviving finger already is) would nudge the
+    // centre by a few ulps for no reason at all.
+    if (dxPx === 0 && dyPx === 0) return;
     if (isOrbitProjection() && projection.cameraForCenter && projection.centerForCamera) {
       // Grab-and-drag semantics (verified against `centerForCamera`): drag
       // RIGHT must decrease centre longitude and drag DOWN must increase
@@ -8755,6 +8889,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // The pivot moved, so the axis the heading turns about moved with it.
       syncCameraBearing();
     } else {
+      // The grid is measured HERE and not above because only this branch
+      // needs it: `projectionGrid()` reads two `getBoundingClientRect`s, and
+      // the anchored re-pin calls this function several times per pointer
+      // event, so an orbit projection was paying for a forced layout it then
+      // discarded.
+      const grid = projectionGrid();
       // NOT `bearingDragDelta` — deliberately. `screenToWorldDelta` solves
       // its basis from three probes of the LIVE `camera.project`, which
       // already carries `camera.mat`, so the sheet pan is bearing-correct
@@ -8920,8 +9060,537 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * `pointerdown` from the modifier/button then held for the whole gesture:
    * a reader who releases Ctrl mid-drag is still pitching, not suddenly
    * panning the map out from under the stroke.
+   *
+   * `tapZoom` is the one member decided LATER — the second tap of a
+   * double-tap cannot be known to be a drag until it moves — and it is
+   * still decided once and held.
    */
-  let gestureMode: "pan" | "tilt" = "pan";
+  let gestureMode: "pan" | "tilt" | "tapZoom" = "pan";
+  /**
+   * The live press exists ONLY so a double-tap can become the one-handed
+   * zoom: `controls.drag` is off, so it owns no pan — and no map `click`
+   * either, which is what a press that never reached `onPointerDown`'s body
+   * could not emit before this pointer was established for it.
+   */
+  let tapZoomOnlyPointer = false;
+
+  // ── Touch gestures ────────────────────────────────────────────────────
+  //
+  // Google Maps' vocabulary, MapLibre's thresholds — the whole argument for
+  // both is with the constants (GLYPH_MAP_TOUCH_*). What lives here is the
+  // DISAMBIGUATION, which is the only genuinely hard part: two fingers
+  // moving is pinch, twist and pitch all at once, and told apart wrongly
+  // every pitch drifts the heading and every pinch turns the map.
+  //
+  // The resolution has two halves, and both are MapLibre's arbitration
+  // (`handler_manager.ts`'s `allowed` lists) rather than a threshold:
+  //
+  //  1. **Pan, pinch and twist COMPOSE.** They are the three components of
+  //     one similarity transform of the finger pair — translation, scale,
+  //     rotation — and a reader zooming into a corner while straightening
+  //     the map is making ONE movement, not three. Each has its own
+  //     activation threshold, so a gesture that is purely one of them moves
+  //     only that one; past its threshold each rides on the same
+  //     `applyTouchTransform` write.
+  //  2. **Pitch is EXCLUSIVE, and it is decided ONCE.** A two-finger drag is
+  //     recognised from the fingers' own direction — both moving, both more
+  //     vertical than horizontal, both the same way, from a side-by-side
+  //     grip — and once recognised it locks the gesture for its whole
+  //     duration; conversely a gesture that fails that test can never become
+  //     a pitch, however vertical it turns later. Nothing else would do:
+  //     a two-finger drag ALWAYS drifts the distance and the angle a little
+  //     (a hand is not a rigid body), so a pitch that left pinch and twist
+  //     live would zoom and turn the map on every stroke — which is exactly
+  //     the reported feel of getting this wrong.
+  //
+  // The price is a dead window at the start of every two-finger gesture: up
+  // to 2px of travel per finger, or 100ms if one finger leads. That window
+  // IS the disambiguation, and it is small enough that no gesture feels
+  // like it starts late.
+
+  interface GlyphMapTouchPoint { x: number; y: number }
+
+  /**
+   * Every live touch, in the order the fingers landed. The map is the whole
+   * of the multi-touch state: `activePointerId` above still tracks the ONE
+   * pointer driving the single-pointer pan/look path, which is what a mouse
+   * and a lone finger share.
+   */
+  const touchPoints = new Map<number, GlyphMapTouchPoint>();
+
+  interface GlyphMapTwoFingerGesture {
+    readonly idA: number;
+    readonly idB: number;
+    readonly startedAt: number;
+    /** `undecided` moves nothing. See the block comment: `tilt` is exclusive, `navigate` composes pan+pinch+twist. */
+    mode: "undecided" | "navigate" | "tilt";
+    zooming: boolean;
+    rotating: boolean;
+    /** Any finger has travelled past a tap's tolerance, so this can no longer be a two-finger TAP. */
+    moved: boolean;
+    /**
+     * When each finger first travelled past the recognition threshold. Two
+     * fingers are one gesture only if they set out TOGETHER, so the pitch —
+     * the one member that claims they did — is refused when these differ by
+     * more than the grace window. `0` = that finger has not moved yet.
+     */
+    firstMoveAtA: number; firstMoveAtB: number;
+    /**
+     * COHERENCE. A Pointer Event carries exactly ONE finger, so the pair
+     * assembled after any single event holds one live position and one stale
+     * one. `sampled*` records who has reported since the last sample the
+     * gesture actually measured; `resting*` marks a finger that stayed silent
+     * through a whole grace window (a thumb anchoring a pinch is not late, it
+     * is still) so the gesture stops waiting for it; `pendingSince` is when
+     * the current, incomplete round opened.
+     */
+    sampledA: boolean; sampledB: boolean;
+    restingA: boolean; restingB: boolean;
+    pendingSince: number;
+    startDist: number;
+    startAngle: number;
+    /**
+     * The grip and the span the zoom is measured FROM, captured when the zoom
+     * threshold is crossed. The span is an ABSOLUTE function of the current
+     * grip rather than a product of per-event factors, so a `clampViewToCover`
+     * that refuses one increment cannot bank it: bring the fingers back to the
+     * base separation and the span comes back to the base span, exactly.
+     */
+    zoomBaseDist: number;
+    zoomBaseSpan: number;
+    /** The SMALLEST spacing seen so far — what the rotate threshold is measured against. */
+    minDist: number;
+    startAx: number; startAy: number; startBx: number; startBy: number;
+    /** The fingers landed side by side rather than stacked, so a pitch is expressible at all. */
+    sideBySide: boolean;
+    lastAx: number; lastAy: number; lastBx: number; lastBy: number;
+    lastDist: number;
+    lastAngle: number;
+    lastMidX: number; lastMidY: number;
+  }
+  let twoFinger: GlyphMapTwoFingerGesture | null = null;
+
+  /** The last completed single-finger TAP, for the double-tap window. `0` = none pending. */
+  let lastTapAt = 0, lastTapX = 0, lastTapY = 0;
+  /** The live press, for deciding whether it is a tap at all. */
+  let tapDownAt = 0, tapDownX = 0, tapDownY = 0;
+  /** This press is the SECOND tap of a double-tap: its release zooms in, its drag is the one-handed zoom. */
+  let doubleTapArmed = false;
+
+  /**
+   * The CAP on how many times {@link applyTouchTransform} re-measures and
+   * re-feeds the anchor residual.
+   *
+   * `applyDragState` turns pixels into degrees through a LINEARIZATION
+   * (`degPerPx = 1 / camera.zoom`) that is exact only in the limit, so one
+   * pass pins the ground under the fingers to within a fraction of a cell
+   * for a pinch's few-pixel increments and NOT for a double-tap's whole zoom
+   * level taken in the corner of the grid. The loop that fixes that up is a
+   * SECANT iteration (see the loop itself): it divides each ask by the gain
+   * the last one actually bought, which is what makes it a contraction on a
+   * globe, where the raw linearization is not one. It converges to the stop
+   * below in two or three passes and exits; this number is the ceiling, not
+   * the cost.
+   */
+  const GLYPH_MAP_TOUCH_ANCHOR_PASSES = 8;
+
+  /**
+   * How close to the asked-for pixel the re-pin stops, in CSS px.
+   *
+   * A two-hundredth of a pixel is far below one cell and below anything a
+   * reader can see, and it is chosen for the PINCH rather than for a single
+   * tap: a pinch spends one re-pin per event, so the per-pass slack
+   * accumulates over the stroke. Measured end to end on a globe (a
+   * 150px-to-400px pinch anchored in the corner of the grid, 24 anchored
+   * transforms) the ground under the fingers ends `0.76px` away at a `0.1`
+   * stop and `0.0002px` at this one, four passes per event either way; a lone
+   * double-tap lands within `0.002px` in four or five. Tightening it further
+   * buys nothing visible and costs a pass (`0.001` takes five to six).
+   */
+  const GLYPH_MAP_TOUCH_ANCHOR_STOP_PX = 0.005;
+
+  /**
+   * The client-coordinate origin of the col/row frame `camera.project` and
+   * `unprojectSphere`/`unprojectSheet` share.
+   *
+   * The same fallback ladder {@link projectionGrid} itself walks — the
+   * output `<pre>` when it has been laid out, the host otherwise — because
+   * the two have to agree or a pinch anchors on a point the reader is not
+   * touching. `null` when neither has a box yet (a map constructed and
+   * gestured at before its first layout), which turns the anchoring off
+   * rather than pinning to a guessed origin.
+   */
+  function touchOrigin(): { readonly left: number; readonly top: number } | null {
+    const o = scene.output.getBoundingClientRect();
+    if (o.width > 0 && o.height > 0) return { left: o.left, top: o.top };
+    const h = host.getBoundingClientRect();
+    if (h.width > 0 && h.height > 0) return { left: h.left, top: h.top };
+    return null;
+  }
+
+  /** Signed shortest difference between two screen angles, degrees. */
+  function touchAngleDelta(a: number, b: number): number {
+    let d = (a - b) % 360;
+    if (d > 180) d -= 360;
+    else if (d < -180) d += 360;
+    return d;
+  }
+
+  /**
+   * The ONE state write every two-finger gesture that is not a pitch goes
+   * through: multiply the span by `spanFactor`, turn the heading by
+   * `bearingDelta`, and leave the ground that was under `(fromX, fromY)`
+   * under `(toX, toY)` when it is done.
+   *
+   * That last clause is the whole of "anchored on the midpoint": a pinch
+   * zooms about the point BETWEEN the fingers and a twist turns about it,
+   * because the alternative — zooming about the view centre, as the wheel
+   * does — slides the ground out from under a hand that is holding it. It
+   * is expressed as one re-pin rather than as three separate anchored
+   * operations because the span change, the heading change and the fingers'
+   * own translation all move the anchor on screen, and correcting once for
+   * where it ended up is both simpler and exact.
+   *
+   * Every write goes through the existing setters — `clampViewToCover` +
+   * `syncCameraToView` for the span, `applyBearingState` for the heading,
+   * `applyDragState` for the pan — so the cover clamp, the bearing
+   * normalization and the orbit branch's preimage bookkeeping all apply
+   * exactly as they do to a mouse. The repaint is `markMotionDirty()`: one
+   * motion loop, never a second render path.
+   *
+   * With `controls.drag` off the map's centre is pinned, so there is no
+   * anchoring to do and the zoom is about the centre — the wheel's own
+   * behaviour, which is the only thing "may not pan" can mean.
+   */
+  function applyTouchTransform(spanFactor: number, bearingDelta: number, fromX: number, fromY: number, toX: number, toY: number): void {
+    const grid = projectionGrid();
+    const origin = touchOrigin();
+    let anchor: readonly [number, number] | null = null;
+    if (controlsDrag && origin) {
+      const col = (fromX - origin.left) / grid.cellWidth;
+      const row = (fromY - origin.top) / grid.cellHeight;
+      anchor = isOrbitProjection() ? unprojectSphere(col, row, grid) : unprojectSheet(col, row, grid);
+    }
+    cancelCameraGlide();
+    if (spanFactor !== 1) {
+      view = clampViewToCover({ ...view, span: clamp(view.span * spanFactor, minSpan, maxViewSpan()), bounds: undefined });
+      syncCameraToView(view);
+    }
+    if (bearingDelta !== 0) applyBearingState(bearing + bearingDelta);
+    if (anchor && origin) {
+      // MEASURED gain, not an assumed one. `applyDragState` turns pixels into
+      // camera degrees through the VIEW CENTRE's own rate
+      // (`degPerPx = 1 / camera.zoom`), and the anchor is not at the view
+      // centre: on a globe a degree of `rotY` is a degree of ground only on
+      // the equator, so at latitude 80 the same pixel ask moves the anchor
+      // about `1 / cos 80` = 5.8x too far. Feeding the raw residual back is
+      // then not a contraction at all but a divergent iteration — it
+      // OVERSHOOTS by 4.8x, the "stopped improving" bail fires on the very
+      // next pass, and the double-tap settled 178px from the tapped ground
+      // (measured; 10.9px at latitude 46, 63.8px under a 60-degree pitch).
+      // Three passes were never the problem: the step size was.
+      //
+      // So each pass measures what the LAST ask actually bought and divides
+      // the next one by it — a secant step, per screen axis because
+      // `bearingDragDelta` has already brought the pixels back onto the
+      // navigation frame, which leaves the Jacobian diagonally dominant. A
+      // pan the cover clamp REFUSES buys nothing at all, and that (not a
+      // non-improving residual) is the honest end of the loop.
+      //
+      // AND THE LOOP CANNOT END WORSE THAN THE BEST POINT IT FOUND. There are
+      // views where no local model of this converges — a double-tap in the
+      // CORNER of a globe centred at latitude 88, where the grid corner is
+      // 119 degrees of longitude away and the zoom throws it hundreds of
+      // pixels off the grid entirely — and there the iteration simply
+      // wanders, secant or not (measured across 147 globe views: the old
+      // fixed-gain loop left 81 of them past a twentieth of a pixel, worst
+      // 574.6px; this one leaves 6, and three of those are latitude 88). So
+      // every ask is accumulated since the last improvement and undone at the
+      // end. The orbit branch makes that EXACT: `camera.rotX`/`rotY` are
+      // additive in the ask and `degPerPx` is constant for the whole loop
+      // (nothing in here changes `camera.zoom`), so the negated sum restores
+      // the pose bit for bit. The last iteration only MEASURES, so the step
+      // taken with the final pass of the budget is judged like every other.
+      let gainX = 1, gainY = 1;
+      let prevSx = 0, prevSy = 0, prevAskX = 0, prevAskY = 0;
+      let bestResidual = Infinity, sinceBestX = 0, sinceBestY = 0;
+      for (let pass = 0; pass <= GLYPH_MAP_TOUCH_ANCHOR_PASSES; pass++) {
+        const p = projectOn(anchor, grid);
+        if (!Number.isFinite(p.col) || !Number.isFinite(p.row)) break;
+        const sx = origin.left + p.col * grid.cellWidth, sy = origin.top + p.row * grid.cellHeight;
+        if (pass > 0) {
+          const gotX = sx - prevSx, gotY = sy - prevSy;
+          if (Math.hypot(gotX, gotY) <= 1e-9 * Math.hypot(prevAskX, prevAskY)) break;
+          if (Math.abs(prevAskX) > 1e-9) {
+            const g = gotX / prevAskX;
+            if (g > 1e-3 && g < 1e3) gainX = g;
+          }
+          if (Math.abs(prevAskY) > 1e-9) {
+            const g = gotY / prevAskY;
+            if (g > 1e-3 && g < 1e3) gainY = g;
+          }
+        }
+        const dx = toX - sx, dy = toY - sy;
+        const residual = Math.hypot(dx, dy);
+        if (residual < bestResidual) { bestResidual = residual; sinceBestX = 0; sinceBestY = 0; }
+        if (residual < GLYPH_MAP_TOUCH_ANCHOR_STOP_PX || pass === GLYPH_MAP_TOUCH_ANCHOR_PASSES) break;
+        prevSx = sx; prevSy = sy;
+        prevAskX = dx / gainX; prevAskY = dy / gainY;
+        sinceBestX += prevAskX; sinceBestY += prevAskY;
+        applyDragState(prevAskX, prevAskY);
+      }
+      if (sinceBestX !== 0 || sinceBestY !== 0) applyDragState(-sinceBestX, -sinceBestY);
+    } else if (controlsDrag && (toX !== fromX || toY !== fromY)) {
+      applyDragState(toX - fromX, toY - fromY);
+    }
+    // The DOM half only, synchronously — the reason `applyDrag` states: an
+    // input handler must never write to the scene.
+    syncNearSideDom();
+    markMotionDirty();
+    emitViewChange(spanFactor !== 1 ? "zoom" : "move");
+  }
+
+  /** The second finger just landed. */
+  function beginTwoFinger(): void {
+    // A walker has no two-finger vocabulary: `view.span` DESCRIBES the
+    // horizon rather than framing it (`applyWheel` is already a no-op
+    // there) and the pose belongs to the walk camera, so the single-finger
+    // LOOK drag is left exactly as it was. Walk mode is unreachable from a
+    // touch device anyway — it needs Pointer Lock and a keyboard — and this
+    // is the guard that keeps it that way rather than an assumption.
+    if (walk) return;
+    if (!controlsDrag && !controlsWheel && !controlsTilt) return;
+    const ids = [...touchPoints.keys()];
+    const a = touchPoints.get(ids[0])!, b = touchPoints.get(ids[1])!;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    twoFinger = {
+      idA: ids[0], idB: ids[1], startedAt: nowMs(),
+      mode: "undecided", zooming: false, rotating: false, moved: false,
+      firstMoveAtA: 0, firstMoveAtB: 0,
+      sampledA: false, sampledB: false, restingA: false, restingB: false, pendingSince: 0,
+      startDist: dist, startAngle: angle, minDist: dist,
+      zoomBaseDist: dist, zoomBaseSpan: view.span,
+      startAx: a.x, startAy: a.y, startBx: b.x, startBy: b.y,
+      // MapLibre's `isVertical(points[0].sub(points[1]))` invalidation. With
+      // the fingers STACKED rather than side by side, "both fingers moved
+      // down" and "the fingers closed" are the same pixels — a pitch is not
+      // distinguishable from a pinch at all — so the pitch is refused for
+      // the whole stroke rather than guessed at.
+      sideBySide: Math.abs(dx) > Math.abs(dy),
+      lastAx: a.x, lastAy: a.y, lastBx: b.x, lastBy: b.y,
+      lastDist: dist, lastAngle: angle,
+      lastMidX: (a.x + b.x) / 2, lastMidY: (a.y + b.y) / 2,
+    };
+    // The pan the first finger was driving is over: it must not fling on
+    // release, and its release is not a map click.
+    didDrag = true;
+    glideVx = 0; glideVy = 0;
+    // A second finger also cancels any double-tap the first one had armed.
+    doubleTapArmed = false;
+    lastTapAt = 0;
+    cancelCameraGlide();
+  }
+
+  /**
+   * One increment of a live two-finger gesture, driven by the event for
+   * `movedId`.
+   *
+   * NOTHING here reads the finger pair until it is COHERENT. A Pointer Event
+   * carries exactly one pointer, so a pair assembled after any single event
+   * holds one live position and one stale one — a configuration the fingers
+   * were never actually in. Measuring it is not merely imprecise, it invents
+   * motion that is not there: two fingers 80px apart sliding 8px the same way
+   * read as 72px apart for one event, which is 0.152 zoom levels, past the
+   * 0.1 threshold. The spurious zoom out and the matching zoom back in
+   * telescope to nothing UNTIL something refuses one of them — and
+   * `clampViewToCover` at the maximum span refuses exactly the first half, so
+   * a pure two-finger pan walked the span from 360 to 324 degrees per stroke
+   * (measured; a constant-distance 50-degree twist did the same, 360 to
+   * 326.27). The rule is therefore one rule for the whole gesture, not just
+   * for recognition: a pair is measured only once every finger has reported
+   * since the last measured sample, or once the grace window says a silent
+   * finger is genuinely at rest rather than late.
+   */
+  function onTwoFingerMove(movedId: number): void {
+    const g = twoFinger;
+    if (!g) return;
+    const a = touchPoints.get(g.idA), b = touchPoints.get(g.idB);
+    if (!a || !b) return;
+    const now = nowMs();
+    const travelA = Math.hypot(a.x - g.startAx, a.y - g.startAy);
+    const travelB = Math.hypot(b.x - g.startBx, b.y - g.startBy);
+    if (travelA > GLYPH_MAP_DOUBLE_TAP_MAX_MOVE_PX || travelB > GLYPH_MAP_DOUBLE_TAP_MAX_MOVE_PX) g.moved = true;
+    // WHEN each finger set out is read off the RAW event, ahead of the
+    // coherence gate: it is the evidence for whether the two moved TOGETHER,
+    // and a lead longer than the gate's own wait would otherwise be invisible
+    // to the gate — the pair arrives complete, and the lead is gone.
+    if (travelA >= GLYPH_MAP_TOUCH_TILT_THRESHOLD_PX && g.firstMoveAtA === 0) g.firstMoveAtA = now;
+    if (travelB >= GLYPH_MAP_TOUCH_TILT_THRESHOLD_PX && g.firstMoveAtB === 0) g.firstMoveAtB = now;
+
+    if (movedId === g.idA) { g.sampledA = true; g.restingA = false; }
+    else if (movedId === g.idB) { g.sampledB = true; g.restingB = false; }
+    else return;   // a third contact is not part of this gesture
+    if (g.pendingSince === 0) g.pendingSince = now;
+    if (!((g.sampledA || g.restingA) && (g.sampledB || g.restingB))) {
+      if (now - g.pendingSince < GLYPH_MAP_TOUCH_SINGLE_TOUCH_GRACE_MS) return;
+      // A finger that stayed silent through a whole grace window is not late,
+      // it is STILL — a thumb anchoring a pinch reports nothing at all — so
+      // the gesture stops waiting for it and treats the pair as coherent
+      // until it speaks again. Without this an anchored pinch would run at
+      // one increment per grace window instead of one per event.
+      if (!g.sampledA) g.restingA = true;
+      if (!g.sampledB) g.restingB = true;
+    }
+    g.sampledA = false; g.sampledB = false; g.pendingSince = 0;
+
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
+
+    if (g.mode === "undecided") {
+      // The event that RESOLVES the gesture still applies nothing and
+      // re-bases. That is not caution: it is what makes the composition exact
+      // afterwards, because the reference configuration a resolved gesture
+      // telescopes from has to be one the fingers were really in.
+      const movedA = g.firstMoveAtA > 0, movedB = g.firstMoveAtB > 0;
+      if (movedA && movedB) {
+        // TOGETHER, or not at all. A pitch is the claim that both fingers are
+        // making ONE movement, so two fingers that set out a grace window
+        // apart cannot be one: whichever moved first was a pinch or a twist
+        // waiting for its partner, and classification must not depend on
+        // whether another event happened to arrive during the wait.
+        const together = Math.abs(g.firstMoveAtA - g.firstMoveAtB) < GLYPH_MAP_TOUCH_SINGLE_TOUCH_GRACE_MS;
+        const vertical = Math.abs(a.y - g.startAy) > Math.abs(a.x - g.startAx)
+          && Math.abs(b.y - g.startBy) > Math.abs(b.x - g.startBx);
+        const sameWay = (a.y - g.startAy > 0) === (b.y - g.startBy > 0);
+        g.mode = (together && controlsTilt && g.sideBySide && vertical && sameWay) ? "tilt" : "navigate";
+      } else if (movedA || movedB) {
+        // One finger leading. Inside the grace window this is what the
+        // start of an honest two-finger drag looks like; past it, it is a
+        // pinch or a twist.
+        if (now - Math.max(g.firstMoveAtA, g.firstMoveAtB) >= GLYPH_MAP_TOUCH_SINGLE_TOUCH_GRACE_MS) g.mode = "navigate";
+      }
+      g.lastAx = a.x; g.lastAy = a.y; g.lastBx = b.x; g.lastBy = b.y;
+      g.lastDist = dist; g.lastAngle = angle; g.lastMidX = midX; g.lastMidY = midY;
+      return;
+    }
+
+    if (g.mode === "tilt") {
+      // Both fingers' own vertical travel, averaged, at the SAME rate the
+      // Ctrl+drag stroke uses — MapLibre uses one number for both too, and
+      // a reader who learns the pitch with a mouse should not have to learn
+      // it again with a thumb. `applyOrientDrag(0, dy)` is that stroke's
+      // own vertical axis, so the ceiling, the `appliedTilt` accumulation
+      // and the single motion loop all come with it; the heading axis is
+      // passed 0 because a pitch is exclusive.
+      const dyAvg = ((a.y - g.lastAy) + (b.y - g.lastBy)) / 2;
+      if (dyAvg !== 0) applyOrientDrag(0, dyAvg);
+    } else {
+      if (!g.zooming && controlsWheel && g.startDist > 0 && dist > 0
+        && Math.abs(Math.log2(dist / g.startDist)) >= GLYPH_MAP_TOUCH_ZOOM_THRESHOLD_LEVELS) {
+        g.zooming = true;
+        // The threshold's own travel is spent on recognition, never replayed
+        // as a jump: the zoom is measured from the grip that crossed it.
+        g.zoomBaseDist = dist;
+        g.zoomBaseSpan = view.span;
+      }
+      g.minDist = Math.min(g.minDist, dist);
+      if (!g.rotating && controlsTilt && g.minDist > 0
+        && Math.abs(touchAngleDelta(angle, g.startAngle)) >= (GLYPH_MAP_TOUCH_ROTATE_THRESHOLD_PX / (Math.PI * g.minDist)) * 360) {
+        g.rotating = true;
+      }
+      // The span is an ABSOLUTE function of the current grip, not a product of
+      // per-event factors. A product cannot be undone once anything refuses
+      // one of its terms: at the maximum span `clampViewToCover` swallows a
+      // zoom out and then honours the matching zoom in, so finger jitter
+      // ratchets the span down and never back. Measured against a fixed base
+      // there is nothing to bank — bring the grip back to `zoomBaseDist` and
+      // the span is `zoomBaseSpan` again, to the bit.
+      const spanFactor = g.zooming && dist > 0 && view.span > 0
+        ? (g.zoomBaseSpan * g.zoomBaseDist / dist) / view.span
+        : 1;
+      // The map turns WITH the fingers: a clockwise twist turns the picture
+      // clockwise. `bearing` is the heading that points UP, which DECREASES
+      // as the picture turns clockwise, and `atan2` on a y-DOWN screen grows
+      // clockwise — hence the negation. Rate 1:1, MapLibre's own: a heading
+      // is an angle and the fingers are describing it directly, so there is
+      // no rate to choose.
+      const bearingDeltaDeg = g.rotating ? -touchAngleDelta(angle, g.lastAngle) : 0;
+      const panned = controlsDrag && (midX !== g.lastMidX || midY !== g.lastMidY);
+      if (spanFactor !== 1 || bearingDeltaDeg !== 0 || panned) {
+        applyTouchTransform(spanFactor, bearingDeltaDeg, g.lastMidX, g.lastMidY, midX, midY);
+      }
+    }
+    g.lastAx = a.x; g.lastAy = a.y; g.lastBx = b.x; g.lastBy = b.y;
+    g.lastDist = dist; g.lastAngle = angle; g.lastMidX = midX; g.lastMidY = midY;
+    // The same self-healing debounce every other gesture re-arms.
+    scheduleTileUpdate();
+  }
+
+  /** One of the two fingers left. */
+  function endTwoFinger(): void {
+    const g = twoFinger;
+    twoFinger = null;
+    if (!g) return;
+    // TWO-FINGER TAP — two fingers down, neither travelled, both up
+    // promptly. Google's own binding: one zoom level OUT, about the point
+    // between them.
+    if (g.mode === "undecided" && !g.moved && controlsWheel && nowMs() - g.startedAt <= GLYPH_MAP_TAP_MAX_MS) {
+      applyTouchTransform(Math.pow(2, GLYPH_MAP_TAP_ZOOM_LEVELS), 0, g.lastMidX, g.lastMidY, g.lastMidX, g.lastMidY);
+      scheduleTileUpdate();
+    }
+    glideVx = 0; glideVy = 0;
+    handBackToLoneFinger();
+  }
+
+  /**
+   * Hand the stroke back to the ONE finger still on the glass, as an ordinary
+   * pan resumed from where that finger actually IS so there is no jump. It is
+   * what makes "pinch in, then keep dragging" one continuous movement rather
+   * than two gestures with a seam.
+   *
+   * It is called from every place the count can REACH one, not only from the
+   * end of the pair, because a third contact makes those different moments: a
+   * pinch that gains a third finger and then loses one of the pair still has
+   * two fingers down, so there is nobody to hand to yet, and the hand-over
+   * belongs to the LATER release that takes the count to one. Without that
+   * second call site the survivor was stranded — still pressed, driving
+   * nothing, until the reader lifted it and touched down again.
+   */
+  function handBackToLoneFinger(): void {
+    const rest = [...touchPoints.entries()];
+    if (rest.length === 1 && controlsDrag && !walk) {
+      activePointerId = rest[0][0];
+      lastClientX = rest[0][1].x;
+      lastClientY = rest[0][1].y;
+      lastMoveTime = 0;
+      dragTotalPx = 0;
+      // Never a click: this finger is the tail of a multi-finger gesture.
+      didDrag = true;
+      gestureMode = "pan";
+    } else {
+      activePointerId = null;
+      didDrag = false;
+    }
+  }
+
+  /**
+   * A single finger just landed: decide whether it is the second tap of a
+   * double-tap, and start timing it either way.
+   */
+  function armDoubleTap(e: PointerEvent): void {
+    const now = nowMs();
+    doubleTapArmed = controlsWheel && !walk && lastTapAt > 0
+      && now - lastTapAt <= GLYPH_MAP_DOUBLE_TAP_MAX_MS
+      && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) <= GLYPH_MAP_DOUBLE_TAP_MAX_MOVE_PX;
+    lastTapAt = 0;
+    tapDownAt = now;
+    tapDownX = e.clientX;
+    tapDownY = e.clientY;
+  }
 
   /**
    * Ctrl+drag and right-button drag pitch the camera. This is the binding
@@ -8935,9 +9604,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function onPointerDown(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // Capture every finger, not only the first: a pinch whose second
+      // finger wanders off the host must not lose that finger mid-gesture,
+      // and the capture is per-pointer so it costs the first one nothing.
+      try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      // The SECOND finger opens the two-finger vocabulary and the first
+      // finger's pan stands down. A THIRD is ignored outright — every
+      // gesture here is defined on exactly two — rather than re-forming the
+      // pair under the reader's hand.
+      if (touchPoints.size === 2) { beginTwoFinger(); return; }
+      if (touchPoints.size > 2) return;
+      armDoubleTap(e);
+    }
     if (activePointerId !== null) return;
     const tilting = isTiltGesture(e);
-    if (!tilting && !controlsDrag) return;
+    // The SECOND tap of a double-tap owns the one-handed zoom, which is a
+    // ZOOM and so belongs to `controls.wheel`, not to `controls.drag`. Before
+    // this it returned here with `drag: false` and never established the
+    // pointer the drag-zoom is steered by, so the whole gesture collapsed
+    // into the discrete double-tap on release — a whole zoom level for a
+    // stroke the reader was still making.
+    tapZoomOnlyPointer = !tilting && !controlsDrag;
+    if (!tilting && !controlsDrag && !(e.pointerType === "touch" && doubleTapArmed)) return;
     // Walking, there is no pan: dragging the ground out from under a walker
     // is not a thing a first-person view can mean. Every drag is a LOOK, so
     // it takes the orient path the Ctrl/right-drag gesture already uses.
@@ -8977,6 +9667,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // steer twice per event — once at the locked rate and once at the drag
     // rate.
     if (walkPointerLocked) return;
+    if (e.pointerType === "touch") {
+      const pt = touchPoints.get(e.pointerId);
+      if (pt) { pt.x = e.clientX; pt.y = e.clientY; }
+      // While two fingers are down the single-pointer path is off entirely
+      // — including for the finger that owns `activePointerId`, which would
+      // otherwise pan the map underneath the pinch.
+      if (twoFinger) { if (pt) onTwoFingerMove(e.pointerId); return; }
+    }
     if (activePointerId !== e.pointerId) return;
     const dx = e.clientX - lastClientX;
     const dy = e.clientY - lastClientY;
@@ -8984,6 +9682,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     lastClientY = e.clientY;
     dragTotalPx += Math.abs(dx) + Math.abs(dy);
     if (dragTotalPx > 3) didDrag = true;
+    // ONE-HANDED ZOOM: the second tap of a double-tap, held and dragged.
+    // Entered on the widget's own 3px click tolerance rather than on
+    // MapLibre's first-pixel-wins rule, so a tap that wobbles is still the
+    // double-tap the reader meant; 3px is 0.023 of a zoom level, which no
+    // one can see.
+    if (doubleTapArmed && didDrag && gestureMode === "pan") gestureMode = "tapZoom";
+    if (gestureMode === "tapZoom") {
+      if (dy !== 0) {
+        // Anchored on the TAP point, not on the live finger: the reader is
+        // zooming into the thing they tapped, and the finger is only the
+        // throttle.
+        applyTouchTransform(Math.pow(2, -dy * GLYPH_MAP_TAP_DRAG_ZOOM_LEVELS_PER_PX), 0, tapDownX, tapDownY, tapDownX, tapDownY);
+      }
+      scheduleTileUpdate();
+      return;
+    }
     if (gestureMode === "tilt") {
       // No fling velocity is accumulated: neither angle has inertia. A camera
       // that kept pitching after the hand stopped would coast straight into
@@ -9024,7 +9738,88 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scheduleTileUpdate();
   }
 
+  /**
+   * `pointercancel` is NOT a release. The browser has taken the pointer away
+   * — a system gesture, a palm rejection, a lost capture — and the reader
+   * never completed anything, so the only correct response is to clean up:
+   * drop the contact, end any gesture it was half of, and disarm the tap
+   * recognisers so neither this press nor the next one can complete a zoom.
+   *
+   * It used to share `onPointerUp` outright, which meant a cancelled press
+   * could still be RECOGNISED: two stationary fingers plus a cancel on either
+   * of them inside the tap window read as a two-finger tap and zoomed the map
+   * out a level (measured: span 12 to 24), and a cancelled single press armed
+   * the double-tap that the next real press then completed. An interrupted
+   * gesture must never navigate.
+   */
+  function onPointerCancel(e: PointerEvent): void {
+    try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (e.pointerType === "touch") {
+      touchPoints.delete(e.pointerId);
+      // Nothing survives an interruption: not this press's own tap, and not
+      // the pending one it might otherwise have completed.
+      doubleTapArmed = false;
+      lastTapAt = 0;
+      if (twoFinger && (e.pointerId === twoFinger.idA || e.pointerId === twoFinger.idB)) {
+        // The pair is over, but WITHOUT `endTwoFinger`'s tap recognition.
+        twoFinger = null;
+        glideVx = 0; glideVy = 0;
+        handBackToLoneFinger();
+        return;
+      }
+      if (!twoFinger && touchPoints.size === 1 && activePointerId === null) {
+        handBackToLoneFinger();
+        return;
+      }
+    }
+    if (activePointerId !== e.pointerId) return;
+    activePointerId = null;
+    gestureMode = "pan";
+    tapZoomOnlyPointer = false;
+    didDrag = false;
+    // No click and no fling: nothing about a cancelled gesture is a throw.
+    glideVx = 0; glideVy = 0;
+    scheduleTileUpdate();
+  }
+
   function onPointerUp(e: PointerEvent): void {
+    if (e.pointerType === "touch") {
+      const wasDown = touchPoints.delete(e.pointerId);
+      try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (twoFinger) {
+        // A third finger leaving changes nothing; either of the pair
+        // leaving ends the gesture and hands any remainder back as a pan.
+        if (e.pointerId === twoFinger.idA || e.pointerId === twoFinger.idB) endTwoFinger();
+        return;
+      }
+      if (gestureMode === "tapZoom") {
+        gestureMode = "pan";
+        activePointerId = null;
+        tapZoomOnlyPointer = false;
+        doubleTapArmed = false;
+        didDrag = false;
+        glideVx = 0; glideVy = 0;
+        scheduleTileUpdate();
+        return;
+      }
+      const isTap = wasDown && !didDrag && nowMs() - tapDownAt <= GLYPH_MAP_TAP_MAX_MS;
+      if (doubleTapArmed) {
+        doubleTapArmed = false;
+        // DOUBLE-TAP — one zoom level IN, about the tapped point. The
+        // `click` the shared path below still emits is deliberate and is
+        // what MapLibre does too: a double-tap on a marker should also
+        // select it.
+        if (isTap) {
+          applyTouchTransform(Math.pow(2, -GLYPH_MAP_TAP_ZOOM_LEVELS), 0, e.clientX, e.clientY, e.clientX, e.clientY);
+          scheduleTileUpdate();
+        }
+      } else if (isTap) {
+        lastTapAt = nowMs(); lastTapX = e.clientX; lastTapY = e.clientY;
+      }
+      // A third contact makes "the pair ended" and "one finger is left"
+      // different moments — see `handBackToLoneFinger`.
+      if (touchPoints.size === 1 && activePointerId === null) handBackToLoneFinger();
+    }
     if (activePointerId !== e.pointerId) return;
     activePointerId = null;
     try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -9037,7 +9832,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       scheduleTileUpdate();
       return;
     }
-    if (!didDrag) {
+    if (!didDrag && !tapZoomOnlyPointer) {
       const outputRect = scene.output.getBoundingClientRect();
       const grid = projectionGrid();
       let lngLat: readonly [number, number] | null = null;
@@ -9063,6 +9858,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       glideVx = 0; glideVy = 0;
     }
     didDrag = false;
+    tapZoomOnlyPointer = false;
     scheduleTileUpdate();
   }
 
@@ -9102,10 +9898,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     e.preventDefault();
   }
 
+  /**
+   * WITHOUT THIS THERE ARE NO TOUCH GESTURES AT ALL. A browser hands a
+   * touch to the page's own scrolling and pinch-zoom first and only
+   * *reports* it to script; `touch-action: none` is the declaration that
+   * this element consumes them, and until it is set the pointer events for
+   * a pan or a pinch are cancelled the moment the browser claims the
+   * gesture. glyphcss's own `createGlyphOrbitControls`/`createGlyphMapControls`
+   * set exactly this on their host for exactly this reason, and restore it
+   * on detach; a caller's inline value is preserved and put back.
+   */
+  const hostTouchAction = host.style.touchAction;
+  // ...but only when the widget actually consumes one. With `drag`, `wheel`
+  // and `tilt` all off there is no touch gesture left to claim, and claiming
+  // them anyway makes an inert map a hole in the page: a swipe that starts
+  // over it scrolls nothing, which is precisely the "map inside a scrolling
+  // article" case `controls.drag` exists to serve.
+  if (controlsDrag || controlsWheel || controlsTilt) host.style.touchAction = "none";
+
   host.addEventListener("pointerdown", onPointerDown);
   host.addEventListener("pointermove", onPointerMove);
   host.addEventListener("pointerup", onPointerUp);
-  host.addEventListener("pointercancel", onPointerUp);
+  host.addEventListener("pointercancel", onPointerCancel);
   host.addEventListener("wheel", onWheel, { passive: false });
   host.addEventListener("contextmenu", onContextMenu);
   // On the OWNER DOCUMENT, not the host: a `<div>` takes no keyboard focus
@@ -9269,6 +10083,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (sunTimer !== null) { clearInterval(sunTimer); sunTimer = null; }
       if (tileUpdateTimer !== null) clearTimeout(tileUpdateTimer);
       if (wheelInteractingTimer !== null) clearTimeout(wheelInteractingTimer);
+      host.style.touchAction = hostTouchAction;
+      touchPoints.clear();
+      twoFinger = null;
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerup", onPointerUp);

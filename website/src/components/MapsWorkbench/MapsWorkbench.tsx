@@ -1098,20 +1098,27 @@ export default function MapsWorkbench() {
     // stroke layers "jumping" until a real drag frame re-renders with
     // everything settled. Gating on movement means a click never enters the
     // downscaled state at all — no mismatched render is ever produced.
-    let pointerDown = false;
+    //
+    // The count, not a flag: a pinch, a twist and a two-finger tilt are all
+    // TWO pointers, and the first finger to leave one of them is not the end
+    // of the gesture. Held as a boolean this settled back to full detail
+    // mid-pinch and — because the surviving finger's moves then found
+    // `pointerDown` already false — never went coarse again for the rest of
+    // the stroke, so the heaviest gesture on the page ran at full density.
+    const down = new Set<number>();
     let dragging = false;
-    const onDown = (): void => {
-      pointerDown = true;
+    const onDown = (e: PointerEvent): void => {
+      down.add(e.pointerId);
     };
     const onMove = (): void => {
-      if (!pointerDown || dragging) return;
+      if (down.size === 0 || dragging) return;
       dragging = true;
       map.scene.setInteracting(true);
       applyDensity(true);
     };
-    const onUp = (): void => {
-      pointerDown = false;
-      if (!dragging) return;
+    const onUp = (e: PointerEvent): void => {
+      down.delete(e.pointerId);
+      if (down.size > 0 || !dragging) return;
       dragging = false;
       map.scene.setInteracting(false);
       applyDensity(false);
