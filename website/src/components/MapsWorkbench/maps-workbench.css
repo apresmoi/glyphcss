@@ -1099,3 +1099,50 @@
     padding: 6px 14px;
   }
 }
+
+/* The LIVE card's per-row TIME WINDOW — the same segmented control
+   `.maps-osm-anchor` holds, with TEXT instead of icons ("1h", "24h", "7d",
+   "30d"): four glyphs nobody would recognise are worse than four two-character
+   words, and the row has the width for them once the name gives some back.
+
+   Only a WINDOWED row takes `--windowed`. The two rows with no time axis
+   (GDACS' currently-active list, a satellite's live position) keep the
+   original `38% auto minmax(0, 1fr)` track exactly, so nothing about them
+   moves because their neighbours grew a control. */
+.maps-layer-card .maps-layer-body .maps-live-row--windowed {
+  /* 28%, and the widget gap below, are both measured against the two strings
+     that actually bind on a 302px row: the longest row NAME ("Launch sites",
+     82.1px) and the longest READOUT the month window can produce ("644 quakes
+     · 12s", ~106px). At 27% the name lost its last character to an ellipsis
+     and at 29% the readout wrapped, so the two together are the fit — which
+     is why the gap has to give up two pixels as well. */
+  grid-template-columns: 28% auto minmax(0, 1fr);
+}
+.maps-layer-card .maps-layer-body .maps-live-row--windowed .maps-osm-row-widget {
+  gap: 3px;
+}
+.maps-layer-card .maps-layer-body .maps-live-window {
+  display: flex;
+  flex: none;
+  min-width: 0;
+}
+/* Row scale, exactly as `.maps-osm-anchor` trims it: `.gx-toggle-btn`'s base
+   `4px 0` is sized for /synth's full-width voice rows and would grow a 24px
+   card row. A descendant selector, never a redeclaration of the shared class
+   (see this file's header). */
+.maps-layer-card .maps-layer-body .maps-live-window .gx-toggle-btn {
+  /* `1px 2px`, measured rather than picked: at `1px 4px` the four buttons are
+     93px of a 302px row and the readout column is left at 92px, which is one
+     pixel short of "644 quakes · 12s" — so the widened month window wrapped
+     its own readout to a second line and made that row 6px taller than its
+     neighbours. Two pixels of horizontal padding each gives the readout the
+     16px it was missing and keeps every live row one line high. */
+  padding: 1px 2px;
+}
+.maps-layer-card .maps-layer-body .maps-live-window-label {
+  display: block;
+  font-size: 9px;
+  line-height: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}

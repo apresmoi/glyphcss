@@ -38,7 +38,9 @@ import {
   MAP_LIVE_FEEDS,
   mapLiveLayer,
   mapLiveLayerId,
+  mapLiveWindow,
   type MapLiveFeedId,
+  type MapLiveWindowId,
 } from "./mapsLive";
 import {
   MAP_LIVE_ROW_OFF,
@@ -129,6 +131,8 @@ import {
   mapsOsmSublayersFromMask,
   mapsLiveFeedsFromMask,
   mapsLiveMaskFromFeeds,
+  mapsLiveWindowRecordFromTuple,
+  mapsLiveWindowsFromRecord,
   readInitialMapsState,
   writeMapsUrlState,
   type MapCharMode,
@@ -303,6 +307,15 @@ export default function MapsWorkbench() {
   const [showLive, setShowLive] = useState(initialLayerVisible.live);
   const [liveFeeds, setLiveFeeds] = useState<Record<string, boolean>>(
     () => mapsLiveFeedsFromMask(initial.liveMask),
+  );
+  //    How far BACK (or, for launches, AHEAD) each row reads. Only two rows
+  //    have a real time axis and therefore a control; the other two hold
+  //    their single window here so the record stays total and the wire tuple
+  //    stays one shape. Changing one is a re-fetch with a different SOURCE
+  //    (`controller.setWindow`), never a filter over a payload already
+  //    downloaded.
+  const [liveWindows, setLiveWindows] = useState<Record<string, MapLiveWindowId>>(
+    () => mapsLiveWindowRecordFromTuple(initial.liveWindows),
   );
   const [liveStatuses, setLiveStatuses] = useState<Record<string, MapLiveRowStatus>>(
     () => Object.fromEntries(MAP_LIVE_FEEDS.map((f) => [f.id, MAP_LIVE_ROW_OFF])),
@@ -793,17 +806,26 @@ export default function MapsWorkbench() {
       feeds: MAP_LIVE_FEEDS.map((spec) => {
         const status = liveStatuses[spec.id] ?? MAP_LIVE_ROW_OFF;
         const readout = mapLiveRowReadout(status, spec.noun, liveClock);
+        // The row's own tooltip prices the window it is CURRENTLY on, not
+        // some fixed one: with a control beside it, a payload figure that
+        // did not follow the buttons would be wrong three times out of four.
+        const window = mapLiveWindow(spec.id, liveWindows[spec.id] ?? spec.defaultWindow);
         return {
           id: spec.id,
           label: spec.label,
-          tooltip: `${spec.tooltip} — ${spec.payload}, ${spec.cadence}.`,
+          tooltip: `${spec.tooltip} — ${window.payload}.`,
           on: liveFeeds[spec.id] ?? false,
           value: readout.value,
           warn: readout.warn,
           note: readout.note,
+          windows: spec.windows.length > 1
+            ? spec.windows.map((w) => ({ value: w.id, label: w.label, desc: w.desc }))
+            : [],
+          window: window.id,
         };
       }),
       onFeed: (id, on) => setLiveFeeds((prev) => ({ ...prev, [id]: on })),
+      onWindow: (id, window) => setLiveWindows((prev) => ({ ...prev, [id]: window as MapLiveWindowId })),
     },
   };
 
@@ -1006,6 +1028,11 @@ export default function MapsWorkbench() {
       setLive: (on: boolean) => setShowLive(on),
       setLiveFeeds: (ids: readonly string[]) =>
         setLiveFeeds(Object.fromEntries(MAP_LIVE_FEEDS.map((f) => [f.id, ids.includes(f.id)]))),
+      // The window, for the same reason the row set is here: the link carries
+      // a tuple of indices, so no query string can name one row's window, and
+      // pricing a wide window against a narrow one needs to move exactly one.
+      setLiveWindow: (id: string, window: string) =>
+        setLiveWindows((prev) => ({ ...prev, [id]: window as MapLiveWindowId })),
       // What a row is CURRENTLY showing. The only way a harness can wait for
       // a live row to land: the fetch is the page's, not the widget's, so
       // `map.idle()` says nothing about whether the data has arrived yet.
@@ -1549,9 +1576,13 @@ export default function MapsWorkbench() {
     const controller = liveController.current;
     if (!controller) return;
     for (const spec of MAP_LIVE_FEEDS) {
+      // The window FIRST, so a row coming on in the same commit as a window
+      // change issues one fetch at the new window rather than one at the old
+      // one and then a second replacing it.
+      controller.setWindow(spec.id, liveWindows[spec.id] ?? spec.defaultWindow);
       controller.setEnabled(spec.id, showLive && (liveFeeds[spec.id] ?? false));
     }
-  }, [showLive, liveFeeds, provider, vectorProvider]);
+  }, [showLive, liveFeeds, liveWindows, provider, vectorProvider]);
 
   // The card's second hand — armed only while the card is open and at least
   // one row is on, so a page with the card shut owns no interval at all.
@@ -1833,6 +1864,7 @@ export default function MapsWorkbench() {
       }),
       osmMask: mapsOsmMaskFromSublayers(osmSublayers),
       liveMask: mapsLiveMaskFromFeeds(liveFeeds),
+      liveWindows: mapsLiveWindowsFromRecord(liveWindows),
       terrainDensity,
       borderDensity,
       contourDensity,

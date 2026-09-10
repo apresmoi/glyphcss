@@ -7091,6 +7091,10 @@ real browser `Origin` — verified, not quoted.
 | Launch sites | Launch Library 2 `upcoming?limit=20&mode=normal` | ~190 KB, 13 distinct pads | hourly (1 of a measured 15/h) |
 | Satellites | CelesTrak `GROUP=visual` element sets | ~26 KB, 157 objects | elements ONCE; motion is local SGP4 |
 
+The two quantitative rows have since grown a TIME WINDOW, so the source,
+payload and cadence above are each row's DEFAULT one — see "The time window
+each row is read at" below for the whole ladder.
+
 Three corrections to the feasibility report the work started from, each
 measured:
 
@@ -7132,6 +7136,123 @@ with no status, no `Retry-After` and no message. Nothing in the page can tell
 that apart from an outage, and on these services the throttle is the likelier
 of the two, so an unexplained failure is reported as PROBABLY rate limiting.
 A timeout is reported separately, because that one the page does know.
+
+### The time window each row is read at
+
+Asked for in these words: *"those sets need a filter of recency, like last
+hour, today, last week, etc"*. Three decisions carry it.
+
+**A window is a different SOURCE, never a filtered payload.** USGS publish one
+summary feed per window and Launch Library take a `net` bound, so a narrower
+window is a smaller download rather than a large one with most of it thrown
+away. Measured against the live services:
+
+| USGS feed | bytes | events |   | USGS feed | bytes | events |
+|---|---|---|---|---|---|---|
+| `all_hour` | 11 K | 15 |   | `all_week` | 1.5 M | 2,184 |
+| `all_day` | 195 K | 278 |   | `2.5_month` | 1.5 M | 2,225 |
+| `2.5_day` | 20 K | 28 |   | `4.5_month` | 440 K | 644 |
+| `2.5_week` | 265 K | 380 |   | `1.0_month` | 5.2 M | 7,716 |
+| `4.5_week` | 58 K | 85 |   | `all_month` | 7.5 M | 10,988 |
+
+**ONE axis, not two.** USGS cross a magnitude FLOOR (`all`/`1.0`/`2.5`/`4.5`)
+with a WINDOW (`hour`/`day`/`week`/`month`), and the control is the window
+alone with the floor chosen per window. Two axes is sixteen combinations, and
+the table says what is in them: a 7.5 MB / 10,988-event `all_month` at one
+corner and an almost always empty `4.5_hour` at the other, with nothing on the
+card able to tell a reader which is which. The floor is not a thing a reader of
+a MAP wants to pick — it is the PRICE of the window, the only lever that keeps
+a month inside half a megabyte — so it belongs to the window, derived. Because
+it is hidden it is STATED: every button's tooltip names the floor it carries,
+and `mapsLive.windows.test.ts` reddens if one stops. The ladder that falls out
+rises in floor exactly as the window widens, and every rung is between 11 KB
+and 440 KB:
+
+| row | window | source | payload | cadence |
+|---|---|---|---|---|
+| Earthquakes | 1h | `all_hour` | 11 KB, 15 events | 5 min |
+| | 24h | `all_day` | 195 KB, 278 | 5 min |
+| | **7d** (default) | `2.5_week` | 265 KB, 380 | 5 min |
+| | 30d | `4.5_month` | 440 KB, 644 | 30 min |
+| Launch sites | 24h | `net__lte` +1 d | 15 KB, 2 launches | 30 min |
+| | 7d | `net__lte` +7 d | 85 KB, 9 | hourly |
+| | 30d | `net__lte` +30 d | 190 KB, 20 of 23 | hourly |
+| | **all** (default) | no date bound | 190 KB, 20 | hourly |
+
+**Two of the four rows have no time axis, and get no control.** A control that
+cannot change anything is worse than no control, so `windows.length > 1` is the
+whole rule the card reads.
+
+- **Disasters (GDACS)** is a list of currently ACTIVE events, not a rolling
+  window. The payload does carry dates (`fromdate`, `todate`, `datemodified`),
+  so a filter is possible — and measured on the vendored 99-event capture it is
+  destructive: not one of those events began in the previous seven days, and
+  the median age of a start date is 142 days for an earthquake, 271 for a
+  flood, 309 for a tropical cyclone. Every window a reader would pick empties
+  the row. That is the mechanical answer; the real one is that filtering an
+  ongoing cyclone by when it FORMED hides a live hazard.
+- **Satellites (CelesTrak)** is a live position. There is no recency dimension
+  at all: the elements are fetched once and propagated locally.
+
+**The cadence follows the window**, on one rule — poll at the publisher's own
+regeneration interval unless the payload makes that wasteful. USGS regenerate
+every one to five minutes, so five minutes is the floor below which nothing new
+can arrive, and three of the four quake windows sit on it because all three are
+light and all three genuinely gain events at that scale (one every 4 min, 5 min
+and 27 min respectively). The month window is the one where they diverge: 644
+events a month is 0.075 per five minutes, so twelve of every thirteen requests
+would re-read an unchanged 440 KB file — 5.3 MB an hour to learn nothing.
+Half-hourly is 0.45 new events per request and 880 KB an hour. On the launch
+side the 24-hour window is the only one finer than hourly: a T-0 inside the next
+day slips by minutes, and it is 15 KB against 190 KB, so it spends 2 of the
+reader's own measured 15 requests an hour instead of 1.
+
+**Mechanically it is not a second path.** `MapLiveController.setWindow(id,
+window)` cancels the pending tick, runs the same `refresh` -> `publish` ->
+`update` a scheduled tick runs — so the mounted layer is REPLACED through
+`setLayerSource` and the markers reconcile — and re-arms at the new window's own
+cadence. A row that is off spends nothing and simply remembers the window; the
+window is also the one thing that survives `stop()`'s "switching a row off is a
+fresh start" rule, because it is the reader's standing choice rather than state
+the row accumulated. The requested window is NORMALIZED through `mapLiveWindow`
+before the equality check, so a link naming a window this build does not offer
+resolves to the row's own default instead of spending a request to re-fetch the
+URL the row was already on.
+
+**On the wire** it is `liveWindows`, token `1` — the SECOND digit this schema
+has spent, after `0` took the row bitfield when all 52 letters ran out. A
+4-slot `floatTuple` of indices into `MAPS_LIVE_WINDOW_KEYS`, one per row in
+`MAPS_LIVE_FEED_KEYS` order, both append-only. A tuple rather than one token per
+row for the reason `l` is one: only two rows have a choice, and the other two
+always sit at their own index and therefore always equal the default, which is
+what keeps the whole token off an ordinary link. Both defaults are the URL the
+page fetched before the control existed, so a link shared then still shows what
+it showed — `mapsUrlState.liveWindows.test.ts` decodes a verbatim pre-change
+link and pins every field of it.
+
+Verified in a real browser (built site, `astro preview`, 1440x900, world view,
+one row mounted at a time), each window's own URL answering 200 and the mounted
+count following it: **12 / 277 / 381 / 644 quakes** and **2 / 8 / 13 / 13 pads**.
+The month and `all` launch windows agree because at 30 days the COUNT bound is
+what binds, which is what that button's tooltip says.
+
+One layout consequence, measured rather than guessed: on a 302 px row the four
+buttons plus the longest row name ("Launch sites", 82.1 px) and the longest
+readout the month window can produce ("644 quakes · 12s", ~106 px) do not all
+fit on the shared `38% / auto / 1fr` track. `.maps-live-row--windowed` takes
+`28% / auto / 1fr` with a 3 px widget gap and `1px 2px` button padding; at 27%
+the name lost its last character to an ellipsis and at 29% the readout wrapped
+and made that row 6 px taller than its neighbours. The two rows with no window
+keep the original track exactly.
+
+One guard was corrected on the way, in both this control and the OSM card's
+label-placement toggle it copies: the `preventDefault` that stops a click on a
+button inside the row's `<label>` from activating the row's checkbox has to run
+in the CAPTURE phase. React delegates every handler to the root container, so a
+bubble-phase `onClick` there does not run until the native event has already
+passed the `<label>` — and a DOM that forwards the click (happy-dom does; a
+real browser does not, because the spec exempts interactive descendants) reads
+`defaultPrevented` at exactly that moment.
 
 satellite.js is pinned to **6.0.2**, the last pure-JS release. Version 7 ships
 a WebAssembly accelerator whose Emscripten glue uses top-level await and is

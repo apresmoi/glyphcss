@@ -36,6 +36,7 @@ import {
   mapLiveLayer,
   mapLiveLayerId,
   mapLiveOpenFeature,
+  mapLiveFeedUrl,
   mapLiveQuakeLabelScore,
   parseMapLiveDisasters,
   parseMapLiveLaunches,
@@ -72,7 +73,10 @@ describe("live feed specs", () => {
   it("declares one spec per row, and each fixture was captured from that spec's own URL", () => {
     expect(MAP_LIVE_FEEDS.map((f) => f.id)).toEqual(["quakes", "disasters", "launches", "satellites"]);
     for (const spec of MAP_LIVE_FEEDS) {
-      expect(capture(CAPTURES[spec.id]).url).toBe(spec.url);
+      // A row's URL is now a function of its WINDOW (`mapsLive.windows.test.ts`
+      // owns the rest of that ladder); these four captures are the ones each
+      // row's own DEFAULT window fetches, which is what an ordinary link gets.
+      expect(capture(CAPTURES[spec.id]).url).toBe(mapLiveFeedUrl(spec.id, spec.defaultWindow, 0));
     }
   });
 
@@ -219,7 +223,7 @@ describe("fetching, and failing", () => {
       const outcome = await fetchMapLiveFeed({
         feed: id,
         fetchResponse: async (url) => {
-          expect(url).toBe(MAP_LIVE_FEED_BY_ID[id].url);
+          expect(url).toBe(mapLiveFeedUrl(id, MAP_LIVE_FEED_BY_ID[id].defaultWindow, 0));
           return replay(capture(CAPTURES[id]));
         },
       });

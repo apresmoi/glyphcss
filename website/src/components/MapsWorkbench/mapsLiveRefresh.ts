@@ -47,11 +47,13 @@
 import type { GlyphMapVectorFeatureCollection } from "@glyphcss/maps";
 import {
   MAP_LIVE_FEEDS,
-  MAP_LIVE_FEED_BY_ID,
   fetchMapLiveFeed,
+  mapLiveRefreshMs,
+  mapLiveWindow,
   type MapLiveFeedId,
   type MapLiveFetch,
   type MapLiveOutcome,
+  type MapLiveWindowId,
 } from "./mapsLive";
 import {
   MAP_LIVE_SATELLITE_TICK_MS,
@@ -167,6 +169,21 @@ export interface MapLiveControllerOptions {
 export interface MapLiveController {
   setEnabled(id: MapLiveFeedId, on: boolean): void;
   /**
+   * Read this row at a different TIME WINDOW.
+   *
+   * A window change is a RE-FETCH WITH A DIFFERENT SOURCE and nothing else:
+   * it takes the same `refresh` -> `publish` -> `update` path a scheduled
+   * tick takes, so the mounted layer is replaced through `setLayerSource`
+   * (markers reconcile, `layerOrder` survives) rather than being taken down
+   * and re-added. The row's timer is re-armed at the NEW window's cadence,
+   * because a month feed must not go on being polled at a week feed's rate.
+   *
+   * A row that is OFF spends nothing — the window is simply remembered, and
+   * it survives an off/on cycle for the same reason: it is the reader's
+   * choice about the card, not state the row accumulated.
+   */
+  setWindow(id: MapLiveFeedId, window: MapLiveWindowId): void;
+  /**
    * The page became visible again. Any row whose refresh came due while it
    * was hidden goes out now, rather than waiting a whole further interval for
    * a tick it already missed.
@@ -190,6 +207,8 @@ export interface MapLiveController {
 
 interface FeedState {
   on: boolean;
+  /** Which time window this row is read at — see `MAP_LIVE_FEEDS`' `windows`. */
+  window: MapLiveWindowId;
   timer: ReturnType<typeof setTimeout> | null;
   abort: AbortController | null;
   mounted: boolean;
@@ -203,15 +222,23 @@ interface FeedState {
   tles: readonly MapLiveTle[] | null;
 }
 
-const freshState = (): FeedState => ({
-  on: false, timer: null, abort: null, mounted: false, collection: null,
+/**
+ * A row's state, cleared.
+ *
+ * The WINDOW is carried in rather than reset, and that is the one exception
+ * to `stop()`'s "switching a row off is a fresh start" rule: everything else
+ * here is data the row accumulated (a collection, an epoch, a failure), while
+ * the window is a choice the reader made about the card and is still making.
+ */
+const freshState = (window: MapLiveWindowId): FeedState => ({
+  on: false, window, timer: null, abort: null, mounted: false, collection: null,
   fetchedAt: null, reason: null, rateLimited: false, deferred: false, tles: null,
 });
 
 export function createMapLiveController(opts: MapLiveControllerOptions): MapLiveController {
   const now = opts.now ?? (() => Date.now());
   const isHidden = opts.isHidden ?? (() => typeof document !== "undefined" && document.hidden);
-  const states = new Map<MapLiveFeedId, FeedState>(MAP_LIVE_FEEDS.map((f) => [f.id, freshState()]));
+  const states = new Map<MapLiveFeedId, FeedState>(MAP_LIVE_FEEDS.map((f) => [f.id, freshState(f.defaultWindow)]));
   let destroyed = false;
   /**
    * The satellite tick. ONE interval for the whole controller rather than one
@@ -249,7 +276,7 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
     state.timer = setTimeout(() => {
       state.timer = null;
       void tick(id);
-    }, MAP_LIVE_FEED_BY_ID[id].refreshMs);
+    }, mapLiveRefreshMs(id, state.window));
   }
 
   async function tick(id: MapLiveFeedId): Promise<void> {
@@ -288,6 +315,7 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
       : undefined;
     const outcome: MapLiveOutcome = await fetchMapLiveFeed({
       feed: id,
+      window: state.window,
       signal: abort.signal,
       // The controller's own clock seam reaches the readers: a quake's label
       // priority is a function of its age (`mapLiveQuakeLabelScore`).
@@ -343,8 +371,9 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
     if (state.mounted) opts.unmount(id);
     // Everything the row held goes with it: the collection, the elements, and
     // the failure. Switching a row off and on again is a fresh start, not a
-    // resumption of a stale one.
-    states.set(id, freshState());
+    // resumption of a stale one — except for the WINDOW, which is the
+    // reader's standing choice rather than something the row accumulated.
+    states.set(id, freshState(state.window));
     if (id === "satellites") syncSatelliteTimer();
   }
 
@@ -356,6 +385,31 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
       if (!on) { stop(id, state); opts.onStatus(id, MAP_LIVE_ROW_OFF); return; }
       state.on = true;
       report(id, state);
+      void (async () => {
+        await refresh(id, state);
+        const live = states.get(id)!;
+        if (!destroyed && live.on) arm(id, live);
+      })();
+    },
+    setWindow(id: MapLiveFeedId, window: MapLiveWindowId): void {
+      if (destroyed) return;
+      const state = states.get(id)!;
+      // NORMALIZED first: a link written against a build with a different
+      // window list can name one this row does not offer, and that resolves
+      // to the row's own default (`mapLiveWindow`). Comparing the RESOLVED
+      // window is what stops such a link from spending a request to fetch
+      // the URL the row was already on.
+      const next = mapLiveWindow(id, window).id;
+      if (state.window === next) return;
+      state.window = next;
+      // An OFF row spends nothing: the window is remembered and is used by
+      // the fetch `setEnabled` issues when the reader turns the row on.
+      if (!state.on) return;
+      // The pending tick belonged to the OLD cadence. Cancel it, go out now
+      // with the new source, and re-arm at the new window's own interval —
+      // the same three lines `setEnabled` runs, because this is the same
+      // path, not a second one.
+      if (state.timer !== null) { clearTimeout(state.timer); state.timer = null; }
       void (async () => {
         await refresh(id, state);
         const live = states.get(id)!;
@@ -389,7 +443,7 @@ export function createMapLiveController(opts: MapLiveControllerOptions): MapLive
         if (state.timer !== null) clearTimeout(state.timer);
         state.abort?.abort();
         if (state.mounted) opts.unmount(id);
-        states.set(id, freshState());
+        states.set(id, freshState(state.window));
       }
       if (satelliteTimer !== null) { clearInterval(satelliteTimer); satelliteTimer = null; }
     },

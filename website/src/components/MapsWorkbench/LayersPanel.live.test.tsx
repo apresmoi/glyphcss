@@ -46,7 +46,11 @@ function extra(overrides: Partial<ExtraLayerInputs> = {}): ExtraLayerInputs {
 function feed(overrides: Partial<LiveFeedInputs> = {}): LiveFeedInputs {
   return {
     id: "quakes", label: "Earthquakes", tooltip: "Every magnitude 2.5+ earthquake worldwide in the past seven days.",
-    on: false, value: "", warn: false, note: null, ...overrides,
+    on: false, value: "", warn: false, note: null,
+    // No time window by default here: this file's subject is the row itself,
+    // and `LayersPanel.liveWindows.test.tsx` owns the control.
+    windows: [], window: "all",
+    ...overrides,
   };
 }
 
@@ -84,7 +88,7 @@ function inputs(liveOverrides: Partial<LiveLayerInputs> = {}): LayersFolderInput
     live: {
       visible: true, onVisible: noop,
       feeds: MAP_LIVE_FEEDS.map((spec) => feed({ id: spec.id, label: spec.label, tooltip: spec.tooltip })),
-      onFeed: noop,
+      onFeed: noop, onWindow: noop,
       ...liveOverrides,
     },
   };
