@@ -1,0 +1,436 @@
+---
+title: Terrain
+description: Elevation tiles, the relief mesh, LOD tiers, draping geometry on the ground, elevation windows, real-sun lighting and cast shadows.
+---
+
+Terrain is what makes the rest of the map three-dimensional. A `raster` layer
+turns an elevation pyramid into a real mesh, and everything else in the scene —
+roads, buildings, labels, washes — stands on it.
+
+## Tiles
+
+```ts
+interface GlyphMapGeoTile {
+  bounds: GlyphMapBounds;
+  cols: number;
+  rows: number;
+  elevation: Float32Array;   // (cols + 1) x (rows + 1), row-major, row 0 = north
+  source: string;
+  sampler: string;
+  attribution?: readonly GlyphMapAttribution[];
+}
+```
+
+The elevation grid is **vertex-centered** — `(cols + 1) × (rows + 1)`, not the
+cell-centered `GlyphMapField` the static pipeline uses — so adjacent quads share
+an edge with no seam.
+
+Crucially, a tile carries **lon/lat/elevation only**. Projection is applied
+client-side, so **one tile pyramid serves every projection**: switching from
+Mercator to a globe re-projects the tiles you already have rather than fetching
+a different pyramid.
+
+A tile whose bounds straddle the antimeridian (`bounds.east > 180`, the
+unwrapped authoring convention) must be split **before** projecting, or its quads
+bridge the whole map as garbage strips:
+
+```ts
+import { splitGlyphMapGeoTileAtAntimeridian } from "@glyphcss/maps";
+
+// One tile back when it does not straddle; two when it does.
+const pieces = splitGlyphMapGeoTileAtAntimeridian(tile);
+```
+
+It splits on a whole-column boundary near the seam — a literal grid slice, never
+a resample.
+
+Reading and probing a tile:
+
+```ts
+import {
+  glyphMapDecodeGeoTileInt16,
+  glyphMapGeoTileElevationAt,
+  glyphMapGeoTileElevationRange,
+  glyphMapGeoTileVertexLonLat,
+} from "@glyphcss/maps";
+```
+
+## Providers
+
+A provider is a tile pyramid the widget sweeps for you:
+
+```ts
+interface GlyphMapProvider {
+  id: string;
+  zooms: readonly GlyphMapProviderZoomLevel[];
+  attribution?: readonly GlyphMapAttribution[];
+  bounds(z: number, x: number, y: number): GlyphMapBounds;
+  loadTile(z: number, x: number, y: number): Promise<GlyphMapGeoTile>;
+  tileRange?: GlyphMapTileRangeStrategy;
+}
+```
+
+Mount it as a `raster` layer's `source` and the widget handles the tile cache,
+the visibility diff, the in-flight guard, and a gesture-gated debounce.
+
+**LOD is keyed on degrees per glyph cell, never on `camera.zoom`.**
+
+```ts
+import { glyphMapDegreesPerCell, glyphMapTargetLOD, glyphMapFinestLOD } from "@glyphcss/maps";
+```
+
+Ground units per cell is geographic by construction, so a `radius: 1` globe and
+a `radius: 100` one select the same level for the same view. When no level is
+fine enough the **deepest** is kept, so a shallow pyramid stops sharpening
+rather than stops drawing.
+
+A tile sweep's visibility test samples the tile's own bounds **and** the
+viewport's own unprojected points — never a single point. A 22.5° tile straddles
+a 3° viewport whenever that point lands within a viewport-width of a tile edge,
+and a nonzero `tilt` makes the visible window asymmetric (it reaches much
+further toward the horizon), so no box centred on `view.center` describes it.
+
+Past a global pyramid's affordable depth, wrap it:
+
+```ts
+import { glyphMapCuratedProvider } from "@glyphcss/maps";
+
+const provider = glyphMapCuratedProvider(base, [
+  { zoom: z5Level, tiles: new Set(["17_11"]), loadTile: (x, y) => fetchCurated(5, x, y) },
+]);
+```
+
+Curated levels hold real tiles only inside a place's bounds; every other tile at
+those depths **degrades to the deepest ancestor that exists** — never blank,
+never a throw.
+
+## The relief mesh
+
+```ts
+import { glyphMapPolygons, glyphMapGlobe } from "@glyphcss/maps";
+
+const polygons = glyphMapPolygons(tile, glyphMapGlobe({ exaggeration: 24 }), {
+  color: (elev) => (elev < 0 ? "#2a55a8" : "#5a7a30"),
+  resolution: { cols: 32, rows: 32 },
+});
+```
+
+One quad per tile cell, skipping any quad with a corner outside the projection's
+valid window. The result is a plain `Polygon[]` — render it with
+`createGlyphScene` or `compileScene` like any other mesh, no widget required.
+
+| Option | Meaning |
+|---|---|
+| `color` | `(elev) => string \| undefined` — per-quad colour from its representative elevation |
+| `colorSample` | `"surface-median"` (default) or `"corner-mean"` |
+| `resolution` | Build a coarser mesh than the tile's baked grid |
+| `elevationBias` | Metres, offsets vertex **position** only |
+| `minElevation` / `maxElevation` | Clamp positions into an elevation window |
+
+**Resolve one resolution per pyramid *level*, never per tile.** Two tiles built
+at the same resolution sample identical source vertices along their shared edge,
+so the edge is exactly shared; tiles at different resolutions do not, and the
+T-junction gap shows as a tear.
+
+### Why the colour is a median
+
+`colorSample: "surface-median"` takes a quad's colour elevation from the
+**median of the tile's own full-resolution vertices** over the block the quad
+covers. So colour fidelity does not degrade with mesh resolution, and a quad
+straddling a coastline can never be classified into a band its terrain's
+majority does not hold.
+
+A corner mean can: it averages deep ocean with high land and falls below sea
+level, painting bathymetric blue over land. Measured on the real ETOPO1 pyramid,
+the floor tier's quad over Bogotá averaged −155 m across corners on terrain that
+is 379 of 441 samples above sea level. The median's guarantee is exact rather
+than statistical: if more than half the covered samples are at or above sea
+level, the middle sample is too. (Point-sampling the quad centre was measured
+and is *worse* than the mean — it lands in rivers and inlets.)
+
+`"corner-mean"` exists because the `heatmap` layer keys a `Map` on that exact
+float to recover per-quad density.
+
+### Three tiers, and why the backstops are sunk
+
+A `raster` layer mounts **three** tiers at once: the target LOD, a coarser
+fallback mounted first, and a permanent floor capped to 32 quads per axis. That
+is what makes panning never show a blank hole.
+
+All three are opaque meshes in **one** scene, and a coarse quad is not merely a
+blurrier fine one: its chord interpolates linearly across up to ~11°, so where
+it straddles a coast it sits kilometres *above* the fine tier's sea floor, wins
+the shared depth test over open ocean, and paints it the colour of a block that
+is mostly land — "the sea is basically green".
+
+So every tier that is not the target is **sunk** by 20,000 m through
+`elevationBias`. That is a bound rather than a tuning: it exceeds Earth's entire
+solid-surface relief, which bounds how far any coarse chord can rise above a
+finer sample of the same field, and it is in metres, so it is
+exaggeration-invariant. With the sink, the combined render is cell-for-cell
+identical to the target tier alone.
+
+## The terrain elevation window
+
+`minElevation`/`maxElevation` on a `raster` layer are metres, both optional, both
+byte-identical when omitted. Terrain outside the window is **held at the window
+edge, not dropped**:
+
+```ts
+// Draw the land; replace the seabed with a smooth plane at sea level.
+map.addLayer({ type: "raster", source: provider, classifier, colors, minElevation: 0 });
+
+// The reverse: bathymetry with the land flattened off.
+map.addLayer({ type: "raster", source: provider, classifier, colors, maxElevation: 0 });
+```
+
+This is the one place the package clamps where it otherwise crops, and the tier
+ladder is why: a dropped quad is a **hole** the backstop underneath fills, in the
+colour of an 11° quad that is mostly land. A clamp has no hole, and wherever
+every sample a tier covers is out of window, every tier's surface is the same
+constant plane — so no coarse chord can rise above a finer one.
+
+It moves **position only**, per vertex. A quad's colour still reads the terrain's
+own unwindowed elevation, so the sea keeps its bathymetric band and only its
+floor goes, and a partially-submerged quad keeps its land corners at their own
+heights — a coast still slopes rather than steps.
+
+A `contour` layer is deliberately **not** windowed by this; it carries its own
+window. A contour below the terrain's floor is buried under the flattened
+surface, so set the contour's own floor to match.
+
+## Where the ground comes from
+
+Everything that stands on the ground — a `line`'s draped vertices, a
+`symbol`/`circle` anchor, a `fill-extrusion`'s footing, a draped `fill`'s cap —
+reads **one** elevation source. They must, or a road, the building beside it, the
+label on it and the lake behind it part company under a tilt.
+
+By default that source is the mounted `raster` layers' own tiles, finest tier
+first. Supply your own and it wins everywhere, with no `raster` layer needed at
+all — so a map can drape on terrain it never draws:
+
+```ts
+createGlyphMap(host, {
+  view, projection,
+  // metres, or null where you have no data for that point
+  groundElevation: (lon, lat) => myDem.sample(lon, lat) ?? null,
+  layers: [...],
+});
+```
+
+`null` (or a non-finite number) means the datum for that point, so a source that
+answers for only part of the world is fine. It is read **live** on every build
+and every stamp, so a source closing over a still-loading DEM needs no setter:
+change what it answers, then move the camera or re-add the layer. What it cannot
+do is announce itself — a `raster` layer's tile arrivals re-plant mounted
+geometry through the widget's own registry; a caller-owned source has no such
+event.
+
+**With no terrain and no source, everything sits on the datum.** That is not a
+degraded mode — it is exactly what a flat map looks like.
+
+One structural exception: a `contour` does **not** read this. Its lines are
+marched from the mounted raster mosaic's own vertex grids — a field, not a point
+lookup — so a caller-supplied function cannot serve it.
+
+### Why draping matters
+
+At a city view with `exaggeration: 24`, 10 m of ground moves the building
+standing on it 16 rows and moved the road beside it zero. Roads and buildings
+stopped coinciding. Draping a `line`'s vertices at the ground under their own
+lon/lat is what puts them back together, and the depth test is then the ordinary
+coplanar-surface allowance — real work, not a formality, because the drape reads
+the tile's full-resolution field while the terrain rasterizes from a coarsened
+quad mesh.
+
+A finer tier landing **does** move a stroke, onto the ground that tier now
+describes, in the same frame the terrain moves there. Within one tier the sample
+is camera-independent, so no pan or orbit can make it shimmer.
+
+## Classifiers
+
+Elevations become bands through a classifier — a value with an id, not a flag:
+
+```ts
+import {
+  GlyphMapClassifiers,
+  glyphMapBreaks,
+  glyphMapQuantile,
+  glyphMapEqualInterval,
+  glyphMapLog,
+} from "@glyphcss/maps";
+
+GlyphMapClassifiers.etopo1V1;              // frozen ETOPO1 breaks
+glyphMapBreaks([0, 250, 800, 1500, 3000]);
+glyphMapQuantile(9);                       // fits the field's own distribution
+glyphMapEqualInterval(9, [-8000, 6000]);
+glyphMapLog(9);
+```
+
+A field's `kind` gates which classifiers are legal: order-statistic classifiers
+(`glyphMapQuantile`, `glyphMapLog`) **throw** on a categorical field rather than
+coercing it.
+
+## Lighting
+
+Three mechanisms, and they have a strict precedence: **sun outranks headlight
+outranks whatever you set yourself.** `getKeyLightDirection()` reports whichever
+owner is live, and is the one call to read if you compose your own
+`directionalLight` write.
+
+### Real sun
+
+```ts
+map.setSun({ mode: "realtime" });
+map.setSun({ mode: "manual", date: new Date("2026-06-21T12:00:00Z") });
+map.setSun({ mode: "off" });
+map.getSunDirection();
+map.getSubsolarPoint();
+```
+
+| Option | Default |
+|---|---|
+| `mode` | `"off"` |
+| `date` | now (`"manual"` only) |
+| `tickMs` | `30000` (`GLYPH_MAP_SUN_TICK_MS`) |
+| `twilightDeg` | `6` |
+| `nightOpacity` | `0.72` |
+| `nightColor` | `"#000000"` |
+| `nightLevels` | `4` (`GLYPH_MAP_NIGHT_LEVELS`) |
+
+`"off"` writes no light, starts no timer, installs no hook, and is byte-identical
+to a map built before the option existed. `"realtime"` re-resolves on the
+widget's own interval so the terminator keeps advancing at 0.25°/minute;
+`"manual"` pins one instant and runs no timer.
+
+The **mechanism is chosen by projection capability**. An orbit projection gets a
+real `directionalLight.direction` — the outward unit vector at the subsolar
+point — and Lambert draws the terminator, so no cell hook is installed there at
+all. A sheet has one normal everywhere and cannot express a terminator with a
+directional light, so it gets a per-cell day/night term that darkens **colour
+only** (never the glyph, which carries terrain shape) and is therefore invisible
+under `useColors: false`.
+
+Darkness is quantized to 4 levels purely for cost: a continuous ramp gives almost
+every cell its own colour and destroys span-run merging — measured 1,679 spans
+and 9.40 ms per render on the worst case, against 123 spans and 1.00 ms with no
+sun. Four levels is 604 spans and 3.32 ms.
+
+The solar math is pure and clock-free if you want it on its own:
+
+```ts
+import { glyphMapSubsolarPoint, glyphMapSunDirection } from "@glyphcss/maps";
+```
+
+It is NOAA's formulation **including the equation of time** — worth ±16 minutes,
+about ±4° of longitude, so dropping it is a visible error.
+
+### Camera-following key light
+
+```ts
+map.setKeyLight("headlight");   // or "fixed", the default
+```
+
+`"fixed"` means the widget never writes `direction` at all. `"headlight"` points
+the key light along the camera's own view axis and rewrites it whenever the
+camera moves. That is what makes "everything lit, like a globe on a stand"
+reachable: the whole visible face is lit with no terminator anywhere, while
+Lambert still varies per face, so terrain relief survives. Pure ambient also
+removes the terminator, but gives every face the same shade and renders the map
+as flat paint.
+
+Either way only `direction` is written — `intensity` and `color` stay yours.
+
+The price is real and inherent: a light bolted to the camera invalidates
+glyphcss's per-triangle shade cache every frame. A pure zoom is free (it does not
+rotate the camera), but an orbit measured 9.11 → 16.52 ms per render. It is
+partly self-funding, since an evenly lit globe has longer same-colour runs, so
+the commit write drops. `interactiveDownscale` is the existing lever for a heavy
+globe under a drag.
+
+### Cast shadows
+
+```ts
+map.setShadow({ color: "#000000", opacity: 0.25 });
+map.setShadow(null);   // off, the default
+```
+
+Off by default and byte-identical there — no `shadow` key reaches the scene at
+all. What the widget adds on top of glyphcss's shadow map is the three things a
+caller here cannot supply:
+
+**Who.** `fill-extrusion` and `model` cast; those two **plus** `raster`, `fill`
+and `heatmap` receive. The sets overlap deliberately — that is what makes a
+building shadow the building next to it, the case a reader notices first in a
+city. Terrain never casts: the shadow volume is fitted to all casters and a
+raster layer keeps a global floor tier mounted, so 256 texels would span the
+Earth.
+
+**The bias.** `lift` defaults to `0` here, because glyphcss's derived,
+slope-scaled acne guard is already correct and `lift` is only an *extra*
+absolute length. glyphcss's own `0.05` default is 5% of the globe's radius — 318
+km — and erases every shadow. Any nonzero `b` erases every caster standing less
+than `b / sin(altitude)` above its receiver: the short buildings first, and worst
+at a low sun.
+
+**The direction is not an option.** Shadows fall along the scene's own
+`directionalLight.direction`, whatever `getKeyLightDirection()` reports, so one
+vector lights the scene and casts its shadows and the two can never disagree.
+
+That last point has a hard consequence: **`keyLight: "headlight"` is incompatible
+with visible shadows.** A headlight is the camera's view axis, and an
+orthographic camera's screen position is the component *perpendicular* to that
+axis, so displacing a caster along it moves its shadow zero columns and zero
+rows — every shadow lands inside its own caster's cells.
+
+Shadows are not base-grid only: one shadow map is built per frame from every
+caster in the scene, so a layer separated by its own `density`, `renderMode` or
+`glyphPalette` casts and receives like any other.
+
+What still cannot **receive** is a `line` or `contour`. A stroke's colour is
+written flat into the cell after shading, so a road is never darkened by the
+building beside it. That is a known, documented inconsistency rather than a
+tuning.
+
+Cost is a flat +2.5 to +3.0 ms per render at 140×63 with buildings mounted, so it
+costs most where the frame was cheapest. Shadows stay solid down to roughly 10°
+of sun altitude; below that the edge dithers, and by ~5° it is a stipple that
+loses about half its cells — on a contrast that is by then near-invisible anyway.
+
+## Baking a static map
+
+The widget is not the only consumer. The original pipeline is still there and
+still pure: `source → sample → classify → compile`, producing a frozen `<pre>`
+with no JavaScript at all.
+
+```ts
+import { loadGlyphMapSource } from "@glyphcss/maps/node";
+import {
+  glyphMapBounds,
+  sampleGlyphMapField,
+  classifyGlyphMapField,
+  compileGlyphMap,
+  GlyphMapClassifiers,
+} from "@glyphcss/maps";
+
+const src = await loadGlyphMapSource({ path: "ETOPO1.asc.gz", id: "etopo1-2009" });
+const view = glyphMapBounds({ west: 84.5, east: 86.5, south: 27.6, north: 28.8, cols: 140, rows: 48 });
+
+const field = await sampleGlyphMapField(src, view, { sampler: "max" });
+const bands = classifyGlyphMapField(field, GlyphMapClassifiers.etopo1V1);
+const { html, css } = compileGlyphMap(bands, { ramp: " .:-=+*#%@", water: "~" });
+```
+
+`glyphMapBounds` is the constructor for this case: it carries the exact requested
+box on `.bounds` rather than re-deriving one, because a one-shot bake wants
+precisely the window it asked for.
+
+The sampler is a real visual choice, not an implementation detail — `"max"` keeps
+peaks and is usually best for terrain legibility, `"mean"` is stable under
+panning but flattens summits, `"nearest"` aliases. Same source + same bounds +
+same classifier + same sampler id gives byte-identical output on a given engine;
+a callback sampler opts out, because a function has no id.
+
+See the package README for the full static-bake reference, including
+`buildGlyphMapArtifact` and the no-data rules.

@@ -69,7 +69,7 @@
  * dependency. It reads -1,460 m at the bottom of the Cretan basin, +1,139 m
  * in the Anatolian hills, and 699 of its 1,050 samples are below sea level.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createGlyphMap } from "./widget";
@@ -78,7 +78,6 @@ import { glyphMapVectorMesh } from "./layers";
 import { glyphMapBreaks } from "./classify";
 import { glyphMapDecodeMVT } from "./vector/pmtiles";
 import { GLYPH_MAP_OPENMAPTILES_LAYERS, glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
-import { countTiles, settleTiles } from "./tileSettle.harness";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -267,11 +266,7 @@ function isOpenWater(features: readonly GlyphMapVectorFeature[], lon: number, la
 const mounted: { destroy(): void }[] = [];
 const hosts: HTMLElement[] = [];
 const restores: (() => void)[] = [];
-afterEach(() => {
-  for (const m of mounted.splice(0)) m.destroy();
-  for (const h of hosts.splice(0)) h.remove();
-  for (const r of restores.splice(0)) r();
-});
+
 
 interface Rendered {
   readonly text: string;
@@ -298,17 +293,6 @@ function cellGrid(pre: HTMLElement): (string | null)[][] {
   return grid;
 }
 
-/**
- * Wall clock is not a settle condition. Every render below used to wait a
- * fixed 600 ms (60 x 10 ms) for the widget's three tiers to land, which is
- * ~450 ms of doing nothing on this machine and, on a slower contended runner,
- * a floor UNDER the ~1 s of real projection work the same window has to
- * cover: this file spent 1.2 s of its 5 s budget asleep and timed out in CI
- * with the work unfinished. `settleTiles` waits on the widget's own tile
- * traffic instead. Verified byte-identical to the 600 ms version on all four
- * scenarios in this file (same `output.innerHTML`), so every cell count and
- * colour asserted below is the number it was measured at.
- */
 async function render(options: {
   readonly features: readonly GlyphMapVectorFeature[];
   readonly drape?: GlyphMapFillLayer["drape"];
@@ -322,7 +306,6 @@ async function render(options: {
   const host = document.createElement("div");
   document.body.appendChild(host);
   hosts.push(host);
-  const terrain = options.terrain === false ? null : countTiles(options.provider ?? makeProvider());
   const map = createGlyphMap(host, {
     view: { center: [CENTER[0], CENTER[1]], span: SPAN, cols: COLS, rows: ROWS },
     projection: glyphMapGlobe({ exaggeration: EXAGGERATION }),
@@ -330,13 +313,13 @@ async function render(options: {
     bearing: BEARING,
     groundElevation: options.groundElevation,
     layers: [
-      ...(terrain === null ? [] : [{ type: "raster" as const, id: "terrain", source: terrain.provider, classifier, colors: TERRAIN_COLORS }]),
+      ...(options.terrain === false ? [] : [{ type: "raster" as const, id: "terrain", source: options.provider ?? makeProvider(), classifier, colors: TERRAIN_COLORS }]),
       { type: "fill" as const, id: "water", source: { features: options.features }, color: options.color ?? OCEAN, drape: options.drape },
     ],
     scene: { mode: "solid", useColors: true },
   });
   mounted.push(map);
-  await settleTiles(terrain?.traffic ?? null);
+  for (let i = 0; i < 60; i++) await new Promise((r) => setTimeout(r, 10));
   map.scene.rerender();
   return { text: map.scene.output.textContent ?? "", grid: cellGrid(map.scene.output), map };
 }
@@ -358,185 +341,24 @@ function holeCells(text: string): [number, number][] {
   return out;
 }
 
-describe("an ocean `fill` stands at the datum, not on the seabed", () => {
-  it("puts every ocean cap vertex at sea level instead of on the bathymetry", () => {
-    const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
-    const drape = shippedWaterDrape();
-    expect(typeof drape).toBe("function");
-    const resolve = drape as (feature: GlyphMapVectorFeature) => GlyphMapFillDrape;
-    const ocean = oceanOnly(waterFeatures());
-    expect(ocean).toHaveLength(1);
-    expect(resolve(ocean[0]!)).toBe("flat");
 
-    // The mesh the widget builds under the shipped rule: the resolver says
-    // "flat", so the drape callback answers the DATUM for every vertex and
-    // never reads the ground at all.
-    const probes: number[] = [];
-    const mesh = glyphMapVectorMesh(ocean, projection, {
-      drape: (feature, lon, lat) => {
-        if (resolve(feature) === "flat") return 0;
-        const ground = blockElevation(lon, lat);
-        probes.push(ground);
-        return ground;
-      },
-    });
-    expect(mesh.polygons.length).toBeGreaterThan(1000);
-    expect(probes).toEqual([]);
+import { createHash } from "node:crypto";
+const sha = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
-    // Every cap vertex is exactly one Earth radius from the globe's centre —
-    // sea level, to the projection's own precision.
-    let worst = 0;
-    for (const polygon of mesh.polygons) {
-      for (const v of polygon.vertices) {
-        worst = Math.max(worst, Math.abs(Math.hypot(v[0], v[1], v[2]) - 1));
-      }
-    }
-    expect(worst * GLYPH_MAP_EARTH_RADIUS_M).toBeLessThan(1);
-
-    // The premise: draping this same polygon on this same terrain really does
-    // sink it kilometres, so the clause above cannot pass on a flat fixture.
-    const sunk = glyphMapVectorMesh(ocean, projection, { drape: (_f, lon, lat) => blockElevation(lon, lat) });
-    let deepest = 0;
-    for (const polygon of sunk.polygons) {
-      for (const v of polygon.vertices) {
-        deepest = Math.min(deepest, (Math.hypot(v[0], v[1], v[2]) - 1) * GLYPH_MAP_EARTH_RADIUS_M);
-      }
-    }
-    expect(deepest).toBeLessThan(-20_000);
-    // ...and it moves no face: the drape moves vertices and nothing else.
-    expect(sunk.polygons.length).toBe(mesh.polygons.length);
-  });
-
-  it("still drapes a lake in the very same layer", () => {
-    const drape = shippedWaterDrape();
-    const resolve = drape as (feature: GlyphMapVectorFeature) => GlyphMapFillDrape;
-    const lakes = waterFeatures().filter((f) => f.properties?.class === "lake");
-    expect(lakes.length).toBeGreaterThan(0);
-    for (const lake of lakes) expect(resolve(lake)).toBe("surface");
-    // Every other water class the schema colours by is a surface too — the
-    // rule names ONE class, and the table it is read off names five.
-    for (const klass of ["lake", "river", "pond", "swimming_pool"]) {
-      expect(resolve({ geometryType: "polygon", properties: { class: klass }, rings: [] })).toBe("surface");
-    }
-    // A feature with no `class` at all is a surface: the ocean must be named,
-    // never assumed.
-    expect(resolve({ geometryType: "polygon", properties: {}, rings: [] })).toBe("surface");
-  });
-
-  it("draws the sea as a sheet at sea level, over the seabed the terrain draws", async () => {
-    const ocean = oceanOnly(waterFeatures());
-    const flat = await render({ features: ocean, drape: shippedWaterDrape() });
-    const draped = await render({ features: ocean, drape: "surface" });
-
-    const oceanCells = (r: Rendered): number => r.grid.reduce((n, row) => n + row.filter((c) => c === OCEAN).length, 0);
-    // The sea is genuinely drawn, and the seabed-draped one loses part of it
-    // to the terrain it is buried in (measured: 4,450 cells against 4,052).
-    expect(oceanCells(flat)).toBeGreaterThan(1000);
-    expect(oceanCells(draped)).toBeLessThan(oceanCells(flat));
-
-    // ...and what it draws is a SHEET. The sea's own glyph is picked by the
-    // Lambert term, so a surface at one elevation reads as long same-glyph
-    // runs and a seabed reads as noise. Counted over the sea's own cells,
-    // never over total ink.
-    const seaRuns = (r: Rendered): { runs: number; cells: number } => {
-      let runs = 0, cells = 0;
-      const lines = r.text.split("\n");
-      for (let row = 0; row < r.grid.length; row++) {
-        let previous: string | null = null;
-        for (let col = 0; col < r.grid[row]!.length; col++) {
-          if (r.grid[row]![col] !== OCEAN) { previous = null; continue; }
-          const glyph = lines[row]?.[col] ?? "";
-          cells++;
-          if (glyph !== previous) runs++;
-          previous = glyph;
-        }
-      }
-      return { runs, cells };
-    };
-    const flatRuns = seaRuns(flat);
-    const drapedRuns = seaRuns(draped);
-    // Measured on this fixture: the flat sea is 4,450 cells in 149 runs (29.9
-    // cells per run), the seabed-draped one 4,052 cells in 317 (12.8) — a
-    // factor of 2.34, so the 1.5 below is a wide margin rather than a fitted
-    // number, and cell counts never enter it.
-    const flatLength = flatRuns.cells / flatRuns.runs;
-    const drapedLength = drapedRuns.cells / drapedRuns.runs;
-    expect(flatLength).toBeGreaterThan(drapedLength * 1.5);
-  });
-
-  it("leaves no gap between adjacent faces of one ocean ring", async () => {
-    const ocean = oceanOnly(waterFeatures());
-    const cracks = async (drape: GlyphMapFillLayer["drape"]): Promise<string[]> => {
-      // The ground is supplied directly and NO raster layer is mounted, so the
-      // only thing that can ink a cell is the sea's own mesh: every hole
-      // inside the ring is then a hole in the sheet, not something the terrain
-      // took.
-      const rendered = await render({ features: ocean, drape, terrain: false, groundElevation: blockElevation });
-      expect(rendered.text.replace(/[\s\n]/g, "").length).toBeGreaterThan(2000);
-      const out: string[] = [];
-      for (const [col, row] of holeCells(rendered.text)) {
-        const lonLat = rendered.map.unproject([col, row]);
-        if (lonLat && isOpenWater(ocean, lonLat[0], lonLat[1])) out.push(`${col},${row}@${lonLat[0].toFixed(2)},${lonLat[1].toFixed(2)}`);
-      }
-      return out;
-    };
-    expect(await cracks(shippedWaterDrape())).toEqual([]);
-    // The premise: draped on this same bathymetry the same ring DOES tear, so
-    // the clause above cannot pass on a mesh that could never crack.
-    expect((await cracks("surface")).length).toBeGreaterThan(0);
-  });
-
-  it("changes nothing for a layer whose features are not ocean", async () => {
-    const lakes = waterFeatures().filter((f) => f.properties?.class === "lake");
-    const shipped = await render({ features: lakes, drape: shippedWaterDrape() });
-    const surface = await render({ features: lakes, drape: "surface" });
-    // The lake row draws something at all, so this is not two empty grids.
-    expect(shipped.text.replace(/[\s\n]/g, "").length).toBeGreaterThan(1000);
-    expect(shipped.map.scene.output.innerHTML).toBe(surface.map.scene.output.innerHTML);
-  });
-
-  it("still re-plants the lakes beside the ocean when a finer tier lands", async () => {
-    // A `fill` on a static source is never rebuilt by a tile sweep, so the
-    // ONLY thing that moves it onto a tier that arrives later is
-    // `groundChangeSyncs`. The layer now carries a PREDICATE, and a guard that
-    // only recognised the literal `"surface"` would skip re-planting for the
-    // whole layer — putting every lake back under the mountains that
-    // `62100e2` lifted them out of, which is the reported Titicaca defect
-    // returning through the fix for the sea.
-    //
-    // The coarse tiers read the real z0 value (147 m) and the target tier the
-    // block's own 306..1,003 m, so a fill left on the coarse tier is buried by
-    // the terrain that is actually drawn over it.
-    const lake: GlyphMapVectorFeature = {
-      geometryType: "polygon",
-      properties: { class: "lake" },
-      rings: [[[27.125, 39.75], [27.5, 39.75], [27.5, 39.375], [27.125, 39.375], [27.125, 39.75]]],
-    };
-    const MAGENTA = "#d94ecf";
-    const magentaCells = (r: Rendered): number => r.grid.reduce((n, row) => n + row.filter((c) => {
-      if (c === null) return false;
-      const v = Number.parseInt(c.slice(1), 16);
-      const [red, green, blue] = [(v >> 16) & 255, (v >> 8) & 255, v & 255];
-      // No terrain band in `TERRAIN_COLORS` is red-AND-blue dominant.
-      return red > green && blue > green;
-    }).length, 0);
-    const rendered = await render({
-      features: [lake], drape: shippedWaterDrape(), color: MAGENTA, provider: makeProvider(3),
-    });
-    expect(magentaCells(rendered)).toBeGreaterThan(20);
-    // The premise: a fill pinned to the COARSE reading really is buried here,
-    // so the clause above cannot pass on terrain that would show it anyway.
-    const stuck = await render({
-      features: [lake], drape: "flat", color: MAGENTA, provider: makeProvider(3),
-      groundElevation: () => AEGEAN_COARSE_M,
-    });
-    expect(magentaCells(stuck)).toBe(0);
-  });
-
-  it("names the ocean rule on the shipped `omt-water` row and nowhere else", () => {
-    for (const spec of GLYPH_MAP_OPENMAPTILES_LAYERS) {
-      if (spec.id === "omt-water") expect(typeof spec.drape).toBe("function");
-      else expect(spec.drape).toBeUndefined();
-    }
-  });
-});
+export async function scenarios(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const ocean = oceanOnly(waterFeatures());
+  const lakes = waterFeatures().filter((f) => f.properties?.class === "lake");
+  const a = await render({ features: ocean, drape: shippedWaterDrape() });
+  out["ocean-flat"] = sha(a.map.scene.output.innerHTML);
+  const b = await render({ features: ocean, drape: "surface" });
+  out["ocean-surface"] = sha(b.map.scene.output.innerHTML);
+  const c = await render({ features: ocean, drape: shippedWaterDrape(), terrain: false, groundElevation: blockElevation });
+  out["ocean-noterrain"] = sha(c.map.scene.output.innerHTML);
+  const d = await render({ features: lakes, drape: shippedWaterDrape() });
+  out["lakes"] = sha(d.map.scene.output.innerHTML);
+  for (const m of mounted.splice(0)) m.destroy();
+  for (const h of hosts.splice(0)) h.remove();
+  for (const r of restores.splice(0)) r();
+  return out;
+}

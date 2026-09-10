@@ -1,0 +1,171 @@
+---
+title: Projections
+description: A GlyphMapProjection is a vertex transform with optional capabilities — equirectangular, Mercator, globe, orthographic, or any d3 raw projection.
+---
+
+A projection in this package is **not** a rendering mode. It is a vertex
+transform: lon/lat/elevation in, a world-space `Vec3` out. The camera, the
+relief mesh, the layers and the widget all consume that one function, which is
+why a globe and a flat sheet are the same code path rather than two renderers.
+
+```ts
+import { glyphMapGlobe } from "@glyphcss/maps";
+
+const globe = glyphMapGlobe({ radius: 1, exaggeration: 24 });
+const world = globe.project(8.54, 47.37, 408);   // lon, lat, metres
+const [lon, lat] = globe.unproject(world);
+```
+
+## The contract
+
+```ts
+interface GlyphMapProjection {
+  id: string;
+  project(lon: number, lat: number, elev: number): Vec3;
+  unproject(p: Vec3): readonly [lon: number, lat: number];
+  domain: GlyphMapBounds;
+  exaggeration: number;
+
+  // optional capabilities
+  visible?(world: Vec3, depthOf: (world: Vec3) => number): boolean;
+  cameraForCenter?(lon: number, lat: number): { rotX: number; rotY: number };
+  centerForCamera?(rotX: number, rotY: number): readonly [lon: number, lat: number];
+}
+```
+
+**Units are degrees**, in and out. That is the repo convention across cameras
+and meshes alike, not d3's radians.
+
+**Crop, don't clamp.** `project` returns `[NaN, NaN, NaN]` for a point outside
+its valid window — Mercator past `±maxLat`, orthographic on the far hemisphere.
+A mesh builder drops a quad with any invalid corner rather than clamping it,
+because clamping collapses a row of vertices into a zero-area sliver.
+
+## The four built-ins
+
+```ts
+import {
+  glyphMapEquirectangular,
+  glyphMapMercator,
+  glyphMapGlobe,
+  glyphMapOrthographic,
+} from "@glyphcss/maps";
+
+glyphMapEquirectangular({ exaggeration: 24 });
+glyphMapMercator({ maxLat: 85.05112877980659, exaggeration: 24 });
+glyphMapGlobe({ radius: 1, exaggeration: 24 });
+glyphMapOrthographic({ lon0: 0, lat0: 0, exaggeration: 24 });
+```
+
+Every option shown is optional; `exaggeration` defaults to `1`, `radius` to `1`,
+`maxLat` to Web Mercator's own limit, and `lon0`/`lat0` to `0`.
+
+The three flat ones share one world frame: **`X` is north/south (increasing
+north), `Y` is east/west (increasing east)**. `glyphMapGlobe` is the textbook
+right-handed sphere — `X = r·cosLat·cos(lon)`, `Y = r·cosLat·sin(lon)`,
+`Z = r·sinLat` — and that chirality is pinned by a test anchored *outside* this
+package's own math, using glyphcss's real camera to assert 30°E lands at a
+greater screen column than 0°E under a north-up camera facing Greenwich.
+
+### Any d3 raw projection
+
+```ts
+import { geoMollweideRaw } from "d3-geo-projection";
+import { glyphMapFromD3Raw } from "@glyphcss/maps";
+
+const mollweide = glyphMapFromD3Raw(geoMollweideRaw);
+```
+
+`glyphMapFromD3Raw` adapts a `(lambda, phi) → [x, y]` raw projection: it
+converts degrees to radians and swaps d3's `(x, y)` into this package's `(Y, X)`
+frame. A second options argument sets `id`, `domain` and `exaggeration`
+(defaults: `"glyph-map-d3-raw"`, the full world, `1`). `unproject` delegates to
+the raw projection's `.invert` and **throws a `TypeError`** if it has none —
+loudly, rather than silently answering a wrong coordinate.
+
+`d3-geo-projection` is a **devDependency only** — the adapter never imports it,
+so it never becomes a runtime dependency of a consumer.
+
+## Capabilities, never `projection.id`
+
+`project`/`unproject`/`domain`/`exaggeration` are required. The other three are
+capabilities, and **every projection-specific behaviour in the widget keys on
+their presence** — there is no `if (projection is globe)` anywhere.
+
+### `visible` — near/far hemisphere
+
+Present only on `glyphMapGlobe`, where every `(lon, lat)` is a geometrically
+valid point on the sphere, front *or* back. Absent on every flat projection,
+which already excludes an invisible point by returning `NaN` from `project`.
+One test drives tile culling, `map.project(...).visible`, and marker hiding.
+
+### `cameraForCenter` / `centerForCamera` — orbit vs. sheet
+
+Present only on a projection navigated by **orbiting the camera around fixed
+world geometry** (the globe). Their presence is what makes a drag orbit instead
+of pan-with-clamp, and their absence is what this package means by a **sheet**.
+
+The distinction shows up in five places you can feel:
+
+| | Sheet (equirectangular, Mercator, orthographic) | Orbit (globe) |
+|---|---|---|
+| Drag | Pans, clamped in world space | Orbits the camera |
+| `tilt` default | `40`, and *is* `camera.rotX` | `0`, and *adds* to the framing pitch |
+| `getMaxSpan()` | The cover limit — the map always fills the viewport | The projection's domain width |
+| `getMaxTilt()` | The `85` cap at every span | The horizon angle at the view's scale |
+| `setWalk()` | Throws — a metre of height and a metre of ground are different world units | Supported |
+
+## Exaggeration, and the one true-metre escape
+
+`exaggeration` is a **terrain** concept, and `project` is the package's one
+elevation conversion: `z = (elev / GLYPH_MAP_EARTH_RADIUS_M) * exaggeration`. So
+`exaggeration: 1` is true-scale relief on every projection, globe included, and
+`24` is the readable default the workbench opens on.
+
+It is readable on the projection (`projection.exaggeration`) because nothing
+else can recover the factor. A sheet's `X`/`Y` are degrees and the globe's are
+Earth radii, so no probe of `project` can tell you how much of its `Z` was
+exaggeration.
+
+That matters as soon as something in the scene is measured in **true metres** —
+a building's height, an eye height, a sky dome's radius. Those quantities are
+exempt from terrain exaggeration, and the conversion is public:
+
+```ts
+import { glyphMapTrueScaleElevation } from "@glyphcss/maps";
+
+// 60 m of building, on a projection whose terrain is 24x exaggerated
+const axisElev = glyphMapTrueScaleElevation(60, projection);  // 60 / 24
+projection.project(lon, lat, axisElev);
+```
+
+Reverse that and every extrusion is buried; skip it and a 20 m building draws
+480 m tall. `fill-extrusion` does this for you — see
+[Layers](/maps/layers#fill-extrusion).
+
+## Animated transitions
+
+`setProjection` blends between two projections rather than cutting:
+
+```ts
+await map.setProjection(glyphMapGlobe({ exaggeration: 24 }), { durationMs: 900 });
+```
+
+`durationMs: 0` applies the target instantly with no animation frame at all. The
+blend strategy is chosen by capability — a plain lerp, a scale-normalized lerp,
+or a spherical-cap unwrap — anchored on the view centre so the point you were
+looking at stays put. Zoom is scheduled on **log-linear apparent size**, never
+lerped, so the world does not appear to lurch. Endpoint framings are assigned
+verbatim at the ends of the flight, and each endpoint's pitch is clamped to its
+*own* ceiling.
+
+The pure blend is exported on its own if you want to drive the interpolation
+yourself:
+
+```ts
+import { glyphMapProjectionTransition } from "@glyphcss/maps";
+```
+
+Entering [walk mode](/maps/camera#street-level-walk-mode) is incompatible with a
+flight: a `setProjection` while walking **leaves** walk mode rather than
+blending through it.

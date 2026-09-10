@@ -1,22 +1,28 @@
 # @glyphcss/maps
 
-Geographic raster data → glyphcss. A deterministic `source → sample →
-classify → compile` pipeline that bakes a georeferenced grid (elevation,
-land cover, any scalar field) to a static ASCII `<pre>`, with zero runtime.
+Geographic data → glyphcss. Two things live here, on one shared lon/lat core:
 
-This is **slices 1, 2, 3, and 5** of the package: the raster core (sampling,
-classifying, presenting a flat field), projections and geographic tiles (a
-real 3D relief mesh), the interactive widget (`createGlyphMap` — tile
-loading with LOD, pan/zoom/orbit, markers, layers, `project`/`unproject`),
-and the complete map-layer set over TopoJSON or PMTiles/MVT vector providers
-(`fill`, `line`, `symbol`, `circle`, `heatmap`, `fill-extrusion`, `model`,
-and `contour`). Projection transitions and day/night are
-later slices (see `.plan/MAPS.md` and `AGENTS.md`'s "Maps" section for the
-full, current API reference).
+- **A static bake pipeline.** A deterministic `source → sample → classify →
+  compile` pass that turns a georeferenced grid (elevation, land cover, any
+  scalar field) into a static ASCII `<pre>` with zero runtime.
+- **An interactive map.** `createGlyphMap` — projections, an LOD'd elevation
+  tile pyramid, a real 3D relief mesh, ten MapLibre-shaped layer types over
+  TopoJSON / MVT / PMTiles vector sources, tilt and bearing with their
+  gestures, animated projection transitions, real-sun lighting and cast
+  shadows, and a street-level walk mode.
+
+Everything public speaks lat/lng; rotation and projection units are degrees.
+There is no React or Vue binding — the surface is imperative.
 
 Two entry points. The root is pure and browser-safe (no `fs`, no native
-modules); `@glyphcss/maps/node` adds filesystem-backed source readers and is
-never imported by the root.
+modules); `@glyphcss/maps/node` re-exports all of it and adds
+filesystem-backed source readers, and is never imported by the root.
+
+This file is the package reference. The reader-shaped version is at
+[glyphcss.com/maps/overview](https://glyphcss.com/maps/overview); the design
+record — every measurement, fixed defect and rejected alternative — is in
+`docs/design/maps.md`, and the contract summary is `AGENTS.md`'s "Maps"
+section.
 
 ## Bake a region
 
@@ -48,14 +54,14 @@ const { html, css } = compileGlyphMap(bands, {
 ```
 
 The pure path is `encodeGlyphBuffers` → `encodeStaticGlyphHtml` (both
-exported by `glyphcss`), not `compileScene` — this slice has no polygons or
-camera to project.
+exported by `glyphcss`), not `compileScene` — the static bake has no polygons
+or camera to project.
 
 ## Everything public speaks lat/lng
 
 `GlyphMapView` is `{ center: [lon, lat], span, cols, rows }` — height is
-derived from `span * (rows / cols)` (the aspect lock), so a pan/zoom widget
-(a later slice) never shears terrain. `glyphMapBounds({ west, east, south,
+derived from `span * (rows / cols)` (the aspect lock), so the pan/zoom widget
+never shears terrain. `glyphMapBounds({ west, east, south,
 north, cols, rows })` is a convenience constructor for the static-bake case:
 it carries the exact requested box on `.bounds` rather than re-deriving one,
 since a one-shot bake wants precisely the window it asked for.
@@ -110,14 +116,30 @@ its inputs; `buildGlyphMapArtifact` records the `source`/`classifier`/
 `sampler` ids a re-bake needs to reproduce a tile, so a legitimate source
 upgrade never silently reads as drift.
 
-## ASCII Grid reader
+## ASCII Grid reader, and the `/node` entry
 
 `parseGlyphMapAsciiGrid` (root, pure JS) parses an Esri/Arc-Info ASCII Grid
-(`.asc`/`.grd`) already in memory. `loadGlyphMapSource` (`/node`) reads one
-from disk, gunzipping a `.gz`-suffixed path automatically. **`gdal-async` is
-deliberately not a dependency of this package** — a GDAL-backed reader is
-future work behind this same `/node` subpath, kept out of installs the way
+(`.asc`/`.grd`) already in memory. **`gdal-async` is deliberately not a
+dependency of this package** — a GDAL-backed reader is future work behind the
+`/node` subpath, kept out of installs the way
 `website/scripts/bake-labels.mjs` keeps GDAL out of the website's install.
+
+`@glyphcss/maps/node` is that subpath, and its whole surface is deliberately
+small: it re-exports EVERYTHING from the root, and adds exactly one thing —
+`loadGlyphMapSource(opts)`, which reads an ASCII Grid off disk (gunzipping a
+`.gz`-suffixed path automatically, or on an explicit `gzip: true`) and returns
+a `GlyphMapSource`. `opts` is the grid's own `GlyphMapAsciiGridMeta` (the
+`id` is REQUIRED — a silently defaulted source id would let a renamed or
+replaced file read as an unrecorded source change) plus `path` and `gzip`.
+
+```js
+import { loadGlyphMapSource } from "@glyphcss/maps/node";
+
+const src = await loadGlyphMapSource({ path: "ETOPO1.asc.gz", id: "etopo1-2009" });
+```
+
+So a Node consumer imports `/node` and nothing else; a browser consumer
+imports the root, and cannot reach `node:fs` through it even transitively.
 
 ## Projections
 
@@ -183,7 +205,8 @@ const polygons = glyphMapPolygons(tile, glyphMapGlobe({ exaggeration: 30 }), {
 carries lon/lat/elevation; projection is applied CLIENT-SIDE, so one tile
 pyramid serves every projection (unlike both existing bakers this package
 supersedes, which pre-project). Its elevation grid is VERTEX-centered
-(`(cols + 1) x (rows + 1)`, not slice 1's cell-centered `GlyphMapField`) so
+(`(cols + 1) x (rows + 1)`, not the static bake's cell-centered
+`GlyphMapField`) so
 adjacent quads share an edge with no seam — `glyphMapGeoTileVertexLonLat`'s
 formula matches `bake-globe.mjs`'s own per-vertex sampling loop exactly,
 which is what makes exact parity (below) possible. `glyphMapPolygons(tile,
@@ -428,12 +451,11 @@ A raster layer's `source` is either a single already-loaded
 caches, culls, and debounces exactly like both example pages did by hand.
 `view.cols`/`view.rows` are the authoritative grid shape (`autoSize: true`
 opts back into host-pixel-driven `cols`/`rows`, both pages' own default).
-`map.addLayer`/`removeLayer`/`moveLayer` mutate an ordered layer list;
-`background` sets the scene output's CSS background color, `raster` is the
-only geometry-producing layer kind this slice implements (MapLibre's
+`map.addLayer`/`removeLayer`/`moveLayer` mutate an ordered layer list.
+`background` sets the scene output's CSS background color and `raster` builds
+the relief mesh; the rest of `GlyphMapLayer` is MapLibre's
 `fill`/`line`/`contour`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model`
-vocabulary is slices 5/6's own addition to `GlyphMapLayer`, not typed
-speculatively ahead of them).
+vocabulary, over the vector sources documented below.
 
 ### Per-layer render mode
 
@@ -1002,13 +1024,258 @@ then popped them in once motion stopped. Re-culling is also much cheaper than
 rebuilding: on the baked z0 Natural Earth tile (177 countries, 2,058 wall
 faces) 0.5ms against 13.7ms.
 
+## Street-level walk mode
+
+`map.setWalk(opts)` drops the camera to eye height and hands it a perspective
+lens; `map.setWalk(null)` leaves. It is the one mode that is not a map view,
+and it is reachable only through the handle — there is no `GlyphMapOptions`
+field for it.
+
+```js
+map.setWalk({});                                   // every default
+map.setWalk({ far: 900, sky: false, collision: false });
+map.getWalk();                                     // GlyphMapWalkState, or null
+map.setWalk(null);
+```
+
+**It needs an ORBIT projection.** `setWalk` throws a `RangeError` when the
+projection declares no `cameraForCenter`/`centerForCamera` — on a flat sheet a
+metre of height and a metre of ground are different world units, so eye height
+has no meaning. Capability-gated, never `projection.id`.
+
+**It does NOT gate on zoom, and that is the caller's job.** `setWalk` pins
+`view.span` to `glyphMapWalkSpan(far)` whatever span it was called at, and
+refuses nothing. `GLYPH_MAP_WALK_MAX_ENTRY_SPAN_DEG` (0.05 deg, ~5.6 km) is the
+span walk mode is *meant* to be entered from — it is exported for a consumer to
+check, and the website's own walk button is what enforces it. Enter from a
+world view and you land on terrain with no street data around you: a blank
+walk, not an error.
+
+| Option | Default | Constant |
+|---|---|---|
+| `eyeHeight` | 1.7 m | `GLYPH_MAP_WALK_EYE_HEIGHT_M` |
+| `fov` | 56 deg horizontal | `GLYPH_MAP_WALK_FOV_DEG` |
+| `near` | 0.5 m | `GLYPH_MAP_WALK_NEAR_M` |
+| `far` | 600 m | `GLYPH_MAP_WALK_FAR_M` |
+| `speed` | 6 m/s | `GLYPH_MAP_WALK_SPEED_M_PER_S` |
+| `maxPitch` | 84 deg | `GLYPH_MAP_WALK_MAX_PITCH_DEG` |
+| `collision` | `true` | — |
+| `sky` | `true` | — |
+
+`far` is the local horizon: it bounds the tile footprint, the picture, the wall
+cull and the sky dome's own radius. `speed` is deliberately not the ~1.4 m/s
+anatomical pace, which is tedious across a 600 m horizon.
+
+`GlyphMapWalkState` is the resolved options plus where the walker is: `center`
+(same as `getView().center`), `heading` (same as `getBearing()`), `pitch`
+(`getTilt() - 90`, `+` looks up) and `groundElevation` (metres, `0` with no
+raster layer mounted).
+
+**Controls.** `W`/`A`/`S`/`D` and the arrow keys move (`GLYPH_MAP_WALK_KEYS` is
+the table); held keys accumulate into a normalized axis, so a diagonal is not
+`sqrt(2)`x faster. `Shift` held runs at `GLYPH_MAP_WALK_RUN_MULTIPLIER` (3x).
+`G` held is GHOST — it bypasses collision for as long as it is down, whatever
+the `collision` option says. Mouse look runs under pointer lock, requested on
+the first mouse `pointerdown` and released on Esc; a pointer that cannot lock
+(touch, or a refused request) gets drag-to-look through the same path. The
+wheel is a no-op — zoom is meaningless at eye height. Losing window focus
+clears held keys, the run flag and the ghost flag, so a dropped `keyup` cannot
+leave the walker sprinting forever. Pitch is clamped to `90 +/- maxPitch`, and
+`getMaxTilt()` reports that neck ceiling while walking.
+
+**Collision is wired for you.** The widget maintains the index from the mounted
+`fill-extrusion` layers, invalidates it when their tile set changes, and
+rebuilds it lazily — only extrusion footprints are ever solid, so `fill`
+layers (landuse, water, parks) stay walkable. A blocked step SLIDES along the
+wall tangent rather than stopping dead, sub-stepped at no more than one body
+radius so a fast step cannot tunnel, and a walker already inside a footprint is
+never trapped. With nothing mounted `glyphMapWalkResolveStep` returns the
+requested destination VERBATIM (same object identity), which is the
+no-buildings byte-identity guarantee.
+
+```js
+import {
+  glyphMapWalkFootprints,
+  createGlyphMapWalkCollisionIndex,
+  glyphMapWalkResolveStep,
+  GLYPH_MAP_WALK_BODY_RADIUS_M,   // 0.3 m
+} from "@glyphcss/maps";
+
+const index = createGlyphMapWalkCollisionIndex(glyphMapWalkFootprints(features));
+const next = glyphMapWalkResolveStep({ index, from, to, radiusM: GLYPH_MAP_WALK_BODY_RADIUS_M });
+```
+
+**The sky** (`sky.ts`) is a hemisphere of geometry plus a glyphcss appearance
+program painting a horizon-to-zenith gradient, quantized to
+`GLYPH_MAP_SKY_BANDS` (32) steps over `GLYPH_MAP_SKY_RINGS` x
+`GLYPH_MAP_SKY_SEGMENTS` (8 x 48) quads, with a sun disc
+(`GLYPH_MAP_SKY_SUN_DISC_DEG` 1.6, glow 11) where a light direction is known.
+Three conditions gate the mount: walking, `sky !== false`, and a scene in
+`solid` mode — the program's mesh-targeting and `worldPosition` requirements
+cannot run in the others, so it is not mounted there at all rather than mounted
+inert. `sky: false` mounts no dome and no program: zero extra polygons, not a
+hidden one.
+
+Its light direction is the scene's real sun if one is set, else the scene's own
+`directionalLight.direction`. A HEADLIGHT is deliberately excluded — a
+headlight is a statement about the viewer, not the world, and a sky lit by one
+would put the sun wherever the walker happened to look. The dome is re-centred
+(rebuilt, not translated) once the walker leaves a slack band around it
+(`glyphMapSkyRecentreDistanceM`, 12 m at the default `far`), and rebuilt when
+the ground elevation or the scene mode changes.
+
+**Leaving restores everything.** `view`, `tiltRequest`, applied pitch, bearing
+and the camera come back verbatim to what entry captured, and the rendered text
+is byte-for-byte the pre-walk render; the dome is disposed rather than hidden,
+so the polygon count returns to baseline. Calling `setWalk` again while walking
+RECONFIGURES in place (no restore, no re-capture); a `setProjection` while
+walking LEAVES walk mode instead of blending through it.
+
+## OpenStreetMap (OpenFreeMap) — the shipped path
+
+`glyphMapOpenFreeMapProvider` mounts
+<https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf> — public, no API
+key, no registration, OpenMapTiles schema, z0-z14 — as a real
+`GlyphMapVectorProvider`, so the widget's own tile sweep streams the planet on
+demand. This is what `/maps`' OSM card uses.
+
+```js
+import {
+  createGlyphMap,
+  glyphMapEquirectangular,
+  glyphMapOpenFreeMapProvider,
+  glyphMapOpenMapTilesLayers,
+} from "@glyphcss/maps";
+
+const map = createGlyphMap(host, {
+  view: { center: [8.54, 47.375], span: 0.06, cols: 140, rows: 63 },   // Zurich
+  projection: glyphMapEquirectangular({ exaggeration: 24 }),
+  tilt: 55,
+});
+
+const osm = glyphMapOpenFreeMapProvider();
+
+for (const layer of glyphMapOpenMapTilesLayers(osm, {
+  include: ["omt-water", "omt-roads", "omt-buildings", "omt-places"],
+})) {
+  map.addLayer(layer);
+}
+```
+
+Options, all optional: `id` (default `"openfreemap"`), `tileUrl`
+(`GLYPH_MAP_OPENFREEMAP_TILE_URL`), `layers` (default: every source layer the
+tile carries), `minZoom`/`maxZoom` (`0`/`14`), `tileResolution` (`256`),
+`attribution` (`GLYPH_MAP_OPENFREEMAP_ATTRIBUTION`), `fetchTile` (real
+`fetch`), and `onError`.
+
+**A tile that 404s, times out, or does not decode resolves EMPTY — it never
+rejects.** One rejection would take down the frame's whole `Promise.all`, so a
+missing tile is a blank tile and nothing more; `onError` is how you hear about
+it. Each mounted layer sweeps on its own, so mounting several rows off one
+provider re-requests the same tile per row — wrap `fetchTile` to share
+in-flight requests, which is what the website does.
+
+### Web Mercator, through a provider capability
+
+Every pyramid this package bakes is addressed on an EQUAL-ANGLE quadtree;
+OpenFreeMap, like every slippy-map service, is WEB MERCATOR. At z12 the Zurich
+tile sits at Mercator `y = 1434` and equal-angle `y = 1025`, so a sweep on the
+wrong grid enumerates tiles the service does not hold and requests neither of
+the two it does.
+
+The fix is a CAPABILITY, exactly as projections do it: a provider may declare
+`tileRange` (`GlyphMapTileRangeStrategy`), and `createGlyphMap` keys on that
+field's presence — never on a provider id. A provider declaring nothing keeps
+this package's `glyphMapEqualAngleTileRange` and is byte-identical.
+
+```js
+import { glyphMapMercatorTileRange, glyphMapMercatorZooms } from "@glyphcss/maps";
+
+const provider = {
+  id: "my-mvt",
+  zooms: glyphMapMercatorZooms(0, 14),   // tileResolution defaults to 256
+  tileRange: glyphMapMercatorTileRange,  // the opt-in
+  bounds: mercatorBounds,
+  loadTile: myLoader,
+};
+```
+
+`tileResolution` is 256 because that is the pixel size the tiles were
+generalized FOR. The MVT extent of 4096 is coordinate precision, not detail —
+feed it to the LOD picker and z0 looks like it already resolves street detail,
+so the ladder never deepens. `GLYPH_MAP_MERCATOR_MAX_LAT`
+(85.0511287798066) is Web Mercator's own latitude limit; above it the strategy
+returns an EMPTY range rather than clamping. Volume falls out of that: 1 tile
+at a world view, a couple of dozen at a country or city view, capped at the
+pyramid's own max zoom rather than requesting z18.
+
+### The OpenMapTiles schema
+
+`vector/openmaptiles.ts` is this package's SECOND schema mapping, and
+deliberately not a generalization of the Protomaps one below: the discriminator
+is `class` not `kind`, the roads layer is `transportation` not `roads`,
+`waterway` is split from `water`, `boundary` carries a NUMBER (`admin_level`)
+rather than a kind, the height property is `render_height` not `height`, and
+there is no landmass polygon at all. One table covering both would be wrong
+about each.
+
+| spec id | layer type | source layer | notable defaults |
+|---|---|---|---|
+| `omt-landcover` | `fill` | `landcover` | coloured by `class` |
+| `omt-landuse` | `fill` | `landuse` | coloured by `class` |
+| `omt-water` | `fill` | `water` | `glyphMapOpenMapTilesWaterDrape` — ocean flat, lakes draped |
+| `omt-waterways` | `line` | `waterway` | excludes `brunnel: tunnel` |
+| `omt-roads` | `line` | `transportation` | excludes tunnels, driveways, parking aisles, indoor |
+| `omt-buildings` | `fill-extrusion` | `building` | `render_height`/`render_min_height`, `facade`, `colorVariation` |
+| `omt-boundaries` | `line` | `boundary` | international only (`admin_level <= 2`), no maritime or disputed |
+| `omt-places` | `symbol` | `place` | `textProperty: name`, `priorityProperty: rank` |
+| `omt-peaks` | `symbol` | `mountain_peak` | requires `name`; label is `name` + elevation |
+| `omt-pois` | `circle` | `poi` | `rank <= 20`, excludes furniture classes |
+| `omt-parks` | `symbol` | `park` | requires `name` |
+| `omt-aeroways` | `line` | `aeroway` | |
+| `omt-water-labels` | `symbol` | `water_name` | points AND lines |
+
+**Every name in that table was read out of the live service's own TileJSON and
+tiles**, vendored at `fixtures/openfreemap/` and re-derived per run by
+`vector/openmaptiles.test.ts` — never from the published schema docs.
+`housenumber`, `aerodrome_label` and `transportation_name` have no row, and
+that is data-driven too: illegible volume, or near-zero real occurrence.
+
+`glyphMapOpenMapTilesLayers(source, opts)` builds them. `opts.include` picks
+spec ids IN THAT ORDER (default: all), `classes` narrows a source layer,
+`colors` REPLACES a spec's class→colour table rather than layering over it,
+`densities` sets a per-spec `density`, and `textAnchors` a per-`symbol`
+`textAnchor`. Every spec is always built, even where the current view holds no
+data for it — "does this layer have data" is a property of the view, not of a
+live provider. The last three rows are APPENDED rather than filed into draw
+order, because `/maps` packs this list as a positional bitfield in its URL
+state and inserting elsewhere would reinterpret every shared link.
+
+Three helpers read the schema's own discriminators, so a `filter` need not
+hardcode property names: `glyphMapOpenMapTilesClass`,
+`glyphMapOpenMapTilesAdminLevel`, `glyphMapOpenMapTilesBrunnel`.
+`glyphMapOpenMapTilesFeatureFilter` builds a predicate from a spec's own rules.
+
+Attribution (`GLYPH_MAP_OPENFREEMAP_ATTRIBUTION` — OpenStreetMap ODbL,
+OpenMapTiles CC-BY 4.0, OpenFreeMap ODbL) rides the provider into
+`getAttributions()` like every other credit. OpenFreeMap calls its own line
+optional but recommended; it ships anyway. The OpenStreetMap line is not
+optional at all.
+
 ## PMTiles / MVT vector sources
 
-`glyphMapPMTilesProvider(urlOrSource)` range-reads a self-hosted PMTiles
+The other OSM path: a SELF-HOSTED archive or a small vendored extract, rather
+than the live service above. Reach for it when you want the data local,
+offline, or pinned to one build.
+
+`glyphMapPMTilesProvider(urlOrSource, opts?)` range-reads a self-hosted PMTiles
 archive with `pmtiles` and decodes MVT payloads with
 `@mapbox/vector-tile` + `pbf`. These focused libraries keep archive indexing,
-compression, and protobuf geometry parsing out of this package. The provider
-adds the required OpenStreetMap/Protomaps ODbL attribution automatically.
+compression, and protobuf geometry parsing out of this package. It also
+reports the archive header's own `extent`, and defaults `attribution` to
+`GLYPH_MAP_PROTOMAPS_ATTRIBUTION` (OpenStreetMap + Protomaps, both ODbL) and
+`tileResolution` to `4096` — a generic archive reader has no basemap-specific
+LOD assumption to make, unlike OpenFreeMap's 256.
 
 Generate a small extract without downloading the planet:
 
@@ -1205,23 +1472,28 @@ altitude — below that the shadow map's finite resolution dithers the edge.
 
 ## Scope
 
-In slice 1: `GlyphMapField`/`GlyphMapView`/bounds, samplers (named +
+**The static bake.** `GlyphMapField`/`GlyphMapView`/bounds, samplers (named +
 callback), classifiers, band→glyph presentation (ramp, water, noData, flat
 hillshade), `compileGlyphMap`, the ASCII Grid reader, and the bake-artifact
 format (`buildGlyphMapArtifact`).
 
-In slice 2: `GlyphMapProjection` (equirectangular, Mercator, globe,
-orthographic, a d3-raw adapter), `GlyphMapGeoTile` and antimeridian
-splitting, `glyphMapPolygons` (the relief mesh), and the ETOPO1→geographic-
-tile bake script.
+**Geometry.** `GlyphMapProjection` (equirectangular, Mercator, globe,
+orthographic, a d3-raw adapter) with its `visible`/`cameraForCenter`/
+`centerForCamera` capabilities, `glyphMapProjectionTransition`,
+`GlyphMapGeoTile` and antimeridian splitting, `glyphMapPolygons` (the relief
+mesh), and the ETOPO1→geographic-tile bake script.
 
-In slice 3: `createGlyphMap` (the widget), `GlyphMapProvider`/
-`glyphMapTargetLOD`/`glyphMapDegreesPerCell` (LOD), `background`/`raster`
-layers, markers, `project`/`unproject`, and `GlyphMapProjection`'s
-`visible`/`cameraForCenter`/`centerForCamera` capabilities.
+**The widget.** `createGlyphMap`, `GlyphMapProvider`/`glyphMapTargetLOD`/
+`glyphMapDegreesPerCell` (LOD), markers, `project`/`unproject`, `flyTo`/
+`fitBounds`/`setProjection`, `tilt`/`bearing` and their one orient gesture,
+`groundElevation` and the drape family, real-sun lighting, the
+camera-following key light, cast shadows, and street-level walk mode with
+collision and a sky dome.
 
-Current vector layers are `fill`, `line`, `symbol`, `circle`, `heatmap`,
-`fill-extrusion`, `model`, and `contour`, backed by the same vector-provider
-interface for TopoJSON and PMTiles/MVT. Not yet: motion export.
-No React/Vue surface — nothing in the plan forces one yet. See
-`.plan/MAPS.md` for the full plan.
+**Layers.** `background`, `raster`, `line`, `contour`, `fill`,
+`fill-extrusion`, `symbol`, `circle`, `heatmap`, `model` — over static
+TopoJSON collections, MVT/PMTiles archives, or a live vector provider
+(OpenFreeMap).
+
+**Not here.** Motion export. A React/Vue surface — nothing forces one yet.
+A GDAL-backed source reader (kept out of installs; see "ASCII Grid reader").

@@ -109,6 +109,17 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Maps',
+          items: [
+            { label: 'Overview', slug: 'maps/overview' },
+            { label: 'Projections', slug: 'maps/projections' },
+            { label: 'Layers', slug: 'maps/layers' },
+            { label: 'Camera & Navigation', slug: 'maps/camera' },
+            { label: 'Terrain', slug: 'maps/terrain' },
+            { label: 'OpenStreetMap', slug: 'maps/openstreetmap' },
+          ],
+        },
+        {
           label: 'API Reference',
           items: [
             { label: 'React API', slug: 'api/react' },
