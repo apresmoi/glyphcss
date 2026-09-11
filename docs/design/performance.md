@@ -335,6 +335,11 @@ per-render `transformCells` stamp at 6.3 ms of an 11 ms `base-raster`**, not
 anything in glyphcss's string path. That is the next target, and it is in the
 maps package.
 
+`__glyphPerfDetail.hook` now records that window's own share directly
+(`rasterize.ts`, alongside `loop` and `string`, zero cost when the profiler is
+unset), so the attribution that cost three passes cannot be made again from the
+same field.
+
 ### What the encoders do cost, and the three run-aware short-circuits
 
 Measured the same way, per render, walk-city at 140x63. The page ships
@@ -499,3 +504,143 @@ double-sided scene's back faces do claim) and a fidelity gate at `density > 1`,
 which none of the three digests currently covers. Honouring `Polygon.hidden` is
 NOT byte-identical and is the architect's call; it is written up above as a
 defect, not a tuning. Neither is taken here.
+
+
+---
+
+## The maps stroke stamp: two bounds and a handful of allocations
+
+The street-level walk's `applyCellHook` — the whole of `@glyphcss/maps`'
+composed `transformCells` stroke stamp, and the largest single item in the
+frame per the section above — is **6.19 ms/render before and 3.30 ms after, a
+46.7% cut**, with every cell of every gate unchanged. `base-raster` goes
+15.27 -> 12.49 ms/render (-18.2%) on the same runs.
+
+Measured in the real page (`astro preview`, headless, 1440x900, grid gate
+140x63, `spans`, Zurich walk mode with every OpenStreetMap row mounted and
+shadows on, 260 held-`W` frames / ~277 renders, three interleaved runs per
+row). Three fidelity digests were taken on every build and are identical
+throughout: the eight-waypoint globe digest at 140x63
+(`d73bbf10739de19e5b30d43d`) and at 284x105 (`ca4528a06b96ac9dc3ab49cb`), and a
+seven-pose street-level walk digest over every `<pre>` the scene produces
+(`11a3a4e5c6ac52eac68dafec`). Those digests reproduce across a rebuild of
+byte-identical sources under `spans`, checked explicitly before they were used
+as a gate.
+
+| # | change | applyCellHook | base-raster |
+|---|---|---|---|
+| — | before | 6.19 | 15.27 |
+| 1 | the stamper walks only the part of a segment that can reach the grid | 4.68 | 13.86 |
+| 2 | the ground-rise slack is skipped for a sample no segment can ink | 3.78 | 13.17 |
+| 3 | a ring rejected against the walker's horizon by its own box | **+0.22, reverted** | — |
+| 4 | the per-ring and per-sample allocations in the visibility and slack passes | **3.30** | **12.49** |
+
+### Where the 6.19 ms went
+
+Instrumented in the same page with per-phase timers and counters (the probe
+itself costs ~2 ms/render, so the SHARES are the finding and the absolute
+totals are the clean runs above):
+
+| phase | ms/render (instrumented) |
+|---|---|
+| `visibleStrokeRuns` | 1.29 |
+| the drape's own densify + project | 1.34 |
+| the ground-rise slack pass | 2.84 |
+| `stampGlyphMapPolyline` | 2.85 |
+| feature/ring iteration + probe | ~1.2 |
+
+Five line layers stamp on that scene and **`omt-roads` is 8.81 of the 9.09 ms
+they cost between them** (borders 0.05, waterways 0.11, the minimap's own roads
+0.12, boundaries 0.002, aeroways 0.000). Per render it walks 1,235 features,
+6,156 rings and 28,456 ring vertices down to 1,787 runs and 6,658 source
+vertices, drapes those into 9,039 samples, and spends **41,063 ground reads and
+19,932 projections** doing it. The ablations priced the slack pass at 2.82 ms
+(its whole) and its six-direction ring alone at 2.00 ms; the depth test itself
+is 0.02 ms and was never the item.
+
+### The two bounds
+
+**The stamper walked the whole segment, not the visible part of it.** A stroke
+run is clipped to the projection's visible side and densified only over the
+sub-interval that can reach the grid (`onScreenSegmentSpan`), and neither of
+those bounded the walk that follows: `stampGlyphMapPolyline` took
+`ceil(hypot(dCol, dRow))` samples per segment whatever they were. A road that
+leaves the viewport and comes back is ONE segment whose endpoints are thousands
+of cells apart. Measured: **1,113,276 samples walked per render, 1,107,393 of
+them (99.47%) off the grid**, against 5,883 that reached a depth test and 2,522
+that inked. The fix solves `0 <= a + d·(i/cells) < limit` for `i` per axis and
+iterates only that range; the sample COUNT is unchanged and every retained `i`
+computes the same `t`, `col` and `row`, so it is an iteration bound and not a
+clip — re-parameterising onto the visible interval would move every sample.
+`GLYPH_MAP_STROKE_WALK_CLIP_MARGIN` (2) keeps it strictly one-sided: `cells` is
+`ceil(hypot(...))` so one step of `i` moves an axis by at most one cell, which
+makes two iterations of margin larger than the two expressions' disagreement by
+ten orders of magnitude.
+
+**The slack pass ran on samples nothing could read.** `drapedRunPerCell`
+computes, per sample, how much nearer the surface would be if the ground within
+the depth comparison's support radius stood as high as it gets — six ground
+reads plus a trial and a raised projection. A walker's horizon is far wider
+than the viewport, so most of that was spent off-grid: **4,497 of 4,871 source
+segments per render (92%) could not reach the grid at all, and 6,363 of 9,039
+samples (70%) lay off it.** The gate keeps the `onScreenSegmentSpan` verdict
+the densification already computed and skips a sample only when NEITHER segment
+it bounds has one — `stampGlyphMapPolyline` reads a sample's slack only while
+walking one of those two, and a segment with no span lies entirely outside the
+grid grown by one cell. Slack samples fall 5,376 -> 2,959 and ground reads
+41,063 -> 27,176.
+
+### The allocations
+
+One pass, not three, in `visibleStrokeRuns`: the `ring.map` plus two `every`
+calls become a single counted loop over a reused `Uint8Array`, which is 6,156
+boolean arrays and 12,312 predicate closures per render. In the slack loop the
+`[-1, 1]` iterated per sample, the pair `strokeDirection` returned, the
+`offset` closure built per ringed sample, and the destructuring of
+`GLYPH_MAP_STROKE_GROUND_RING` all go — the ring constant stays the documented
+source of truth and a flattened `Float64Array` is DERIVED from it, so the two
+cannot drift. Worth 0.48 ms together.
+
+### What did NOT pay
+
+- **Rejecting a whole ring against the walker's horizon by its own bounding
+  box.** The third instance of the same lesson on paper — at least 71% of the
+  6,156 rings per render produce no run at all, and each was paying a horizon
+  test per vertex to say so — and it measured **+0.22 ms**, a regression, so it
+  was reverted. The reason is that the bound is too coarse for the geometry: a
+  z14 OpenStreetMap tile is 1.67 km across against a 600 m horizon, and a road
+  crossing it has a box that straddles the walker even when almost none of the
+  road does. What rejects those rings is the per-point test's SECOND clause and
+  the haversine behind it, neither of which a box-level bound reaches. The
+  helper it needed (`glyphMapWalkHorizonBoxReject` — the per-point test's own
+  two pre-rejects lifted to a range, deliberately not
+  `glyphMapWalkBoundsWithinHorizon` negated, which is generous by design and so
+  is the wrong error for a reject) went with it.
+- **Anything aimed at the depth test.** `glyphMapSurfaceOccludes` reads the
+  same four neighbours twice, once for the slope and once for the curvature,
+  and merging them is exactly byte-identical — but the ablation prices the
+  whole test at 0.02 ms/render. It is not where the frame is.
+
+### What the gates can and cannot see
+
+`stroke.walkBound.test.ts` gates the walk bound two ways, because the bound has
+two independent failure modes and no single mutant trips both. A DIFFERENTIAL
+against a faithful copy of the unbounded body — 4,000 randomized segments plus
+the axis-aligned, reversed, degenerate and corner-to-corner cases — catches a
+bound that is too NARROW, which is the silent failure; every WIDENING mutation
+stays green there and correctly so, since a superset of the range is still
+exactly right. A COUNTED walk (`grid.cols` reads through a getter, horizontal
+AND vertical) catches the other family. Mutation-checked: margin `-2` fails the
+differential (3 of 5 clauses); dropping either axis's clause and deleting the
+bound outright each fail the count.
+
+The slack gate's PRESENCE is pinned by `widget.strokeRelief.test.ts` — its two
+Sahara clauses both go red when the slack pass is disabled. Its
+segment-vs-cell distinction is not pinned by anything, and that is a finding
+rather than a hole: after densification consecutive samples are at most one
+cell apart, so the cell at a segment's leading endpoint is re-inked by the next
+sample carrying its own slack. Measured over 162 short borders on the real
+ETOPO1 Sahara fixture, the count of leading cells lit is **161 of 162 under the
+shipped gate, under a mutant that drops the leading endpoint's slack, and under
+a gate tightened to the sample's own cell alike**. The shipped form is the one
+whose ARGUMENT is sound; no render can separate it from the tighter one.

@@ -23,7 +23,15 @@ hand. Knobs (query params): `lineHeight` `cols` `rows` `rotX` `rotY` `fill`
 
 The rasterizer records timings into two optional globals (zero cost when unset):
 `__glyphPerf` (`raster` / `dom`-write ms) and `__glyphPerfDetail`
-(`loop` = shade+scan-fill, `string` = `solidBufToString`).
+(`loop` = shade+scan-fill, `string` = everything after the triangle loop,
+`hook` = the `transformCells` call's own share of that window).
+
+**`string` is NOT the encoder.** It spans from the end of the triangle loop to
+the return, so it also holds the supersample downsample, the temporal
+reprojection, the buffer plumbing and `applyCellHook` — a consumer's own cell
+hook was once read off it as an encoder cost for three measurement passes
+(`docs/design/performance.md`). `hook` exists so the two can be separated
+without a fresh probe.
 
 ## Pages
 

@@ -124,6 +124,21 @@
 import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
 
+/**
+ * Iterations of slack either side of the analytically-derived walk bound in
+ * {@link stampGlyphMapPolyline}, so the bound can never exclude a sample the
+ * in-loop grid test would have kept.
+ *
+ * The bound solves `0 <= a + d·(i/cells) < limit` for `i`, in floating point,
+ * where the same expression is then re-evaluated per retained `i`. The two
+ * agree to a relative error of a few ulps; `cells` is `ceil(hypot(dCol, dRow))`
+ * so one step of `i` moves an axis by AT MOST one cell, which makes two whole
+ * iterations of margin larger than the disagreement by ten orders of
+ * magnitude. It costs at most four extra loop turns per segment, each of which
+ * simply fails the same test it always did.
+ */
+const GLYPH_MAP_STROKE_WALK_CLIP_MARGIN = 2;
+
 /** How much of the surface's own local CURVATURE — the second difference of the depth buffer at a cell — a draped stroke may read behind it before that surface is taken to occlude it. See this file's doc for the eighth this doubles. */
 export const GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE = 0.25;
 
@@ -322,7 +337,47 @@ export function stampGlyphMapPolyline(
     const dCol = b.col - a.col;
     const dRow = b.row - a.row;
     const cells = Math.max(1, Math.ceil(Math.hypot(dCol, dRow)));
-    for (let i = 0; i <= cells; i++) {
+    // BOUND the walk to the part of this segment that can reach the grid.
+    //
+    // The sample COUNT stays `cells` and every retained `i` computes exactly
+    // the `t`, `col` and `row` it always did — this only stops iterating over
+    // the ones whose own bounds test below would have rejected them. It is a
+    // bound and not a clip for that reason: re-parameterising the segment onto
+    // the visible interval would move every sample.
+    //
+    // It is not a micro-optimisation. A stroke run is clipped to the
+    // projection's visible side and DENSIFIED only over the part of a segment
+    // that can reach the grid (`widget.ts`'s `onScreenSegmentSpan`), but this
+    // walk was never bounded by either: a road that leaves the viewport and
+    // comes back is one segment whose two endpoints are thousands of cells
+    // apart, and the walk visited every one of them to say `continue`.
+    // Measured on the street-level walk with every OpenStreetMap row mounted:
+    // 1,113,276 samples walked per render, of which 1,107,393 — 99.47% — were
+    // off the grid, against 5,883 that reached a depth test.
+    let iFrom = 0;
+    let iTo = cells;
+    if (dCol === 0) {
+      if (a.col < 0 || a.col >= grid.cols) continue;
+    } else {
+      const u0 = -a.col / dCol;
+      const u1 = (grid.cols - a.col) / dCol;
+      const f = Math.ceil((u0 < u1 ? u0 : u1) * cells) - GLYPH_MAP_STROKE_WALK_CLIP_MARGIN;
+      const t = Math.floor((u0 < u1 ? u1 : u0) * cells) + GLYPH_MAP_STROKE_WALK_CLIP_MARGIN;
+      if (f > iFrom) iFrom = f;
+      if (t < iTo) iTo = t;
+    }
+    if (dRow === 0) {
+      if (a.row < 0 || a.row >= grid.rows) continue;
+    } else {
+      const u0 = -a.row / dRow;
+      const u1 = (grid.rows - a.row) / dRow;
+      const f = Math.ceil((u0 < u1 ? u0 : u1) * cells) - GLYPH_MAP_STROKE_WALK_CLIP_MARGIN;
+      const t = Math.floor((u0 < u1 ? u1 : u0) * cells) + GLYPH_MAP_STROKE_WALK_CLIP_MARGIN;
+      if (f > iFrom) iFrom = f;
+      if (t < iTo) iTo = t;
+    }
+    if (iFrom > iTo) continue;
+    for (let i = iFrom; i <= iTo; i++) {
       const t = i / cells;
       const col = a.col + dCol * t;
       const row = a.row + dRow * t;

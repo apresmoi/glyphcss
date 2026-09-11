@@ -2115,7 +2115,13 @@ function rasterizeSolid(
 
   // Optional phase profiler: set globalThis.__glyphPerfDetail = {} to record
   // loop (shade+scanfill) vs string-build time. Zero cost when unset. Removable.
-  const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[] } }).__glyphPerfDetail;
+  //
+  // `string` spans from the end of the triangle loop to the return, so it
+  // contains the downsample, the temporal reprojection, `applyCellHook` AND
+  // the encoder — which is how a consumer's own cell hook was once read as an
+  // encoder cost (`docs/design/performance.md`). `hook` is the hook's own
+  // share of that window, so the two can never be confused again.
+  const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[]; hook?: number[] } }).__glyphPerfDetail;
   const __tLoop = __detail ? performance.now() : 0;
 
   // Reused scratch for per-polygon projected vertices, so a fan re-uses each
@@ -3056,6 +3062,7 @@ function rasterizeSolid(
   // depth/surface fields share one representative winner after downsampling.
   // Runs BEFORE the single string is built (<pre>-write-once).
   if (scene.transformCells) {
+    const __tHook = __detail ? performance.now() : 0;
     const applied = applyCellHook(
       scene.transformCells, finalGlyph, finalColor,
       finalDepth, outCols, outRows, finalSurfaceUv, finalShade,
@@ -3073,6 +3080,7 @@ function rasterizeSolid(
     finalGlyph = applied.char;
     finalColor = applied.color;
     finalWeight = applied.weight;
+    if (__detail) (__detail.hook ??= []).push(performance.now() - __tHook);
   }
   // `finalWeight` is non-null only when `solidWeightRamp` is active (and
   // temporal reprojection didn't drop it) — the byte-identical default path
