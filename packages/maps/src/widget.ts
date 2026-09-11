@@ -2826,6 +2826,14 @@ const GLYPH_MAP_STROKE_GROUND_RING: readonly (readonly [number, number])[] = [
 ];
 
 /**
+ * {@link GLYPH_MAP_STROKE_GROUND_RING} flattened, so the slack loop indexes
+ * two doubles instead of destructuring a pair per probe. Derived from that
+ * constant rather than restated, so the documented one stays the source of
+ * truth and the two can never drift.
+ */
+const GLYPH_MAP_STROKE_GROUND_RING_FLAT = Float64Array.from(GLYPH_MAP_STROKE_GROUND_RING.flat());
+
+/**
  * The sub-interval of a screen-space segment that can reach the grid, as
  * `[t0, t1]` in the segment's own parameter, or `null` when none of it can.
  * Liang-Barsky against the grid box grown by one cell.
@@ -2878,15 +2886,23 @@ interface GlyphMapDrapeSample extends GlyphMapStrokeVertex {
  * east/north frame (degrees of longitude are scaled by `cos(lat)` so the two
  * axes are the same ground length). `[0, 0]` when the neighbours give nothing
  * to take a direction from.
+ *
+ * Written into {@link strokeDirEast}/{@link strokeDirNorth} rather than
+ * returned as a pair, because it is called once per drape sample and the
+ * tuple was the allocation. Single-threaded and read immediately by the one
+ * caller, which is the same discipline the visibility scratch above takes.
  */
-function strokeDirection(out: readonly GlyphMapDrapeSample[], i: number): readonly [number, number] {
+let strokeDirEast = 0;
+let strokeDirNorth = 0;
+function strokeDirection(out: readonly GlyphMapDrapeSample[], i: number): void {
   const a = out[i - 1] ?? out[i];
   const b = out[i + 1] ?? out[i];
   const cosLat = Math.max(1e-6, Math.cos((out[i].lat * Math.PI) / 180));
   const east = (b.lon - a.lon) * cosLat;
   const north = b.lat - a.lat;
   const len = Math.hypot(east, north);
-  return len > 0 ? [east / len, north / len] : [0, 0];
+  strokeDirEast = len > 0 ? east / len : 0;
+  strokeDirNorth = len > 0 ? north / len : 0;
 }
 
 /**
@@ -2941,22 +2957,46 @@ function drapedRunPerCell(
 ): GlyphMapStrokeVertex[] {
   if (run.length === 0) return [];
   const out: GlyphMapDrapeSample[] = [sampleAt(run[0][0], run[0][1])];
+  /**
+   * Per sample, whether EITHER segment it bounds can reach the grid — the
+   * same `onScreenSegmentSpan` verdict the densification above is already
+   * bounded by, kept rather than recomputed.
+   *
+   * It gates the slack pass below, and it is a BOUND, not a rule change. A
+   * sample's slack is only ever read by `stampGlyphMapPolyline` while walking
+   * one of its two adjacent segments; a segment with no span lies entirely
+   * outside the grid grown by one cell, so every sample the stamper takes on
+   * it is off the grid and inks nothing. Slack for such a sample is therefore
+   * unobservable, and leaving it absent (`0`) is what it already resolves to.
+   *
+   * It matters because the walker's own horizon is far wider than the
+   * viewport: measured on the street-level walk with every OpenStreetMap row
+   * mounted, 4,497 of 4,871 source segments per render (92%) have no span at
+   * all, and 6,363 of 9,039 drape samples (70%) lie off the grid — each of
+   * which was paying the ring's six ground reads and up to two projections to
+   * compute an allowance nothing could read.
+   */
+  const canInk: boolean[] = [false];
   for (let i = 1; i < run.length; i++) {
     const [lonA, latA] = run[i - 1];
     const [lonB, latB] = run[i];
-    const a = out[out.length - 1];
+    const iA = out.length - 1;
+    const a = out[iA];
     const b = sampleAt(lonB, latB);
     const span = onScreenSegmentSpan(a.col, a.row, b.col, b.row, cols, rows);
     if (span !== null) {
+      canInk[iA] = true;
       const [t0, t1] = span;
       const steps = Math.ceil(Math.hypot(b.col - a.col, b.row - a.row) * (t1 - t0));
       for (let k = 0; k <= steps; k++) {
         const t = t0 + ((t1 - t0) * k) / Math.max(1, steps);
         if (t <= 0 || t >= 1) continue;
         out.push(sampleAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t));
+        canInk.push(true);
       }
     }
     out.push(b);
+    canInk.push(span !== null);
   }
   const support = GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS;
   // The walk is bounded as well as distance-tested, because a source ring can
@@ -2967,10 +3007,12 @@ function drapedRunPerCell(
   // ones already read, so they carry the same ground.
   const reach = support * 4;
   for (let i = 0; i < out.length; i++) {
+    if (!canInk[i]) continue; // no segment through this sample can ink — see `canInk`
     const v = out[i];
     if (!Number.isFinite(v.depth) || !Number.isFinite(v.col) || !Number.isFinite(v.row)) continue;
     let highest = v.elev;
-    for (const step of [-1, 1]) {
+    for (let dir = 0; dir < 2; dir++) {
+      const step = dir === 0 ? -1 : 1;
       for (let k = 1, j = i + step; k <= reach && j >= 0 && j < out.length; k++, j += step) {
         const n = out[j];
         if (!Number.isFinite(n.col) || !Number.isFinite(n.row)) break;
@@ -2998,20 +3040,22 @@ function drapedRunPerCell(
     // sample's OWN elevation (`elevOverride`), so it reads no ground and
     // asks a pure projection question.
     const stride = geoDegreesPerCell(out, i);
-    const [aheadEast, aheadNorth] = strokeDirection(out, i);
+    strokeDirection(out, i);
+    const aheadEast = strokeDirEast, aheadNorth = strokeDirNorth;
     if (stride > 0 && (aheadEast !== 0 || aheadNorth !== 0)) {
       const cosLat = Math.max(1e-6, Math.cos((v.lat * Math.PI) / 180));
       // A quarter turn in the east/north frame; the along-line axis is
       // already covered by the walk above.
       const acrossEast = -aheadNorth;
       const acrossNorth = aheadEast;
-      const offset = (deg: number, sign: number): readonly [number, number] =>
-        [v.lon + (sign * acrossEast * deg) / cosLat, v.lat + sign * acrossNorth * deg];
-      const [trialLon, trialLat] = offset(stride, 1);
+      const trialLon = v.lon + (acrossEast * stride) / cosLat;
+      const trialLat = v.lat + acrossNorth * stride;
       const trial = sampleAt(trialLon, trialLat, v.elev);
       const trialCells = Math.hypot(trial.col - v.col, trial.row - v.row);
       const reachDeg = Number.isFinite(trialCells) && trialCells > 0 ? (stride * support) / trialCells : stride * support;
-      for (const [du, dv] of GLYPH_MAP_STROKE_GROUND_RING) {
+      for (let r = 0; r < GLYPH_MAP_STROKE_GROUND_RING_FLAT.length; r += 2) {
+        const du = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r]!;
+        const dv = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r + 1]!;
         const lon = v.lon + ((acrossEast * dv + aheadEast * du) * reachDeg) / cosLat;
         const lat = v.lat + (acrossNorth * dv + aheadNorth * du) * reachDeg;
         const probe = groundAt(lon, lat);
@@ -3592,6 +3636,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /**
+   * Per-vertex visibility flags for the ring {@link visibleStrokeRuns} is
+   * working on, reused across rings.
+   *
+   * Safe because the flags are consumed by the run-splitting loop in the same
+   * call that fills them, and nothing between the two can re-enter: the
+   * stamp is synchronous and single-threaded, and `visibleStrokeRuns` calls
+   * nothing that calls it back.
+   */
+  let strokeVisibilityBuf = new Uint8Array(0);
+  function strokeVisibilityScratch(n: number): Uint8Array {
+    if (strokeVisibilityBuf.length < n) strokeVisibilityBuf = new Uint8Array(n);
+    return strokeVisibilityBuf;
+  }
+
+  /**
    * Split one lon/lat polyline into the maximal runs that lie on the
    * projection's VISIBLE side, inserting a bisected limb vertex at every
    * crossing so a run reaches exactly the silhouette and stops.
@@ -3646,9 +3705,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) return false;
       return geo !== null || nearSideVisible(lon, lat, world, grid);
     };
-    const vis = ring.map(([lon, lat]) => visibleAt(lon, lat));
-    if (vis.every((v) => v)) return [ring];
-    if (vis.every((v) => !v)) return [];
+    // ONE pass, not three. `visibleAt` is pure and is called once per vertex
+    // in the same order as the `map` this replaces; what goes is the boolean
+    // array allocated per ring, the two predicate closures, and the two extra
+    // walks `every` took over it. A street-level frame hands this 6,156 rings
+    // and 28,456 vertices per render.
+    const vis = strokeVisibilityScratch(ring.length);
+    let seen = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const v = ring[i]!;
+      if (visibleAt(v[0], v[1])) { vis[i] = 1; seen++; } else vis[i] = 0;
+    }
+    if (seen === ring.length) return [ring];
+    if (seen === 0) return [];
 
     /** Bisect toward the limb, always keeping `lo` on the VISIBLE side, and return that side's endpoint — so a run never carries a vertex the projection calls invisible. */
     const crossing = (a: readonly [number, number], b: readonly [number, number], aVisible: boolean): readonly [number, number] => {
@@ -3665,7 +3734,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const runs: (readonly [number, number])[][] = [];
     let current: (readonly [number, number])[] = [];
     for (let i = 0; i < ring.length; i++) {
-      if (vis[i]) {
+      if (vis[i] === 1) {
         if (current.length === 0 && i > 0) current.push(crossing(ring[i - 1], ring[i], false));
         current.push(ring[i]);
       } else if (current.length > 0) {

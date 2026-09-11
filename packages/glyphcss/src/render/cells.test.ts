@@ -701,3 +701,55 @@ describe("cells: encodeGlyphBuffersDual colorTolerance (COLOR-TOLERANCE.md Phase
     expect(callCount).toBeLessThan(cols * 2);
   });
 });
+
+// The two encoders validate a cell's colour with a regex, and a rasterized row
+// is runs of ONE colour — so both now short-circuit on the string the previous
+// cell (resp. the run's anchor) already carried, and neither re-validates it.
+// That is sound only because `assertColor`/`assertGlyph` are pure functions of
+// the string: what has to stay true is that every string a run ANCHORS on was
+// validated, and that a cell whose colour CHANGES is still validated at its own
+// index. These pin exactly that — each clause goes red when the corresponding
+// short-circuit is widened (e.g. to skip a `colorTolerance`-merged colour, or
+// to key the atlas memo on the glyph alone).
+describe("cells: colour validation survives the per-run short-circuit", () => {
+  it("rejects an invalid colour that follows a valid one, at its own index", () => {
+    const char = ["a", "b", "c"];
+    const color = ["#ff0000", "#ff0000", "nothex"] as (string | null)[];
+    expect(() => encodeGlyphBuffers(char, color, 3, 1, true)).toThrow(/cell 2 color/);
+  });
+
+  it("rejects an invalid colour on the very first cell", () => {
+    expect(() => encodeGlyphBuffers(["a"], ["#12345"] as (string | null)[], 1, 1, true)).toThrow(/cell 0 color/);
+  });
+
+  it("rejects a colour a colorTolerance run would otherwise have swallowed", () => {
+    // The discriminating case: `#ff0000x` is not a colour, but `parseInt`
+    // stops at the `x` and packs it to exactly the run anchor's own value, so
+    // a run-EXTENSION test accepts it and never looks at the string. Widening
+    // the short-circuit from "same string" to "extends the run" is therefore
+    // not a refinement but a hole, and this is the cell that falls through it.
+    const char = ["a", "b"];
+    const color = ["#ff0000", "#ff0000x"] as (string | null)[];
+    expect(() => encodeGlyphBuffers(char, color, 2, 1, true, null, 200)).toThrow(/cell 1 color/);
+  });
+
+  it("rejects an invalid colour in a LATER row than the one that validated its twin", () => {
+    // Runs reset per row, so a colour valid in row 0 must not license an
+    // identical-looking but distinct invalid string in row 1.
+    const char = ["a", "a", "a", "a"];
+    const color = ["#ff0000", "#ff0000", "#ff0000", "zzzzzzz"] as (string | null)[];
+    expect(() => encodeGlyphBuffers(char, color, 2, 2, true)).toThrow(/cell 3 color/);
+  });
+
+  it("reports the FIRST offending index when the same invalid colour repeats", () => {
+    const char = ["a", "b", "c"];
+    const color = ["#ff0000", "bad", "bad"] as (string | null)[];
+    expect(() => encodeGlyphBuffers(char, color, 3, 1, true)).toThrow(/cell 1 color/);
+  });
+
+  it("still rejects an invalid glyph after a run of identical valid ones", () => {
+    const char = ["a", "a", "ab"];
+    const color = ["#ff0000", "#ff0000", "#ff0000"] as (string | null)[];
+    expect(() => encodeGlyphBuffers(char, color, 3, 1, true)).toThrow(/cell 2 /);
+  });
+});

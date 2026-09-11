@@ -223,3 +223,51 @@ describe("encodeCellGridOutput — the spans-vs-atlas seam", () => {
     expect(out.encoding).toBe("spans");
   });
 });
+
+// `encodeGlyphAtlas` collapses a cell that repeats the PREVIOUS cell's
+// `(glyph, colour)` pair to a single `+=` of the unit it already produced —
+// sound because every step between the pair and the code point is a pure
+// function of those two strings, and worth it because a rasterized row is runs
+// of one Lambert-shaded colour. These pin the two halves of the key and the
+// validation that still has to happen across a change.
+describe("encodeGlyphAtlas: the repeated-cell short-circuit", () => {
+  it("gives the same glyph a DIFFERENT code point when only the colour changes", () => {
+    const out = encodeGlyphAtlas([GLYPH_A, GLYPH_A], ["#ff0000", "#00ff00"], 2, 1, PALETTE);
+    expect(out.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 0));
+    expect([...out][1]!.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 1));
+  });
+
+  it("gives the same colour a DIFFERENT code point when only the glyph changes", () => {
+    const out = encodeGlyphAtlas([GLYPH_A, GLYPH_B], ["#ff0000", "#ff0000"], 2, 1, PALETTE);
+    expect(out.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 0));
+    expect([...out][1]!.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_B, 0));
+  });
+
+  it("encodes a long run cell-for-cell identically to the same cells encoded one at a time", () => {
+    const char = [GLYPH_A, GLYPH_A, GLYPH_A, GLYPH_B, GLYPH_B, GLYPH_A];
+    const color: (string | null)[] = ["#ff0000", "#ff0000", "#00ff00", "#00ff00", "#00ff00", "#ff0000"];
+    const run = encodeGlyphAtlas(char, color, 6, 1, PALETTE);
+    const oneByOne = char.map((g, i) => encodeGlyphAtlas([g], [color[i]!], 1, 1, PALETTE)).join("");
+    expect(run).toBe(oneByOne);
+  });
+
+  it("does not let a blank cell carry the previous cell's colour into the next one", () => {
+    const char = [GLYPH_A, " ", GLYPH_A];
+    const color: (string | null)[] = ["#ff0000", "#00ff00", "#0000ff"];
+    const out = [...encodeGlyphAtlas(char, color, 3, 1, PALETTE)];
+    expect(out[1]).toBe(" ");
+    expect(out[2]!.codePointAt(0)).toBe(glyphAtlasCodePoint(GLYPH_A, 2));
+  });
+
+  it("still rejects an invalid colour that follows a run of valid identical cells", () => {
+    const char = [GLYPH_A, GLYPH_A, GLYPH_A];
+    const color: (string | null)[] = ["#ff0000", "#ff0000", "rebeccapurple"];
+    expect(() => encodeGlyphAtlas(char, color, 3, 1, PALETTE)).toThrow(/cell 2 /);
+  });
+
+  it("still rejects an out-of-atlas glyph that follows a run of valid identical cells", () => {
+    const char = [GLYPH_A, GLYPH_A, "ᚡ"];
+    const color: (string | null)[] = ["#ff0000", "#ff0000", "#ff0000"];
+    expect(() => encodeGlyphAtlas(char, color, 3, 1, PALETTE)).toThrow(TypeError);
+  });
+});

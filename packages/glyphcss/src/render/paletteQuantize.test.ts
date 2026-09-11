@@ -461,3 +461,47 @@ function hsvHex(h: number, s: number, v: number): string {
   const q = (n: number) => Math.max(0, Math.min(255, Math.round((n + m) * 255)));
   return unpackHexColor((q(r!) << 16) | (q(g!) << 8) | q(b!));
 }
+
+// `histogramGridColors` counts a RUN at a time, so the regex parse and the map
+// hash run once per run rather than once per cell. Two things have to survive
+// that: the counts, and the map's INSERTION ORDER — `medianCutPalette` and the
+// quantizer's drift walk both iterate this map, so a reordering would be a
+// silent recolouring. A run is always flushed before the next one opens, which
+// is what keeps first-flush order equal to first-occurrence order.
+describe("histogramGridColors: run-batched counting", () => {
+  const G = GLYPH_FONT_ATLAS.glyphs[0]!;
+
+  it("counts every contributing cell, including the run that ends the grid", () => {
+    const color = ["#ff0000", "#ff0000", "#00ff00", "#ff0000", "#ff0000", "#ff0000"];
+    const counts = histogramGridColors(color.map(() => G), color, color.length);
+    expect(counts.get(packHexColor("#ff0000")!)).toBe(5);
+    expect(counts.get(packHexColor("#00ff00")!)).toBe(1);
+  });
+
+  it("keeps insertion order equal to first-occurrence order", () => {
+    const color = ["#0000ff", "#0000ff", "#ff0000", "#00ff00", "#ff0000", "#0000ff"];
+    const counts = histogramGridColors(color.map(() => G), color, color.length);
+    expect([...counts.keys()]).toEqual(["#0000ff", "#ff0000", "#00ff00"].map((c) => packHexColor(c)!));
+  });
+
+  it("skips blank and colourless cells without splitting the run around them", () => {
+    const char = [G, " ", G, G];
+    const color: (string | null)[] = ["#ff0000", "#00ff00", null, "#ff0000"];
+    const counts = histogramGridColors(char, color, 4);
+    expect([...counts.entries()]).toEqual([[packHexColor("#ff0000")!, 2]]);
+  });
+
+  it("drops a non-hex colour without letting it absorb the cells after it", () => {
+    const char = [G, G, G, G];
+    const color = ["#ff0000", "rebeccapurple", "rebeccapurple", "#ff0000"];
+    const counts = histogramGridColors(char, color, 4);
+    expect([...counts.entries()]).toEqual([[packHexColor("#ff0000")!, 2]]);
+  });
+
+  it("accumulates into a caller-supplied map rather than replacing its entries", () => {
+    const into = new Map<number, number>([[packHexColor("#ff0000")!, 4]]);
+    const color = ["#ff0000", "#ff0000"];
+    histogramGridColors(color.map(() => G), color, 2, into);
+    expect(into.get(packHexColor("#ff0000")!)).toBe(6);
+  });
+});

@@ -16,6 +16,7 @@ import {
 import type { CellGrid } from "./cells";
 import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
 import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
+import { beginGlyphVertexPass, resolveGlyphVertexIndex } from "./vertexIndex";
 
 /**
  * Render the scene to a string.
@@ -558,10 +559,18 @@ function fillDepthTri(
 ): void {
   const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
   if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
-  const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
-  const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
-  const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
-  const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+  // `ceil(min) .. floor(max)`, not `floor(min) .. ceil(max)`: the loop below
+  // samples at INTEGER `(x, y)` (see the sample-point comment in it), so an
+  // integer outside the triangle's own bbox cannot be inside the triangle and
+  // the wider form only sampled it in order to reject it. `scanFillTriangle`
+  // has always used this form — it is the same argument as its empty-coverage
+  // skip, which is that a triangle narrower than the gap between two integers
+  // covers no sample at all. Exact: every sample dropped here is one the
+  // inside test rejected.
+  const minX = Math.max(0, Math.ceil(Math.min(x0, x1, x2)));
+  const maxX = Math.min(W - 1, Math.floor(Math.max(x0, x1, x2)));
+  const minY = Math.max(0, Math.ceil(Math.min(y0, y1, y2)));
+  const maxY = Math.min(H - 1, Math.floor(Math.max(y0, y1, y2)));
   if (minX > maxX || minY > maxY) return;
   const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
   if (Math.abs(area) < 1e-9) return;
@@ -2106,13 +2115,29 @@ function rasterizeSolid(
 
   // Optional phase profiler: set globalThis.__glyphPerfDetail = {} to record
   // loop (shade+scanfill) vs string-build time. Zero cost when unset. Removable.
-  const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[] } }).__glyphPerfDetail;
+  //
+  // `string` spans from the end of the triangle loop to the return, so it
+  // contains the downsample, the temporal reprojection, `applyCellHook` AND
+  // the encoder — which is how a consumer's own cell hook was once read as an
+  // encoder cost (`docs/design/performance.md`). `hook` is the hook's own
+  // share of that window, so the two can never be confused again.
+  const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[]; hook?: number[] } }).__glyphPerfDetail;
   const __tLoop = __detail ? performance.now() : 0;
 
   // Reused scratch for per-polygon projected vertices, so a fan re-uses each
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
   const projScratch: [number, number, number, number?][] = [];
+  // Indexed vertex projection — see `render/vertexIndex.ts`. Hoisted out of the
+  // polygon loop as plain locals because this is the hottest loop in the
+  // renderer and a property read per vertex is not free.
+  const vertexIndex = resolveGlyphVertexIndex(polygons);
+  const vertexGen = vertexIndex === null ? 0 : beginGlyphVertexPass(vertexIndex);
+  const vertexOffsets = vertexIndex === null ? null : vertexIndex.offsets;
+  const vertexSlots = vertexIndex === null ? null : vertexIndex.slots;
+  const vertexPositions = vertexIndex === null ? null : vertexIndex.positions;
+  const vertexProj = vertexIndex === null ? null : vertexIndex.proj;
+  const vertexStamp = vertexIndex === null ? null : vertexIndex.stamp;
   // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
   // A contiguous run whose world AABB provably projects entirely off the grid
   // is skipped without projecting one of its vertices. The two fidelity rules
@@ -2305,9 +2330,35 @@ function rasterizeSolid(
       const texUrl = polygonTexture(poly);
       if (texUrl) polySampler = textureSamplers.get(texUrl) ?? null;
     }
-    // Project each unique vertex once.
-    for (let k = 0; k < verts.length; k++) {
-      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
+    // Project each DISTINCT vertex once — distinct across the whole pass, not
+    // just within this polygon. An adjacency-heavy mesh is mostly shared edges
+    // (measured on the committed ETOPO1 z2 relief tier: 404,992 occurrences for
+    // 101,761 distinct positions), and this loop is the only place their
+    // projection is paid for. `vertexSlots === null` is the unindexed path —
+    // byte-identical, and what a first render, a static compile and an
+    // unshared mesh all take. See `render/vertexIndex.ts`.
+    const vertexBase = vertexOffsets === null ? 0 : vertexOffsets[polyIdx]!;
+    if (vertexSlots !== null && vertexOffsets !== null
+      && vertexOffsets[polyIdx + 1]! - vertexBase === verts.length) {
+      for (let k = 0; k < verts.length; k++) {
+        const slot = vertexSlots[vertexBase + k]!;
+        // The camera's OWN returned tuple is what gets stored and re-served —
+        // never a copy into a pre-shaped scratch row. An orthographic camera
+        // returns three elements and a perspective one four, so a fixed-shape
+        // row would have to carry `undefined` in its fourth slot, which turns
+        // what V8 keeps as a packed-double array into a boxed generic one and
+        // costs more on every `pa[0]` read downstream than the projection it
+        // saves (measured: the copy form was a 1% REGRESSION on the globe).
+        if (vertexStamp![slot] !== vertexGen) {
+          vertexProj![slot] = camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
+          vertexStamp![slot] = vertexGen;
+        }
+        projScratch[k] = vertexProj![slot]!;
+      }
+    } else {
+      for (let k = 0; k < verts.length; k++) {
+        projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
+      }
     }
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
     // For N=3 this produces exactly one triangle.
@@ -3011,6 +3062,7 @@ function rasterizeSolid(
   // depth/surface fields share one representative winner after downsampling.
   // Runs BEFORE the single string is built (<pre>-write-once).
   if (scene.transformCells) {
+    const __tHook = __detail ? performance.now() : 0;
     const applied = applyCellHook(
       scene.transformCells, finalGlyph, finalColor,
       finalDepth, outCols, outRows, finalSurfaceUv, finalShade,
@@ -3028,6 +3080,7 @@ function rasterizeSolid(
     finalGlyph = applied.char;
     finalColor = applied.color;
     finalWeight = applied.weight;
+    if (__detail) (__detail.hook ??= []).push(performance.now() - __tHook);
   }
   // `finalWeight` is non-null only when `solidWeightRamp` is active (and
   // temporal reprojection didn't drop it) — the byte-identical default path
@@ -4037,14 +4090,20 @@ function scanFillTriangle(
       // stacking, instead of z-fighting per-cell as the camera moves. Only the
       // perspective zbuf (>0) gets the deadband; the empty cell (−Infinity) and
       // ortho (≤0) fall through to the plain `>` test.
-      // A fully TRANSPARENT texel does not cover this cell, so it must not win
-      // the depth test. Sampling after the depth write and then declining to use
-      // the texel leaves the cell claimed and painted with the polygon's flat
-      // base colour — which is why a sprite's transparent margin rendered as a
-      // solid block behind the art instead of showing what was behind it.
-      // Sampling here costs a lookup on cells that go on to lose the depth test;
-      // that is the price of getting coverage right, and it is paid only by
-      // textured polygons.
+      if (!(pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth))) continue;
+      // DEPTH FIRST, THEN ALPHA, THEN THE WRITE. A fragment that loses the
+      // depth test is not going to claim this cell whatever its texel says,
+      // so a texture lookup for it is pure waste — `fillDepthTri` has always
+      // decided first and sampled after, for the same reason. What must NOT
+      // move is the alpha rejection: it stays ahead of the depth WRITE,
+      // because a fully transparent texel does not cover this cell and must
+      // not occlude what is behind it. Sampling after the write and then
+      // declining to use the texel leaves the cell claimed and painted with
+      // the polygon's flat base colour — which is why a sprite's transparent
+      // margin rendered as a solid block behind the art instead of showing
+      // what was behind it. Every cell's coverage, depth and colour verdict
+      // is therefore unchanged; only the lookups for already-losing
+      // fragments are gone.
       let cellTexel: ReturnType<typeof sampleTexel> = null;
       if (tex !== null) {
         const tq = perspectiveAttributes ? 1 / (wA * aq + wB * bq + wC * cq) : invArea2;
@@ -4059,200 +4118,198 @@ function scanFillTriangle(
         );
         if (cellTexel === null || cellTexel.a <= TEXEL_COVERAGE_ALPHA_MIN) continue;
       }
-      if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
-        depthBuf[idx] = pixelDepth;
-        if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
-        if (winnerMeshBuf !== null) winnerMeshBuf[idx] = meshId;
-        const invQ = interpolatePerspective
-          ? 1 / (wA * aq + wB * bq + wC * cq)
-          : invArea2;
-        if (worldPosBuf !== null) {
-          // Perspective-correct world position for reprojection TAA. Ortho
-          // supplies q=1, reducing exactly to affine barycentrics.
-          const o = idx * 3;
+      depthBuf[idx] = pixelDepth;
+      if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
+      if (winnerMeshBuf !== null) winnerMeshBuf[idx] = meshId;
+      const invQ = interpolatePerspective
+        ? 1 / (wA * aq + wB * bq + wC * cq)
+        : invArea2;
+      if (worldPosBuf !== null) {
+        // Perspective-correct world position for reprojection TAA. Ortho
+        // supplies q=1, reducing exactly to affine barycentrics.
+        const o = idx * 3;
+        if (perspectiveAttributes) {
+          worldPosBuf[o] = (wA * aq * wv0[0]! + wB * bq * wv1[0]! + wC * cq * wv2[0]!) * invQ;
+          worldPosBuf[o + 1] = (wA * aq * wv0[1]! + wB * bq * wv1[1]! + wC * cq * wv2[1]!) * invQ;
+          worldPosBuf[o + 2] = (wA * aq * wv0[2]! + wB * bq * wv1[2]! + wC * cq * wv2[2]!) * invQ;
+        } else {
+          worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
+          worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
+          worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+        }
+      }
+      if (objectPosBuf !== null) {
+        const o = idx * 3;
+        if (perspectiveAttributes) {
+          objectPosBuf[o] = (wA * aq * ov0[0]! + wB * bq * ov1[0]! + wC * cq * ov2[0]!) * invQ;
+          objectPosBuf[o + 1] = (wA * aq * ov0[1]! + wB * bq * ov1[1]! + wC * cq * ov2[1]!) * invQ;
+          objectPosBuf[o + 2] = (wA * aq * ov0[2]! + wB * bq * ov1[2]! + wC * cq * ov2[2]!) * invQ;
+        } else {
+          objectPosBuf[o] = (wA * ov0[0]! + wB * ov1[0]! + wC * ov2[0]!) * invArea2;
+          objectPosBuf[o + 1] = (wA * ov0[1]! + wB * ov1[1]! + wC * ov2[1]!) * invArea2;
+          objectPosBuf[o + 2] = (wA * ov0[2]! + wB * ov1[2]! + wC * ov2[2]!) * invArea2;
+        }
+      }
+      if (normalBuf !== null) {
+        const o = idx * 3;
+        normalBuf[o] = normalX;
+        normalBuf[o + 1] = normalY;
+        normalBuf[o + 2] = normalZ;
+      }
+      if (objectNormalBuf !== null) {
+        const o = idx * 3;
+        objectNormalBuf[o] = objectNormalX;
+        objectNormalBuf[o + 1] = objectNormalY;
+        objectNormalBuf[o + 2] = objectNormalZ;
+      }
+      if (surfaceUvBuf !== null) {
+        const o = idx * 2;
+        if (surfaceUv !== null) {
           if (perspectiveAttributes) {
-            worldPosBuf[o] = (wA * aq * wv0[0]! + wB * bq * wv1[0]! + wC * cq * wv2[0]!) * invQ;
-            worldPosBuf[o + 1] = (wA * aq * wv0[1]! + wB * bq * wv1[1]! + wC * cq * wv2[1]!) * invQ;
-            worldPosBuf[o + 2] = (wA * aq * wv0[2]! + wB * bq * wv1[2]! + wC * cq * wv2[2]!) * invQ;
+            surfaceUvBuf[o] = (
+              wA * aq * surfaceUv.ua + wB * bq * surfaceUv.ub + wC * cq * surfaceUv.uc
+            ) * invQ;
+            surfaceUvBuf[o + 1] = (
+              wA * aq * surfaceUv.va + wB * bq * surfaceUv.vb + wC * cq * surfaceUv.vc
+            ) * invQ;
           } else {
-            worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
-            worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
-            worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+            surfaceUvBuf[o] = (
+              wA * surfaceUv.ua + wB * surfaceUv.ub + wC * surfaceUv.uc
+            ) * invArea2;
+            surfaceUvBuf[o + 1] = (
+              wA * surfaceUv.va + wB * surfaceUv.vb + wC * surfaceUv.vc
+            ) * invArea2;
           }
+        } else {
+          surfaceUvBuf[o] = NaN;
+          surfaceUvBuf[o + 1] = NaN;
         }
-        if (objectPosBuf !== null) {
-          const o = idx * 3;
-          if (perspectiveAttributes) {
-            objectPosBuf[o] = (wA * aq * ov0[0]! + wB * bq * ov1[0]! + wC * cq * ov2[0]!) * invQ;
-            objectPosBuf[o + 1] = (wA * aq * ov0[1]! + wB * bq * ov1[1]! + wC * cq * ov2[1]!) * invQ;
-            objectPosBuf[o + 2] = (wA * aq * ov0[2]! + wB * bq * ov1[2]! + wC * cq * ov2[2]!) * invQ;
-          } else {
-            objectPosBuf[o] = (wA * ov0[0]! + wB * ov1[0]! + wC * ov2[0]!) * invArea2;
-            objectPosBuf[o + 1] = (wA * ov0[1]! + wB * ov1[1]! + wC * ov2[1]!) * invArea2;
-            objectPosBuf[o + 2] = (wA * ov0[2]! + wB * ov1[2]! + wC * ov2[2]!) * invArea2;
-          }
-        }
-        if (normalBuf !== null) {
-          const o = idx * 3;
-          normalBuf[o] = normalX;
-          normalBuf[o + 1] = normalY;
-          normalBuf[o + 2] = normalZ;
-        }
-        if (objectNormalBuf !== null) {
-          const o = idx * 3;
-          objectNormalBuf[o] = objectNormalX;
-          objectNormalBuf[o + 1] = objectNormalY;
-          objectNormalBuf[o + 2] = objectNormalZ;
-        }
-        if (surfaceUvBuf !== null) {
-          const o = idx * 2;
-          if (surfaceUv !== null) {
-            if (perspectiveAttributes) {
-              surfaceUvBuf[o] = (
-                wA * aq * surfaceUv.ua + wB * bq * surfaceUv.ub + wC * cq * surfaceUv.uc
-              ) * invQ;
-              surfaceUvBuf[o + 1] = (
-                wA * aq * surfaceUv.va + wB * bq * surfaceUv.vb + wC * cq * surfaceUv.vc
-              ) * invQ;
-            } else {
-              surfaceUvBuf[o] = (
-                wA * surfaceUv.ua + wB * surfaceUv.ub + wC * surfaceUv.uc
-              ) * invArea2;
-              surfaceUvBuf[o + 1] = (
-                wA * surfaceUv.va + wB * surfaceUv.vb + wC * surfaceUv.vc
-              ) * invArea2;
-            }
-          } else {
-            surfaceUvBuf[o] = NaN;
-            surfaceUvBuf[o + 1] = NaN;
-          }
-        }
-        // Per-pixel intensity → per-pixel glyph. Two things happen here:
-        //   1. Smooth shading: adjacent triangles' shared edge has the same
-        //      interpolated intensity on both sides, so the glyph transition
-        //      crosses the edge smoothly instead of stepping.
-        //   2. Bayer ordered dithering: pick between two adjacent ramp glyphs
-        //      based on a 4×4 threshold matrix. When the sub-ramp fraction
-        //      exceeds the cell's threshold, step up to the brighter glyph —
-        //      producing a stippled gradient that reads as continuous from a
-        //      distance and breaks up the visible contour bands between ramp
-        //      steps.
-        const lightIntensity = (wA * ia + wB * ib + wC * ic) * invArea2;
-        let intensity = lightIntensity;
-        let cellColor = color;
-        let sourceRgb = hexToRgb(flatBaseColor);
+      }
+      // Per-pixel intensity → per-pixel glyph. Two things happen here:
+      //   1. Smooth shading: adjacent triangles' shared edge has the same
+      //      interpolated intensity on both sides, so the glyph transition
+      //      crosses the edge smoothly instead of stepping.
+      //   2. Bayer ordered dithering: pick between two adjacent ramp glyphs
+      //      based on a 4×4 threshold matrix. When the sub-ramp fraction
+      //      exceeds the cell's threshold, step up to the brighter glyph —
+      //      producing a stippled gradient that reads as continuous from a
+      //      distance and breaks up the visible contour bands between ramp
+      //      steps.
+      const lightIntensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+      let intensity = lightIntensity;
+      let cellColor = color;
+      let sourceRgb = hexToRgb(flatBaseColor);
 
-        // Per-cell texture: barycentric-interpolate UV, sample the texel. Its
-        // color (× the triangle's light tint) becomes this cell's color, and its
-        // luminance folds into the glyph intensity — so the *character* reflects
-        // image brightness too: a flat textured quad reads as ASCII art, a lit
-        // textured mesh shows texture detail modulated by shading.
-        if (tex !== null) {
-          const u = perspectiveAttributes
-            ? (wA * aq * tex.ua + wB * bq * tex.ub + wC * cq * tex.uc) * invQ
-            : (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
-          const v = perspectiveAttributes
-            ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * invQ
-            : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
-          const texel = cellTexel;   // sampled before the depth test, see above
-          if (texel !== null && texel.a > TEXEL_COVERAGE_ALPHA_MIN) {
-            const base = hexToRgb(flatBaseColor);
-            sourceRgb = [(texel.r * base[0] / 255) | 0, (texel.g * base[1] / 255) | 0, (texel.b * base[2] / 255) | 0];
-            let r = (sourceRgb[0] * tex.tintR) | 0; if (r > 255) r = 255;
-            let g = (sourceRgb[1] * tex.tintG) | 0; if (g > 255) g = 255;
-            let b = (sourceRgb[2] * tex.tintB) | 0; if (b > 255) b = 255;
-            cellColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-            intensity *= (0.299 * texel.r + 0.587 * texel.g + 0.114 * texel.b) / 255;
-          }
+      // Per-cell texture: barycentric-interpolate UV, sample the texel. Its
+      // color (× the triangle's light tint) becomes this cell's color, and its
+      // luminance folds into the glyph intensity — so the *character* reflects
+      // image brightness too: a flat textured quad reads as ASCII art, a lit
+      // textured mesh shows texture detail modulated by shading.
+      if (tex !== null) {
+        const u = perspectiveAttributes
+          ? (wA * aq * tex.ua + wB * bq * tex.ub + wC * cq * tex.uc) * invQ
+          : (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
+        const v = perspectiveAttributes
+          ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * invQ
+          : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
+        const texel = cellTexel;   // sampled above, after the depth test and before the depth write
+        if (texel !== null && texel.a > TEXEL_COVERAGE_ALPHA_MIN) {
+          const base = hexToRgb(flatBaseColor);
+          sourceRgb = [(texel.r * base[0] / 255) | 0, (texel.g * base[1] / 255) | 0, (texel.b * base[2] / 255) | 0];
+          let r = (sourceRgb[0] * tex.tintR) | 0; if (r > 255) r = 255;
+          let g = (sourceRgb[1] * tex.tintG) | 0; if (g > 255) g = 255;
+          let b = (sourceRgb[2] * tex.tintB) | 0; if (b > 255) b = 255;
+          cellColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+          intensity *= (0.299 * texel.r + 0.587 * texel.g + 0.114 * texel.b) / 255;
         }
-        if (albedoRgbBuf !== null) albedoRgbBuf[idx] = (sourceRgb[0] << 16) | (sourceRgb[1] << 8) | sourceRgb[2];
+      }
+      if (albedoRgbBuf !== null) albedoRgbBuf[idx] = (sourceRgb[0] << 16) | (sourceRgb[1] << 8) | sourceRgb[2];
 
-        // Per-cell intensity. Glyph choice happens after shadowing so shadows
-        // can attenuate only the direct/key-light part of the signal.
-        let clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
-        let shadowOpacity = 0;
+      // Per-cell intensity. Glyph choice happens after shadowing so shadows
+      // can attenuate only the direct/key-light part of the signal.
+      let clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+      let shadowOpacity = 0;
 
-        // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
-        // sample the shadow map, darken if occluded.
-        if (sh !== null) {
-          // Light-space (u,v,depth) are affine in world position, so they need
-          // the SAME perspective-correct interpolation as world position/UV —
-          // interpolating them affinely in screen space warps the shadow under a
-          // perspective camera (and the warp shifts with the camera, worst up
-          // close). Ortho supplies q=1, reducing exactly to affine barycentrics.
-          const lu = perspectiveAttributes
-            ? (wA * aq * sh.luA + wB * bq * sh.luB + wC * cq * sh.luC) * invQ
-            : (wA * sh.luA + wB * sh.luB + wC * sh.luC) * invArea2;
-          const lv = perspectiveAttributes
-            ? (wA * aq * sh.lvA + wB * bq * sh.lvB + wC * cq * sh.lvC) * invQ
-            : (wA * sh.lvA + wB * sh.lvB + wC * sh.lvC) * invArea2;
-          const ld = perspectiveAttributes
-            ? (wA * aq * sh.ldA + wB * bq * sh.ldB + wC * cq * sh.ldC) * invQ
-            : (wA * sh.ldA + wB * sh.ldB + wC * sh.ldC) * invArea2;
-          // Nearest-neighbor sample (integer texel coords).
-          const tu = lu | 0;
-          const tv = lv | 0;
-          if (tu >= 0 && tu < SHADOW_MAP_SIZE && tv >= 0 && tv < SHADOW_MAP_SIZE) {
-            const mapDepth = sh.map.buf[tv * SHADOW_MAP_SIZE + tu]!;
-            // Surface is in shadow when the closest caster depth at this texel
-            // is greater than the surface's projected lightDepth (+ bias lift).
-            // Two terms nudge the surface toward the light: the caller's
-            // absolute `lift`, and the derived slope-scaled acne guard
-            // (`SHADOW_SLOPE_BIAS_TEXELS`) that makes a surface which both
-            // casts and receives safe at ANY world scale.
-            if (mapDepth > -Infinity && ld + sh.lift + sh.slopeBias < mapDepth) {
-              // Shadows attenuate only direct/key light. Ambient is independent
-              // scene fill, so with key intensity 0 the shadow map must be a no-op.
-              const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));
-              const directPart = Math.max(0, clamped - ambientPart);
-              if (directPart > 0) {
-                const effectiveOpacity = sh.opacity * (directPart / Math.max(clamped, 1e-6));
-                clamped = ambientPart + directPart * (1 - sh.opacity);
-                shadowOpacity = sh.opacity;
-                if (cellColor !== null && effectiveOpacity > 0) {
-                  // Color shadowing follows the same rule: only the direct
-                  // contribution is blended toward the shadow color.
-                  const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
-                  let shadowedColor = sh.litCache.get(shadowKey);
-                  if (shadowedColor === undefined) {
-                    const orig = hexToRgb(cellColor);
-                    const sc = sh.shadowColorRgb;
-                    const r = Math.round(orig[0] * (1 - effectiveOpacity) + sc[0] * effectiveOpacity);
-                    const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
-                    const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
-                    shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-                    sh.litCache.set(shadowKey, shadowedColor);
-                  }
-                  cellColor = shadowedColor;
+      // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
+      // sample the shadow map, darken if occluded.
+      if (sh !== null) {
+        // Light-space (u,v,depth) are affine in world position, so they need
+        // the SAME perspective-correct interpolation as world position/UV —
+        // interpolating them affinely in screen space warps the shadow under a
+        // perspective camera (and the warp shifts with the camera, worst up
+        // close). Ortho supplies q=1, reducing exactly to affine barycentrics.
+        const lu = perspectiveAttributes
+          ? (wA * aq * sh.luA + wB * bq * sh.luB + wC * cq * sh.luC) * invQ
+          : (wA * sh.luA + wB * sh.luB + wC * sh.luC) * invArea2;
+        const lv = perspectiveAttributes
+          ? (wA * aq * sh.lvA + wB * bq * sh.lvB + wC * cq * sh.lvC) * invQ
+          : (wA * sh.lvA + wB * sh.lvB + wC * sh.lvC) * invArea2;
+        const ld = perspectiveAttributes
+          ? (wA * aq * sh.ldA + wB * bq * sh.ldB + wC * cq * sh.ldC) * invQ
+          : (wA * sh.ldA + wB * sh.ldB + wC * sh.ldC) * invArea2;
+        // Nearest-neighbor sample (integer texel coords).
+        const tu = lu | 0;
+        const tv = lv | 0;
+        if (tu >= 0 && tu < SHADOW_MAP_SIZE && tv >= 0 && tv < SHADOW_MAP_SIZE) {
+          const mapDepth = sh.map.buf[tv * SHADOW_MAP_SIZE + tu]!;
+          // Surface is in shadow when the closest caster depth at this texel
+          // is greater than the surface's projected lightDepth (+ bias lift).
+          // Two terms nudge the surface toward the light: the caller's
+          // absolute `lift`, and the derived slope-scaled acne guard
+          // (`SHADOW_SLOPE_BIAS_TEXELS`) that makes a surface which both
+          // casts and receives safe at ANY world scale.
+          if (mapDepth > -Infinity && ld + sh.lift + sh.slopeBias < mapDepth) {
+            // Shadows attenuate only direct/key light. Ambient is independent
+            // scene fill, so with key intensity 0 the shadow map must be a no-op.
+            const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));
+            const directPart = Math.max(0, clamped - ambientPart);
+            if (directPart > 0) {
+              const effectiveOpacity = sh.opacity * (directPart / Math.max(clamped, 1e-6));
+              clamped = ambientPart + directPart * (1 - sh.opacity);
+              shadowOpacity = sh.opacity;
+              if (cellColor !== null && effectiveOpacity > 0) {
+                // Color shadowing follows the same rule: only the direct
+                // contribution is blended toward the shadow color.
+                const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
+                let shadowedColor = sh.litCache.get(shadowKey);
+                if (shadowedColor === undefined) {
+                  const orig = hexToRgb(cellColor);
+                  const sc = sh.shadowColorRgb;
+                  const r = Math.round(orig[0] * (1 - effectiveOpacity) + sc[0] * effectiveOpacity);
+                  const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
+                  const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
+                  shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+                  sh.litCache.set(shadowKey, shadowedColor);
                 }
+                cellColor = shadowedColor;
               }
             }
           }
         }
-
-        if (shadeBuf) shadeBuf[idx] = clamped;
-        const rampPos = clamped * rampMax;
-        const lower = rampPos | 0;
-        const frac = rampPos - lower;
-        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
-        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
-        if (glyphIdx > rampMax) glyphIdx = rampMax;
-
-        glyphBuf[idx] = ramp[glyphIdx]!;
-        if (weightBuf !== null) weightBuf[idx] = weightRamp ? weightRamp[glyphIdx] ?? 0 : 0;
-        if (targetRgbBuf !== null) {
-          // Targets retain the exact per-cell Lambert/key calculation. The
-          // presentation color intentionally uses a triangle-level tint to
-          // coalesce DOM spans, so it is not a valid RGB-training authority.
-          const direct = Math.max(0, lightIntensity - ambientIntensity);
-          const shadowRgb = sh?.shadowColorRgb ?? [0, 0, 0];
-          const r = Math.min(255, (sourceRgb[0] * ambientIntensity * ambientRgb[0] / 255 + sourceRgb[0] * direct * keyLightRgb[0] / 255 * (1 - shadowOpacity) + shadowRgb[0] * direct * shadowOpacity) | 0);
-          const g = Math.min(255, (sourceRgb[1] * ambientIntensity * ambientRgb[1] / 255 + sourceRgb[1] * direct * keyLightRgb[1] / 255 * (1 - shadowOpacity) + shadowRgb[1] * direct * shadowOpacity) | 0);
-          const b = Math.min(255, (sourceRgb[2] * ambientIntensity * ambientRgb[2] / 255 + sourceRgb[2] * direct * keyLightRgb[2] / 255 * (1 - shadowOpacity) + shadowRgb[2] * direct * shadowOpacity) | 0);
-          targetRgbBuf[idx] = (r << 16) | (g << 8) | b;
-        }
-        if (colorBuf) colorBuf[idx] = cellColor;
       }
+
+      if (shadeBuf) shadeBuf[idx] = clamped;
+      const rampPos = clamped * rampMax;
+      const lower = rampPos | 0;
+      const frac = rampPos - lower;
+      const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+      let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+      if (glyphIdx > rampMax) glyphIdx = rampMax;
+
+      glyphBuf[idx] = ramp[glyphIdx]!;
+      if (weightBuf !== null) weightBuf[idx] = weightRamp ? weightRamp[glyphIdx] ?? 0 : 0;
+      if (targetRgbBuf !== null) {
+        // Targets retain the exact per-cell Lambert/key calculation. The
+        // presentation color intentionally uses a triangle-level tint to
+        // coalesce DOM spans, so it is not a valid RGB-training authority.
+        const direct = Math.max(0, lightIntensity - ambientIntensity);
+        const shadowRgb = sh?.shadowColorRgb ?? [0, 0, 0];
+        const r = Math.min(255, (sourceRgb[0] * ambientIntensity * ambientRgb[0] / 255 + sourceRgb[0] * direct * keyLightRgb[0] / 255 * (1 - shadowOpacity) + shadowRgb[0] * direct * shadowOpacity) | 0);
+        const g = Math.min(255, (sourceRgb[1] * ambientIntensity * ambientRgb[1] / 255 + sourceRgb[1] * direct * keyLightRgb[1] / 255 * (1 - shadowOpacity) + shadowRgb[1] * direct * shadowOpacity) | 0);
+        const b = Math.min(255, (sourceRgb[2] * ambientIntensity * ambientRgb[2] / 255 + sourceRgb[2] * direct * keyLightRgb[2] / 255 * (1 - shadowOpacity) + shadowRgb[2] * direct * shadowOpacity) | 0);
+        targetRgbBuf[idx] = (r << 16) | (g << 8) | b;
+      }
+      if (colorBuf) colorBuf[idx] = cellColor;
     }
   }
 }
