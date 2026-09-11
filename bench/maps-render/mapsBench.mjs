@@ -172,8 +172,18 @@ const FLY_TO = [8.2, 46.8, 6];
 const WALK_AT = [8.5417, 47.3769, 0.02];
 /** Displayed frames of held-W walking. */
 const WALK_FRAMES = Number(arg("walk-frames", 400));
-/** Degrees of heading applied per displayed frame while walking — the look half. `0` walks in a straight line. */
-const WALK_LOOK_DEG = Number(arg("walk-look", 0.15));
+/**
+ * Degrees of heading applied per displayed frame while walking — the look half.
+ * `0` (the default) walks in a straight line and is the only honest setting:
+ * any other value drives the look through `map.setBearing`, which renders
+ * SYNCHRONOUSLY, so the walk reports ~1.89 renders/frame against the real
+ * 1.011 and every cost number in the scenario is contaminated. The real
+ * mouselook path (`applyWalkLook`) only marks the frame dirty. It stays
+ * reachable as an explicit opt-in because the STAND-IN is still the only way
+ * to price a turning walk at all, but it has now cost two measurement passes
+ * as a default, so it is no longer one.
+ */
+const WALK_LOOK_DEG = Number(arg("walk-look", 0));
 /** How long to wait for street-level tiles between each walk setup step. */
 const WALK_SETTLE_MS = Number(arg("walk-settle", 6000));
 /** The walker's local horizon, metres, applied through the widget's OWN

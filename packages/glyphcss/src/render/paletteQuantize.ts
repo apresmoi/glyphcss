@@ -367,14 +367,38 @@ export function histogramGridColors(
   n: number,
   into: Map<number, number> = new Map(),
 ): Map<number, number> {
+  // Counted a RUN at a time. A rasterized grid is runs of one Lambert-shaded
+  // colour — these grids average 17 cells per run — and the per-cell form
+  // re-parsed the identical string and re-hashed the identical key for every
+  // one of them. `packHexColor` is a pure function of the string, so a cell
+  // repeating the previous cell's colour contributes to the same bucket by
+  // definition; accumulating and flushing on CHANGE reaches the same map with
+  // the same counts, and in the same INSERTION ORDER, because a run is always
+  // flushed before the next one opens (the order `medianCutPalette` and the
+  // drift walk then iterate in is therefore unchanged too). Blank and
+  // colourless cells are skipped without breaking a run, exactly as they were
+  // skipped without contributing before.
+  let runColor: string | null = null;
+  let runPacked = 0;
+  let runCount = 0;
   for (let i = 0; i < n; i++) {
     if (char[i] === " ") continue;
     const c = color[i];
     if (c === null || c === undefined) continue;
+    if (c === runColor) {
+      runCount++;
+      continue;
+    }
+    if (runCount > 0) into.set(runPacked, (into.get(runPacked) ?? 0) + runCount);
+    runCount = 0;
+    runColor = null;
     const packed = packHexColor(c);
     if (packed === undefined) continue;
-    into.set(packed, (into.get(packed) ?? 0) + 1);
+    runColor = c;
+    runPacked = packed;
+    runCount = 1;
   }
+  if (runCount > 0) into.set(runPacked, (into.get(runPacked) ?? 0) + runCount);
   return into;
 }
 

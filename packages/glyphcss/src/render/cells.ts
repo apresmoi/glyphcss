@@ -659,7 +659,16 @@ export function encodeGlyphBuffers(
       const glyph = char[index];
       assertGlyph(glyph, index);
       const nextColor = useColors && glyph !== " " ? color[index] ?? null : null;
-      if (useColors) assertColor(nextColor, index);
+      // A colour string IDENTICAL to the one the run is already anchored on
+      // was validated when that run opened, and `assertColor` is a pure
+      // function of the string — so only a CHANGE can be invalid. `runColor`
+      // is only ever assigned from an `assertColor`-validated `nextColor`
+      // (and starts `null`, which is valid), so by induction every value it
+      // holds has passed; a cell that differs from it still validates here,
+      // including one the `colorTolerance` anchor rule merges without
+      // re-anchoring. Identical throws at identical indices, and the regex
+      // stops running once per CELL and starts running once per RUN.
+      if (useColors && nextColor !== runColor) assertColor(nextColor, index);
       const nextWeight = useColors && glyph !== " " && weight ? weight[index]! : 0;
       if (useColors && weight) assertWeight(nextWeight, index);
       const extendsColorRun = colorRunExtends(colorPackCache, tolerance2, runColor, nextColor);
@@ -929,13 +938,32 @@ export function encodeGlyphAtlas(
   let packedPalette: number[] | null = null;
 
   const lines: string[] = [];
+  // The PREVIOUS cell's `(glyph, colour)` and the unit string it produced.
+  // A cell repeating both produces the same code point by definition — every
+  // step between them (`assertGlyph`, `assertColor`, the slot lookup, the
+  // atlas index lookup, `String.fromCodePoint`) is a pure function of those
+  // two strings — so the whole per-cell body collapses to one `+=`. That is
+  // the common case by a wide margin: a rasterized row is runs of one
+  // Lambert-shaded colour, and these grids average 17 cells per colour run.
+  // Nothing is cached ACROSS a change, so a grid whose every cell differs
+  // pays only the two compares.
+  let prevGlyph: string | undefined;
+  let prevColor: string | null = null;
+  let prevUnit = "";
   for (let row = 0; row < rows; row++) {
     let line = "";
     for (let col = 0; col < cols; col++) {
       const index = row * cols + col;
       const glyph = char[index];
+      if (glyph === prevGlyph && (glyph === " " || (color[index] ?? null) === prevColor)) {
+        line += prevUnit;
+        continue;
+      }
       assertGlyph(glyph, index);
       if (glyph === " ") {
+        prevGlyph = " ";
+        prevColor = null;
+        prevUnit = " ";
         line += " ";
         continue;
       }
@@ -968,7 +996,11 @@ export function encodeGlyphAtlas(
       if (codePoint === undefined) {
         throw new TypeError(`glyphcss: atlas cell ${index} glyph ${JSON.stringify(glyph)} is not in the font atlas — call isGlyphAtlasEncodable first.`);
       }
-      line += String.fromCodePoint(codePoint);
+      const unit = String.fromCodePoint(codePoint);
+      prevGlyph = glyph;
+      prevColor = c;
+      prevUnit = unit;
+      line += unit;
     }
     lines.push(line);
   }

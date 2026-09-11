@@ -296,3 +296,206 @@ architectural enough to belong to the architect.
    at a high tilt is the stamped `line`/`symbol` layers over an empty raster
    grid, so the pose at which the picture "goes" is a statement about the
    strokes, not about the horizon.
+
+---
+
+## The string encoders, and the 6.56 ms that was not them
+
+A previous pass reported that `solidBufToString` — the encoder that turns the
+finished cell grid into the string assigned to `<pre>.textContent` — was
+**6.56 ms of the 13.96 ms `base-raster`** on the street-level walk frame, 47%
+of it and the largest single remaining item. **It is 0.27 ms.** The number was
+real and the attribution was not, and the misattribution is worth recording
+because the field that produced it is still there and still called `string`.
+
+`bench/maps-trace` reports `stringMs` from glyphcss's own
+`__glyphPerfDetail.string` probe, which spans from the end of the triangle loop
+(`rasterize.ts`, the `__tLoop` stop) to the function's return. Between those two
+points sit the supersample downsample, temporal reprojection, the buffer
+plumbing, **`applyCellHook` — the whole of `@glyphcss/maps`' composed
+`transformCells` stamp** — and only then the encoder. Measured in the real page
+with a probe on each (walk-city, 1440x900, grid 140x63, `astro preview`,
+headless, `--walk-look 0`, 176 renders):
+
+| inside the probe's window | ms/render | share |
+|---|---|---|
+| `applyCellHook` (the maps stroke/contour stamp) | **6.30** | 96% |
+| `solidBufToString` | 0.27 | 4% |
+| downsample / TAA / plumbing | ~0.02 | — |
+| — total, i.e. the reported `stringMs` | 6.59 | |
+
+The previous pass's own CPU profile agreed all along and was not read that way:
+`encodeGlyphBuffers` sits at 68.32 ms of self time over a 6,769.8 ms span and
+274 frames — **0.249 ms/frame** — while `drapedRunPerCell`,
+`stampGlyphMapPolyline`, `stamp`, `vertexAt` and `glyphMapGeoTileElevationAt`
+together carry 962 ms, i.e. ~3.5 ms/frame of self time inside that same window.
+
+So **the largest single item in the walk frame is `@glyphcss/maps`' own
+per-render `transformCells` stamp at 6.3 ms of an 11 ms `base-raster`**, not
+anything in glyphcss's string path. That is the next target, and it is in the
+maps package.
+
+### What the encoders do cost, and the three run-aware short-circuits
+
+Measured the same way, per render, walk-city at 140x63. The page ships
+`colorEncoding: "atlas"`; the bench defaults to `spans`, so both are given.
+
+| phase | spans | atlas |
+|---|---|---|
+| `isGlyphAtlasEncodable` | — | 0.124 |
+| palette resolve (`histogramGridColors` is 97% of it) | — | 0.390 |
+| `encodeGlyphAtlas` | — | 0.348 |
+| `encodeGlyphBuffers` | 0.272 | — |
+| **`solidBufToString` total** | **0.272** | **0.868** |
+
+Decomposed by ablation on the real captured grids, the cost is not the string
+building — it is **per-cell revalidation of a colour the encoder has already
+seen**. `assertColor` is a regex (`/^#[\da-f]{6}$/i`) per non-blank cell and is
+52% of the spans encoder and 48% of the atlas encoder; `packHexColor` is the
+same regex plus a `parseInt` per cell inside the histogram. A rasterized grid
+is runs of one Lambert-shaded colour — these grids measure **17 cells per
+colour run** — so all three passes were re-deriving, per cell, what the run had
+already established.
+
+Three short-circuits, each keyed on a string the pass is already holding:
+
+- **`encodeGlyphBuffers` validates a colour only when it DIFFERS from the run's
+  anchor.** `runColor` is only ever assigned from an `assertColor`-validated
+  `nextColor` and starts `null`, so by induction every value it holds has
+  passed; a cell that differs still validates at its own index, including one
+  the `colorTolerance` anchor rule merges without re-anchoring. Widening the
+  test from "same string" to "extends the run" is a hole, not a refinement:
+  `#ff0000x` is not a colour, but `parseInt` stops at the `x` and packs it to
+  the anchor's own value, so the tolerance test accepts it and never looks at
+  the string (`cells.test.ts` has that exact cell).
+- **`encodeGlyphAtlas` collapses a cell repeating the previous cell's
+  `(glyph, colour)`** to one `+=` of the unit it already produced. Every step
+  between that pair and the code point — both asserts, the slot lookup, the
+  atlas index lookup, `String.fromCodePoint` — is a pure function of those two
+  strings. Nothing is cached across a change, so a grid where every cell
+  differs pays two compares.
+- **`histogramGridColors` counts a RUN at a time.** Counts are unchanged and so
+  is the map's INSERTION ORDER — `medianCutPalette` and the quantizer's drift
+  walk both iterate it, so a reordering would be a silent recolouring — because
+  a run is always flushed before the next one opens, which makes first-flush
+  order equal first-occurrence order.
+
+Measured in the real page, same scene and probes:
+
+| phase | before | after |
+|---|---|---|
+| spans — `encodeGlyphBuffers` | 0.272 | **0.150** (−45%) |
+| atlas — palette resolve | 0.390 | **0.068** (−83%) |
+| atlas — `encodeGlyphAtlas` | 0.348 | **0.150** (−57%) |
+| atlas — `isGlyphAtlasEncodable` | 0.124 | 0.129 (unchanged) |
+| **`solidBufToString` total, atlas** | **0.868** | **0.347** (−60%) |
+| **`solidBufToString` total, spans** | **0.272** | **0.150** (−45%) |
+
+`isGlyphAtlasEncodable` is left alone: its own `validated` Set already
+memoizes per distinct colour, and a charCode hex test in place of its regex
+measured no better.
+
+That is 0.52 ms/render of an 11.4 ms `base-raster` in the encoding the page
+ships — worth taking, and ~4.5% of the frame, which is below what a `base-raster`
+A/B can resolve. It is reported as the phase measurement it is, not as an fps
+claim.
+
+Byte-identity was established by a differential run against faithful copies of
+the three previous bodies over randomized grids — valid and invalid colours and
+glyphs, blanks, holes, `colorTolerance` 0/32/200, weight buffers, and atlas
+palettes including empty and malformed ones — comparing both the returned string
+and the thrown message: **5,200 comparisons, 0 mismatches**. Three fidelity
+digests were taken before and after and are identical: the eight-waypoint globe
+digest at 140x63 (`7c8018579ed6601f01f438f9`) and at 283x105
+(`56a8f869c736f91f7b25ab79`), and a seven-pose street-level walk digest
+(`b26631e7bc93110a84eb9f9d`) over every `<pre>` the scene produces.
+
+### Where it does NOT pay: a scene at `density > 1`
+
+Measured at the reported OSM-density state (walk, every OSM row, `--osm-density
+2`, spans, headless, 1440x900, 140x63) the change is worth NOTHING: the whole
+frame is 112.2 ms before and 112.8 after, and `detail-encode` — 13 separated
+`<pre>`s encoded per render — is 10.95 ms before and 11.37 after, i.e. inside
+that state's very large run-to-run variance (262 long tasks, worst 1,280 ms).
+The reason is the shape of a detail grid: it is silhouette-fitted and mostly
+BLANK, and a blank cell never had a colour to validate in the first place. The
+win is a base-grid win, on the one grid that is dense and colour-bearing.
+
+### What did NOT pay
+
+- **A charCode hex validator in place of the regex.** 85 -> 89 µs on the real
+  grid: the regex is already cheap PER CALL, and what made it expensive was the
+  number of calls.
+- **`String.fromCharCode` in place of `String.fromCodePoint`** in the atlas
+  encoder. Every atlas code point is BMP, so it is available — and it measured
+  291 -> 287 µs, inside noise. The code point was never the cost.
+- **Interning the span prefix/suffix, or building into a preallocated code-unit
+  buffer.** Removing `escapeGlyphHtml` entirely measured 213 -> 223 µs, i.e.
+  nothing, and the residual after the asserts are gone is 89 µs for 8,820 cells
+  — V8's cons-string `+=` and one `join` are not what to attack.
+
+### The cross-layer occlusion id-map ignores `Polygon.hidden`
+
+Found while pricing the `/maps` OSM density cliff, and reported rather than
+fixed because it is not byte-identical. Every polygon loop in
+`render/rasterize.ts` skips `poly.hidden` — the paint loop, the wireframe loop,
+the ink loop, both shadow passes — except `computeOcclusionIds`'s, which
+projects and depth-rasters the polygon and CLAIMS its cells for that layer.
+Shown directly: a base quad in front of a detail quad claims all 64 cells of an
+8x8 id-map, and claims the same 64 with `hidden: true`.
+
+Two consequences, and both bite exactly where the cliff is. A layer that
+actually paints those cells is blanked at them, so the consumer's own cull
+punches holes in whatever is behind it; and `@glyphcss/maps`' walk-mode wall
+cull hides **38,954 of 45,726 extrusion polygons (85%)** — the whole point of
+the `Polygon.hidden` form landed in the previous pass — every one of which the
+id-map still projects and rasters once per render. The one-line skip that fixes
+both changes what gets blanked, so it is the architect's call, not a
+performance change.
+
+### The `/maps` OSM density cliff, priced
+
+Measured on the same build, walk mode, every OSM row, spans, headless,
+1440x900, grid gate 140x63 held on both rows, `--walk-look 0`:
+
+| | density 1 | density 2 |
+|---|---|---|
+| fps | 67.1 | **8.8** |
+| task ms/frame | 12.42 | **112.78** |
+| renders/frame | 0.73 | 1.04 |
+| base pass polys | 107,143 | **17,002** |
+| `base-raster` | 11.24 | 2.84 |
+| `detail-project` | — | **50.63** |
+| `detail-encode` | — | 11.37 |
+| `detail-raster` | — | 6.49 |
+| `commit-write` | 0.81 | 2.32 |
+| long tasks | 2, worst 231 ms | **262, worst 1,280 ms** |
+
+The geometry LEAVES the base grid — `base-raster` falls by 8.4 ms and the base
+pass loses 90,141 polygons — and comes back as 68.5 ms spread over 13 separated
+passes, plus ~23 ms/frame of script that lands in no stage at all, which is
+where `computeOcclusionIds` sits (it runs before the `base-validate` marker).
+`detail-project` alone is half the frame.
+
+**This is not one cost, it is three, and only one of them is a renderer
+inefficiency.** (1) Thirteen rows separating means thirteen full rasterizer
+passes, which is the documented price of the feature — "each distinct mode is a
+full extra rasterizer pass — reach for it per layer, not per mesh" — and the
+card's one slider writes every row at once. (2) `computeOcclusionIds` rasters
+the whole scene into the shared id-map once per render the moment ONE opaque
+detail layer exists; the README already prices that at +10.4 ms/frame for a
+65,312-polygon globe and a ONE-QUAD probe, and here it is 107,143 polygons at
+street level. (3) That id-map raster is the only polygon loop in
+`render/rasterize.ts` with neither the pre-projection cull runs nor the
+`Polygon.hidden` skip — so it pays for the 681-of-1,444 runs that sit wholly
+behind the walker's head AND for the 38,954 walls (85%) the wall cull has
+already hidden.
+
+The tractable lever is (3), and it is two separate changes. Threading the
+existing `cullChunks` through `computeOcclusionIds` is byte-identical by the
+same argument the base pass's cull rests on — a run whose box projects entirely
+off the grid claims no cell — but needs the `doubleSided` flag respected (a
+double-sided scene's back faces do claim) and a fidelity gate at `density > 1`,
+which none of the three digests currently covers. Honouring `Polygon.hidden` is
+NOT byte-identical and is the architect's call; it is written up above as a
+defect, not a tuning. Neither is taken here.
