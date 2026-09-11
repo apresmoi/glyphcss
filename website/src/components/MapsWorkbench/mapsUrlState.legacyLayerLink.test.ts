@@ -37,6 +37,8 @@ import {
   mapsCodec,
   mapsLayerVisibilityFromMask,
   mapsOsmSublayersFromMask,
+  mapsDatasetRowsFromMask,
+  mapsLiveFeedsFromMask,
   readInitialMapsState,
   type MapsUrlState,
 } from "./mapsUrlState";
@@ -73,6 +75,11 @@ function expectDefaultMapContent(state: MapsUrlState): void {
   expect(mapsLayerVisibilityFromMask(state.layerMask)).toEqual({
     terrain: true, borders: true, contour: false, osm: false,
     fill: false, symbol: false, circle: false, heatmap: false, "fill-extrusion": false, model: false,
+    // Appended with the Datasets card (bit 10). It is `false` here because
+    // every one of these links was written before that bit existed, so their
+    // masks have it clear — which is the whole guarantee this file exists to
+    // pin, restated for one more key.
+    datasets: false,
     // Appended after every link in this file was written, so it reads OFF on
     // all of them — which is the whole point of the append-only rule, and
     // doubly right here: a live row spends the reader's own rate budget and
@@ -89,6 +96,32 @@ function expectDefaultMapContent(state: MapsUrlState): void {
   // links could not tell that that was a break — every one of them has the
   // card OFF, so nothing rendered either way. `mapsUrlState.osmDefaultLink.test.ts`
   // covers the link that has it ON, which is where it did render.
+  // Same shape, one card along: `q` is absent from every one of these links,
+  // so it decodes to the FROZEN `MAPS_DATASET_MASK_LINK_DEFAULT` — no rows
+  // armed. Spelled out as a literal `0` rather than read off that constant,
+  // for the reason the layer record above is spelled out: an expectation
+  // computed from the constant under test moves with it.
+  expect(state.datasetMask).toBe(0);
+  expect(mapsDatasetRowsFromMask(state.datasetMask)).toEqual({
+    "ds-regions": false, "ds-marine": false, "ds-cables": false,
+    "ds-datacenters": false, "ds-dams": false,
+  });
+  // ...and both per-row tuples at their own defaults, so no row is sharpened
+  // and no label is displaced by a link that never mentioned either.
+  expect(state.datasetDensities).toEqual([1, 1, 1, 1, 1]);
+  expect(state.datasetLabelAnchors).toEqual([0, 0, 0, 0, 0]);
+  // And the LIVE card, one card further along, on exactly the same rule:
+  // `0` and `1` are absent from every one of these links, so the rows read
+  // off and every row's window reads its own frozen default. Literals again,
+  // never `MAPS_URL_DEFAULTS` — the point is that an old link is pinned
+  // against a NUMBER, not against whatever the constant says today. `[2, 4,
+  // 4, 4]` is week/all/all/all, the URL each row fetched before the control
+  // existed.
+  expect(state.liveMask).toBe(0);
+  expect(mapsLiveFeedsFromMask(state.liveMask)).toEqual({
+    quakes: false, disasters: false, launches: false, satellites: false,
+  });
+  expect([...state.liveWindows]).toEqual([2, 4, 4, 4]);
   expect(mapsOsmSublayersFromMask(state.osmMask)).toEqual({
     "omt-landcover": false, "omt-landuse": false, "omt-water": true, "omt-waterways": true,
     "omt-roads": true, "omt-buildings": false, "omt-boundaries": true, "omt-places": false,
@@ -189,7 +222,7 @@ describe("/maps: real pre-existing links still decode to exactly what they decod
     // positional once a field is entered), but a new token reusing an
     // existing field's letter would silently reinterpret it.
     const live = new Set(["p", "e", "x", "y", "s", "t", "P", "g", "c", "E", "u", "d", "S", "a", "v", "k", "K", "i", "A", "n", "j", "h", "b", "F", "C", "m"]);
-    for (const token of ["L", "O", "T", "B", "N", "Q", "W", "X", "Y", "Z", "H", "G", "I", "R", "U", "V", "M", "w", "J"]) {
+    for (const token of ["L", "O", "T", "B", "N", "Q", "W", "X", "Y", "Z", "H", "G", "I", "R", "U", "V", "M", "w", "J", "l", "f", "o", "q", "r", "z", "0", "1"]) {
       expect(live.has(token)).toBe(false);
     }
   });

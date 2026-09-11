@@ -1,0 +1,16 @@
+Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported
+(CC BY-NC-SA 3.0)
+
+https://creativecommons.org/licenses/by-nc-sa/3.0/
+
+The data file in this directory (cables.json) is derived from the
+TeleGeography Submarine Cable Map (https://www.submarinecablemap.com)
+and is licensed under CC BY-NC-SA 3.0. It is NOT covered by the MIT
+licence at the root of this repository, which applies to this project's
+own source code.
+
+You may share and adapt this data for NON-COMMERCIAL purposes, provided
+you credit TeleGeography and distribute any adaptation under these same
+terms. Commercial use requires a licence from TeleGeography.
+
+Attribution: (c) TeleGeography - www.submarinecablemap.com

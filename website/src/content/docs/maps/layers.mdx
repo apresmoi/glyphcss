@@ -57,6 +57,29 @@ Every layer except `background` and `model` takes a `source`.
 - Every vector layer takes a `GlyphMapVectorSource`: a static
   `GlyphMapVectorFeatureCollection`, or a `GlyphMapVectorProvider`.
 
+A **static collection** is the right shape for a dataset small enough to fetch
+whole — a few thousand features rather than a pyramid — and it carries its own
+provenance, so the credit follows the layer:
+
+```ts
+const cables: GlyphMapVectorFeatureCollection = {
+  features,  // { properties, geometryType, rings }
+  attribution: [{ name: "TeleGeography", license: "CC BY-NC-SA 3.0", url: "https://www.submarinecablemap.com" }],
+};
+
+const id = map.addLayer({ type: "line", source: cables, color: "#e8a33d" });
+map.getAttributions();   // → [{ name: "TeleGeography", … }]
+map.removeLayer(id);
+map.getAttributions();   // → []
+```
+
+`geometryType` decides how the rings are read (`"point"` — one coordinate per
+ring; `"line"` — one open polyline per ring; `"polygon"` — one closed ring each,
+or `polygons` for hole groups). The [maps workbench](/maps)'s **Datasets** card
+mounts five such collections — submarine cables, data centres, dams and Natural
+Earth's land and marine regions — as `line`, `circle`, `symbol` and `fill`
+layers with no package-side machinery at all.
+
 ### Filtering features
 
 Every vector-source layer takes `filter`, a plain predicate applied **after**
@@ -420,8 +443,10 @@ map.addLayer({
 });
 ```
 
-The only layer that carries its own `attribution`, because it is the only one
-whose data did not come through a source that declares its own.
+The only LAYER that carries its own `attribution`, because it is the only one
+with no source to declare it. Every other layer takes the credit off its
+source — a provider's `attribution`, a geo tile's, or a static
+[feature collection's](#sources).
 
 ## Markers
 

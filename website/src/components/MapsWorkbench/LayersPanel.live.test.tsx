@@ -85,6 +85,12 @@ function inputs(liveOverrides: Partial<LiveLayerInputs> = {}): LayersFolderInput
       sublayers: MAP_OSM_SUBLAYERS.map((s) => ({ ...s, on: false, density: 1, anchor: MAP_OSM_DEFAULT_ANCHOR })),
       onSublayer: noop, onSublayerDensity: noop, onSublayerAnchor: noop,
     },
+    // The Datasets card is a sibling on the same rail; this file is about
+    // the Live one, so it is supplied inert exactly as `osm` above is.
+    datasets: {
+      visible: false, onVisible: noop, source: "nothing fetched yet", failed: null,
+      rows: [], onRow: noop, onRowDensity: noop, onRowAnchor: noop,
+    },
     live: {
       visible: true, onVisible: noop,
       feeds: MAP_LIVE_FEEDS.map((spec) => feed({ id: spec.id, label: spec.label, tooltip: spec.tooltip })),

@@ -46,6 +46,7 @@ import {
 // so the OSM card can read its own cost rule from the same place the page's
 // mount path does rather than restating it.
 import { mapOsmStrokeOverlayCount, mapOsmSublayerTooltip } from "./mapsOsm";
+import { mapDatasetRowTooltip } from "./mapsDatasets";
 import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // ── Projections ────────────────────────────────────────────────────────────
@@ -582,7 +583,7 @@ export function DensityRow({ label, density, onDensity, enabled }: {
  * stays inside `.maps-osm-row-widget` — the same flex head of the same
  * WIDGET column — it lands in the same place it does on every other row,
  * with the value column simply empty. The set is derived from
- * {@link OSM_DENSITYLESS_TYPES} against each row's OWN type, never a list of
+ * {@link MAP_ROW_DENSITYLESS_TYPES} against each row's OWN type, never a list of
  * row ids, because the row list belongs to `@glyphcss/maps` and moves.
  *
  * **The `title` states what the row's own density COSTS**, and the answer
@@ -609,15 +610,15 @@ const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
   symbol: (label) => `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
   circle: (label) => `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
 };
-/** The two layer types the OSM card mounts that read no `density` at all — so their rows carry no density control. */
-const OSM_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
+/** The two layer types these cards mount that read no `density` at all — so their rows carry no density control. */
+const MAP_ROW_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
 
 /**
  * The one layer type on this card that DRAWS LABELS — so its rows, and only
  * its rows, carry the placement control below.
  *
  * Derived against each row's own type for the reason
- * {@link OSM_DENSITYLESS_TYPES} is, and the reason is not hypothetical here:
+ * {@link MAP_ROW_DENSITYLESS_TYPES} is, and the reason is not hypothetical here:
  * the row list belongs to `@glyphcss/maps` and it has moved twice already —
  * `Peaks` was a `circle` row before it became a labelled `symbol` one, and
  * `Protected areas`/`Water labels` were appended as `symbol` rows later. A
@@ -628,7 +629,7 @@ const OSM_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
  * there is no label to place. That is why this is its own set rather than
  * the complement of the density one.
  */
-const OSM_LABEL_TYPES = new Set(["symbol"]);
+const MAP_ROW_LABEL_TYPES = new Set(["symbol"]);
 
 /**
  * The placements the row control offers, out of the nine
@@ -768,14 +769,27 @@ function LiveFeedRow({ row, onToggle, onWindow }: {
   );
 }
 
-function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
-  row: OsmSublayerInputs;
+/**
+ * One row of a multi-row card.
+ *
+ * `titles` and `tooltip` are props rather than the OSM tables inlined,
+ * because those two ARE the card-specific half: what a row's density costs
+ * depends on the card's own mounted set (three OSM stroke rows sharing one
+ * overlay grid is a fact about that card), and what a row IS is the card's
+ * own vocabulary. Everything else — which types get a density control, which
+ * get a placement control, the markup, the disabled/dimmed states — is
+ * derived from the row's own `type` and is genuinely shared.
+ */
+function MapLayerRow({ row, titles, tooltip, onToggle, onDensity, onAnchor }: {
+  row: MapLayerRowInputs;
+  titles: Record<string, (label: string) => string>;
+  tooltip: (id: string) => string | null;
   onToggle: (on: boolean) => void;
   onDensity: (v: number) => void;
   onAnchor: (anchor: GlyphMapLabelAnchor) => void;
 }) {
-  const wired = !OSM_DENSITYLESS_TYPES.has(row.type);
-  const labelled = OSM_LABEL_TYPES.has(row.type);
+  const wired = !MAP_ROW_DENSITYLESS_TYPES.has(row.type);
+  const labelled = MAP_ROW_LABEL_TYPES.has(row.type);
   return (
     <label
       // `maps-osm-row--density-off`, NOT `maps-layer-slider--off`: on this
@@ -785,7 +799,7 @@ function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
       // is dead" about a control that is not. A densityless row never takes
       // it: there is nothing there to dim.
       className={`voice-slider maps-layer-slider maps-layer-bool-row maps-osm-row${wired && !row.on ? " maps-osm-row--density-off" : ""}${labelled ? " maps-osm-row--labelled" : ""}`}
-      title={OSM_DENSITY_TITLES[row.type]?.(row.label) ?? `${row.label} — the OpenMapTiles source layer this maps onto (OpenStreetMap data, ODbL).`}
+      title={titles[row.type]?.(row.label) ?? row.label}
     >
       {/*
         The row's NAME carries what the layer IS; the `title` on the `<label>`
@@ -799,7 +813,7 @@ function OsmSublayerRow({ row, onToggle, onDensity, onAnchor }: {
         test (`mapsOsm.tooltips.test.ts`) rather than something to paper over
         here.
       */}
-      <span title={mapOsmSublayerTooltip(row.id) ?? undefined}>{row.label}</span>
+      <span title={tooltip(row.id) ?? undefined}>{row.label}</span>
       <span className="maps-osm-row-widget">
         <span className="layer-group-check maps-layer-bool-check">
           <input type="checkbox" checked={row.on} onChange={(e) => onToggle(e.target.checked)} />
@@ -1269,18 +1283,28 @@ function ElevationWindowRow({ end, value, onChange, track, title }: {
  * What is left is one provenance row and, only while it is true, one line
  * saying that some tiles did not arrive.
  */
-/** One row of the OpenStreetMap card: a mapped OpenMapTiles layer, its toggle state and its own glyph density. */
-export interface OsmSublayerInputs {
+/**
+ * One row of a MULTI-ROW layer card: what it is called, which glyph layer
+ * type it mounts as, whether it is on, and the two per-row settings only some
+ * types read.
+ *
+ * Shared by the OpenStreetMap card and the Datasets card rather than
+ * duplicated. The row's BEHAVIOUR is derived from its own `type` in both
+ * cases ({@link MAP_ROW_DENSITYLESS_TYPES}, {@link MAP_ROW_LABEL_TYPES}), so
+ * one shape genuinely serves both — the cards differ in where their rows come
+ * from and what their tooltips say, not in what a row IS.
+ */
+export interface MapLayerRowInputs {
   readonly id: string;
   readonly label: string;
-  /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether the row gets a density control at all (`OSM_DENSITYLESS_TYPES`). */
+  /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether the row gets a density control at all (`MAP_ROW_DENSITYLESS_TYPES`). */
   readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle";
   readonly on: boolean;
   /** This row's own density. Ignored for a `symbol`/`circle` row, which renders no density control. */
   readonly density: number;
   /**
    * Where this row's labels sit relative to their own point — MapLibre's
-   * `text-anchor`. Read only by a `symbol` row (`OSM_LABEL_TYPES`); every
+   * `text-anchor`. Read only by a `symbol` row (`MAP_ROW_LABEL_TYPES`); every
    * other row carries the field and renders no control for it, exactly as
    * `density` is carried and ignored by the two types that read none.
    */
@@ -1294,7 +1318,7 @@ export interface OsmLayerInputs {
   /** `null` when every tile arrived; otherwise how many did not (`mapOsmMissingTilesLabel`). */
   missing: string | null;
   /** One row per mapped OpenMapTiles layer (`GLYPH_MAP_OPENMAPTILES_LAYERS`). */
-  sublayers: readonly OsmSublayerInputs[];
+  sublayers: readonly MapLayerRowInputs[];
   onSublayer: (id: string, on: boolean) => void;
   /**
    * A single row's density. Writes THAT row and nothing else — the card's
@@ -1311,6 +1335,48 @@ export interface OsmLayerInputs {
    */
   onSublayerAnchor: (id: string, anchor: GlyphMapLabelAnchor) => void;
 }
+
+/**
+ * The DATASETS card's inputs — five static reference datasets, mirroring
+ * {@link OsmLayerInputs} row for row because they are the same kind of card:
+ * a set of independent layers off one theme, each with its own toggle and,
+ * where its type has one, its own density and its own label placement.
+ *
+ * What it does NOT mirror is a `missing` line. The OSM card streams tiles
+ * and a tile can fail to arrive for one region while the rest of the frame
+ * draws; these are five whole files that either loaded or did not, so a
+ * failure is stated as the row simply not being loaded yet — which
+ * {@link source} already reports.
+ */
+export interface DatasetsLayerInputs {
+  visible: boolean; onVisible: (v: boolean) => void;
+  /** How many of the card's files the reader has actually fetched (`mapDatasetSourceLabel`) — the card's provenance row. */
+  source: string;
+  /** `null` when nothing failed; otherwise the rows whose file did not load. */
+  failed: string | null;
+  rows: readonly MapLayerRowInputs[];
+  onRow: (id: string, on: boolean) => void;
+  onRowDensity: (id: string, density: number) => void;
+  onRowAnchor: (id: string, anchor: GlyphMapLabelAnchor) => void;
+}
+
+/**
+ * What each DATASETS row's density costs — the same per-TYPE split the OSM
+ * card makes, because the cost is a property of the layer type and not of
+ * the card.
+ *
+ * The `line` text differs from the OSM card's in one way that matters: this
+ * card has exactly ONE stroke row, so there is no set of strokes to share a
+ * number with and the advice "give the strokes one shared number" would be
+ * advice about nothing. What is left is the true statement — one grid, one
+ * depth pass, paid the moment the row leaves 1x.
+ */
+const DATASET_DENSITY_TITLES: Record<string, (label: string) => string> = {
+  line: (label) => `${label} density — above 1x this row is stamped into its OWN full-viewport overlay grid with its own geometry depth pass, which is a real per-frame cost (measured at 140x63: 6.6 ms/render with no overlay, 27.4 ms with one at 2x). At 1x it stamps into the grids the scene already produces and costs nothing.`,
+  fill: (label) => `${label} density — free to differ. This row renders in its own pass at any value above 1x, so a number of its own costs no more than sharing one.`,
+  symbol: (label) => `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+  circle: (label) => `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+};
 
 /**
  * One row of the LIVE card, already reduced to strings.
@@ -1372,6 +1438,7 @@ export interface LayersFolderInputs {
   fill: ExtraLayerInputs; symbol: ExtraLayerInputs; circle: ExtraLayerInputs;
   heatmap: ExtraLayerInputs; fillExtrusion: ExtraLayerInputs; model: ExtraLayerInputs;
   osm: OsmLayerInputs;
+  datasets: DatasetsLayerInputs;
   live: LiveLayerInputs;
 }
 
@@ -1522,7 +1589,7 @@ export interface ExtraLayerInputs {
   glyphPalette?: MapLayerGlyphPalette; onGlyphPalette?: (v: MapLayerGlyphPalette) => void;
 }
 
-export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model, osm, live }: LayersFolderInputs) {
+export function LayersPanel({ background, terrain, borders, contour, fill, symbol, circle, heatmap, fillExtrusion, model, osm, datasets, live }: LayersFolderInputs) {
   const extra = (label: string, value: ExtraLayerInputs) => <LayerCard label={label} visible={value.visible} onVisible={value.onVisible}>
     <ColorRow value={value.color} onChange={value.onColor} />
     {value.dataset && (
@@ -1719,9 +1786,11 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
           );
         })()}
         {osm.sublayers.map((s) => (
-          <OsmSublayerRow
+          <MapLayerRow
             key={s.id}
             row={s}
+            titles={OSM_DENSITY_TITLES}
+            tooltip={mapOsmSublayerTooltip}
             onToggle={(v) => osm.onSublayer(s.id, v)}
             onDensity={(v) => osm.onSublayerDensity(s.id, v)}
             onAnchor={(v) => osm.onSublayerAnchor(s.id, v)}
@@ -1729,7 +1798,41 @@ export function LayersPanel({ background, terrain, borders, contour, fill, symbo
         ))}
       </LayerCard>
       {/*
-        LIVE. Every row is a public, keyless, openly-licensed feed read
+        DATASETS, below OpenStreetMap: these are OVERLAYS on whatever basemap
+        is underneath, and the rail reads top-to-bottom as ground first, then
+        what is drawn on it. Live sits below it, on the same reading.
+      */}
+      <LayerCard label="Datasets" visible={datasets.visible} onVisible={datasets.onVisible}>
+        <InfoRow label="loaded" value={datasets.source} />
+        {/*
+          Only while it is true, exactly as the OSM card's missing-tiles line
+          is: a file that 404s leaves its row switched on and drawing nothing,
+          which is the "did I break it" reading a card has to answer rather
+          than let the reader guess at.
+        */}
+        {datasets.failed === null ? null : (
+          <div
+            className="maps-layer-info-row"
+            title="Rows whose data file did not load. The row stays armed and draws nothing; every other row is unaffected."
+          >
+            <span>failed</span>
+            <span className="maps-layer-info-value maps-layer-info-warn">{datasets.failed}</span>
+          </div>
+        )}
+        {datasets.rows.map((row) => (
+          <MapLayerRow
+            key={row.id}
+            row={row}
+            titles={DATASET_DENSITY_TITLES}
+            tooltip={mapDatasetRowTooltip}
+            onToggle={(v) => datasets.onRow(row.id, v)}
+            onDensity={(v) => datasets.onRowDensity(row.id, v)}
+            onAnchor={(v) => datasets.onRowAnchor(row.id, v)}
+          />
+        ))}
+      </LayerCard>
+      {/*
+        LIVE, last on the rail. Every row is a public, keyless, openly-licensed feed read
         straight from the reader's own browser, and every row is OFF by
         default — a live layer costs somebody else's bandwidth and a reader's
         own rate-limit budget, so it is opted into rather than out of. Each

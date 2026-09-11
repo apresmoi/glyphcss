@@ -22,6 +22,7 @@ import {
   type OsmLayerInputs,
 } from "./mapsKit";
 import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS, mapOsmSublayerTooltip } from "./mapsOsm";
+import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "./mapsDatasets";
 
 /**
  * The OSM card's row tooltips, on the RENDERED card.
@@ -74,6 +75,15 @@ function inputs(): LayersFolderInputs {
     fill: glyphOnly, symbol: extra(), circle: extra(), heatmap: glyphOnly,
     fillExtrusion: withMode, model: withMode,
     osm,
+    // The Datasets card is a sibling of the OSM card on the same rail and
+    // `LayersPanel` renders both; these files are about the OSM one, so it
+    // is supplied inert. `LayersPanel.datasets.test.tsx` is where it is
+    // exercised.
+    datasets: {
+      visible: false, onVisible: noop, source: "nothing fetched yet", failed: null,
+      rows: MAP_DATASET_ROWS.map((r) => ({ ...r, on: false, density: 1, anchor: MAP_DATASET_DEFAULT_ANCHOR })),
+      onRow: noop, onRowDensity: noop, onRowAnchor: noop,
+    },
     // The Live card's inputs in their default (card off, no rows) state —
     // this file is about the OSM card's tooltips.
     live: { visible: false, onVisible: noop, feeds: [], onFeed: noop },

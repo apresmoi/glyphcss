@@ -12,6 +12,7 @@ import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 import { DEFAULT_MAP_LIGHTING, MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode, type PointDataset } from "./mapsKit";
 import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_DEFAULT_DENSITY, MAP_OSM_DEFAULT_ON, MAP_OSM_LABEL_ANCHORS, type MapOsmAnchors } from "./mapsOsm";
 import { MAP_LIVE_FEEDS, type MapLiveWindowId } from "./mapsLive";
+import { MAP_DATASET_DEFAULT_DENSITY, MAP_DATASET_DEFAULT_ON, MAP_DATASET_ROWS } from "./mapsDatasets";
 
 // Includes "calibrated" — `DockRendering`'s glyph-palette dropdown always
 // offers it (registered as a side effect of importing that folder, see
@@ -240,6 +241,21 @@ export interface MapsUrlState {
    * `setWalk` itself throws on the first of those.
    */
   walk: boolean;
+
+  /**
+   * The DATASETS card's rows, as a bitfield over
+   * {@link MAPS_DATASET_ROW_KEYS} (token `q`).
+   *
+   * The card ITSELF is bit 10 of {@link layerMask}, appended to
+   * {@link MAPS_LAYER_KEYS} — the same two-level shape the OSM card has, and
+   * for the same reason: turning the card off has to survive a link without
+   * forgetting which rows were armed inside it.
+   */
+  datasetMask: number;
+  /** One density per dataset row, positional over {@link MAPS_DATASET_ROW_KEYS} (token `r`). Read only by the rows whose layer type has one — `fill` and `line`. */
+  datasetDensities: number[];
+  /** One label-placement INDEX into `MAP_OSM_LABEL_ANCHORS` per dataset row (token `z`). Read only by a `symbol` row, which today is Dams alone. */
+  datasetLabelAnchors: number[];
 }
 
 // ── Layer-content wire lists and their bitfields ──────────────────────────
@@ -256,7 +272,12 @@ export interface MapsUrlState {
 export const MAPS_LAYER_KEYS = [
   "terrain", "borders", "contour", "osm",
   "fill", "symbol", "circle", "heatmap", "fill-extrusion", "model",
-  // Appended when the page grew the LIVE card. Bit 10, so no existing link
+  // Appended when the DATASETS card landed (bit 10). Safe under the rule
+  // above precisely because it is appended and defaults OFF: an already-
+  // shared link's mask has this bit clear, so the card is absent there
+  // exactly as it always was.
+  "datasets",
+  // Appended when the page grew the LIVE card. Bit 11, so no existing link
   // changes meaning and a link written before this reads the card as OFF —
   // which is exactly what it was, and what a card of somebody else's
   // bandwidth should default to anyway.
@@ -320,6 +341,106 @@ export const MAPS_OSM_MASK_LINK_DEFAULT = osmMaskFor(MAPS_OSM_LINK_DEFAULT_ON);
 
 /** The rows the page opens on with no link at all ({@link MAP_OSM_DEFAULT_ON}) as the `O` bitfield. */
 export const MAPS_OSM_MASK_PAGE_DEFAULT = osmMaskFor(MAP_OSM_DEFAULT_ON);
+
+// ── The DATASETS card's wire lists ────────────────────────────────────────
+
+/**
+ * The dataset-row bitfield's key order (token `q`). Frozen HERE rather than
+ * derived from `MAP_DATASET_ROWS`, which is the same **APPEND-ONLY** rule and
+ * the same separation {@link MAPS_OSM_SUBLAYER_KEYS} lives under: the row list
+ * is a product decision and free to be reordered for how the card reads, and
+ * this list is a wire format and is not. `mapsUrlState.datasets.test.ts`
+ * cross-checks that the two still hold the same ids, so a reorder on the card
+ * goes red here instead of silently rewriting every shared link.
+ */
+export const MAPS_DATASET_ROW_KEYS = [
+  "ds-regions", "ds-marine", "ds-cables", "ds-datacenters", "ds-dams",
+] as const;
+
+/**
+ * What an OMITTED `q` token decodes to — **FROZEN**, and deliberately NOT
+ * derived from `MAP_DATASET_DEFAULT_ON`.
+ *
+ * The two constants are identical today (both empty: every dataset row opens
+ * off). They are still two constants, because the OSM card already paid for
+ * the lesson: its omission sentinel WAS derived from the page's opening set,
+ * and the day a row was appended to that set, `/maps?m=p3L1b` — a real shared
+ * link with no `O` of its own — went from mask 92 to 4188 and started
+ * labelling every ocean. Same string, different map. Holding the key ORDER
+ * still was not enough, because it was the omission DEFAULT that moved.
+ *
+ * So: this number is a statement about links already shared, and
+ * `MAP_DATASET_DEFAULT_ON` is a statement about a fresh page. If they ever
+ * diverge, a share written from a fresh page carries an explicit `q` and
+ * restores exactly what its author saw, while every older link keeps
+ * rendering what it always rendered.
+ */
+export const MAPS_DATASET_LINK_DEFAULT_ON: readonly string[] = [];
+
+const datasetMaskFor = (on: readonly string[]): number =>
+  MAPS_DATASET_ROW_KEYS.reduce((mask, key, i) => (on.includes(key) ? mask | (1 << i) : mask), 0);
+
+/** {@link MAPS_DATASET_LINK_DEFAULT_ON} as the `q` bitfield — 0. */
+export const MAPS_DATASET_MASK_LINK_DEFAULT = datasetMaskFor(MAPS_DATASET_LINK_DEFAULT_ON);
+/** The rows a fresh page opens on ({@link MAP_DATASET_DEFAULT_ON}) as the `q` bitfield. */
+export const MAPS_DATASET_MASK_PAGE_DEFAULT = datasetMaskFor(MAP_DATASET_DEFAULT_ON);
+
+/**
+ * The dataset per-row density and label-anchor tuples' FROZEN width (tokens
+ * `r` and `z`).
+ *
+ * One slot per row, frozen for the reason {@link MAPS_OSM_DENSITY_SLOTS} is
+ * frozen: a `floatTuple` reads exactly this many slots and then hands the
+ * cursor to the NEXT token, so the width IS the wire format — widening it in
+ * place would make every already-shared `r`/`z` link decode the token after
+ * it as a density. A sixth row means a SECOND token on the same rule, which
+ * is what `J` is to `M`. `mapsUrlState.datasets.test.ts` asserts this width
+ * still covers the row list exactly, so the breach is loud.
+ *
+ * ONE width for both tokens because they are indexed by the same list. They
+ * are two tokens rather than one wider tuple because they hold different
+ * quantities in different units, and a reader hand-reading a link should not
+ * have to know that slot 7 of one tuple is an anchor index.
+ */
+export const MAPS_DATASET_SLOTS = 5;
+
+/** Pack the page's dataset-row record into {@link MapsUrlState.datasetMask}. */
+export function mapsDatasetMaskFromRows(on: Readonly<Record<string, boolean>>): number {
+  return packBitmask(MAPS_DATASET_ROW_KEYS, on);
+}
+/** The inverse — always a complete record over {@link MAPS_DATASET_ROW_KEYS}. */
+export function mapsDatasetRowsFromMask(mask: number): Record<string, boolean> {
+  return unpackBitmask(MAPS_DATASET_ROW_KEYS, mask);
+}
+/** Pack the card's density record into {@link MapsUrlState.datasetDensities}. A row the record does not carry packs at 1x. */
+export function mapsDatasetDensitiesFromRecord(densities: Readonly<Record<string, number>>): number[] {
+  return MAPS_DATASET_ROW_KEYS.map((key) => densities[key] ?? MAP_DATASET_DEFAULT_DENSITY);
+}
+/** The inverse — always a complete record over {@link MAPS_DATASET_ROW_KEYS}; a short tuple (a hand-edited link) fills at 1x. */
+export function mapsDatasetDensityRecordFromTuple(tuple: readonly number[]): Record<string, number> {
+  return Object.fromEntries(MAPS_DATASET_ROW_KEYS.map((key, i) => [key, tuple[i] ?? MAP_DATASET_DEFAULT_DENSITY]));
+}
+/**
+ * Pack the card's placement record into {@link MapsUrlState.datasetLabelAnchors}.
+ *
+ * Indexed into `MAP_OSM_LABEL_ANCHORS` — the SAME vocabulary list the OSM
+ * card's `l` token uses, not a second one. `GlyphMapLabelAnchor` is one
+ * package-level vocabulary; giving this card its own copy would create two
+ * append-only lists that have to be kept in step for no gain.
+ */
+export function mapsDatasetAnchorsFromRecord(anchors: Readonly<Record<string, string>>): number[] {
+  return MAPS_DATASET_ROW_KEYS.map((key) => {
+    const index = MAP_OSM_LABEL_ANCHORS.indexOf(anchors[key] as (typeof MAP_OSM_LABEL_ANCHORS)[number]);
+    return index < 0 ? 0 : index;
+  });
+}
+/** The inverse — a short tuple or an out-of-vocabulary index both resolve to the centred default. */
+export function mapsDatasetAnchorRecordFromTuple(tuple: readonly number[]): MapOsmAnchors {
+  return Object.fromEntries(MAPS_DATASET_ROW_KEYS.map((key, i) => {
+    const anchor = MAP_OSM_LABEL_ANCHORS[tuple[i] ?? 0];
+    return [key, anchor ?? MAP_OSM_DEFAULT_ANCHOR];
+  })) as MapOsmAnchors;
+}
 
 /**
  * The LIVE card's row bitfield key order (token `0`). Same **APPEND-ONLY**
@@ -628,6 +749,14 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // Off, so a link that carries no `w` opens the map — which is what every
   // link ever shared describes, and what a reader expects a map link to be.
   walk: false,
+  // The FROZEN omission sentinel, not the page's opening set — see
+  // `MAPS_DATASET_MASK_LINK_DEFAULT`, which exists because the OSM card's
+  // equivalent was once derived and rewrote a real shared link.
+  datasetMask: MAPS_DATASET_MASK_LINK_DEFAULT,
+  datasetDensities: Array(MAPS_DATASET_SLOTS).fill(MAP_DATASET_DEFAULT_DENSITY),
+  // Slot 0 is `MAP_OSM_LABEL_ANCHORS[0]` — `"center"`, the placement a
+  // `symbol` layer has always drawn.
+  datasetLabelAnchors: Array(MAPS_DATASET_SLOTS).fill(0),
 };
 
 // `"orthographic"` (index 3) was a real, offered `MapProjectionId` before
@@ -890,10 +1019,40 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    and are untouched.
   { key: "terrainFloor", token: "f", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainFloor },
   { key: "terrainCeiling", token: "o", type: { kind: "float", step: 10 }, default: MAPS_URL_DEFAULTS.terrainCeiling },
+  // ── The DATASETS card. Appended after `f`/`o`, and for the tenth time with
+  //    the same consequence: the codec is TOKEN-keyed, so a link carrying
+  //    none of `q`/`r`/`z` decodes to no rows armed, every row at 1x and
+  //    every label centred — and the card itself is bit 10 of `L`, which an
+  //    already-shared mask has clear, so nothing about an old link's map
+  //    changes. No version bump; nothing was retired, and every existing
+  //    token still decodes character-for-character.
+  //
+  //    LAST, for the reason `M`, `w`, `J`, `l` and `f`/`o` each give —
+  //    `decodePacked` stops at the first token it does not recognize, so a
+  //    link written here and opened by a not-yet-updated build strands only
+  //    what is ordered after it, and there is nothing after it. `o` was that
+  //    token until now.
+  //
+  //    `q`, `r`, `z` in lower case: the token map is case-sensitive and every
+  //    upper-case letter was spent by `J`. **These are the last three
+  //    unclaimed LETTERS in the schema.** A future field must take a DIGIT
+  //    (`0`-`9`), which the codec accepts without change — `assertUniqueTokens`
+  //    requires only a unique single character, and `decodePacked` reads the
+  //    token at a fixed cursor starting after `p<version>`, so a digit there
+  //    is never ambiguous with the version char or with a base36 value.
+  //    Recorded here rather than left to be rediscovered.
+  //
+  //    `z` is safe despite `z` being the COMPRESSED-payload tag: that tag is
+  //    only ever read at `raw[0]` (`urlState.ts`'s `decode`), and a field
+  //    token is only ever read from index 2 on.
+  { key: "datasetMask", token: "q", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.datasetMask },
+  { key: "datasetDensities", token: "r", type: { kind: "floatTuple", length: MAPS_DATASET_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.datasetDensities },
+  { key: "datasetLabelAnchors", token: "z", type: { kind: "floatTuple", length: MAPS_DATASET_SLOTS, step: 1 }, default: MAPS_URL_DEFAULTS.datasetLabelAnchors },
   // ── The LIVE card's row bitfield. Appended LAST for the reason every
   //    token before it was: `decodePacked` stops at the first token it does
   //    not recognize, so a link written by this build and opened by an older
   //    one strands only what is ordered after this, and there is nothing.
+  //    `z` was that token until now.
   //
   //    A DIGIT, because the letters are gone — all 52 of `a-zA-Z` are spent,
   //    and the codec's only requirement on a token is that it be a unique
@@ -906,7 +1065,7 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   //    The card's own VISIBILITY is bit 10 of `L` (`MAPS_LAYER_KEYS`), not a
   //    token of its own — the same place every other card's is.
   { key: "liveMask", token: "0", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.liveMask },
-  // ── The LIVE card's per-row TIME WINDOW. Appended LAST, for the eleventh
+  // ── The LIVE card's per-row TIME WINDOW. Appended LAST, for the twelfth
   //    time and with the same consequence: `decodePacked` stops at the first
   //    token it does not recognize, so a link written here and opened by an
   //    older build strands only what is ordered after it, and there is
@@ -1029,6 +1188,14 @@ export function readInitialMapsState(): MapsUrlState {
     // applied to every enabled row, and the rows appended since are rows.
     osmDensitiesExt: decoded.osmDensitiesExt
       ?? Array(MAPS_OSM_DENSITY_EXT_SLOTS).fill(decoded.osmDensity ?? MAPS_URL_DEFAULTS.osmDensity),
+    // The DATASETS card, on exactly the rule the OSM card's `osmMask` above
+    // states: the page's own opening rows apply ONLY when there is no `m` at
+    // all (a fresh load, which describes no link); any `m` that omits `q` IS
+    // a link and takes the FROZEN `MAPS_URL_DEFAULTS.datasetMask`. The two
+    // are identical today (both empty) and are still written separately,
+    // because the whole point is that the page's set is free to move and the
+    // link's is not.
+    datasetMask: decoded.datasetMask ?? (packed ? MAPS_URL_DEFAULTS.datasetMask : MAPS_DATASET_MASK_PAGE_DEFAULT),
   };
   // `decoded` can carry the retired `terrainRenderMode` key at runtime when
   // it came from `mapsCodecLegacyV1`/`mapsCodecLegacyV2` (both still decode
