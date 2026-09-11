@@ -100,6 +100,59 @@ export interface GlyphMapFacadeOptions {
 }
 
 /**
+ * How many times taller than its own footprint is wide a band may be before
+ * its walls stop being a STOREY STACK and a facade on them is a lie.
+ *
+ * A vector tile carries no building type — measured on the live OpenFreeMap
+ * `building` layer, the whole of it is `render_height`, `render_min_height`,
+ * `hide_3d` and `colour`; `man_made=communications_tower` and `building=tower`
+ * are dropped by the schema, and the Fernsehturm survives only as a `poi`
+ * point classed `attraction`. So the mast has to be recognised from its own
+ * shape, and it separates cleanly: across three real z14 city tiles every
+ * genuine building tops out at 7.8 (Houston, 190 m over a 24 m footprint) and
+ * the first mast is at 8.5 (Berlin, 82 m over 9.7 m). Everything above the
+ * knee has a footprint under 18 m across — under any habitable floor plate —
+ * and it catches the Fernsehturm's own shaft (205 m over 11 m, 18.6) and each
+ * of its antenna bands (14.0, 23.9, 51.2) while leaving Houston's towers
+ * (4.0 to 7.8) textured. 2-4% of the features in those tiles.
+ */
+export const GLYPH_MAP_FACADE_MAX_SLENDERNESS = 8;
+
+/**
+ * Whether a band of `heightM` metres standing on a footprint `widthM` metres
+ * across should carry a facade at all — see
+ * {@link GLYPH_MAP_FACADE_MAX_SLENDERNESS}. A degenerate footprint answers
+ * false, which is the safe direction: it drops a texture, never geometry.
+ */
+export function glyphMapFacadeSuitsBand(widthM: number, heightM: number): boolean {
+  return widthM > 0 && heightM <= GLYPH_MAP_FACADE_MAX_SLENDERNESS * widthM;
+}
+
+/**
+ * The equivalent-circle diameter of a lon/lat ring, in metres — the footprint
+ * WIDTH {@link glyphMapFacadeSuitsBand} measures against.
+ *
+ * Area rather than a min/max extent because a terrace row is legitimately
+ * long and thin (200 m by 8 m) and every extent-based width either calls it a
+ * mast or calls a real mast a building; its area says 45 m across and it keeps
+ * its windows.
+ */
+export function glyphMapFootprintWidthMetres(ring: readonly (readonly [number, number])[]): number {
+  if (ring.length < 3) return 0;
+  let twice = 0;
+  let lat = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[(i + 1) % ring.length];
+    twice += x1 * y2 - x2 * y1;
+    lat += y1;
+  }
+  const M_PER_DEG = 111320;
+  const area = Math.abs(twice / 2) * M_PER_DEG * M_PER_DEG * Math.cos((lat / ring.length) * Math.PI / 180);
+  return area > 0 ? 2 * Math.sqrt(area / Math.PI) : 0;
+}
+
+/**
  * Tile counts for a wall of `lengthM` x `heightM` real metres.
  *
  * Rounded to whole tiles, never below one, so a wall ends on a pier instead of

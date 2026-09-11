@@ -4,7 +4,7 @@ import type { GlyphMapBounds, GlyphMapField } from "./types";
 import { glyphMapTrueScaleElevation, type GlyphMapProjection } from "./projection";
 import { localOrientation, localUpDirection } from "./mesh";
 import type { GlyphMapVectorFeature } from "./vector/types";
-import { glyphMapFacadeTiles, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
+import { glyphMapFacadeSuitsBand, glyphMapFacadeTiles, glyphMapFootprintWidthMetres, glyphMapMetresBetween, type GlyphMapFacadeOptions } from "./facade";
 
 /**
  * Which part of the LABEL is placed at its anchor point — MapLibre's
@@ -1038,6 +1038,15 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       const flip = up !== null && dot(ringNormal(top[0]), up) < 0;
       // See the floor emission below the cap loop for why this is the gate.
       const wantFloor = height > 0 && baseOffset > 0;
+      // A band far taller than its own footprint is wide is a MAST, not a
+      // storey stack, and window bays on it are a lie the data cannot correct
+      // — a vector tile carries no building type at all. See
+      // `GLYPH_MAP_FACADE_MAX_SLENDERNESS` for the measured knee. Resolved per
+      // GROUP, the same piece of structure the ground and the cap plane are
+      // resolved for, so one wall of a mast can never disagree with the next.
+      const facade = options.facade && glyphMapFacadeSuitsBand(glyphMapFootprintWidthMetres(rings[0]), heightMetres)
+        ? options.facade
+        : undefined;
 
       // earcut indexes the rings concatenated in this same order, so `capLonLat`
       // is its index space and needs no per-ring arithmetic to read back.
@@ -1208,12 +1217,12 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
             if (!finite(bi) || !finite(bj) || !finite(ti) || !finite(tj)) continue;
             const wall: Polygon = { vertices: flip ? [bj, bi, ti, tj] : [bi, bj, tj, ti] };
             if (color) wall.color = color;
-            if (options.facade) {
+            if (facade) {
               // Both vertex orders run base-edge first then top-edge back, so
               // one UV quad serves either winding — `flip` only mirrors u
               // across the wall, which a tiling facade is symmetric under.
-              const { bays, floors } = glyphMapFacadeTiles(glyphMapMetresBetween(previous, b), heightMetres, options.facade);
-              wall.texture = options.facade.texture;
+              const { bays, floors } = glyphMapFacadeTiles(glyphMapMetresBetween(previous, b), heightMetres, facade);
+              wall.texture = facade.texture;
               wall.textureWrap = { s: "repeat", t: "repeat" };
               wall.uvs = [[0, 0], [bays, 0], [bays, floors], [0, floors]];
             }
