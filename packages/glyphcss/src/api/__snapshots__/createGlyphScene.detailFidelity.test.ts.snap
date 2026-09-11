@@ -1,0 +1,36 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`detail-layer fidelity digest (density > 1) > is unchanged across the ortho scene table 1`] = `
+{
+  "per": {
+    "alpha/front": "6a4068f5395de35c",
+    "alpha/iso": "3b5b3101168f5780",
+    "alpha/tilt": "6ed37ca0a53d4625",
+    "claims/front": "cb8b91d5eb400308",
+    "claims/iso": "168ce975a633b1f1",
+    "claims/tilt": "52658507770e2102",
+    "density/front": "b3d8534500f2b38b",
+    "density/iso": "8c9b48bd4b8f635a",
+    "density/tilt": "d3e81129db372745",
+    "group/front": "ff4e9eb477d9c757",
+    "group/iso": "a09814c74ad6f042",
+    "group/tilt": "b6aacfdb1003cae1",
+    "supersample/front": "daaf6690d0340f2b",
+    "supersample/iso": "de96de7ca23337ae",
+    "supersample/tilt": "b306c9ebc64e3d4d",
+  },
+  "total": "8fb1206af6a43893b65cc871",
+}
+`;
+
+exports[`detail-layer fidelity digest (density > 1) > is unchanged across the street-level table 1`] = `
+{
+  "per": {
+    "culled/eye-e": "b302c3cabccf9baa",
+    "culled/eye-n": "b408e650f1d94bc1",
+    "street/eye-e": "82f47b50381a7de9",
+    "street/eye-n": "2e8cda331491ec1c",
+  },
+  "total": "d532d577c1ffbf111b21ff54",
+}
+`;

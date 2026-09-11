@@ -208,13 +208,16 @@ export {
 } from "./layers";
 export type { GlyphMapLabelAnchor, GlyphMapLabelCandidate } from "./layers";
 export {
+  glyphMapFacadeSuitsBand,
   glyphMapFacadeTexture,
   glyphMapFacadeTiles,
   glyphMapFeatureSeed,
+  glyphMapFootprintWidthMetres,
   glyphMapMetresBetween,
   glyphMapVaryColor,
   GLYPH_MAP_FACADE_BAY_METRES,
   GLYPH_MAP_FACADE_FLOOR_METRES,
+  GLYPH_MAP_FACADE_MAX_SLENDERNESS,
   GLYPH_MAP_FACADE_TEXTURE,
   type GlyphMapFacadeOptions,
 } from "./facade";

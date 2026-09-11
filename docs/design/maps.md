@@ -4748,6 +4748,97 @@ where they do not. No span rule is needed, and the schema makes the point
 anyway — `building` has `minzoom: 13`, so at any view where this row draws at
 all the reader is at city scale.
 
+### A facade is a claim about the wall, and a mast is not a storey stack
+
+Reported on the Berlin Fernsehturm: "this tower shouldn't have freaking
+windows". It is the right complaint — window bays and floor bands assert that
+the wall is a stack of habitable storeys, and a concrete broadcast mast is not
+one.
+
+**The tag that says so never reaches us, and that was measured rather than
+assumed.** The way carries `building=tower`, `man_made=communications_tower`
+and `tower:type=communication` in OSM. Read straight out of the live
+OpenFreeMap tile that draws it (`14/8802/5373`), the `building` layer's entire
+property vocabulary is:
+
+| layer | everything it carries |
+|---|---|
+| OpenMapTiles `building` | `render_height`, `render_min_height`, `hide_3d`, `colour` |
+| OpenMapTiles `poi` | the tower IS here — id `5564352412`, `class: "attraction"`, `subclass: "attraction"`, 50 `name:*` translations |
+| Protomaps `buildings` | `kind: "building"`, `height`, `sort_rank` |
+
+Both schemas keep the handful of fields their own renderer needs and discard
+the rest; openstreetmap.org is not reading vector tiles at all, it renders
+server-side from the full osm2pgsql database. So a type lookup is not available
+at any price short of a second network service, and the two that would work —
+a point-in-polygon join against the `poi` layer, or Overpass — buy POI
+semantics (`attraction`, `hotel`, `bar`) rather than structure semantics, and
+one of them needs a widget capability that does not exist (a cross-layer join;
+`filter`, `color` and `height` are each handed ONE feature at a time).
+
+**So the shape is the signal, and it separates.** Slenderness — band thickness
+over footprint width — measured across three real z14 city tiles, every
+feature above 4:
+
+| tile | genuine buildings | first mast above them |
+|---|---|---|
+| Houston (`z14-3851-6772`) | 4.0 – **7.8** (190 m over 24.4 m) | 11.2 (98 m over 8.7 m), then 12.8, 15.5, 261 (305 m over 1.2 m) |
+| Berlin (`14/8802/5373`) | under 8 | **8.5** (82 m over 9.7 m), 13.1, **18.6 — the Fernsehturm shaft** (205 m over 11 m), 14.0 / 23.9 / 51.2 (its antenna bands) |
+| `z14-8579-5736` | under 8 | 10.8, 11.7 (126 m over 8.4 m) |
+
+`GLYPH_MAP_FACADE_MAX_SLENDERNESS = 8` sits in the 7.8 → 8.5 gap. Everything
+it catches has a footprint under 18 m across — under any habitable floor plate
+— and it is 2–4% of the features in those tiles. Houston's towers keep their
+windows; the Fernsehturm's shaft and every band above it lose theirs.
+
+**Width is the footprint's equivalent-circle diameter, never an extent.** A
+terrace row is legitimately long and thin — 200 m by 8 m, 30 m tall — and
+every extent-based width either calls it a mast (min extent 8, ratio 3.75 and
+climbing with any taller row) or has to be loosened until a real mast passes.
+By area it measures 45 m across and its ratio is 0.67, nowhere near the knee.
+
+The verdict is resolved **per polygon group**, the same unit the ground probe
+and the cap plane are resolved for, so one wall of a mast can never disagree
+with the next. A refused band loses a TEXTURE and never a wall: its polygon
+list is vertex-for-vertex the bare mesh's, gated as such.
+
+### A raised band had no underside
+
+`glyphMapVectorMesh` emitted a cap and walls and no floor. For a building
+standing on its own ground that is right — the floor is coplanar with the
+terrain and can never be seen. For a band standing OFF it, it is a hollow
+shell from below: the cap faces up so back-face culling removes it, the far
+walls go with it, and the eye looking up sees straight through to the sky.
+
+The Fernsehturm is the worst case for it because the tower is not one feature.
+Its live tile ships it as eight stacked `render_min_height` bands —
+
+```
+332..374  (antenna)      264..285
+307..332                 256..264
+284..307                 235..256
+                         205..235  (the sphere)
+                           0..205  (the shaft)
+  plus 0..368 tagged hide_3d, which the schema filter already drops
+```
+
+— so seven of the eight were open underneath, and standing under the head is
+exactly where a reader looks up.
+
+Each floor face is the cap face's own refined triangle projected at `base`
+with the **opposite winding to the cap it mirrors**, so it looks down by
+construction however that cap's facing verdict was reached (plane alignment
+for a well-conditioned face, the lon/lat winding times `localOrientation` for
+a sliver). A second facing probe was rejected outright: it can disagree with
+the cap above it and leave the band open at one end, which is the defect
+wearing a different hat. A sliver's floor carries the negated
+`Polygon.shadingNormal` and registers in `walls` at `base` like the cap
+sliver does, so the per-frame near-side cull sees it.
+
+The gate is a RENDER from underneath rather than a polygon count — a floor
+wound the wrong way is still a polygon and still draws nothing — and its
+grounded clause reddens when the `baseOffset > 0` gate is dropped.
+
 ### Defaults, not controls
 
 All three are on by default for the `omt-buildings` row and none gets a

@@ -4,7 +4,7 @@
 > Covers: pre-projection cull runs and back-face run rejection, the empty-coverage skip, projection memoization, interactive LOD, and the WebGPU temporal presentation companion.
 > Cross-references to "above"/"below" that no longer resolve refer to sibling files in `docs/design/`.
 
-**Pre-projection cull runs.** `RasterizeContextOptions.cullChunks` — an ordered, contiguous list of `GlyphPolygonCullChunk` (a polygon-index run plus its world AABB and fan-triangle count, built by the exported `buildGlyphPolygonCullChunks`) — lets the **solid** rasterizer reject a whole run whose box provably projects entirely off the grid WITHOUT projecting one of its vertices. It is a pure cost reduction: the surviving polygons, their order, and every per-cell decision are identical with or without it, so a render is byte-identical either way. Two rules are load-bearing. (1) **A box not wholly in front of the near plane is always accepted** — behind the eye the projection stops being a projective map, so the 2D hull of the 8 projected corners no longer bounds the run's contents, and glyphcss's own near-plane clipping stays authoritative. Both shipped cameras signal that by projecting such a corner to `NaN` (orthographic has no eye and never does), so the NaN test IS this rule, and that camera contract is pinned by its own test. (2) **Nothing is ever reordered** — a run is skipped or drawn in place — because `depthEpsilon` deliberately resolves coplanar ties by draw order; a skip also advances the positional cross-frame shade-cache index by the run's whole triangle count, exactly as the per-polygon `poly.hidden` skip does. **Runs, not per-mesh boxes:** measured on `/maps`' globe over 12 poses, a whole-mesh AABB rejects only **2.4%** of triangles (every terrain tile is partly on screen) while ~48-polygon runs reject **39.3%**, against a **42.9%** ceiling (what the existing per-triangle *post*-projection off-grid test finds anyway, having already paid for the projection); 90-polygon runs reach 30.5% and 180-polygon 27.8%, which is why `GLYPH_CULL_CHUNK_POLYGONS` is 48 and not a rounder number. `createGlyphScene` builds and caches these per mesh in a `WeakMap` keyed by the TRANSFORMED polygon array identity — a mesh with no position/scale/rotation gets the identical array back from `applyTransform` every render, so a terrain tile's boxes are built once for the life of the mesh — and memoizes the base grid's concatenated list on the ordered identities of its parts. Wireframe/voxel/ink run their own polygon loops and ignore it. Measured on `/maps` (`bench/maps-render`, continuous motion, 140x63, byte-identical output): `base-raster` 11.7 → 9.9 ms/render on a full-globe overview, 9.4 → 3.6 at a zoomed-in wheel sweep, 10.5 → 5.8 on a fly-to arc.
+**Pre-projection cull runs.** `RasterizeContextOptions.cullChunks` — an ordered, contiguous list of `GlyphPolygonCullChunk` (a polygon-index run plus its world AABB and fan-triangle count, built by the exported `buildGlyphPolygonCullChunks`) — lets the **solid** rasterizer reject a whole run whose box provably projects entirely off the grid WITHOUT projecting one of its vertices. It is a pure cost reduction: the surviving polygons, their order, and every per-cell decision are identical with or without it, so a render is byte-identical either way. Two rules are load-bearing. (1) **A box not wholly in front of the near plane is always accepted** — behind the eye the projection stops being a projective map, so the 2D hull of the 8 projected corners no longer bounds the run's contents, and glyphcss's own near-plane clipping stays authoritative. Both shipped cameras signal that by projecting such a corner to `NaN` (orthographic has no eye and never does), so the NaN test IS this rule, and that camera contract is pinned by its own test. (2) **Nothing is ever reordered** — a run is skipped or drawn in place — because `depthEpsilon` deliberately resolves coplanar ties by draw order; a skip also advances the positional cross-frame shade-cache index by the run's whole triangle count, exactly as the per-polygon `poly.hidden` skip does. **Runs, not per-mesh boxes:** measured on `/maps`' globe over 12 poses, a whole-mesh AABB rejects only **2.4%** of triangles (every terrain tile is partly on screen) while ~48-polygon runs reject **39.3%**, against a **42.9%** ceiling (what the existing per-triangle *post*-projection off-grid test finds anyway, having already paid for the projection); 90-polygon runs reach 30.5% and 180-polygon 27.8%, which is why `GLYPH_CULL_CHUNK_POLYGONS` is 48 and not a rounder number. `createGlyphScene` builds and caches these per mesh in a `WeakMap` keyed by the TRANSFORMED polygon array identity — a mesh with no position/scale/rotation gets the identical array back from `applyTransform` every render, so a terrain tile's boxes are built once for the life of the mesh — and memoizes the base grid's concatenated list on the ordered identities of its parts. Wireframe/voxel/ink run their own polygon loops and ignore it. The cross-layer occlusion id-map does NOT ignore it any more — `computeOcclusionIds` takes a `cullChunks` list per group and runs the same two tests; see "The cross-layer occlusion id-map ignored `Polygon.hidden` and the cull runs" below. Measured on `/maps` (`bench/maps-render`, continuous motion, 140x63, byte-identical output): `base-raster` 11.7 → 9.9 ms/render on a full-globe overview, 9.4 → 3.6 at a zoomed-in wheel sweep, 10.5 → 5.8 on a fly-to arc.
 
 **Pre-projection BACK-FACE run rejection.** The AABB test above is structurally blind to a globe's far hemisphere: a far-side run still projects inside the near side's own disc, so its box is on-grid and it survives to be projected and thrown away one triangle at a time (measured on `/maps` at 2560x1440: **17.3%** of every triangle submitted). Each `GlyphPolygonCullChunk` therefore also carries a bounding **normal cone** — `coneX/Y/Z` (unit axis) plus `coneCos` (the min `normal · axis` over the run's fan triangles, built by the same `buildGlyphPolygonCullChunks`) — and a run whose cone lies entirely in the back-facing half-space is skipped ahead of the AABB test (a handful of multiplies against eight corner projections). **The orientation sign is DERIVED from the camera, never assumed.** When a camera's screen map is affine — `s(v) = M v + t` with rows `r1`, `r2` — the rasterizer's own `area2` is exactly `(r1 x r2) · (u x v)`, i.e. a fixed linear functional `G` of the triangle's world face normal, so back-facing is exactly `G · n > 0`. `deriveFacingGradient` (`render/rasterize.ts`) recovers `G` by EVALUATION, not by algebra over the camera's axis convention, rotation order or handedness: three probe triangles built to have face normals `h²·e_x/e_y/e_z` under the same `u x v` the rasterizer uses are projected through the same `camera.project`, and their `area2` values ARE `G`'s components. Affinity is verified the same way rather than branched on `camera.kind` — the probe is repeated at a second, well-separated base point and a different scale, and the mechanism disables itself unless both agree, so a perspective camera (whose scale varies with depth) simply keeps drawing every run. `glyphChunkIsBackFacing` rejects only when `axis · Ĝ > sin(halfAngle)`, which is the exact condition that EVERY normal in the cone is back-facing; a cone wider than a hemisphere, an unusable cone (`coneCos: -1`, set for any run holding a zero-length or non-finite normal), a `doubleSided` scene, and any run straddling the horizon are all kept. Probes are placed and scaled from the chunks' own union AABB so a scene authored at any world scale is probed at its own scale.
 
@@ -439,24 +439,170 @@ win is a base-grid win, on the one grid that is dense and colour-bearing.
   nothing, and the residual after the asserts are gone is 89 µs for 8,820 cells
   — V8's cons-string `+=` and one `join` are not what to attack.
 
-### The cross-layer occlusion id-map ignores `Polygon.hidden`
+### The cross-layer occlusion id-map ignored `Polygon.hidden` and the cull runs
 
-Found while pricing the `/maps` OSM density cliff, and reported rather than
-fixed because it is not byte-identical. Every polygon loop in
-`render/rasterize.ts` skips `poly.hidden` — the paint loop, the wireframe loop,
-the ink loop, both shadow passes — except `computeOcclusionIds`'s, which
-projects and depth-rasters the polygon and CLAIMS its cells for that layer.
-Shown directly: a base quad in front of a detail quad claims all 64 cells of an
-8x8 id-map, and claims the same 64 with `hidden: true`.
+Found while pricing the `/maps` OSM density cliff, reported there rather than
+fixed, and taken in a later pass. `computeOcclusionIds`' polygon loop was the
+only one in `render/rasterize.ts` with neither of the two skips every other
+loop has — the paint loop, the wireframe loop, the ink loop, both shadow
+passes. It is also the loop that walks the WHOLE scene once per render the
+moment one opaque detail layer exists, so it was paying for both.
 
-Two consequences, and both bite exactly where the cliff is. A layer that
-actually paints those cells is blanked at them, so the consumer's own cull
-punches holes in whatever is behind it; and `@glyphcss/maps`' walk-mode wall
-cull hides **38,954 of 45,726 extrusion polygons (85%)** — the whole point of
-the `Polygon.hidden` form landed in the previous pass — every one of which the
-id-map still projects and rasters once per render. The one-line skip that fixes
-both changes what gets blanked, so it is the architect's call, not a
-performance change.
+The two halves are different KINDS of change and were taken separately.
+
+**`Polygon.hidden` is a correctness fix, and it moves cells.** The map's cells
+are claims, so a claim by a polygon that paints nothing blanks every other
+layer at a cell where its own layer then shows sky. Reproduced directly: a
+base quad in front of a detail quad claims all 64 cells of an 8x8 id-map, and
+claims the same 64 with `hidden: true`; rendered through `createGlyphScene` at
+`density: 2`, the base grid paints 0 cells and the detail quad behind it drops
+from 238 painted cells to 98 — a hole exactly the hidden quad's footprint,
+with nothing painting it.
+
+What makes the movement justifiable rather than merely different is that
+honouring the flag is exactly equivalence with REMOVAL: the id-map of a scene
+whose culled polygons carry `hidden` is cell-for-cell the id-map of the same
+scene with those polygons deleted, over three poses of a street-level block at
+the 85% cull ratio (`rasterize.occlusionHidden.test.ts`). That is what
+`hidden` means in every other loop, so the new output is the render of the
+scene the consumer's cull describes.
+
+Every moved cell was counted and classified on the new fidelity gate's street
+pair (below), and they all move ONE WAY:
+
+| | `eye-n` | `eye-e` | direction |
+|---|---|---|---|
+| detail road, cells changed | 24 | 773 | **all blank → painted** |
+| base grid, cells changed | 2 | 82 | **all painted → blank** |
+
+Not one detail cell was taken away and not one base cell was added. The 797
+gained are cells the road covers that a culled wall was claiming while
+painting nothing. The 84 lost are cells the base grid was painting with
+geometry BEHIND the road, kept only because a culled wall in front of both
+owned the id-map cell — so the detail layer rightly takes them.
+
+**On `/maps` as it ships the defect is LATENT.** Measured in the real page,
+walk mode in Zürich with the OSM card on at `osmDensity 2`: 1,119 of 69,654
+mounted polygons carry `hidden`, six meshes separate, and the seven-pose
+street-level walk digest is `e3cf4104788687ac029c38fc` both before and after,
+pose for pose. A wall cull hides walls that are back-facing or beyond the
+horizon, i.e. behind something that already claims those cells. The defect
+bites where a cull removes what WOULD have been the nearest thing — a PVS, a
+layer toggle, an editor hide — which is what the synthetic `culled` scene
+models. It is a correctness fix whose cost saving, not whose pixel change, is
+what `/maps` collects.
+
+**The cull runs are a pure cost reduction and are byte-identical**, by the
+paint loop's own argument: a run whose world box provably projects entirely
+off THIS raster's grid covers no cell of it and so claims none, and a run
+every one of whose normals is back-facing is a run every triangle of which
+`fillDepthTri` rejects on the same `area2 > 0` sign. Nothing is reordered.
+Each id-map group carries its own `cullChunks`; `createGlyphScene` supplies
+the base grid's merged list (the one the solid pass already uses) and one
+merged list per opaque detail group, memoized on the ordered identities of its
+members' transformed arrays exactly as `resolveBaseCullChunks` is. The
+off-grid test is now ONE function (`glyphChunkIsOffGrid`) called by both
+rasterizers, so its three rules have one implementation.
+
+Two things had to be got right, and the previous pass named the first as a
+blocker.
+
+- **`doubleSided`.** `fillDepthTri` culls back faces only when the scene is
+  single-sided, so the cone rejection is gated on `!doubleSided` — a
+  `doubleSided` scene's back faces DO claim, and rejecting their runs blanks
+  whatever stands behind them. Pinned by a CLAIM-SET clause, not only a
+  projection count: a lone back-facing 400-quad sheet is the nearest thing in
+  its scene and owns every cell it covers; dropping the gate hands those cells
+  to the plate behind it and the clause goes red.
+- **`occlusionContourPx` needs no exemption**, which is worth stating because
+  it looks as though it should. That feature stamps a claimed FINE cell
+  outward by up to 24 fine cells, so "off the grid" would stop implying
+  "claims nothing on it" IF the stamp could grow from a cell outside the
+  buffer — but the margin loop iterates the fine map's own indices, so a run
+  with no claim inside the grid seeds no margin. The cull runs on the fine
+  raster like any other, pinned by a clause that puts an off-grid mesh AND a
+  400-quad contour strip half off the right edge into one scene and asserts
+  both identity and a projection saving.
+
+### What each half cost, measured
+
+**`computeOcclusionIds` alone**, in process, median of 25 calls after 5
+warmups (no browser, so no vsync and no compositor — this is the pass, not the
+frame):
+
+| scene | main | + `hidden` skip | + cull runs |
+|---|---|---|---|
+| globe overview, 65,536 quads, no hidden polygon | 6.84 ms | 6.45 | **4.69** |
+| globe zoomed so most runs are off-grid | 7.56 ms | 7.55 | **5.37** |
+| street block, 45,125 polys, 85% `hidden` | 6.95 ms | **1.21** | **0.68** |
+
+The globe's two columns either side of the `hidden` skip are the same number
+inside noise, as they must be — that scene has no hidden polygon; the skip is
+worth 5.7 ms where a consumer's cull is actually doing its job, and the cull
+runs another 0.5 ms on top of it.
+
+**The frame**, in the real page (`bench/maps-render`, 1440x900, grid gate
+140x63, `spans`, headed, `astro preview`, `--scenario orbit`, the README's own
+one-quad opaque `model` probe added through `--layer`). Vsync caps at 60 fps
+and no row here is near it, so every row is script-bound and the cap is not
+what is being measured:
+
+| | no probe | + one-quad opaque probe | the id-map |
+|---|---|---|---|
+| before | 22.70 ms/frame, 44.0 fps | 32.23 ms/frame, 31.0 fps | **+9.54 ms/frame** |
+| after | 21.84 ms/frame, 45.8 fps | 28.51 ms/frame, 35.0 fps | **+6.67 ms/frame** |
+
+So one opaque overlay on the globe costs **9.54 → 6.67 ms/frame, −30%**, and
+the probe-mounted frame goes 31.0 → 35.0 fps. `base-raster` is 15.2 ms on both
+probe rows, so the whole difference is outside it, which is where
+`computeOcclusionIds` sits. The globe carries no `hidden` polygon, so this is
+the cull runs alone. The two no-probe rows differ by 0.86 ms on code paths
+that are identical by construction (with no opaque detail layer the id-map is
+never built), which is this bench's noise floor at this scene — read the
+difference of differences, not either row.
+
+### The gate that did not exist
+
+None of the three fidelity digests this repo keeps covers a scene with a
+separated detail layer above `density: 1`, so a change to the id-map raster is
+invisible to all three by construction — which is exactly why the previous
+pass stopped. `packages/glyphcss/src/api/createGlyphScene.detailFidelity.test.ts`
+is that gate: seven scenes crossed with camera poses, hashing every `<pre>`
+the scene produces (base plus each detail output, each with its own CSS
+transform), the same quantity `bench/maps-render`'s digest hashes, taken
+in process so it is reproducible to the bit rather than within one build.
+The scenes take the guarantees one clause at a time — `density` (2x and 3x
+over a relief base, and the same-point ownership refinement), `group` (one
+`detailGroup`, one lattice), `alpha` (a transparent-margin sprite over a
+textured plate), `claims` (`occlusionPriority` + `occlusionContourPx` +
+`occlusionClaim` together), `supersample`, `street` (a positioned perspective
+camera standing inside its own geometry), and `culled` (`street` with 85% of
+the walls `hidden`). Every scene/pose asserts a minimum painted-cell count in
+the base grid AND in the detail grids first, because a digest over blank grids
+is stable and worthless.
+
+Recorded on `main` at `b7f60e41`: the six-scene ortho table
+`8fb1206af6a43893b65cc871`, the street table `1b42f4fa5be67e4157049175`. After
+both changes the ortho table is UNCHANGED and the street table is
+`d532d577c1ffbf111b21ff54` — moved only at the two `culled` poses, by the 881
+cells tabulated above.
+
+The three existing digests, taken on two full builds of the same tree with
+only these files differing:
+
+| digest | before | after |
+|---|---|---|
+| `/maps` globe, 140x63, spans | `d7b0c77de562e14d276d5f10` | same |
+| `/maps` globe, 283x105, spans | `ba8e8b7a341b3499732ca838` | same |
+| `/maps` seven-pose street walk, `osmDensity 2` | `e3cf4104788687ac029c38fc` | same |
+
+**The walk digest had to be rebuilt to be worth taking.** Driven the way
+`bench/maps-render`'s walk scenario drives it — hold `w` for N frames — it is
+not reproducible run to run on ONE build, because the walker integrates `dt`
+per rAF: pose 1 reported `7f0fc00d…`, `139818d1…` and `fa4dd803…` on three
+runs, only the standing pose 0 repeating. Teleporting the walker to seven
+fixed coordinates with seven fixed bearings makes each pose a STATE rather
+than a stopwatch, and the digest then reproduces exactly.
 
 ### The `/maps` OSM density cliff, priced
 
@@ -490,20 +636,20 @@ card's one slider writes every row at once. (2) `computeOcclusionIds` rasters
 the whole scene into the shared id-map once per render the moment ONE opaque
 detail layer exists; the README already prices that at +10.4 ms/frame for a
 65,312-polygon globe and a ONE-QUAD probe, and here it is 107,143 polygons at
-street level. (3) That id-map raster is the only polygon loop in
+street level. (3) That id-map raster WAS the only polygon loop in
 `render/rasterize.ts` with neither the pre-projection cull runs nor the
-`Polygon.hidden` skip — so it pays for the 681-of-1,444 runs that sit wholly
+`Polygon.hidden` skip — so it paid for the 681-of-1,444 runs that sit wholly
 behind the walker's head AND for the 38,954 walls (85%) the wall cull has
 already hidden.
 
-The tractable lever is (3), and it is two separate changes. Threading the
-existing `cullChunks` through `computeOcclusionIds` is byte-identical by the
-same argument the base pass's cull rests on — a run whose box projects entirely
-off the grid claims no cell — but needs the `doubleSided` flag respected (a
-double-sided scene's back faces do claim) and a fidelity gate at `density > 1`,
-which none of the three digests currently covers. Honouring `Polygon.hidden` is
-NOT byte-identical and is the architect's call; it is written up above as a
-defect, not a tuning. Neither is taken here.
+The tractable lever was (3), and it was two separate changes. Both are taken
+in the section above, with the `density > 1` fidelity gate neither of the
+three digests provided built first: the `hidden` skip (a correctness fix, and
+the one that moves cells) and the cull runs (byte-identical, with
+`doubleSided` respected). (1) and (2) are unchanged — thirteen separating rows
+are still thirteen rasterizer passes, and one opaque detail layer still
+rasters the whole scene into the id-map once per render; it now costs 30% less
+to do it.
 
 
 ---
