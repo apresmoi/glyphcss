@@ -1036,6 +1036,8 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
         : (): number => capElev;
       const up = groupUp(projection, rings[0], centre, capElev);
       const flip = up !== null && dot(ringNormal(top[0]), up) < 0;
+      // See the floor emission below the cap loop for why this is the gate.
+      const wantFloor = height > 0 && baseOffset > 0;
 
       // earcut indexes the rings concatenated in this same order, so `capLonLat`
       // is its index space and needs no per-ring arithmetic to read back.
@@ -1151,6 +1153,43 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
           walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: sliverElev, elevTop: sliverElev, cap: tri });
         }
         out.push(cap);
+
+        // A band RAISED off its own ground has an underside a reader can
+        // stand under and look at, and a cap plus walls does not describe
+        // one: the cap faces up, so it is back-face culled from below, the
+        // far walls are culled with it, and the eye looks straight through
+        // the open bottom into the sky. Reported on the Berlin Fernsehturm,
+        // whose live OpenFreeMap z14 tile ships it as eight stacked
+        // `render_min_height` bands (205..235, 235..256, ... 332..374) —
+        // every one of them a hollow shell from the street.
+        //
+        // Only a RAISED band gets one: at `baseOffset === 0` the floor is
+        // coplanar with the ground the structure stands on and can never be
+        // seen, so emitting it would be pure cost, and every ordinary
+        // building, every `fill` and every extrusion on a source with no
+        // base offset keeps its polygon list byte for byte.
+        if (wantFloor) {
+          const floorVertices = [
+            projection.project(tri[0][0], tri[0][1], base),
+            projection.project(tri[1][0], tri[1][1], base),
+            projection.project(tri[2][0], tri[2][1], base),
+          ];
+          if (floorVertices.every(finite)) {
+            // The OPPOSITE winding to the cap this face was just emitted
+            // with, so it looks DOWN by construction however that verdict
+            // was reached (plane alignment or the sliver's lon/lat winding)
+            // — never a second facing probe, which could disagree with the
+            // cap above it and leave the band open at one end.
+            const floor: Polygon = { vertices: faceFlip ? floorVertices : [floorVertices[2], floorVertices[1], floorVertices[0]] };
+            if (color) floor.color = color;
+            if (weak && faceUp !== null) {
+              const upLen = Math.hypot(faceUp[0], faceUp[1], faceUp[2]);
+              floor.shadingNormal = [-faceUp[0] / upLen, -faceUp[1] / upLen, -faceUp[2] / upLen];
+            }
+            if (weak) walls.push({ polygon: out.length, a: tri[0], b: tri[1], elev: base, elevTop: base, cap: tri });
+            out.push(floor);
+          }
+        }
       }
 
       if (height > 0) for (const ring of rings) {
