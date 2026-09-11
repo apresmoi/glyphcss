@@ -173,6 +173,13 @@ export interface Polygon {
    * a cheap way for a consumer to do its own per-frame culling (e.g. a BSP
    * potentially-visible-set cull) by flipping this flag on the mesh's polygons
    * between renders, without re-adding the mesh. Default `false`.
+   *
+   * It also CASTS NOTHING: a hidden polygon is left out of the shadow map's
+   * depth raster and out of the light-space volume that map is fitted to.
+   * Both halves matter — 256 texels are divided across that volume, so a
+   * caster left in the box makes every texel coarser and degrades the
+   * shadows that are still on screen. The cross-layer occlusion id-map skips
+   * it too, so a hidden polygon claims no cell anywhere.
    */
   hidden?: boolean;
   /**

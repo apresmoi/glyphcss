@@ -1191,6 +1191,31 @@ then popped them in once motion stopped. Re-culling is also much cheaper than
 rebuilding: on the baked z0 Natural Earth tile (177 countries, 2,058 wall
 faces) 0.5ms against 13.7ms.
 
+**Two forms, and the widget uses the second.**
+`glyphMapVectorCullWalls(mesh, visible)` returns a fresh survivor list — the
+right shape for a caller re-culling a static mesh against an arbitrary camera.
+`glyphMapVectorMarkWalls(mesh, visible, provenHidden?)` writes the same verdict
+as `Polygon.hidden` on the mesh's own polygons and reports whether any flag
+moved. That is the shape a PER-FRAME cull has to take: glyphcss's caches key on
+polygon-array identity, so handing the scene a new array every moving frame
+discards the cross-frame shade cache, re-scans every polygon in the scene for
+texture URLs, and rebuilds the mesh's pre-projection cull runs — for a verdict
+that at street level moves by 1 to 7 polygons out of 45,726. Measured on
+`/maps` walking in Zürich, that one change is 3.3 ms of a 36 ms frame.
+
+`provenHidden(wall, index)` is an optional PROOF, not a heuristic: it may only
+answer `true` where `visible` is false at every corner, and a wall it does not
+rule out is handed to the full predicate unchanged. Walk mode supplies one from
+cached great-circle distances — `glyphMapWalkDistanceM` is 1-Lipschitz in the
+viewer, so a wall whose nearest corner was `d` from an anchor is at least
+`d - moved` from a walker who has since travelled `moved`, and 85% of a
+street-level extrusion set is beyond the horizon and ruled out with one
+compare. `glyphMapWalkHorizonTest(lon, lat, farM)` is the walker-resolved form
+of `glyphMapWalkWithinHorizon`, with two exact lower bounds in front of its
+haversine; `GLYPH_MAP_WALL_HORIZON_SLACK_M` is the millimetre of slack the
+distance proof keeps so it can only ever be more conservative than the algebra
+requires.
+
 ## Street-level walk mode
 
 `map.setWalk(opts)` drops the camera to eye height and hands it a perspective
