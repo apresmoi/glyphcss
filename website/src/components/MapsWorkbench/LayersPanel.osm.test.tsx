@@ -57,6 +57,12 @@ function osm(overrides: Partial<OsmLayerInputs> = {}): OsmLayerInputs {
   };
 }
 
+
+/** The Live card's inputs, in their default (card off, every row off) state — this file is about other cards. */
+function live(overrides: Partial<LiveLayerInputs> = {}): LiveLayerInputs {
+  return { visible: false, onVisible: () => {}, feeds: [], onFeed: () => {}, ...overrides };
+}
+
 function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs {
   const glyphOnly = extra({ glyphPalette: MAP_SCENE_GLYPH_PALETTE, onGlyphPalette: noop });
   const withMode = extra({
@@ -91,6 +97,7 @@ function inputs(osmOverrides: Partial<OsmLayerInputs> = {}): LayersFolderInputs 
       rows: MAP_DATASET_ROWS.map((r) => ({ ...r, on: false, density: 1, anchor: MAP_DATASET_DEFAULT_ANCHOR })),
       onRow: noop, onRowDensity: noop, onRowAnchor: noop,
     },
+    live: live(),
   };
 }
 

@@ -11,6 +11,7 @@ import { createUrlCodec, readUrlParam, scheduleCompactedUrlWrite, type UrlField 
 import { defaultGlyphColorEncoding } from "../../lib/glyphColorEncodingDefault";
 import { DEFAULT_MAP_LIGHTING, MAP_SCENE_RENDER_MODE, POINT_DATASET_DEFAULTS, type MapLayerRenderMode, type MapLighting, type MapPaletteName, type MapProjectionId, type MapSunMode, type PointDataset } from "./mapsKit";
 import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_DEFAULT_DENSITY, MAP_OSM_DEFAULT_ON, MAP_OSM_LABEL_ANCHORS, type MapOsmAnchors } from "./mapsOsm";
+import { MAP_LIVE_FEEDS, type MapLiveWindowId } from "./mapsLive";
 import { MAP_DATASET_DEFAULT_DENSITY, MAP_DATASET_DEFAULT_ON, MAP_DATASET_ROWS } from "./mapsDatasets";
 
 // Includes "calibrated" — `DockRendering`'s glyph-palette dropdown always
@@ -105,6 +106,30 @@ export interface MapsUrlState {
   layerMask: number;
   /** Which OpenStreetMap rows the OSM card mounts, as a bitfield over {@link MAPS_OSM_SUBLAYER_KEYS}. Same shape and same append-only rule as {@link layerMask}. */
   osmMask: number;
+  /**
+   * Which LIVE feeds are mounted, as a bitfield over
+   * {@link MAPS_LIVE_FEED_KEYS}. Same shape and same append-only rule as
+   * {@link layerMask}.
+   *
+   * Default `0` — every row off. A live row spends somebody else's bandwidth
+   * and the reader's own rate-limit budget, so a link that says nothing about
+   * it must mount nothing, and the codec omitting a field at its default
+   * makes that free.
+   */
+  liveMask: number;
+  /**
+   * Which TIME WINDOW each live row is read at — one index into
+   * {@link MAPS_LIVE_WINDOW_KEYS} per row, positionally over
+   * {@link MAPS_LIVE_FEED_KEYS}, i.e. {@link MAPS_LIVE_WINDOW_SLOTS} slots.
+   *
+   * A tuple rather than one token per row for the reason `l` is one: only
+   * two of the four rows have a window a reader can pick, so four separate
+   * tokens would spend three more of a vanishing alphabet to express a
+   * choice that is nearly always at its default. The slots for the two rows
+   * with no time axis are always their own index and therefore always equal
+   * the default, which is what keeps the whole token off an ordinary link.
+   */
+  liveWindows: readonly number[];
 
   /**
    * Per-layer glyph density (the 1..4 / 0.1 track every density row on the
@@ -252,6 +277,11 @@ export const MAPS_LAYER_KEYS = [
   // shared link's mask has this bit clear, so the card is absent there
   // exactly as it always was.
   "datasets",
+  // Appended when the page grew the LIVE card. Bit 11, so no existing link
+  // changes meaning and a link written before this reads the card as OFF —
+  // which is exactly what it was, and what a card of somebody else's
+  // bandwidth should default to anyway.
+  "live",
 ] as const;
 export type MapsLayerKey = (typeof MAPS_LAYER_KEYS)[number];
 
@@ -410,6 +440,76 @@ export function mapsDatasetAnchorRecordFromTuple(tuple: readonly number[]): MapO
     const anchor = MAP_OSM_LABEL_ANCHORS[tuple[i] ?? 0];
     return [key, anchor ?? MAP_OSM_DEFAULT_ANCHOR];
   })) as MapOsmAnchors;
+}
+
+/**
+ * The LIVE card's row bitfield key order (token `0`). Same **APPEND-ONLY**
+ * rule as {@link MAPS_LAYER_KEYS}, and the same reason: bit `i` is
+ * `MAPS_LIVE_FEED_KEYS[i]` in every link ever shared.
+ *
+ * The cross-check that this list still agrees with `MAP_LIVE_FEEDS` lives in
+ * `mapsUrlState.live.test.ts`, so appending a feed on the data side goes red
+ * here rather than quietly rewriting every shared link.
+ */
+export const MAPS_LIVE_FEED_KEYS = ["quakes", "disasters", "launches", "satellites"] as const;
+export type MapsLiveFeedKey = (typeof MAPS_LIVE_FEED_KEYS)[number];
+
+/** Pack the Live card's row record into {@link MapsUrlState.liveMask}. */
+export function mapsLiveMaskFromFeeds(on: Readonly<Record<string, boolean>>): number {
+  return packBitmask(MAPS_LIVE_FEED_KEYS, on);
+}
+/** The inverse — always a complete record over {@link MAPS_LIVE_FEED_KEYS}. */
+export function mapsLiveFeedsFromMask(mask: number): Record<MapsLiveFeedKey, boolean> {
+  return unpackBitmask(MAPS_LIVE_FEED_KEYS, mask);
+}
+
+/**
+ * The window vocabulary on the wire (token `1`). Same **APPEND-ONLY** rule
+ * as {@link MAPS_LIVE_FEED_KEYS} and the same reason: a slot's value is an
+ * INDEX into this list in every link ever shared, so inserting or reordering
+ * silently rewrites what a shared link shows.
+ *
+ * Declared literally rather than derived from `MAP_LIVE_WINDOW_IDS` — that
+ * list is free to move and this one is not. The cross-check that the two
+ * still agree lives in `mapsUrlState.liveWindows.test.ts`.
+ */
+export const MAPS_LIVE_WINDOW_KEYS = ["hour", "day", "week", "month", "all"] as const;
+
+/** One slot per live row, in {@link MAPS_LIVE_FEED_KEYS} order. */
+export const MAPS_LIVE_WINDOW_SLOTS = MAPS_LIVE_FEED_KEYS.length;
+
+const liveDefaultWindow = (key: string): MapLiveWindowId =>
+  MAP_LIVE_FEEDS.find((f) => f.id === key)?.defaultWindow ?? "all";
+
+/**
+ * Pack the card's per-row window record into {@link MapsUrlState.liveWindows}.
+ *
+ * A row the record does not carry — and a row naming a window the vocabulary
+ * does not hold — packs at that ROW's own default, so "unknown" and
+ * "untouched" produce the same link rather than two different ones.
+ */
+export function mapsLiveWindowsFromRecord(windows: Readonly<Record<string, string>>): number[] {
+  return MAPS_LIVE_FEED_KEYS.map((key) => {
+    const chosen = windows[key] ?? liveDefaultWindow(key);
+    const index = MAPS_LIVE_WINDOW_KEYS.indexOf(chosen as (typeof MAPS_LIVE_WINDOW_KEYS)[number]);
+    return index < 0 ? MAPS_LIVE_WINDOW_KEYS.indexOf(liveDefaultWindow(key)) : index;
+  });
+}
+
+/**
+ * The inverse — always a complete record over {@link MAPS_LIVE_FEED_KEYS}.
+ *
+ * A short tuple (a hand-edited link) and a slot naming an index this build
+ * does not have (a link written after a window was appended) both resolve to
+ * that ROW's own default: the row would fetch its default anyway
+ * (`mapLiveWindow`), so resolving it here keeps the page's state honest
+ * about what is actually mounted.
+ */
+export function mapsLiveWindowRecordFromTuple(tuple: readonly number[]): Record<MapsLiveFeedKey, MapLiveWindowId> {
+  return Object.fromEntries(MAPS_LIVE_FEED_KEYS.map((key, i) => [
+    key,
+    MAPS_LIVE_WINDOW_KEYS[tuple[i] as number] ?? liveDefaultWindow(key),
+  ])) as Record<MapsLiveFeedKey, MapLiveWindowId>;
 }
 
 /** Wire order for the point-dataset enums — append-only for the same reason (`decodePackedEnum` resolves by index). */
@@ -617,6 +717,16 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // exists: this is the value an OMITTED `O` decodes to, so it is a statement
   // about links already shared and not about what the page opens on.
   osmMask: MAPS_OSM_MASK_LINK_DEFAULT,
+  // Every live row off. Unlike `osmMask` there is no second "what an old
+  // link means" constant to keep: this field is newer than every link ever
+  // shared, so its omission default and the page's own opening state are the
+  // same thing and are free to stay that way.
+  liveMask: 0,
+  // Every row on its own frozen default window — for the two rows that have
+  // a choice, the exact URL this page fetched before the control existed
+  // (`MAP_LIVE_FEEDS`' `defaultWindow`). So a link written then still shows
+  // what it showed.
+  liveWindows: MAPS_LIVE_FEED_KEYS.map((key) => MAPS_LIVE_WINDOW_KEYS.indexOf(liveDefaultWindow(key))),
   terrainDensity: 1,
   borderDensity: 1,
   contourDensity: 1,
@@ -938,6 +1048,43 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
   { key: "datasetMask", token: "q", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.datasetMask },
   { key: "datasetDensities", token: "r", type: { kind: "floatTuple", length: MAPS_DATASET_SLOTS, step: 0.1 }, default: MAPS_URL_DEFAULTS.datasetDensities },
   { key: "datasetLabelAnchors", token: "z", type: { kind: "floatTuple", length: MAPS_DATASET_SLOTS, step: 1 }, default: MAPS_URL_DEFAULTS.datasetLabelAnchors },
+  // ── The LIVE card's row bitfield. Appended LAST for the reason every
+  //    token before it was: `decodePacked` stops at the first token it does
+  //    not recognize, so a link written by this build and opened by an older
+  //    one strands only what is ordered after this, and there is nothing.
+  //    `z` was that token until now.
+  //
+  //    A DIGIT, because the letters are gone — all 52 of `a-zA-Z` are spent,
+  //    and the codec's only requirement on a token is that it be a unique
+  //    single character read at a fixed cursor (`createUrlCodec` checks
+  //    exactly that). Every value encoding is self-delimiting, so a digit at
+  //    a token-start position is unambiguous; `mapsUrlState.live.test.ts`
+  //    pins a round trip through a link that carries `0` beside the numeric
+  //    fields either side of it.
+  //
+  //    The card's own VISIBILITY is bit 10 of `L` (`MAPS_LAYER_KEYS`), not a
+  //    token of its own — the same place every other card's is.
+  { key: "liveMask", token: "0", type: { kind: "int" }, default: MAPS_URL_DEFAULTS.liveMask },
+  // ── The LIVE card's per-row TIME WINDOW. Appended LAST, for the twelfth
+  //    time and with the same consequence: `decodePacked` stops at the first
+  //    token it does not recognize, so a link written here and opened by an
+  //    older build strands only what is ordered after it, and there is
+  //    nothing. `0` was that token until now.
+  //
+  //    The SECOND digit, and the case the digit-token argument had not yet
+  //    been asked to carry: `0` and `1` now sit in one link with base36
+  //    payloads between them. It holds for the same reason it held for one
+  //    digit — every value encoding is length-prefixed base36 and therefore
+  //    self-delimiting, so the decoder reads a value to its end and the next
+  //    character is a token by construction. `mapsUrlState.liveWindows.test.ts`
+  //    round-trips both digits in one real link rather than asserting the
+  //    grammar.
+  //
+  //    A `floatTuple` at step 1 rather than a new codec kind, exactly as `l`
+  //    is: the slot holds an INDEX into `MAPS_LIVE_WINDOW_KEYS`, which is an
+  //    integer, and the existing tuple kind already packs one self-delimiting
+  //    base36 number per slot.
+  { key: "liveWindows", token: "1", type: { kind: "floatTuple", length: MAPS_LIVE_WINDOW_SLOTS, step: 1 }, default: MAPS_URL_DEFAULTS.liveWindows },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";

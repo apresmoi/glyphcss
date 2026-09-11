@@ -84,6 +84,9 @@ function inputs(): LayersFolderInputs {
       rows: MAP_DATASET_ROWS.map((r) => ({ ...r, on: false, density: 1, anchor: MAP_DATASET_DEFAULT_ANCHOR })),
       onRow: noop, onRowDensity: noop, onRowAnchor: noop,
     },
+    // The Live card's inputs in their default (card off, no rows) state —
+    // this file is about the OSM card's tooltips.
+    live: { visible: false, onVisible: noop, feeds: [], onFeed: noop },
   };
 }
 

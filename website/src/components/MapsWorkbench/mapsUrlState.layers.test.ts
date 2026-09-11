@@ -42,6 +42,8 @@ import {
   mapsLayerVisibilityFromMask,
   mapsOsmMaskFromSublayers,
   mapsOsmSublayersFromMask,
+  mapsLiveFeedsFromMask,
+  mapsLiveMaskFromFeeds,
 } from "./mapsUrlState";
 import { MAP_OSM_DEFAULT_ON, MAP_OSM_SUBLAYERS } from "./mapsOsm";
 import { MAP_MODEL_SHAPES } from "./mapPin";
@@ -64,6 +66,9 @@ describe("mapsUrlState — the layer bitfields' key lists are a wire format", ()
       // Appended at bit 10 with the Datasets card. Prefix-stable, which is
       // the whole rule: every bit before it still means what it always did.
       "datasets",
+      // APPENDED, never inserted: bit 11, so every bit an existing link
+      // carries still means what it meant.
+      "live",
     ]);
   });
 
@@ -111,6 +116,7 @@ describe("mapsUrlState — bitmask round-trip", () => {
       terrain: false, borders: true, contour: true, osm: true,
       fill: false, symbol: true, circle: false, heatmap: false, "fill-extrusion": true, model: false,
       datasets: false,
+      live: false,
     };
     expect(mapsLayerVisibilityFromMask(mapsLayerMaskFromVisibility(visible))).toEqual(visible);
   });
@@ -140,6 +146,7 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
       terrain: true, borders: false, contour: true, osm: true,
       fill: true, symbol: false, circle: true, heatmap: false, "fill-extrusion": false, model: true,
       datasets: true,
+      live: true,
     };
     const datasetRows = Object.fromEntries(
       MAPS_DATASET_ROW_KEYS.map((id) => [id, id === "ds-cables" || id === "ds-dams"]),
@@ -173,6 +180,7 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
       // labelled one, and it is the last slot, so this also pins that the
       // tuple's width is read to its end.
       datasetLabelAnchors: [0, 0, 0, 0, 2],
+      liveMask: mapsLiveMaskFromFeeds({ quakes: true, disasters: false, launches: false, satellites: true }),
     };
     const decoded = { ...MAPS_URL_DEFAULTS, ...mapsCodec.decode(mapsCodec.encode(state)) };
 
@@ -195,6 +203,9 @@ describe("mapsUrlState — a link restores the map's CONTENT", () => {
     expect(decoded.contourLabels).toBe(true);
     expect(decoded.extrusionRenderMode).toBe("wireframe");
     expect(decoded.modelRenderMode).toBe("ink");
+    expect(mapsLiveFeedsFromMask(decoded.liveMask)).toEqual({
+      quakes: true, disasters: false, launches: false, satellites: true,
+    });
   });
 
   it("a link with NONE of the new tokens still decodes to today's defaults", () => {

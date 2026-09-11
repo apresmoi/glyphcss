@@ -6977,3 +6977,576 @@ away zooms it out a level.
 Every other case in the file was checked for the same defect — a premise
 satisfied by an unrelated guard — by reading which clause each one would have
 to reach; the two above were the only ones that could not reach theirs.
+
+## Live data: `setLayerSource`, and why the clock is not in this package
+
+Every layer here was static once mounted. `addLayer` captures a source and
+there was no way to hand a runtime a new one, so a dataset that REFRESHES
+could only be expressed as `removeLayer` + `addLayer`. That is wrong twice
+over: it loses the layer's place in `layerOrder`, and for a `symbol`/`circle`
+layer it destroys and re-creates every hotspot `<div>` on every refresh — the
+`+4298 -4298` churn `widget.symbolRebuildFlash.test.ts` exists to prevent, on
+a timer.
+
+### One primitive, and it is idle-neutral
+
+`setLayerSource(id, source)` is the whole package-side surface. It is valid
+for every vector-source layer (`line`, `fill`, `fill-extrusion`, `symbol`,
+`circle`, `heatmap`) and throws a `RangeError` naming the id for anything
+else: `raster` and `contour` read a FIELD, `background` has no source, and a
+`model` is a polygon list.
+
+Mechanically it is three steps. The runtime's held source is replaced and its
+`lastInputs` identity skip cleared (a new source's features are a genuinely
+different input and must not take the skip that stops an unchanged tile set
+from rebuilding); its tile cache is cleared with it, since the cache is keyed
+by `z/x_y` alone and would otherwise serve one provider's tiles for another's
+addresses; and the stored options object is replaced too, so `getAttributions()`
+and every later read see the new source.
+
+`createFeatureLayerRuntime.update()` now captures `source` ONCE at the top of
+a sweep. It awaits, and the binding is replaceable, so reading it after the
+await would let a sweep that started on one source finish on another —
+fetching for the second and rebuilding from the first. `setSource` clears
+`lastInputs` and the caller dispatches a fresh `update()`, so the older
+sweep's result is simply superseded.
+
+**It is idle-neutral, and that is the design constraint, not a side effect.**
+The dispatch goes through the same `trackUpdate` counter `addLayer`'s does, so
+`setLayerSource(id, next); await idle()` resolves once the new features are on
+screen and `map.idle()` keeps its exact meaning.
+
+A `refreshMs` on the LAYER was considered and rejected, because there is no
+third option:
+
+- **Counted in `widgetBusy()`**, `idle()` never resolves. A map that refreshes
+  forever is never idle, literally. Every test that awaits it hangs, so does
+  the bench harness, so does any consumer awaiting quiescence for an export.
+- **Excluded**, the widget holds a timer that `idle()` deliberately does not
+  report. That is a rule with no other instance in the file: all five of
+  `widgetBusy()`'s clauses are state the widget sets synchronously before the
+  work begins, and each is gated by a test that reddens when removed.
+
+There is a second, independent reason. `refreshMs` would force the widget to
+own an abort, an error channel, a backoff, a `document.hidden` gate and a
+per-service rate-limit policy it has no vocabulary for. The repo already
+decided this once: `website/src/components/MapsWorkbench/mapsGeocode.ts` puts
+a live HTTP call, its usage policy and its vendored fixtures in the website
+and keeps this package pure. `mapsLiveRefresh.ts` follows it exactly.
+
+### The marker reconcile
+
+A refresh cannot take the `featuresAreTheWholeInput` skip — the features
+really did change — so without a reconcile a live layer reintroduces exactly
+the churn and the opacity flash that skip was built to remove.
+
+So `createPointFeatureRuntime` RECONCILES whenever the incoming features carry
+unique `id`s: survivors move through `handle.setAt` (the same call `syncGround`
+already uses, for the same reason), departures are removed, arrivals take the
+identical creation path including the `opacity: 0` that keeps a label from
+ever being painted before the arbiter has ruled, and `sync()` runs once at the
+end. A multipoint feature's markers key as `id#index`. Ids absent, empty or
+non-unique fall back to the pre-existing wholesale rebuild — a duplicate key
+would silently make two markers fight over one element, which is worse than
+the churn it saves — so a baked pyramid that never refreshes is unaffected
+either way.
+
+Measured on the real `/maps` page at 384 markers (built site, `astro preview`,
+1440x900), timing `setLayerSource` + `idle()` with a `MutationObserver` on
+`.glyph-hotspot-layer`:
+
+| path | node churn | ms |
+|---|---|---|
+| reconcile (keyed ids) | **+0 / −0** | 5.7 – 8.4 |
+| rebuild (no ids) | +384 / −384 | 6.8 – 9.8 |
+| `removeLayer` + `addLayer` | +384 / −384 | 14.8 – 15.8 |
+
+A full live refresh of that row — fetch, 272 KB JSON parse, reconcile and
+render — is 2.1 – 2.5 ms, and every one of the 384 marker elements survives it
+by reference. The satellite row, which re-propagates 157 objects every second,
+is +0 / −0 and issues zero network requests per tick.
+
+One latent defect was fixed on the way: `placementTransform` persisted across
+rebuilds while `sync` writes the transform only when the STRING changes, so a
+marker created after a placement had already been resolved would never receive
+it and would sit centred among correctly-offset neighbours. A fresh marker now
+takes the resolved transform at creation.
+
+`destroy()` also disposes `feature`-kind runtimes, which it skipped entirely —
+a map torn down with point or mesh layers still mounted leaked every hotspot
+handle, both registry entries, and the mesh handles.
+
+### What the four live rows are, and what they cost
+
+The rows themselves are entirely in the website (`mapsLive.ts`,
+`mapsLiveSatellites.ts`, `mapsLiveRefresh.ts`), with one real captured
+response per feed vendored under `fixtures/live/`. All four are keyless,
+openly licensed, and send `Access-Control-Allow-Origin: *` on a GET carrying a
+real browser `Origin` — verified, not quoted.
+
+| row | source | payload | cadence |
+|---|---|---|---|
+| Earthquakes | USGS `2.5_week.geojson` (US Gov, public domain) | ~270 KB, ~385 events | 5 min (12/h) |
+| Disasters | GDACS event list (EC JRC / UN OCHA) | ~140 KB, 99 events | 15 min (4/h) |
+| Launch sites | Launch Library 2 `upcoming?limit=20&mode=normal` | ~190 KB, 13 distinct pads | hourly (1 of a measured 15/h) |
+| Satellites | CelesTrak `GROUP=visual` element sets | ~26 KB, 157 objects | elements ONCE; motion is local SGP4 |
+
+The two quantitative rows have since grown a TIME WINDOW, so the source,
+payload and cadence above are each row's DEFAULT one — see "The time window
+each row is read at" below for the whole ladder.
+
+Three corrections to the feasibility report the work started from, each
+measured:
+
+- **GDACS cyclone TRACKS are real lines, but they are not in the feed.** The
+  event list is 99 `Point` features and nothing else; a track lives behind a
+  per-event geometry endpoint, and one live cyclone's document is 389 KB for
+  48 `LineString`s and 62 polygons. Eighteen live cyclones is ~7 MB across 18
+  requests — a fan-out, not a feed. The row is the event list.
+- **Launch Library's 23 KB `mode=list` carries no pad at all** — no latitude,
+  no longitude, nothing to place a marker with. `mode=normal` is the lightest
+  response that does, and it is ~190 KB, most of it per-launch image and
+  licence metadata this page never reads. There is no field selection on that
+  API.
+- **`mode=normal` is SLOW from a browser**: 10.6 s, 28.2 s and once past 25 s
+  on three consecutive calls, against 1.3 s to curl and 4.4 s for their own
+  `mode=list`. That is what put `MAP_LIVE_TIMEOUT_MS` at 45 s — the first
+  browser run of this feature left the row at "loading..." indefinitely, which
+  is the one failure a reader cannot tell from a bug.
+
+The rows are `circle` for the three quantitative feeds and `symbol` for
+launches, and that split is not a style choice: `circle` runs NO declutter
+arbiter (its `sync` culls the far hemisphere and returns), so it draws every
+point at every zoom — right for a few hundred sized dots, wrong for a few
+hundred names. It is also why 16,560 CelesTrak objects is not a layer and 157
+is.
+
+### Failure, and the CORS trap
+
+No fetch here rejects, and a failed refresh calls no `setLayerSource` at all:
+the layer keeps the features it last had and the row says why it is not newer.
+The card distinguishes STALE (data on screen, last refresh failed) from FAILED
+(nothing ever loaded) because they are different sentences — replacing a
+count with an error would tell a reader the map had gone blank when it had not.
+
+The trap worth knowing about for any feed: several of these services send
+`Access-Control-Allow-Origin` on their 200s and NOT on their error responses,
+so a perfectly readable `429` reaches the browser as an opaque `TypeError`
+with no status, no `Retry-After` and no message. Nothing in the page can tell
+that apart from an outage, and on these services the throttle is the likelier
+of the two, so an unexplained failure is reported as PROBABLY rate limiting.
+A timeout is reported separately, because that one the page does know.
+
+### The time window each row is read at
+
+Asked for in these words: *"those sets need a filter of recency, like last
+hour, today, last week, etc"*. Three decisions carry it.
+
+**A window is a different SOURCE, never a filtered payload.** USGS publish one
+summary feed per window and Launch Library take a `net` bound, so a narrower
+window is a smaller download rather than a large one with most of it thrown
+away. Measured against the live services:
+
+| USGS feed | bytes | events |   | USGS feed | bytes | events |
+|---|---|---|---|---|---|---|
+| `all_hour` | 11 K | 15 |   | `all_week` | 1.5 M | 2,184 |
+| `all_day` | 195 K | 278 |   | `2.5_month` | 1.5 M | 2,225 |
+| `2.5_day` | 20 K | 28 |   | `4.5_month` | 440 K | 644 |
+| `2.5_week` | 265 K | 380 |   | `1.0_month` | 5.2 M | 7,716 |
+| `4.5_week` | 58 K | 85 |   | `all_month` | 7.5 M | 10,988 |
+
+**ONE axis, not two.** USGS cross a magnitude FLOOR (`all`/`1.0`/`2.5`/`4.5`)
+with a WINDOW (`hour`/`day`/`week`/`month`), and the control is the window
+alone with the floor chosen per window. Two axes is sixteen combinations, and
+the table says what is in them: a 7.5 MB / 10,988-event `all_month` at one
+corner and an almost always empty `4.5_hour` at the other, with nothing on the
+card able to tell a reader which is which. The floor is not a thing a reader of
+a MAP wants to pick — it is the PRICE of the window, the only lever that keeps
+a month inside half a megabyte — so it belongs to the window, derived. Because
+it is hidden it is STATED: every button's tooltip names the floor it carries,
+and `mapsLive.windows.test.ts` reddens if one stops. The ladder that falls out
+rises in floor exactly as the window widens, and every rung is between 11 KB
+and 440 KB:
+
+| row | window | source | payload | cadence |
+|---|---|---|---|---|
+| Earthquakes | 1h | `all_hour` | 11 KB, 15 events | 5 min |
+| | 24h | `all_day` | 195 KB, 278 | 5 min |
+| | **7d** (default) | `2.5_week` | 265 KB, 380 | 5 min |
+| | 30d | `4.5_month` | 440 KB, 644 | 30 min |
+| Launch sites | 24h | `net__lte` +1 d | 15 KB, 2 launches | 30 min |
+| | 7d | `net__lte` +7 d | 85 KB, 9 | hourly |
+| | 30d | `net__lte` +30 d | 190 KB, 20 of 23 | hourly |
+| | **all** (default) | no date bound | 190 KB, 20 | hourly |
+
+**Two of the four rows have no time axis, and get no control.** A control that
+cannot change anything is worse than no control, so `windows.length > 1` is the
+whole rule the card reads.
+
+- **Disasters (GDACS)** is a list of currently ACTIVE events, not a rolling
+  window. The payload does carry dates (`fromdate`, `todate`, `datemodified`),
+  so a filter is possible — and measured on the vendored 99-event capture it is
+  destructive: not one of those events began in the previous seven days, and
+  the median age of a start date is 142 days for an earthquake, 271 for a
+  flood, 309 for a tropical cyclone. Every window a reader would pick empties
+  the row. That is the mechanical answer; the real one is that filtering an
+  ongoing cyclone by when it FORMED hides a live hazard.
+- **Satellites (CelesTrak)** is a live position. There is no recency dimension
+  at all: the elements are fetched once and propagated locally.
+
+**The cadence follows the window**, on one rule — poll at the publisher's own
+regeneration interval unless the payload makes that wasteful. USGS regenerate
+every one to five minutes, so five minutes is the floor below which nothing new
+can arrive, and three of the four quake windows sit on it because all three are
+light and all three genuinely gain events at that scale (one every 4 min, 5 min
+and 27 min respectively). The month window is the one where they diverge: 644
+events a month is 0.075 per five minutes, so twelve of every thirteen requests
+would re-read an unchanged 440 KB file — 5.3 MB an hour to learn nothing.
+Half-hourly is 0.45 new events per request and 880 KB an hour. On the launch
+side the 24-hour window is the only one finer than hourly: a T-0 inside the next
+day slips by minutes, and it is 15 KB against 190 KB, so it spends 2 of the
+reader's own measured 15 requests an hour instead of 1.
+
+**Mechanically it is not a second path.** `MapLiveController.setWindow(id,
+window)` cancels the pending tick, runs the same `refresh` -> `publish` ->
+`update` a scheduled tick runs — so the mounted layer is REPLACED through
+`setLayerSource` and the markers reconcile — and re-arms at the new window's own
+cadence. A row that is off spends nothing and simply remembers the window; the
+window is also the one thing that survives `stop()`'s "switching a row off is a
+fresh start" rule, because it is the reader's standing choice rather than state
+the row accumulated. The requested window is NORMALIZED through `mapLiveWindow`
+before the equality check, so a link naming a window this build does not offer
+resolves to the row's own default instead of spending a request to re-fetch the
+URL the row was already on.
+
+**On the wire** it is `liveWindows`, token `1` — the SECOND digit this schema
+has spent, after `0` took the row bitfield when all 52 letters ran out. A
+4-slot `floatTuple` of indices into `MAPS_LIVE_WINDOW_KEYS`, one per row in
+`MAPS_LIVE_FEED_KEYS` order, both append-only. A tuple rather than one token per
+row for the reason `l` is one: only two rows have a choice, and the other two
+always sit at their own index and therefore always equal the default, which is
+what keeps the whole token off an ordinary link. Both defaults are the URL the
+page fetched before the control existed, so a link shared then still shows what
+it showed — `mapsUrlState.liveWindows.test.ts` decodes a verbatim pre-change
+link and pins every field of it.
+
+Verified in a real browser (built site, `astro preview`, 1440x900, world view,
+one row mounted at a time), each window's own URL answering 200 and the mounted
+count following it: **12 / 277 / 381 / 644 quakes** and **2 / 8 / 13 / 13 pads**.
+The month and `all` launch windows agree because at 30 days the COUNT bound is
+what binds, which is what that button's tooltip says.
+
+One layout consequence, measured rather than guessed: on a 302 px row the four
+buttons plus the longest row name ("Launch sites", 82.1 px) and the longest
+readout the month window can produce ("644 quakes · 12s", ~106 px) do not all
+fit on the shared `38% / auto / 1fr` track. `.maps-live-row--windowed` takes
+`28% / auto / 1fr` with a 3 px widget gap and `1px 2px` button padding; at 27%
+the name lost its last character to an ellipsis and at 29% the readout wrapped
+and made that row 6 px taller than its neighbours. The two rows with no window
+keep the original track exactly.
+
+One guard was corrected on the way, in both this control and the OSM card's
+label-placement toggle it copies: the `preventDefault` that stops a click on a
+button inside the row's `<label>` from activating the row's checkbox has to run
+in the CAPTURE phase. React delegates every handler to the root container, so a
+bubble-phase `onClick` there does not run until the native event has already
+passed the `<label>` — and a DOM that forwards the click (happy-dom does; a
+real browser does not, because the spec exempts interactive descendants) reads
+`defaultPrevented` at exactly that moment.
+
+satellite.js is pinned to **6.0.2**, the last pure-JS release. Version 7 ships
+a WebAssembly accelerator whose Emscripten glue uses top-level await and is
+reachable from the package's only entry point, which fails Astro's static
+build outright (`Module format "iife" does not support top-level await`); the
+deep pure-JS modules are not exported, so there is no way to import past it.
+
+## Stamped point marks: the `glyph` layer
+
+The four live rows landed as `circle`/`symbol` layers — DOM nodes positioned
+over the `<pre>` — and the report on seeing them was:
+
+> "lets not use that for the live datasets, lets use glyphs for them :/ also,
+> the satellites are super tiny, don't we have also the height at which the
+> satellites are orbiting? so we can make them at the right height? and maybe
+> we can make them bigger?"
+
+and, on the labels:
+
+> "lets put the label of magnitude + title for the quake /// and lets make the
+> size dependant of the magnitude too -- if you click it you open the url in a
+> new tab"
+>
+> "ofc we cannot put labels for all the quakes, if there are too many we will
+> need to decide which ones we label, probably depending on magnitude and how
+> long has it happened"
+
+### A THIRD point layer, not a mode on the two that exist
+
+`symbol` and `circle` are DOM by CONTRACT rather than by implementation
+accident. A `symbol` exists so a reader can select and copy a place name; a
+`circle` sizes itself in CSS pixels. Every option either carries has meaning
+only in that medium — `textAnchor` resolves to a CSS percentage of a
+laid-out box, `radiusScale` to `style.width`, `minPriority` to
+`style.opacity` — and none of it survives a translation into cells. A
+`mode: "glyph"` flag on them would be a discriminated union hiding inside one
+interface, with two disjoint runtimes and two disjoint option sets behind one
+name.
+
+What the new layer IS, meanwhile, already existed and is exact: `line` and
+`contour` are stamped layers composed into the scene's single `transformCells`
+hook, depth-tested per cell against whatever geometry won it, and clipped to
+the projection's own horizon. `createGlyphPointLayerRuntime` is structurally
+`createLineLayerRuntime` with a point where a polyline was — the same
+provider-sweep/static-collection feature loading read live by `stamp()` on
+every render, rather than `createFeatureLayerRuntime`'s mount/rebuild cycle,
+which exists to manage DOM elements this layer does not have.
+
+The three are complementary and all three stay. The page's other point rows
+(places, peaks, POIs, countries, every OSM sublayer) are deliberately
+untouched: converting them is a separate decision about a shipped surface.
+
+### The depth test is the stroke's, lifted verbatim
+
+`glyphMapSurfaceOccludes` is `stampGlyphMapPolyline`'s inner loop moved out of
+it unchanged — the sampling-offset CORRECTION (evaluate the surface where the
+stamp actually is, not at the cell centre `grid.depth` was sampled at) and the
+second-difference ALLOWANCE (forgive the terrain's own faceting, never the
+camera's foreshortening). A mark planted on the terrain is coplanar with it to
+within that terrain's own faceting, exactly as a draped stroke is, and a
+second independently-tuned test for the same question would be a second answer
+to it.
+
+The test runs PER CELL of a mark, not per mark: a mark large enough to span
+several cells can straddle a ridge, and the half behind it must go dark
+exactly as a stroke crossing the same ridge does.
+`stampGlyphMapPoint` returns the CELL COUNT it inked, and that count is the
+visibility answer everything downstream keys on — a mark that inked nothing is
+not clickable and gets no label, for free and by construction rather than by a
+second visibility rule that could disagree with the picture.
+
+### Size is a glyph, and there is one rule for it
+
+A `circle` expresses magnitude as a CSS pixel radius, which a character grid
+cannot draw: the smallest paintable thing is one cell and everything below
+that rounds to the same dot. The unit here is a disc radius in CELL ROWS, and
+`glyphMapPointCells` is the whole rule — rasterize the disc (columns stretched
+by `cellAspect`, or a "circle" on a 2:1 grid renders as a vertical ellipse),
+then pick each cell's glyph by HOW MUCH OF THAT CELL THE DISC COVERS out of an
+ordered ramp of increasing ink.
+
+That is the solid rasterizer's own rule (glyphcss picks a cell's glyph from a
+`CharRamp` by intensity) applied to a disc instead of to a Lambert term, and
+it is what makes ONE expression serve both halves of "bigger": under one cell
+the disc grows by climbing the ramp, past one cell it grows by covering more
+cells, with the partially-covered rim automatically landing on the smaller
+ramp entries. No threshold, no second mode. Coverage is measured with 16
+sub-samples per cell (`GLYPH_MAP_POINT_COVERAGE_SAMPLES`), which is about how
+finely the ANSWER is quantized rather than how exact the integral is: with a
+3-entry ramp the boundaries sit at 1/3 and 2/3 and 16 samples resolve those to
++/-1/16 of a cell's area.
+
+`GLYPH_MAP_POINT_RAMP` is `. dot bullet` — U+00B7, U+2022, U+25CF. Three
+properties decided it, in order: they are the SAME SHAPE at three sizes (a
+ramp of `.` `+` `*` `#` also increases in ink but reads as four different
+marks a reader has to learn the order of); they are CENTRED in the cell (a
+full stop sits on the baseline, so a ramp starting at `.` puts the smallest
+mark visibly below its own feature); and all three are in `GLYPH_FONT_ATLAS`
+AND in ordinary system monospace stacks. The ramp stops at U+25CF rather than
+reaching for U+2B24 (BLACK LARGE CIRCLE) for the second half of that: U+2B24
+is in the atlas but missing from most monospace fonts, where it renders as
+tofu at a non-monospace advance and tears the grid.
+
+`size: 0` — the default — is exactly ONE cell carrying the ramp's largest
+glyph, and it is the rule an IDENTITY mark takes. That is not a degenerate
+case but the answer to a measured problem: across 100 sub-cell placements, a
+multi-cell disc with a core-and-halo ramp (`. . . star` at radius 0.55-0.7
+rows) draws ZERO cores 5-36% of the time and TWO cores 11-62% of the time,
+i.e. it loses the star or doubles the satellite depending on where the object
+happens to land. A disc rasterizer cannot express "one bright core plus a
+halo"; a one-cell mark can.
+
+`GLYPH_MAP_POINT_MAX_SIZE_ROWS` (8) is a blast radius, not a design limit:
+`size` comes from a feature's own property, and a source shipping a population
+column where a magnitude was expected would otherwise walk a viewport-sized
+bounding box per feature.
+
+### Altitude is TRUE METRES, and the limb needed no new code
+
+`altitudeProperty x altitudeScale` is a height above the ground in true
+metres, converted with `glyphMapTrueScaleElevation` exactly as a
+`fill-extrusion`'s height is, and measured FROM the exaggerated relief the
+drape puts under the mark — the same split that paragraph already argues for.
+At `/maps`' default `exaggeration: 24` the exempt answer puts a 550 km orbit
+at 8.6% of a radius and the un-exempt one at 207%, two Earth radii past the
+far side of the planet.
+
+The limb falls out of what is already there. `glyphMapGlobe.visible` grew a
+raised-point test for `fill-extrusion` walls — a point behind the centre plane
+is visible exactly when it lies outside the sphere's silhouette CYLINDER,
+which is the ship's-mast-before-the-hull effect — and a satellite is that same
+question at a much larger height. Measured through the real renderer at
+`span: 150` centred on `[0, 0]`: an object at 550 km and lon 100 draws ink
+BEYOND the datum's own silhouette column (nothing on the surface can reach
+those columns), and one at lon 175 draws nothing at all. The horizon reaches
+`acos(R / (R + h))` = 23.1 degrees past the datum's 90, so visibility ends
+around 113 degrees from the sub-observer point, and both sides of that are
+gated.
+
+**An earthquake's depth is NOT an altitude.** USGS ships it in km, positive
+downward, and the vendored week reaches 608 km. Fed to `altitudeProperty` with
+a negative scale it is stamped inside the planet and blanked by the surface
+the reader can see — rendered, not argued: `widget.glyphPoint.test.ts` mounts
+exactly that and counts zero cells for the deep event beside a surface control
+that draws. The epicentre is where a map says an earthquake is, and the depth
+stays a property.
+
+### Labels: folded to ASCII, and rationed by score
+
+A stamped label is characters IN the render, which brings a constraint a DOM
+label never had. `/maps` renders with `colorEncoding: "atlas"`, and glyphcss
+latches the WHOLE SCENE back to the span encoder for any frame containing a
+glyph the 212-glyph colour font does not carry. Real place names carry exactly
+such glyphs: measured on the vendored USGS week, 385 titles contain `i` and
+`e` and `a` with diacritics, `u`, `o`, and a right single quote — 25
+characters in all, none in the atlas, and ONE of them anywhere on screen costs
+the entire map its zero-span rendering. It was observed in a real browser
+before it was reasoned about: the page's own `<pre>` reported
+`font-family: monospace` with the live rows on, and `GlyphCssAtlas` with them
+off.
+
+`glyphMapAsciiLabel` folds a label to printable ASCII (NFD decomposition with
+combining marks stripped, plus a substitution table for what has no
+decomposition — stroked letters, ligatures, typographic punctuation). It is
+applied UNCONDITIONALLY rather than only when the scene is on the atlas,
+because nothing can know: the encoder a frame lands on is decided by that
+frame's own glyphs, i.e. after this text is already in the grid. Given a
+stripped diacritic against a scene-wide silent downgrade, the diacritic goes.
+A label that folds to empty (a wholly non-Latin script) draws nothing, which
+is the honest answer — this atlas cannot write those scripts and a row of
+substitution boxes would be worse than a name the reader looks up elsewhere.
+
+The RATIONING is `priorityProperty` through the same greedy
+`glyphMapDeclutterLabels` a `symbol` uses, in the stamped grid's own cells. A
+SCORE and not a threshold: the arbiter drops a label only when it actually
+collides with a higher-ranked one, so the set thins smoothly as the view zooms
+out instead of switching on at some scale, and the MARKS are never rationed —
+every quake is drawn at its own magnitude whether or not it keeps its name.
+
+`/maps`' own score (`mapLiveQuakeLabelScore`, in the website) is
+`mag + 1.5 * exp(-ageHours / 12)`. Magnitude is the UNIT and needs no scaling:
+the Richter scale is already logarithmic in energy, which is what every
+seismological map draws. Recency is a DECAY rather than a linear age, because
+the difference between an hour ago and two hours ago is enormous and the
+difference between five days and six is nothing; a 12-hour constant leaves 61%
+of the bonus after 6 h, 37% after 12 h, 14% after a day and nothing after
+three, against a rolling seven-day window.
+
+`1.5` is a statement a reader can check — a quake minutes old outranks one up
+to 1.5 magnitudes larger from earlier in the week, and nothing under M4 can
+outrank a M5.5 however fresh. Measured on the vendored week (385 events,
+M2.46-M5.6, the top of the list): at `1.5` it is the two events of the last
+two hours (M5.4 southern East Pacific Rise, 1.8 h; M5.3 Lospalos, 1.4 h) and
+then the week's M5.5s and M5.6s, with a fresh M4.8 (Cliza, 8 h) and M5.0
+(Quepos, 11.7 h) among them. At `2.0` an M4.1 from two hours ago outranks
+every M5.5 on the planet, which is the wrong trade; at `1.0` recency barely
+reorders anything and the score is magnitude with extra steps.
+
+Showing recency on the DOT as well was considered and not built — the user
+asked for it on the labels, the mark's one visual channel is already spent on
+magnitude, and a second encoding on the same mark is its own decision.
+
+### Selection is a hit test, not an element
+
+A glyph is not a node and cannot receive a click, and the fix must not be "put
+a `<div>` back", which is the thing being removed. The stamp RETAINS each
+drawn mark's scene cell (`GlyphMapPointHit`), and `onPointerUp` matches a
+click's own cell against that list. One handler for a whole layer instead of
+one element per point, no second projection, no second visibility rule, and no
+second declutter: a mark that was not drawn left no record.
+
+Four details carry it:
+
+- **It rides the existing `!didDrag` branch**, the same guard the widget's own
+  `click` event uses (set past 3 px of travel, and by the touch path too), so
+  a pan that happens to end over a mark opens nothing. Reusing that branch
+  rather than adding a second one is what makes the two answers unable to
+  disagree.
+- **The threshold is in CELLS**, not pixels — `GLYPH_MAP_POINT_HIT_CELLS` = 2
+  cell ROWS, with columns divided by `cellAspect` so the target is round on
+  screen rather than round in cells. A pixel threshold would shrink to nothing
+  on a dense grid and swallow half a continent on a coarse one, and this
+  widget changes its own grid resolution mid-gesture
+  (`interactiveDownscale`). At `/maps`' 140x63 on 1440x900 a cell is about
+  10 x 14 px, so two rows either side is a 40 x 56 px box — just past the
+  44 px both Apple's and Google's guidelines ask for. A mark's own `size` is
+  added on top, so a large mark is selectable across its whole disc.
+- **The widget resolves WHICH feature and nothing else.** What a click MEANS
+  belongs to the consumer; a library calling `window.open` itself would be
+  choosing a navigation policy for every page that mounts it. The page's own
+  `mapLiveOpenFeature` passes `noopener,noreferrer` (without it the opened
+  third-party document gets a live handle on this one) and CHECKS THE SCHEME
+  — `url` came out of a network payload, and `window.open("javascript:...")`
+  executes in this origin.
+- **A row with nothing to open is inert, and that is read off the DATA.** Only
+  the USGS feed ships a `url`; `featuresCarryUrls` decides, so it is a
+  property of what arrived rather than a `case "quakes":`. No `onSelect` means
+  no hit test and no cursor — a mark that opens nothing must not advertise
+  that it would.
+
+The HOVER affordance is the one place there was no alternative to a
+per-pointermove test: the whole map is a single element, so there is no
+`:hover` rule to write and no per-feature node to hang `cursor: pointer` on.
+It runs only while a layer declares `onSelect`, only while no button is down,
+reads the list the last render already built, and writes `style.cursor` only
+on a real change.
+
+### What the four rows became, and what it looks like
+
+Verified in a real headed browser against the vendored captures (routed
+through Playwright, so no network), at 1440x900 on the page's own 140x63 grid:
+
+| Row | Mark | Size |
+|---|---|---|
+| quakes | the default disc ramp | `mag * 0.2` rows (M2.46-M5.6 -> 0.49-1.12) |
+| disasters | a ring ramp | `alertRank * 0.25` rows |
+| launches | one `▲` | `0` (one cell) |
+| satellites | one `★` | `0` (one cell) |
+
+At a WORLD view (span 140 centred on the Pacific): 136 quake cells, 71
+disaster-ring cells, 55 satellite stars standing clear of the globe's own
+limb, one launch pad, and 25 label lines — the week's notable quakes and the
+last few hours' named along the Indonesian and Melanesian arcs, the rest drawn
+but unnamed. At a REGIONAL view (span 20 over Japan): 33 quake cells, 6 rings,
+one star, 3 label lines. `<pre>` `font-family` is `GlyphCssAtlas` at both, and
+`document.querySelectorAll(".glyph-map-circle")` and `.glyph-hotspot` are both
+EMPTY — which is the whole report answered.
+
+A satellite went from a 4 px CSS circle (about 11% of a cell's drawn area) to
+a full-cell `★` — roughly seven times the area and 2.6x linear at this page's
+cell — and from invisible at a world view to legible at one.
+
+### Gates
+
+- `point.test.ts` — the disc-to-cells rule (one cell at `size: 0`, the ramp
+  climb, the footprint growth and its aspect, monotonicity, the cap, the
+  coverage floor), the depth test including the per-cell straddle and the
+  cross-`<pre>` skip, and the ASCII fold.
+- `widget.glyphPoint.test.ts` — no DOM node and a changed `<pre>`;
+  byte-identical on removal; size varies with magnitude at TWO views and the
+  large mark is genuinely multi-cell; hidden behind terrain (with the
+  negative control that the clear mark still draws) and round the limb; the
+  altitude exemption against the exaggerated candidate AND the ground; the
+  mast-before-the-hull pair; the buried negative altitude; `onSelect` on a
+  click, not on a drag, not in open space, and inert without it; the cursor;
+  and the label arbitration.
+- `mapsLive.test.ts` — every row is a `glyph` layer, every mark glyph and
+  every folded label is in `GLYPH_FONT_ATLAS`, `onSelect` is armed only where
+  the data carries urls, the scheme check, and the score's two bounds plus
+  what it actually selects on the vendored week.
+
+Mutation-checked: removing `glyphMapTrueScaleElevation` from the elevation
+reddens 2 clauses (the satellite lands 14.2 columns off and the mast pair
+draws nothing); disabling `glyphMapSurfaceOccludes` in the point stamp reddens
+4 across both files; disabling `nearSideVisible` reddens the two limb clauses;
+and returning the label unfolded reddens the atlas gate with the 25 real
+characters listed.

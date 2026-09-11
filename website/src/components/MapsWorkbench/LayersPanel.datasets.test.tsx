@@ -95,6 +95,9 @@ function inputs(overrides: Partial<DatasetsLayerInputs> = {}): LayersFolderInput
       onSublayer: noop, onSublayerDensity: noop, onSublayerAnchor: noop,
     },
     datasets: datasets(overrides),
+    // The Live card is a sibling on the same rail; this file is about the
+    // Datasets one, so it is supplied inert exactly as `osm` above is.
+    live: { visible: false, onVisible: noop, feeds: [], onFeed: noop, onWindow: noop },
   };
 }
 

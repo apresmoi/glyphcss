@@ -81,9 +81,16 @@ afterEach(() => {
 });
 
 describe("the three tokens themselves", () => {
-  it("are `q`, `r` and `z`, and are the LAST three fields in the schema", () => {
+  it("are `q`, `r` and `z`, consecutive, with only later-appended fields behind them", () => {
     const tokens = mapsCodec.fields.map((f) => f.token);
-    expect(tokens.slice(-3)).toEqual(["q", "r", "z"]);
+    // The rule is APPEND-ONLY, not "these three are for ever last": the
+    // Live card's `0`/`1` were appended AFTER this card landed, which is
+    // exactly what the rule permits and what keeps a `q`/`r`/`z` link
+    // decoding unchanged — `decodePacked` walks the string in schema order,
+    // so a field ordered after these three can never strand them. Pinning
+    // the whole tail rather than just the triple keeps both halves loud: an
+    // INSERTION before `q`, and a reorder inside it, still go red here.
+    expect(tokens.slice(-5)).toEqual(["q", "r", "z", "0", "1"]);
     // Nothing else holds them — `createUrlCodec` throws on a duplicate, but
     // an assertion that only fires at import time is easy to lose.
     expect(tokens.filter((t) => t === "q")).toHaveLength(1);

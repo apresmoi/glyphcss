@@ -544,8 +544,41 @@ opts back into host-pixel-driven `cols`/`rows`, both pages' own default).
 `map.addLayer`/`removeLayer`/`moveLayer` mutate an ordered layer list.
 `background` sets the scene output's CSS background color and `raster` builds
 the relief mesh; the rest of `GlyphMapLayer` is MapLibre's
-`fill`/`line`/`contour`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model`
+`fill`/`line`/`contour`/`symbol`/`circle`/`glyph`/`heatmap`/`fill-extrusion`/`model`
 vocabulary, over the vector sources documented below.
+
+### Replacing a mounted layer's data (`setLayerSource`)
+
+Layers are static once mounted. `setLayerSource(id, source)` hands a MOUNTED
+vector-source layer a new source in place — the one primitive a refreshing
+dataset needs:
+
+```ts
+const id = map.addLayer({ type: "circle", id: "quakes", source: { features: [] }, radiusProperty: "mag" });
+
+// later, on the CONSUMER's own clock
+map.setLayerSource("quakes", { features: next, attribution: [{ name: "Data courtesy of USGS" }] });
+await map.idle();  // resolves with the new features on screen
+```
+
+- Valid for `line`, `fill`, `fill-extrusion`, `symbol`, `circle`, `glyph` and
+  `heatmap`. A `RangeError` naming the id for `raster` and `contour` (they
+  read a FIELD, not a vector source), `background` and `model`.
+- **Idle-neutral.** The rebuild it dispatches is counted exactly as
+  `addLayer`'s is, so `map.idle()` keeps its meaning. There is no `refreshMs`
+  on the layer and there is not going to be one — a repeating timer inside the
+  widget would either make `idle()` never resolve or make it lie. The
+  interval, the abort, the backoff and any rate-limit policy belong to the
+  caller.
+- **A `symbol`/`circle` layer RECONCILES** when the incoming features carry
+  unique `id`s: survivors move (the hotspot element, its listeners and the
+  declutter verdict all survive), departures are removed, arrivals created.
+  Measured at 384 markers: zero node churn, against a full teardown and
+  re-creation of every marker without ids. Supply an `id` on a feed's features
+  and a refresh cannot flash.
+- **Attribution follows the data.** `getAttributions()` derives from the
+  mounted layers and a collection carries its own credit, so a feed's credit
+  appears and withdraws with its features.
 
 ### Per-layer render mode
 
@@ -573,6 +606,50 @@ mesh, are stamped into the cell grid after rasterization, and already emit
 oriented stroke glyphs by construction. (A contour is real 3D geometry —
 see "Contours stand on the terrain" — but it is *stamped*, not mounted.) `symbol`/`circle` mount DOM hotspots
 rather than geometry, so they carry none either.
+
+### Point features as glyphs: the `glyph` layer
+
+`symbol` and `circle` position DOM nodes over the `<pre>`. A **`glyph`** layer
+is the third point layer and the only one that is part of the picture: it
+stamps its marks into the character grid through the same post-raster path
+`line`/`contour` use, so they survive "copy the text", are depth-tested per
+cell against whatever geometry won it, honour cross-`<pre>` cell ownership,
+and disappear round the limb of a globe.
+
+```ts
+map.addLayer({
+  type: "glyph",
+  source: { features: quakes },
+  color: "#ff6b4a",
+  // Size is a DISC RADIUS IN CELL ROWS, not a pixel radius: the disc is
+  // rasterized and each cell's glyph is picked by its own coverage out of
+  // `ramp` (default `["·", "•", "●"]` — one shape at three sizes). `size: 0`,
+  // the default, is exactly one cell at the ramp's largest glyph.
+  sizeProperty: "mag", sizeScale: 0.2, size: 0.5,
+  // TRUE METRES above the ground, exempt from the terrain's `exaggeration`
+  // exactly as a `fill-extrusion`'s height is.
+  altitudeProperty: "altKm", altitudeScale: 1000,
+  // Stamped labels, arbitrated by the same declutter arbiter a `symbol` uses
+  // and drawn only for a mark that survived the depth test. Folded to
+  // printable ASCII, because a glyph outside the colour-font atlas latches
+  // the whole scene to the span encoder.
+  textProperty: "title", priorityProperty: "score", textAnchor: "top", textOffset: [0, -1],
+  // A glyph cannot receive a click, so selection is a HIT TEST against the
+  // marks the last render stamped — one handler per layer, drag-guarded. A
+  // layer without `onSelect` arms neither the test nor the pointer cursor.
+  onSelect: (feature) => { /* your navigation policy, not this library's */ },
+});
+```
+
+Every glyph a `ramp` names must be in `GLYPH_FONT_ATLAS` when the scene uses
+`colorEncoding: "atlas"`, or one marker costs the whole scene its zero-span
+rendering. `glyphMapPointCells`, `stampGlyphMapPoint`,
+`stampGlyphMapPointLabel` and `glyphMapAsciiLabel` are exported for a caller
+building its own stamped output.
+
+`symbol` and `circle` are unchanged and remain the right answer when the mark
+must be a real element — a name a reader selects and copies, or a marker with
+its own hover chrome.
 
 ### Markers stand on the terrain
 

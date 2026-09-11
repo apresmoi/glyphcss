@@ -35,6 +35,21 @@ import {
   type MapOsmAnchors,
 } from "./mapsOsm";
 import {
+  MAP_LIVE_FEEDS,
+  mapLiveLayer,
+  mapLiveLayerId,
+  mapLiveWindow,
+  type MapLiveFeedId,
+  type MapLiveWindowId,
+} from "./mapsLive";
+import {
+  MAP_LIVE_ROW_OFF,
+  createMapLiveController,
+  mapLiveRowReadout,
+  type MapLiveController,
+  type MapLiveRowStatus,
+} from "./mapsLiveRefresh";
+import {
   MAP_DATASET_DEFAULT_ANCHOR,
   MAP_DATASET_DEFAULT_DENSITY,
   MAP_DATASET_ROWS,
@@ -129,6 +144,10 @@ import {
   mapsDatasetDensityRecordFromTuple,
   mapsDatasetMaskFromRows,
   mapsDatasetRowsFromMask,
+  mapsLiveFeedsFromMask,
+  mapsLiveMaskFromFeeds,
+  mapsLiveWindowRecordFromTuple,
+  mapsLiveWindowsFromRecord,
   readInitialMapsState,
   writeMapsUrlState,
   type MapCharMode,
@@ -316,6 +335,43 @@ export default function MapsWorkbench() {
   const [datasetData, setDatasetData] = useState<Record<string, MapDataset | undefined>>({});
   /** Row ids whose fetch rejected — the card's `failed` line, and the reason a row can be on and drawing nothing. */
   const [datasetFailed, setDatasetFailed] = useState<readonly string[]>([]);
+  // ── The LIVE card.
+  //
+  //    Four public feeds read by the reader's own browser. Everything with a
+  //    clock in it lives in `mapsLiveRefresh.ts` — the widget is handed new
+  //    sources through `setLayerSource` and never learns there is a timer, so
+  //    `map.idle()` keeps meaning what it has always meant.
+  //
+  //    Every row starts OFF (`liveMask` defaults to 0): a live row spends
+  //    somebody else's bandwidth and the reader's own rate-limit budget, so it
+  //    is opted into.
+  const [showLive, setShowLive] = useState(initialLayerVisible.live);
+  const [liveFeeds, setLiveFeeds] = useState<Record<string, boolean>>(
+    () => mapsLiveFeedsFromMask(initial.liveMask),
+  );
+  //    How far BACK (or, for launches, AHEAD) each row reads. Only two rows
+  //    have a real time axis and therefore a control; the other two hold
+  //    their single window here so the record stays total and the wire tuple
+  //    stays one shape. Changing one is a re-fetch with a different SOURCE
+  //    (`controller.setWindow`), never a filter over a payload already
+  //    downloaded.
+  const [liveWindows, setLiveWindows] = useState<Record<string, MapLiveWindowId>>(
+    () => mapsLiveWindowRecordFromTuple(initial.liveWindows),
+  );
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, MapLiveRowStatus>>(
+    () => Object.fromEntries(MAP_LIVE_FEEDS.map((f) => [f.id, MAP_LIVE_ROW_OFF])),
+  );
+  // The AGE printed in each row's readout has to move on its own — nothing
+  // else re-renders the panel between refreshes, so "12s" would sit at "0s"
+  // until the next fetch landed. One second-hand for the whole card, armed
+  // only while it is open.
+  const [liveClock, setLiveClock] = useState(() => Date.now());
+  const liveController = useRef<MapLiveController | null>(null);
+  // The bench seam is installed ONCE (its effect has no dependencies), so a
+  // status read through it has to go via a ref rather than the render's own
+  // closure — the same accessor-not-captured-value rule every other hook in
+  // that object follows.
+  const liveStatusesRef = useRef<Record<string, MapLiveRowStatus>>({});
   /**
    * Street-level walk mode — and, from a shared link, the pose to open it at.
    *
@@ -798,6 +854,36 @@ export default function MapsWorkbench() {
       onRowDensity: (id, density) => setDatasetDensities((prev) => ({ ...prev, [id]: density })),
       onRowAnchor: (id, anchor) => setDatasetAnchors((prev) => ({ ...prev, [id]: anchor })),
     },
+    live: {
+      visible: showLive, onVisible: setShowLive,
+      // Every string the card prints comes out of `mapLiveRowReadout`, where
+      // a test can reach the wording without mounting a panel — the same
+      // split `mapsGeocode.ts` keeps between what a service failure MEANS and
+      // where it is shown.
+      feeds: MAP_LIVE_FEEDS.map((spec) => {
+        const status = liveStatuses[spec.id] ?? MAP_LIVE_ROW_OFF;
+        const readout = mapLiveRowReadout(status, spec.noun, liveClock);
+        // The row's own tooltip prices the window it is CURRENTLY on, not
+        // some fixed one: with a control beside it, a payload figure that
+        // did not follow the buttons would be wrong three times out of four.
+        const window = mapLiveWindow(spec.id, liveWindows[spec.id] ?? spec.defaultWindow);
+        return {
+          id: spec.id,
+          label: spec.label,
+          tooltip: `${spec.tooltip} — ${window.payload}.`,
+          on: liveFeeds[spec.id] ?? false,
+          value: readout.value,
+          warn: readout.warn,
+          note: readout.note,
+          windows: spec.windows.length > 1
+            ? spec.windows.map((w) => ({ value: w.id, label: w.label, desc: w.desc }))
+            : [],
+          window: window.id,
+        };
+      }),
+      onFeed: (id, on) => setLiveFeeds((prev) => ({ ...prev, [id]: on })),
+      onWindow: (id, window) => setLiveWindows((prev) => ({ ...prev, [id]: window as MapLiveWindowId })),
+    },
   };
 
   const [charMode, setCharMode] = useState<MapCharMode>(initial.charMode);
@@ -992,6 +1078,26 @@ export default function MapsWorkbench() {
         setOsmAnchors(mapOsmAnchorRecord(anchor as MapOsmAnchors[string])),
       setOsmLabelAnchorRow: (id: string, anchor: string) =>
         setOsmAnchors((old) => ({ ...old, [id]: anchor as MapOsmAnchors[string] })),
+      // The LIVE card, driven the way a reader drives it — the card's own
+      // switch and its per-row switches — for the same reason the OSM hooks
+      // exist: the link carries a bitfield, so no query string can name one
+      // row, and pricing a refresh needs one row on and the rest off.
+      setLive: (on: boolean) => setShowLive(on),
+      setLiveFeeds: (ids: readonly string[]) =>
+        setLiveFeeds(Object.fromEntries(MAP_LIVE_FEEDS.map((f) => [f.id, ids.includes(f.id)]))),
+      // The window, for the same reason the row set is here: the link carries
+      // a tuple of indices, so no query string can name one row's window, and
+      // pricing a wide window against a narrow one needs to move exactly one.
+      setLiveWindow: (id: string, window: string) =>
+        setLiveWindows((prev) => ({ ...prev, [id]: window as MapLiveWindowId })),
+      // What a row is CURRENTLY showing. The only way a harness can wait for
+      // a live row to land: the fetch is the page's, not the widget's, so
+      // `map.idle()` says nothing about whether the data has arrived yet.
+      liveStatus: (id: string) => liveStatusesRef.current[id] ?? null,
+      // Re-run one row's refresh NOW, ignoring its cadence — how a refresh is
+      // PRICED without waiting five minutes for one, and the only seam that
+      // does anything a reader's own clock would not eventually do.
+      refreshLive: (id: string) => liveController.current?.refresh(id as MapLiveFeedId) ?? Promise.resolve(),
       // Street-level walk mode, through the page's OWN toggle rather than
       // `map.setWalk` directly, so the React gate (`mapWalkReason`) and the
       // auto-exit are exercised exactly as a reader's click exercises them.
@@ -1532,6 +1638,73 @@ export default function MapsWorkbench() {
     // lists them: those two are what rebuild the widget, and a rebuilt widget
     // has no layers on it.
   }, [showDatasets, datasetRows, datasetDensities, datasetAnchors, datasetData, provider, vectorProvider]);
+  // ── The LIVE card.
+  //
+  //    One controller for the whole card, rebuilt only when the WIDGET is
+  //    (`provider`/`vectorProvider` are what replace the map instance, and a
+  //    replaced map has no layers on it). The controller owns every timer,
+  //    every abort and the visibility gate; this effect owns only the three
+  //    calls into the widget, and the middle one is the whole feature:
+  //    `setLayerSource` hands a mounted layer new data without taking it
+  //    down, so the markers RECONCILE — every surviving dot keeps its own
+  //    element and simply moves — instead of being destroyed and re-created
+  //    on every refresh. ────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const controller = createMapLiveController({
+      mount: (id, source) => {
+        map.addLayer(mapLiveLayer(id, source));
+        map.scene.rerender();
+        setAttributions(map.getAttributions());
+      },
+      update: (id, source) => {
+        map.setLayerSource(mapLiveLayerId(id), source);
+        // The credit rides the COLLECTION, so a refresh re-states it rather
+        // than the page holding a copy.
+        setAttributions(map.getAttributions());
+      },
+      unmount: (id) => {
+        map.removeLayer(mapLiveLayerId(id));
+        map.scene.rerender();
+        setAttributions(map.getAttributions());
+      },
+      onStatus: (id, status) => {
+        liveStatusesRef.current = { ...liveStatusesRef.current, [id]: status };
+        setLiveStatuses((prev) => ({ ...prev, [id]: status }));
+      },
+    });
+    liveController.current = controller;
+    const onVisibility = (): void => { if (!document.hidden) controller.wake(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      liveController.current = null;
+      controller.destroy();
+    };
+  }, [provider, vectorProvider]);
+
+  // Which rows are mounted. Separate from the controller's own lifetime so
+  // toggling a row does not tear down and rebuild every other row's timer.
+  useEffect(() => {
+    const controller = liveController.current;
+    if (!controller) return;
+    for (const spec of MAP_LIVE_FEEDS) {
+      // The window FIRST, so a row coming on in the same commit as a window
+      // change issues one fetch at the new window rather than one at the old
+      // one and then a second replacing it.
+      controller.setWindow(spec.id, liveWindows[spec.id] ?? spec.defaultWindow);
+      controller.setEnabled(spec.id, showLive && (liveFeeds[spec.id] ?? false));
+    }
+  }, [showLive, liveFeeds, liveWindows, provider, vectorProvider]);
+
+  // The card's second hand — armed only while the card is open and at least
+  // one row is on, so a page with the card shut owns no interval at all.
+  useEffect(() => {
+    if (!showLive || !MAP_LIVE_FEEDS.some((spec) => liveFeeds[spec.id])) return;
+    const timer = setInterval(() => { setLiveClock(Date.now()); }, 1000);
+    return () => { clearInterval(timer); };
+  }, [showLive, liveFeeds]);
 
   // ── Contour line-count readout (LayersPanel's "lines" info row) — polls
   //    the layer's CURRENTLY resolved field range while contour is visible,
@@ -1801,9 +1974,12 @@ export default function MapsWorkbench() {
       layerMask: mapsLayerMaskFromVisibility({
         terrain: showTerrain, borders: showBorders, contour: showContour, osm: showOsm,
         datasets: showDatasets,
+        live: showLive,
         ...extraVisible,
       }),
       osmMask: mapsOsmMaskFromSublayers(osmSublayers),
+      liveMask: mapsLiveMaskFromFeeds(liveFeeds),
+      liveWindows: mapsLiveWindowsFromRecord(liveWindows),
       terrainDensity,
       borderDensity,
       contourDensity,
@@ -1846,7 +2022,7 @@ export default function MapsWorkbench() {
     // this effect there would call `writeUrlParam` with an identical string on
     // every drag frame — spending `urlState.ts`'s history-write rate budget on
     // a URL that cannot change.
-  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, terrainMinElevation, terrainMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn, showDatasets, datasetRows, datasetDensities, datasetAnchors]);
+  }, [projectionId, exaggeration, centerLon, centerLat, span, tilt, bearing, palette, terrainGlyphPalette, charMode, colorEncoding, useColors, density, smoothShading, lighting, sunMode, sunDay, sunHour, shadows, contourMinElevation, contourMaxElevation, terrainMinElevation, terrainMaxElevation, showTerrain, showBorders, showContour, showOsm, extraVisible, osmSublayers, terrainDensity, borderDensity, contourDensity, osmDensities, osmAnchors, layerAmount.fillDensity, layerAmount.extrusionDensity, pointDataset, modelShape, contourInterval, contourLabels, extraRenderMode, walkOn, showDatasets, datasetRows, datasetDensities, datasetAnchors, showLive, liveFeeds]);
 
   // ── Export bar ──────────────────────────────────────────────────────────
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");

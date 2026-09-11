@@ -226,6 +226,16 @@ describe("a tile sweep must not re-create the labels it already has", () => {
    * (`project()` measures the grid itself, and `sync` calls it once per
    * record), which at the reported view is ~8,600 of them and a ~200 ms
    * stall after every gesture.
+   *
+   * `durationMs: 0` and `idle()` rather than a blend and a sleep: a
+   * TRANSITION re-derives the framing and reprojects the geometry on every
+   * animation frame, so a fixed sleep counts the frames that fit inside it
+   * and not the rebuild this test is about — and the cheaper the rebuild
+   * gets, the more frames fit. (Measured when the point runtime learned to
+   * RECONCILE: the same 50 ms window went from 7 blend frames to 13, and the
+   * count this asserts on doubled while the rebuild it names got strictly
+   * cheaper.) An instant projection change is one forced rebuild and nothing
+   * else, which is what the assertion has always meant.
    */
   it("measures the grid once for a whole rebuild, not once per label", async () => {
     const { host, map, teardown } = await mount();
@@ -235,8 +245,8 @@ describe("a tile sweep must not re-create the labels it already has", () => {
       layoutReads = 0;
       // A projection change re-derives every anchor's world position, so
       // this path may never be skipped — it is the forced rebuild.
-      map.setProjection(glyphMapEquirectangular());
-      await sleep(50);
+      map.setProjection(glyphMapEquirectangular(), { durationMs: 0 });
+      await map.idle();
       expect(labels(host).length).toBe(count);
       expect(layoutReads).toBeLessThan(count);
     } finally { teardown(); }
