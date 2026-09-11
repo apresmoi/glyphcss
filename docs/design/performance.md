@@ -12,6 +12,74 @@
 
 **The camera's per-vertex projection path is memoized.** `project()` runs once per mesh vertex per render — a quarter of a million times a frame on a terrain scene (measured on `/maps`: 65,312 quads x 4 = 261,248 calls per render) — so `resolveProjectionMetrics` building a fresh result object per call, and `rotateVec3Voxcss` recomputing `Math.cos`/`Math.sin` of two angles that are CONSTANT for the whole render, were 3.7% and 8.0% of the entire script budget in a CPU profile of a continuous globe rotation. Both are now memoized on exact input equality, so a hit returns bit-identical values to a recompute and no arithmetic anywhere changes; `NaN !== NaN` means a NaN angle always misses rather than serving a stale cache.
 
+**Indexed vertex projection.** `rasterizeSolid` shared a projection across the
+fan triangles WITHIN a polygon but not BETWEEN adjacent ones, and an
+adjacency-heavy mesh is mostly shared edges: measured on the committed ETOPO1
+z2 relief tier at the resolution `@glyphcss/maps` mounts, **404,992 vertex
+occurrences for 101,761 distinct positions**, i.e. `project()` ran 4.0x more
+often than the geometry has corners. `render/vertexIndex.ts` builds a per
+polygon-array index — `offsets`/`slots` into a distinct-position table — and the
+raster loop projects a position the FIRST time a pass touches it and re-serves
+the camera's own returned tuple for every later occurrence. Measured in the real
+page (`bench/maps-render`, 140x63, spans, headed, base-raster ms/render, three
+interleaved runs each): globe orbit 17.73 -> 16.57 (-6.5%), globe drag 19.17 ->
+17.91 (-6.6%), terrain-only street walk 2.68 -> 2.37 (-11.3%). Four things make
+it exact rather than a weld.
+
+- **The key is the IEEE-754 BIT PATTERN of the three coordinates**, read through
+  an `Int32Array` view, never `===` and never a tolerance. `+0` and `-0`
+  therefore land in different slots, and two NaNs share one only when their
+  payloads agree. `project()` is deterministic, so bit-identical inputs give
+  bit-identical outputs and a hit returns exactly what a recompute would.
+- **Nothing is reused across passes.** A pass generation is bumped at the top of
+  every `rasterizeSolid` call and every slot is stale until re-projected, so a
+  detail grid — its own camera centre, metrics, cell size and grid shape — can
+  never read coordinates the base grid produced. There is no camera-state
+  comparison to get wrong.
+- **The stored tuple is the camera's OWN return value**, held by reference. The
+  obvious alternative — copy the lanes into a pre-shaped scratch row — is a
+  REGRESSION, because an orthographic camera returns three elements and a
+  perspective one four, so a fixed-shape row has to carry `undefined` in its
+  fourth slot and V8 demotes what was a packed-double array to a boxed generic
+  one; every `pa[0]` downstream then costs more than the projection saved
+  (measured: +1% on the globe, against -3.5% for the reference form).
+- **It is built on the SECOND render of an array, never the first**, and an
+  array whose distinct count is above 90% of its occurrences is declined for
+  good. Building it is O(occurrences) hash work — the same order as the
+  projections one frame saves — so on an array that renders once (a static
+  compile, a consumer handing over a fresh array per frame) or shares nothing
+  (a cube authored with per-face corners) it would be pure loss. Invalidation
+  is the polygon array's IDENTITY, the invariant `cullChunkCache` and
+  `worldBoxCache` already run on.
+
+Where it does NOT pay: a scene whose polygons are buildings rather than terrain.
+Measured on the street-level walk with the whole OpenStreetMap card mounted
+(106,584 polys), base-raster 11.23 -> 11.20 ms — flat. `glyphMapVectorMesh`'s
+walls are quads that share only their two vertical edges, its earcut caps share
+ring vertices, and 85% of the walls are `hidden` before projection anyway, so
+there is little duplication left to remove. The win is a terrain win.
+
+**`fillDepthTri` samples `ceil(min) .. floor(max)`.** The id-map / surface-depth
+rasterizer samples at INTEGER `(x, y)`, so an integer outside the triangle's own
+screen bbox cannot be inside the triangle: the old `floor(min) .. ceil(max)`
+bounds only ever sampled those extra integers in order to reject them.
+`scanFillTriangle` has always used the tight form — it is the same argument as
+its empty-coverage skip. Byte-identical by construction, and therefore invisible
+to any output diff; what `rasterize.fillBounds.test.ts` pins instead is the
+INCLUSIVE boundary, because narrowing it one step further silently loses a
+column and a row off every claimed footprint.
+
+**`scanFillTriangle` decides depth, then alpha, then writes.** It used to sample
+a polygon's texture BEFORE deciding whether the fragment loses the depth test,
+so every losing textured fragment paid a texel lookup it could not use.
+`fillDepthTri` has always decided first and sampled after. What did NOT move is
+the alpha rejection, which stays ahead of the depth WRITE: a fully transparent
+texel does not cover its cell and must not occlude what is behind it — sampling
+after the write and then declining to use the texel is the bug where a sprite's
+transparent margin rendered as a solid block. Every cell's coverage, depth and
+colour verdict is unchanged; only the lookups for already-losing fragments are
+gone.
+
 **Interactive LOD.** Cost scales ~quadratically with scene-wide density (font ÷ d → cells × d²), so a tiny cell (high density / small font) can blow the frame budget while dragging (Script + browser Layout/Paint of a huge `<pre>`; colored output's `innerHTML` spans add ParseHTML/Style/Paint on top). The `interactiveDownscale` scene option (default `1` = off) renders at `1/n` resolution *while a control is actively dragging* and restores full detail on release — same on-screen size (camera `zoom` unchanged; bigger cell → fewer cells), just coarser mid-gesture. All three controls signal this automatically via the shared listener registry (`emitInteraction` → `scene.setInteracting`); consumers can call `scene.setInteracting(active)` for custom interaction sources. Mirrored across React/Vue `<GlyphScene interactiveDownscale>` and `<glyph-scene interactive-downscale>`.
 
 **The downscale is a RENDER-grid change, and a DOM overlay is not on the render grid.** `setInteracting(true)` divides `options.cols`/`rows` in place, so `getOptions()` — and therefore any consumer that measures in cells — reports the coarser grid for the whole gesture. That is the honest answer for rasterized work, and the wrong one for anything laid out by the browser: the only DOM the downscale touches is the `<pre>`'s `font-size`, and hotspots live in a SIBLING `.glyph-hotspot-layer` taking their font from the consumer's own stylesheet, so a label's CSS pixel size is invariant while the cell it is expressed in grows by `n`. `scene.getBaseResolution()` exists for exactly that consumer. The base pair is captured on BOTH branches of `setInteracting`, not only the one that restores from it — an `autoSize` scene's exit path re-derives cols/rows from the restored font rather than reading them back, so without the capture the accessor answers `0` there (its mutation gate).
