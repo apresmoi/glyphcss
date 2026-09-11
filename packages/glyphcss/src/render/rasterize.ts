@@ -189,7 +189,7 @@ export interface GlyphOcclusionSlopes {
  * raster does not.
  */
 export function computeOcclusionIds(
-  groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[],
+  groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number; cullChunks?: readonly GlyphPolygonCullChunk[] | null }[],
   rawCamera: ProjectCamera,
   outCols: number,
   outRows: number,
@@ -275,11 +275,77 @@ export function computeOcclusionIds(
     // pre-existing depth-only path.
     const anyPriority = groups.some((g) => (g.occlusionPriority ?? 0) !== 0);
     const priority = anyPriority ? new Int32Array(cols * rows) : null;
+    // ── Pre-projection cull runs ───────────────────────────────────────────
+    // The same mechanism, the same boxes and the same two tests the solid
+    // paint loop runs (see `glyphChunkIsOffGrid` and
+    // `glyphChunkIsBackFacing`), applied to the id-map's own raster — the one
+    // polygon loop in this file that never had them, and the reason a single
+    // separated opaque layer costs a second whole-scene raster per render.
+    //
+    // It is byte-identical by the paint loop's own argument: a run whose box
+    // provably projects off THIS raster's grid covers no cell of it and so
+    // claims none, and a run every one of whose normals is back-facing is a
+    // run every triangle of which `fillDepthTri` would reject on the same
+    // `area2 > 0` sign. Nothing is reordered — a run is skipped in place —
+    // so the draw-order tie-break between coplanar claimants is untouched.
+    //
+    // BACK-FACE rejection is gated on `!doubleSided`, because that is exactly
+    // the condition under which `fillDepthTri` culls back faces at all. A
+    // `doubleSided` scene's back faces DO claim, and rejecting their runs
+    // would blank whatever stands behind them — pinned by a claim-set clause,
+    // not only by a projection count. The gradient is derived from the camera
+    // by EVALUATION, never assumed, and once per raster, because a
+    // supersampled or `occlusionContourPx` raster has its own
+    // cols/rows/metrics.
+    //
+    // `occlusionContourPx` needs no exemption, which is worth stating because
+    // it looks as though it should: that feature stamps a claimed FINE cell
+    // outward by up to 24 fine cells, so "off the grid" would stop implying
+    // "claims nothing on it" IF the stamp could grow from a cell outside the
+    // buffer. It cannot — the margin loop iterates the fine map's own
+    // indices, so a run with no claim inside the grid contributes no seed and
+    // therefore no margin. The cull runs on the fine raster like any other.
+    let facingX = 0, facingY = 0, facingZ = 0, facingOk = false;
+    if (!doubleSided) {
+      const probeChunks: GlyphPolygonCullChunk[] = [];
+      for (const g of groups) if (g.cullChunks) for (const c of g.cullChunks) probeChunks.push(c);
+      if (probeChunks.length > 0) {
+        const grad = deriveFacingGradient(rawCamera, cols, rows, cellAspect, scaledMetrics, probeChunks);
+        if (grad !== null) { facingX = grad[0]; facingY = grad[1]; facingZ = grad[2]; facingOk = true; }
+      }
+    }
+    const cullCorner: Vec3 = [0, 0, 0];
     for (const g of groups) {
       const pri = g.occlusionPriority ?? 0;
-      for (const poly of g.polygons) {
+      const chunks = g.cullChunks ?? null;
+      const polys = g.polygons;
+      let cullCursor = 0;
+      for (let polyIdx = 0; polyIdx < polys.length; polyIdx++) {
+        if (chunks !== null) {
+          while (cullCursor < chunks.length && chunks[cullCursor]!.end <= polyIdx) cullCursor++;
+          const chunk = chunks[cullCursor];
+          // Cone first: a handful of multiplies, against eight corner
+          // projections.
+          if (chunk !== undefined && chunk.start === polyIdx
+            && ((facingOk && glyphChunkIsBackFacing(chunk, facingX, facingY, facingZ))
+              || glyphChunkIsOffGrid(chunk, rawCamera, cols, rows, cellAspect, scaledMetrics, cullCorner))) {
+            polyIdx = chunk.end - 1;
+            continue;
+          }
+        }
+        const poly = polys[polyIdx]!;
         const vs = poly.vertices;
-        if (vs.length < 3) continue;
+        // `Polygon.hidden` is the consumer-driven cull (e.g. a BSP PVS,
+        // `@glyphcss/maps`' walk-mode wall cull). Every other polygon loop in
+        // this file skips it — the paint loop, the wireframe loop, the ink
+        // loop, both shadow passes — and this one is where it BLANKS rather
+        // than merely wastes work: a hidden polygon paints nothing, so a cell
+        // it claims is a cell where its layer shows sky and every other layer
+        // is punched out. Measured directly: a base quad in front of a detail
+        // quad claimed all 64 cells of an 8x8 map with `hidden: true` set,
+        // and the detail layer behind it lost 140 of its 238 painted cells to
+        // a hole the base grid then painted nothing into.
+        if (vs.length < 3 || poly.hidden) continue;
         // Alpha-aware claim (see the doc above): resolve this polygon's texture
         // sampler the same way `rasterizeSolid` does, but only keep it when the
         // texture actually HAS transparent texels — an all-opaque texture's
@@ -1748,6 +1814,95 @@ export function glyphChunkIsBackFacing(
 }
 
 /**
+ * Whether a run's world AABB provably projects entirely off a `cols × rows`
+ * grid, decided from eight corner projections and without projecting one of
+ * the run's own vertices. Shared by `rasterizeSolid`'s paint loop and by
+ * `computeOcclusionIds`' id-map raster, which run it against the same boxes
+ * at two different resolutions.
+ *
+ * `corner` is a caller-owned scratch `Vec3`: this is called once per run per
+ * pass, on a path that already exists to avoid allocation.
+ *
+ * The three fidelity rules, all load-bearing:
+ *   1. A box that is not WHOLLY in front of the near plane is ALWAYS
+ *      accepted. glyphcss's own near-plane clipping stays authoritative;
+ *      behind the eye the projective map stops being one, so the 2D hull of
+ *      the projected corners no longer bounds the projected contents. Both
+ *      shipped cameras signal that by projecting a corner at or past the
+ *      near plane to NaN (orthographic has no eye and never does), so the
+ *      NaN test below IS this rule — pinned by
+ *      `rasterize.cullChunks.test.ts`'s "near-plane NaN contract".
+ *   2. Nothing is ever reordered — a run is skipped or drawn in place —
+ *      because `depthEpsilon` resolves coplanar ties by draw order.
+ * For points strictly in front of the near plane the projection IS a
+ * projective map, so the image of the box's convex hull is the convex hull
+ * of its 8 projected corners, and their 2D bounding box therefore bounds
+ * every projected point inside the run. Rejecting on that is exact.
+ *   3. A box ALL EIGHT of whose corners project to NaN is rejected, and
+ *      that is exact rather than a relaxation of rule 1. The near plane is
+ *      a PLANE and the box is the convex hull of those eight corners, so
+ *      "no corner is strictly in front of it" means the whole box lies in
+ *      the closed half-space behind it and contains no visible point. It is
+ *      the same argument `rasterizeSolid` already makes one triangle at a
+ *      time (`nanCount === 3 → continue`), applied to the run's box before
+ *      any of its vertices are projected — and the same one
+ *      `computeOcclusionIds` makes with `eyeDepth`, where a polygon with no
+ *      vertex in front of the eye clips to fewer than three vertices and
+ *      draws nothing. Rule 1 is untouched: a box that STRADDLES the near
+ *      plane has both NaN and finite corners and is still always accepted,
+ *      and the two cases are indistinguishable to the old "any NaN →
+ *      accept" test, which is why they had to be separated rather than
+ *      tuned. Measured at street level in Zürich (`bench/maps-trace`, walk
+ *      mode, 1440x63 grid): 681 of 1,444 runs — 48.4% of every triangle
+ *      submitted — sit wholly behind the walker's head and were being
+ *      projected vertex by vertex and then discarded one triangle at a
+ *      time. An ORTHOGRAPHIC camera has no eye and never NaNs, so this rule
+ *      can never fire there and that path is untouched. The FINITE guard is
+ *      load-bearing: `resolveBaseCullChunks` covers a too-small part, and
+ *      `buildGlyphPolygonCullChunks` a run holding a non-finite vertex, with
+ *      a deliberately INFINITE box meaning "always draw" — whose corners
+ *      project to NaN for a reason that has nothing to do with the near
+ *      plane.
+ */
+function glyphChunkIsOffGrid(
+  chunk: GlyphPolygonCullChunk,
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  corner: Vec3,
+): boolean {
+  let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
+  let nanCorners = 0;
+  const finiteBox = chunk.minX > -Infinity && chunk.maxX < Infinity
+    && chunk.minY > -Infinity && chunk.maxY < Infinity
+    && chunk.minZ > -Infinity && chunk.maxZ < Infinity;
+  for (let c = 0; c < 8; c++) {
+    corner[0] = (c & 1) !== 0 ? chunk.maxX : chunk.minX;
+    corner[1] = (c & 2) !== 0 ? chunk.maxY : chunk.minY;
+    corner[2] = (c & 4) !== 0 ? chunk.maxZ : chunk.minZ;
+    const p = camera.project(corner, cols, rows, cellAspect, metrics);
+    const px = p[0], py = p[1];
+    if (px !== px || py !== py) {
+      // Rule 1 — but keep counting, because rule 3 needs to know whether
+      // EVERY corner is behind the near plane or only some of them.
+      if (!finiteBox) return false;
+      nanCorners++;
+      continue;
+    }
+
+    if (px < bMinX) bMinX = px;
+    if (px > bMaxX) bMaxX = px;
+    if (py < bMinY) bMinY = py;
+    if (py > bMaxY) bMaxY = py;
+  }
+  if (nanCorners === 8) return true;  // rule 3
+  if (nanCorners > 0) return false;   // rule 1
+  return bMinX >= cols || bMaxX < 0 || bMinY >= rows || bMaxY < 0;
+}
+
+/**
  * The UNIT linear functional `Ĝ` with `sign(Ĝ · n) === sign(area2)` for a
  * triangle with world face normal `n` — the rasterizer's own back-face
  * criterion expressed in world space, recovered from `camera.project` by
@@ -2139,77 +2294,14 @@ function rasterizeSolid(
   const vertexProj = vertexIndex === null ? null : vertexIndex.proj;
   const vertexStamp = vertexIndex === null ? null : vertexIndex.stamp;
   // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
-  // A contiguous run whose world AABB provably projects entirely off the grid
-  // is skipped without projecting one of its vertices. The two fidelity rules
-  // this must obey, both load-bearing:
-  //   1. A box that is not WHOLLY in front of the near plane is ALWAYS
-  //      accepted. glyphcss's own near-plane clipping stays authoritative;
-  //      behind the eye the projective map stops being one, so the 2D hull of
-  //      the projected corners no longer bounds the projected contents. Both
-  //      shipped cameras signal that by projecting a corner at or past the
-  //      near plane to NaN (orthographic has no eye and never does), so the
-  //      NaN test below IS this rule — pinned by
-  //      `rasterize.cullChunks.test.ts`'s "near-plane NaN contract".
-  //   2. Nothing is ever reordered — a run is skipped or drawn in place —
-  //      because `depthEpsilon` resolves coplanar ties by draw order.
-  // For points strictly in front of the near plane the projection IS a
-  // projective map, so the image of the box's convex hull is the convex hull
-  // of its 8 projected corners, and their 2D bounding box therefore bounds
-  // every projected point inside the run. Rejecting on that is exact.
-  //   3. A box ALL EIGHT of whose corners project to NaN is rejected, and
-  //      that is exact rather than a relaxation of rule 1. The near plane is
-  //      a PLANE and the box is the convex hull of those eight corners, so
-  //      "no corner is strictly in front of it" means the whole box lies in
-  //      the closed half-space behind it and contains no visible point. It is
-  //      the same argument `rasterizeSolid` already makes one triangle at a
-  //      time (`nanCount === 3 → continue`), applied to the run's box before
-  //      any of its vertices are projected. Rule 1 is untouched: a box that
-  //      STRADDLES the near plane has both NaN and finite corners and is
-  //      still always accepted, and the two cases are indistinguishable to
-  //      the old "any NaN → accept" test, which is why they had to be
-  //      separated rather than tuned. Measured at street level in Zürich
-  //      (`bench/maps-trace`, walk mode, 1440x63 grid): 681 of 1,444 runs —
-  //      48.4% of every triangle submitted — sit wholly behind the walker's
-  //      head and were being projected vertex by vertex and then discarded
-  //      one triangle at a time. An ORTHOGRAPHIC camera has no eye and never
-  //      NaNs, so this rule can never fire there and that path is untouched.
-  //      The FINITE guard is load-bearing: `resolveBaseCullChunks` covers a
-  //      too-small part, and `buildGlyphPolygonCullChunks` a run holding a
-  //      non-finite vertex, with a deliberately INFINITE box meaning "always
-  //      draw" — whose corners project to NaN for a reason that has nothing
-  //      to do with the near plane.
+  // The three rules, and why each is exact, live on
+  // {@link glyphChunkIsOffGrid}; `computeOcclusionIds` runs the same test
+  // against the same boxes, so there is one implementation of them.
   const cullChunks = scene.cullChunks ?? null;
   let cullCursor = 0;
   const cullCorner: Vec3 = [0, 0, 0];
-  const chunkIsOffGrid = (chunk: GlyphPolygonCullChunk): boolean => {
-    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
-    let nanCorners = 0;
-    const finiteBox = chunk.minX > -Infinity && chunk.maxX < Infinity
-      && chunk.minY > -Infinity && chunk.maxY < Infinity
-      && chunk.minZ > -Infinity && chunk.maxZ < Infinity;
-    for (let c = 0; c < 8; c++) {
-      cullCorner[0] = (c & 1) !== 0 ? chunk.maxX : chunk.minX;
-      cullCorner[1] = (c & 2) !== 0 ? chunk.maxY : chunk.minY;
-      cullCorner[2] = (c & 4) !== 0 ? chunk.maxZ : chunk.minZ;
-      const p = camera.project(cullCorner, cols, rows, cellAspect, scaledMetrics);
-      const px = p[0], py = p[1];
-      if (px !== px || py !== py) {
-        // Rule 1 — but keep counting, because rule 3 needs to know whether
-        // EVERY corner is behind the near plane or only some of them.
-        if (!finiteBox) return false;
-        nanCorners++;
-        continue;
-      }
-
-      if (px < bMinX) bMinX = px;
-      if (px > bMaxX) bMaxX = px;
-      if (py < bMinY) bMinY = py;
-      if (py > bMaxY) bMaxY = py;
-    }
-    if (nanCorners === 8) return true;  // rule 3
-    if (nanCorners > 0) return false;   // rule 1
-    return bMinX >= cols || bMaxX < 0 || bMinY >= rows || bMaxY < 0;
-  };
+  const chunkIsOffGrid = (chunk: GlyphPolygonCullChunk): boolean =>
+    glyphChunkIsOffGrid(chunk, camera, cols, rows, cellAspect, scaledMetrics, cullCorner);
   // ── Pre-projection BACK-FACE run rejection ──────────────────────────────
   // The AABB test above is structurally blind to a globe's far hemisphere: a
   // far-side run still projects inside the near side's own disc, so its box is

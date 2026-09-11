@@ -188,6 +188,14 @@ per frame, 52.7 -> 35.9 fps**, for a one-quad overlay. This is pre-existing
 cross-layer-occlusion machinery, not new to per-layer modes; per-layer modes
 are simply a new way to reach it.
 
+**Re-measured after the id-map got the cull runs** (same probe, same grid gate,
+`--scenario orbit`, two full builds differing only in `render/rasterize.ts`
+and `createGlyphScene.ts`): the probe costs **+9.54 ms/frame before and
++6.67 after**, 31.0 -> 35.0 fps with it mounted. `base-raster` is 15.2 ms on
+both, so the whole difference is outside it. The id-map still rasters the
+whole scene — it now rejects the runs it can before projecting them. See
+`docs/design/performance.md`.
+
 The consequence for `/maps`: every mode its UI offers is either the scene's own
 (`solid`, no separation) or an outline mode (`wireframe`/`ink`, transparent, no
 id-map), so the feature is free as shipped. A future opaque separated layer

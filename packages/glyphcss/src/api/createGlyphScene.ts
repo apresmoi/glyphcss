@@ -1122,7 +1122,7 @@ export function createGlyphScene(
     const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
     return Number.isFinite(span) && span > 1e-9 ? Math.min(cols, rows) / span : 1;
   }
-  function cullChunksFor(polygons: Polygon[]): readonly GlyphPolygonCullChunk[] | null {
+  function cullChunksFor(polygons: readonly Polygon[]): readonly GlyphPolygonCullChunk[] | null {
     let chunks = cullChunkCache.get(polygons);
     if (chunks === undefined) {
       chunks = buildGlyphPolygonCullChunks(polygons);
@@ -1143,6 +1143,19 @@ export function createGlyphScene(
   let baseCullChunks: readonly GlyphPolygonCullChunk[] | undefined;
   function resolveBaseCullChunks(parts: readonly Polygon[][]): readonly GlyphPolygonCullChunk[] | undefined {
     if (parts.length === baseCullKey.length && parts.every((p, i) => p === baseCullKey[i])) return baseCullChunks;
+    baseCullChunks = mergeCullChunks(parts);
+    baseCullKey = parts;
+    return baseCullChunks;
+  }
+  /**
+   * The runs for a CONCATENATION of per-mesh polygon arrays, index-shifted so
+   * the list still tiles the concatenation contiguously and a cursor over it
+   * stays in step. Used for the base grid and, through
+   * `resolveDetailCullChunks`, for each opaque detail group's contribution to
+   * the shared occlusion id-map — those are the two places a rasterizer walks
+   * a concatenation rather than one mesh's own array.
+   */
+  function mergeCullChunks(parts: readonly (readonly Polygon[])[]): readonly GlyphPolygonCullChunk[] | undefined {
     const merged: GlyphPolygonCullChunk[] = [];
     let offset = 0;
     let any = false;
@@ -1166,9 +1179,25 @@ export function createGlyphScene(
       }
       offset += part.length;
     }
-    baseCullKey = parts;
-    baseCullChunks = any ? merged : undefined;
-    return baseCullChunks;
+    return any ? merged : undefined;
+  }
+  /**
+   * One opaque detail group's merged runs, memoized on the ordered identities
+   * of its members' transformed arrays — the same discipline
+   * `resolveBaseCullChunks` runs on, per group id, because the id-map builds
+   * one concatenated polygon list per group and a fresh array every render.
+   *
+   * A group whose ids leave the scene leaves its entry behind, so the map is
+   * pruned to the groups a render actually asked for; the per-mesh boxes it
+   * points at are in the `WeakMap` and collected with their polygons anyway.
+   */
+  const detailCullCache = new Map<number, { parts: readonly (readonly Polygon[])[]; chunks: readonly GlyphPolygonCullChunk[] | undefined }>();
+  function resolveDetailCullChunks(groupId: number, parts: readonly (readonly Polygon[])[]): readonly GlyphPolygonCullChunk[] | undefined {
+    const hit = detailCullCache.get(groupId);
+    if (hit !== undefined && hit.parts.length === parts.length && parts.every((p, i) => p === hit.parts[i])) return hit.chunks;
+    const chunks = mergeCullChunks(parts);
+    detailCullCache.set(groupId, { parts, chunks });
+    return chunks;
   }
   // Retained previous-frame buffer for temporal AA; `rasterize` resizes/seeds it.
   const temporalHistory: TemporalHistory = {
@@ -1552,8 +1581,15 @@ export function createGlyphScene(
         // A base-only map has no such seam to match and pays the coarser raster:
         // ss=1, exactly the resolution the mask-only map has always used.
         const ss = opaqueDetails.length > 0 && options.supersample && options.supersample > 1 ? Math.floor(options.supersample) : 1;
-        const groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number }[] =
-          [{ polygons: allPolygons, id: BASE_LAYER }];
+        // `cullChunks`: the id-map raster gets the SAME pre-projection runs
+        // the solid paint loop gets, over the same boxes from the same
+        // `WeakMap` — it is the one polygon loop in `render/rasterize.ts`
+        // that never had them, and it walks the whole scene once per render
+        // the moment one opaque detail layer exists. Supplied in every mode,
+        // not only `solid`: the id-map is a depth raster whatever the scene
+        // paints with, and the runs describe geometry against a camera.
+        const groups: { polygons: Polygon[]; id: number; occlusionPriority?: number; occlusionClaim?: "alpha" | "geometry"; occlusionContourPx?: number; cullChunks?: readonly GlyphPolygonCullChunk[] | null }[] =
+          [{ polygons: allPolygons, id: BASE_LAYER, cullChunks: resolveBaseCullChunks(baseCullParts) }];
         // Per-mesh `occlusionPriority` (default 0): a higher class claims id-map
         // cells regardless of depth — see the transform option's doc.
         // `occlusionClaim` / `occlusionContourPx` (ADDITIVE, 2026-08): per-mesh
@@ -1563,8 +1599,10 @@ export function createGlyphScene(
           // a single occluder: within it, cells are resolved by the group's own
           // depth buffer, never by one member blanking another's.
           const polygons: Polygon[] = [];
+          const parts: Polygon[][] = [];
           for (const m of g.members) {
             const mp = transformedByEntry.get(m.id) ?? applyTransform(m.polygons, m.transform);
+            parts.push(mp);
             for (const polygon of mp) polygons.push(polygon);
           }
           groups.push({
@@ -1573,7 +1611,14 @@ export function createGlyphScene(
             occlusionPriority: g.transform.occlusionPriority ?? 0,
             occlusionClaim: g.transform.occlusionClaim,
             occlusionContourPx: g.transform.occlusionContourPx,
+            cullChunks: resolveDetailCullChunks(g.id, parts),
           });
+        }
+        // Groups come and go with the mounted meshes; keep the memo to the
+        // ones this render asked for.
+        if (detailCullCache.size > opaqueDetails.length) {
+          const live = new Set(opaqueDetails.map((g) => g.id));
+          for (const key of [...detailCullCache.keys()]) if (!live.has(key)) detailCullCache.delete(key);
         }
         // `textureSamplers` makes the id-map ALPHA-AWARE: a textured sprite
         // quad claims only the cells where its texel is actually opaque, so
