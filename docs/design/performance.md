@@ -35,3 +35,196 @@ path and reports CPU routing, upload, dispatch encoding, render encoding,
 canvas-submit, and GPU-completion milestones plus optional WebGPU
 `timestamp-query` compute/render durations; normal `submit()` does not allocate
 profiling resources.
+
+---
+
+## Street-level walk mode: where the frame went, and what it cost to get it back
+
+The `/maps` walk-mode frame in Zürich with the whole OpenStreetMap card
+mounted was **36.2 ms of renderer main-thread time per displayed frame at
+30 fps** (`bench/maps-trace`, `--scene walk-city`, 1440x900, grid 140x63,
+`spans`, headed, `astro preview`). It is now **21.0 ms at a locked 60 fps** —
+**41.8% less main-thread time per frame** — with every rendered cell
+unchanged at every gate taken along the way.
+
+Two fidelity digests were compared after each change: the shipped
+`bench/maps-render --fidelity-only --encoding spans` eight-waypoint globe
+digest (`d7b0c77de562e14d276d5f10`, unchanged throughout) and a walk-scene
+digest over nine settled street-level poses that actually carry buildings,
+shadows, the sky dome and the perspective camera (`45b07e1c27f93a0fad31b794`,
+unchanged throughout). The globe digest alone is blind to every change below,
+because none of its waypoints has a building in it.
+
+| # | change | ms/frame | running |
+|---|---|---|---|
+| 1 | a re-cull with the same verdict stops re-submitting (superseded by 5) | ~0.4 | 1% |
+| 2 | the AABB cull rejects a run **wholly behind** the near plane | 2.1 | 6.8% |
+| 3 | the shadow map builds into scratch instead of 166,200 fresh tuples | 0.4 | 8.0% |
+| 4 | the stroke stamp hoists three closures per RUN up to per STAMP; `glyphMapGeoTileElevationAt` stops allocating a clamp closure per read | 1.4 | 12.0% |
+| 5 | the wall cull writes `Polygon.hidden` in place instead of a new array | 3.3 | 21.2% |
+| 6 | the horizon test is resolved on the walker, and the projection is paid for only by what it admits | 2.2 | 28.9% |
+| 7 | the same conjunction reorder inside `visibleStrokeRuns` | 0.8 | 31.2% |
+| 8 | two exact pre-rejects in front of the haversine; the shade cache is journalled rather than copied | 1.5 | 35.3% |
+| 9 | the per-render flattening of the mounted mesh set is memoized | 0.3 | 36.2% |
+| 10 | a raster layer's ground reader resolves its mounted tiles once per pass | 0.8 | 38.5% |
+| 11 | the wall cull rules out 85% of walls with one compare, by cached distance | 1.0 | 41.3% |
+| 12 | the `hidden` skip moves ahead of two unused reads; caster light-space extents are cached | 0.2 | 41.8% |
+
+**The shape of the frame changed completely.** At the start, `base-raster`
+was 18.2 ms of 36.2 and the rest was the widget's own per-frame work; the
+CPU profile's largest single entry was `glyphMapVectorCullWalls` at 8% of
+everything. At the end `base-raster` is 13.7 ms of 21.0, the cull is 1.9%,
+and `refreshTextureSamplers`, `buildGlyphPolygonCullChunks`,
+`buildChunkNormalCone`, the world-AABB walk and `doRenderTransaction`'s
+flattening have all left the top of the profile entirely.
+
+### The one structural change: `Polygon.hidden`, not a new array
+
+Everything else on the list is a hoist, a memo or an exact early reject. This
+one is a change of shape, and it is what unlocked four of the others.
+
+`@glyphcss/maps`' `fill-extrusion` re-decides which of its walls are inside
+the walker's local horizon on every camera-moving frame, and it used to
+express that verdict by handing `handle.setPolygons()` a fresh array of
+survivors. glyphcss's caches key on polygon-array **identity** — the
+cross-frame shade cache, `refreshTextureSamplers`' whole-scene walk,
+`cullChunkCache`'s `WeakMap` of pre-projection cull runs and their normal
+cones, and `resolveBaseCullChunks`' merged run list — so that write cost
+~2.1 ms per frame plus the garbage behind it, to express a verdict that
+**moves by 1 to 7 polygons out of 45,726**.
+
+Recognising an unchanged verdict and skipping the write was tried first and
+recovers almost nothing: instrumented over a real 263-frame walk, the
+survivor list changed on **251 of 263 frames**. The write has to stop
+happening, not be skipped. `glyphMapVectorMarkWalls` writes `Polygon.hidden`
+on the mesh's own polygons instead — the consumer-driven cull the solid
+rasterizer already honours before any projection, shading or scan-fill, and
+which advances the positional shade-cache index by the polygon's own triangle
+count so that cache stays aligned as the hidden set moves.
+
+Two consequences had to be taken deliberately:
+
+- **The shadow map now honours `hidden`, on both of its passes.** A caster
+  the consumer has culled away must stop casting AND stop shaping the fitted
+  light-space volume, or the map silently tracks geometry nobody can see.
+  Excluding it only from the depth raster is not enough and is not the same
+  bug: 256 texels are divided across that volume, so a caster left in the box
+  makes every texel coarser and wrecks the shadows that ARE on screen
+  (`shadow.hidden.test.ts` has a clause for each, and each catches only its
+  own mutant).
+- **The scene submits more polygons and culls them later.** `polys` per
+  render goes 66,829 → 105,783, because the hidden walls are now in the list.
+  The per-polygon skip is one property read, and it is worth far more than it
+  costs — but the pre-projection cull runs are now built over boxes that
+  include hidden walls, so the AABB cull is weaker than it was. That is a
+  real trade and it is on the winning side by 3.3 ms.
+
+### The exact rejects
+
+Three of the wins are lower bounds that let an expensive exact test be
+skipped, never approximated. All three are one-sided: a point either fails a
+bound and is provably outside, or falls through to the original expression
+and is answered by it unchanged.
+
+**A cull run wholly behind the near plane.** The pre-projection cull's rule 1
+— "a box not wholly in front of the near plane is always accepted" — is a NaN
+test on the eight projected corners, and it cannot tell a run that STRADDLES
+the near plane from one entirely behind the eye. Under an orthographic camera
+that never mattered; under the walk camera it is most of the scene. Measured
+by the trace's census: 1,096 of 1,444 runs accepted on a NaN corner, **681 of
+them wholly behind the walker's head, 48.4% of every triangle submitted**.
+The near plane is a plane and the box is the convex hull of its corners, so
+"no corner strictly in front of it" means the whole box is behind it — the
+same argument `rasterizeSolid` already makes one triangle at a time
+(`nanCount === 3 → continue`). The finite-box guard is load-bearing: an
+UN-CULLABLE run carries a deliberately infinite box whose corners also
+project to NaN, for a reason that has nothing to do with the near plane.
+
+**The walker's horizon, twice.** `glyphMapWalkHorizonTest` puts two bounds in
+front of the haversine. Latitude: `cos σ = cos(φ1-φ2) - cosφ1 cosφ2 (1 - cos Δλ)
+<= cos(φ1-φ2)`, so `σ >= |Δφ|` always. Longitude, valid only once the latitude
+band has passed: with `|φ| <= φmax` for both points, `cosφ1 cosφ2 >= cos²φmax`,
+so `sin(σ/2) >= cos φmax · |sin(Δλ/2)|`. The `min(cos φ1, cos φ2)` form
+WITHOUT the latitude band first is false and was rejected by counterexample —
+two points at 80°N half a world apart are 20° apart and that bound claims 31°.
+
+**The wall cull's distance proof.** Great-circle distance is 1-Lipschitz in
+the viewer, so a wall whose nearest corner was `d` from an anchor is at least
+`d - moved` from a walker who has since travelled `moved`. If that bound is
+past the horizon, every corner fails the horizon test. At street level in
+Zürich **38,954 of 45,726 mounted extrusion polygons (85%) are beyond the
+600 m horizon**, and each was paying a projection plus a haversine per corner
+to say so; they now cost one compare against a cached `Float64Array`. The
+anchor re-bases when the walker has moved a quarter of their own horizon —
+about once every 100 seconds at walking pace, for the cost of one ordinary
+sweep. Forgetting the `- moved` term is the failure this has a render-level
+gate for (`widget.walkWallCull.test.ts`): it is silent, and it drops
+buildings only for a reader who ARRIVED on foot.
+
+### The shade cache is journalled, not copied
+
+`publishRendererState` published a working COPY of the per-triangle shade
+cache so a failure in a later stage left the next frame's inputs untouched.
+At 105,783 polygons that copy is four `.slice()`s of ~130,000-element arrays
+— about 4 MB of fresh array per displayed frame. `ShadeCache.journal` buys
+the identical guarantee for the cost of the entries a pass actually FILLS,
+which on a warm cache is nearly none: a populated entry is a cache HIT, and a
+hit never writes. That is exactly why the journal is a complete undo log —
+every index in it was `undefined` a line earlier — and why the rollback also
+restores the four array LENGTHS, since `delete` leaves a hole rather than a
+shorter array.
+
+### What did NOT pay, and why
+
+- **Recognising an unchanged wall-cull verdict and skipping `setPolygons`.**
+  ~0.4 ms of the hoped 2.1: the verdict changed on 251 of 263 walking frames.
+  Superseded by the `hidden` form, which does not care how often it changes.
+- **Removing the normal cones the perspective camera cannot use.** 0.43 ms on
+  paper, and the trace's own item 2. It never needed doing: once the wall
+  cull stopped handing over a new array, the cull runs — cones included —
+  are built once for the life of the mount and `buildChunkNormalCone` left
+  the profile entirely. A lazy or camera-conditional cone would have been
+  machinery for a cost that had already gone.
+- **Caching the shadow map across frames.** Its inputs are the caster set and
+  the light, and the light is fixed — but the hidden set moves by a handful of
+  walls every frame and the map is fitted to exactly that set, so a
+  content-keyed cache misses on every moving frame. Only the per-caster
+  light-space extents survive (0.2 ms), because they do not depend on which
+  casters are hidden.
+- **Making `worldToSceneScale` lazy.** The walk-mode sky dome declares
+  `requirements: ["worldPosition"]` and never reads the scalar it forces, so
+  laziness looked like a free 1.6 ms. It is not reachable without threading a
+  getter through `GlyphEffectCoordinates`, because `composeEffectLayers` reads
+  the field unconditionally to decide whether to forward it. Memoizing the
+  world AABB per mesh (the same `WeakMap` keying `cullChunkCache` uses) gets
+  the same millisecond once the polygon arrays are stable, and changes no
+  public shape.
+- **An incremental `scanFillShadowTriangle`.** Accumulating edge functions
+  instead of recomputing them per texel changes the floating-point result, so
+  it is not available under a byte-identity contract.
+
+### Two defects this measurement found and did not fix
+
+Both are camera-model questions, not performance ones, and both are
+architectural enough to belong to the architect.
+
+1. **In orbit at city zoom, `/maps` shows no terrain.** `camera.target` is
+   `projection.project(lon, lat, 0)` — the datum — while the terrain stands
+   at `elevation × exaggeration` above it. Measured at Zürich through the
+   page's own seam, projecting the real 408 m ground point through the live
+   camera onto a 63-row grid: span 140° → row 31.5 (centred), span 1° → 27.5,
+   span 0.1° → **-8.2**, span 0.0108° → **-336.3**. The datum itself projects
+   to row 31.5 at every span, so the camera is aiming exactly where the
+   terrain is not. The fix is to target the ground rather than the datum,
+   which moves the picture and therefore re-opens `centerForCamera`'s
+   inversion and every pinned pose in `widget.tiltPivot.test.ts`.
+2. **`getMaxTilt()` ignores the base pitch.** `tilt` ADDS to
+   `cameraForCenter`'s own orientation, which for the globe is `90 - lat`.
+   Measured at Zürich, span 0.0108: `getMaxTilt()` answers **85 at every
+   tilt** while `camera.rotX` runs 42.62, 62.62, 82.62, 87.62, 92.62, 112.62,
+   122.62, 127.62 for tilts 0, 20, 40, 45, 50, 70, 80, 85 — and the grid is
+   **8,820 of 8,820 cells blank** at tilts 80 and 85. What the right ceiling
+   IS cannot be settled while (1) stands: at this span everything still drawn
+   at a high tilt is the stamped `line`/`symbol` layers over an empty raster
+   grid, so the pose at which the picture "goes" is a statement about the
+   strokes, not about the horizon.

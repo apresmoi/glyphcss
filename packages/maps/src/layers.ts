@@ -899,24 +899,71 @@ export interface GlyphMapVectorMesh {
  * `projection.visible` plus its own camera-depth function, which is why it is
  * supplied rather than derived here — this module has no camera.
  */
+function wallIsVisible(wall: GlyphMapVectorWall, visible: (lon: number, lat: number, elev: number) => boolean): boolean {
+  // EVERY corner, not any — see `GlyphMapVectorWall.cap`.
+  if (wall.cap) {
+    for (const [lon, lat] of wall.cap) if (!visible(lon, lat, wall.elev)) return false;
+    return true;
+  }
+  return visible(wall.a[0], wall.a[1], wall.elev)
+    || visible(wall.b[0], wall.b[1], wall.elev)
+    || visible(wall.a[0], wall.a[1], wall.elevTop)
+    || visible(wall.b[0], wall.b[1], wall.elevTop);
+}
+
 export function glyphMapVectorCullWalls(mesh: GlyphMapVectorMesh, visible: (lon: number, lat: number, elev: number) => boolean): Polygon[] {
   if (!mesh.walls.length) return [...mesh.polygons];
   const keep = new Uint8Array(mesh.polygons.length).fill(1);
-  for (const wall of mesh.walls) {
-    if (wall.cap) {
-      // EVERY corner, not any — see `GlyphMapVectorWall.cap`.
-      for (const [lon, lat] of wall.cap) if (!visible(lon, lat, wall.elev)) { keep[wall.polygon] = 0; break; }
-      continue;
-    }
-    const anyCorner = visible(wall.a[0], wall.a[1], wall.elev)
-      || visible(wall.b[0], wall.b[1], wall.elev)
-      || visible(wall.a[0], wall.a[1], wall.elevTop)
-      || visible(wall.b[0], wall.b[1], wall.elevTop);
-    if (!anyCorner) keep[wall.polygon] = 0;
-  }
+  for (const wall of mesh.walls) if (!wallIsVisible(wall, visible)) keep[wall.polygon] = 0;
   const out: Polygon[] = [];
   for (let i = 0; i < mesh.polygons.length; i++) if (keep[i]) out.push(mesh.polygons[i]);
   return out;
+}
+
+/**
+ * The same verdict as {@link glyphMapVectorCullWalls}, written as
+ * `Polygon.hidden` on the mesh's OWN polygons instead of returned as a fresh
+ * subset. Returns whether any flag actually moved.
+ *
+ * This is the form a per-frame cull has to take, and the subset form is the
+ * one a caller re-culling a static mesh against an arbitrary camera wants.
+ * glyphcss's caches key on polygon-array IDENTITY — the cross-frame shade
+ * cache, `refreshTextureSamplers`, `cullChunkCache`'s `WeakMap` of
+ * pre-projection cull runs and their normal cones, and the merged base run
+ * list — so handing it a new array is not a cheap write even when the array's
+ * CONTENTS barely moved. At street level in Zürich the verdict changes by 1
+ * to 7 polygons of 45,726 per frame and the array changed on 251 of 263
+ * frames, so an identity check on the result recovers almost nothing: the
+ * write has to stop happening, not be skipped. `Polygon.hidden` is the
+ * consumer-driven cull glyphcss already documents for exactly this
+ * ("e.g. BSP PVS", `rasterize.ts`), it is honoured before any projection,
+ * shading or scan-fill, and it advances the positional shade-cache index by
+ * the polygon's own triangle count so that cache stays aligned as the hidden
+ * set moves. A cap is never hidden, so only wall polygons are ever touched.
+ */
+export function glyphMapVectorMarkWalls(
+  mesh: GlyphMapVectorMesh,
+  visible: (lon: number, lat: number, elev: number) => boolean,
+  provenHidden?: (wall: GlyphMapVectorWall, index: number) => boolean,
+): boolean {
+  let changed = false;
+  for (let index = 0; index < mesh.walls.length; index++) {
+    const wall = mesh.walls[index]!;
+    const polygon = mesh.polygons[wall.polygon] as Polygon | undefined;
+    if (!polygon) continue;
+    // `provenHidden` is a caller-supplied PROOF, not a heuristic: it may only
+    // answer `true` where `visible` is false at every corner. It exists
+    // because `visible` is the expensive half — a projection plus a haversine
+    // per corner over tens of thousands of walls per moving frame — while a
+    // caller that already knows how far each wall is from the viewer can rule
+    // most of them out with one compare. See `glyphMapWalkDistanceM`.
+    const hide = provenHidden?.(wall, index) === true || !wallIsVisible(wall, visible);
+    if ((polygon.hidden ?? false) !== hide) {
+      polygon.hidden = hide;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /** @see GlyphMapVectorMesh */

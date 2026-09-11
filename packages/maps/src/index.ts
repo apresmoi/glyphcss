@@ -199,6 +199,7 @@ export {
   glyphMapWrapLabel,
   glyphMapPointHeatmap,
   glyphMapVectorCullWalls,
+  glyphMapVectorMarkWalls,
   glyphMapVectorMesh,
   glyphMapVectorPolygons,
   type GlyphMapVectorMesh,
@@ -235,6 +236,9 @@ export {
   glyphMapWalkSpan,
   glyphMapWalkBoundsWithinHorizon,
   glyphMapWalkStep,
+  GLYPH_MAP_WALL_HORIZON_SLACK_M,
+  glyphMapWalkDistanceM,
+  glyphMapWalkHorizonTest,
   glyphMapWalkWithinHorizon,
   resolveGlyphMapWalkOptions,
 } from "./walk";

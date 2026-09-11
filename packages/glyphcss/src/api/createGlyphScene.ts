@@ -1074,6 +1074,54 @@ export function createGlyphScene(
    * already outside the contract.
    */
   const cullChunkCache = new WeakMap<readonly Polygon[], readonly GlyphPolygonCullChunk[] | null>();
+  /**
+   * Per-mesh world-space AABB, for `worldToSceneScale`. Same `WeakMap` keying
+   * and the same invalidation discipline as `cullChunkCache` above: a mesh
+   * whose transformed polygon array comes back by identity has its box built
+   * once for the life of the mount.
+   *
+   * It exists because a mounted effect declaring `worldPosition` made this a
+   * full per-vertex walk of the WHOLE scene on every render — measured at
+   * 1.77 ms per frame on `/maps`' street-level scene, where the one effect
+   * asking for it (the walk-mode sky dome, 384 polygons) does not read the
+   * resulting scalar at all, and the other 68,777 polygons were being walked
+   * to compute it. The union of per-mesh boxes is the same box, to the bit:
+   * min and max are associative.
+   */
+  const worldBoxCache = new WeakMap<readonly Polygon[], readonly [number, number, number, number, number, number]>();
+  function worldBoxFor(polygons: readonly Polygon[]): readonly [number, number, number, number, number, number] {
+    let box = worldBoxCache.get(polygons);
+    if (box === undefined) {
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (const polygon of polygons) for (const vertex of polygon.vertices) {
+        if (vertex[0] < minX) minX = vertex[0];
+        if (vertex[1] < minY) minY = vertex[1];
+        if (vertex[2] < minZ) minZ = vertex[2];
+        if (vertex[0] > maxX) maxX = vertex[0];
+        if (vertex[1] > maxY) maxY = vertex[1];
+        if (vertex[2] > maxZ) maxZ = vertex[2];
+      }
+      box = [minX, minY, minZ, maxX, maxY, maxZ];
+      worldBoxCache.set(polygons, box);
+    }
+    return box;
+  }
+  function resolveWorldToSceneScale(parts: readonly (readonly Polygon[])[], cols: number, rows: number): number {
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const part of parts) {
+      const [aX, aY, aZ, bX, bY, bZ] = worldBoxFor(part);
+      if (aX < minX) minX = aX;
+      if (aY < minY) minY = aY;
+      if (aZ < minZ) minZ = aZ;
+      if (bX > maxX) maxX = bX;
+      if (bY > maxY) maxY = bY;
+      if (bZ > maxZ) maxZ = bZ;
+    }
+    const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+    return Number.isFinite(span) && span > 1e-9 ? Math.min(cols, rows) / span : 1;
+  }
   function cullChunksFor(polygons: Polygon[]): readonly GlyphPolygonCullChunk[] | null {
     let chunks = cullChunkCache.get(polygons);
     if (chunks === undefined) {
@@ -1132,8 +1180,30 @@ export function createGlyphScene(
   let shadeCacheDirty = false;
   function invalidateShading(): void { shadeCacheDirty = true; }
 
-  function cloneShadeCache(source: ShadeCache): ShadeCache {
-    return { iA: source.iA.slice(), iB: source.iB.slice(), iC: source.iC.slice(), lit: source.lit.slice() };
+  /**
+   * Undo every entry this render FILLED, restoring the cache to what it held
+   * before — the rollback half of the `ShadeCache.journal` contract. Called
+   * only on a failed render transaction, where the guarantee is that the
+   * frame AND its next-frame inputs are left exactly as they were.
+   */
+  function rollbackShadeCache(next: ShadeCache, lengths: readonly [number, number, number, number]): void {
+    const journal = next.journal;
+    if (journal === undefined || next.iA !== shadeCache.iA) return;
+    for (let i = journal.length - 1; i >= 0; i--) {
+      const t = journal[i]!;
+      delete next.iA[t];
+      delete next.iB[t];
+      delete next.iC[t];
+      delete next.lit[t];
+    }
+    // `delete` leaves a hole, not a shorter array, and a pass that reached
+    // past the end grew all four. Restore the lengths too, so "exactly as
+    // they were" is literal rather than merely equivalent.
+    next.iA.length = lengths[0];
+    next.iB.length = lengths[1];
+    next.iC.length = lengths[2];
+    next.lit.length = lengths[3];
+    journal.length = 0;
   }
 
   function cloneTemporalHistory(source: TemporalHistory): TemporalHistory {
@@ -1151,15 +1221,18 @@ export function createGlyphScene(
 
   function publishRendererState(nextShadeCache: ShadeCache, nextTemporalHistory: TemporalHistory): void {
     // Reassign rather than splice-spread the incoming values in: `nextShadeCache`'s
-    // arrays are always freshly built per render (a literal or `cloneShadeCache`'s
-    // own `.slice()`s) and never aliased elsewhere, so no identity needs preserving
-    // here — and spreading a large array as call arguments hits V8's argument-count
-    // ceiling (safe under ~100k, throws at 200k+; a real terrain mesh's per-triangle
-    // shade cache routinely exceeds that).
+    // arrays are either the scene's own (the warm path, made safe by
+    // `ShadeCache.journal`) or freshly built for a dirty cache, and never
+    // aliased anywhere else — so no identity needs preserving here, and
+    // spreading a large array as call arguments hits V8's argument-count
+    // ceiling (safe under ~100k, throws at 200k+; a real terrain mesh's
+    // per-triangle shade cache routinely exceeds that).
     shadeCache.iA = nextShadeCache.iA;
     shadeCache.iB = nextShadeCache.iB;
     shadeCache.iC = nextShadeCache.iC;
     shadeCache.lit = nextShadeCache.lit;
+    // Committed: nothing left to undo.
+    if (nextShadeCache.journal !== undefined) nextShadeCache.journal.length = 0;
     temporalHistory.idx = nextTemporalHistory.idx;
     temporalHistory.r = nextTemporalHistory.r;
     temporalHistory.g = nextTemporalHistory.g;
@@ -1281,12 +1354,65 @@ export function createGlyphScene(
     }
   }
 
-  function doRenderTransaction(): void {
-    if (destroyed) return;
-    if (options.glyphOutput === "semantic" && options.mode !== "solid") {
-      throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
+  /**
+   * Everything a render needs about the mounted mesh set, flattened once and
+   * REUSED until the set actually changes.
+   *
+   * Seven parallel per-polygon arrays plus two Maps used to be rebuilt from
+   * scratch on every render: `allPolygons`, the global/mesh index pair, the
+   * cast/receive flags, the depth biases, the semantic polygon list, and the
+   * scene-wide shadow caster set. On `/maps`' street-level scene that is over
+   * 700,000 `push` calls per displayed frame to reproduce arrays identical to
+   * the ones the previous frame built, plus the garbage they leave behind.
+   *
+   * The memo key is the ordered list of TRANSFORMED polygon-array identities
+   * — the same discipline `cullChunkCache` and `resolveBaseCullChunks`
+   * already run on, and the reason it works at all: a mesh with no
+   * position/scale/rotation gets the identical array back from
+   * `applyTransform`, while a moved one gets a fresh array and so a miss.
+   * Beside it sits every per-mesh SCALAR the flattening reads — the two
+   * shadow flags, the depth bias, whether the mesh separates into a detail
+   * pass, and whether shadows are on at all — because none of those shows up
+   * in a polygon array's identity.
+   *
+   * `detailEntries` holds live `MeshEntry` objects, so a later read of
+   * `entry.transform` still sees the current value; only the flattened arrays
+   * are cached, and every input they depend on is in the key.
+   */
+  interface SceneCollection {
+    parts: Polygon[][];
+    flagKey: string;
+    allPolygons: Polygon[];
+    basePolygonGlobalIndexes: number[];
+    basePolygonMeshIds: number[];
+    castShadowFlags: boolean[];
+    receiveShadowFlags: boolean[];
+    depthBiases: number[];
+    anyDepthBias: boolean;
+    detailEntries: MeshEntry[];
+    transformedByEntry: Map<number, Polygon[]>;
+    globalPolygonOffsets: Map<number, number>;
+    semanticPolygons: Polygon[];
+    baseCullParts: Polygon[][];
+    shadowCasterPolygons: Polygon[];
+    shadowCasterFlags: boolean[];
+    anyShadowCaster: boolean;
+  }
+  let sceneCollection: SceneCollection | null = null;
+  function resolveSceneCollection(shadowsOn: boolean): SceneCollection {
+    const entries = [...meshes.values()];
+    const parts: Polygon[][] = entries.map((entry) => applyTransform(entry.polygons, entry.transform));
+    let flagKey = shadowsOn ? "s" : "-";
+    for (const entry of entries) {
+      flagKey += `|${entry.id},${entry.transform.castShadow === true ? 1 : 0}${entry.transform.receiveShadow === true ? 1 : 0}`
+        + `,${entry.transform.depthBias ?? 0},${isDetailMesh(entry.transform) ? 1 : 0}`;
     }
-    // Gather all polygons after transforms.
+    const cached = sceneCollection;
+    if (cached !== null && cached.flagKey === flagKey && cached.parts.length === parts.length
+      && parts.every((part, i) => part === cached.parts[i])) {
+      return cached;
+    }
+
     const allPolygons: Polygon[] = [];
     const basePolygonGlobalIndexes: number[] = [];
     const basePolygonMeshIds: number[] = [];
@@ -1313,12 +1439,12 @@ export function createGlyphScene(
     // grid. Built only when shadows are actually on: with `shadow`
     // undefined this stays empty and every pass takes the exact path it took
     // before (`shadowCasters` is then never supplied at all).
-    const shadowsOn = options.shadow != null;
-    const sceneShadowCasterPolygons: Polygon[] = [];
-    const sceneShadowCasterFlags: boolean[] = [];
-    let anySceneShadowCaster = false;
-    for (const entry of meshes.values()) {
-      const transformed = applyTransform(entry.polygons, entry.transform);
+    const shadowCasterPolygons: Polygon[] = [];
+    const shadowCasterFlags: boolean[] = [];
+    let anyShadowCaster = false;
+    for (let e = 0; e < entries.length; e++) {
+      const entry = entries[e]!;
+      const transformed = parts[e]!;
       globalPolygonOffsets.set(entry.id, semanticPolygons.length);
       // Loop, not `push(...transformed)`: a large single mesh (e.g. a terrain
       // grid) can exceed V8's call-argument-count ceiling for a spread (safe
@@ -1326,10 +1452,10 @@ export function createGlyphScene(
       for (const polygon of transformed) semanticPolygons.push(polygon);
       transformedByEntry.set(entry.id, transformed);
       if (shadowsOn && (entry.transform.castShadow ?? false)) {
-        anySceneShadowCaster = true;
+        anyShadowCaster = true;
         for (const polygon of transformed) {
-          sceneShadowCasterPolygons.push(polygon);
-          sceneShadowCasterFlags.push(true);
+          shadowCasterPolygons.push(polygon);
+          shadowCasterFlags.push(true);
         }
       }
       // Meshes with their own cell metrics render in a separate, finer <pre>.
@@ -1350,6 +1476,37 @@ export function createGlyphScene(
         depthBiases.push(bias);
       }
     }
+    sceneCollection = {
+      parts, flagKey, allPolygons, basePolygonGlobalIndexes, basePolygonMeshIds,
+      castShadowFlags, receiveShadowFlags, depthBiases, anyDepthBias, detailEntries,
+      transformedByEntry, globalPolygonOffsets, semanticPolygons, baseCullParts,
+      shadowCasterPolygons, shadowCasterFlags, anyShadowCaster,
+    };
+    return sceneCollection;
+  }
+
+  function doRenderTransaction(): void {
+    if (destroyed) return;
+    if (options.glyphOutput === "semantic" && options.mode !== "solid") {
+      throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
+    }
+    // Gather all polygons after transforms — memoized, see `resolveSceneCollection`.
+    const collected = resolveSceneCollection(options.shadow != null);
+    const allPolygons = collected.allPolygons;
+    const basePolygonGlobalIndexes = collected.basePolygonGlobalIndexes;
+    const basePolygonMeshIds = collected.basePolygonMeshIds;
+    const castShadowFlags = collected.castShadowFlags;
+    const receiveShadowFlags = collected.receiveShadowFlags;
+    const depthBiases = collected.depthBiases;
+    const anyDepthBias = collected.anyDepthBias;
+    const detailEntries = collected.detailEntries;
+    const transformedByEntry = collected.transformedByEntry;
+    const globalPolygonOffsets = collected.globalPolygonOffsets;
+    const semanticPolygons = collected.semanticPolygons;
+    const baseCullParts = collected.baseCullParts;
+    const sceneShadowCasterPolygons = collected.shadowCasterPolygons;
+    const sceneShadowCasterFlags = collected.shadowCasterFlags;
+    const anySceneShadowCaster = collected.anyShadowCaster;
     // One caster set and one built map per frame, shared by every pass. The
     // cache is a plain holder the rasterizer fills on first use; passing the
     // same one to N passes is what keeps the whole-scene set from costing N
@@ -1490,24 +1647,11 @@ export function createGlyphScene(
     const retainWinnerMesh = effectsActive && hasMeshTargetedLayers();
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      const include = (polygons: readonly Polygon[]) => {
-        for (const polygon of polygons) for (const vertex of polygon.vertices) {
-          if (vertex[0] < minX) minX = vertex[0];
-          if (vertex[1] < minY) minY = vertex[1];
-          if (vertex[2] < minZ) minZ = vertex[2];
-          if (vertex[0] > maxX) maxX = vertex[0];
-          if (vertex[1] > maxY) maxY = vertex[1];
-          if (vertex[2] > maxZ) maxZ = vertex[2];
-        }
-      };
-      include(allPolygons);
-      for (const entry of detailEntries) include(applyTransform(entry.polygons, entry.transform));
-      const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-      worldToSceneScale = Number.isFinite(span) && span > 1e-9
-        ? Math.min(options.cols, options.rows) / span
-        : 1;
+      const parts: readonly Polygon[][] = [
+        ...baseCullParts,
+        ...detailEntries.map((entry) => transformedByEntry.get(entry.id) ?? applyTransform(entry.polygons, entry.transform)),
+      ];
+      worldToSceneScale = resolveWorldToSceneScale(parts, options.cols, options.rows);
     }
     activePreparedEffects = effectsActive
       ? prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows])
@@ -1523,9 +1667,19 @@ export function createGlyphScene(
     // Rasterization is allowed to mutate these working copies freely. They
     // become the next frame's state only after every output/detail/hotspot
     // publication succeeds.
-    const nextShadeCache = shadeCacheDirty
-      ? { iA: [], iB: [], iC: [], lit: [] }
-      : cloneShadeCache(shadeCache);
+    // The LIVE cache plus an undo log, not a copy of it. Four `.slice()`s of
+    // the per-triangle shade cache is ~4 MB of fresh array per render on a
+    // street-level `/maps` scene (105,783 polygons, ~130,000 fan triangles),
+    // and it bought exactly one thing: a failed later stage leaving the
+    // next frame's inputs untouched. `ShadeCache.journal` buys the same
+    // thing for the cost of the entries this pass actually FILLS — which on
+    // a warm cache is nearly none, because a populated entry is a hit and a
+    // hit never writes. A dirty cache still starts from empty, as before.
+    const nextShadeCache: ShadeCache = shadeCacheDirty
+      ? { iA: [], iB: [], iC: [], lit: [], journal: [] }
+      : { iA: shadeCache.iA, iB: shadeCache.iB, iC: shadeCache.iC, lit: shadeCache.lit, journal: [] };
+    const shadeCacheLengths: readonly [number, number, number, number] =
+      [nextShadeCache.iA.length, nextShadeCache.iB.length, nextShadeCache.iC.length, nextShadeCache.lit.length];
     const nextTemporalHistory = cloneTemporalHistory(temporalHistory);
 
     try {
@@ -1675,6 +1829,11 @@ export function createGlyphScene(
       // Option setters schedule their render asynchronously. Keep their public
       // state coupled to the DOM transaction when a later preparation stage
       // rejects instead of leaving semantic/visible selection ahead of paint.
+      //
+      // The shade cache is the scene's OWN arrays this render wrote into, so
+      // the rollback is what stands in for the defensive copy it used to be
+      // handed — see `ShadeCache.journal`.
+      rollbackShadeCache(nextShadeCache, shadeCacheLengths);
       throw error;
     } finally {
       endAtlasPaletteTransaction();

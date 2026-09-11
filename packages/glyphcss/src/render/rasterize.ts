@@ -2131,24 +2131,58 @@ function rasterizeSolid(
   // projective map, so the image of the box's convex hull is the convex hull
   // of its 8 projected corners, and their 2D bounding box therefore bounds
   // every projected point inside the run. Rejecting on that is exact.
+  //   3. A box ALL EIGHT of whose corners project to NaN is rejected, and
+  //      that is exact rather than a relaxation of rule 1. The near plane is
+  //      a PLANE and the box is the convex hull of those eight corners, so
+  //      "no corner is strictly in front of it" means the whole box lies in
+  //      the closed half-space behind it and contains no visible point. It is
+  //      the same argument `rasterizeSolid` already makes one triangle at a
+  //      time (`nanCount === 3 → continue`), applied to the run's box before
+  //      any of its vertices are projected. Rule 1 is untouched: a box that
+  //      STRADDLES the near plane has both NaN and finite corners and is
+  //      still always accepted, and the two cases are indistinguishable to
+  //      the old "any NaN → accept" test, which is why they had to be
+  //      separated rather than tuned. Measured at street level in Zürich
+  //      (`bench/maps-trace`, walk mode, 1440x63 grid): 681 of 1,444 runs —
+  //      48.4% of every triangle submitted — sit wholly behind the walker's
+  //      head and were being projected vertex by vertex and then discarded
+  //      one triangle at a time. An ORTHOGRAPHIC camera has no eye and never
+  //      NaNs, so this rule can never fire there and that path is untouched.
+  //      The FINITE guard is load-bearing: `resolveBaseCullChunks` covers a
+  //      too-small part, and `buildGlyphPolygonCullChunks` a run holding a
+  //      non-finite vertex, with a deliberately INFINITE box meaning "always
+  //      draw" — whose corners project to NaN for a reason that has nothing
+  //      to do with the near plane.
   const cullChunks = scene.cullChunks ?? null;
   let cullCursor = 0;
   const cullCorner: Vec3 = [0, 0, 0];
   const chunkIsOffGrid = (chunk: GlyphPolygonCullChunk): boolean => {
     let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity;
+    let nanCorners = 0;
+    const finiteBox = chunk.minX > -Infinity && chunk.maxX < Infinity
+      && chunk.minY > -Infinity && chunk.maxY < Infinity
+      && chunk.minZ > -Infinity && chunk.maxZ < Infinity;
     for (let c = 0; c < 8; c++) {
       cullCorner[0] = (c & 1) !== 0 ? chunk.maxX : chunk.minX;
       cullCorner[1] = (c & 2) !== 0 ? chunk.maxY : chunk.minY;
       cullCorner[2] = (c & 4) !== 0 ? chunk.maxZ : chunk.minZ;
       const p = camera.project(cullCorner, cols, rows, cellAspect, scaledMetrics);
       const px = p[0], py = p[1];
-      if (px !== px || py !== py) return false; // rule 1
+      if (px !== px || py !== py) {
+        // Rule 1 — but keep counting, because rule 3 needs to know whether
+        // EVERY corner is behind the near plane or only some of them.
+        if (!finiteBox) return false;
+        nanCorners++;
+        continue;
+      }
 
       if (px < bMinX) bMinX = px;
       if (px > bMaxX) bMaxX = px;
       if (py < bMinY) bMinY = py;
       if (py > bMaxY) bMaxY = py;
     }
+    if (nanCorners === 8) return true;  // rule 3
+    if (nanCorners > 0) return false;   // rule 1
     return bMinX >= cols || bMaxX < 0 || bMinY >= rows || bMaxY < 0;
   };
   // ── Pre-projection BACK-FACE run rejection ──────────────────────────────
@@ -2246,6 +2280,16 @@ function rasterizeSolid(
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
+    // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
+    // projection/shading/scan-fill. `triT` must still advance by this polygon's
+    // triangle count so the positional cross-frame shadeCache stays aligned when
+    // the hidden set changes between frames.
+    //
+    // FIRST, ahead of the two reads below, because neither is used on this
+    // branch and the branch is the common case wherever the cull is doing its
+    // job: `@glyphcss/maps`' street-level wall cull hides 38,954 of 45,726
+    // extrusion polygons per frame.
+    if (poly.hidden) { triT += verts.length - 2; continue; }
     // Pre-transform vertices, parallel to `verts` — see `objectPosBuf`.
     const objVerts = poly.objectVertices ?? verts;
     // Owning-mesh id for the winner-mesh buffer (`objectExit`'s second sweep
@@ -2253,11 +2297,6 @@ function rasterizeSolid(
     // here). `NO_MESH_ID_SUPPLIED` when the scene didn't supply `polygonMeshIds`
     // — distinct from the `-1` "no winner" sentinel; see its declaration.
     const meshId = polygonMeshIds ? polygonMeshIds[polyIdx]! : NO_MESH_ID_SUPPLIED;
-    // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
-    // projection/shading/scan-fill. `triT` must still advance by this polygon's
-    // triangle count so the positional cross-frame shadeCache stays aligned when
-    // the hidden set changes between frames.
-    if (poly.hidden) { triT += verts.length - 2; continue; }
     // Texture for this polygon: sample per cell when a sampler + matching UVs
     // exist; otherwise fall back to the flat per-face color.
     const polyUvs = poly.uvs && poly.uvs.length >= verts.length ? poly.uvs : null;
@@ -2451,6 +2490,10 @@ function rasterizeSolid(
           shadeCache.iB[triT] = iB;
           shadeCache.iC[triT] = iC;
           shadeCache.lit[triT] = litColor;
+          // Only reached on a MISS, so this index was undefined a line ago —
+          // which is what makes the journal a complete undo log. See
+          // `ShadeCache.journal`.
+          if (shadeCache.journal !== undefined) shadeCache.journal.push(triT);
         }
       }
 
@@ -3608,6 +3651,15 @@ const SHADOW_MAP_SIZE = 256;
  */
 const SHADOW_SLOPE_BIAS_TEXELS = 1.25;
 
+/** Per-caster light-space `[uMin, uMax, vMin, vMax]` — see `buildShadowMap`'s bounding-box pass. */
+let shadowExtents: Float64Array | null = null;
+let shadowExtentPolygons: readonly Polygon[] | null = null;
+let shadowExtentLx = NaN, shadowExtentLy = NaN, shadowExtentLz = NaN;
+/** Reused depth buffer — see `buildShadowMap`. Allocated on the first build with a caster. */
+let shadowBufScratch: Float64Array | null = null;
+/** Reused per-polygon light-space `[tu, tv, depth]` scratch — see `buildShadowMap`. */
+let shadowUvScratch = new Float64Array(3 * 64);
+
 interface ShadowMapData {
   buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
   right: [number, number, number];
@@ -3655,6 +3707,14 @@ interface ScanFillSurfaceUvCtx {
  * Project a world vertex to light-space [texelU, texelV, lightDepth].
  * `lightDepth = dot(v, dir)` — higher = closer to light.
  */
+
+/**
+ * A world vertex to the shadow map's own `[tu, tv, depth]` triple.
+ *
+ * The RECEIVER path's converter — `buildShadowMap` inlines the same three
+ * dot products into a flat per-polygon scratch instead, because a caster fan
+ * shares its first vertex and the tuples cost more than the arithmetic.
+ */
 function toLightUV(
   v: Vec3,
   rx: number, ry: number, rz: number,
@@ -3674,16 +3734,23 @@ function toLightUV(
  * Scan-fill a triangle into the shadow depth buffer.
  * No backface cull — we want depth from ALL caster faces so the shadow map
  * correctly captures the full caster silhouette from the light's perspective.
+ *
+ * The three corners are given as INDICES into a flat `[tu, tv, depth]` scratch
+ * rather than as three tuples: a fan re-uses its shared vertex, and at
+ * `@glyphcss/maps`' street-level caster count (45,726 polygons, ~55,400 fan
+ * triangles) the tuples this used to take were 166,200 three-element arrays
+ * allocated and thrown away per render — a first-order contributor to the
+ * 1.19 ms/frame of main-thread GC the walk trace measured. The arithmetic is
+ * unchanged, so every texel it writes is the one it wrote before.
  */
 function scanFillShadowTriangle(
   buf: Float64Array,
-  a: [number, number, number],
-  b: [number, number, number],
-  c: [number, number, number],
+  uv: Float64Array,
+  ia: number, ib: number, ic: number,
 ): void {
-  const ax = a[0], ay = a[1], az = a[2];
-  const bx = b[0], by = b[1], bz = b[2];
-  const cx = c[0], cy = c[1], cz = c[2];
+  const ax = uv[3 * ia]!, ay = uv[3 * ia + 1]!, az = uv[3 * ia + 2]!;
+  const bx = uv[3 * ib]!, by = uv[3 * ib + 1]!, bz = uv[3 * ib + 2]!;
+  const cx = uv[3 * ic]!, cy = uv[3 * ic + 1]!, cz = uv[3 * ic + 2]!;
 
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   if (area2 === 0) return;
@@ -3718,6 +3785,15 @@ function scanFillShadowTriangle(
  * Build a shadow map from all castShadow polygons.
  * Returns null when there are no casters (shadow pass is skipped entirely).
  *
+ * A `hidden` polygon casts nothing, on BOTH passes — it is excluded from the
+ * light-space volume the 256 texels are divided across as well as from the
+ * depth raster. `Polygon.hidden` is the consumer-driven cull the main loop
+ * already honours before any projection or shading, and a caster the consumer
+ * has culled away must not go on shaping the fitted volume: `@glyphcss/maps`
+ * expresses a `fill-extrusion`'s per-frame wall cull exactly this way, so a
+ * wall beyond the walker's horizon has to stop casting the moment it stops
+ * drawing, or the shadow map silently tracks geometry nobody can see.
+ *
  * The shadow map is an ortho depth buffer in light-space, aligned to the bounding
  * box of all caster vertices. `lightDepth = dot(vertex, lightDir)` — higher = closer
  * to light. During the main pass, a receiver cell is in shadow when its interpolated
@@ -3746,17 +3822,44 @@ function buildShadowMap(
   const uz = rx * ly - ry * lx;
 
   // Find light-space bounding box of all castShadow vertices.
+  //
+  // Per POLYGON first, and cached on the caster array's identity plus the
+  // light direction (the basis above is a pure function of that direction).
+  // `min` and `max` are associative, so grouping the same values per polygon
+  // and then combining the groups is the same box to the bit — but the
+  // per-frame pass becomes four reads per caster instead of two dot products
+  // per vertex, which on a street-level `/maps` scene is 45,726 polygons
+  // against 366,000 multiply-adds. The caster array is stable frame to frame
+  // (`createGlyphScene`'s scene-collection memo), so the walk happens once
+  // and the HIDDEN set — which does move every frame — is applied here, where
+  // it costs one compare.
+  if (shadowExtentPolygons !== polygons || shadowExtentLx !== lx || shadowExtentLy !== ly || shadowExtentLz !== lz) {
+    const extents = new Float64Array(polygons.length * 4);
+    for (let i = 0; i < polygons.length; i++) {
+      let pu0 = Infinity, pu1 = -Infinity, pv0 = Infinity, pv1 = -Infinity;
+      for (const v of polygons[i]!.vertices) {
+        const u = rx * v[0] + ry * v[1] + rz * v[2];
+        const vv = ux * v[0] + uy * v[1] + uz * v[2];
+        if (u < pu0) pu0 = u; if (u > pu1) pu1 = u;
+        if (vv < pv0) pv0 = vv; if (vv > pv1) pv1 = vv;
+      }
+      extents[4 * i] = pu0; extents[4 * i + 1] = pu1;
+      extents[4 * i + 2] = pv0; extents[4 * i + 3] = pv1;
+    }
+    shadowExtents = extents;
+    shadowExtentPolygons = polygons;
+    shadowExtentLx = lx; shadowExtentLy = ly; shadowExtentLz = lz;
+  }
+  const extents = shadowExtents!;
   let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
   let hasCasters = false;
   for (let i = 0; i < polygons.length; i++) {
-    if (!castFlags[i]) continue;
+    if (!castFlags[i] || polygons[i]!.hidden) continue;
     hasCasters = true;
-    for (const v of polygons[i]!.vertices) {
-      const u = rx * v[0] + ry * v[1] + rz * v[2];
-      const vv = ux * v[0] + uy * v[1] + uz * v[2];
-      if (u < uMin) uMin = u; if (u > uMax) uMax = u;
-      if (vv < vMin) vMin = vv; if (vv > vMax) vMax = vv;
-    }
+    const pu0 = extents[4 * i]!, pu1 = extents[4 * i + 1]!;
+    const pv0 = extents[4 * i + 2]!, pv1 = extents[4 * i + 3]!;
+    if (pu0 < uMin) uMin = pu0; if (pu1 > uMax) uMax = pu1;
+    if (pv0 < vMin) vMin = pv0; if (pv1 > vMax) vMax = pv1;
   }
   if (!hasCasters) return null;
 
@@ -3781,21 +3884,42 @@ function buildShadowMap(
   const vPad = (vSpan || spanFallback) * 0.05;
   uMin -= uPad; uMax += uPad; vMin -= vPad; vMax += vPad;
 
-  const buf = new Float64Array(SHADOW_MAP_SIZE * SHADOW_MAP_SIZE).fill(-Infinity);
+  // The depth buffer is 512 KB and was allocated fresh on every render. It is
+  // built and fully consumed inside one `rasterize()` pass (a frame's later
+  // passes reuse the BUILT map through `scene.shadowMapCache`, and a pass that
+  // misses builds only after the previous one has finished reading), so one
+  // scratch serves every build and the allocation leaves the frame entirely.
+  if (shadowBufScratch === null) shadowBufScratch = new Float64Array(SHADOW_MAP_SIZE * SHADOW_MAP_SIZE);
+  const buf = shadowBufScratch;
+  buf.fill(-Infinity);
 
-  // Rasterize all castShadow triangles (fan-triangulated) into the depth buffer.
+  // Rasterize all castShadow triangles (fan-triangulated) into the depth
+  // buffer. The light-space triple of each vertex is computed ONCE into a
+  // flat per-polygon scratch rather than once per triangle through
+  // `toLightUV`: a fan shares `verts[0]`, so a quad used to convert 6 corners
+  // for 4 unique vertices and allocate a three-element array for every one of
+  // them. Same three dot products, same divisions, same order — every texel
+  // is bit-identical.
+  const uDen = uMax - uMin;
+  const vDen = vMax - vMin;
   for (let i = 0; i < polygons.length; i++) {
-    if (!castFlags[i]) continue;
+    if (!castFlags[i] || polygons[i]!.hidden) continue;
     const verts = polygons[i]!.vertices;
     if (verts.length < 3) continue;
+    if (3 * verts.length > shadowUvScratch.length) {
+      shadowUvScratch = new Float64Array(Math.max(shadowUvScratch.length * 2, 3 * verts.length));
+    }
+    const uv = shadowUvScratch;
+    for (let k = 0; k < verts.length; k++) {
+      const v = verts[k]!;
+      const u = rx * v[0] + ry * v[1] + rz * v[2];
+      const vv = ux * v[0] + uy * v[1] + uz * v[2];
+      uv[3 * k] = ((u - uMin) / uDen) * (SHADOW_MAP_SIZE - 1);
+      uv[3 * k + 1] = ((vv - vMin) / vDen) * (SHADOW_MAP_SIZE - 1);
+      uv[3 * k + 2] = lx * v[0] + ly * v[1] + lz * v[2];
+    }
     for (let f = 1; f < verts.length - 1; f++) {
-      const a = verts[0]!;
-      const bv = verts[f]!;
-      const cv = verts[f + 1]!;
-      const auv = toLightUV(a as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
-      const buv = toLightUV(bv as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
-      const cuv = toLightUV(cv as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
-      scanFillShadowTriangle(buf, auv, buv, cuv);
+      scanFillShadowTriangle(buf, uv, 0, f, f + 1);
     }
   }
 

@@ -480,14 +480,104 @@ export function glyphMapWalkWithinHorizon(
   farM: number,
   radiusM = 6_371_000,
 ): boolean {
-  const phi1 = walkerLat * DEG, phi2 = lat * DEG;
-  const dPhi = phi2 - phi1;
-  const dLambda = (lon - walkerLon) * DEG;
-  const sinHalfPhi = Math.sin(dPhi / 2);
-  const sinHalfLambda = Math.sin(dLambda / 2);
+  return glyphMapWalkHorizonTest(walkerLon, walkerLat, farM, radiusM)(lon, lat);
+}
+
+/**
+ * Great-circle distance between two lon/lat points, metres — the quantity
+ * {@link glyphMapWalkWithinHorizon} compares against `farM`, exposed so a
+ * caller can cache it.
+ *
+ * It is 1-Lipschitz in either endpoint (the triangle inequality on a sphere),
+ * which is what lets a cull hold distances measured from one anchor and still
+ * decide, exactly, for a walker who has since moved: a point `d` from the
+ * anchor is at least `d - moved` from the walker.
+ */
+/**
+ * The slack, metres, on the wall cull's distance proof — see the widget's
+ * `wallHorizonFastPath`. A millimetre: six orders of magnitude above the
+ * rounding two independently computed great-circle distances can carry, and
+ * far below any geometry a map expresses, so the bound is provably
+ * conservative without being observably loose.
+ */
+export const GLYPH_MAP_WALL_HORIZON_SLACK_M = 1e-3;
+
+export function glyphMapWalkDistanceM(
+  aLon: number, aLat: number, bLon: number, bLat: number, radiusM = 6_371_000,
+): number {
+  const phi1 = aLat * DEG, phi2 = bLat * DEG;
+  const sinHalfPhi = Math.sin((phi2 - phi1) / 2);
+  const sinHalfLambda = Math.sin(((bLon - aLon) * DEG) / 2);
   const h = sinHalfPhi * sinHalfPhi + Math.cos(phi1) * Math.cos(phi2) * sinHalfLambda * sinHalfLambda;
-  const distance = 2 * radiusM * Math.asin(Math.min(1, Math.sqrt(h)));
-  return distance <= farM;
+  return 2 * radiusM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * {@link glyphMapWalkWithinHorizon} with the WALKER resolved once.
+ *
+ * Same haversine, same operations in the same order, same `<=` — only
+ * `walkerLat * DEG`, its cosine, and `2 * radiusM` are lifted out, because
+ * they are constant for a whole sweep and the sweep is large: a
+ * `fill-extrusion`'s wall cull asks this question once per wall corner over
+ * 45,726 polygons per moving frame, and the bare function was the single
+ * largest self-time entry in the walk-mode CPU profile.
+ *
+ * `Math.cos` of a constant angle returns the same double every time, so the
+ * hoist cannot move a verdict; it removes a call, not a term.
+ */
+export function glyphMapWalkHorizonTest(
+  walkerLon: number,
+  walkerLat: number,
+  farM: number,
+  radiusM = 6_371_000,
+): (lon: number, lat: number) => boolean {
+  const phi1 = walkerLat * DEG;
+  const cosPhi1 = Math.cos(phi1);
+  const twoR = 2 * radiusM;
+  // ── Two exact pre-rejects, before the five transcendental calls. ────────
+  // The haversine is the answer; these are lower BOUNDS on the same
+  // great-circle distance, so a point either fails one of them and is
+  // provably outside the horizon, or falls through to the haversine and is
+  // answered by it exactly as before. Nothing here can turn an "outside"
+  // into an "inside" or move a verdict the haversine would have given.
+  //
+  // (1) LATITUDE. `cos σ = cos(φ1-φ2) - cosφ1 cosφ2 (1 - cos Δλ) <=
+  //     cos(φ1-φ2)`, so `σ >= |Δφ|` always. A point more than `far/R`
+  //     radians away in latitude alone is therefore outside.
+  // (2) LONGITUDE, valid only once (1) has passed. With `|φ| <= φmax` for
+  //     both points, `cosφ1 cosφ2 >= cos²φmax`, so
+  //     `sin²(σ/2) = (1 - cos σ)/2 >= cos²φmax · sin²(Δλ/2)` — i.e.
+  //     `sin(σ/2) >= cos φmax · |sin(Δλ/2)|`. (The tempting
+  //     `min(cos φ1, cos φ2)` form WITHOUT the latitude band first is false:
+  //     two points at 80°N half a world apart in longitude are 20° apart,
+  //     and that bound claims 31°.)
+  //
+  // `SLACK` makes both strictly more conservative than the algebra requires,
+  // so no amount of floating-point error in either expression can reject a
+  // point the haversine would have accepted. The bounds are in the same
+  // units as the quantities they are compared against, so it is a relative
+  // margin ~1e6 times any rounding either side can carry.
+  const SLACK = 1 + 1e-9;
+  const latBandDeg = ((farM / radiusM) / DEG) * SLACK;
+  // Clamped below the pole: a band that reaches over it has `cos φmax` at 0,
+  // which makes the longitude bound 0 and the test a no-op. Conservative.
+  const phiMaxDeg = Math.min(89.999, Math.abs(walkerLat) + latBandDeg);
+  const cosPhiMax = Math.cos(phiMaxDeg * DEG);
+  const sinHalfFar = Math.sin(farM / twoR) * SLACK;
+  return (lon: number, lat: number): boolean => {
+    const dLatDeg = lat - walkerLat;
+    if (dLatDeg > latBandDeg || dLatDeg < -latBandDeg) return false;
+    const phi2 = lat * DEG;
+    const dPhi = phi2 - phi1;
+    const dLambda = (lon - walkerLon) * DEG;
+    const sinHalfLambda = Math.sin(dLambda / 2);
+    const absSinHalfLambda = sinHalfLambda < 0 ? -sinHalfLambda : sinHalfLambda;
+    if (cosPhiMax * absSinHalfLambda > sinHalfFar) return false;
+    const sinHalfPhi = Math.sin(dPhi / 2);
+    const h = sinHalfPhi * sinHalfPhi + cosPhi1 * Math.cos(phi2) * sinHalfLambda * sinHalfLambda;
+    const distance = twoR * Math.asin(Math.min(1, Math.sqrt(h)));
+    return distance <= farM;
+  };
 }
 
 /** A lon/lat box, structurally `GlyphMapBounds` — restated here so this file stays free of the provider types. */

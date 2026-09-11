@@ -104,13 +104,25 @@ export function glyphMapGeoTileElevationAt(
   const e = tile.elevation;
   const lo = window?.minElevation ?? -Infinity;
   const hi = window?.maxElevation ?? Infinity;
-  const clamp = lo === -Infinity && hi === Infinity
-    ? (v: number): number => v
-    : (v: number): number => Math.min(hi, Math.max(lo, v));
-  const a = clamp(e[vertexIndex(tile, c0, r0)]!);
-  const b = clamp(e[vertexIndex(tile, c0 + 1, r0)]!);
-  const c = clamp(e[vertexIndex(tile, c0, r0 + 1)]!);
-  const d = clamp(e[vertexIndex(tile, c0 + 1, r0 + 1)]!);
+  // The window is CLAMPED per corner, not per result — the two differ where a
+  // cell straddles the window edge. The unwindowed case is branched rather
+  // than routed through an identity closure: this is the stroke drape's
+  // innermost leaf (a draped sample reads the ground up to eight times, and a
+  // street-level frame takes thousands of samples), so the closure this used
+  // to allocate per call was one of the walk trace's larger allocation
+  // sources. Same four reads, same four clamps, same bilinear expression.
+  let a: number, b: number, c: number, d: number;
+  if (lo === -Infinity && hi === Infinity) {
+    a = e[vertexIndex(tile, c0, r0)]!;
+    b = e[vertexIndex(tile, c0 + 1, r0)]!;
+    c = e[vertexIndex(tile, c0, r0 + 1)]!;
+    d = e[vertexIndex(tile, c0 + 1, r0 + 1)]!;
+  } else {
+    a = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0, r0)]!));
+    b = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0 + 1, r0)]!));
+    c = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0, r0 + 1)]!));
+    d = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0 + 1, r0 + 1)]!));
+  }
   return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
 }
 

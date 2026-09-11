@@ -533,6 +533,18 @@ export interface ShadeCache {
   iB: number[];
   iC: number[];
   lit: (string | null)[];
+  /**
+   * Positional triangle indices this pass FILLED, in order — the undo log a
+   * caller needs to hand the rasterizer its live cache instead of a copy.
+   *
+   * An entry is only ever written on a MISS (`iA[triT] === undefined` is the
+   * gate), so every journaled index was undefined before this pass and
+   * `delete`-ing them restores the cache exactly as it stood. Omitted means
+   * "do not journal" — the rasterizer then writes with no bookkeeping at all,
+   * which is the path every caller that already hands over a private copy
+   * takes.
+   */
+  journal?: number[];
 }
 
 /**
