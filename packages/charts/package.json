@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/charts",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Declarative chart spec (Observable Plot-flavoured) rendered as glyphcss ASCII/box/braille output for chat, terminal and web.",
   "type": "module",
   "main": "dist/index.cjs",
