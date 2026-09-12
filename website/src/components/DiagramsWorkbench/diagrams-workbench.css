@@ -23,9 +23,8 @@
 .diagrams-preview { min-width: 0; min-height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
 .diagrams-grid-scroll { overflow: auto; flex: 0 0 auto; }
 .diagrams-grid-scroll > .glyph-output { display: block; width: max-content; margin: 0 auto; padding: 0; font-family: inherit; font-size: 13px; line-height: 1; white-space: pre; user-select: text; }
-.diagrams-ledger { max-height: 100px; overflow-y: auto; overflow-wrap: anywhere; }
-.diagrams-ledger p, .diagrams-readout, .diagrams-error { margin: 0; font-size: 10px; line-height: 1.4; }
-.diagrams-ledger, .diagrams-readout { color: rgba(255, 232, 184, 0.65); }
+.diagrams-readout, .diagrams-error { margin: 0; font-size: 10px; line-height: 1.4; }
+.diagrams-readout { color: rgba(255, 232, 184, 0.65); }
 .diagrams-error { color: #fda4af; }
 .diagrams-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .diagrams-tile-preview pre { margin: 0; padding: 0; font-family: inherit; font-size: 2.7px; line-height: 1.45; white-space: pre; }

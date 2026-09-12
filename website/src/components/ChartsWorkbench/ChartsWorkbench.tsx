@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { renderGlyphChart, type GlyphChartReport } from "@glyphcss/charts";
+import { renderGlyphChart } from "@glyphcss/charts";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import {
@@ -16,14 +16,6 @@ import "./charts-workbench.css";
 
 type MobilePanel = "marks" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
-
-export function ChartsReport({ report }: { report: GlyphChartReport }) {
-  if (report.ledger.length === 0 && report.unsupportedGlyphs.length === 0) return null;
-  return <div className="charts-ledger" aria-label="Rendering report">
-    {report.ledger.map((entry, index) => <p key={index}>{entry}</p>)}
-    {report.unsupportedGlyphs.map((entry, index) => <p key={`glyph-${index}`}>Unsupported glyph: {entry}</p>)}
-  </div>;
-}
 
 export default function ChartsWorkbench({ initialState }: { initialState?: ChartsWorkbenchState } = {}) {
   const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState, (initial) => initial ?? createChartsWorkbenchState());
@@ -88,7 +80,6 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
                 {...(rendered.ok && rendered.isHtml ? { dangerouslySetInnerHTML: { __html: rendered.display } } : { children: rendered.ok ? rendered.text : "" })} />
             </div>
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
-            {rendered.ok && <ChartsReport report={rendered.report} />}
             {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview shows plain text. ANSI escapes are included only with Copy ANSI.</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>

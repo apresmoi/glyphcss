@@ -10,6 +10,7 @@
 
 import { format as d3format } from "d3-format";
 import { createGlyphCanvas, type GlyphCanvasTierName } from "glyphcss";
+import { ledgerLabelAbbreviated, ledgerLabelDropped, type GlyphChartLedgerEntry } from "./ledger";
 
 export interface GlyphChartObstacleRect {
   readonly x0: number;
@@ -28,6 +29,15 @@ export interface GlyphChartLabelCandidate {
   readonly maxWidth?: number;
   /** Hint forwarded to `abbreviateChartText` — see its own doc. */
   readonly numeric?: boolean;
+  /**
+   * Human-readable role used ONLY for `report.ledger` phrasing (e.g. "chart
+   * title", "legend label", "y-axis label") — never for placement or
+   * measurement. Defaults to "label", which reads fine for an anonymous
+   * candidate but is worth setting whenever the caller knows what the
+   * label actually IS, since that's what turns "label "text:5": dropped"
+   * into a sentence a reader was meant to see.
+   */
+  readonly role?: string;
 }
 
 export interface GlyphChartLabelLayoutOptions {
@@ -47,7 +57,7 @@ export interface GlyphChartPlacedLabel {
 export interface GlyphChartLabelLayoutResult {
   readonly placed: readonly GlyphChartPlacedLabel[];
   readonly dropped: readonly string[];
-  readonly ledger: readonly string[];
+  readonly ledger: readonly GlyphChartLedgerEntry[];
 }
 
 /** Measure the same folded cells text() paints, including the ASCII repertoire. */
@@ -130,7 +140,7 @@ export function glyphChartLabelLayout(
   opts: GlyphChartLabelLayoutOptions,
 ): GlyphChartLabelLayoutResult {
   const ordered = [...candidates].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
-  const ledger: string[] = [];
+  const ledger: GlyphChartLedgerEntry[] = [];
   const dropped: string[] = [];
   const placed: GlyphChartPlacedLabel[] = [];
   const obstacles = [...opts.obstacles];
@@ -138,14 +148,15 @@ export function glyphChartLabelLayout(
 
   for (const c of ordered) {
     if (c.y < 0 || c.y >= rows) { dropped.push(c.id); continue; }
+    const role = c.role ?? "label";
     const maxWidth = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
     const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric);
     if (numericOverflow) {
       dropped.push(c.id);
-      ledger.push(`label "${c.id}": dropped — numeric value "${c.text}" cannot be abbreviated to fit width ${maxWidth} without truncating the number.`);
+      ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "the number couldn't be abbreviated to fit" }));
       continue;
     }
-    if (changed) ledger.push(`label "${c.id}": abbreviated "${c.text}" -> "${text}" to fit width ${maxWidth}.`);
+    if (changed) ledger.push(ledgerLabelAbbreviated({ role, before: c.text, after: text }));
 
     // Clamp the centred placement so it never runs off either edge.
     const half = Math.floor(text.length / 2);
@@ -174,7 +185,7 @@ export function glyphChartLabelLayout(
 
     if (!ok) {
       dropped.push(c.id);
-      ledger.push(`label "${c.id}": dropped — no free cell for "${text}".`);
+      ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space left for it" }));
       continue;
     }
 

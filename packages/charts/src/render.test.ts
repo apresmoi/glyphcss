@@ -75,14 +75,14 @@ describe("renderGlyphChart — legend option", () => {
     expect(off.text.split("\n")).toHaveLength(options.height);
     expect(off.meta).toEqual(on.meta);
     expect(off.meta.series).toEqual(["North", "South"]);
-    expect(off.report.ledger.join("\n")).not.toContain("legend dropped");
+    expect(off.report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(false);
     expect(renderGlyphChart(spec, options)).toEqual(on);
   });
 
   it("does not report an intentionally hidden legend as dropped in a small viewport", () => {
     const mark = glyphChartLine(data, { x: "x", y: "y", fill: "region" });
-    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: true }).report.ledger.join("\n")).toContain("legend dropped");
-    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: false }).report.ledger.join("\n")).not.toContain("legend dropped");
+    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: true }).report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(true);
+    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: false }).report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(false);
   });
 });
 

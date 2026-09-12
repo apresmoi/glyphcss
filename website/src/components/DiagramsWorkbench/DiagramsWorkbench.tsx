@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { renderGlyphDiagram, type GlyphDiagramReport } from "@glyphcss/diagrams";
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
@@ -12,15 +12,6 @@ import "./diagrams-workbench.css";
 
 type MobilePanel = "source" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TS" }, { id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const;
-
-export function GlyphDiagramsReport({ report }: { report: GlyphDiagramReport }) {
-  if (!report.ledger.length && !report.unsupportedGlyphs.length && !report.unroutable.length) return null;
-  return <div className="diagrams-ledger" aria-label="Rendering report">
-    {report.ledger.map((entry, index) => <p key={index}>{entry}</p>)}
-    {report.unsupportedGlyphs.map((entry, index) => <p key={`glyph-${index}`}>Unsupported glyph: {entry}</p>)}
-    {report.unroutable.map((entry, index) => <p key={`route-${index}`}>Unroutable edge: {entry}</p>)}
-  </div>;
-}
 
 export default function GlyphDiagramsWorkbench({ initialState }: { initialState?: GlyphDiagramsWorkbenchState } = {}) {
   const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState, (initial) => initial ?? createGlyphDiagramsWorkbenchState());
@@ -103,7 +94,6 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
             </div>
             {!rendered && <p className="diagrams-readout" role="status">Laying out diagram…</p>}
             {rendered && !rendered.ok && <p className="diagrams-error" role="alert">{rendered.error}</p>}
-            {rendered?.ok && <GlyphDiagramsReport report={rendered.report} />}
             {rendered?.ok && rendered.ansi !== undefined && <p className="diagrams-readout" role="status">Preview shows plain text. ANSI escapes are included only with Copy ANSI.</p>}
             {feedback && <p className="diagrams-readout" role="status">{feedback}</p>}
           </div>

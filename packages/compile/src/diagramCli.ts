@@ -95,7 +95,7 @@ export async function runGlyphDiagram(argv: readonly string[]): Promise<void> {
     const input = /\.json$/i.test(file) ? glyphGraphFromJson(parseGlyphDiagramJson(source)) : source;
     const result = await renderCli(input, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
     const output = result.html ?? result.text;
-    for (const entry of result.report.ledger) process.stderr.write(`glyphcss: ${entry}\n`);
+    for (const entry of result.report.ledger) process.stderr.write(`glyphcss: ${entry.code}: ${entry.message}\n`);
     if (out) {
       await writeFile(out, output, "utf8");
       process.stderr.write(`glyphcss: wrote ${out}\n`);

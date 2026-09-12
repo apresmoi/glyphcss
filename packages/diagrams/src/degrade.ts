@@ -1,23 +1,24 @@
 import type { GlyphGraph } from "./types";
 import { canonicalizeGlyphGraph } from "./pipeline";
+import { ledgerDuplicateEdgeMerged, ledgerLeafClusterCollapsed, type GlyphDiagramLedgerEntry } from "./ledger";
 export const GLYPH_DIAGRAM_BUDGET = Object.freeze({ nodes: 9, edges: 12 });
 export const GLYPH_DIAGRAM_DEGRADE_STAGES = ["decoration", "duplicates", "leaf-clusters", "split"] as const;
 export function glyphDiagramWithinBudget(graph: GlyphGraph): boolean { return graph.nodes.length <= GLYPH_DIAGRAM_BUDGET.nodes && graph.edges.length <= GLYPH_DIAGRAM_BUDGET.edges; }
 export function glyphDiagramDropDecoration(graph: GlyphGraph): GlyphGraph {
   return { ...graph, nodes: graph.nodes.map(({ shape: _shape, ...node }) => node), edges: graph.edges.map(({ label: _label, ...edge }) => ({ ...edge, style: edge.style === "undirected" ? "undirected" : "solid" })), groups: graph.groups?.map(({ label: _label, ...group }) => group) };
 }
-export function glyphDiagramMergeDuplicates(graph: GlyphGraph): { graph: GlyphGraph; ledger: string[] } {
-  const seen = new Map<string, string>(), ledger: string[] = [];
+export function glyphDiagramMergeDuplicates(graph: GlyphGraph): { graph: GlyphGraph; ledger: GlyphDiagramLedgerEntry[] } {
+  const seen = new Map<string, string>(), ledger: GlyphDiagramLedgerEntry[] = [];
   const edges = canonicalizeGlyphGraph(graph).edges.filter((edge) => {
     const key = JSON.stringify([edge.from, edge.to, edge.style === "undirected"]);
     const prior = seen.get(key);
-    if (prior !== undefined) { ledger.push(`duplicates: merged edge "${edge.id}" into "${prior}".`); return false; }
+    if (prior !== undefined) { ledger.push(ledgerDuplicateEdgeMerged({ edgeId: edge.id, into: prior })); return false; }
     seen.set(key, edge.id); return true;
   });
   return { graph: { ...graph, edges }, ledger };
 }
-export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGraph; ledger: string[] } {
-  const clusters = new Map<string, string[]>(), ledger: string[] = [];
+export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGraph; ledger: GlyphDiagramLedgerEntry[] } {
+  const clusters = new Map<string, string[]>(), ledger: GlyphDiagramLedgerEntry[] = [];
   for (const node of graph.nodes) {
     const incoming = graph.edges.filter((e) => e.to === node.id);
     if (incoming.length !== 1 || graph.edges.some((e) => e.from === node.id)) continue;
@@ -37,7 +38,7 @@ export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGra
     result = { ...result, nodes: [...result.nodes.filter((n) => !members.includes(n.id)), cluster],
       edges: result.edges.map((e) => members.includes(e.to) ? { ...e, to: id } : e),
       groups: result.groups?.map((g) => ({ ...g, members: [...g.members.filter((n) => !members.includes(n)), ...(members.some((n) => g.members.includes(n)) ? [id] : [])] })) };
-    ledger.push(`leaf-clusters: collapsed [${members.join(", ")}] into "${id}"; original nodes remain in meta.`);
+    ledger.push(ledgerLeafClusterCollapsed({ members, into: id }));
   }
   const merged = glyphDiagramMergeDuplicates(result);
   return { graph: merged.graph, ledger: [...ledger, ...merged.ledger] };

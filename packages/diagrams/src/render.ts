@@ -5,6 +5,7 @@ import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout } fro
 import { routeGlyphGraphEdges } from "./route";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
+import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
 
@@ -42,7 +43,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const opts = resolvedOptions(options);
   const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
-  const ledger: string[] = [], unroutable = new Set<string>();
+  const ledger: GlyphDiagramLedgerEntry[] = [], unroutable = new Set<string>();
   const attempt = async (candidate: GlyphGraph) => {
     const rawLayout = await layoutGlyphGraph(candidate, { ...opts, labelWidth: opts.labelWidth ?? Math.max(1, Math.min(18, opts.width - 8)) });
     const layout = centered(rawLayout, opts.width, opts.height);
@@ -52,31 +53,31 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   };
   let current = await attempt(graph);
   if (opts.detail === "simplified" || !current.okay) {
-    ledger.push(...current.routing.unroutable.map((id) => `routing-attempt: edge "${id}" requires degradation.`));
+    ledger.push(...current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage: "degrade" })));
     if (opts.detail !== "faithful") {
-      ledger.push("decoration: dropped optional shapes, group captions, edge labels and stroke decoration to meet the cell/node/edge budget; originals remain in meta.");
+      ledger.push(ledgerBudgetStage("decoration"));
       graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
       if (!current.okay) {
         const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;
-        ledger.push("duplicates: tried merging parallel duplicate connections.", ...merged.ledger); current = await attempt(graph);
+        ledger.push(ledgerBudgetStage("duplicates"), ...merged.ledger); current = await attempt(graph);
       }
       if (!current.okay) {
         const collapsed = glyphDiagramCollapseLeaves(graph); graph = collapsed.graph;
-        ledger.push("leaf-clusters: tried collapsing sibling leaves.", ...collapsed.ledger); current = await attempt(graph);
+        ledger.push(ledgerBudgetStage("leaf-clusters"), ...collapsed.ledger); current = await attempt(graph);
       }
-    } else ledger.push("faithful: retained decorations, duplicate edges and leaf identity; splitting is the only permitted degradation.");
+    } else ledger.push(ledgerDetailFaithful());
   }
   const attempts = [current];
   if (!current.okay) {
-    ledger.push(...current.routing.unroutable.map((id) => `routing-attempt: edge "${id}" requires a split panel.`), "split: edge-induced panels repeat boundary nodes and preserve every remaining connection; each panel keeps the requested viewport.");
+    ledger.push(...current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage: "split" })), ledgerBudgetStage("split"));
     attempts.length = 0;
     for (const panel of splitGlyphGraph(graph)) attempts.push(await attempt(panel));
   }
   const pages = attempts.map(({ layout, routing, fits }, index) => {
     if (!fits) {
       // A too-small viewport cannot legally show a partial box or a dangling clipped transit.
-      ledger.push(`split: panel ${index + 1} cannot fit ${opts.width}x${opts.height}; nodes [${layout.nodes.map((n) => n.id).join(", ")}] remain in meta; no partial nodes or transit drawn.`);
-      layout.edges.forEach((e) => { unroutable.add(e.id); ledger.push(`GLYPH_DIAGRAM_UNROUTABLE: edge "${e.id}" exceeds the viewport; no transit drawn.`); });
+      ledger.push(ledgerSplitPanelDropped({ panel: index + 1, width: opts.width, height: opts.height, nodes: layout.nodes.map((n) => n.id) }));
+      layout.edges.forEach((e) => { unroutable.add(e.id); ledger.push(ledgerUnroutable({ edgeId: e.id, reason: "it's too large for the viewport" })); });
       layout = { ...layout, nodes: [], edges: [], groups: [], ports: [] }; routing = { routes: [], unroutable: [], ledger: [] };
     }
     routing.unroutable.forEach((id) => unroutable.add(id));
@@ -89,7 +90,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   return { ...first, text: pages.map((p) => p.text).join("\n\n"), ...(first.html === undefined ? {} : { html: pages.map((p) => p.html).join("\n\n") }),
     pages: pages.map(({ ledger: _ledger, unsupportedGlyphs: _glyphs, ...page }) => page),
     meta: { nodes: original.nodes, edges: original.edges, groups: original.groups ?? [], description: `${options.title ? `${options.title}. ` : ""}${original.nodes.length} nodes, ${original.edges.length} edges, ${(original.groups ?? []).length} groups; ${graph.direction}; ${pages.length} panel${pages.length === 1 ? "" : "s"}.` },
-    report: { ledger: [...new Set(ledger)], unsupportedGlyphs: pages.flatMap((p) => p.unsupportedGlyphs), unroutable: [...unroutable].sort() } };
+    report: { ledger: dedupeGlyphDiagramLedger(ledger), unsupportedGlyphs: pages.flatMap((p) => p.unsupportedGlyphs), unroutable: [...unroutable].sort() } };
 }
 export async function renderGlyphDiagramJson(json: string, options: GlyphDiagramRenderOptions = {}): Promise<string> {
   try {

@@ -3,6 +3,7 @@ import { resolveGlyphChartScales } from "./scales";
 import { resolveGlyphChartSpec } from "./resolve";
 import { glyphChartDot, glyphChartLine, glyphChartPlot } from "./spec";
 import { layoutGlyphChart } from "./layout";
+import type { GlyphChartLedgerEntry } from "./ledger";
 
 describe("resolveGlyphChartScales — one scale per axis", () => {
   // Gate: "one scale per axis" (mutation: build a scale PER MARK instead of
@@ -42,7 +43,7 @@ describe("tick thinning — non-empty and pairwise disjoint", () => {
 
   for (const cols of [40, 60, 80, 120]) {
     it(`cols=${cols}: x ticks are non-empty and pairwise label-disjoint`, () => {
-      const ledger: string[] = [];
+      const ledger: GlyphChartLedgerEntry[] = [];
       const layout = layoutGlyphChart(spec, marks, scales, cols, 20, "auto", ledger);
       expect(layout.xTicks.length).toBeGreaterThan(0);
       const sorted = [...layout.xTicks].sort((a, b) => a.cell - b.cell);

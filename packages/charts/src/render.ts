@@ -16,6 +16,7 @@
 
 import { createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "glyphcss";
 import { layoutGlyphChart, seriesNames } from "./layout";
+import { chartLedgerEntryFromCanvasMessage } from "./ledger";
 import { paintGlyphChart } from "./paint";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
@@ -26,6 +27,7 @@ import type {
   GlyphChartColorMode,
   GlyphChartDetail,
   GlyphChartInput,
+  GlyphChartLedgerEntry,
   GlyphChartRenderOptions,
   GlyphChartResult,
   GlyphChartTarget,
@@ -78,7 +80,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
 
-  const ledger: string[] = [];
+  const ledger: GlyphChartLedgerEntry[] = [];
   const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, options.legend ?? true);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
@@ -117,7 +119,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
       description: spec.description ?? null,
     },
     report: {
-      ledger: [...ledger, ...canvas.report.ledger],
+      ledger: [...ledger, ...canvas.report.ledger.map(chartLedgerEntryFromCanvasMessage)],
       unsupportedGlyphs: canvas.report.unsupportedGlyphs.slice(),
     },
   };

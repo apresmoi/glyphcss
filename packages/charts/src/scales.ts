@@ -107,10 +107,10 @@ function detectMixedScaleTypes(values: readonly unknown[]): boolean {
  * JSON-Schema evaluator, and "do every mark's resolved x VALUES agree on
  * type" is a cross-mark, data-dependent property no declarative JSON Schema
  * clause can express (it would need to inspect one mark's data through
- * another mark's channel name). This mirrors `GLYPH_CHART_EMPTY_TOTAL`'s own
- * precedent — a genuine, TAGGED (`.code`) runtime error that documents its
- * own boundary instead of forcing an unfalsifiable schema clause into
- * existence. See `docs/design/charts.md` for the same note.
+ * another mark's channel name). This mirrors the `empty-total` ledger
+ * entry's own precedent — a genuine, TAGGED (`.code`) runtime signal that
+ * documents its own boundary instead of forcing an unfalsifiable schema
+ * clause into existence. See `docs/design/charts.md` for the same note.
  */
 function mixedXScaleError(): never {
   throw Object.assign(

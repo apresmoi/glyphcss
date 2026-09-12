@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bandColRange, fractionToCol, fractionToRow, layoutGlyphChart, scaleToRow } from "./layout";
+import type { GlyphChartLedgerEntry } from "./ledger";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { glyphChartArc, glyphChartBar, glyphChartLine, glyphChartPlot, glyphChartText } from "./spec";
@@ -28,7 +29,7 @@ describe("scaleToRow — honesty: proportional to value, not to sign", () => {
     const spec = glyphChartPlot({ marks: [glyphChartBar([10])] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 30, 12, "auto", ledger);
     expect(scaleToRow(scales.y, layout.plot, 10)).toBe(layout.plot.y0);
     expect(scaleToRow(scales.y, layout.plot, 0)).toBe(layout.plot.y1);
@@ -40,7 +41,7 @@ describe("bandColRange — exact, non-overlapping band bounds", () => {
     const spec = glyphChartPlot({ marks: [glyphChartBar([{ k: "a", v: 1 }, { k: "b", v: 2 }, { k: "c", v: 3 }], { x: "k", y: "v" })] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 40, 14, "auto", ledger);
     const a = bandColRange(scales.x, layout.plot, "a")!;
     const b = bandColRange(scales.x, layout.plot, "b")!;
@@ -55,7 +56,7 @@ describe("layoutGlyphChart — cartesian axis suppression for arc/text-only spec
     const spec = glyphChartPlot({ marks: [glyphChartArc([1, 2, 3])] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 30, 16, "auto", ledger);
     expect(layout.hasCartesianAxes).toBe(false);
     expect(layout.plot.x0).toBe(0);
@@ -68,7 +69,7 @@ describe("layoutGlyphChart — cartesian axis suppression for arc/text-only spec
     const spec = glyphChartPlot({ marks: [glyphChartLine([1, 2, 3])] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 30, 16, "auto", ledger);
     expect(layout.hasCartesianAxes).toBe(true);
     expect(layout.plot.x0).toBeGreaterThan(0);
@@ -78,7 +79,7 @@ describe("layoutGlyphChart — cartesian axis suppression for arc/text-only spec
     const spec = glyphChartPlot({ marks: [glyphChartText([{ x: 1, y: 1, label: "hi" }], { x: "x", y: "y", label: "label" })] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 20, 10, "auto", ledger);
     expect(layout.hasCartesianAxes).toBe(false);
   });
@@ -89,9 +90,9 @@ describe("layoutGlyphChart — degrade ladder logs to the ledger", () => {
     const spec = glyphChartPlot({ marks: [glyphChartLine([1, 2, 3])], title: "Title" });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 20, 4, "auto", ledger);
     expect(layout.titleRow).toBeNull();
-    expect(ledger.some((l) => l.includes("title dropped"))).toBe(true);
+    expect(ledger.some((entry) => entry.code === "title-dropped")).toBe(true);
   });
 });

@@ -20,6 +20,7 @@ import {
   type GlyphChartLayout,
 } from "./layout";
 import { glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
+import { ledgerEmptyTotal, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { areaLayers, chartSeries, SERIES_COLORS, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
@@ -56,13 +57,13 @@ function numeric(v: unknown): number {
  * exactly once per distinct band width so the reader knows why series
  * overlap there.
  */
-function dodgeColRange(range: readonly [number, number], index: number, count: number, ledger: string[], degraded: Set<number>): readonly [number, number] {
+function dodgeColRange(range: readonly [number, number], index: number, count: number, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): readonly [number, number] {
   const [x0, x1] = range;
   const width = x1 - x0 + 1;
   if (width < count) {
     if (!degraded.has(width)) {
       degraded.add(width);
-      ledger.push(`layout: ${count} bar/rect series do not fit in a ${width}-cell band; bars overlap.`);
+      ledger.push(ledgerSeriesDodgeDegraded({ count, width }));
     }
     return range;
   }
@@ -82,7 +83,7 @@ function dodgeColRange(range: readonly [number, number], index: number, count: n
  * grouping for UNSTACKED multi-series bars only (a stack is already
  * disambiguated vertically, by `y0`/`y1`).
  */
-function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: string[], degraded: Set<number>): void {
+function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
@@ -143,7 +144,7 @@ function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
  * finding 4: an undodged Jan band read as North's bar with South's own
  * value merely painted over its base, "January resembles a stack").
  */
-function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: string[], degraded: Set<number>): void {
+function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
     const stacked = row.y1 !== undefined;
@@ -196,10 +197,10 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
  * blocks/braille retain the same full-cell shade vocabulary as the legend,
  * instead of substituting subcell occupancy for slice identity.
  */
-function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: string[], resolvedRowCount: number): void {
+function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number): void {
   const values = series.map((s) => s.rows.reduce((sum, r) => sum + numeric(r.y), 0));
   const total = values.reduce((a, b) => a + b, 0);
-  if (total === 0) { ledger.push("GLYPH_CHART_EMPTY_TOTAL: pie total is zero; no slices painted."); return; }
+  if (total === 0) { ledger.push(ledgerEmptyTotal()); return; }
   // `chartSeries` already dropped every nonpositive/zero-or-less arc row
   // before `series` ever reached this painter (`docs/design/charts.md`'s
   // documented rule: "Negative pie values contribute zero"), so the drop
@@ -210,7 +211,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
   // since `series` has already lost the rows this exists to report on.
   const shownRows = series.reduce((n, s) => n + s.rows.length, 0);
   if (shownRows < resolvedRowCount) {
-    ledger.push(`arc: ${resolvedRowCount - shownRows} of ${resolvedRowCount} slice(s) dropped — nonpositive values contribute zero to the total and paint no slice.`);
+    ledger.push(ledgerSliceDropped({ dropped: resolvedRowCount - shownRows, total: resolvedRowCount }));
   }
   const cx = (layout.plot.x0 + layout.plot.x1) / 2;
   const cy = (layout.plot.y0 + layout.plot.y1) / 2;
@@ -459,7 +460,7 @@ export function paintGlyphChart(
   scales: GlyphChartResolvedScales,
   layout: GlyphChartLayout,
   opts: GlyphChartPaintOptions,
-  ledger: string[],
+  ledger: GlyphChartLedgerEntry[],
 ): void {
   const series = chartSeries(marks);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
@@ -534,13 +535,13 @@ export function paintGlyphChart(
   // instead of overflowing, and later labels dodge earlier ones.
   const candidates: GlyphChartLabelCandidate[] = [];
   if (layout.titleRow !== null && spec.title) {
-    candidates.push({ id: "title", x: Math.floor(layout.cols / 2), y: layout.titleRow, text: spec.title, priority: 100 });
+    candidates.push({ id: "title", x: Math.floor(layout.cols / 2), y: layout.titleRow, text: spec.title, priority: 100, role: "chart title" });
   }
   if (layout.legend) {
     const slot = Math.max(1, Math.floor(layout.cols / layout.legend.items.length));
     for (let i = 0; i < layout.legend.items.length; i++) {
       const item = layout.legend.items[i]!;
-      candidates.push({ id: `legend:${i}`, x: i * slot + Math.floor(slot / 2), y: layout.legend.row, text: item.label, maxWidth: Math.max(1, slot - 3), priority: 50 });
+      candidates.push({ id: `legend:${i}`, x: i * slot + Math.floor(slot / 2), y: layout.legend.row, text: item.label, maxWidth: Math.max(1, slot - 3), priority: 50, role: "legend label" });
     }
   }
   let textIndex = 0;
@@ -552,7 +553,7 @@ export function paintGlyphChart(
       const col = scaleToCol(scales.x, layout.plot, row.x);
       const r = row.y !== undefined ? scaleToRow(scales.y, layout.plot, row.y) : layout.plot.y0;
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
-      candidates.push({ id: `text:${textIndex++}`, x: col, y: r, text: label, priority: 10 });
+      candidates.push({ id: `text:${textIndex++}`, x: col, y: r, text: label, priority: 10, role: "data label" });
     }
   }
 

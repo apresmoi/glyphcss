@@ -12,6 +12,7 @@ import { timeFormat } from "d3-time-format";
 import { chartSeries, SERIES_COLORS } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
+import { ledgerLegendDropped, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScale, GlyphChartResolvedScales, GlyphChartTick } from "./scales";
 import type { GlyphChartCharset, GlyphChartDetail, GlyphChartSpec } from "./types";
@@ -85,7 +86,7 @@ function axisTicks(
   raw: readonly { value: unknown; fraction: number; label: string }[],
   toCell: (f: number) => number,
   axis: "x" | "y", cols: number, rows: number, labelRow: number,
-  maxWidth: number, band: boolean, charset: GlyphChartCharset, ledger: string[],
+  maxWidth: number, band: boolean, charset: GlyphChartCharset, ledger: GlyphChartLedgerEntry[],
   priorityValues: ReadonlySet<unknown> = new Set(),
   requestedCount = Infinity,
   timeAxis = false,
@@ -149,7 +150,7 @@ function axisTicks(
     // hand a band axis numeric-typed `value`s with non-numeric `label`s, and
     // only the SCALE knows which vocabulary its own labels belong to.
     const numeric = !band && typeof t.value === "number";
-    const label = glyphChartLabelLayout([{ id: `${axis}:${String(t.value)}`, x: axis === "x" ? t.cell : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell, text: t.label, maxWidth: slot, numeric }], { obstacles: [], viewport: { cols, rows }, charset });
+    const label = glyphChartLabelLayout([{ id: `${axis}:${String(t.value)}`, x: axis === "x" ? t.cell : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell, text: t.label, maxWidth: slot, numeric, role: `${axis}-axis label` }], { obstacles: [], viewport: { cols, rows }, charset });
     ledger.push(...label.ledger);
     const placed = label.placed[0];
     if (!placed) continue;
@@ -181,7 +182,7 @@ function axisTicks(
     // kept "12 PM" a second and third time past the immediate neighbour).
     const duplicate = kept.some((k) => k.label === placed.text);
     if (duplicate) {
-      ledger.push(`layout: ${axis} tick "${placed.text}" dropped — duplicate of an already-kept label.`);
+      ledger.push(ledgerTickDuplicateDropped({ axis, label: placed.text }));
       continue;
     }
     kept.push({ value: t.value, label: placed.text, cell: t.cell, labelStart: start });
@@ -189,7 +190,7 @@ function axisTicks(
   // Priority ticks were considered out of cell order above; restore ascending
   // cell order for the returned/painted set (every consumer assumes it).
   kept.sort((a, b) => a.cell - b.cell);
-  if (kept.length < raw.length) ledger.push(`layout: ${axis} ticks thinned ${raw.length} -> ${kept.length}${stride > 1 ? ` (every ${stride}th ${band ? "category" : "tick"} before collision thinning)` : ""}.`);
+  if (kept.length < raw.length) ledger.push(ledgerTicksThinned({ axis, shown: kept.length, total: raw.length, stride, band }));
   return kept;
 }
 
@@ -204,7 +205,7 @@ export function layoutGlyphChart(
   cols: number,
   rows: number,
   detail: GlyphChartDetail,
-  ledger: string[],
+  ledger: GlyphChartLedgerEntry[],
   charset: GlyphChartCharset = "box",
   showLegend = true,
 ): GlyphChartLayout {
@@ -216,7 +217,7 @@ export function layoutGlyphChart(
     titleRow = top;
     top += 1;
   } else if (spec.title) {
-    ledger.push(`layout: title dropped — viewport too small (${cols}x${rows}).`);
+    ledger.push(ledgerTitleDropped({ cols, rows }));
   }
 
   const names = seriesNames(marks);
@@ -226,7 +227,7 @@ export function layoutGlyphChart(
     legend = { row: bottom, items: names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] })) };
     bottom -= 1;
   } else if (showLegend && names.length > 1) {
-    ledger.push(`layout: legend dropped for ${names.length} series — viewport too small (${cols}x${rows}).`);
+    ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
   }
 
   // A spec made only of `arc`/`text` marks has no cartesian x/y axis to

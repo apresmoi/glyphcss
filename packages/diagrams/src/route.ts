@@ -1,11 +1,12 @@
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramError } from "./validate";
 import { GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
+import { ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 
 export const GLYPH_DIAGRAM_ROUTE_COSTS = Object.freeze({ bend: 4, crossing: 12 });
 export interface GlyphDiagramRoute { readonly edge: GlyphDiagramEdge; readonly cells: readonly GlyphCanvasPoint[] }
 export interface GlyphDiagramRoutingOptions { readonly width?: number; readonly height?: number; readonly bendCost?: number; readonly crossingCost?: number; readonly obstacles?: readonly GlyphDiagramRect[] }
-export interface GlyphDiagramRoutingResult { readonly routes: readonly GlyphDiagramRoute[]; readonly unroutable: readonly string[]; readonly ledger: readonly string[] }
+export interface GlyphDiagramRoutingResult { readonly routes: readonly GlyphDiagramRoute[]; readonly unroutable: readonly string[]; readonly ledger: readonly GlyphDiagramLedgerEntry[] }
 const steps = [GLYPH_DIAGRAM_DIRECTIONS.n, GLYPH_DIAGRAM_DIRECTIONS.e, GLYPH_DIAGRAM_DIRECTIONS.s, GLYPH_DIAGRAM_DIRECTIONS.w];
 const key = (p: GlyphCanvasPoint) => `${p.x},${p.y}`;
 const same = (a: GlyphCanvasPoint, b: GlyphCanvasPoint) => a.x === b.x && a.y === b.y;
@@ -23,7 +24,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   if (![cols, rows].every((v) => Number.isInteger(v) && v > 0)) glyphDiagramError("bad-size", "Routing bounds must be positive integers.");
   if ([options.bendCost, options.crossingCost].some((v) => v !== undefined && (!Number.isFinite(v) || v < 0))) glyphDiagramError("bad-options", "Routing costs must be finite nonnegative numbers.");
   const used = new Map<string, { axis: number; point: GlyphCanvasPoint }>();
-  const routes: GlyphDiagramRoute[] = [], unroutable: string[] = [], ledger: string[] = [];
+  const routes: GlyphDiagramRoute[] = [], unroutable: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
   const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const edge of ordered) {
@@ -77,12 +78,12 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
         queue.push({ ...p, dir, cost, estimate: cost + Math.abs(p.x - goal.x) + Math.abs(p.y - goal.y), parent: current, order: order++ });
       }
     }
-    if (!found) { unroutable.push(edge.id); ledger.push(`GLYPH_DIAGRAM_UNROUTABLE: edge "${edge.id}" (${edge.from} -> ${edge.to}); no transit drawn.`); continue; }
+    if (!found) { unroutable.push(edge.id); ledger.push(ledgerUnroutable({ edgeId: edge.id, reason: `no path was found from "${edge.from}" to "${edge.to}"` })); continue; }
     const cells: GlyphCanvasPoint[] = [];
     for (let state: State | undefined = found; state; state = state.parent) cells.push({ x: state.x, y: state.y });
     cells.reverse();
     // Positive path costs normally remove loops; reject a revisited cell because the frozen canvas cannot represent it.
-    if (new Set(cells.map(key)).size !== cells.length) { unroutable.push(edge.id); ledger.push(`GLYPH_DIAGRAM_UNROUTABLE: edge "${edge.id}" revisits a cell; no transit drawn.`); continue; }
+    if (new Set(cells.map(key)).size !== cells.length) { unroutable.push(edge.id); ledger.push(ledgerUnroutable({ edgeId: edge.id, reason: "its route would cross its own path" })); continue; }
     routes.push({ edge, cells });
     cells.forEach((point, i) => {
       const a = cells[Math.max(0, i - 1)]!, b = cells[Math.min(cells.length - 1, i + 1)]!;

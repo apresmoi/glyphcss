@@ -28,6 +28,8 @@ export type { GlyphChartValidationRuleId, GlyphChartValidationError } from "./va
 export { glyphChartJsonSchema } from "./schema";
 export type { GlyphChartJsonSchema } from "./schema";
 
+export type { GlyphChartLedgerEntry } from "./ledger";
+
 export { glyphChartLabelLayout } from "./labels";
 export type {
   GlyphChartLabelCandidate,

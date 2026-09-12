@@ -20,17 +20,15 @@ vi.hoisted(async () => {
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server";
-import ChartsWorkbench, { ChartsReport } from "./ChartsWorkbench";
+import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  createChartsWorkbenchState, reduceChartsWorkbenchState,
   reduceGlyphChartsWorkbenchControls,
   resolveGlyphChartsWorkbenchControls,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
-import { renderChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+import { renderChartsWorkbenchSpec } from "./chartsWorkbenchRender";
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
 vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
@@ -195,7 +193,6 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(after).not.toBe(before);
     expect(after).not.toMatch(/North|South/);
     expect(after).toContain("Multi-series line");
-    expect(container.querySelector('[aria-label="Rendering report"]')?.textContent ?? "").not.toContain("legend dropped");
     act(() => button("Export").click());
     expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"legend": false');
     act(() => toggle.click());
@@ -303,25 +300,6 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("#charts-controls-panel")!.classList.contains("is-mobile-open")).toBe(true);
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
-  });
-
-  it("keeps every honesty ledger entry and unsupported glyph visible", () => {
-    let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: {
-      type: "text", dataText: JSON.stringify([{ x: 0, y: 0, label: "🦄" }]), channels: { x: "x", y: "y", label: "label" },
-    } });
-    state = reduceChartsWorkbenchState(state, { type: "set-chart", patch: { title: "A title much too long for this chart" } });
-    state = { ...state, controls: { target: "chat", overrides: { width: 12, height: 8 } } };
-    const result = renderChartsWorkbenchState(state);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.report.ledger.length).toBeGreaterThan(0);
-    act(() => root.render(<ChartsWorkbench key="honesty" initialState={state} />));
-    const report = container.querySelector('[aria-label="Rendering report"]')!.textContent;
-    for (const entry of result.report.ledger) expect(report).toContain(entry);
-    // The renderer currently folds label glyphs before its final canvas pass;
-    // verify the report consumer also preserves future unsupported-glyph entries.
-    expect(renderToStaticMarkup(<ChartsReport report={{ ledger: [], unsupportedGlyphs: ["🦄"] }} />)).toContain("Unsupported glyph: 🦄");
   });
 
 });

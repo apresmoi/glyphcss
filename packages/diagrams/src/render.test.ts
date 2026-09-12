@@ -43,7 +43,7 @@ describe("render contracts", () => {
       expect(result.text).toMatch(/^[\x20-\x7e\n]*$/);
     }
     const result = await renderGlyphDiagram('graph LR; A["café 漢字"] -->|"−…"| B["< & >"]', { charset: "ascii" });
-    expect(result.text).toMatch(/^[\x20-\x7e\n]*$/); expect(result.report.ledger.join()).toContain("folded");
+    expect(result.text).toMatch(/^[\x20-\x7e\n]*$/); expect(result.report.ledger.some((entry) => entry.code === "label-folded")).toBe(true);
   });
   // Mutation: resolve junctions after arrowheads -> every destination loses its tip.
   it.each(["TB", "BT", "LR", "RL"] as const)("paints %s arrowheads on the target border after junction resolution and node fills", async (direction) => {
@@ -89,7 +89,7 @@ describe("render contracts", () => {
     expect(result.pages.length).toBeGreaterThan(1);
     expect(result.pages.flatMap((p) => p.routes)).toHaveLength(4);
     expect(result.report.unroutable).toEqual([]);
-    expect(result.report.ledger.join()).not.toContain("no transit drawn");
+    expect(result.report.ledger.some((entry) => entry.code === "unroutable")).toBe(false);
   });
   it("places interleaved compound groups without enclosing an unrelated node", async () => {
     const graph = glyphGraphFromMermaid("graph LR; subgraph G1[Group 1]; A; C; end; subgraph G2[Group 2]; B; D; end; A --> B; C --> D");
@@ -116,8 +116,8 @@ describe("render contracts", () => {
     expect(result.pages).toHaveLength(1);
     // Mutation: only run this check for geometric overlap, ignoring partial
     // group-membership overlap -> the ledger message never fires and this fails.
-    expect(result.report.ledger.join()).toContain('group "G1": explicit member list replaces an enclosure that would include unrelated nodes.');
-    expect(result.report.ledger.join()).toContain('group "G2": explicit member list replaces an enclosure that would include unrelated nodes.');
+    expect(result.report.ledger).toContainEqual(expect.objectContaining({ code: "group-member-list", detail: expect.objectContaining({ groupId: "G1", reason: "unrelated-nodes" }) }));
+    expect(result.report.ledger).toContainEqual(expect.objectContaining({ code: "group-member-list", detail: expect.objectContaining({ groupId: "G2", reason: "unrelated-nodes" }) }));
   });
   // Mutation: drop `subcell: false` from the box top/bottom `canvas.line`
   // calls in paint.ts -> the border falls back to the tier's own subcell

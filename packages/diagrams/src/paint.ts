@@ -1,15 +1,16 @@
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection } from "glyphcss";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
+import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphDiagramLayout, GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
 
 /** Always paints into fresh storage: re-registering a route cannot erase its old canvas glyphs. */
-export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number }): GlyphDiagramPage & { ledger: string[]; unsupportedGlyphs: string[] } {
+export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
   const charset = options.charset ?? "box", canvas = createGlyphCanvas({ cols: options.width, rows: options.height, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset], colored = options.color !== "none";
   const color = colored ? "#94a3b8" : null, accent = colored ? "#38bdf8" : null;
-  const ledger: string[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
+  const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
   const count = new Map<string, number>();
   for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
   for (const route of routing.routes) { canvas.edge(route.edge.id, route.edge); canvas.route(route.edge.id, route.cells); }
@@ -33,7 +34,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const partialOverlap = layout.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id)) && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (unrelatedInside || partialOverlap) {
       candidates.push({ id: `group:${group.id}`, text: `${group.label ?? group.id}: ${nodes.map((node) => node.label).join(", ")}`, x: Math.floor(canvas.cols / 2), y: rect.y0, priority: 1 });
-      ledger.push(`group "${group.id}": explicit member list replaces an enclosure that would include unrelated nodes.`);
+      ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "unrelated-nodes" }));
       continue;
     }
     // Group boundaries are annotation, never opaque routing obstacles; gaps preserve any route crossing the enclosure.
@@ -86,7 +87,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       ledger.push(...result.ledger);
     });
   }
-  ledger.push(...canvas.report.ledger, ...canvas.report.routeConflicts.map((c) => `route-conflict: ${c.kind} at ${c.col},${c.row} (${c.edgeIds.join(", ")}).`));
+  ledger.push(...canvas.report.ledger.map(diagramLedgerEntryFromCanvasMessage), ...canvas.report.routeConflicts.map((c) => ledgerRouteConflict(c)));
   const colorMode = options.color ?? "none";
   const text = colorMode === "none" || colorMode === "css" ? encodeGlyphCanvasText(canvas) : encodeGlyphCanvasAnsi(canvas, { colors: colorMode === "ansi16" ? "16" : colorMode === "ansi256" ? "256" : "truecolor", env: options.env });
   const html = colorMode === "css" ? encodeGlyphCanvasHtml(canvas) : undefined;

@@ -63,14 +63,14 @@ describe("diagram routing rules", () => {
   it("reports the unroutable edge id and records no transit", () => {
     const result = routeGlyphGraphEdges(obstacleFixture(), { obstacles: [{ x0: 12, y0: 0, x1: 20, y1: 14 }] });
     expect(result.routes).toEqual([]); expect(result.unroutable).toEqual(["through-middle"]);
-    expect(result.ledger.join("\n")).toContain('GLYPH_DIAGRAM_UNROUTABLE: edge "through-middle"');
+    expect(result.ledger).toContainEqual(expect.objectContaining({ code: "unroutable", detail: expect.objectContaining({ edgeId: "through-middle" }) }));
   });
   it("places labels disjoint from every node, route and prior label, within the viewport", async () => {
     const layout = await layoutGlyphGraph(glyphGraphFromMermaid(fixture("diamond")));
     const routing = routeGlyphGraphEdges(layout, { width: 90, height: 40 });
     const obstacles = [...layout.nodes, ...routing.routes.flatMap((r) => r.cells.map((p) => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })))];
     const result = glyphDiagramLabelLayout([{ id: "a", x: 0, y: 0, text: "a long label", maxWidth: 8 }, { id: "b", x: 0, y: 0, text: "another label" }], { viewport: { cols: 90, rows: 40 }, obstacles, charset: "ascii" });
-    expect(result.placed).toHaveLength(2); expect(result.ledger.join()).toContain("abbreviated");
+    expect(result.placed).toHaveLength(2); expect(result.ledger.some((entry) => entry.code === "label-abbreviated")).toBe(true);
     result.placed.forEach((label, i) => {
       expect(label.x0).toBeGreaterThanOrEqual(0); expect(label.x1).toBeLessThan(90); expect(label.y0).toBeGreaterThanOrEqual(0); expect(label.y1).toBeLessThan(40);
       [...obstacles, ...result.placed.slice(0, i)].forEach((rect) => expect(glyphDiagramRectsOverlap(label, rect)).toBe(false));
@@ -100,7 +100,7 @@ describe("diagram fidelity ladder", () => {
     const nodes = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, label: `N${i}` }));
     const edges = nodes.slice(1).map((n, i) => ({ id: `e${i}`, from: nodes[i]!.id, to: n.id }));
     const result = await renderGlyphDiagram({ nodes, edges, direction: "TB" }, { width: 100, height: 100 });
-    const stages = result.report.ledger.filter((s) => /^(decoration|duplicates|leaf-clusters|split):/.test(s)).map((s) => s.split(":")[0]);
+    const stages = result.report.ledger.filter((entry) => entry.code.startsWith("budget-")).map((entry) => entry.code.replace(/^budget-/, ""));
     expect(stages).toEqual(["decoration", "duplicates", "leaf-clusters", "split"]);
     expect(result.pages.length).toBeGreaterThan(1);
     expect(new Set(result.pages.flatMap((p) => p.routes.map((r) => r.edge.id)))).toEqual(new Set(edges.map((e) => e.id)));
@@ -109,7 +109,7 @@ describe("diagram fidelity ladder", () => {
   it("over twelve edges triggers duplicate merging without losing lineage", async () => {
     const graph: GlyphGraph = { direction: "TB", nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: Array.from({ length: 13 }, (_, i) => ({ id: `e${i}`, from: "a", to: "b" })) };
     const result = await renderGlyphDiagram(graph, { width: 80, height: 40 });
-    expect(result.report.ledger.some((s) => s.startsWith("duplicates: merged"))).toBe(true);
+    expect(result.report.ledger.some((entry) => entry.code === "duplicate-edge-merged")).toBe(true);
     expect(result.meta.edges).toHaveLength(13); expect(result.routes).toHaveLength(1);
     expect(glyphDiagramMergeDuplicates(graph).graph.edges).toHaveLength(1);
   });
@@ -117,7 +117,7 @@ describe("diagram fidelity ladder", () => {
     const graph = glyphGraphFromMermaid(fixture("six-port"));
     const result = glyphDiagramCollapseLeaves(graph);
     expect(result.graph.nodes).toHaveLength(2); expect(result.graph.edges).toHaveLength(1);
-    for (const e of graph.edges) expect(result.ledger.join()).toContain(e.to);
+    for (const e of graph.edges) expect(result.ledger.some((entry) => entry.code === "leaf-cluster-collapsed" && (entry.detail?.members as string[]).includes(e.to))).toBe(true);
   });
   it("split includes isolated nodes and never invents edges", () => {
     const graph = glyphGraphFromMermaid("graph LR; A --> B; C");

@@ -2,6 +2,7 @@ import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
 import { validateGlyphGraph, glyphDiagramError } from "./validate";
 import { glyphDiagramText } from "./labels";
+import { ledgerGroupMemberList, ledgerLabelFolded, type GlyphDiagramLedgerEntry } from "./ledger";
 
 export const GLYPH_DIAGRAM_NODE_PAD = Object.freeze({ x: 1, y: 0 });
 export interface GlyphDiagramRect { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }
@@ -12,7 +13,7 @@ export interface GlyphDiagramMeasuredGraph {
   readonly edges: readonly GlyphDiagramEdge[];
   readonly groups: readonly GlyphGraphGroup[];
   readonly direction: GlyphGraph["direction"];
-  readonly ledger: readonly string[];
+  readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
 export interface GlyphDiagramPort { readonly edgeId: string; readonly nodeId: string; readonly end: "from" | "to"; readonly side: GlyphCanvasDirection; readonly offset: number }
 export interface GlyphDiagramReservedGraph extends GlyphDiagramMeasuredGraph { readonly ports: readonly GlyphDiagramPort[] }
@@ -25,7 +26,7 @@ export interface GlyphDiagramLayout {
   readonly ports: readonly GlyphDiagramPositionedPort[];
   readonly direction: GlyphGraph["direction"];
   readonly width: number; readonly height: number;
-  readonly ledger: readonly string[];
+  readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
 export interface GlyphDiagramLayoutOptions {
   readonly engine?: "dagre" | "elk"; readonly direction?: GlyphGraph["direction"];
@@ -69,10 +70,10 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
   const canonical = canonicalizeGlyphGraph(validateGlyphGraph(graph));
   const limit = options.labelWidth ?? 18;
   if (!Number.isInteger(limit) || limit < 1) glyphDiagramError("bad-options", "labelWidth must be a positive integer.");
-  const ledger: string[] = [];
+  const ledger: GlyphDiagramLedgerEntry[] = [];
   const nodes = canonical.nodes.map((node) => {
     const folded = node.label.split(/\r?\n/).map((line) => glyphDiagramText(line, options.charset)).join("\n");
-    if (folded !== node.label) ledger.push(`label "${node.id}": folded "${node.label}" -> "${folded}".`);
+    if (folded !== node.label) ledger.push(ledgerLabelFolded({ nodeId: node.id, before: node.label, after: folded }));
     const lines = wrap(folded, limit);
     const extra = node.shape === "subroutine" ? 2 : 0;
     return { ...node, lines, width: Math.max(5, ...lines.map((l) => l.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.x + extra)), height: lines.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.y };
@@ -120,7 +121,7 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   const includedGroups = [...reserved.groups].sort((a, b) => compare(a.id, b.id)).filter((group) => {
     const partialOverlap = reserved.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id))
       && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
-    if (partialOverlap) ledger.push(`group "${group.id}": overlapping membership is shown as a member list, not a compound enclosure.`);
+    if (partialOverlap) ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "overlap" }));
     return group.members.length > 0 && !partialOverlap;
   });
   for (const group of includedGroups) {

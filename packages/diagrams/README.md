@@ -97,7 +97,7 @@ const validate = ajv.compile(glyphDiagramJsonSchema());
 
 ## CLI and workbench
 
-`glyphcss diagram graph.mmd --target chat --charset ascii --width 80 --height 24` and `glyphcss diagram graph.json` use the same renderer. ANSI is the terminal default; piped output is plain unless explicitly overridden. Fidelity notes go to stderr. `/diagrams` uses the shared instrument shell with source tabs, output/layout/diagram controls, seven presets, copy/SVG export, ledger, and TS/Mermaid/JSON examples.
+`glyphcss diagram graph.mmd --target chat --charset ascii --width 80 --height 24` and `glyphcss diagram graph.json` use the same renderer. ANSI is the terminal default; piped output is plain unless explicitly overridden. Fidelity notes (`report.ledger`'s `code`/`message` pairs) go to stderr. `/diagrams` uses the shared instrument shell with source tabs, output/layout/diagram controls, seven presets, copy/SVG export, and TS/Mermaid/JSON examples — no ledger readout on the page; `report` is for the CLI and agents.
 
 ## Rendered examples
 

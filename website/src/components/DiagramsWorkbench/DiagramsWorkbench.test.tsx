@@ -94,7 +94,6 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(preview().textContent).toMatch(/\S/);
     expect(preview().textContent).toMatch(/^[\x00-\x7f]+$/);
     expect(preview().textContent).toBe(expected.text);
-    for (const entry of expected.report.ledger) expect(container.querySelector("[aria-label='Rendering report']")!.textContent).toContain(entry);
   });
 
   it("updates untouched target defaults and resets every explicit override", async () => {

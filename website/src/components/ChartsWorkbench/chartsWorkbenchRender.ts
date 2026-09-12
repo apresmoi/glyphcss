@@ -1,8 +1,8 @@
-import { renderGlyphChart, type GlyphChartInput, type GlyphChartRenderOptions, type GlyphChartReport, type GlyphChartMeta } from "@glyphcss/charts";
+import { renderGlyphChart, type GlyphChartInput, type GlyphChartRenderOptions, type GlyphChartMeta } from "@glyphcss/charts";
 import { buildChartsWorkbenchSpec, chartsWorkbenchRenderOptions, type ChartsWorkbenchState } from "./chartsWorkbenchState";
 
 export type ChartsWorkbenchRender =
-  | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; report: GlyphChartReport; meta: GlyphChartMeta }
+  | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta }
   | { ok: false; error: string; code?: string };
 
 function failure(error: unknown): ChartsWorkbenchRender {
@@ -18,7 +18,7 @@ function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions): C
     const isHtml = options.target === "web" && result.html !== undefined;
     // NO_COLOR may have suppressed ANSI despite the requested colour depth.
     const ansi = result.text.includes("\x1b[") ? result.text : undefined;
-    return { ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, report: result.report, meta: result.meta };
+    return { ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, meta: result.meta };
   } catch (error) { return failure(error); }
 }
 export function renderChartsWorkbenchSpec(specJson: string, options: GlyphChartRenderOptions): ChartsWorkbenchRender {

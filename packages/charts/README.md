@@ -126,7 +126,7 @@ renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 
 
 ### `glyphChartArc` (pie/donut)
 
-An arc/text-only spec draws no cartesian axis. Record arcs require the value channel `y`; categories use `fill`, falling back to `label`, then the row index. Missing `y` rejects with `arc-missing-value`. Numeric arrays use each element as the value and its index as the category. Positive categories become `meta.series` and legend entries; repeated categories sum into one slice. Nonpositive values occupy no angle, and an all-zero pie is empty with `GLYPH_CHART_EMPTY_TOTAL`. Pass `options.innerRadius` (`0 <= radius < 1`) for a donut hole.
+An arc/text-only spec draws no cartesian axis. Record arcs require the value channel `y`; categories use `fill`, falling back to `label`, then the row index. Missing `y` rejects with `arc-missing-value`. Numeric arrays use each element as the value and its index as the category. Positive categories become `meta.series` and legend entries; repeated categories sum into one slice. Nonpositive values occupy no angle, and an all-zero pie is empty with an `empty-total` ledger entry. Pass `options.innerRadius` (`0 <= radius < 1`) for a donut hole.
 
 ```ts
 const data = [

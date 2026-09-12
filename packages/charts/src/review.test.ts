@@ -9,12 +9,12 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { paintGlyphChart } from "./paint";
 import { normalizeGlyphChartInput } from "./spec";
-import type { GlyphChartInput, GlyphChartCharset, GlyphChartSpec } from "./types";
+import type { GlyphChartInput, GlyphChartCharset, GlyphChartLedgerEntry, GlyphChartSpec } from "./types";
 import { categoricalSeriesData, stackedArea, signedCells, longBands, hourlyLine, categoricalDots, markFactories } from "./reviewFixtures";
 
 function picture(input: GlyphChartInput, width: number, height: number, colorEnabled = false, charset: GlyphChartCharset = "box") {
   const spec = normalizeGlyphChartInput(input), marks = resolveGlyphChartSpec(spec), scales = resolveGlyphChartScales(marks, spec.scales);
-  const ledger: string[] = [];
+  const ledger: GlyphChartLedgerEntry[] = [];
   const layout = layoutGlyphChart(spec, marks, scales, width, height, "auto", ledger, charset);
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled }, ledger);
@@ -33,7 +33,7 @@ describe("exact Phase 1 review regressions", () => {
     // Mutation: total || 1 plus last-slice fallback -> paints a full disc.
     const r = renderGlyphChart(glyphChartArc([0, 0, 0]), { width: 20, height: 6 });
     expect(r.grid.char.every((c) => c === " ")).toBe(true);
-    expect(r.report.ledger).toContainEqual(expect.stringContaining("GLYPH_CHART_EMPTY_TOTAL"));
+    expect(r.report.ledger).toContainEqual(expect.objectContaining({ code: "empty-total" }));
   });
   it("1: positive and negative bars exclude the zero baseline", () => {
     // Mutation: include baseline at either end -> invents an extra cell.
@@ -275,7 +275,7 @@ describe("exact Phase 1 review regressions", () => {
     // Mutation: pass raw labels directly to canvas -> clipped middles, no abbreviation ledger.
     const r = renderGlyphChart(longBands, { width: 20, height: 6 });
     expect(r.text.split("\n").at(-1)).toMatch(/abc.*….*sec.*…/);
-    expect(r.report.ledger.filter((s) => s.includes("abbreviated"))).toHaveLength(2);
+    expect(r.report.ledger.filter((entry) => entry.code === "label-abbreviated")).toHaveLength(2);
   });
   it("final-gate: a 3-day/12-hour time axis at 30x10 shows two distinct dates and never repeats \"12 PM\"", () => {
     // Mutation: drop the date-boundary priority set, the forced-first-tick
@@ -329,11 +329,11 @@ describe("exact Phase 1 review regressions", () => {
     for (const band of [false, true]) {
       const spec = { marks: [glyphChartLine([1, 2])] }, marks = resolveGlyphChartSpec(spec), scales = resolveGlyphChartScales(marks, undefined);
       const crowded = { ...scales.x, type: band ? "band" as const : "linear" as const, ticks: () => Array.from({ length: 20 }, (_, i) => ({ value: i, fraction: i / 19, label: `long-${i}` })) };
-      const ledger: string[] = [];
+      const ledger: GlyphChartLedgerEntry[] = [];
       const layout = layoutGlyphChart(spec, marks, { ...scales, x: crowded }, 40, 10, "auto", ledger);
       expect(layout.xTicks.length).toBeGreaterThan(0); expect(layout.xTicks.length).toBeLessThan(20);
       for (let i = 1; i < layout.xTicks.length; i++) expect(layout.xTicks[i]!.labelStart).toBeGreaterThan(layout.xTicks[i - 1]!.labelStart + layout.xTicks[i - 1]!.label.length);
-      expect(ledger).toContainEqual(expect.stringContaining("ticks thinned"));
+      expect(ledger).toContainEqual(expect.objectContaining({ code: "ticks-thinned" }));
     }
   });
   it("final-gate: an overshot linear tick ladder thins by a UNIFORM index stride, never an arbitrary greedy subset — kept ticks land evenly spaced in d3's own index order", () => {
@@ -411,7 +411,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
   it("P1-1: a band too narrow for every series degrades to the full band with a ledger entry, never a crash", () => {
     const data = Array.from({ length: 6 }, (_, i) => ({ m: "only", v: i + 1, r: String(i) }));
     const p = picture(glyphChartBar(data, { x: "m", y: "v", fill: "r" }), 8, 8);
-    expect(p.ledger.some((l) => l.includes("do not fit"))).toBe(true);
+    expect(p.ledger.some((entry) => entry.code === "series-dodge-degraded")).toBe(true);
   });
 
   it("final-gate: unstacked multi-series RECTS dodge side by side too, exactly like bars — never one series painted over another's base", () => {
@@ -540,10 +540,10 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     // abbreviated form no shorter than the ellipsis-truncation would allow —
     // never a bare "1"/"2" standing in for "1M"/"2M"/"1.5M".
     for (const t of p.layout.yTicks) expect(t.label).not.toMatch(/^\d$/);
-    expect(p.ledger.some((l) => l.includes("dropped") && l.includes("1.5M") && l.includes("cannot be abbreviated"))).toBe(true);
+    expect(p.ledger.some((entry) => entry.code === "label-dropped" && entry.message.includes("1.5M"))).toBe(true);
     // Category labels are unaffected — still elided with an ellipsis.
     const bands = renderGlyphChart(longBands, { width: 20, height: 6 });
-    expect(bands.report.ledger.some((l) => l.includes("abbreviated"))).toBe(true);
+    expect(bands.report.ledger.some((entry) => entry.code === "label-abbreviated")).toBe(true);
   });
 
   it("P1-5: a bar/rect chart's zero baseline is always labelled when 0 is in the y-domain", () => {
@@ -613,7 +613,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     // `paintArc` -> the ledger stays empty even though a slice was silently
     // dropped -> red.
     const r = renderGlyphChart(glyphChartArc([{ k: "a", v: 50 }, { k: "b", v: -25 }, { k: "c", v: 25 }], { y: "v", fill: "k" }), { width: 30, height: 10 });
-    expect(r.report.ledger.some((l) => l.startsWith("arc:") && l.includes("dropped"))).toBe(true);
+    expect(r.report.ledger.some((entry) => entry.code === "slice-dropped")).toBe(true);
   });
 
   it("P2-12a (one-liner): bandRowRange excludes the shared boundary row — adjacent row bands neither gap nor overlap", () => {
@@ -623,7 +623,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const spec = glyphChartPlot({ marks: [glyphChartCell([{ k: "r0", v: 1 }, { k: "r1", v: 1 }, { k: "r2", v: 1 }], { x: "v", y: "k", fill: "v" })] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 16, 12, "auto", ledger);
     const ranges = ["r0", "r1", "r2"].map((k) => bandRowRange(scales.y, layout.plot, k)!);
     for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) {
@@ -645,7 +645,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
         const spec = glyphChartPlot({ marks: [glyphChartCell(data, { x: "v", y: "k", fill: "v" })] });
         const marks = resolveGlyphChartSpec(spec);
         const scales = resolveGlyphChartScales(marks, spec.scales);
-        const ledger: string[] = [];
+        const ledger: GlyphChartLedgerEntry[] = [];
         const layout = layoutGlyphChart(spec, marks, scales, 24, height, "auto", ledger);
         const ranges = categories.map((k) => bandRowRange(scales.y, layout.plot, k)!);
         const plotRows: number[] = [];
@@ -695,7 +695,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const spec = glyphChartPlot({ marks: [glyphChartBar([{ k: "a", v: 1 }, { k: "b", v: 2 }, { k: "c", v: 3 }], { x: "k", y: "v" })] });
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
-    const ledger: string[] = [];
+    const ledger: GlyphChartLedgerEntry[] = [];
     const layout = layoutGlyphChart(spec, marks, scales, 40, 14, "auto", ledger);
     const a = bandColRange(scales.x, layout.plot, "a")!;
     const b = bandColRange(scales.x, layout.plot, "b")!;

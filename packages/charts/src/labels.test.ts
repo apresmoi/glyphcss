@@ -17,7 +17,7 @@ describe("glyphChartLabelLayout", () => {
     expect(label.x).toBeGreaterThanOrEqual(0);
     expect(label.x + label.text.length - 1).toBeLessThan(10);
     expect(label.abbreviated).toBe(true);
-    expect(result.ledger.some((line) => line.includes("abbreviated"))).toBe(true);
+    expect(result.ledger.some((entry) => entry.code === "label-abbreviated")).toBe(true);
   });
 
   it("abbreviates a numeric label with an SI prefix before truncating", () => {

@@ -7,6 +7,9 @@
  * (or a bare array/mark), normalising through `normalizeGlyphChartInput`.
  */
 
+import type { GlyphChartLedgerEntry } from "./ledger";
+export type { GlyphChartLedgerEntry };
+
 export type GlyphChartMarkType =
   | "line"
   | "area"
@@ -132,7 +135,7 @@ export interface GlyphChartMeta {
 }
 
 export interface GlyphChartReport {
-  readonly ledger: readonly string[];
+  readonly ledger: readonly GlyphChartLedgerEntry[];
   readonly unsupportedGlyphs: readonly string[];
 }
 

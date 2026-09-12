@@ -13,7 +13,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { categoricalSeriesData } from "./reviewFixtures";
 import { glyphChartDot, glyphChartLine, normalizeGlyphChartInput } from "./spec";
-import type { GlyphChartCharset, GlyphChartInput } from "./types";
+import type { GlyphChartCharset, GlyphChartInput, GlyphChartLedgerEntry } from "./types";
 
 function popcount(mask: number): number {
   let n = 0, m = mask;
@@ -30,7 +30,7 @@ function plotBraillePopcounts(input: GlyphChartInput, width: number, height: num
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
   const charset: GlyphChartCharset = "braille";
-  const ledger: string[] = [];
+  const ledger: GlyphChartLedgerEntry[] = [];
   const layout = layoutGlyphChart(spec, marks, scales, width, height, "auto", ledger, charset);
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled }, ledger);
