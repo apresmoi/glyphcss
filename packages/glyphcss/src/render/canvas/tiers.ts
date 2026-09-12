@@ -115,10 +115,16 @@ const { n: N, e: E, s: S, w: W } = GLYPH_CANVAS_DIRECTION_BITS;
 
 /**
  * Box-drawing line/junction/hop/dot/double/arrow/diagonal glyphs, shared by
- * `box`, `blocks` and `braille`. Braille/blocks differ from `box` only in
- * how a FILLED area is glyphed (sub-cell occupancy, not a shade ramp) — line
- * art (routes, rules, arrowheads, diagonals) has no sub-cell analogue worth
- * inventing, so all three tiers draw lines identically.
+ * `box`, `blocks` and `braille`. These three still draw ROUTES (`edge()`/
+ * `route()`/`resolveJunctions()`) and ARROWHEADS identically — that line art
+ * has no sub-cell analogue worth inventing (a route is a graph, an
+ * arrowhead a fixed tip shape, neither a geometric slope to rasterise
+ * finer). `line()` itself is the exception: in `braille`/`blocks` it
+ * bypasses this table's `straight`/`diagonal`/`double`/`dot` entries
+ * entirely and rasterises at sub-cell (dot) resolution into `sub` instead
+ * (`canvas.ts`'s `paintSubcellLine`) — those four entries stay on this
+ * table only for the tier-parity gate's shape, exactly as `shadeRamp`
+ * already does for `fillRect`.
  */
 const BOX_LINE_GLYPHS = {
   straight: { h: "─", v: "│" },

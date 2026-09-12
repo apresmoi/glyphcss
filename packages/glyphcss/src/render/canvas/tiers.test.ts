@@ -182,18 +182,22 @@ describe("GLYPH_CANVAS_TIERS: tier swap", () => {
       return encodeGlyphCanvasText(c);
     };
 
-    // box, blocks and braille share ONE line-art glyph set (only FILLS
-    // differ between them), so this pure line-art script renders all three
-    // byte-identically.
-    const boxBlocksBraille = "\\───  \n│\\    \n│ \\   \n│  \\  ";
-    expect(build("box")).toBe(boxBlocksBraille);
-    expect(build("blocks")).toBe(boxBlocksBraille);
-    expect(build("braille")).toBe(boxBlocksBraille);
-
+    // `box` and `ascii` still share ONE whole-cell line-art model (only
+    // FILLS differ between box/blocks/braille there) — unchanged by the
+    // sub-cell feature, gated exactly as before.
+    expect(build("box")).toBe("\\───  \n│\\    \n│ \\   \n│  \\  ");
     // ascii's straight/diagonal glyphs are plain ASCII; the diagonal's
     // backslash happens to be identical in both tables, so only the
     // straight run's `─`→`-` substitution differs from the box family.
     expect(build("ascii")).toBe("\\---  \n|\\    \n| \\   \n|  \\  ");
+
+    // `blocks`/`braille` no longer reuse box's whole-cell line glyphs at
+    // all — `line()` rasterises at sub-cell (dot) resolution for these two
+    // tiers now (the subject of `subcell.test.ts`), so this exact fixture's
+    // output genuinely differs from `box`'s. Pinned here as an ordinary
+    // exact-string regression, same discipline as the other two.
+    expect(build("blocks")).toBe("▗▄▄▄  \n▗▜▖   \n▐ ▜▖  \n▐  ▜  ");
+    expect(build("braille")).toBe("⠠⡤⠤⠤  \n⢠⠱⡀   \n⢸ ⠱⡀  \n⠸  ⠱  ");
   });
 });
 

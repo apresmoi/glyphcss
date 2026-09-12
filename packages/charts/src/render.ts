@@ -41,9 +41,12 @@ interface GlyphChartTargetDefaults {
 /**
  * `chat`: 72x24, `box`, no colour — Slack/Discord fonts break braille and
  * junctions sometimes, and ANSI never survives a paste.
- * `terminal`: `braille` — which, because `GLYPH_CANVAS_TIERS.braille` reuses
- * `box`'s own line/junction/arrow glyphs (`tiers.ts`), gives "braille fills
- * + box axes" for free rather than needing a second tier.
+ * `terminal`: `braille` — `GLYPH_CANVAS_TIERS.braille` reuses `box`'s own
+ * junction/arrow glyphs (`tiers.ts`) so routes and rule marks need no
+ * second tier, but `line`/`dot`/an area's boundary rasterise at genuinely
+ * finer, sub-cell (dot) resolution here than under `box` (`canvas.ts`'s
+ * `paintSubcellLine`) — "braille" is a real resolution upgrade for those
+ * marks, not merely a fill-only cosmetic swap.
  * `web`: `blocks` (renders at any font, unlike braille's dot density) with
  * `color: "css"` for the `html` exit.
  */

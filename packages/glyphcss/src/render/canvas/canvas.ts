@@ -18,6 +18,7 @@ import { createGlyphCanvasReport, type GlyphCanvasFoldedGlyph, type GlyphCanvasR
 import {
   GLYPH_CANVAS_TIERS,
   type GlyphCanvasDiagonalKey,
+  type GlyphCanvasTier,
   type GlyphCanvasTierName,
 } from "./tiers";
 import {
@@ -54,6 +55,17 @@ export interface GlyphCanvasLineOptions {
    * Phase 0 has no scene to compare depth with.
    */
   readonly depth?: number;
+  /**
+   * Overrides the active tier's own `subcell` capability for THIS call only.
+   * Default: `GLYPH_CANVAS_TIERS[canvas.tier].subcell` (unchanged behaviour).
+   * `@glyphcss/charts` passes `false` explicitly for axes/rule marks under
+   * `braille`/`blocks` — those stay WHOLE-CELL box-drawing (`│ ─`) even
+   * though DATA marks (`line`/`area`/`dot`) rasterise at sub-cell (dot)
+   * resolution under those two tiers; the canvas itself stays general (it
+   * has no notion of "axis" or "data mark") and simply honours whichever
+   * capability the caller asks for.
+   */
+  readonly subcell?: boolean;
 }
 
 export type GlyphCanvasTextAlign = "left" | "center" | "right";
@@ -229,6 +241,171 @@ function walkGlyphCanvasLine(a: GlyphCanvasPoint, b: GlyphCanvasPoint): GlyphCan
   }
 
   return cells;
+}
+
+/**
+ * Sub-cell dot lattice: 2 columns x 4 rows per cell, FIXED regardless of
+ * `cellAspect` — this is the physical dot layout a braille codepoint (and,
+ * grouped into quadrants, a `blocks` glyph) actually has, not a
+ * runtime-tunable resolution. It is also what "honouring the cell aspect"
+ * means here: a terminal cell is roughly twice as tall as wide (`cellAspect`
+ * defaults to `0.5`), and splitting it 2-wide-by-4-tall is what makes each
+ * DOT itself roughly square — an equal split (e.g. a naive 2x2) would make a
+ * geometrically 45-degree `line()` run look visibly off-slope once rendered.
+ * See `GlyphCanvas.sub`'s doc comment for the bit layout this matches.
+ */
+const SUBCELL_DOT_COLS = 2;
+const SUBCELL_DOT_ROWS = 4;
+
+/**
+ * Cell-space point → continuous DOT-space coordinate, using the SAME
+ * "integer = centre, half-integer = boundary" convention `line()`'s own
+ * cell coordinates already use, applied recursively at dot granularity: dot
+ * `k` of `DOTS` sits at cell-local offset `(k + 0.5) / DOTS - 0.5`, and
+ * `DOTS * x + (DOTS - 1) / 2` is exactly the affine map that sends every
+ * such offset, for every integer cell `x`, onto an integer dot coordinate —
+ * i.e. dot centres land on integers and dot boundaries on half-integers,
+ * the framing `walkGlyphCanvasSubcellDots` (via plain Bresenham, no
+ * supercover) relies on.
+ */
+function toSubcellSpace(p: GlyphCanvasPoint): GlyphCanvasPoint {
+  return {
+    x: SUBCELL_DOT_COLS * p.x + (SUBCELL_DOT_COLS - 1) / 2,
+    y: SUBCELL_DOT_ROWS * p.y + (SUBCELL_DOT_ROWS - 1) / 2,
+  };
+}
+
+interface GlyphCanvasDot {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * A plain (non-supercover) Bresenham walk over the dot lattice — deliberately
+ * NOT `walkGlyphCanvasLine`'s supercover/DDA, which visits every cell a
+ * segment's interior merely GRAZES (the right behaviour for avoiding gaps at
+ * char-CELL resolution, where a whole cell is one glyph). At DOT resolution
+ * that same graze-everything rule can touch `2 + 4 - 1 = 5` dots inside a
+ * single 2x4 cell for a shallow diagonal — more than half that cell's own
+ * dots, for what is supposed to be a single hairline stroke. Bresenham's
+ * single-dot-per-major-step walk is the standard technique every
+ * braille/sixel plotting library uses for exactly this reason: it stays a
+ * connected, 8-adjacent, THIN path. For the endpoints `line()`'s callers
+ * produce it is bounded at ≤4 dots inside any 2x4 window (`subcell.test.ts`
+ * pins this on the exact case that motivated the choice).
+ */
+function walkGlyphCanvasSubcellDots(a: GlyphCanvasPoint, b: GlyphCanvasPoint): GlyphCanvasDot[] {
+  let x = Math.round(a.x);
+  let y = Math.round(a.y);
+  const x1 = Math.round(b.x);
+  const y1 = Math.round(b.y);
+  const dx = Math.abs(x1 - x);
+  const sx = x < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y);
+  const sy = y < y1 ? 1 : -1;
+  let err = dx + dy;
+  const dots: GlyphCanvasDot[] = [];
+  // A Bresenham walk visits at most `max(dx, |dy|) + 1` dots and always
+  // terminates exactly at the second endpoint; the loop bound is a belt,
+  // never load-bearing the way `walkGlyphCanvasLine`'s `tExit` termination is.
+  const maxSteps = dx + Math.abs(dy) + 2;
+  for (let i = 0; i < maxSteps; i++) {
+    dots.push({ x, y });
+    if (x === x1 && y === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x += sx; }
+    if (e2 <= dx) { err += dx; y += sy; }
+  }
+  return dots;
+}
+
+/**
+ * The `GlyphCanvas.sub` dot BIT for a LOCAL (within-cell) dot position —
+ * `localCol` in `{0, 1}`, `localRow` in `{0, 1, 2, 3}` — matching that
+ * field's own doc comment exactly (bit0..2 left column rows 0..2, bit3..5
+ * right column rows 0..2, bit6 left row 3, bit7 right row 3).
+ */
+function subcellDotBit(localCol: number, localRow: number): number {
+  if (localCol === 0) return localRow < 3 ? localRow : 6;
+  return localRow < 3 ? 3 + localRow : 7;
+}
+
+/**
+ * `line()`'s sub-cell (braille/blocks) path: rasterises the segment at DOT
+ * resolution into the canvas's shared `sub` buffer, deriving each touched
+ * cell's glyph from the tier's own `subGlyph` — the exact same
+ * mask-to-glyph step `fillRect` already uses, so a line crossing a filled
+ * region (or another line) MERGES into the existing occupancy (`sub[idx] |=
+ * bit`, never an assignment) instead of overwriting it. Style handling
+ * mirrors the whole-cell path one level down: the dash/dot cadence advances
+ * per DOT visited (finer-grained than the whole-cell path's per-CELL
+ * cadence, since the walk itself is now finer), and a diagonal `"double"`
+ * keeps the SAME documented contract narrowing (solid + one `report.ledger`
+ * entry) — there is no more a clean single-dot-offset "parallel diagonal"
+ * than there was a doubled diagonal GLYPH. An axis-aligned `"double"`
+ * instead draws a second dot-thin run exactly one DOT away, perpendicular to
+ * the line — the lattice always "allows" this for a horizontal/vertical run
+ * (the offset run is just as valid a dot sequence as the first), so this is
+ * real support, not a narrowing.
+ */
+function paintSubcellLine(
+  grid: CellGrid,
+  sub: Uint8Array,
+  cols: number,
+  rows: number,
+  report: GlyphCanvasReport,
+  tierTable: GlyphCanvasTier,
+  a: GlyphCanvasPoint,
+  b: GlyphCanvasPoint,
+  depth: number | undefined,
+  style: GlyphCanvasLineStyle,
+  color: string | null,
+  horizontal: boolean,
+  vertical: boolean,
+): void {
+  const dots = walkGlyphCanvasSubcellDots(toSubcellSpace(a), toSubcellSpace(b));
+
+  // `horizontal`/`vertical`/(implicitly) `diagonal` are the same mutually
+  // exclusive, exhaustive classification `line()`'s whole-cell path already
+  // computes from cell-space `dx`/`dy` — the `else` below IS the diagonal
+  // case.
+  let offsetDots: readonly GlyphCanvasDot[] | null = null;
+  if (style === "double") {
+    if (horizontal) offsetDots = dots.map((d) => ({ x: d.x, y: d.y + 1 }));
+    else if (vertical) offsetDots = dots.map((d) => ({ x: d.x + 1, y: d.y }));
+    else {
+      report.ledger.push(
+        `line(): "double" style has no diagonal analogue on a sub-cell tier and rendered solid starting at cell (${Math.round(a.x)}, ${Math.round(a.y)}).`,
+      );
+    }
+  }
+
+  const plotDot = (d: GlyphCanvasDot): void => {
+    const cellCol = Math.floor(d.x / SUBCELL_DOT_COLS);
+    const cellRow = Math.floor(d.y / SUBCELL_DOT_ROWS);
+    if (cellCol < 0 || cellCol >= cols || cellRow < 0 || cellRow >= rows) return;
+    const idx = cellRow * cols + cellCol;
+    if (isOccludedCell(grid, idx)) return;
+    const localCol = d.x - cellCol * SUBCELL_DOT_COLS;
+    const localRow = d.y - cellRow * SUBCELL_DOT_ROWS;
+    sub[idx] |= 1 << subcellDotBit(localCol, localRow);
+    grid.char[idx] = tierTable.subGlyph!(sub[idx]);
+    grid.color[idx] = color;
+    if (depth !== undefined) grid.depth[idx] = depth;
+  };
+
+  // The pattern advances per DOT visited, whether or not it ends up
+  // paintable — the same "never let a skipped step silently renumber
+  // everything after it" discipline the whole-cell path already follows for
+  // occlusion, generalized to the finer walk.
+  let patternIndex = 0;
+  for (let i = 0; i < dots.length; i++) {
+    patternIndex++;
+    const paint = style === "dotted" ? patternIndex % 2 === 1 : style === "dashed" ? patternIndex % 3 !== 0 : true;
+    if (!paint) continue;
+    plotDot(dots[i]!);
+    if (offsetDots) plotDot(offsetDots[i]!);
+  }
 }
 
 /**
@@ -444,6 +621,19 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       const horizontal = Math.abs(dy) < AXIS_EPSILON;
       const vertical = Math.abs(dx) < AXIS_EPSILON;
       const diagonal = !horizontal && !vertical;
+
+      // `braille`/`blocks` rasterise at sub-cell (dot) resolution instead of
+      // picking one whole-cell glyph per cell — see `paintSubcellLine`.
+      // `ascii`/`box` fall through to the unchanged whole-cell walk below.
+      // `opts.subcell` lets a caller (charts' own axis/rule painters) force
+      // the whole-cell path on a subcell-capable tier — see
+      // `GlyphCanvasLineOptions.subcell`'s doc.
+      const useSubcell = opts.subcell ?? tierTable.subcell;
+      if (useSubcell) {
+        paintSubcellLine(grid, sub, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical);
+        return;
+      }
+
       let patternIndex = 0;
       let loggedDoubleDiagonal = false;
       for (const { col: cx, row: cy, px, py } of walkGlyphCanvasLine(a, b)) {

@@ -12,10 +12,10 @@ describe("renderGlyphChart — shorthand snapshot", () => {
     expect(r.text).toMatchInlineSnapshot(`
       "8 │                /
         │               / 
-      5 │    -\\\\       /  
+      6 │    -\\\\       /  
         │ -▔_- \\\\\\    /   
-      3 │_-      \\\\\\ /    
-        │          \\/     
+        │_-      \\\\\\ /    
+      2 │          \\/     
         ──────────────────
          0          2     "
     `);

@@ -26,6 +26,8 @@ export interface GlyphChartLabelCandidate {
   readonly text: string;
   readonly priority?: number;
   readonly maxWidth?: number;
+  /** Hint forwarded to `abbreviateChartText` — see its own doc. */
+  readonly numeric?: boolean;
 }
 
 export interface GlyphChartLabelLayoutOptions {
@@ -59,15 +61,48 @@ export function chartText(text: string, charset: GlyphCanvasTierName = "box"): s
   return charset === "ascii" ? folded.replace(/[^\x20-\x7e]/gu, "?") : folded;
 }
 
-export function abbreviateChartText(text: string, maxWidth: number, charset: GlyphCanvasTierName = "box"): { text: string; changed: boolean } {
+export interface GlyphChartAbbreviateResult {
+  readonly text: string;
+  readonly changed: boolean;
+  /**
+   * `true` iff a NUMERIC label could not be made to fit even after SI
+   * abbreviation — `text` is `""` in that case, and the caller must DROP the
+   * label rather than paint it. Truncating a category label with `…` loses
+   * a word; truncating a NUMBER produces a different, plausible, WRONG
+   * number (review finding 4: `"1.5M"` sliced to fit 1 cell reads as `"1"`,
+   * off by a factor of 1,500,000). Category labels have no such failure mode
+   * and keep the existing ellipsis truncation.
+   */
+  readonly dropped?: boolean;
+}
+
+/**
+ * `numeric` is an explicit HINT from the caller (an axis tick candidate
+ * whose scale is continuous-numeric, `layout.ts`'s `axisTicks`) rather than
+ * something re-derived from `text` alone: a numeric tick's `label` already
+ * went through `formatLinearTick`'s own SI formatting (`"1.5M"`), so
+ * `Number(text)` on the DISPLAY string fails (`Number("1.5M")` is `NaN`) —
+ * without the hint, an already-abbreviated tick label would fall through to
+ * the category-style ellipsis truncation this function exists to avoid for
+ * numbers. `text.trim() !== "" && Number.isFinite(Number(text))` remains
+ * the fallback for a caller (a `text` mark, a legend) that has no such hint
+ * and passed a RAW (unformatted) number as a string.
+ */
+export function abbreviateChartText(text: string, maxWidth: number, charset: GlyphCanvasTierName = "box", numeric = false): GlyphChartAbbreviateResult {
   const original = text;
   text = chartText(text, charset);
   if (text.length <= maxWidth) return { text, changed: text !== original };
   const asNumber = Number(text);
-  if (Number.isFinite(asNumber) && text.trim() !== "") {
-    const si = chartText(d3format(".2~s")(asNumber), charset);
-    if (si.length <= maxWidth) return { text: si, changed: true };
-    if (si.length < text.length) text = si;
+  const rawNumeric = Number.isFinite(asNumber) && text.trim() !== "";
+  if (numeric || rawNumeric) {
+    if (rawNumeric) {
+      const si = chartText(d3format(".2~s")(asNumber), charset);
+      if (si.length <= maxWidth) return { text: si, changed: true };
+    }
+    // SI abbreviation still doesn't fit — or `text` is already an
+    // SI-abbreviated/formatted number with nothing left to shrink without
+    // cutting digits: DROP, never truncate a number.
+    return { text: "", changed: true, dropped: true };
   }
   const ellipsis = charset === "ascii" ? "..." : "…";
   if (maxWidth <= ellipsis.length) return { text: text.slice(0, Math.max(0, maxWidth)), changed: true };
@@ -104,7 +139,12 @@ export function glyphChartLabelLayout(
   for (const c of ordered) {
     if (c.y < 0 || c.y >= rows) { dropped.push(c.id); continue; }
     const maxWidth = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
-    const { text, changed } = abbreviateChartText(c.text, maxWidth, opts.charset);
+    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric);
+    if (numericOverflow) {
+      dropped.push(c.id);
+      ledger.push(`label "${c.id}": dropped — numeric value "${c.text}" cannot be abbreviated to fit width ${maxWidth} without truncating the number.`);
+      continue;
+    }
     if (changed) ledger.push(`label "${c.id}": abbreviated "${c.text}" -> "${text}" to fit width ${maxWidth}.`);
 
     // Clamp the centred placement so it never runs off either edge.
