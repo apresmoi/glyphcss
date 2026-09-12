@@ -22,6 +22,37 @@ describe("diagram workbench state and exports", () => {
     expect(JSON.parse(state.json)).toEqual(authored);
   });
 
+  it("an edit made after the Mermaid export round-trips a nasty label, not just echoes the untouched JSON back", () => {
+    // Unlike the test above, this commits to the exported Mermaid source (via
+    // "edit-source" while editor === "mermaid", which flips sourceKind) so
+    // buildGlyphDiagramsWorkbenchGraph actually reparses the export instead
+    // of reading the still-pristine JSON string back unedited.
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    const graph = buildGlyphDiagramsWorkbenchGraph(state);
+    const authored = { ...graph, nodes: graph.nodes.map((node, i) => (i === 0 ? { ...node, label: 'a\\\\server\\share "quoted"' } : node)) };
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(authored) });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "mermaid" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: state.mermaid });
+    // Mutation: decode HTML entities and Mermaid quote-escapes as two
+    // sequential whole-string passes instead of one combined scan -> the
+    // entity-produced backslashes in this label get eaten and this fails.
+    expect(buildGlyphDiagramsWorkbenchGraph(state).nodes.map((n) => n.label)).toEqual(authored.nodes.map((n) => n.label));
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+    expect(JSON.parse(state.json).nodes.map((n: { label: string }) => n.label)).toEqual(authored.nodes.map((n) => n.label));
+  });
+
+  it.each(["\\\\server\\share", 'a"b', "x (y)", "<p>", "&", "|pipe|", ";"])(
+    "round-trips the nasty label %j through the Mermaid exporter byte-for-byte",
+    (label) => {
+      const graph = { direction: "TB" as const, nodes: [{ id: "A", label, shape: "rect" as const }], edges: [] };
+      const reparsed = glyphGraphFromMermaid(glyphDiagramsWorkbenchMermaid(graph));
+      // Mutation: decode HTML entities and Mermaid quote-escapes as two
+      // sequential whole-string passes instead of one combined scan -> an
+      // entity-produced backslash gets eaten by the escape pass and this fails.
+      expect(reparsed).toEqual(graph);
+    },
+  );
+
   it("Mermaid export represents every supported shape, edge style, group and quoted label", () => {
     const shapes = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium"] as const;
     const graph = { direction: "LR" as const, nodes: shapes.map((shape, i) => ({ id: `node ${i}`, label: i === 0 ? 'A "quoted" label' : shape, shape })), edges: ["solid", "dotted", "thick", "undirected"].map((style, i) => ({ from: `node ${i}`, to: `node ${i + 1}`, label: "edge", style: style as "solid" | "dotted" | "thick" | "undirected" })), groups: [{ id: "crew", label: "Crew", members: ["node 0", "node 1"] }] };

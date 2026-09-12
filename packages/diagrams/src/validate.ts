@@ -4,12 +4,19 @@ export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
   "bad-size", "bad-options", "GLYPH_MERMAID_SYNTAX", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
 export interface GlyphDiagramValidationError extends Error { readonly code: string }
 
 export function glyphDiagramError(code: string, message: string): never {
   throw Object.assign(new TypeError(`glyphcss: ${code}: ${message}`), { code });
+}
+
+/** Both JSON boundaries (renderGlyphDiagramJson and the compiled CLI's .json input) need a tagged rule id, not a bare native SyntaxError with no `code`. */
+export function parseGlyphDiagramJson(json: string): unknown {
+  try { return JSON.parse(json); }
+  catch (e) { return glyphDiagramError("GLYPH_DIAGRAM_BAD_JSON", `Invalid JSON: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
 export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR", "BT", "RL"];
@@ -116,6 +123,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph.",
   "GLYPH_DIAGRAM_UNROUTABLE": "Increase the viewport or node/rank separation, or simplify the graph so every edge has a legal lane.",
   "GLYPH_DIAGRAM_ELK_NOT_INSTALLED": "Use engine: dagre; the ELK adapter is reserved for phase 4.",
+  "GLYPH_DIAGRAM_BAD_JSON": "Pass a syntactically valid JSON document encoding a graph object.",
 };
 
 export function glyphDiagramRepairHint(id: string): string {

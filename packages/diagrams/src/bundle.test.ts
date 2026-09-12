@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { build } from "tsup";
 import { describe, expect, it } from "vitest";
 import { layoutGlyphGraphElk } from "./elk";
+import { layoutGlyphGraph } from "./pipeline";
+import { glyphGraphFromMermaid } from "./mermaid";
 
 describe("optional ELK boundary", () => {
   it("reserves the opt-in subpath with a tagged stub", async () => {
@@ -12,6 +14,12 @@ describe("optional ELK boundary", () => {
     expect(manifest.exports["./elk"]).toEqual({ types: "./dist/elk.d.ts", import: "./dist/elk.js", require: "./dist/elk.cjs" });
     expect(manifest.peerDependenciesMeta.elkjs.optional).toBe(true);
     await expect(layoutGlyphGraphElk()).rejects.toMatchObject({ code: "GLYPH_DIAGRAM_ELK_NOT_INSTALLED" });
+  });
+
+  it("rejects engine: elk at the main pipeline's own engine-selection boundary with the same tagged code", async () => {
+    // Mutation: fold "elk" into the generic "not dagre" bad-options branch ->
+    // code regresses to "bad-options" instead of the dedicated ELK code.
+    await expect(layoutGlyphGraph(glyphGraphFromMermaid("graph LR; A"), { engine: "elk" })).rejects.toMatchObject({ code: "GLYPH_DIAGRAM_ELK_NOT_INSTALLED" });
   });
 
   it("imports both built root formats with ELK resolution forbidden", async () => {

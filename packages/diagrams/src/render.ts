@@ -1,6 +1,6 @@
 import { glyphGraphFromMermaid } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
-import { glyphDiagramError, glyphDiagramRepairHint } from "./validate";
+import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
 import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout } from "./pipeline";
 import { routeGlyphGraphEdges } from "./route";
 import { paintGlyphDiagram } from "./paint";
@@ -87,7 +87,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
 }
 export async function renderGlyphDiagramJson(json: string, options: GlyphDiagramRenderOptions = {}): Promise<string> {
   try {
-    const result = await renderGlyphDiagram(glyphGraphFromJson(JSON.parse(json)), options);
+    const result = await renderGlyphDiagram(glyphGraphFromJson(parseGlyphDiagramJson(json)), options);
     return JSON.stringify({ text: result.text, ...(result.html === undefined ? {} : { html: result.html }), meta: result.meta, report: result.report });
   } catch (e) {
     const error = e as Error & { code?: string };

@@ -56,4 +56,13 @@ describe("GlyphGraph validation and JSON adapter", () => {
   it.each([null, [], "{}", { nodes: valid.nodes }])("rejects non-graph JSON data %j", (input) => {
     expect(() => glyphGraphFromJson(input)).toThrow(expect.objectContaining({ code: "bad-graph" }));
   });
+
+  it("gives every validation rule id its own repair hint, not the generic fallback", () => {
+    const fallback = glyphDiagramRepairHint("not-a-real-rule-id");
+    for (const id of GLYPH_DIAGRAM_VALIDATION_RULES) {
+      // Mutation: delete a rule's REPAIR_HINTS entry -> its hint falls back to
+      // the generic message and this goes red instead of merely being truthy.
+      expect(glyphDiagramRepairHint(id)).not.toBe(fallback);
+    }
+  });
 });

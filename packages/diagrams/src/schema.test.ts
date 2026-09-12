@@ -4,7 +4,7 @@ import Ajv2020 from "ajv/dist/2020";
 import { describe, expect, it } from "vitest";
 import { glyphGraphFromMermaid } from "./mermaid";
 import { GLYPH_DIAGRAM_JSON_SCHEMA_KEYWORDS, glyphDiagramJsonSchema } from "./schema";
-import { GLYPH_DIAGRAM_VALIDATION_RULES, validateGlyphGraph } from "./validate";
+import { GLYPH_DIAGRAM_VALIDATION_RULES, glyphDiagramRepairHint, validateGlyphGraph } from "./validate";
 
 const schema = glyphDiagramJsonSchema();
 const ajv = new Ajv2020({ strict: false, strictNumbers: true });
@@ -37,10 +37,12 @@ const bad: { rule: string; graph: unknown }[] = [
 ];
 
 describe("diagram JSON Schema and runtime parity", () => {
-  it("serializes as JSON and carries each runtime rule's repair hint", () => {
+  it("serializes as JSON and carries each runtime rule's own dedicated repair hint", () => {
     expect(JSON.parse(JSON.stringify(schema))).toEqual(schema);
     expect(Object.keys(schema["x-glyphcss-validation-rules"])).toEqual([...GLYPH_DIAGRAM_VALIDATION_RULES]);
-    expect(Object.values(schema["x-glyphcss-validation-rules"]).every(Boolean)).toBe(true);
+    // Mutation: hardcode a shared/generic string for "x-glyphcss-validation-rules"
+    // instead of deriving each entry from glyphDiagramRepairHint -> this fails.
+    for (const id of GLYPH_DIAGRAM_VALIDATION_RULES) expect(schema["x-glyphcss-validation-rules"][id]).toBe(glyphDiagramRepairHint(id));
   });
 
   it.each(["chain", "diamond", "fan-out", "cycle", "subgraph", "langgraph", "six-port"])("accepts the JSON IR for %s with real Ajv", (name) => {

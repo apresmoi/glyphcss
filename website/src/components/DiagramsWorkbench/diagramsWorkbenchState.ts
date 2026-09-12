@@ -136,13 +136,25 @@ export function glyphDiagramsWorkbenchMermaid(graph: GlyphGraph): string {
   }));
   const label = (text: string) => `"${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\\/g, "&#92;").replace(/\n/g, "<br/>")}"`;
   const shapes = { rect: ["[", "]"], rounded: ["(", ")"], diamond: ["{", "}"], circle: ["((", "))"], subroutine: ["[[", "]]"], asymmetric: [">(", "]"], stadium: ["([", "])"] };
+  const groups = graph.groups ?? [];
+  // Same collision avoidance as node aliases: a group whose own id already
+  // happens to equal another group's generated fallback alias (e.g.
+  // "glyph_group_0") must not collide with it.
+  const usedGroupIds = new Set(groups.filter((group) => safeId.test(group.id)).map((group) => group.id));
+  const groupIds = new Map(groups.map((group, index) => {
+    if (safeId.test(group.id)) return [group.id, group.id];
+    let id = `glyph_group_${index}`;
+    while (usedGroupIds.has(id)) id += "_";
+    usedGroupIds.add(id);
+    return [group.id, id];
+  }));
   const lines = [`flowchart ${graph.direction}`];
   for (const node of graph.nodes) {
     const [open, close] = shapes[node.shape ?? "rect"]!;
     lines.push(`  ${ids.get(node.id)}${open}${label(node.label)}${close}`);
   }
-  for (const [index, group] of (graph.groups ?? []).entries()) {
-    lines.push(`  subgraph ${safeId.test(group.id) ? group.id : `glyph_group_${index}`}[${label(group.label ?? group.id)}]`, ...group.members.map((id) => `    ${ids.get(id)}`), "  end");
+  for (const group of groups) {
+    lines.push(`  subgraph ${groupIds.get(group.id)}[${label(group.label ?? group.id)}]`, ...group.members.map((id) => `    ${ids.get(id)}`), "  end");
   }
   for (const edge of graph.edges) {
     const arrow = edge.style === "dotted" ? "-.->" : edge.style === "thick" ? "==>" : edge.style === "undirected" ? "---" : "-->";

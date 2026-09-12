@@ -28,7 +28,7 @@ export interface GlyphDiagramLayout {
   readonly ledger: readonly string[];
 }
 export interface GlyphDiagramLayoutOptions {
-  readonly engine?: "dagre"; readonly direction?: GlyphGraph["direction"];
+  readonly engine?: "dagre" | "elk"; readonly direction?: GlyphGraph["direction"];
   readonly nodesep?: number; readonly ranksep?: number;
   readonly charset?: GlyphCanvasTierName; readonly labelWidth?: number;
   readonly margin?: number;
@@ -106,6 +106,7 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
 }
 export const GLYPH_DIAGRAM_DIRECTIONS: Readonly<Record<GlyphCanvasDirection, GlyphCanvasPoint>> = Object.freeze({ n: { x: 0, y: -1 }, e: { x: 1, y: 0 }, s: { x: 0, y: 1 }, w: { x: -1, y: 0 } });
 export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedGraph, options: GlyphDiagramLayoutOptions = {}): Promise<GlyphDiagramLayout> {
+  if (options.engine === "elk") glyphDiagramError("GLYPH_DIAGRAM_ELK_NOT_INSTALLED", "The ELK layout adapter is reserved for phase 4; use engine: dagre.");
   if (options.engine !== undefined && options.engine !== "dagre") glyphDiagramError("bad-options", "Phase 2 supports engine dagre only.");
   const nodesep = options.nodesep ?? 4, ranksep = options.ranksep ?? 4, margin = options.margin ?? 1;
   if (![nodesep, ranksep, margin].every(Number.isInteger) || nodesep < 3 || ranksep < 3 || margin < 0) glyphDiagramError("bad-options", "nodesep/ranksep must be integers >= 3; margin must be an integer >= 0.");

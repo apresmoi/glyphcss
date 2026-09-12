@@ -103,6 +103,16 @@ describe("diagram CLI argument and file boundary", () => {
     expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("ENOENT");
   });
 
+  it("tags malformed JSON input with GLYPH_DIAGRAM_BAD_JSON and exits 1", async () => {
+    await writeFile(jsonFile, "{");
+    vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+    // Mutation: parse the .json file with a bare JSON.parse instead of the
+    // tagged parseGlyphDiagramJson -> the printed message loses its code
+    // prefix (a native SyntaxError has no `.code`).
+    await expect(runGlyphDiagram([jsonFile])).rejects.toMatchObject({ status: 1 });
+    expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("GLYPH_DIAGRAM_BAD_JSON");
+  });
+
   it.each([["--charset", "bad"], ["--engine", "elk"], ["--width"], ["--unknown"], ["--direction", "TD"]])("rejects malformed options %j before rendering", (arguments_) => {
     expect(() => parseGlyphDiagramArgs([mermaidFile, ...arguments_])).toThrow(expect.objectContaining({ code: "bad-options" }));
   });

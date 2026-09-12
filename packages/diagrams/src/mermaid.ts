@@ -3,18 +3,39 @@ import { glyphDiagramError, validateGlyphGraph } from "./validate";
 
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_SYNTAX", message); }
 
-/** Quotes and shape brackets protect labels from statement separators. */
+/**
+ * Quotes, shape brackets, "-. text .->" edge-text spans and "|label|" edge
+ * labels all protect their contents from statement separators. Without this,
+ * a decoded HTML entity's own ";" (e.g. inside "&nbsp;", which decodes to a
+ * space) would be read as ending the statement early.
+ */
 function statements(source: string): string[] {
   const output: string[] = [];
   let current = "";
   let quote = "";
   const brackets: string[] = [];
+  let edgeText = false;
+  let pipe = false;
   for (let index = 0; index < source.length; index++) {
     const char = source[index]!;
     if (quote) {
       current += char;
       if (char === "\\" && index + 1 < source.length) current += source[++index];
       else if (char === quote) quote = "";
+      continue;
+    }
+    if (edgeText) {
+      current += char;
+      if (char === "." && source.startsWith(".->", index)) {
+        current += source.slice(index + 1, index + 3);
+        index += 2;
+        edgeText = false;
+      }
+      continue;
+    }
+    if (pipe) {
+      current += char;
+      if (char === "|") pipe = false;
       continue;
     }
     if (char === '"' || (char === "'" && /[\s[(|{]/.test(source[index - 1] ?? " "))) { quote = char; current += char; continue; }
@@ -28,6 +49,12 @@ function statements(source: string): string[] {
       }
       continue;
     }
+    // "-." not immediately followed by "->" opens an edge-text span; the bare
+    // "-.->" dotted arrow has no text between its delimiters and needs none.
+    if (char === "-" && source[index + 1] === "." && brackets.length === 0 && !source.startsWith("-.->", index)) {
+      edgeText = true; current += char; continue;
+    }
+    if (char === "|" && brackets.length === 0) { pipe = true; current += char; continue; }
     if (char === ">" && brackets.length === 0 && /[\p{L}\p{N}_.]\s*$/u.test(current)) brackets.push("]");
     else if (char === "(" && source[index - 1] === ">" && brackets[brackets.length - 1] === "]") { /* >( opens the same asymmetric shape. */ }
     else if ("[({".includes(char)) brackets.push({ "[": "]", "(": ")", "{": "}" }[char]!);
@@ -41,24 +68,43 @@ function statements(source: string): string[] {
       current = "";
     } else current += char;
   }
-  if (quote || brackets.length) syntax("Unclosed quoted label or node shape.");
+  if (quote || brackets.length || edgeText || pipe) syntax("Unclosed quoted label, node shape, edge text, or edge label.");
   if (current.trim()) output.push(current.trim());
   return output;
 }
 
 function labelText(input: string): string {
   let text = input.trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) text = text.slice(1, -1);
-  // LangGraph emits paragraph markup inside stadium nodes. Decode only text;
-  // styling, links, and Mermaid click statements never become DOM or code.
+  const quoted = text.length >= 2 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")));
+  if (quoted) text = text.slice(1, -1);
+  // LangGraph emits paragraph markup inside stadium nodes. Strip only literal
+  // markup here; an entity-escaped angle bracket (e.g. "&lt;p&gt;") is plain
+  // text and survives to the decode below. Styling, links, and Mermaid click
+  // statements never become DOM or code.
   text = text.replace(/<br\s*\/?\s*>/gi, "\n").replace(/<\/?(?:p|b|strong|i|em|span)(?:\s[^>]*?)?\s*>/gi, "");
-  return text.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);/gi, (entity) => {
-    const value = entity.slice(1, -1).toLowerCase();
-    const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  // One left-to-right scan of the ORIGINAL (still-encoded) text: an HTML
+  // entity always wins over quote-escape interpretation at that position, and
+  // its decoded output is never re-scanned. Two sequential whole-string
+  // passes (decode entities, then unescape "\\\"") would instead treat a
+  // backslash PRODUCED by decoding "&#92;" as a second, spurious escape and
+  // eat it -- corrupting a round-tripped "\\server\\share"-style label.
+  // Quote-escapes are real Mermaid source syntax and only apply when this
+  // text was actually quoted.
+  const pattern = quoted ? /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);|\\["'\\]/gi : /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);/gi;
+  text = text.replace(pattern, (match: string) => {
+    // The escape alternative only appears in the quoted pattern and is
+    // always exactly two characters ("\" + one of " ' \); an entity is
+    // always longer, starts with "&", and ends with ";".
+    if (match.length === 2 && match[0] === "\\") return match[1]!;
+    const value = match.slice(1, -1).toLowerCase();
+    const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
     if (named[value] !== undefined) return named[value]!;
     const point = value.startsWith("#x") ? Number.parseInt(value.slice(2), 16) : Number.parseInt(value.slice(1), 10);
-    return point >= 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff) ? String.fromCodePoint(point) : entity;
-  }).replace(/\\(["'\\])/g, "$1");
+    return point >= 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff) ? String.fromCodePoint(point) : match;
+  });
+  // "&nbsp;" decodes to a plain space; trim it (and any other edge
+  // whitespace) at the label's ends.
+  return text.trim();
 }
 
 const SHAPES: readonly { open: string; close: string; shape: GlyphGraphNodeShape }[] = [
@@ -183,7 +229,7 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
   for (const statement of parts) {
     // These directives are accepted as inert source data. In particular click
     // URLs/callbacks are never dereferenced, even on a web render target.
-    if (/^(?:classDef|class|style|click)\s+\S/.test(statement)) continue;
+    if (/^(?:classDef|class|style|click|linkStyle)\s+\S/.test(statement)) continue;
     if (statement === "end") {
       if (!activeGroups.pop()) syntax("subgraph end has no matching subgraph.");
       continue;

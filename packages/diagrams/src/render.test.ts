@@ -99,11 +99,30 @@ describe("render contracts", () => {
       const members = result.layout.nodes.filter((node) => group.members.includes(node.id));
       const bounds = { x0: Math.min(...members.map((n) => n.x0)) - 2, x1: Math.max(...members.map((n) => n.x1)) + 2, y0: Math.min(...members.map((n) => n.y0)) - 2, y1: Math.max(...members.map((n) => n.y1)) + 2 };
       const nonmembers = result.layout.nodes.filter((node) => !group.members.includes(node.id));
-      if (nonmembers.some((node) => glyphDiagramRectsOverlap(node, bounds))) expect(result.report.ledger.join()).toContain("member list replaces an enclosure");
+      // Mutation: drop the unsafe-enclosure guard in paint.ts -> a compact
+      // compound layout could still draw a group box around an unrelated node.
+      // Unconditional (not gated on `.some`), so this always actually runs.
+      expect(nonmembers.every((node) => !glyphDiagramRectsOverlap(node, bounds))).toBe(true);
     }
   });
+  it("falls back to an explicit member list, never a false enclosure, when group membership genuinely overlaps", async () => {
+    const graph = {
+      nodes: [{ id: "A", label: "A" }, { id: "B", label: "B" }, { id: "C", label: "C" }],
+      edges: [{ from: "A", to: "B" }, { from: "B", to: "C" }],
+      groups: [{ id: "G1", members: ["A", "B"] }, { id: "G2", members: ["B", "C"] }],
+      direction: "TB" as const,
+    };
+    const result = await renderGlyphDiagram(graph, { width: 60, height: 30 });
+    expect(result.pages).toHaveLength(1);
+    // Mutation: only run this check for geometric overlap, ignoring partial
+    // group-membership overlap -> the ledger message never fires and this fails.
+    expect(result.report.ledger.join()).toContain('group "G1": explicit member list replaces an enclosure that would include unrelated nodes.');
+    expect(result.report.ledger.join()).toContain('group "G2": explicit member list replaces an enclosure that would include unrelated nodes.');
+  });
   it("returns repairable JSON errors and validates render bounds", async () => {
-    expect(JSON.parse(await renderGlyphDiagramJson("{"))).toMatchObject({ code: null });
+    // Mutation: parse malformed JSON with a bare JSON.parse instead of the
+    // tagged parseGlyphDiagramJson -> code regresses to null.
+    expect(JSON.parse(await renderGlyphDiagramJson("{"))).toMatchObject({ code: "GLYPH_DIAGRAM_BAD_JSON" });
     expect(JSON.parse(await renderGlyphDiagramJson('{"nodes":[],"edges":[]}'))).toMatchObject({ code: "empty-nodes" });
     await expect(renderGlyphDiagram("graph LR; A", { width: 20.5 })).rejects.toMatchObject({ code: "bad-size" });
     await expect(renderGlyphDiagram("graph LR; A", { ranksep: 0 })).rejects.toMatchObject({ code: "bad-options" });

@@ -14,10 +14,11 @@ describe("Mermaid flowchart adapter", () => {
     expect(glyphGraphFromMermaid(source)).toEqual(graph);
   });
 
-  it("accepts a byte-for-byte LangGraph draw_mermaid export and discards only markup/style", () => {
+  it("accepts a byte-for-byte LangGraph draw_mermaid export, including an entity-bearing edge-text label, and discards only markup/style", () => {
     const source = fixture("langgraph-export");
     expect(source.startsWith("%%{init: {'flowchart': {'curve': 'linear'}}}%%\ngraph TD;\n")).toBe(true);
     expect(source).toContain("__start__([<p>__start__</p>]):::first");
+    expect(source).toContain("agent -. &nbsp;continue&nbsp; .-> tools;");
     expect(source).toContain("classDef default fill:#f2f0ff,line-height:1.2");
     expect(glyphGraphFromMermaid(source)).toEqual({
       direction: "TB",
@@ -29,11 +30,17 @@ describe("Mermaid flowchart adapter", () => {
       ],
       edges: [
         { from: "__start__", to: "agent", style: "solid" },
-        { from: "agent", to: "tools", style: "dotted", label: "tools" },
-        { from: "agent", to: "__end__", style: "dotted", label: "__end__" },
+        { from: "agent", to: "__end__", style: "dotted" },
+        { from: "agent", to: "tools", style: "dotted", label: "continue" },
         { from: "tools", to: "agent", style: "solid" },
       ],
     });
+  });
+  // Mutation: split statements on ";" without protecting "-. text .->" spans
+  // -> "&nbsp;"'s own decoded ";" truncates the statement and this throws.
+  it("does not let an HTML entity's semicolon inside edge text end the statement early", () => {
+    const graph = glyphGraphFromMermaid("graph TD; agent -. &nbsp;continue&nbsp; .-> tools;");
+    expect(graph.edges).toEqual([{ from: "agent", to: "tools", style: "dotted", label: "continue" }]);
   });
 
   it.each(["TB", "TD", "LR", "BT", "RL"])("normalizes direction %s on both supported declarations", (direction) => {
@@ -103,10 +110,26 @@ describe("Mermaid flowchart adapter", () => {
       style B fill:#ffffff;
       click A "javascript:globalThis.__glyphMermaidClicked = true" "Open" _blank;
       click B call nonExistentCallback();
+      linkStyle 0 stroke:#f00,stroke-width:2px;
       %% ignored A --> Ghost
     `;
     expect(glyphGraphFromMermaid(source).nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(glyphGraphFromMermaid(source).edges).toHaveLength(1);
     expect("__glyphMermaidClicked" in globalThis).toBe(false);
+  });
+  it.each(["classDef first fill:#f2f0ff", "class A,B first", "style B fill:#ffffff", 'click A "https://example.com"', "linkStyle 0 stroke:#f00", "%% a plain comment"])
+  ("parses %j as inert data, never as a node or an executed statement", (directive) => {
+    // Mutation: drop this directive from the inert allowlist -> it fails to
+    // parse as a node/edge statement and throws GLYPH_MERMAID_SYNTAX instead.
+    const graph = glyphGraphFromMermaid(`graph LR;\nA-->B;\n${directive}`);
+    expect(graph.nodes.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(graph.edges).toEqual([{ from: "A", to: "B", style: "solid" }]);
+  });
+  // Mutation: split statements on ";" without protecting "|label|" spans ->
+  // a pipe label containing an entity's ";" truncates the statement early.
+  it("does not let an HTML entity's semicolon inside a pipe edge label end the statement early", () => {
+    const graph = glyphGraphFromMermaid("graph LR; A -->|a&nbsp;label| B;");
+    expect(graph.edges).toEqual([{ from: "A", to: "B", style: "solid", label: "a label" }]);
   });
 
   it.each([

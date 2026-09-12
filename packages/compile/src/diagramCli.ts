@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import {
-  glyphGraphFromJson, renderGlyphDiagram,
+  glyphGraphFromJson, parseGlyphDiagramJson, renderGlyphDiagram,
   type GlyphDiagramRenderOptions, type GlyphGraph,
 } from "@glyphcss/diagrams";
 
@@ -92,7 +92,7 @@ export async function runGlyphDiagram(argv: readonly string[]): Promise<void> {
     }
     if (!/\.(?:mmd|json)$/i.test(file)) argumentError("Use a .mmd Mermaid file or a .json graph file.");
     const source = await readFile(file, "utf8");
-    const input = /\.json$/i.test(file) ? glyphGraphFromJson(JSON.parse(source)) : source;
+    const input = /\.json$/i.test(file) ? glyphGraphFromJson(parseGlyphDiagramJson(source)) : source;
     const result = await renderCli(input, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
     const output = result.html ?? result.text;
     for (const entry of result.report.ledger) process.stderr.write(`glyphcss: ${entry}\n`);
