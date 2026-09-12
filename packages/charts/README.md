@@ -268,7 +268,7 @@ renderGlyphChart(spec, {
 |---|---|---|---|
 | `chat` | 72×24 | `box` | `none` — Slack/Discord fonts sometimes break braille/junctions, and ANSI never survives a paste |
 | `terminal` | 80×24 | `braille` | `truecolor`, downgraded by `NO_COLOR`/`FORCE_COLOR` |
-| `web` | 96×32 | `blocks` | `css` — populates `result.html` |
+| `web` | 96×32 | `braille` | `css` — populates `result.html` |
 
 `braille` reuses `box`'s own junction/arrow glyphs (Phase 0's tier tables) for routes and rule marks, but `line`/`dot`/an area's boundary rasterise at genuinely finer, SUB-CELL (dot) resolution under `braille`/`blocks` than under `box` — a line-only chart does NOT render byte-identically across the two. **Axes stay whole-cell** (`│`/`─`) under every charset, even `braille`/`blocks` — only DATA marks (line, an area's boundary, dot) go sub-cell; a chart's axis frame and `glyphChartRule` reference lines are structure, not data, and `canvas.line`'s explicit `subcell: false` option is what keeps them legible box-drawing instead of a wobbly dot approximation. `result.text` is the ENCODED string for the call's own `color` — raw for `"none"`, ANSI SGR for the three ANSI depths — so a `terminal` render's `text` already contains escape codes unless you override `color: "none"`.
 

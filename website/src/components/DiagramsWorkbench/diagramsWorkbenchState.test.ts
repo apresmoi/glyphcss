@@ -8,7 +8,7 @@ describe("diagram workbench state and exports", () => {
     { type: "charset", value: "box" }, { type: "color", value: "none" }, { type: "width", value: 72 }, { type: "height", value: 24 },
   ] as const)("keeps explicitly choosing the old default for $type across a target change", (action) => {
     const controls = reduceGlyphDiagramsWorkbenchControls({ target: "chat", overrides: {} }, action);
-    expect(resolveGlyphDiagramsWorkbenchControls(reduceGlyphDiagramsWorkbenchControls(controls, { type: "target", value: "web" }))).toEqual({ target: "web", charset: "blocks", color: "css", width: 96, height: 32, [action.type]: action.value });
+    expect(resolveGlyphDiagramsWorkbenchControls(reduceGlyphDiagramsWorkbenchControls(controls, { type: "target", value: "web" }))).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, [action.type]: action.value });
   });
 
   it("switching editor tabs preserves JSON-only metadata until the source is edited", () => {

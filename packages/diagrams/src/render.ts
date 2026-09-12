@@ -8,10 +8,16 @@ import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMerge
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
 
+// Mirrors `@glyphcss/charts`' `GLYPH_CHART_TARGET_DEFAULTS` for contract
+// consistency across the two packages — braille is the default wherever a
+// sub-cell tier is safe, `chat` stays `box` (Slack/Discord fonts break
+// braille and junctions sometimes). A diagram paints whole-cell borders
+// regardless of charset, so this is a naming/contract match only, not a
+// rendering change.
 export const GLYPH_DIAGRAM_TARGET_DEFAULTS: Readonly<Record<GlyphDiagramTarget, { width: number; height: number; charset: GlyphDiagramCharset; color: GlyphDiagramColorMode }>> = Object.freeze({
   chat: { width: 72, height: 24, charset: "box", color: "none" },
   terminal: { width: 80, height: 24, charset: "braille", color: "truecolor" },
-  web: { width: 96, height: 32, charset: "blocks", color: "css" },
+  web: { width: 96, height: 32, charset: "braille", color: "css" },
 });
 function resolvedOptions(options: GlyphDiagramRenderOptions) {
   const target = options.target ?? "chat";

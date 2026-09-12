@@ -43,9 +43,9 @@ describe("ChartsWorkbench state", () => {
     let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "width", value: 72 } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "detail", value: "faithful" } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
-    expect(resolveGlyphChartsWorkbenchControls(state.controls)).toEqual({ target: "web", width: 72, height: 32, color: "css", charset: "blocks", detail: "faithful" });
+    expect(resolveGlyphChartsWorkbenchControls(state.controls)).toEqual({ target: "web", width: 72, height: 32, color: "css", charset: "braille", detail: "faithful" });
     const reset = reduceChartsWorkbenchState(state, { type: "reset-target" });
-    expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "blocks" });
+    expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "braille" });
     expect(reset.controls.overrides).toEqual({});
     expect(reset.marks).toBe(state.marks);
   });
@@ -130,7 +130,10 @@ describe("ChartsWorkbench generated TypeScript", () => {
 
 describe("ChartsWorkbench presets through the page", () => {
   it.each(CHART_PRESETS)("renders $label as nonempty 7-bit text in the actual viewport", (preset) => {
-    const state = reduceChartsWorkbenchState(presetState(preset.id), { type: "set-control", control: { type: "charset", value: "ascii" } });
+    let state = reduceChartsWorkbenchState(presetState(preset.id), { type: "set-control", control: { type: "charset", value: "ascii" } });
+    // Plain-text assertion below; the page's own default colour (css, for
+    // the web target) would otherwise wrap the preview in colour spans.
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "color", value: "none" } });
     const rendered = renderChartsWorkbenchState(state);
     expect(rendered.ok).toBe(true);
     if (!rendered.ok) return;

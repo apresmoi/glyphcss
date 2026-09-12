@@ -133,7 +133,7 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
   const preset = CHART_PRESETS[0]!;
   return {
     marks: preset.spec.marks.map((mark, i) => editableMark(mark, i + 1)), nextMarkId: preset.spec.marks.length + 1,
-    controls: { target: "chat", overrides: {} }, scales: { x: autoScale(), y: autoScale() },
+    controls: { target: "web", overrides: {} }, scales: { x: autoScale(), y: autoScale() },
     chart: { title: preset.label, description: "", legend: true }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
   };
 }

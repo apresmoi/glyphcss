@@ -45,11 +45,11 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
   useEffect(() => {
     let current = true;
     void Promise.all(GLYPH_DIAGRAM_WORKBENCH_PRESETS.map(async (preset) => {
-      try { return (await renderGlyphDiagram(preset.source, { target: "chat", width: 60, height: 24 })).text; }
+      try { return (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text; }
       catch { return "Preview unavailable"; }
     })).then((previews) => { if (current) setThumbnails(previews); });
     return () => { current = false; };
-  }, []);
+  }, [state.controls.target]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setMobilePanel(null); setCodeOpen(false); } };
     window.addEventListener("keydown", onKey);

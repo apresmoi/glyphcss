@@ -76,7 +76,7 @@ export type GlyphDiagramsWorkbenchAction =
 export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState {
   return {
     editor: "mermaid", sourceKind: "mermaid", mermaid: langgraph, json: JSON.stringify(glyphGraphFromMermaid(langgraph), null, 2),
-    controls: { target: "chat", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
+    controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
   };
 }

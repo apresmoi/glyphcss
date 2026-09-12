@@ -52,7 +52,7 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 | `title` | Optional label placed against the same obstacles as edge labels |
 | `env` | Explicit `NO_COLOR` / `FORCE_COLOR` values; process environment is never read implicitly |
 
-Target defaults match charts: chat = 72×24 box / no color; terminal = 80×24 braille / truecolor; web = 96×32 blocks / CSS. Explicit options override target defaults. `ascii` constrains authored labels and diagram glyphs to 7-bit output. Non-ASCII tiers share the canvas's line vocabulary.
+Target defaults match charts: chat = 72×24 box / no color; terminal = 80×24 braille / truecolor; web = 96×32 braille / CSS. Explicit options override target defaults. `ascii` constrains authored labels and diagram glyphs to 7-bit output. Non-ASCII tiers share the canvas's line vocabulary.
 
 `text` is plain for `none`/`css`, and SGR encoded for ANSI color modes. `html` is present for `css` and escapes labels itself. Each result includes `grid`, `layout`, `routes`, `labels`, `meta`, `report`, and `pages`. `meta` preserves the original graph. `pages` contains every split panel; top-level `text`/`html` concatenate them with a blank line, while top-level `grid`/`layout`/`routes` describe the first panel.
 

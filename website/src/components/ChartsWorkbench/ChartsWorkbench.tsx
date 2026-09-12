@@ -16,7 +16,6 @@ import "./charts-workbench.css";
 
 type MobilePanel = "marks" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
-const THUMBNAILS = CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: "chat", width: 24, height: 8 }).text);
 
 export function ChartsReport({ report }: { report: GlyphChartReport }) {
   if (report.ledger.length === 0 && report.unsupportedGlyphs.length === 0) return null;
@@ -33,6 +32,7 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
   const [feedback, setFeedback] = useState("");
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
+  const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
   const snippets = useMemo(() => {
     try { return generateChartsWorkbenchSnippets(state); }
     catch { return null; }
@@ -108,7 +108,7 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
     </InstrumentBody>
     <InstrumentTray id="charts-presets-panel" label="Chart presets" open={mobilePanel === "presets"}>
       {CHART_PRESETS.map((preset, index) => <button type="button" className="synth-tile" key={preset.id} title={`Apply “${preset.label}”`} aria-label={`Apply ${preset.label}`} onClick={() => dispatch({ type: "apply-preset", id: preset.id })}>
-        <span className="synth-tile-scene charts-tile-preview" aria-hidden="true"><pre>{THUMBNAILS[index]}</pre></span>
+        <span className="synth-tile-scene charts-tile-preview" aria-hidden="true"><pre>{thumbnails[index]}</pre></span>
         <span className="synth-tile-label">{preset.label}</span>
       </button>)}
     </InstrumentTray>

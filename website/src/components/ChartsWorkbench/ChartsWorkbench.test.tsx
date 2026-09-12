@@ -110,7 +110,7 @@ describe("ChartsWorkbench — explicit control overrides", () => {
     const terminal = reduceGlyphChartsWorkbenchControls(initial, { type: "target", value: "terminal" });
     expect(resolveGlyphChartsWorkbenchControls(terminal)).toEqual({ target: "terminal", charset: "braille", color: "truecolor", width: 80, height: 24 });
     const web = reduceGlyphChartsWorkbenchControls(terminal, { type: "target", value: "web" });
-    expect(resolveGlyphChartsWorkbenchControls(web)).toEqual({ target: "web", charset: "blocks", color: "css", width: 96, height: 32 });
+    expect(resolveGlyphChartsWorkbenchControls(web)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32 });
   });
 
   // Mutation: infer overrides by value inequality, or discard one control's explicit override on target change.
@@ -120,13 +120,13 @@ describe("ChartsWorkbench — explicit control overrides", () => {
   ] as const)("keeps an explicitly chosen default for $type", (action) => {
     const changed = reduceGlyphChartsWorkbenchControls({ target: "chat", overrides: {} }, action);
     const switched = reduceGlyphChartsWorkbenchControls(changed, { type: "target", value: "web" });
-    expect(resolveGlyphChartsWorkbenchControls(switched)).toEqual({ target: "web", charset: "blocks", color: "css", width: 96, height: 32, [action.type]: action.value });
+    expect(resolveGlyphChartsWorkbenchControls(switched)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, [action.type]: action.value });
   });
 
   // Mutation: reset clears only colour/charset and leaves dimension overrides behind.
   it("clears all four explicit overrides on reset", () => {
     const reset = reduceGlyphChartsWorkbenchControls({ target: "web", overrides: { charset: "ascii", color: "none", width: 20, height: 6 } }, { type: "reset" });
-    expect(resolveGlyphChartsWorkbenchControls(reset)).toEqual({ target: "web", charset: "blocks", color: "css", width: 96, height: 32 });
+    expect(resolveGlyphChartsWorkbenchControls(reset)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32 });
     expect(reset.overrides).toEqual({});
   });
 });
@@ -218,7 +218,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     select("target", "web");
     expect(outputControls()).toEqual(["web", "ascii", "ansi16"]);
     act(() => button("Reset to target defaults").dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    expect(outputControls()).toEqual(["web", "blocks", "css"]);
+    expect(outputControls()).toEqual(["web", "braille", "css"]);
     expect(outputSize()).toEqual(["96", "32"]);
   });
 

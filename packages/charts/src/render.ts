@@ -47,13 +47,14 @@ interface GlyphChartTargetDefaults {
  * finer, sub-cell (dot) resolution here than under `box` (`canvas.ts`'s
  * `paintSubcellLine`) — "braille" is a real resolution upgrade for those
  * marks, not merely a fill-only cosmetic swap.
- * `web`: `blocks` (renders at any font, unlike braille's dot density) with
- * `color: "css"` for the `html` exit.
+ * `web`: `braille` for the same sub-cell resolution upgrade, with
+ * `color: "css"` for the `html` exit — a web font can render the dot
+ * patterns, unlike Slack/Discord's.
  */
 export const GLYPH_CHART_TARGET_DEFAULTS: Readonly<Record<GlyphChartTarget, GlyphChartTargetDefaults>> = {
   chat: { width: 72, height: 24, charset: "box", color: "none" },
   terminal: { width: 80, height: 24, charset: "braille", color: "truecolor" },
-  web: { width: 96, height: 32, charset: "blocks", color: "css" },
+  web: { width: 96, height: 32, charset: "braille", color: "css" },
 };
 
 function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
