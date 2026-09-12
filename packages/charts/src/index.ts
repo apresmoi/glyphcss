@@ -39,6 +39,7 @@ export type {
 
 export { renderGlyphChart, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
 export { renderGlyphChartJson } from "./json";
+export { glyphChartScaleDomains } from "./domains";
 
 export type {
   GlyphChartCharset,

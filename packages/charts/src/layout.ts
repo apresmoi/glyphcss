@@ -97,6 +97,7 @@ export function layoutGlyphChart(
   detail: GlyphChartDetail,
   ledger: string[],
   charset: GlyphChartCharset = "box",
+  showLegend = true,
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
@@ -112,10 +113,10 @@ export function layoutGlyphChart(
   const names = seriesNames(marks);
   let legend: GlyphChartLayout["legend"] = null;
   const legendWide = names.length > 1 && cols >= 12 && rows - top - 3 > 2;
-  if (legendWide && detail !== "simplified") {
+  if (showLegend && legendWide && detail !== "simplified") {
     legend = { row: bottom, items: names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] })) };
     bottom -= 1;
-  } else if (names.length > 1) {
+  } else if (showLegend && names.length > 1) {
     ledger.push(`layout: legend dropped for ${names.length} series — viewport too small (${cols}x${rows}).`);
   }
 

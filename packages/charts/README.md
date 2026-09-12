@@ -259,6 +259,7 @@ renderGlyphChart(spec, {
   color: "none" | "ansi16" | "ansi256" | "truecolor" | "css",
   width, height,                                     // positive integers; fractions reject with bad-size
   detail: "auto" | "faithful" | "balanced" | "simplified",
+  legend: true,                                      // default; false hides the series legend without changing meta.series
   env,                                                // { NO_COLOR?, FORCE_COLOR? } — read only from here, never process.env implicitly
 });
 ```

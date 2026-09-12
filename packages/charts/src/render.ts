@@ -75,7 +75,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const scales = resolveGlyphChartScales(marks, spec.scales);
 
   const ledger: string[] = [];
-  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset);
+  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, options.legend ?? true);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
   // The ANSI encoder's non-empty env flags also determine whether colour

@@ -2,6 +2,7 @@
 import ChartsWorkbench from '../components/ChartsWorkbench/ChartsWorkbench.tsx';
 import DocsHeader from '../components/DocsHeader.astro';
 import BaseHead from '../components/BaseHead.astro';
+import '../styles/glyph-demo.css';
 
 const title = 'Charts — ASCII data viz | glyphcss';
 const description = 'A declarative, Observable-Plot-flavoured chart spec rendered as ASCII/box/braille output for chat, terminal and web, built on glyphcss.';
@@ -29,12 +30,6 @@ const description = 'A declarative, Observable-Plot-flavoured chart spec rendere
       color: rgba(255, 232, 184, 0.94);
       font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
     }
-    :global(body) { min-height: 100vh; }
-    .debug-page-shell {
-      position: fixed;
-      inset-block-start: var(--sl-nav-height);
-      inset-inline: 0;
-      inset-block-end: 0;
-    }
+    :global(body) { min-height: 100vh; overflow: hidden; }
   </style>
 </html>

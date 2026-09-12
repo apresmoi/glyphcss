@@ -27,6 +27,7 @@ export interface GlyphChartTick {
 
 export interface GlyphChartResolvedScale {
   readonly type: GlyphChartInferredScaleType | "log" | "sqrt";
+  readonly domain: readonly (number | string | Date)[];
   /** Maps a domain value to a fraction in [0, 1] along the axis (0 = domain start, 1 = domain end). */
   toFraction(value: unknown): number;
   /** For a `band` scale: the fractional step width one category occupies. `undefined` otherwise. */
@@ -112,6 +113,7 @@ function buildContinuous(
     const fmt = scale.tickFormat();
     return {
       type,
+      domain: scale.domain(),
       toFraction: (v) => scale(date(v)),
       ticks: (count) => scale.ticks(count).map((t) => ({ value: t, fraction: scale(t), label: fmt(t) })),
       format: (v) => fmt(date(v)),
@@ -133,6 +135,7 @@ function buildContinuous(
   if (opts?.nice) scale.nice();
   return {
     type,
+    domain: scale.domain(),
     toFraction: (v) => scale(Number(v)),
     ticks: (count) => scale.ticks(count).map((t) => ({ value: t, fraction: scale(t), label: formatLinearTick(t) })),
     format: (v) => formatLinearTick(Number(v)),
@@ -148,6 +151,7 @@ function buildBand(values: readonly unknown[], opts: GlyphChartScaleOptions | un
   const step = scale.step();
   return {
     type: "band",
+    domain: scale.domain(),
     toFraction: (v) => (scale(String(v)) ?? 0) + scale.bandwidth() / 2,
     bandStep: step,
     bandRange: (v) => {

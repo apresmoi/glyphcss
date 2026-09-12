@@ -1,0 +1,146 @@
+// @vitest-environment node
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { glyphChartPlot, glyphChartScaleDomains, renderGlyphChartJson, type GlyphChartRenderOptions, type GlyphChartSpec } from "@glyphcss/charts";
+import ChartsWorkbench from "./ChartsWorkbench";
+// Standalone Vitest lacks Astro's core alias; use the real module behind it.
+vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
+import {
+  CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec, chartMarkFields,
+  createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState,
+  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
+} from "./chartsWorkbenchState";
+import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+
+const initial = createChartsWorkbenchState;
+const presetState = (id: string) => reduceChartsWorkbenchState(initial(), { type: "apply-preset", id });
+
+describe("ChartsWorkbench state", () => {
+  it("adds, updates and removes one mark without mutating its siblings or reusing ids", () => {
+    const start = initial();
+    const added = reduceChartsWorkbenchState(start, { type: "add-mark", markType: "dot" });
+    expect(added.marks.map((mark) => mark.type)).toEqual(["line", "dot"]);
+    expect(start.marks).toHaveLength(1);
+    const updated = reduceChartsWorkbenchState(added, { type: "update-mark", id: added.marks[1]!.id,
+      patch: { type: "area", dataText: "[9,2,6]", channels: { x: "index", y: "value" }, transform: "normalize" } });
+    expect(updated.marks[0]).toBe(start.marks[0]);
+    expect(buildChartsWorkbenchSpec(updated).marks[1]).toMatchObject({ type: "area", data: [9, 2, 6], channels: { x: [0, 1, 2], y: [9, 2, 6] }, transform: { kind: "normalize" } });
+    const removed = reduceChartsWorkbenchState(updated, { type: "remove-mark", id: updated.marks[1]!.id });
+    expect(removed.marks).toEqual(start.marks);
+    expect(reduceChartsWorkbenchState(removed, { type: "add-mark" }).marks[1]!.id).toBeGreaterThan(added.marks[1]!.id);
+  });
+
+  it("replaces all marks on preset apply and preserves output overrides", () => {
+    const state = reduceChartsWorkbenchState(presetState("line-rule"), { type: "set-control", control: { type: "charset", value: "ascii" } });
+    const next = reduceChartsWorkbenchState(state, { type: "apply-preset", id: "stacked-bar" });
+    expect(next.marks).toHaveLength(1);
+    expect(next.marks[0]).toMatchObject({ type: "bar", transform: "stack" });
+    expect(next.controls.overrides.charset).toBe("ascii");
+    expect(state.marks).toHaveLength(2);
+  });
+
+  it("changes untouched target defaults while retaining explicit overrides, then resets them all", () => {
+    let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "width", value: 72 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "detail", value: "faithful" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+    expect(resolveGlyphChartsWorkbenchControls(state.controls)).toEqual({ target: "web", width: 72, height: 32, color: "css", charset: "blocks", detail: "faithful" });
+    const reset = reduceChartsWorkbenchState(state, { type: "reset-target" });
+    expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "blocks" });
+    expect(reset.controls.overrides).toEqual({});
+    expect(reset.marks).toBe(state.marks);
+  });
+
+  it("retains invalid JSON drafts and renders an error until repaired", () => {
+    const state = initial();
+    const broken = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { dataText: "[" } });
+    expect(broken.marks[0]!.dataText).toBe("[");
+    expect(renderChartsWorkbenchState(broken)).toMatchObject({ ok: false, error: expect.stringContaining("Invalid JSON") });
+    const fixed = reduceChartsWorkbenchState(broken, { type: "sample-mark", id: broken.marks[0]!.id });
+    expect(renderChartsWorkbenchState(fixed).ok).toBe(true);
+  });
+
+  it.each(CHART_MARK_TYPES)("supplies a renderable %s sample and matching channel fields", (type) => {
+    let state = initial();
+    state = reduceChartsWorkbenchState(state, { type: "remove-mark", id: state.marks[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "add-mark", markType: type });
+    expect(renderChartsWorkbenchState(state)).toMatchObject({ ok: true, text: expect.stringMatching(/\S/) });
+    expect(chartMarkFields(state.marks[0]!).length).toBeGreaterThan(0);
+  });
+
+  it("infers either blank bound from transformed data, including stacked zero baselines", () => {
+    const state = reduceChartsWorkbenchState(presetState("stacked-bar"), { type: "set-scale", axis: "y", patch: { max: "30" } });
+    expect(buildChartsWorkbenchSpec(state).scales?.y).toEqual({ type: "linear", domain: [0, 30] });
+    const minimum = reduceChartsWorkbenchState(presetState("stacked-bar"), { type: "set-scale", axis: "y", patch: { min: "-10" } });
+    expect(buildChartsWorkbenchSpec(minimum).scales?.y).toEqual({ type: "linear", domain: [-10, 17] });
+  });
+
+  it("preserves intermediate band categories when domain endpoints are selected", () => {
+    const state = reduceChartsWorkbenchState(presetState("bar"), { type: "set-scale", axis: "x", patch: { min: "Feb", max: "Apr" } });
+    expect(buildChartsWorkbenchSpec(state).scales?.x).toEqual({ type: "band", domain: ["Feb", "Mar", "Apr"] });
+  });
+
+  it("uses real log and time domains through the pure domain helper", () => {
+    expect(glyphChartScaleDomains({ marks: [{ type: "line", data: [10, 10], channels: {} }], scales: { y: { type: "log" } } }).y.domain).toEqual([1, 100]);
+    const time = glyphChartScaleDomains({ marks: [{ type: "line", data: [{ t: "2026-01-01", v: 1 }, { t: "2026-02-01", v: 3 }], channels: { x: "t", y: "v" } }], scales: { x: { type: "time" } } });
+    expect(time.x.type).toBe("time");
+    expect(time.x.domain.map((v) => (v as Date).toISOString())).toEqual(["2026-01-01T00:00:00.000Z", "2026-02-01T00:00:00.000Z"]);
+  });
+
+  it("feeds terminal env flags into the real ANSI render, with FORCE_COLOR precedence", () => {
+    let state = reduceChartsWorkbenchState(presetState("multi-line"), { type: "set-control", control: { type: "target", value: "terminal" } });
+    expect(renderChartsWorkbenchState(state)).toMatchObject({ ok: true, ansi: expect.stringContaining("\x1b[") });
+    state = reduceChartsWorkbenchState(state, { type: "set-terminal", flag: "NO_COLOR", value: true });
+    expect(renderChartsWorkbenchState(state)).toMatchObject({ ok: true, ansi: undefined });
+    state = reduceChartsWorkbenchState(state, { type: "set-terminal", flag: "FORCE_COLOR", value: true });
+    expect(renderChartsWorkbenchState(state)).toMatchObject({ ok: true, ansi: expect.stringContaining("\x1b[") });
+  });
+});
+
+// Execute the emitted call itself. Comparing two calls to the same option
+// selector would miss a generator that drops or misnames an output option.
+function executeSnippet(state: ChartsWorkbenchState) {
+  const snippets = generateChartsWorkbenchSnippets(state);
+  let captured: { spec: GlyphChartSpec; options: GlyphChartRenderOptions; result: { text: string; html?: string } } | undefined;
+  new Function("glyphChartPlot", "renderGlyphChart", snippets.typescript.replace(/^import[^\n]+\n/, ""))(glyphChartPlot,
+    (spec: GlyphChartSpec, options: GlyphChartRenderOptions) => {
+      captured = { spec, options, result: JSON.parse(renderGlyphChartJson(JSON.stringify(spec), options)) };
+      return captured.result;
+    });
+  expect(captured).toBeDefined();
+  return { ...captured!, json: snippets.json };
+}
+
+describe("ChartsWorkbench generated TypeScript", () => {
+  it.each(["chat", "terminal", "web"] as const)("round-trips the emitted %s call through renderGlyphChartJson", (target) => {
+    let state = presetState("multi-line");
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: target } });
+    state = { ...state, controls: { target, overrides: { width: 57, height: 19, charset: "ascii", detail: "faithful", color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none" } }, chart: { title: "Edited title", description: "Two regions", legend: true }, terminal: { NO_COLOR: true, FORCE_COLOR: true } };
+    const emitted = executeSnippet(state);
+    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", legend: true, color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
+    expect(JSON.parse(emitted.json)).toEqual(emitted.spec);
+    const live = renderChartsWorkbenchState(state);
+    expect(live.ok).toBe(true);
+    if (!live.ok) return;
+    expect(emitted.result.text.replace(/\x1b\[[0-9;]*m/g, "")).toBe(live.text);
+    if (target === "web") expect(emitted.result.html).toBe(live.display);
+    expect(live.text.split("\n")).toHaveLength(19);
+    expect(live.text.split("\n")[0]).toHaveLength(57);
+  });
+});
+
+describe("ChartsWorkbench presets through the page", () => {
+  it.each(CHART_PRESETS)("renders $label as nonempty 7-bit text in the actual viewport", (preset) => {
+    const state = reduceChartsWorkbenchState(presetState(preset.id), { type: "set-control", control: { type: "charset", value: "ascii" } });
+    const rendered = renderChartsWorkbenchState(state);
+    expect(rendered.ok).toBe(true);
+    if (!rendered.ok) return;
+    const page = renderToStaticMarkup(<ChartsWorkbench initialState={state} />);
+    const preview = /<pre class="glyph-output"[^>]*>([\s\S]*?)<\/pre>/.exec(page)?.[1];
+    expect(preview).toMatch(/\S/);
+    expect(preview).toMatch(/^[\x00-\x7f]+$/);
+    expect(preview).toBe(renderToStaticMarkup(<pre>{rendered.text}</pre>).slice(5, -6));
+    expect(page).toContain("synth-shell dn-root dn-root--synth");
+    expect(page).toContain('id="charts-controls-panel"');
+    expect(page).toContain('aria-label="Chart presets"');
+  });
+});

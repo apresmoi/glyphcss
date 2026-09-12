@@ -1,13 +1,39 @@
-// @vitest-environment happy-dom
+// @vitest-environment node
+// Node module resolution matches the pure suite; happy-dom supplies only the
+// mounted UI surface. No chart renderer, reducer, Dock or CodePanel is mocked.
+vi.hoisted(async () => {
+  const { Window } = await import("happy-dom");
+  const window = new Window();
+  // Browsers name this exception NotFoundError; happy-dom leaves the name generic.
+  const removeChild = window.Node.prototype.removeChild;
+  window.Node.prototype.removeChild = function(child) {
+    try { return removeChild.call(this, child); }
+    catch (error) {
+      if (error instanceof window.DOMException && error.message.includes("removeChild")) throw new window.DOMException(error.message, "NotFoundError");
+      throw error;
+    }
+  };
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
+  }
+});
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ChartsWorkbench, {
+import { renderToStaticMarkup } from "react-dom/server";
+import ChartsWorkbench, { ChartsReport } from "./ChartsWorkbench";
+// Standalone Vitest lacks Astro's core alias; use the real module behind it.
+vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
+import {
+  createChartsWorkbenchState, reduceChartsWorkbenchState,
   reduceGlyphChartsWorkbenchControls,
-  renderChartsWorkbenchSpec,
   resolveGlyphChartsWorkbenchControls,
   type GlyphChartsWorkbenchControls,
-} from "./ChartsWorkbench";
+} from "./chartsWorkbenchState";
+import { renderChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+
+// happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
+vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -123,23 +149,64 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   });
 
   function select(name: string, value: string): void {
-    const label = Array.from(container.querySelectorAll("label")).find((node) => node.firstChild?.textContent === name)!;
-    const field = label.querySelector("select")!;
+    const field = controller(name).querySelector("select")!;
     act(() => {
-      field.value = value;
+      field.selectedIndex = Array.from(field.options).findIndex((option) => option.textContent === value);
       field.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
 
+  function controller(name: string): Element {
+    return Array.from(container.querySelectorAll("#charts-controls-panel .controller")).find((node) => node.querySelector(".name")?.textContent?.toLowerCase() === name.toLowerCase())!;
+  }
+  function outputControls() {
+    return ["Target", "Charset", "Color"].map((name) => (() => { const select = controller(name).querySelector("select")!; return select.options[select.selectedIndex]!.textContent; })());
+  }
+  function outputSize() {
+    return ["Width", "Height"].map((name) => controller(name).querySelector("input")!.value);
+  }
   function button(label: string): HTMLButtonElement {
     return Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
   }
 
+  it("shows exactly TypeScript and JSON tabs and copies each current snippet", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => button("Export").click());
+    const panel = container.querySelector("#charts-export-panel")!;
+    const tabs = Array.from(panel.querySelectorAll<HTMLButtonElement>(".gw-code-panel__tab"));
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["TypeScript", "JSON"]);
+    const copy = panel.querySelector<HTMLButtonElement>('[title="Copy current snippet"]')!;
+    expect(panel.querySelector("code")!.textContent).toContain("renderGlyphChart(glyphChartPlot(");
+    await act(async () => copy.click());
+    expect(writeText).toHaveBeenLastCalledWith(panel.querySelector("code")!.textContent);
+    act(() => tabs[1]!.click());
+    expect(JSON.parse(panel.querySelector("code")!.textContent!)).toHaveProperty("marks");
+    await act(async () => copy.click());
+    expect(writeText).toHaveBeenLastCalledWith(panel.querySelector("code")!.textContent);
+  });
+
+  it("hides the series legend without dropping the title or series metadata", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Multi-series line"]')!.click());
+    const before = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(before.split("\n").at(-1)).toMatch(/North.*South/);
+    const toggle = controller("Legend").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    act(() => toggle.click());
+    const after = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(after).not.toBe(before);
+    expect(after).not.toMatch(/North|South/);
+    expect(after).toContain("Multi-series line");
+    expect(container.querySelector('[aria-label="Rendering report"]')?.textContent ?? "").not.toContain("legend dropped");
+    act(() => button("Export").click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"legend": false');
+    act(() => toggle.click());
+    expect(container.querySelector("pre.glyph-output")!.textContent).toBe(before);
+  });
+
   // Mutation: target onChange updates an unused state or omits applying target defaults.
   it("applies terminal defaults through the actual target selector", () => {
     select("target", "terminal");
-    expect(Array.from(container.querySelectorAll("select")).map((node) => node.value)).toEqual(["terminal", "braille", "truecolor"]);
-    expect(Array.from(container.querySelectorAll("input")).map((node) => node.value)).toEqual(["80", "24"]);
+    expect(outputControls()).toEqual(["terminal", "braille", "truecolor"]);
+    expect(outputSize()).toEqual(["80", "24"]);
     expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(24);
     expect(container.querySelector("pre")!.textContent!.split("\n")[0]).toHaveLength(80);
   });
@@ -149,10 +216,10 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     select("charset", "ascii");
     select("color", "ansi16");
     select("target", "web");
-    expect(Array.from(container.querySelectorAll("select")).map((node) => node.value)).toEqual(["web", "ascii", "ansi16"]);
-    act(() => button("Reset to target defaults").click());
-    expect(Array.from(container.querySelectorAll("select")).map((node) => node.value)).toEqual(["web", "blocks", "css"]);
-    expect(Array.from(container.querySelectorAll("input")).map((node) => node.value)).toEqual(["96", "32"]);
+    expect(outputControls()).toEqual(["web", "ascii", "ansi16"]);
+    act(() => button("Reset to target defaults").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(outputControls()).toEqual(["web", "blocks", "css"]);
+    expect(outputSize()).toEqual(["96", "32"]);
   });
 
   // Mutation: inject result.text with SGR into <pre>, or remove the ANSI explanation.
@@ -181,12 +248,12 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
   });
 
-  // Mutation: copy result.text (the ANSI encoding) from Copy as text, or copy plain cells from Copy ANSI.
-  it("copies plain cells from Copy as text and escapes from Copy ANSI", async () => {
+  // Mutation: copy result.text (the ANSI encoding) from Copy ASCII, or copy plain cells from Copy ANSI.
+  it("copies plain cells from Copy ASCII and escapes from Copy ANSI", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     select("target", "terminal");
     const plain = container.querySelector("pre")!.textContent!;
-    await act(async () => button("Copy as text").click());
+    await act(async () => button("Copy ASCII").click());
     expect(writeText).toHaveBeenLastCalledWith(plain);
     expect(writeText.mock.calls[0]![0]).not.toContain("\x1b");
     await act(async () => button("Copy ANSI").click());
@@ -197,8 +264,64 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
 
   // Mutation: leave preset buttons disconnected from the editor/render state.
   it("renders a preset selected by its button", () => {
-    act(() => button("bar").click());
-    expect(JSON.parse(container.querySelector("textarea")!.value).marks[0].type).toBe("bar");
-    expect(container.querySelector("pre")!.textContent).toContain("bar");
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 type"]')!.value).toBe("bar");
+    expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toEqual({ month: "Jan", value: 3 });
+    expect(container.querySelector("pre")!.textContent).toContain("Bar");
   });
+
+  it("edits a mark's JSON live, reports malformed drafts and recovers via sample", () => {
+    const before = container.querySelector(".synth-viewport pre")!.textContent;
+    const textarea = container.querySelector("textarea")!;
+    const edit = (value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, value);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    edit("[2,9,4,1]");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).not.toBe(before);
+    edit("[");
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain("Invalid JSON");
+    act(() => button("sample").click());
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+  });
+
+  it("adds and removes real rail cards", () => {
+    act(() => button("+ Add mark").click());
+    expect(container.querySelectorAll(".voice-card")).toHaveLength(2);
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Remove mark 1"]')!.click());
+    expect(container.querySelectorAll(".voice-card")).toHaveLength(1);
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+  });
+
+  it("opens only the selected mobile drawer and closes it with Escape", () => {
+    const tabs = container.querySelectorAll<HTMLButtonElement>(".dn-mobile-tabs button");
+    act(() => tabs[0]!.click());
+    expect(container.querySelector("#charts-marks-panel")!.classList.contains("is-mobile-open")).toBe(true);
+    act(() => tabs[1]!.click());
+    expect(container.querySelector("#charts-marks-panel")!.classList.contains("is-mobile-open")).toBe(false);
+    expect(container.querySelector("#charts-controls-panel")!.classList.contains("is-mobile-open")).toBe(true);
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
+  });
+
+  it("keeps every honesty ledger entry and unsupported glyph visible", () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: {
+      type: "text", dataText: JSON.stringify([{ x: 0, y: 0, label: "🦄" }]), channels: { x: "x", y: "y", label: "label" },
+    } });
+    state = reduceChartsWorkbenchState(state, { type: "set-chart", patch: { title: "A title much too long for this chart" } });
+    state = { ...state, controls: { target: "chat", overrides: { width: 12, height: 8 } } };
+    const result = renderChartsWorkbenchState(state);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.report.ledger.length).toBeGreaterThan(0);
+    act(() => root.render(<ChartsWorkbench key="honesty" initialState={state} />));
+    const report = container.querySelector('[aria-label="Rendering report"]')!.textContent;
+    for (const entry of result.report.ledger) expect(report).toContain(entry);
+    // The renderer currently folds label glyphs before its final canvas pass;
+    // verify the report consumer also preserves future unsupported-glyph entries.
+    expect(renderToStaticMarkup(<ChartsReport report={{ ledger: [], unsupportedGlyphs: ["🦄"] }} />)).toContain("Unsupported glyph: 🦄");
+  });
+
 });

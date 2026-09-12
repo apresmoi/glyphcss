@@ -118,6 +118,8 @@ export interface GlyphChartRenderOptions {
   readonly width?: number;
   readonly height?: number;
   readonly detail?: GlyphChartDetail;
+  /** Whether layout may show the series legend; defaults to true. */
+  readonly legend?: boolean;
   /** Read only for `NO_COLOR`/`FORCE_COLOR`, exactly like the canvas's own ANSI encoder — never `process.env` implicitly. */
   readonly env?: Readonly<Record<string, string | undefined>>;
 }

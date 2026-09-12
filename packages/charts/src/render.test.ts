@@ -56,6 +56,36 @@ describe("renderGlyphChart — composition fixture", () => {
   });
 });
 
+describe("renderGlyphChart — legend option", () => {
+  const data = ["North", "South"].flatMap((region, index) => [
+    { x: 0, y: index + 1, region }, { x: 1, y: index + 3, region },
+  ]);
+
+  it.each([
+    glyphChartLine(data, { x: "x", y: "y", fill: "region" }),
+    glyphChartArc(data, { y: "y", fill: "region" }),
+  ])("toggles the $type legend line while retaining metadata and dimensions", (mark) => {
+    const spec = glyphChartPlot({ marks: [mark], title: "Regional totals" });
+    const options = { width: 50, height: 16 };
+    const on = renderGlyphChart(spec, { ...options, legend: true });
+    const off = renderGlyphChart(spec, { ...options, legend: false });
+    expect(on.text.split("\n").at(-1)).toMatch(/North.*South/);
+    expect(off.text).not.toMatch(/North|South/);
+    expect(off.text).toContain("Regional totals");
+    expect(off.text.split("\n")).toHaveLength(options.height);
+    expect(off.meta).toEqual(on.meta);
+    expect(off.meta.series).toEqual(["North", "South"]);
+    expect(off.report.ledger.join("\n")).not.toContain("legend dropped");
+    expect(renderGlyphChart(spec, options)).toEqual(on);
+  });
+
+  it("does not report an intentionally hidden legend as dropped in a small viewport", () => {
+    const mark = glyphChartLine(data, { x: "x", y: "y", fill: "region" });
+    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: true }).report.ledger.join("\n")).toContain("legend dropped");
+    expect(renderGlyphChart(mark, { width: 10, height: 6, legend: false }).report.ledger.join("\n")).not.toContain("legend dropped");
+  });
+});
+
 describe("renderGlyphChart — honesty", () => {
   function barLengths(values: number[]) {
     const r = renderGlyphChart(glyphChartBar(values), { target: "chat", width: 60, height: 30, color: "none" });

@@ -1,0 +1,56 @@
+/* Shell, cards, Dock, tray and export drawers come from the shared instrument.
+   Charts replace a voice's miniature scene with a full-width JSON editor. */
+.charts-mark-card.voice-card { grid-template-columns: minmax(0, 1fr); }
+.charts-mark-row { align-items: center; font-size: 11px; }
+.charts-mark-row > span:first-child { flex: 0 0 70px; }
+.charts-mark-row > .gx-toggle { flex: 1; }
+.charts-mark-label { font-size: 11px; }
+.charts-mark-data {
+  box-sizing: border-box;
+  width: 100%;
+  height: 116px;
+  min-height: 60px;
+  resize: vertical;
+  padding: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  background: #0d1118;
+  color: inherit;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 0;
+}
+.charts-mark-data:focus-visible { outline: 1px solid #38bdf8; }
+
+/* A chart has a fixed cell budget, so scroll its text instead of clipping it.
+   Leave the floating Dock's lane free; the shared shell still positions it. */
+.charts-viewport.synth-viewport {
+  box-sizing: border-box;
+  padding: 24px 400px 56px 24px;
+  overflow: auto;
+}
+.charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 100%; gap: 10px; }
+.charts-grid-scroll { overflow: auto; flex: 0 0 auto; }
+.charts-grid-scroll > .glyph-output {
+  display: block;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  white-space: pre;
+  user-select: text;
+}
+.charts-ledger { max-height: 100px; overflow-y: auto; overflow-wrap: anywhere; }
+.charts-ledger p, .charts-readout, .charts-error { margin: 0; font-size: 10px; line-height: 1.4; }
+.charts-ledger, .charts-readout { color: rgba(255, 232, 184, 0.65); }
+.charts-error { color: #fda4af; }
+
+/* Static 24x8 character previews occupy the same square as PresetTile scenes. */
+.charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
+.charts-tile-preview pre { margin: 0; padding: 0; font-family: inherit; font-size: 6px; line-height: 1.8; white-space: pre; }
+
+@media (max-width: 760px) {
+  .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
+}
