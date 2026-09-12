@@ -174,6 +174,19 @@ describe("line() in braille/blocks: sub-cell dot rasterisation", () => {
     // make dashed identical to solid.
     expect(dashedDots).toBeLessThan(solidDots);
     expect(dashedDots).toBeGreaterThan(0);
+    // "dotted" (paint iff `patternIndex % 2 === 1`, a 50% duty cycle) is its
+    // OWN cadence, distinct from "dashed" (`% 3 !== 0`, 67%) — the prior
+    // version of this test never actually exercised a `style: "dotted"`
+    // line at all (review finding: the dashed/dotted test never drew a
+    // dotted line), so a mutation collapsing "dotted" onto "dashed"'s
+    // cadence (or onto solid) went uncaught.
+    const dotted = createGlyphCanvas({ cols: 12, rows: 1, tier: "braille" });
+    dotted.line({ x: 0, y: 0 }, { x: 11, y: 0 }, { style: "dotted", color: "#ffffff" });
+    const dottedDots = dotted.sub.reduce((n, m) => n + popcount(m), 0);
+    // MUTATION CAUGHT: routing "dotted" through the dashed (or solid) cadence.
+    expect(dottedDots).toBeGreaterThan(0);
+    expect(dottedDots).toBeLessThan(solidDots);
+    expect(dottedDots).toBeLessThan(dashedDots);
   });
 
   it("MUTATION CAUGHT: `subcell: false` forces the whole-cell path on a braille/blocks canvas (charts' axis/rule painters)", () => {

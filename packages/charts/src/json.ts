@@ -12,7 +12,7 @@
 
 import { renderGlyphChart } from "./render";
 import type { GlyphChartInput, GlyphChartRenderOptions } from "./types";
-import { glyphChartRepairHint, type GlyphChartValidationRuleId } from "./validate";
+import { glyphChartRepairHint } from "./validate";
 
 export function renderGlyphChartJson(json: string, options: GlyphChartRenderOptions = {}): string {
   let input: GlyphChartInput;
@@ -27,12 +27,12 @@ export function renderGlyphChartJson(json: string, options: GlyphChartRenderOpti
     const { grid: _grid, ...rest } = result;
     return JSON.stringify(rest);
   } catch (e) {
-    const error = e as Error & { code?: GlyphChartValidationRuleId };
+    const error = e as Error & { code?: string };
     const code = error.code ?? null;
     return JSON.stringify({
       error: error.message,
       code,
-      hint: code ? glyphChartRepairHint(code) : null,
+      hint: (code ? glyphChartRepairHint(code) : undefined) ?? null,
     });
   }
 }

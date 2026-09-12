@@ -53,6 +53,18 @@ describe("diagram workbench state and exports", () => {
     },
   );
 
+  // Mutation: the pipe span's quote-awareness fix in mermaid.ts regresses ->
+  // the exporter's own `|"${label}"|` shape (it never escapes "|" itself)
+  // becomes unparseable. The nasty-label test above only exercises "|pipe|"
+  // as a NODE label (bracket-protected, routes around the defect); this is
+  // the EDGE label the exporter's own pipe span must parse back.
+  it("round-trips an edge label containing a pipe through the Mermaid exporter's own |\"...\"| shape", () => {
+    const graph = { direction: "LR" as const, nodes: [{ id: "A", label: "A", shape: "rect" as const }, { id: "B", label: "B", shape: "rect" as const }], edges: [{ from: "A", to: "B", style: "solid" as const, label: "a|b" }] };
+    const mermaid = glyphDiagramsWorkbenchMermaid(graph);
+    expect(mermaid).toContain('|"a|b"|');
+    expect(glyphGraphFromMermaid(mermaid)).toEqual(graph);
+  });
+
   it("Mermaid export represents every supported shape, edge style, group and quoted label", () => {
     const shapes = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium"] as const;
     const graph = { direction: "LR" as const, nodes: shapes.map((shape, i) => ({ id: `node ${i}`, label: i === 0 ? 'A "quoted" label' : shape, shape })), edges: ["solid", "dotted", "thick", "undirected"].map((style, i) => ({ from: `node ${i}`, to: `node ${i + 1}`, label: "edge", style: style as "solid" | "dotted" | "thick" | "undirected" })), groups: [{ id: "crew", label: "Crew", members: ["node 0", "node 1"] }] };
@@ -61,6 +73,30 @@ describe("diagram workbench state and exports", () => {
     expect(converted.nodes.map((node) => node.shape)).toEqual(shapes);
     expect(converted.edges.map((edge) => edge.style)).toEqual(graph.edges.map((edge) => edge.style));
     expect(converted.groups?.[0]?.members).toHaveLength(2);
+  });
+
+  it("gives a generated group alias its own collision loop, so it never collides with another group's real id", () => {
+    // Group 0's id is not a safe Mermaid identifier, so it needs a generated
+    // "glyph_group_0" fallback -- which collides with group 1's OWN real id,
+    // already exactly that string.
+    const graph = {
+      direction: "TB" as const,
+      nodes: [{ id: "A", label: "A" }, { id: "B", label: "B" }],
+      edges: [],
+      groups: [
+        { id: "not a safe id!", label: "First", members: ["A"] },
+        { id: "glyph_group_0", label: "Second", members: ["B"] },
+      ],
+    };
+    const mermaid = glyphDiagramsWorkbenchMermaid(graph);
+    // Mutation: replace the `while (usedGroupIds.has(id)) id += "_"` loop
+    // with the pre-fix `glyph_group_${index}` (no collision check) -> both
+    // subgraphs are emitted as "subgraph glyph_group_0[...]", which is a
+    // duplicate-id Mermaid parse error.
+    const reparsed = glyphGraphFromMermaid(mermaid);
+    const ids = reparsed.groups?.map((group) => group.id) ?? [];
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
   });
 
   it.each(["chat", "terminal", "web"] as const)("executes the exported %s TypeScript call and matches the live render", async (target) => {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createGlyphCanvas } from "glyphcss";
 import { renderGlyphChart } from "./render";
+import { renderGlyphChartJson } from "./json";
+import { glyphChartRepairHint } from "./validate";
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartRect, glyphChartText } from "./spec";
 import { bandColRange, bandRowRange, layoutGlyphChart, scaleToCol, scaleToRow } from "./layout";
 import { resolveGlyphChartSpec } from "./resolve";
@@ -142,6 +144,58 @@ describe("exact Phase 1 review regressions", () => {
     // a lone dot, never the 2-dot companion shape.
     expect(coloured.every((n) => n === 1)).toBe(true);
   });
+  it("final-gate: a sub-cell dot clips by its actual DESTINATION cell, not a heuristic half-cell margin on the exact coordinate", () => {
+    // Mutation: restore the half-cell-margin check on the continuous (col, r)
+    // coordinate instead of the dot-lattice-rounded destination cell -> a
+    // point at y=-0.5 (half a cell below the plot floor) rounds its dot into
+    // row 7 (one past the plot's own last row, 6) and still gets admitted.
+    const r = renderGlyphChart({ marks: [glyphChartDot([{ x: 0, y: -0.5 }], { x: "x", y: "y" })], scales: { x: { domain: [0, 1] }, y: { domain: [0, 5] } }, title: "clip" }, { target: "terminal", charset: "braille", width: 20, height: 9 });
+    const rows = r.text.split("\n");
+    const axisRow = rows.findIndex((row) => row.includes("─"));
+    expect(axisRow).toBeGreaterThan(0);
+    for (const row of rows.slice(axisRow)) {
+      for (const c of row) { const cp = c.codePointAt(0)!; expect(cp > 0x2800 && cp <= 0x28ff).toBe(false); }
+    }
+  });
+
+  it("final-gate: every monochrome dot series (including the vertical/diagonal 3rd and 4th shapes) paints at most 2 dots, never a connecting midpoint", () => {
+    // Mutation: draw the companion via one `canvas.line(primary, companion)`
+    // call instead of two separate degenerate points -> the vertical (shape
+    // 2) and diagonal (shape 3) companions sit 2 dot-rows away, so the real
+    // line rasterises the dot exactly between them too, popcount 3 -> red.
+    const data = [0, 1, 2, 3].map((i) => ({ x: i, y: i, s: String(i) }));
+    const p = picture(glyphChartDot(data, { x: "x", y: "y", fill: "s" }), 24, 10, false, "braille");
+    const popcount = (c: string): number => {
+      let mask = c.codePointAt(0)! - 0x2800, count = 0;
+      while (mask > 0) { count += mask & 1; mask >>>= 1; }
+      return count;
+    };
+    const patterns: string[] = [];
+    for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) {
+      for (let x = p.layout.plot.x0; x <= p.layout.plot.x1; x++) {
+        const c = p.at(x, y)!;
+        const cp = c.codePointAt(0)!;
+        if (cp > 0x2800 && cp <= 0x28ff) { expect(popcount(c)).toBeLessThanOrEqual(2); patterns.push(c); }
+      }
+    }
+    // Four series -> four distinct nonblank cells (each its own shape).
+    expect(new Set(patterns).size).toBe(4);
+  });
+
+  it("final-gate: the dot legend swatch under braille/blocks paints a sub-cell pattern the plot itself can produce, not the whole-cell ● × + ◆ glyphs", () => {
+    // Mutation: keep the legend's dot branch on `seriesDot(canvas.tier, i)`
+    // unconditionally (never route braille/blocks through `paintSubcellDot`)
+    // -> the legend row reads ● × + ◆ and carries no braille codepoint at all.
+    const data = [0, 1, 2, 3].map((i) => ({ x: i, y: i, s: String(i) }));
+    const p = picture(glyphChartDot(data, { x: "x", y: "y", fill: "s" }), 30, 12, false, "braille");
+    expect(p.layout.legend).not.toBeNull();
+    const row = p.layout.legend!.row;
+    const legendChars: string[] = [];
+    for (let x = 0; x < 30; x++) legendChars.push(p.at(x, row) ?? " ");
+    expect(legendChars.some((c) => "●×+◆".includes(c))).toBe(false);
+    expect(legendChars.some((c) => { const cp = c.codePointAt(0)!; return cp > 0x2800 && cp <= 0x28ff; })).toBe(true);
+  });
+
   it("3: area series boundaries retain their monochrome styles", () => {
     // Mutation: leave area styles unused -> both boundaries remain solid fill.
     const r = renderGlyphChart(glyphChartArea(categoricalSeriesData, { x: "x", y: "y", fill: "s" }), { width: 40, height: 14 });
@@ -169,10 +223,26 @@ describe("exact Phase 1 review regressions", () => {
     const colorAt = (y: number) => p.canvas.grid.color![scaleToRow(p.scales.y, p.layout.plot, y) * 24 + col];
     expect(colorAt(1)).toBe("#3b82f6"); expect(colorAt(4)).toBe("#f97316");
   });
-  it("5: signed cells at 24x6 use an ordered diverging shade ramp", () => {
-    // Mutation: Math.abs(value) -> negative and positive endpoints get the same glyph.
+  it("5: signed cells at 24x6 use a diverging shade ramp anchored at zero, not at the most negative value", () => {
+    // Mutation: revert to the pre-fix mapping (blank at the domain minimum,
+    // medium ink at zero) -> a/b swap back to [" ", "▒"] and this reddens.
     const p = picture(signedCells, 24, 6);
-    expect(["a", "b", "c"].map((x) => p.atValue(x, "v"))).toEqual([" ", "▒", "█"]);
+    expect(["a", "b", "c"].map((x) => p.atValue(x, "v"))).toEqual(["█", " ", "█"]);
+  });
+  it("final-gate: a diverging cell ramp's most-negative value is never blank, blank is reserved for exactly 0, and a value near zero on either side still gets visible (non-blank) ink", () => {
+    // Mutation: revert `shadeFor`'s diverging branch to the pre-fix
+    // `0.5*(v-lo)/-lo` / `0.5+0.5*v/hi` mapping -> -9 (the biggest loss)
+    // renders blank while 0 (nothing happening) renders medium ink, and
+    // this reddens on both the blank-position and the near-zero-ink checks.
+    const p = picture(
+      { marks: [glyphChartCell([{ k: "a", v: -9 }, { k: "b", v: -4 }, { k: "c", v: 0 }, { k: "d", v: 5 }, { k: "e", v: 9 }], { x: "k", y: () => "v", fill: "v" })] },
+      40, 8,
+    );
+    expect(p.atValue("a", "v")).not.toBe(" "); // most negative: inked, not blank.
+    expect(p.atValue("c", "v")).toBe(" "); // exactly zero: blank.
+    expect(p.atValue("b", "v")).not.toBe(" "); // near zero (negative side): still inked.
+    expect(p.atValue("d", "v")).not.toBe(" "); // near zero (positive side): still inked.
+    expect(p.atValue("e", "v")).not.toBe(" "); // most positive: inked.
   });
   it.each([[-10, -5, 0], [0, 5, 10]])("5: same-sign values %j use a shared sequential ramp", (a, b, c) => {
     // Mutation: normalize each cell independently or take absolute values -> ordered shades differ.
@@ -207,6 +277,44 @@ describe("exact Phase 1 review regressions", () => {
     expect(r.text.split("\n").at(-1)).toMatch(/abc.*….*sec.*…/);
     expect(r.report.ledger.filter((s) => s.includes("abbreviated"))).toHaveLength(2);
   });
+  it("final-gate: a 3-day/12-hour time axis at 30x10 shows two distinct dates and never repeats \"12 PM\"", () => {
+    // Mutation: drop the date-boundary priority set, the forced-first-tick
+    // date, or widen dedup back to "only the immediately previous kept
+    // label" -> the first tick loses its date (bare "12 PM") and/or a later
+    // tick repeats it verbatim.
+    const points = Array.from({ length: 5 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 30, height: 10 });
+    const axisRow = r.text.split("\n").at(-1)!;
+    const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
+    expect(new Set(labels).size).toBe(labels.length); // no repeated label text.
+    expect(labels.filter((l) => l === "12 PM").length).toBe(0); // no BARE (undated) "12 PM".
+    expect(labels[0]).toMatch(/^[A-Z][a-z]{2} \d{2}, \d{2} [AP]M$/); // first tick carries a real date.
+    expect(labels.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("final-gate: a 4-day/12-hour time axis shows a dated first tick and no duplicate label text anywhere on the axis", () => {
+    const points = Array.from({ length: 7 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 52, height: 10 });
+    const axisRow = r.text.split("\n").at(-1)!;
+    const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels[0]).toMatch(/^[A-Z][a-z]{2} \d{2}, \d{2} [AP]M$/);
+    expect(labels.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("final-gate: duplicate-label suppression compares against ALL kept ticks, not just the immediately previous one", () => {
+    // Mutation: shrink the dedup check back to `kept.at(-1)` -> a THIRD,
+    // distinctly-labelled tick ("Fri 02") sits between the two "06 PM"
+    // occurrences, so an only-immediately-previous check no longer sees the
+    // first one and the second "06 PM" survives as a non-adjacent repeat.
+    const points = Array.from({ length: 5 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 70, height: 10 });
+    const axisRow = r.text.split("\n").at(-1)!;
+    const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels.filter((l) => l === "06 PM").length).toBeLessThanOrEqual(1);
+  });
+
   it("7: two-hour time axis at 40x8 has distinct complete multi-scale labels", () => {
     // Mutation: fixed %b %d formatter -> repeated Jan 01 and clipped last label.
     const spec: GlyphChartSpec = { marks: [hourlyLine], scales: { x: { type: "time" } } };
@@ -228,6 +336,18 @@ describe("exact Phase 1 review regressions", () => {
       expect(ledger).toContainEqual(expect.stringContaining("ticks thinned"));
     }
   });
+  it("final-gate: an overshot linear tick ladder thins by a UNIFORM index stride, never an arbitrary greedy subset — kept ticks land evenly spaced in d3's own index order", () => {
+    // Mutation: drop the `!band` overshoot-stride branch in `axisTicks` (back
+    // to stride 1 for non-band axes) -> the collision loop alone thins
+    // d3's 9-tick [0..8] ladder to an UNEVEN subset like [0,3,4,6,8] (gaps
+    // 3,1,2,2) instead of the uniform-index [0,2,4,6,8] (gaps 2,2,2,2).
+    const p = picture(glyphChartBar([3, 5, 2, 8]), 40, 12);
+    const values = p.layout.yTicks.map((t) => t.value as number).sort((a, b) => a - b);
+    expect(values).toEqual([0, 2, 4, 6, 8]);
+    const gaps = values.slice(1).map((v, i) => v - values[i]!);
+    expect(new Set(gaps).size).toBe(1); // every gap identical -> evenly spaced in index.
+  });
+
   it.each([{ width: 20.5, height: 6 }, { width: 0.5, height: 6 }, { width: 20, height: 6.5 }])("8: fractional dimensions $width x $height reject before canvas", (options) => {
     // Mutation: accept positive non-integers -> alternating grid widths or untagged canvas failure.
     expect(() => renderGlyphChart(glyphChartLine([1, 2]), options)).toThrow(expect.objectContaining({ code: "bad-size" }));
@@ -294,6 +414,26 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     expect(p.ledger.some((l) => l.includes("do not fit"))).toBe(true);
   });
 
+  it("final-gate: unstacked multi-series RECTS dodge side by side too, exactly like bars — never one series painted over another's base", () => {
+    // Mutation: revert `paintRect` to a single undodged column per row (drop
+    // its `dodgeColRange` call) -> Jan's North (9) and South (2) rects both
+    // paint into the SAME column, so South's own value is merely a shorter
+    // overwrite of North's column instead of a distinct sub-band -> the
+    // column-range check below (identical shape to the bar test above) reddens.
+    const data = [
+      { m: "Jan", v: 9, r: "North" }, { m: "Jan", v: 2, r: "South" },
+      { m: "Feb", v: 3, r: "North" }, { m: "Feb", v: 8, r: "South" },
+    ];
+    const p = picture(glyphChartRect(data, { x: "m", y: "v", fill: "r" }), 34, 14);
+    const janRange = bandColRange(p.scales.x, p.layout.plot, "Jan")!;
+    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) === "█") n++; return n; };
+    const janCols = Array.from({ length: janRange[1] - janRange[0] + 1 }, (_, i) => janRange[0] + i);
+    const janHeights = janCols.map(countFilled);
+    expect(janHeights[0]).toBeGreaterThan(janHeights.at(-1)!);
+    expect(janHeights.at(-1)!).toBeGreaterThan(0);
+    expect(new Set(janHeights).size).toBe(2);
+  });
+
   it("P1-2: a line mark clips to the plot rect — an explicit narrower y-domain never paints over the title/axis", () => {
     // Mutation: remove `clipSegmentToPlot` from `paintLine` (draw the raw,
     // unclamped points) -> a value of 10 against domain [0,4] paints
@@ -327,6 +467,52 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     expect(() => renderGlyphChart({
       marks: [glyphChartLine([3, 5, 2, 8]), glyphChartBar([{ m: "a", v: 1 }, { m: "b", v: 3 }], { x: "m", y: "v" })],
     }, { width: 40, height: 12 })).toThrow(expect.objectContaining({ code: "mixed-x-scale" }));
+  });
+
+  it("final-gate: mixed-x-scale no longer rejects a numeric x sharing a band scale when every numeric value lands on its own honest category", () => {
+    // Mutation: revert the guard to the unconditional
+    // `detectMixedScaleTypes(values) -> mixedXScaleError()` (drop the
+    // `numericValuesUnplaceableOnBand` narrowing) -> this now-valid spec
+    // throws mixed-x-scale again instead of rendering two honest bands.
+    const r = renderGlyphChart(glyphChartBar([{ m: "2023", v: 1 }, { m: 2024, v: 3 }], { x: "m", y: "v" }), { width: 30, height: 10 });
+    expect(r.text).toContain("2023");
+    expect(r.text).toContain("2024");
+  });
+
+  it("final-gate: a band bar plus a numeric-x text annotation renders instead of rejecting", () => {
+    const r = renderGlyphChart({ marks: [
+      glyphChartBar([{ m: "a", v: 1 }, { m: "b", v: 2 }], { x: "m", y: "v" }),
+      glyphChartText([{ x: 0, label: "note" }], { x: "x", label: "label" }),
+    ] }, { width: 30, height: 10 });
+    expect(r.text).toContain("note");
+  });
+
+  it("final-gate: mixed-x-scale still rejects when the mixture resolves to a NON-band scale (a numeric-shorthand mark sorting first)", () => {
+    // Mutation: drop the `numericValuesUnplaceableOnBand` narrowing entirely
+    // (always skip the check) -> this reddens because the spec would then
+    // silently build a linear x scale and feed "a"/"b" through Number(),
+    // producing NaN cell coordinates instead of a tagged, actionable error.
+    expect(() => renderGlyphChart({
+      marks: [glyphChartDot([1, 2, 3]), glyphChartBar([{ m: "a", v: 1 }, { m: "b", v: 2 }], { x: "m", y: "v" })],
+    }, { width: 30, height: 10 })).toThrow(expect.objectContaining({ code: "mixed-x-scale" }));
+  });
+
+  it("final-gate: both mixed-x-scale and GLYPH_CHART_INTERNAL_COORD carry a repair hint, and renderGlyphChartJson keeps its hint key for both", () => {
+    // Mutation: remove either entry from RUNTIME_REPAIR_HINTS (or drop the
+    // `?? RUNTIME_REPAIR_HINTS[id]` fallback) -> glyphChartRepairHint
+    // returns undefined and JSON.stringify drops the "hint" key entirely.
+    expect(glyphChartRepairHint("mixed-x-scale")).toBeTruthy();
+    expect(glyphChartRepairHint("GLYPH_CHART_INTERNAL_COORD")).toBeTruthy();
+    const mixedJson = JSON.parse(renderGlyphChartJson(JSON.stringify({
+      marks: [{ type: "line", data: [3, 5, 2, 8], channels: {} }, { type: "bar", data: [{ m: "a", v: 1 }, { m: "b", v: 3 }], channels: { x: "m", y: "v" } }],
+    })));
+    expect(mixedJson.code).toBe("mixed-x-scale");
+    expect(Object.keys(mixedJson)).toEqual(["error", "code", "hint"]);
+    expect(mixedJson.hint).toBeTruthy();
+    const coordJson = JSON.parse(renderGlyphChartJson(JSON.stringify({ type: "bar", data: [{ a: 1 }, { a: 2 }], channels: { x: "nope", y: "a" } })));
+    expect(coordJson.code).toBe("GLYPH_CHART_INTERNAL_COORD");
+    expect(Object.keys(coordJson)).toEqual(["error", "code", "hint"]);
+    expect(coordJson.hint).toBeTruthy();
   });
 
   it("P1-3: an unresolvable channel reaching the canvas throws GLYPH_CHART_INTERNAL_COORD naming the mark type, never a bare canvas message", () => {
@@ -443,6 +629,62 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     for (let i = 0; i < ranges.length; i++) for (let j = i + 1; j < ranges.length; j++) {
       const [a0, a1] = ranges[i]!, [b0, b1] = ranges[j]!;
       expect(a1 < b0 || b1 < a0).toBe(true); // disjoint — no shared row.
+    }
+  });
+
+  it("final-gate: bandRowRange partitions the plot rows with no gaps, never empty, and disjoint once there are at least as many plot rows as bands, for every band count 1..12 and every chart height 3..20; labels land at each band's own centre", () => {
+    // Mutation: any change that restores the continuous-fraction `[b+1, a]`
+    // derivation, drops the matching y-tick fraction correction, or lets
+    // `bandPartitionRowRange` hand back an empty range when bands outnumber
+    // rows, reddens this — either the coverage/disjointness assertions
+    // below, a band going empty, or a tick landing outside its band.
+    for (let bands = 1; bands <= 12; bands++) {
+      for (let height = 3; height <= 20; height++) {
+        const categories = Array.from({ length: bands }, (_, i) => `r${i}`);
+        const data = categories.map((k) => ({ k, v: 1 }));
+        const spec = glyphChartPlot({ marks: [glyphChartCell(data, { x: "v", y: "k", fill: "v" })] });
+        const marks = resolveGlyphChartSpec(spec);
+        const scales = resolveGlyphChartScales(marks, spec.scales);
+        const ledger: string[] = [];
+        const layout = layoutGlyphChart(spec, marks, scales, 24, height, "auto", ledger);
+        const ranges = categories.map((k) => bandRowRange(scales.y, layout.plot, k)!);
+        const plotRows: number[] = [];
+        for (let row = layout.plot.y0; row <= layout.plot.y1; row++) plotRows.push(row);
+        // Every band is non-empty, unconditionally — the plot's own row
+        // budget (not the outer chart height, which also spends rows on
+        // axis chrome) is what pigeonholes disjointness, never emptiness.
+        for (const [a, b] of ranges) expect(a).toBeLessThanOrEqual(b);
+        const covered = new Set<number>();
+        for (const [a, b] of ranges) for (let row = a; row <= b; row++) covered.add(row);
+        expect([...covered].sort((x, y) => x - y)).toEqual(plotRows); // union == plot rows exactly
+        if (plotRows.length >= bands) {
+          const seen = new Set<number>();
+          for (const [a, b] of ranges) for (let row = a; row <= b; row++) {
+            expect(seen.has(row)).toBe(false); // pairwise disjoint once rows suffice
+            seen.add(row);
+          }
+        }
+        for (const tick of layout.yTicks) {
+          const idx = categories.indexOf(String(tick.value));
+          if (idx < 0) continue;
+          const [a, b] = ranges[idx]!;
+          expect(tick.cell).toBeGreaterThanOrEqual(a);
+          expect(tick.cell).toBeLessThanOrEqual(b);
+        }
+      }
+    }
+  });
+
+  it("final-gate: the heatmap with 6 bands at 20x6 paints all six, none dropped to the shared boundary-row/zero-row bug", () => {
+    const categories = Array.from({ length: 6 }, (_, i) => `r${i}`);
+    const data = categories.map((k, i) => ({ k, v: i + 1 }));
+    const p = picture(glyphChartCell(data, { x: "v", y: "k", fill: "v" }), 20, 6);
+    for (const k of categories) {
+      const [a, b] = bandRowRange(p.scales.y, p.layout.plot, k)!;
+      expect(a).toBeLessThanOrEqual(b);
+      let painted = false;
+      for (let row = a; row <= b; row++) for (let col = p.layout.plot.x0; col <= p.layout.plot.x1; col++) if (p.at(col, row) !== " ") painted = true;
+      expect(painted).toBe(true);
     }
   });
 

@@ -122,4 +122,23 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bar-domain-excludes-zero": "Extend the explicit bar/rect/area domain to include zero.",
   "bad-time-domain": "Use valid ISO strings or Date objects for time values and domains.",
 };
-export function glyphChartRepairHint(id: GlyphChartValidationRuleId): string { return REPAIR_HINTS[id]; }
+
+/**
+ * Repair hints for the two runtime-only tagged codes (`mixed-x-scale`,
+ * `GLYPH_CHART_INTERNAL_COORD`) that are deliberately NOT
+ * `GLYPH_CHART_VALIDATION_RULES` entries (see `mixedXScaleError`'s and
+ * `guardCoord`'s own docs) — a separate table, not a union-widening of
+ * `GlyphChartValidationRuleId`, so schema-parity tests (which enumerate
+ * that union) stay untouched. Without this, `renderGlyphChartJson`'s
+ * documented `{ error, code, hint }` shape silently lost its `hint` key for
+ * these two — `JSON.stringify` drops an `undefined` value entirely (review
+ * finding 10), indistinguishable from a code the lookup has never heard of.
+ */
+const RUNTIME_REPAIR_HINTS: Readonly<Record<string, string>> = {
+  "mixed-x-scale": "Set an explicit scales.x.type, or make every mark's x channel resolve to the same value type (or one that fits the same band domain).",
+  "GLYPH_CHART_INTERNAL_COORD": "Check the named mark's x/y channels resolve to values already in-domain (a band scale needs a matching category; a continuous scale needs a finite number).",
+};
+
+export function glyphChartRepairHint(id: string): string | undefined {
+  return (REPAIR_HINTS as Readonly<Record<string, string>>)[id] ?? RUNTIME_REPAIR_HINTS[id];
+}

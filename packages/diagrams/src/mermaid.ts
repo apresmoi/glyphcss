@@ -7,7 +7,14 @@ function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAI
  * Quotes, shape brackets, "-. text .->" edge-text spans and "|label|" edge
  * labels all protect their contents from statement separators. Without this,
  * a decoded HTML entity's own ";" (e.g. inside "&nbsp;", which decodes to a
- * space) would be read as ending the statement early.
+ * space) would be read as ending the statement early. A quote can open
+ * INSIDE an edge-text or pipe span (e.g. `-->|"a|b"| B`), so the quote check
+ * runs ahead of both spans rather than being shadowed by them. An edge-text
+ * span that never finds its "->" before the statement ends (Mermaid's
+ * unsupported "-.-" dotted-undirected form, or a genuinely malformed one) is
+ * a syntax error naming the statement, matching the pre-existing per-edge
+ * diagnostic -- never a forward scan that swallows the next statement's own
+ * edge as this one's closing delimiter.
  */
 function statements(source: string): string[] {
   const output: string[] = [];
@@ -24,7 +31,16 @@ function statements(source: string): string[] {
       else if (char === quote) quote = "";
       continue;
     }
+    if (char === '"' || (char === "'" && /[\s[(|{]/.test(source[index - 1] ?? " "))) { quote = char; current += char; continue; }
     if (edgeText) {
+      // A decoded HTML entity's own literal ";" (e.g. inside "&nbsp;") is not
+      // a statement separator; recognize and consume the whole entity so the
+      // terminator check below only ever sees a REAL one.
+      if (char === "&") {
+        const entity = /^&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);/i.exec(source.slice(index));
+        if (entity) { current += entity[0]; index += entity[0].length - 1; continue; }
+      }
+      if ((char === ";" || char === "\n" || char === "\r") && brackets.length === 0) syntax(`Missing ".->" in "${current.trim()}".`);
       current += char;
       if (char === "." && source.startsWith(".->", index)) {
         current += source.slice(index + 1, index + 3);
@@ -38,7 +54,6 @@ function statements(source: string): string[] {
       if (char === "|") pipe = false;
       continue;
     }
-    if (char === '"' || (char === "'" && /[\s[(|{]/.test(source[index - 1] ?? " "))) { quote = char; current += char; continue; }
     if (char === "%" && source[index + 1] === "%" && brackets.length === 0) {
       if (source[index + 2] === "{") {
         const end = source.indexOf("}%%", index + 3);
@@ -68,7 +83,8 @@ function statements(source: string): string[] {
       current = "";
     } else current += char;
   }
-  if (quote || brackets.length || edgeText || pipe) syntax("Unclosed quoted label, node shape, edge text, or edge label.");
+  if (edgeText) syntax(`Missing ".->" in "${current.trim()}".`);
+  if (quote || brackets.length || pipe) syntax("Unclosed quoted label, node shape, edge text, or edge label.");
   if (current.trim()) output.push(current.trim());
   return output;
 }

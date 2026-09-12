@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { renderGlyphDiagram, renderGlyphDiagramJson } from "./render";
 import { glyphDiagramRectsOverlap } from "./labels";
 import { glyphGraphFromMermaid } from "./mermaid";
-import { GLYPH_CANVAS_TIERS } from "glyphcss";
+import { GLYPH_CANVAS_TIERS, GLYPH_CANVAS_QUADRANT_GLYPHS } from "glyphcss";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
 for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (const charset of ["box", "ascii"] as const) {
@@ -118,6 +118,17 @@ describe("render contracts", () => {
     // group-membership overlap -> the ledger message never fires and this fails.
     expect(result.report.ledger.join()).toContain('group "G1": explicit member list replaces an enclosure that would include unrelated nodes.');
     expect(result.report.ledger.join()).toContain('group "G2": explicit member list replaces an enclosure that would include unrelated nodes.');
+  });
+  // Mutation: drop `subcell: false` from the box top/bottom `canvas.line`
+  // calls in paint.ts -> the border falls back to the tier's own subcell
+  // default and paints a dotted/quadrant edge instead of a flat rule.
+  it.each(["braille", "blocks"] as const)("keeps diagram box borders whole-cell under %s, with no sub-cell glyph anywhere in the render", async (charset) => {
+    const result = await renderGlyphDiagram("graph LR; A[Alpha] --> B[Beta]", { charset, width: 36, height: 9 });
+    // U+2800 is braille's own BLANK pattern (its whole-cell space glyph, used
+    // for ordinary label padding) -- everything past it is an actual dot
+    // pattern, which a whole-cell border must never contain.
+    expect(result.text).not.toMatch(/[⠁-⣿]/);
+    for (const glyph of GLYPH_CANVAS_QUADRANT_GLYPHS) if (glyph !== " " && glyph !== "█") expect(result.text.includes(glyph)).toBe(false);
   });
   it("returns repairable JSON errors and validates render bounds", async () => {
     // Mutation: parse malformed JSON with a bare JSON.parse instead of the

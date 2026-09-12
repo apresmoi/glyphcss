@@ -64,7 +64,7 @@ describe("validateGlyphChartRenderSize", () => {
 describe("glyphChartRepairHint", () => {
   it("has a non-empty hint for every rule id", () => {
     for (const id of GLYPH_CHART_VALIDATION_RULES) {
-      expect(glyphChartRepairHint(id).length).toBeGreaterThan(0);
+      expect(glyphChartRepairHint(id)!.length).toBeGreaterThan(0);
     }
   });
 });

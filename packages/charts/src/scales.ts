@@ -115,10 +115,31 @@ function detectMixedScaleTypes(values: readonly unknown[]): boolean {
 function mixedXScaleError(): never {
   throw Object.assign(
     new TypeError(
-      "glyphcss: mixed-x-scale: marks share one x scale (AGENTS.md's \"one scale per axis\") but their x channels resolve to different value types (numeric vs categorical vs date). Set an explicit scales.x.type, or make every mark's x channel resolve to the same type.",
+      "glyphcss: mixed-x-scale: marks share one x scale (AGENTS.md's \"one scale per axis\") but their x channels resolve to different value types (numeric vs categorical vs date), and at least one numeric value has no matching band category. Set an explicit scales.x.type, or make every mark's x channel resolve to the same type.",
     ),
     { code: "mixed-x-scale" as const },
   );
+}
+
+/**
+ * `true` iff a numeric value sharing this axis has no honest category to
+ * land on once the OTHER type in the mixture is resolved. The only scale
+ * that can ever accommodate a mixed-type value is `band`: an INFERRED (no
+ * explicit `domain`) band domain is `values.map(String)` deduped
+ * (`buildBand`'s own construction), so every value — numeric or string —
+ * always becomes its own category there, and a numeric x sharing an axis
+ * with a band mark renders as an honest extra band rather than an error
+ * (review finding 9: a `bar` mixing a string month with a numeric one, and
+ * a band bar plus a numeric-x `text` annotation, both used to reject even
+ * though both render correctly). An EXPLICIT string domain always requires
+ * an explicit `type` too (`validateGlyphChartSpec` rejects a non-numeric
+ * domain otherwise), which already skips this whole check (`!opts?.type`
+ * above) — so a closed domain excluding a numeric value never reaches here
+ * un-narrowed; `GLYPH_CHART_INTERNAL_COORD` remains the guard for whatever
+ * still resolves wrong once a scale is actually built and painted.
+ */
+function numericValuesUnplaceableOnBand(values: readonly unknown[]): boolean {
+  return inferGlyphChartScaleType(values) !== "band";
 }
 
 function numericDomain(values: readonly unknown[], includeZero: boolean): [number, number] {
@@ -222,7 +243,7 @@ export function resolveGlyphChartScale(
   opts: GlyphChartScaleOptions | undefined,
 ): GlyphChartResolvedScale {
   const values = collectValues(marks, axis);
-  if (axis === "x" && !opts?.type && detectMixedScaleTypes(values)) mixedXScaleError();
+  if (axis === "x" && !opts?.type && detectMixedScaleTypes(values) && numericValuesUnplaceableOnBand(values)) mixedXScaleError();
   const type = opts?.type
     ? (opts.type === "ordinal" ? "band" : opts.type)
     : inferGlyphChartScaleType(values);

@@ -48,8 +48,12 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   for (const node of layout.nodes) {
     const { x0, y0, x1, y1 } = node;
     canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: colored ? "#0f172a" : null });
-    canvas.line({ x: x0 + 1, y: y0 }, { x: x1 - 1, y: y0 }, { color: accent });
-    canvas.line({ x: x0 + 1, y: y1 }, { x: x1 - 1, y: y1 }, { color: accent });
+    // Diagram boxes are always whole-cell box-drawing, never a sub-cell
+    // (braille/blocks) stroke: `line()`'s tier-native `subcell` default
+    // would otherwise paint a dotted/blocky top and bottom edge instead of
+    // the flat rule every other side of the box uses.
+    canvas.line({ x: x0 + 1, y: y0 }, { x: x1 - 1, y: y0 }, { color: accent, subcell: false });
+    canvas.line({ x: x0 + 1, y: y1 }, { x: x1 - 1, y: y1 }, { color: accent, subcell: false });
     // A one-cell side has no line direction; use the vertical tier glyph explicitly.
     for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [tier.straight.v], { color: accent }); canvas.text(x1, y, [tier.straight.v], { color: accent }); }
     const shaped = node.shape === "diamond" ? ["/", "\\", "\\", "/"] : node.shape === "asymmetric" ? [">", "]", ">", "]"] : ["rounded", "circle", "stadium"].includes(node.shape ?? "") ? ["(", ")", "(", ")"] : [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];

@@ -146,6 +146,47 @@ describe("Mermaid flowchart adapter", () => {
   it.each(["", "graph ZZ; A", "graph TD; A[unclosed", "graph TD; A -->", "graph TD; A ~~ B", "graph TD; end", "graph TD; subgraph x; A", "%%{unclosed", "graph TD; A:::; B"])("rejects malformed source %j with a syntax rule", (source) => {
     expect(() => glyphGraphFromMermaid(source)).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_SYNTAX" }));
   });
+
+  // Mutation: the statement scanner's pipe span closes on the label's own
+  // literal "|" instead of honouring the surrounding quotes (as the exporter
+  // itself emits, `|${label}|` with no pipe-escaping) -> this throws
+  // GLYPH_MERMAID_SYNTAX instead of parsing the quoted pipe through.
+  it("honours a quoted pipe inside an edge label, including the exporter's own |\"a|b\"| shape", () => {
+    const graph = glyphGraphFromMermaid('graph TD\n  A["A"]\n  B["B"]\n  A -->|"a|b"| B\n');
+    expect(graph.edges).toEqual([{ from: "A", to: "B", style: "solid", label: "a|b" }]);
+  });
+
+  // Mutation: the edge-text span's "-." opener has no statement-boundary
+  // terminator, so an unsupported "-.-" (Mermaid's real dotted-undirected
+  // link, which this package does not parse) scans forward across the
+  // newline and absorbs the NEXT statement's own "-. text .->" as its
+  // closing delimiter -- producing a wrong graph (a deleted node, a
+  // fabricated edge) instead of a syntax error. This asserts one of the two
+  // acceptable outcomes and never the wrong-graph one.
+  it("either parses or raises a tagged syntax error for an unsupported '-.-' link followed by a real '-. text .->' edge, never a wrong graph", () => {
+    const source = "graph TD\n  start --> check\n  check -.- cache\n  check -. retry .-> start\n  check --> done\n";
+    let graph: ReturnType<typeof glyphGraphFromMermaid> | undefined;
+    let error: unknown;
+    try {
+      graph = glyphGraphFromMermaid(source);
+    } catch (caught) {
+      error = caught;
+    }
+    if (error) {
+      expect(error).toMatchObject({ code: "GLYPH_MERMAID_SYNTAX" });
+    } else {
+      expect(graph!.nodes.map((node) => node.id).sort()).toEqual(["cache", "check", "done", "start"]);
+      expect(graph!.edges).toContainEqual({ from: "check", to: "cache", style: "undirected" });
+    }
+  });
+
+  // Mutation: the specific "Missing \".->\"" diagnostic (naming the exact
+  // offending statement) regresses to the generic "Unclosed quoted label,
+  // node shape, edge text, or edge label" message, which no longer says
+  // which statement or which operator is at fault.
+  it.each(["graph LR; A -.- B", "graph LR; A -..- B", "graph LR; A -. text .- B"])("keeps the specific \"Missing \\\".->\\\"\" diagnostic for the unsupported dotted operator in %j", (source) => {
+    expect(() => glyphGraphFromMermaid(source)).toThrow(/Missing "\.->"/);
+  });
 });
 
 it("adds predeclared node references to subgraph membership", () => {

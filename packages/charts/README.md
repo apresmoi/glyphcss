@@ -66,18 +66,18 @@ renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
 renderGlyphChart(glyphChartArea([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 40, height: 12 });
 ```
 ```
-9 │                              █      
-  │                  ██        ████     
-7 │                 ██████   ███████    
-  │                ███████████████████  
-5 │     ██        █████████████████████ 
-  │  ███████     ███████████████████████
-3 │███████████  ████████████████████████
+  │                              █      
+8 │                  ██        ████     
+  │                 ██████   ███████    
+6 │                ███████████████████  
+  │     ██        █████████████████████ 
+4 │  ███████     ███████████████████████
+  │███████████  ████████████████████████
+2 │█████████████████████████████████████
   │█████████████████████████████████████
-1 │█████████████████████████████████████
-  │                                     
+0 │                                     
   ──────────────────────────────────────
-   0     1     2     3     4     5     6
+   0           2           4           6
 ```
 
 ### `glyphChartBar`
@@ -157,7 +157,7 @@ Slices cycle `█ ▓ ▒ ░` in box/blocks/braille and `# % + .` in ASCII. The
 
 ### `glyphChartCell` (heatmap)
 
-Both axes band-scale string categories. Numeric `fill` uses one shared monotone shade ramp: sequential for same-sign data, diverging around zero for mixed signs. `[-10, 0, 10]` yields blank, medium, full ink; sign is preserved.
+Both axes band-scale string categories. Numeric `fill` uses one shared monotone shade ramp: sequential for same-sign data, diverging around zero for mixed signs. `[-10, 0, 10]` yields full ink, blank, full ink — blank means "no signal" (reserved for exactly zero on the diverging ramp), never the domain's most extreme value; each side ramps independently from zero out to its own extreme.
 
 ```ts
 const data = [];
@@ -165,17 +165,17 @@ for (let x = 0; x < 4; x++) for (let y = 0; y < 3; y++) data.push({ x: String(x)
 renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: "chat", width: 40, height: 14 });
 ```
 ```
-  │          ░░░░░░░  ▓▓▓▓▓▓▓  ███████  
-  │          ░░░░░░░  ▓▓▓▓▓▓▓  ███████  
-2 │          ░░░░░░░  ▓▓▓▓▓▓▓  ███████  
-  │          ░░░░░░░  ▓▓▓▓▓▓▓  ███████  
-  │          ░░░░░░░  ░░░░░░░  ▒▒▒▒▒▒▒  
-1 │          ░░░░░░░  ░░░░░░░  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ░░░░░░░  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ░░░░░░░  ▒▒▒▒▒▒▒  
+  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+2 │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
+  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
+1 │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
+  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
+  │                                     
   │                                     
 0 │                                     
-  │                                     
   │                                     
   ──────────────────────────────────────
         0        1        2        3    
@@ -307,7 +307,7 @@ renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "braille", wid
   ──────────────────────────────────────────
    0        2        4        6        8    
 ```
-Real, unedited output from both calls. `box` uses 13 distinct glyphs (the nine-glyph `inkGlyphForTangent` slope vocabulary, repeated); `braille` uses 34 distinct DATA glyphs — every one an actual braille dot pattern, never `/`/`\` — plus the two whole-cell axis glyphs `│`/`─`, unchanged from `box`'s own.
+Real, unedited output from both calls. `box` uses 13 distinct glyphs: the two slope glyphs `/`/`\`, the nine tick digits, and the two whole-cell axis glyphs `│`/`─`. `braille` uses 36 distinct glyphs total — the same nine tick digits and two axis glyphs, unchanged from `box`'s own, plus 25 distinct actual braille dot patterns for the data line, never `/`/`\`.
 
 The `/charts` page applies target defaults to untouched controls and preserves explicit overrides per control. **Reset to target defaults** clears them. Terminal previews show plain text with a note that escapes are in **Copy ANSI**; CSS/web output shows HTML. **Copy as text** always copies plain text. ANSI escapes are never inserted into the browser preview.
 

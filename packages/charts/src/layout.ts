@@ -8,6 +8,7 @@
  * space and axes squeezing into what's left.
  */
 
+import { timeFormat } from "d3-time-format";
 import { chartSeries, SERIES_COLORS } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
@@ -58,30 +59,85 @@ function isDecadeTick(value: unknown): boolean {
   return Number.isFinite(log) && Math.abs(log - Math.round(log)) < 1e-9;
 }
 
+/**
+ * A calendar-day boundary (local midnight) — d3's own multi-scale time
+ * `tickFormat` already renders exactly these ticks with a DATE (`"Tue 02"`),
+ * never a bare time, so giving them the same never-thinned priority a log
+ * axis's decades get is what makes a reader's one reliable date anchor
+ * survive collision thinning (review finding 8).
+ */
+function isDateBoundaryTick(value: unknown): boolean {
+  return value instanceof Date && value.getHours() === 0 && value.getMinutes() === 0 && value.getSeconds() === 0 && value.getMilliseconds() === 0;
+}
+
+/**
+ * d3's per-tick multi-scale formatter (`formatHour = timeFormat("%I %p")`)
+ * renders every exact-hour, non-midnight tick as a bare time ("12 PM") with
+ * NO date at all, regardless of which day it falls on — so a multi-day axis
+ * whose ticks all land on the same time of day (noon, say) can end up with
+ * every surviving label reading identically. Used to force a DATE onto the
+ * first surviving tick (review finding 8's "the first label still omits its
+ * date") and to reformat a first-format duplicate before dropping it.
+ */
+const FULL_TIME_LABEL = timeFormat("%a %d, %I %p");
+
 function axisTicks(
   raw: readonly { value: unknown; fraction: number; label: string }[],
   toCell: (f: number) => number,
   axis: "x" | "y", cols: number, rows: number, labelRow: number,
   maxWidth: number, band: boolean, charset: GlyphChartCharset, ledger: string[],
   priorityValues: ReadonlySet<unknown> = new Set(),
+  requestedCount = Infinity,
+  timeAxis = false,
 ): GlyphChartLayoutTick[] {
-  const sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
+  let sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
+  // The leftmost tick is the reader's only anchor for what date the WHOLE
+  // axis is showing, so it is forced to survive (added to the priority set,
+  // exactly like the zero baseline) and, when it isn't itself a date
+  // boundary, reformatted to carry one explicitly BEFORE the normal
+  // label-layout/abbreviation/collision pipeline runs on it — never patched
+  // in afterward, which would leave its `labelStart`/collision decisions
+  // computed for the shorter original string and paint the longer one
+  // overlapping whatever now sits to its right (review finding 8: "the
+  // first label still omits its date").
+  let priorityValuesEffective = priorityValues;
+  if (timeAxis && sorted.length > 0) {
+    const first = sorted[0]!;
+    priorityValuesEffective = new Set([...priorityValues, first.value]);
+    if (!isDateBoundaryTick(first.value)) sorted = [{ ...first, label: FULL_TIME_LABEL(first.value as Date) }, ...sorted.slice(1)];
+  }
   // Band ticks retain every kth category when a slot cannot carry even a
-  // useful abbreviated label. Numeric/time labels keep their formatted width.
+  // useful abbreviated label. Numeric/time ticks instead compare what d3
+  // actually RETURNED against what was actually REQUESTED: `scale.ticks(n)`
+  // can overshoot `n` to land on a "nice" step (`ticks(0, 8, 6)` returns 9),
+  // and thinning that overshoot through the collision loop below alone
+  // picks an ARBITRARY subset (whichever candidates happen not to collide
+  // in visiting order) rather than a coarser NICE set — `0,2,4,6,8` for a
+  // budget of 6, not `0,3,4,6,8` (review finding 9: gaps 2,2,1,3). A single
+  // uniform stride applied by INDEX POSITION (not physical spacing, which
+  // the band branch above still uses — categories have no "nice number"
+  // notion to preserve) reduces any overshoot to a coarser, evenly-spaced
+  // subsequence of d3's own nice ladder.
   let stride = 1;
   if (band && sorted.length > 1) {
     const spacing = Math.max(1, (sorted.at(-1)!.cell - sorted[0]!.cell) / (sorted.length - 1));
     stride = Math.max(1, Math.ceil((axis === "x" ? 5 : 2) / spacing));
+  } else if (!band && sorted.length > requestedCount && requestedCount > 0) {
+    stride = Math.ceil(sorted.length / requestedCount);
   }
-  const strided = sorted.filter((_, i) => i % stride === 0);
+  // Priority ticks (the zero baseline, a log axis's decades, a time axis's
+  // date boundaries) survive the stride sample regardless of index parity —
+  // the SAME "never lose a priority tick" guarantee the collision loop
+  // below already gives them, extended to this earlier thinning pass.
+  const strided = sorted.filter((t, i) => i % stride === 0 || priorityValuesEffective.has(t.value));
   // Priority ticks (a bar/rect y-axis's zero baseline, a log axis's own
   // decade values) go through the greedy collision test FIRST, so they can
   // never lose their cell to an ordinary neighbour that merely happened to
   // sort earlier — same candidates, same per-candidate logic, only the
   // ORDER changes; with no priority values this is the original cell order.
-  const candidates = priorityValues.size === 0 ? strided : [
-    ...strided.filter((t) => priorityValues.has(t.value)),
-    ...strided.filter((t) => !priorityValues.has(t.value)),
+  const candidates = priorityValuesEffective.size === 0 ? strided : [
+    ...strided.filter((t) => priorityValuesEffective.has(t.value)),
+    ...strided.filter((t) => !priorityValuesEffective.has(t.value)),
   ];
   const kept: GlyphChartLayoutTick[] = [];
   for (let i = 0; i < candidates.length; i++) {
@@ -115,13 +171,17 @@ function axisTicks(
       : Math.abs(t.cell - k.cell) < 2);
     if (collides) continue;
     // Never show the identical label text twice — ambiguous, not merely
-    // crowded (review finding 5: a two-day time axis kept two ticks both
-    // formatted "12 PM" after thinning dropped the two that carried the
-    // actual dates). Cell-adjacency alone doesn't catch this: two ticks can
-    // occupy disjoint cells and still repeat the same string.
-    const lastKept = kept.at(-1);
-    if (lastKept && lastKept.label === placed.text) {
-      ledger.push(`layout: ${axis} tick "${placed.text}" dropped — duplicate of the previous kept label.`);
+    // crowded (review finding 5/8: a multi-day time axis kept THREE ticks
+    // all formatted "12 PM", because d3's per-tick multi-scale formatter
+    // renders every exact-hour, non-midnight tick as a bare time with no
+    // date regardless of which day it falls on). Checked against EVERY
+    // already-kept label, not just the immediately previous one — two ticks
+    // separated by a THIRD, distinctly-labelled tick could otherwise still
+    // repeat the same ambiguous string (review finding 7: a 3-/4-day axis
+    // kept "12 PM" a second and third time past the immediate neighbour).
+    const duplicate = kept.some((k) => k.label === placed.text);
+    if (duplicate) {
+      ledger.push(`layout: ${axis} tick "${placed.text}" dropped — duplicate of an already-kept label.`);
       continue;
     }
     kept.push({ value: t.value, label: placed.text, cell: t.cell, labelStart: start });
@@ -129,7 +189,7 @@ function axisTicks(
   // Priority ticks were considered out of cell order above; restore ascending
   // cell order for the returned/painted set (every consumer assumes it).
   kept.sort((a, b) => a.cell - b.cell);
-  if (kept.length < raw.length) ledger.push(`layout: ${axis} ticks thinned ${raw.length} -> ${kept.length}${band ? ` (every ${stride}th category before collision thinning)` : ""}.`);
+  if (kept.length < raw.length) ledger.push(`layout: ${axis} ticks thinned ${raw.length} -> ${kept.length}${stride > 1 ? ` (every ${stride}th ${band ? "category" : "tick"} before collision thinning)` : ""}.`);
   return kept;
 }
 
@@ -216,6 +276,27 @@ export function layoutGlyphChart(
     const plotWidth = Math.max(1, plotForTicks.x1 - plotForTicks.x0 + 1);
     const plotHeight = Math.max(1, plotForTicks.y1 - plotForTicks.y0 + 1);
 
+    // A band category's tick fraction is otherwise an independent
+    // continuous-fraction computation (`scale.ticks()`'s own `bandwidth/2`
+    // center) that rounds to a row on its OWN, unrelated to `bandRowRange`'s
+    // integer partition of the same plot — the two can (and, pre-fix,
+    // measurably did — review finding 2) disagree about which row a
+    // category's band actually occupies. Re-deriving each band tick's
+    // fraction from `bandPartitionRowRange`'s own chunk centre guarantees
+    // the label always lands inside (at the centre of) the exact rows
+    // `bandRowRange` paints, by construction rather than by coincidence.
+    if (scales.y.type === "band") {
+      const total = scales.y.domain.length;
+      yTicksRaw = yTicksRaw.map((t) => {
+        const index = scales.y.domain.indexOf(String(t.value));
+        if (index < 0 || total === 0) return t;
+        const [chunkTop, chunkBottom] = bandPartitionRowRange(plotForTicks, total, total - 1 - index);
+        const center = Math.round((chunkTop + chunkBottom) / 2);
+        const fraction = plotHeight > 1 ? (plotForTicks.y1 - center) / (plotHeight - 1) : t.fraction;
+        return { ...t, fraction };
+      });
+    }
+
     // x: same "ask for what fits" idea, refined by an actually MEASURED
     // label width rather than a flat constant — a provisional request gives
     // d3's own labels to measure, then a tighter final request (never
@@ -228,14 +309,19 @@ export function layoutGlyphChart(
     const xTickCount = Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
     const xTicksRaw = xTickCount >= xTickCountProvisional ? provisionalXTicks : scales.x.ticks(xTickCount);
 
-    const xPriority = new Set<unknown>(scales.x.type === "log" ? xTicksRaw.filter((t) => isDecadeTick(t.value)).map((t) => t.value) : []);
+    const xPriority = new Set<unknown>(
+      scales.x.type === "log" ? xTicksRaw.filter((t) => isDecadeTick(t.value)).map((t) => t.value)
+      : scales.x.type === "time" ? xTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
+      : [],
+    );
     const yPriority = new Set<unknown>(
       scales.y.type === "log" ? yTicksRaw.filter((t) => isDecadeTick(t.value)).map((t) => t.value)
       : yZeroAnchored ? [0]
+      : scales.y.type === "time" ? yTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
       : [],
     );
-    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority);
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth, scales.y.type === "band", charset, ledger, yPriority);
+    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time");
+    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time");
   }
 
   const plot: GlyphChartPlotRect = {
@@ -315,27 +401,68 @@ export function bandColRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
 }
 
 /**
- * Exact band bounds in CELLS (rows) for a `band`-scaled `value` — the SAME
- * half-open convention `bandColRange` already applies (`fractionToCol(hi) -
- * 1`, keeping the `lo`-mapped coordinate exact and shrinking only the
- * `hi`-mapped one), carried through the row axis's own flip. `lo < hi`
- * always (`bandRange`'s own contract: a positive bandwidth), and
- * `fractionToRow` is non-increasing in its fraction argument, so the row for
- * `lo` (`a`, closer to the plot's bottom) is always `>=` the row for `hi`
- * (`b`, closer to the top) — the row axis's analogue of "increasing" is
- * DECREASING row numbers, so shrinking the `hi` side means moving `b`
- * *toward* `a`, i.e. `b + 1`, not `a - 1`. Without this, two adjacent row
- * bands shared their boundary row, each painting the other's value there
- * (review finding 12) — `Math.min(a, b)`/`Math.max(a, b)` with no
- * adjustment at all was the previous (buggy) behaviour.
+ * Partitions `plot`'s `count` rows into `total` contiguous, gapless,
+ * non-overlapping chunks (the SAME "first `total % count` chunks get one
+ * extra cell" scheme `dodgeColRange` uses for columns) and returns the one
+ * for `index`, ordered from `plot.y0` DOWN — `visual` 0 is the TOPMOST
+ * chunk. Exported so `layoutGlyphChart`'s own y-axis tick placement can
+ * center a band category's LABEL on the exact same chunk `bandRowRange`
+ * paints, rather than an independently-rounded continuous fraction that can
+ * disagree with it.
+ */
+export function bandPartitionRowRange(plot: GlyphChartPlotRect, total: number, visual: number): readonly [number, number] {
+  const height = plot.y1 - plot.y0 + 1;
+  if (total > height) {
+    // More categories than rows: an equal partition would give some
+    // categories a genuinely EMPTY (zero-row) range — the pigeonhole
+    // principle makes strict non-overlap literally impossible here, so
+    // every category instead gets its own single, non-empty row via the
+    // standard evenly-distributed `floor(i * height / total)` assignment
+    // (the same one `Array.from({length: N})` bucketing uses) —
+    // MULTIPLE categories legitimately share a row, but none is ever
+    // silently dropped to nothing (a heatmap with more categories than
+    // its own plot has rows for still paints every one of them).
+    const row = plot.y0 + Math.min(height - 1, Math.floor((visual * height) / total));
+    return [row, row];
+  }
+  const base = Math.floor(height / total);
+  const remainder = height % total;
+  const size = base + (visual < remainder ? 1 : 0);
+  const offset = visual * base + Math.min(visual, remainder);
+  return [plot.y0 + offset, plot.y0 + offset + size - 1];
+}
+
+/**
+ * Exact band bounds in CELLS (rows) for a `band`-scaled `value`.
+ *
+ * A continuous-fraction derivation (map each of the category's own `[lo,
+ * hi]` fraction bounds to a row, then round) can make an already-thin band
+ * round to a SINGLE row — and the "shrink the far edge by one" adjustment
+ * that used to run unconditionally (to stop two adjacent bands sharing a
+ * boundary row, review finding 12) then had NO room to shrink into and
+ * deleted that row entirely: `[b + 1, a]` with `a === b` is the empty range
+ * `[a + 1, a]` (review finding 2 — measured 7 of 76 swept band-count x
+ * height combinations losing a whole category, 25 of 76 with a tick label
+ * landing outside the band it names, because the label's own row came from
+ * a THIRD, still-independent fraction rounding).
+ *
+ * Fixed by never rounding a continuous fraction into a row at all: `index`
+ * (the category's position in the scale's own domain order) selects one
+ * chunk of `bandPartitionRowRange`'s integer partition of the whole plot
+ * height, which is gapless and non-overlapping BY CONSTRUCTION for every
+ * category count and every plot height, and gives every category a
+ * non-empty row the moment there are at least as many rows as categories.
+ * Category `index` 0 sits at the scale's own fraction-0 end — `plot.y1`,
+ * the BOTTOM row (`fractionToRow(0) === plot.y1`) — so chunks are assigned
+ * bottom-up: `index` 0 gets the LAST (bottommost, `visual = total - 1`)
+ * chunk.
  */
 export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown): readonly [number, number] | undefined {
-  const range = scale.bandRange?.(value);
-  if (!range) return undefined;
-  const [lo, hi] = range;
-  const a = fractionToRow(plot, lo);
-  const b = fractionToRow(plot, hi);
-  return [b + 1, a];
+  if (!scale.bandRange) return undefined;
+  const total = scale.domain.length;
+  const index = scale.domain.indexOf(String(value));
+  if (index < 0 || total === 0) return undefined;
+  return bandPartitionRowRange(plot, total, total - 1 - index);
 }
 
 /**

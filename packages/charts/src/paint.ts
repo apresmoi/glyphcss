@@ -134,15 +134,40 @@ function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
   }
 }
 
-function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null): void {
+/**
+ * A `rect` on a band `x` scale is a "band mark" exactly like `bar`
+ * (AGENTS.md's "Band marks use the scale's own bounds") — it owns the FULL
+ * band, not one arbitrary column — so UNSTACKED multi-series rects dodge
+ * into that band's sub-bands via the SAME `dodgeColRange` a bar uses,
+ * instead of every series overwriting the same single column (review
+ * finding 4: an undodged Jan band read as North's bar with South's own
+ * value merely painted over its base, "January resembles a stack").
+ */
+function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: string[], degraded: Set<number>): void {
+  const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
+    const stacked = row.y1 !== undefined;
     const base = scaleToRow(scales.y, layout.plot, row.y0 ?? 0);
     const value = scaleToRow(scales.y, layout.plot, row.y1 ?? row.y);
-    const col = scaleToCol(scales.x, layout.plot, row.x);
     if (value === base) continue;
     const top = Math.max(layout.plot.y0, Math.min(base, value) + (value > base ? 1 : 0));
     const bottom = Math.min(layout.plot.y1, Math.max(base, value) - (value < base ? 1 : 0));
-    if (Number.isFinite(top) && top <= bottom && col >= layout.plot.x0 && col <= layout.plot.x1) canvas.fillRect(col, top, col, bottom, { fill: "solid", color });
+
+    const band = bandColRange(scales.x, layout.plot, row.x);
+    let range: readonly [number, number];
+    if (band) {
+      range = band;
+    } else {
+      const col = scaleToCol(scales.x, layout.plot, row.x);
+      const half = Math.floor(fallbackWidth / 2);
+      range = [col - half, col - half + fallbackWidth - 1];
+    }
+    if (!stacked && dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
+    let [x0, x1] = range;
+    x0 = Math.max(layout.plot.x0, x0);
+    x1 = Math.min(layout.plot.x1, x1);
+    if (x0 > x1 || !Number.isFinite(top) || top > bottom) continue;
+    canvas.fillRect(x0, top, x1, bottom, { fill: "solid", color });
   }
 }
 
@@ -297,9 +322,42 @@ function dotIndexToCoord(dotIndex: number, dotsPerCell: number): number {
  * simply adding "half a cell" in continuous cell-space can cross into the
  * NEIGHBOURING cell instead, depending on which half of the current cell the
  * primary's own fraction happens to round into (verified by
- * `review.test.ts`). Every shape stays within `line()`'s own "≤2 dots"
- * bound.
+ * `review.test.ts`). Every shape stays within the DOT MARK's own "at most 2
+ * dots" bound — a property of `paintSubcellDot` below, not of `line()`
+ * itself, which has no such limit (a genuine sloped `line()` run legitimately
+ * touches up to 4 dots per cell; `canvas.ts`/`docs/design/canvas.md` are the
+ * source of truth for that).
  */
+/**
+ * Paints the sub-cell (braille/blocks) dot pattern for `shape` (0: a single
+ * centred dot; 1/2/3: a horizontal/vertical/diagonal 2-dot companion pair)
+ * at continuous cell-space position `(col, r)`. Shared by `paintDot` and the
+ * dot legend swatch (`paintGlyphChart`) so the legend can never show a
+ * pattern the plot itself does not paint (review finding 4).
+ *
+ * Each dot is painted as its own DEGENERATE (zero-length) `line()` call
+ * rather than one `line()` between the primary and its companion: the
+ * companion sits exactly 2 dot-steps away on the vertical/diagonal shapes,
+ * and a real connecting line rasterises the dot exactly between them too,
+ * exceeding the documented "at most 2 dots" bound (review finding 3).
+ */
+function paintSubcellDot(canvas: GlyphCanvas, col: number, r: number, shape: number, color: string | null): void {
+  canvas.line({ x: col, y: r }, { x: col, y: r }, { color });
+  if (shape === 0) return;
+  const dotCol = primaryDotIndex(col, SUBCELL_DOT_COLS);
+  const dotRow = primaryDotIndex(r, SUBCELL_DOT_ROWS);
+  const cellCol = Math.floor(dotCol / SUBCELL_DOT_COLS);
+  const cellRow = Math.floor(dotRow / SUBCELL_DOT_ROWS);
+  const localCol = dotCol - cellCol * SUBCELL_DOT_COLS;
+  const localRow = dotRow - cellRow * SUBCELL_DOT_ROWS;
+  // shape 1: horizontal pair, shape 2: vertical pair, shape 3: diagonal.
+  const companionLocalCol = shape === 1 || shape === 3 ? (localCol + 1) % SUBCELL_DOT_COLS : localCol;
+  const companionLocalRow = shape === 2 || shape === 3 ? (localRow + 2) % SUBCELL_DOT_ROWS : localRow;
+  const companionCol = dotIndexToCoord(cellCol * SUBCELL_DOT_COLS + companionLocalCol, SUBCELL_DOT_COLS);
+  const companionRow = dotIndexToCoord(cellRow * SUBCELL_DOT_ROWS + companionLocalRow, SUBCELL_DOT_ROWS);
+  canvas.line({ x: companionCol, y: companionRow }, { x: companionCol, y: companionRow }, { color });
+}
+
 function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number): void {
   const subcell = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
   const glyph = seriesDot(canvas.tier, styleIndex);
@@ -308,31 +366,19 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     if (subcell) {
       const col = scaleToColExact(scales.x, layout.plot, row.x);
       const r = scaleToRowExact(scales.y, layout.plot, row.y);
-      // A half-cell margin matches `canvas.line`'s own degenerate-point
-      // rounding: a point that rounds INTO the plot rect must still be
-      // accepted, even though its exact (unrounded) position sits fractionally
-      // outside it.
-      if (
-        !Number.isFinite(col) || !Number.isFinite(r)
-        || col < layout.plot.x0 - 0.5 || col > layout.plot.x1 + 0.5
-        || r < layout.plot.y0 - 0.5 || r > layout.plot.y1 + 0.5
-      ) continue;
-      if (shape === 0) {
-        canvas.line({ x: col, y: r }, { x: col, y: r }, { color });
-        continue;
-      }
+      if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
+      // Clip by the mark's actual DESTINATION cell — the same dot-lattice
+      // rounding `paintSubcellDot`/the canvas independently perform — never
+      // a heuristic half-cell margin on the continuous coordinate: a
+      // coordinate whose exact position sits just outside the plot rect but
+      // whose ROUNDED cell still lands outside it too must not paint there
+      // (review finding 2 — a half-cell margin wrongly admitted it).
       const dotCol = primaryDotIndex(col, SUBCELL_DOT_COLS);
       const dotRow = primaryDotIndex(r, SUBCELL_DOT_ROWS);
       const cellCol = Math.floor(dotCol / SUBCELL_DOT_COLS);
       const cellRow = Math.floor(dotRow / SUBCELL_DOT_ROWS);
-      const localCol = dotCol - cellCol * SUBCELL_DOT_COLS;
-      const localRow = dotRow - cellRow * SUBCELL_DOT_ROWS;
-      // shape 1: horizontal pair, shape 2: vertical pair, shape 3: diagonal.
-      const companionLocalCol = shape === 1 || shape === 3 ? (localCol + 1) % SUBCELL_DOT_COLS : localCol;
-      const companionLocalRow = shape === 2 || shape === 3 ? (localRow + 2) % SUBCELL_DOT_ROWS : localRow;
-      const companionCol = dotIndexToCoord(cellCol * SUBCELL_DOT_COLS + companionLocalCol, SUBCELL_DOT_COLS);
-      const companionRow = dotIndexToCoord(cellRow * SUBCELL_DOT_ROWS + companionLocalRow, SUBCELL_DOT_ROWS);
-      canvas.line({ x: col, y: r }, { x: companionCol, y: companionRow }, { color });
+      if (cellCol < layout.plot.x0 || cellCol > layout.plot.x1 || cellRow < layout.plot.y0 || cellRow > layout.plot.y1) continue;
+      paintSubcellDot(canvas, col, r, shape, color);
       continue;
     }
     const col = scaleToCol(scales.x, layout.plot, row.x);
@@ -419,14 +465,21 @@ export function paintGlyphChart(
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const shadeFor = (v: number): number => {
-    // Mixed signs reserve equal ramp halves around zero — UNCHANGED (the
-    // diverging half is out of this fix's scope: review finding 6 is
-    // specifically about the same-sign/sequential domain below, and the
-    // diverging mapping's own asymmetric shape — the domain's most extreme
-    // NEGATIVE value reading as blank, zero as a medium shade — is an
-    // existing, independently tested contract, review.test.ts's "5: signed
-    // cells … use an ordered diverging shade ramp").
-    if (lo < 0 && hi > 0) return v < 0 ? 0.5 * (v - lo) / -lo : 0.5 + 0.5 * v / hi;
+    // Mixed signs: blank means "no signal" — reserved for exactly `v === 0`,
+    // never for the domain's most extreme value. The old mapping anchored
+    // shade 0 at `lo` (the most NEGATIVE value) and shade 0.5 at zero, so a
+    // gains/losses heatmap's biggest LOSS read as missing data while zero
+    // (genuinely nothing happening) read as a visible medium shade — exactly
+    // backwards (review finding 8). Each side now ramps independently from
+    // zero (blank) out to its own extreme (full ink), through the same
+    // `GLYPH_CHART_CELL_MIN_INK_SHADE` floor the same-sign branch below
+    // uses, so a value arbitrarily close to zero on EITHER side still never
+    // rounds down to the same blank glyph zero itself gets.
+    if (lo < 0 && hi > 0) {
+      if (v === 0) return 0;
+      const raw = v < 0 ? v / lo : v / hi;
+      return GLYPH_CHART_CELL_MIN_INK_SHADE + (1 - GLYPH_CHART_CELL_MIN_INK_SHADE) * raw;
+    }
     if (hi === lo) return 0;
     // Same-sign domain: the EXISTING linear mapping (`(v - lo) / (hi -
     // lo)`) is preserved exactly — `lo` reads as blank and `hi` as full ink,
@@ -458,7 +511,7 @@ export function paintGlyphChart(
       const color = paletteColor(styleIndex, opts.colorEnabled);
       if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "area") paintArea(guarded, layout, scales, rows, color);
-      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color);
+      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") paintCell(guarded, layout, scales, rows, color, shadeFor);
     }
   }
@@ -518,6 +571,14 @@ export function paintGlyphChart(
       const entry = series.find((s) => s.name === layout.legend!.items[i]!.label);
       const swatchX = Math.max(0, label.x - 3);
       if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
+      else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
+        // Under braille/blocks the plot itself paints a 1-2 dot sub-cell
+        // pattern, never the whole-cell "● × + ◆" glyph `seriesDot` returns
+        // (review finding 4) — the legend must show the SAME pattern
+        // `paintDot` actually painted for this series, via the same helper
+        // and the same shape derivation (`opts.colorEnabled ? 0 : styleIndex`).
+        paintSubcellDot(guardedLabels, swatchX, label.y, (opts.colorEnabled ? 0 : entry.styleIndex) % 4, color);
+      }
       else if (entry?.mark.type === "dot") guardedLabels.text(swatchX, label.y, [seriesDot(canvas.tier, i)], { color });
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4] });
       guardedLabels.text(label.x, label.y, [label.text], { color });
