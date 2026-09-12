@@ -270,7 +270,44 @@ renderGlyphChart(spec, {
 | `terminal` | 80×24 | `braille` | `truecolor`, downgraded by `NO_COLOR`/`FORCE_COLOR` |
 | `web` | 96×32 | `blocks` | `css` — populates `result.html` |
 
-`braille` reuses `box`'s own line/junction/arrow glyphs (Phase 0's tier tables), so "braille fills + box axes" is the natural result of one charset, not two: a line-only chart renders byte-identically under `box` and `braille`. `result.text` is the ENCODED string for the call's own `color` — raw for `"none"`, ANSI SGR for the three ANSI depths — so a `terminal` render's `text` already contains escape codes unless you override `color: "none"`.
+`braille` reuses `box`'s own junction/arrow glyphs (Phase 0's tier tables) for routes and rule marks, but `line`/`dot`/an area's boundary rasterise at genuinely finer, SUB-CELL (dot) resolution under `braille`/`blocks` than under `box` — a line-only chart does NOT render byte-identically across the two. **Axes stay whole-cell** (`│`/`─`) under every charset, even `braille`/`blocks` — only DATA marks (line, an area's boundary, dot) go sub-cell; a chart's axis frame and `glyphChartRule` reference lines are structure, not data, and `canvas.line`'s explicit `subcell: false` option is what keeps them legible box-drawing instead of a wobbly dot approximation. `result.text` is the ENCODED string for the call's own `color` — raw for `"none"`, ANSI SGR for the three ANSI depths — so a `terminal` render's `text` already contains escape codes unless you override `color: "none"`.
+
+```ts
+const data = [3, 5, 2, 8, 6, 9, 4, 7, 3, 5];
+renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "box", width: 44, height: 12 }).text;
+```
+```
+9 │                      \                  
+  │             \\      /\\                 
+  │            //\\    /  \\                
+7 │            /   \\ /    \\    /\         
+  │           //    \/      \\  // \        
+5 │   /\\     /              \\//   \     //
+  │  // \\   //               //     \   // 
+  │ //   \\  /                        \ //  
+3 │//     \\//                         //   
+  │        \/                               
+  ──────────────────────────────────────────
+   0        2        4        6        8    
+```
+```ts
+renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "braille", width: 44, height: 12 }).text;
+```
+```
+9 │                      ⢠                  
+  │             ⢠⡀      ⢠⠃⢣                 
+  │             ⡎⠈⢆    ⢠⠃  ⢇                
+7 │            ⢰⠁  ⠑⢄ ⢠⠃   ⠈⡆     ⡠⡀        
+  │            ⡎    ⠈⠢⠃     ⠘⡄   ⡔⠁⠱⡀       
+5 │    ⡠⡀     ⢰⠁             ⠸⡀⢀⠎   ⠱⡀     ⡠
+  │   ⡔⠁⠑⡄    ⡎               ⠱⠃     ⠱⡀   ⡔⠁
+  │ ⢀⠎   ⠘⢄  ⢰⠁                       ⠱⡀⢀⠎  
+3 │⠠⠃     ⠈⢢ ⡎                         ⠱⠃   
+  │         ⠳⠁                              
+  ──────────────────────────────────────────
+   0        2        4        6        8    
+```
+Real, unedited output from both calls. `box` uses 13 distinct glyphs (the nine-glyph `inkGlyphForTangent` slope vocabulary, repeated); `braille` uses 34 distinct DATA glyphs — every one an actual braille dot pattern, never `/`/`\` — plus the two whole-cell axis glyphs `│`/`─`, unchanged from `box`'s own.
 
 The `/charts` page applies target defaults to untouched controls and preserves explicit overrides per control. **Reset to target defaults** clears them. Terminal previews show plain text with a note that escapes are in **Copy ANSI**; CSS/web output shows HTML. **Copy as text** always copies plain text. ANSI escapes are never inserted into the browser preview.
 

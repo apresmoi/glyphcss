@@ -65,8 +65,60 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
 }
 
 /** `true` iff any resolved mark is a `bar`/`area` — see module doc for why that forces 0 into the y-domain. */
-function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): boolean {
+export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): boolean {
   return marks.some((m) => ["bar", "area", "rect"].includes(m.mark.type));
+}
+
+type GlyphChartValueClass = "band" | "time" | "linear";
+
+function classifyScaleValue(v: unknown): GlyphChartValueClass | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (v instanceof Date) return "time";
+  if (typeof v === "string") return "band";
+  if (typeof v === "number") return "linear";
+  return undefined;
+}
+
+/**
+ * `true` iff `values` (a shared axis's resolved values across EVERY mark
+ * that reads it) contains more than one of Plot's own inferred classes —
+ * `number` (linear), `string` (band), `Date` (time). One scale per axis
+ * (AGENTS.md's own gate) makes this ambiguous rather than merely mixed: a
+ * numeric-shorthand mark (`x = index`) plotted alongside a mark whose `x`
+ * channel resolves to category names has no single honest scale — picking
+ * one silently (Plot infers from the FIRST value only) makes the OTHER
+ * mark's x values resolve through the wrong kind of scale (review finding
+ * 3: `Number('a')` on a band value is `NaN`).
+ */
+function detectMixedScaleTypes(values: readonly unknown[]): boolean {
+  let seen: GlyphChartValueClass | undefined;
+  for (const v of values) {
+    const cls = classifyScaleValue(v);
+    if (cls === undefined) continue;
+    if (seen === undefined) seen = cls;
+    else if (seen !== cls) return true;
+  }
+  return false;
+}
+
+/**
+ * Not a `GLYPH_CHART_VALIDATION_RULES` entry (deliberately): that table's
+ * membership is exercised by `schema.test.ts` against a REAL, independent
+ * JSON-Schema evaluator, and "do every mark's resolved x VALUES agree on
+ * type" is a cross-mark, data-dependent property no declarative JSON Schema
+ * clause can express (it would need to inspect one mark's data through
+ * another mark's channel name). This mirrors `GLYPH_CHART_EMPTY_TOTAL`'s own
+ * precedent — a genuine, TAGGED (`.code`) runtime error that documents its
+ * own boundary instead of forcing an unfalsifiable schema clause into
+ * existence. See `docs/design/charts.md` for the same note.
+ */
+function mixedXScaleError(): never {
+  throw Object.assign(
+    new TypeError(
+      "glyphcss: mixed-x-scale: marks share one x scale (AGENTS.md's \"one scale per axis\") but their x channels resolve to different value types (numeric vs categorical vs date). Set an explicit scales.x.type, or make every mark's x channel resolve to the same type.",
+    ),
+    { code: "mixed-x-scale" as const },
+  );
 }
 
 function numericDomain(values: readonly unknown[], includeZero: boolean): [number, number] {
@@ -170,6 +222,7 @@ export function resolveGlyphChartScale(
   opts: GlyphChartScaleOptions | undefined,
 ): GlyphChartResolvedScale {
   const values = collectValues(marks, axis);
+  if (axis === "x" && !opts?.type && detectMixedScaleTypes(values)) mixedXScaleError();
   const type = opts?.type
     ? (opts.type === "ordinal" ? "band" : opts.type)
     : inferGlyphChartScaleType(values);
