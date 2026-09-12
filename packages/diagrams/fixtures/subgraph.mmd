@@ -1,0 +1,7 @@
+flowchart LR
+  input[Input]
+  subgraph workers [Workers]
+    agent(Agent) --> tools[[Tools]]
+  end
+  input --> agent
+  tools --> output[Output]

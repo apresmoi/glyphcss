@@ -1,0 +1,55 @@
+# Diagrams: cell geometry, routing and fidelity
+
+`@glyphcss/diagrams` implements Phase 2 over the public cell canvas. It depends on `glyphcss` and `@dagrejs/dagre`; it does not change the frozen canvas or existing 3D render path. The package is an asynchronous pure graph-to-text pipeline, and the workbench shares the real Instrument components used by charts and synth.
+
+## Measurement owns node size
+
+Labels are first folded through the canvas's grapheme policy, then wrapped at a cell width (default 18). ASCII applies its narrower repertoire after folding. `GLYPH_DIAGRAM_NODE_PAD` is one horizontal cell and zero extra vertical cells, plus borders. Every shape uses a rectangle for obstacle accounting; border cells distinguish the supported shapes without creating uncertain half-cell coverage.
+
+Ports are reserved before dagre sees those rectangles. Both opposite sides reach their final size before either side gets centered offsets; otherwise a later wide outgoing fan leaves the incoming port off-center. A side with N attachments is enlarged to at least 2N + 1 cells, and attachment offsets differ by two cells. Horizontal-flow nodes grow vertically when their east/west sides need capacity. Every attachment owns its outward escape cell and approach lane; the router also protects the lane's one-cell neighbourhood. Reserving only the lane itself allowed a previous route to turn immediately beside a later edge's approach, making a visibly empty port unreachable. The LangGraph feedback route detects that defect.
+
+## Stable layout and grouping
+
+Nodes, edges, group ids and group members are sorted lexically by id, independent of locale. Missing edge ids are derived from endpoint/label/style/priority tuples and a stable duplicate index; they cannot collide with explicit ids. Measurement, reservation and layout do not mutate the input. Dagre sees measured dimensions, `nodesep` and `ranksep` in cells. Defaults are 4 / 4; both must be integers at least 3. The real 3.1.1 adapter uses `graphlib.Graph`, `setGraph({ rankdir, nodesep, ranksep, marginx, marginy })`, `setDefaultEdgeLabel`, and `layout(g)`. Node x/y are centres in the same cell units: subtract half the measured dimensions to locate the rectangle. Integer snapping is followed only by global translation, so node separation is never compressed to fit a viewport. Reserved port slots are assigned to edges in the opposite endpoints’ transverse coordinate order, with edge-id ties. Dagre 3 reverses some sibling orderings relative to the provisional engine; lexical slot assignment forced crossed fan-outs and made a planar diamond unroutable. Geometric slot assignment preserves the engine’s embedding without moving or resizing any node.
+
+Nested or disjoint group membership becomes compound dagre parents. A global translation removes the engine's leading compound-caption whitespace while preserving distances. Partially overlapping membership sets cannot be represented as a tree; those groups are labelled by an explicit member list. Painting refuses an enclosure that would visually claim a nonmember. Group boundaries are annotation, not opaque node obstacles: they leave route cells visible.
+
+The layout API returns a Promise even for dagre, leaving room for the future async ELK subpath. That subpath currently contains only the tagged stub. No ELK code or import enters the root bundle. The boundary test builds both ESM and CommonJS and imports them in a fresh Node process whose loaders reject any attempted elkjs resolution.
+
+## Manhattan routing owns clearances
+
+Each edge gets a separate polyline of all visited cells. A* state includes arrival direction, so the cost is length + 4 × bends + 12 × crossings. Caller cost overrides must be finite and nonnegative; a negative bend cost would reward cycles and invalidate termination. Bounds are positive integer cells. A binary heap and strict best-cost improvement make the search finite; no random tie-breaking or clock input occurs.
+
+Node rectangles and their one-cell ring are obstacles. Only the current edge's endpoint escape cells can enter the ring. Other edges' reserved lanes and the neighbourhood of already routed parallel segments remain unavailable. A perpendicular crossing may use two straight transits; a corner/stub overlap cannot become a false junction. Crossing direction stays straight through the contested cell. Every result is checked for revisited cells because the frozen canvas cannot represent a repeated cell correctly.
+
+When no route exists, `GLYPH_DIAGRAM_UNROUTABLE` names the edge and no transit is painted. This is not repaired by hiding a connector under a later box fill. The direct routing test puts a non-endpoint box on the shortest geometric path, then checks the actual detour. The six-port fixture checks dimensions, distinct ports, all six routes, and segment separation.
+
+## Paint and labels
+
+Every render creates a fresh canvas. Re-registering an edge on an old canvas cannot erase its prior drawing, so reuse would violate determinism. Routes are registered with their graph endpoint ids, resolved once, styled only on exclusive straight cells, then node borders are filled, target-border arrowheads replace their reserved border cells, and labels follow. Route polylines stop at the outside escape cell; the tip alone occupies the target border, never its label interior.
+
+Three-row nodes have a one-cell vertical side. The frozen `line()` painter cannot infer a vertical orientation from coincident endpoints, so the diagrams painter writes that side using the tier's explicit vertical glyph. Node boxes are not routed as closed walks; that would exercise the canvas's repeated-cell limitation. Neither workaround edits the canvas.
+
+External labels use `glyphDiagramLabelLayout` against node rectangles, every route cell and previously placed labels. Candidates are ordered by priority and id, measured in the same cell repertoire that paints them, abbreviated within the viewport, then placed at the nearest free rectangle. Edge-label candidates are restricted to rectangles immediately adjacent to their own route; if only distant space remains the label is dropped and reported, never floated elsewhere. Node labels use the same function inside their own reserved interior slot. The integration test reads actual label rectangles and final grid bytes, so a painter that forgets obstacles or overwrites labels fails, even if the standalone label helper remains correct.
+
+Raw text, HTML and ANSI are independent exits. CSS supplies escaped HTML as well as plain text; ANSI modes supply SGR text. The explicit env option follows the canvas's nonempty NO_COLOR/FORCE_COLOR semantics. The page shows plain/CSS output, copies ANSI only through its dedicated action, and concatenates every split panel.
+
+## Degradation and lineage
+
+Budgets are 9 nodes and 12 edges. Excess count, dimensions or an unroutable connection invokes one bounded sequence: decoration → duplicate edges → sibling-leaf clusters → split. Each stage is logged. Original graph metadata survives every stage. `faithful` permits only splitting; `simplified` starts with decoration removal; `auto` and `balanced` share the Phase 2 budget.
+
+Splitting creates edge-induced panels, repeating boundary nodes and retaining isolated nodes as separate panels. Each has its own viewport and fresh canvas. The top-level text/HTML joins all panels with a blank line; top-level grid/layout/routes remain the first panel, and `pages` provides each one explicitly. A viewport too small for endpoint boxes yields an explicitly reported blank panel, never partial boxes or clipped connections. This is a representational limit, not an unlabeled omission.
+
+An intermediate failure is logged as a routing attempt. Final `report.unroutable` is derived only from final panels, so a successfully recovered connection is not still reported as missing.
+
+## Validation and source boundaries
+
+Runtime validation and schema share rule ids and vocabularies. Graph references and uniqueness need cross-field comparisons unavailable in standard JSON Schema; the exported Ajv keyword supplies those exact relational checks. Ajv remains a dev dependency. Standalone schema users can apply structural validation, while consumers requiring complete parity register the keyword array.
+
+Only Mermaid graph/flowchart grammars are accepted. Rejection identifies the declared unsupported diagram kind before trying to tokenize its foreign syntax. Quoted labels protect separators; LangGraph's init directive and paragraph-wrapped stadium labels are accepted verbatim. classDef/class/style/click directives are inert, never executable callbacks, network requests, or injected HTML. Bare references inside a subgraph count as members even when the nodes were declared earlier; this matters for JSON-to-Mermaid workbench round trips.
+
+## Verification status
+
+Fixture renders now use the installed `@dagrejs/dagre@3.1.1`, with no aliases or substitute engines. Each of the six diagram fixtures is printed and checked in box and ASCII before snapshots are updated: all nodes and edges retained, zero route conflicts, no node transits, parallel separation, target-border arrows, node-label containment, external-label disjointness and attachment. Separate gates exercise a real merge versus a crossing and a four-node diamond with zero hops. The original LangGraph `draw_mermaid()` export is retained in `fixtures/langgraph-export.mmd` and renders in 60×20; `langgraph.mmd` changes its agent→tools edge to an unlabelled solid edge for the requested agent example, keeping the labelled dotted conditional edge to `__end__`.
+
+Eight mutations fail with assertions: wrong centre units, lexical port assignment, sizing one side too late, floating labels, missing node obstacles, missing parallel clearance, missing canonical ordering, and arrowheads outside the border. The five final gates pass: diagrams 7 files / 165 tests; diagrams ESM, CJS and declarations build; compile 8 files / 58 tests; website 101 files / 1136 tests; website static build 45 pages. Workbench integration waits for its real aria-busy=false completion state after every edit; the deliberately deferred stale-result test keeps its old request pending. The built-package 60×20 LangGraph output matches the inspected snapshot byte-for-byte. AGENTS.md remains 287 lines. External review is blocked: Grok session creation is denied, Antigravity cannot initialize in the sandbox, and Claude authentication preflight fails; none supplied a review verdict.

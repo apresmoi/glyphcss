@@ -1,0 +1,6 @@
+flowchart TB
+  request[Request] --> check{Ready?}
+  check -->|yes| work[Work]
+  check -->|no| wait[Wait]
+  work --> done[Done]
+  wait --> done

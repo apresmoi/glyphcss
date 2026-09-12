@@ -20,6 +20,7 @@
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.38.2",
     "@glyphcss/charts": "workspace:^",
+    "@glyphcss/diagrams": "workspace:^",
     "@glyphcss/effects": "workspace:^",
     "@glyphcss/fonts": "workspace:*",
     "@glyphcss/maps": "workspace:^",

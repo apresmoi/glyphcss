@@ -6,6 +6,7 @@
  *   glyphcss duck.glb -f text                 # plain ASCII
  *   glyphcss duck.glb -f full -o duck.html    # HTML document
  *   glyphcss chart spec.json                  # @glyphcss/charts spec -> ANSI/text
+ *   glyphcss diagram graph.mmd                # Mermaid flowchart -> ANSI/text
  *
  * Output `--format`: `ansi` (truecolor terminal), `text` (plain), `html` (a
  * `<pre>`), or `full` (HTML doc). Default picks by destination — terminal → ansi,
@@ -26,6 +27,7 @@ import type { RenderMode, MeshResolution, Polygon, GlyphGeometryName, Vec3 } fro
 import type { GlyphControlTensorNormalization } from "glyphcss";
 import type { GlyphLabelSidecar } from "./labelSidecar";
 import { runChart } from "./chartCli";
+import { runGlyphDiagram } from "./diagramCli";
 
 const MESH_EXT = /\.(obj|glb|gltf|vox|stl)$/i;
 
@@ -168,6 +170,10 @@ function wrapHtml(inner: string): string {
 async function main(): Promise<void> {
   if (process.argv[2] === "chart") {
     await runChart(process.argv.slice(3));
+    return;
+  }
+  if (process.argv[2] === "diagram") {
+    await runGlyphDiagram(process.argv.slice(3));
     return;
   }
   const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts } = parseArgs(process.argv.slice(2));

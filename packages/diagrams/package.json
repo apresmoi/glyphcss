@@ -1,7 +1,7 @@
 {
-  "name": "@glyphcss/compile",
+  "name": "@glyphcss/diagrams",
   "version": "0.1.6",
-  "description": "Compile 3D meshes to static glyphcss ASCII at build time — a Vite plugin, a CLI, and a Node API. Zero-runtime <pre> output for any static pipeline.",
+  "description": "Mermaid flowcharts and graph data rendered as glyphcss cell diagrams for chat, terminal and web.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -9,41 +9,41 @@
   "keywords": [
     "glyphcss",
     "ascii",
-    "3d",
-    "compile",
-    "vite",
-    "vite-plugin",
-    "static",
-    "ssg",
+    "diagrams",
+    "mermaid",
+    "terminal",
     "cli"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/apresmoi/glyphcss.git",
-    "directory": "packages/compile"
+    "directory": "packages/diagrams"
   },
   "bugs": {
     "url": "https://github.com/apresmoi/glyphcss/issues"
   },
   "homepage": "https://github.com/apresmoi/glyphcss#readme",
   "files": [
-    "dist",
-    "SKILL.md"
+    "dist"
   ],
-  "bin": {
-    "glyphcss": "dist/cli.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
-    "./vite": {
-      "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js",
-      "require": "./dist/vite.cjs"
+    "./elk": {
+      "types": "./dist/elk.d.ts",
+      "import": "./dist/elk.js",
+      "require": "./dist/elk.cjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "elk": [
+        "dist/elk.d.ts"
+      ]
     }
   },
   "scripts": {
@@ -56,17 +56,21 @@
     "access": "public"
   },
   "dependencies": {
-    "@glyphcss/charts": "workspace:^",
-    "@glyphcss/core": "workspace:^",
-    "@glyphcss/diagrams": "workspace:^",
-    "glyphcss": "workspace:^",
-    "jpeg-js": "^0.4.4",
-    "pngjs": "^7.0.0"
+    "@dagrejs/dagre": "^3.1.1",
+    "glyphcss": "workspace:^"
+  },
+  "peerDependencies": {
+    "elkjs": "^0.11.0"
+  },
+  "peerDependenciesMeta": {
+    "elkjs": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/pngjs": "^6.0.5",
     "@vitest/coverage-v8": "^3.1.1",
+    "ajv": "^8.20.0",
     "happy-dom": "^20.7.0",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
