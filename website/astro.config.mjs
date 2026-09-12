@@ -28,6 +28,10 @@ export default defineConfig({
           replacement: repoPath('../packages/effects/src/index.ts'),
         },
         {
+          find: /^@glyphcss\/charts$/,
+          replacement: repoPath('../packages/charts/src/index.ts'),
+        },
+        {
           find: /^@glyphcss\/vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
         },

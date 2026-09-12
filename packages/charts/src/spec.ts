@@ -1,0 +1,97 @@
+/**
+ * Mark constructors and `glyphChartPlot` — see `types.ts` for the shapes and
+ * `docs/design/charts.md` for why this grammar (marks-as-values, composed by
+ * `plot({ marks: [...] })`) rather than a `type: "line"` config object.
+ */
+
+import type {
+  GlyphChartChannels,
+  GlyphChartInput,
+  GlyphChartMark,
+  GlyphChartMarkOptions,
+  GlyphChartSpec,
+} from "./types";
+
+function mark(
+  type: GlyphChartMark["type"],
+  data: GlyphChartMark["data"],
+  channels: GlyphChartChannels = {},
+  options?: GlyphChartMarkOptions,
+): GlyphChartMark {
+  return { type, data, channels, options };
+}
+
+export function glyphChartLine(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("line", data, channels, options);
+}
+
+export function glyphChartArea(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("area", data, channels, options);
+}
+
+export function glyphChartBar(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("bar", data, channels, options);
+}
+
+export function glyphChartDot(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("dot", data, channels, options);
+}
+
+export function glyphChartArc(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("arc", data, channels, options);
+}
+
+export function glyphChartRect(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("rect", data, channels, options);
+}
+
+export function glyphChartCell(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("cell", data, channels, options);
+}
+
+export function glyphChartText(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("text", data, channels, options);
+}
+
+/**
+ * A rule mark takes raw axis positions directly (à la Plot's `ruleY`/`ruleX`)
+ * rather than a channel — `glyphChartRule([0])` draws one horizontal rule at
+ * `y = 0`; `{ axis: "x" }` draws vertical rules instead.
+ */
+export function glyphChartRule(values: readonly number[], options: { readonly axis?: "x" | "y" } = {}): GlyphChartMark {
+  return mark("rule", values, {}, { axis: options.axis ?? "y" });
+}
+
+export interface GlyphChartPlotOptions {
+  readonly marks: readonly GlyphChartMark[];
+  readonly scales?: GlyphChartSpec["scales"];
+  readonly title?: string;
+  readonly description?: string;
+}
+
+export function glyphChartPlot(opts: GlyphChartPlotOptions): GlyphChartSpec {
+  return { marks: opts.marks, scales: opts.scales, title: opts.title, description: opts.description };
+}
+
+function isMark(v: unknown): v is GlyphChartMark {
+  return typeof v === "object" && v !== null && "type" in v && "data" in v && "channels" in v;
+}
+
+function isSpec(v: unknown): v is GlyphChartSpec {
+  return typeof v === "object" && v !== null && "marks" in v && Array.isArray((v as GlyphChartSpec).marks);
+}
+
+/**
+ * `renderGlyphChart`'s own front door: accepts a bare number array (sugar
+ * for a one-mark line chart, matching the constructors' own shorthand), a
+ * lone mark, an array of marks, or a full spec — and always returns a spec.
+ */
+export function normalizeGlyphChartInput(input: GlyphChartInput): GlyphChartSpec {
+  if (isSpec(input)) return input;
+  if (isMark(input)) return glyphChartPlot({ marks: [input] });
+  if (Array.isArray(input)) {
+    if (input.length > 0 && isMark(input[0])) return glyphChartPlot({ marks: input as GlyphChartMark[] });
+    return glyphChartPlot({ marks: [glyphChartLine(input as readonly number[])] });
+  }
+  throw new TypeError("glyphcss: renderGlyphChart() input must be a spec, a mark, an array of marks, or a number array.");
+}

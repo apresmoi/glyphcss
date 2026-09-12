@@ -1,0 +1,148 @@
+/**
+ * `@glyphcss/charts`' public spec shape (CHARTS-RESEARCH Phase 1) — an
+ * Observable-Plot-flavoured mark/spec grammar, not a `type: "line"` enum
+ * (see `docs/design/charts.md` "Why Plot's model"). A mark constructor
+ * (`glyphChartLine`, …) returns a plain `GlyphChartMark`; `glyphChartPlot`
+ * composes marks into a `GlyphChartSpec`; `renderGlyphChart` accepts either
+ * (or a bare array/mark), normalising through `normalizeGlyphChartInput`.
+ */
+
+export type GlyphChartMarkType =
+  | "line"
+  | "area"
+  | "bar"
+  | "dot"
+  | "arc"
+  | "rect"
+  | "cell"
+  | "text"
+  | "rule";
+
+/** One data record a mark's channels read fields from. */
+export type GlyphChartDatum = Record<string, unknown>;
+
+/**
+ * A channel value is a field name (looked up per datum), an accessor
+ * function `(datum, index) => value`, or a literal array of pre-computed
+ * values running parallel to `data` — the three ways Plot itself accepts a
+ * channel.
+ */
+export type GlyphChartChannelValue =
+  | string
+  | ((datum: GlyphChartDatum, index: number) => unknown)
+  | readonly unknown[];
+
+export interface GlyphChartChannels {
+  readonly x?: GlyphChartChannelValue;
+  readonly y?: GlyphChartChannelValue;
+  readonly fill?: GlyphChartChannelValue;
+  readonly stroke?: GlyphChartChannelValue;
+  readonly label?: GlyphChartChannelValue;
+}
+
+/** Mark-specific extras that don't fit the shared channel vocabulary. */
+export interface GlyphChartMarkOptions {
+  /** `arc`: fraction of the outer radius carved out for a donut hole. */
+  readonly innerRadius?: number;
+  /** `rule`: which axis the rule spans; default `"y"` (a horizontal rule at fixed y values, à la Plot's `ruleY`). */
+  readonly axis?: "x" | "y";
+  /** A caller-supplied series name, used by the legend and `meta.series`. */
+  readonly name?: string;
+}
+
+export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";
+
+export interface GlyphChartTransform {
+  readonly kind: GlyphChartTransformKind;
+  /** `bin`: number of bins (default 10). `window`: window size (default 3). */
+  readonly n?: number;
+  /** `group`/`stack`: field (or accessor) to group by. */
+  readonly by?: GlyphChartChannelValue;
+  /** `window`: reducer; default `"mean"`. */
+  readonly reduce?: "mean" | "sum" | "min" | "max";
+}
+
+export interface GlyphChartMark {
+  readonly type: GlyphChartMarkType;
+  readonly data: readonly (number | GlyphChartDatum)[];
+  readonly channels: GlyphChartChannels;
+  readonly transform?: GlyphChartTransform;
+  readonly options?: GlyphChartMarkOptions;
+}
+
+export interface GlyphChartScaleOptions {
+  readonly type?: "linear" | "log" | "sqrt" | "time" | "band" | "ordinal";
+  readonly domain?: readonly (number | string | Date)[];
+  readonly nice?: boolean;
+}
+
+/** One materialised data row after channel resolution (and, if present, transform application). */
+export interface GlyphChartMarkRow {
+  readonly x: unknown;
+  readonly y: unknown;
+  /** Present only after a `stack` transform: the segment's baseline and top, replacing plain `y` for painting. */
+  readonly y0?: number;
+  readonly y1?: number;
+  readonly fill?: unknown;
+  readonly stroke?: unknown;
+  readonly label?: unknown;
+  readonly index: number;
+}
+
+export interface GlyphChartSpec {
+  readonly marks: readonly GlyphChartMark[];
+  readonly scales?: {
+    readonly x?: GlyphChartScaleOptions;
+    readonly y?: GlyphChartScaleOptions;
+  };
+  readonly title?: string;
+  readonly description?: string;
+}
+
+/** Anything `renderGlyphChart`/`glyphChartPlot` accept as "the chart". */
+export type GlyphChartInput =
+  | GlyphChartSpec
+  | GlyphChartMark
+  | readonly GlyphChartMark[]
+  | readonly number[];
+
+export type GlyphChartTarget = "chat" | "terminal" | "web";
+export type GlyphChartCharset = "ascii" | "box" | "blocks" | "braille";
+export type GlyphChartColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
+export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
+
+export interface GlyphChartRenderOptions {
+  readonly target?: GlyphChartTarget;
+  readonly charset?: GlyphChartCharset;
+  readonly color?: GlyphChartColorMode;
+  readonly width?: number;
+  readonly height?: number;
+  readonly detail?: GlyphChartDetail;
+  /** Read only for `NO_COLOR`/`FORCE_COLOR`, exactly like the canvas's own ANSI encoder — never `process.env` implicitly. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}
+
+export interface GlyphChartMeta {
+  readonly title: string | null;
+  readonly series: readonly string[];
+  readonly values: number;
+  readonly description: string | null;
+}
+
+export interface GlyphChartReport {
+  readonly ledger: readonly string[];
+  readonly unsupportedGlyphs: readonly string[];
+}
+
+export interface GlyphChartResult {
+  readonly text: string;
+  /** Present only for `target: "web"` — the HTML exit. */
+  readonly html?: string;
+  readonly grid: {
+    readonly cols: number;
+    readonly rows: number;
+    readonly char: readonly string[];
+  };
+  readonly meta: GlyphChartMeta;
+  readonly report: GlyphChartReport;
+}

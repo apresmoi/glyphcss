@@ -1,0 +1,64 @@
+// @glyphcss/charts — a declarative, Observable-Plot-flavoured chart spec
+// rendered as glyphcss ASCII/box/braille output. See AGENTS.md's "Charts"
+// section for the contract and docs/design/charts.md for the rationale.
+
+export {
+  glyphChartLine,
+  glyphChartArea,
+  glyphChartBar,
+  glyphChartDot,
+  glyphChartArc,
+  glyphChartRect,
+  glyphChartCell,
+  glyphChartText,
+  glyphChartRule,
+  glyphChartPlot,
+  normalizeGlyphChartInput,
+} from "./spec";
+export type { GlyphChartPlotOptions } from "./spec";
+
+export {
+  validateGlyphChartSpec,
+  validateGlyphChartRenderSize,
+  glyphChartRepairHint,
+  GLYPH_CHART_VALIDATION_RULES,
+} from "./validate";
+export type { GlyphChartValidationRuleId, GlyphChartValidationError } from "./validate";
+
+export { glyphChartJsonSchema } from "./schema";
+export type { GlyphChartJsonSchema } from "./schema";
+
+export { glyphChartLabelLayout } from "./labels";
+export type {
+  GlyphChartLabelCandidate,
+  GlyphChartLabelLayoutOptions,
+  GlyphChartLabelLayoutResult,
+  GlyphChartObstacleRect,
+  GlyphChartPlacedLabel,
+} from "./labels";
+
+export { renderGlyphChart, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
+export { renderGlyphChartJson } from "./json";
+
+export type {
+  GlyphChartCharset,
+  GlyphChartChannels,
+  GlyphChartChannelValue,
+  GlyphChartColorMode,
+  GlyphChartDatum,
+  GlyphChartDetail,
+  GlyphChartInput,
+  GlyphChartMark,
+  GlyphChartMarkOptions,
+  GlyphChartMarkRow,
+  GlyphChartMarkType,
+  GlyphChartMeta,
+  GlyphChartRenderOptions,
+  GlyphChartReport,
+  GlyphChartResult,
+  GlyphChartScaleOptions,
+  GlyphChartSpec,
+  GlyphChartTarget,
+  GlyphChartTransform,
+  GlyphChartTransformKind,
+} from "./types";

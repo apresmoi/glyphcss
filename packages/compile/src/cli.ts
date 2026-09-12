@@ -5,11 +5,16 @@
  *   glyphcss duck.glb --auto-center           # ANSI color in the terminal
  *   glyphcss duck.glb -f text                 # plain ASCII
  *   glyphcss duck.glb -f full -o duck.html    # HTML document
+ *   glyphcss chart spec.json                  # @glyphcss/charts spec -> ANSI/text
  *
  * Output `--format`: `ansi` (truecolor terminal), `text` (plain), `html` (a
  * `<pre>`), or `full` (HTML doc). Default picks by destination — terminal → ansi,
  * `-o` file → html, piped → text. With no `--cols`/`--rows` it auto-fits the grid
  * + zoom to the content (cropped tight). Other defaults match the library.
+ *
+ * `glyphcss chart <spec.json>` is a separate subcommand (`@glyphcss/charts`'
+ * `GlyphChartSpec`/mark/number-array JSON in, rendered text out) — see
+ * `runChart`'s own `--help`.
  */
 import { writeFile, readFile } from "node:fs/promises";
 import { buildCompileControlFrame, buildCompileControlFrameFromFile, compileFile, compilePolygons, type CompileFileOptions } from "./compileFile";
@@ -20,6 +25,7 @@ import { resolveGeometry } from "@glyphcss/core";
 import type { RenderMode, MeshResolution, Polygon, GlyphGeometryName, Vec3 } from "@glyphcss/core";
 import type { GlyphControlTensorNormalization } from "glyphcss";
 import type { GlyphLabelSidecar } from "./labelSidecar";
+import { runChart } from "./chartCli";
 
 const MESH_EXT = /\.(obj|glb|gltf|vox|stl)$/i;
 
@@ -160,6 +166,10 @@ function wrapHtml(inner: string): string {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === "chart") {
+    await runChart(process.argv.slice(3));
+    return;
+  }
   const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts } = parseArgs(process.argv.slice(2));
   // A bare positional with no mesh extension is treated as a shape name.
   const positionalShape = file && !MESH_EXT.test(file) ? file : undefined;
