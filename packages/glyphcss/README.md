@@ -159,6 +159,28 @@ like `charMode`. See `bench/color-tolerance.md` for measured span/FPS numbers.
 - `buildGlyphInteractiveExport` / `glyphCodepenPrefill` — polygons + declared interactions → a portable, self-contained snippet.
 - [`@glyphcss/compile`](https://www.npmjs.com/package/@glyphcss/compile) — Node adapters, a Vite plugin, and a CLI (`glyphcss cube --auto-center`).
 
+## Cell canvas (foundation for `@glyphcss/charts` / `@glyphcss/diagrams`)
+
+`createGlyphCanvas({ cols, rows, cellAspect, tier })` is a pure 2D authoring surface — storage and painters over a `CellGrid`, with no 3D scene, camera, or layout attached. It's the low-level primitive the charts and diagrams packages are built on; most consumers of `glyphcss` itself will never call it directly.
+
+```ts
+import { createGlyphCanvas, encodeGlyphCanvasAnsi } from "glyphcss";
+
+const canvas = createGlyphCanvas({ cols: 20, rows: 5, tier: "box" });
+canvas.fillRect(0, 0, 19, 0, { fill: "solid", color: "#3b82f6" });
+canvas.text(1, 0, ["hello"], { color: "#ffffff" });
+canvas.line({ x: 0, y: 2 }, { x: 19, y: 2 }, { style: "dashed" });
+
+console.log(encodeGlyphCanvasAnsi(canvas, { colors: "truecolor" }));
+```
+
+- **Painters**: `fillRect` (shaded regions, integer cell coordinates and a `fill.shade` finite in `[0, 1]` only — `shade: 0` is blank on every tier), `line` (sub-cell endpoints accepted — a supercover/DDA walk visits every cell the segment's interior crosses, never a fixed sample count; axis-aligned or diagonal — diagonals resolve through each tier's own `diagonal` table, so an `ascii` canvas never emits non-ASCII ink glyphs — solid/dashed/dotted/double; `"double"` on a diagonal has no analogue and renders solid, noted once in `canvas.report.ledger`; dash/dot phase advances per cell regardless of occlusion), `text` (integer cell coordinates only; never rasterises — a rejected glyph is folded or replaced with `?`; every fold is recorded in `canvas.report.foldedGlyphs` and every `?` in `canvas.report.unsupportedGlyphs`), `arrowhead` (integer cell coordinates only), and `edge`/`route`/`resolveJunctions` for routed graph edges (see below). Every colour (`color`/`bg`) is validated once, at the painter, as CANONICAL lowercase `#rrggbb` — uppercase, `#rgb`, `rgb(...)`, and whitespace all throw a `TypeError` naming the painter.
+- **Tiers**: `GLYPH_CANVAS_TIERS.ascii | box | blocks | braille` — parallel glyph tables with identical keys (including a `subcell` flag + `subGlyph` function, so a sub-cell-derived fill is picked by data, never by branching on the tier's name), so switching charset is a data swap, not a rewrite.
+- **Junctions**: `canvas.edge(edgeId, { from, to, priority? })` registers an edge's graph endpoints; `canvas.route(edgeId, cells)` records its ordered cell polyline (4-adjacent consecutive cells only, `RangeError` otherwise; throws if the edge wasn't registered first) — every N/E/S/W mask is derived from the polyline's own neighbours. `resolveJunctions()` joins two edges at a cell only when they share a graph node AND their walk back to it is the identical cell sequence for both (route COINCIDENCE, not merely a matching node id) — a real hub, a merging trunk, or a fan-out split, never a false join between edges that only reference the same node somewhere else. Two perpendicular straight transits crossing is the routine, unlogged case (the higher-priority edge keeps its own glyph, dashed on its own axis); every other overlap is logged to `canvas.report.routeConflicts` (`{ edgeIds, col, row, kind }`, `kind: "parallel" | "corner" | "multi"`).
+- **Encoders**: `encodeGlyphCanvasText` (raw), `encodeGlyphCanvasHtml` (self-escaping spans, `color` + `background-color` per run — read unconditionally, so a `bg` behind a blank cell still renders), `encodeGlyphCanvasAnsi` (`colors: "16" | "256" | "truecolor"`, `NO_COLOR`/`FORCE_COLOR` read only from an explicit `env` option, any non-empty value counts).
+
+Design rationale: `docs/design/canvas.md` in the monorepo root.
+
 ## Documentation
 
 Full docs, guides, and a live gallery: **https://glyphcss.com**
