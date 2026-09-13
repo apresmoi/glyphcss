@@ -12,12 +12,16 @@ import { timeFormat } from "d3-time-format";
 import { chartSeries, chartSeriesColors } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
-import { ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
+import {
+  ledgerAxisTitleStacked, ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped,
+  ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry,
+} from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScale, GlyphChartResolvedScales, GlyphChartTick } from "./scales";
 import type {
   GlyphChartCharset, GlyphChartDetail, GlyphChartLegendOption, GlyphChartLegendPlacement,
   GlyphChartSpec, GlyphChartTitleAlign, GlyphChartTitleOption, GlyphChartTitlePosition,
+  GlyphChartXAxisTitleAt, GlyphChartYAxisTitleAt,
 } from "./types";
 
 /** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
@@ -119,7 +123,9 @@ export interface GlyphChartLayout {
   readonly xAxisTitle: string | null;
   readonly yAxisTitle: string | null;
   readonly xAxisTitleRow: number;
-  /** Top-left, above the y-axis — see `GlyphChartAxisOptions.title`'s doc. */
+  /** `"start" | "center" | "end"` — resolved `axes.x.titleAt`, default `"center"`. */
+  readonly xAxisTitleAt: GlyphChartXAxisTitleAt;
+  /** Top-left, above the y-axis by default (`titleAt: "top"`) — or shares/claims a row below the plot at column 0 for `titleAt: "bottom"`. Painted at column 0 either way, so no separate column field is needed. */
   readonly yAxisTitleRow: number;
   readonly legend: GlyphChartLegendLayout | null;
   /** `false` for an arc/text-only spec — see `layoutGlyphChart`'s own comment. `paintAxes` reads this to skip drawing an axis nobody needs. */
@@ -411,6 +417,11 @@ export function layoutGlyphChart(
   const autoYTitleFits = cols >= 60 && (yFieldName?.length ?? 0) > 2;
   const xAxisTitleText = cartesian ? (xAxisOpts?.title !== undefined ? xAxisOpts.title : (autoXTitleFits ? xFieldName : undefined)) : undefined;
   const yAxisTitleText = cartesian ? (yAxisOpts?.title !== undefined ? yAxisOpts.title : (autoYTitleFits ? yFieldName : undefined)) : undefined;
+  // `titleAt` placement (owner packet): defaults are byte-identical to
+  // before either option existed — "center" is the x title's existing
+  // centred placement, "top" is the y title's existing top-left placement.
+  const xTitleAt: GlyphChartXAxisTitleAt = xAxisOpts?.titleAt ?? "center";
+  const yTitleAt: GlyphChartYAxisTitleAt = yAxisOpts?.titleAt ?? "top";
 
   // Title placement (owner packet: "the title has to have some placement
   // controls"). Resolved once, up front, because BOTH the title's own row
@@ -430,11 +441,15 @@ export function layoutGlyphChart(
     ledger.push(ledgerTitleDropped({ cols, rows }));
   }
 
-  // y-axis title: "top-left, above the axis" — rotating a column of text
-  // isn't representable on a character grid, so unlike the x title this
-  // never shares a row with anything else.
+  // y-axis title, `titleAt: "top"` (default): "top-left, above the axis" —
+  // rotating a column of text isn't representable on a character grid, so
+  // unlike the x title this never shares a row with anything else.
+  // `titleAt: "bottom"` is resolved later, inside the cartesian block below,
+  // once the x-axis title's own row (if any) and the y-axis gutter (which
+  // fixes the plot's column extent, independent of the row budget) are both
+  // known — see that block's own comment.
   let yAxisTitleRow = -1;
-  if (yAxisTitleText && detail !== "simplified" && rows - top > 3) {
+  if (yAxisTitleText && detail !== "simplified" && yTitleAt === "top" && rows - top > 3) {
     yAxisTitleRow = top;
     top += 1;
   }
@@ -565,6 +580,42 @@ export function layoutGlyphChart(
     }
     const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
     yAxisCol = yLabelWidth + 1;
+
+    // y-axis title, `titleAt: "bottom"`: below the plot at the axis column
+    // (column 0, mirroring `"top"`'s own column), on its own row — the same
+    // row cost the x-axis title's own reservation above already paid. The
+    // plot's COLUMN extent (`x0`/`x1`) depends only on `yAxisCol`/`cols`,
+    // never on the row budget, so it's safe to resolve this — and spend a
+    // further row of `bottom` for it when needed — before `plotForTicks`
+    // and the tick fitting below lock in the FINAL row extent; a stale
+    // `yRowBudget` computed one row taller than what actually remains is
+    // harmless; `fitTicksToRowSpacing`/`axisTicks` re-fit and collision-test
+    // against the real, final `bottom` either way, so nothing can overlap.
+    // Shares the x-axis title's row when it fits to the LEFT of it; when
+    // both titles genuinely want the bottom and don't fit side by side, the
+    // y title claims a second row of its own and logs `axis-title-stacked`.
+    // With no x-axis title to share with, it simply claims its own row —
+    // the same base cost `titleAt: "bottom"`'s own doc describes, no
+    // stacking conflict to report.
+    if (yTitleAt === "bottom" && yAxisTitleText && detail !== "simplified") {
+      const titlePlotX0 = Math.min(cols - 1, yAxisCol + 1);
+      const titlePlotWidth = Math.max(1, cols - 1 - titlePlotX0 + 1);
+      let xTitleStartCol = cols;
+      if (xAxisTitleRow >= 0 && xAxisTitleText) {
+        const xLen = xAxisTitleText.length;
+        xTitleStartCol = xTitleAt === "start" ? titlePlotX0
+          : xTitleAt === "end" ? Math.max(titlePlotX0, cols - xLen)
+          : Math.max(titlePlotX0, titlePlotX0 + Math.floor((titlePlotWidth - xLen) / 2));
+      }
+      const fitsSharing = xAxisTitleRow >= 0 && yAxisTitleText.length + 1 < xTitleStartCol;
+      if (fitsSharing) {
+        yAxisTitleRow = xAxisTitleRow;
+      } else if (bottom > top) {
+        if (xAxisTitleRow >= 0) ledger.push(ledgerAxisTitleStacked({ cols, rows }));
+        yAxisTitleRow = bottom;
+        bottom -= 1;
+      }
+    }
 
     const plotForTicks: GlyphChartPlotRect = {
       x0: Math.min(cols - 1, yAxisCol + 1),
@@ -706,6 +757,7 @@ export function layoutGlyphChart(
     xAxisTitle: xAxisTitleRow >= 0 ? xAxisTitleText! : null,
     yAxisTitle: yAxisTitleRow >= 0 ? yAxisTitleText! : null,
     xAxisTitleRow,
+    xAxisTitleAt: xTitleAt,
     yAxisTitleRow,
   };
 }

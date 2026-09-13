@@ -36,6 +36,11 @@ export const goodSpecs: GlyphChartSpec[] = [
   // + position) alongside a corner legend placement, both new option shapes.
   { marks: [glyphChartLine([1, 2, 3], undefined, { name: "A" })], title: { text: "Left title", align: "left", position: "bottom" }, legend: { placement: "top-right" } },
   ...(["bin", "stack", "group", "normalize", "window"] as const).map((kind) => spec({ ...glyphChartBar([1, 2, 4]), transform: { kind } })),
+  // Axis title placement: both axes' titleAt vocabularies exercised at once.
+  // Appended last so every EARLIER fixture's index — including
+  // `axisTitlePlacement.test.ts`'s own byte-identity comparison against a
+  // pre-`titleAt` build — stays stable.
+  { marks: [glyphChartLine([{ x: 0, y: 1 }, { x: 1, y: 3 }], { x: "population", y: "income" })], axes: { x: { titleAt: "end" }, y: { titleAt: "bottom" } } },
 ];
 
 // Literal expected IDs are independent of the implementation's rule table.
@@ -84,6 +89,13 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   // same canonical-hex check any other invalid string would.
   { id: "bad-axis-color", spec: { marks: [glyphChartLine([1, 2])], axes: { color: "none" as never } } },
   { id: "bad-axis-color", spec: { marks: [glyphChartLine([1, 2])], axes: { x: { color: "#ABCDEF" as never } } } },
+  // Mutation: drop `validateGlyphChartAxisTitleAt`, its rule/hint entry, or
+  // the schema's per-axis `titleAt` enum -> Ajv/runtime parity goes red.
+  // Each axis has its own vocabulary — "top" is valid for y.titleAt but not
+  // x.titleAt, and vice versa for "start" — so a value from the OTHER
+  // axis's vocabulary must still reject.
+  { id: "bad-axis-title-at", spec: { marks: [glyphChartLine([1, 2])], axes: { x: { titleAt: "top" as never } } } },
+  { id: "bad-axis-title-at", spec: { marks: [glyphChartLine([1, 2])], axes: { y: { titleAt: "start" as never } } } },
   { id: "bad-mark-color", spec: spec(glyphChartLine([1, 2], {}, { color: "blue" as never })) },
   { id: "bad-mark-color", spec: spec(glyphChartBar([1, 2], {}, { color: [] as never })) },
   // Mutation: drop the funnel schema `allOf` clause (the literal `number[]`

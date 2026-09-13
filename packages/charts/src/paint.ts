@@ -441,12 +441,18 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
     canvas.text(t.labelStart, t.cell, [t.label], { color: yColor });
   }
 
-  // Titles (packet item 6): x centred under its own tick-label row, y on
-  // the top-left above the axis — a rotated column of text has no
-  // character-grid analogue, so unlike x it never shares a row.
+  // Titles (packet item 6): x defaults to centred under its own tick-label
+  // row (`titleAt: "center"`) but can instead start/end-align at the plot's
+  // own left/right edge; y defaults to the top-left above the axis
+  // (`titleAt: "top"`) or, for `"bottom"`, below the plot at column 0 —
+  // always column 0, whether it shares the x title's row or claims its own
+  // (`layoutGlyphChart`'s own comment on `titleAt: "bottom"`), so unlike x
+  // it never needs its own alignment field.
   if (layout.xAxisTitle) {
     const width = layout.plot.x1 - layout.plot.x0 + 1;
-    const x = Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - layout.xAxisTitle.length) / 2));
+    const x = layout.xAxisTitleAt === "start" ? layout.plot.x0
+      : layout.xAxisTitleAt === "end" ? Math.max(layout.plot.x0, layout.plot.x1 - layout.xAxisTitle.length + 1)
+      : Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - layout.xAxisTitle.length) / 2));
     canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor });
   }
   if (layout.yAxisTitle) {

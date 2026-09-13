@@ -7,7 +7,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
-  "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-mark-color", "funnel-bad-value",
+  "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
   "funnel-missing-value",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
@@ -26,6 +26,8 @@ export const REDUCERS = ["mean", "sum", "min", "max"];
 export const TITLE_ALIGNS = ["left", "center", "right"];
 export const TITLE_POSITIONS = ["top", "bottom"];
 export const LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"];
+export const X_AXIS_TITLE_ATS = ["start", "center", "end"];
+export const Y_AXIS_TITLE_ATS = ["top", "bottom"];
 
 function object(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -63,6 +65,21 @@ export function validateGlyphChartAxisColor(axes: GlyphChartSpec["axes"]): void 
     if (color !== undefined && !isCanonicalHexColor(color)) {
       chartError("bad-axis-color", `axis color must be a canonical lowercase #rrggbb string, got ${JSON.stringify(color)}.`);
     }
+  }
+}
+
+/**
+ * `axes.x.titleAt` / `axes.y.titleAt` — each axis has its own vocabulary
+ * (`start`/`center`/`end` for x, `top`/`bottom` for y), so this checks each
+ * against its own list rather than a shared one; a value valid for the
+ * OTHER axis (e.g. `top` on `axes.x.titleAt`) still rejects.
+ */
+export function validateGlyphChartAxisTitleAt(axes: GlyphChartSpec["axes"]): void {
+  if (axes?.x?.titleAt !== undefined && !X_AXIS_TITLE_ATS.includes(axes.x.titleAt)) {
+    chartError("bad-axis-title-at", `axes.x.titleAt must be one of ${X_AXIS_TITLE_ATS.join(", ")}, got ${JSON.stringify(axes.x.titleAt)}.`);
+  }
+  if (axes?.y?.titleAt !== undefined && !Y_AXIS_TITLE_ATS.includes(axes.y.titleAt)) {
+    chartError("bad-axis-title-at", `axes.y.titleAt must be one of ${Y_AXIS_TITLE_ATS.join(", ")}, got ${JSON.stringify(axes.y.titleAt)}.`);
   }
 }
 
@@ -187,6 +204,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
   validateGlyphChartLegendOption(spec.legend);
   validateGlyphChartAxes(spec.axes);
   validateGlyphChartAxisColor(spec.axes);
+  validateGlyphChartAxisTitleAt(spec.axes);
   if (spec.scales !== undefined && !object(spec.scales)) chartError("bad-scale", "scales must be an object.");
   const scales = { ...spec.scales };
   for (const [axis, opts] of Object.entries(spec.scales ?? {})) {
@@ -241,6 +259,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "funnel-missing-value": "Supply channels.value for funnel record data (a stage channel too, or the row index is used), or pass number[].",
   "bad-axes": "Make axes (and axes.x/axes.y, if present) a plain object, or omit it entirely.",
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
+  "bad-axis-title-at": `Use one of ${X_AXIS_TITLE_ATS.join("/")} for axes.x.titleAt, or one of ${Y_AXIS_TITLE_ATS.join("/")} for axes.y.titleAt.`,
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
 };
 
