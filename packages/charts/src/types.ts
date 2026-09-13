@@ -58,6 +58,14 @@ export interface GlyphChartChannels {
 export interface GlyphChartMarkOptions {
   /** `arc`: fraction of the outer radius carved out for a donut hole. */
   readonly innerRadius?: number;
+  /**
+   * `arc`: how a slice's identity reaches the reader beyond its legend
+   * swatch. `"callout"` (default) draws a leader line from each slice's
+   * mid-arc out to a `name · NN%` label beside the disc; `"legend-only"`
+   * paints just the disc (byte-identical to the render before callouts
+   * existed) and leaves identification to the legend row.
+   */
+  readonly labels?: "callout" | "legend-only";
   /** `rule`: which axis the rule spans; default `"y"` (a horizontal rule at fixed y values, à la Plot's `ruleY`). */
   readonly axis?: "x" | "y";
   /** A caller-supplied series name, used by the legend and `meta.series`. */

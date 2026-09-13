@@ -77,7 +77,13 @@ describe("renderGlyphChart — legend option", () => {
     const on = renderGlyphChart(spec, { ...options, legend: true });
     const off = renderGlyphChart(spec, { ...options, legend: false });
     expect(on.text.split("\n").at(-1)).toMatch(/North.*South/);
-    expect(off.text).not.toMatch(/North|South/);
+    // An arc's default `labels: "callout"` prints each slice's own name
+    // beside the disc independent of the legend row (AGENTS.md's "Charts"
+    // arc section: the legend carries swatches, callouts carry pointers) —
+    // so `legend: false` only removes the LEGEND ROW (the same last-line
+    // scope the `on` assertion above checks), never the callouts.
+    if (mark.type === "arc") expect(off.text.split("\n").at(-1)).not.toMatch(/North.*South/);
+    else expect(off.text).not.toMatch(/North|South/);
     expect(off.text).toContain("Regional totals");
     expect(off.text.split("\n")).toHaveLength(options.height);
     expect(off.meta).toEqual(on.meta);
