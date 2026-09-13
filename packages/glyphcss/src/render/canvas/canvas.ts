@@ -175,6 +175,27 @@ export interface GlyphCanvas {
    * used `text()`'s `scale` option) makes every reader of it a no-op.
    */
   readonly textFiller: Uint8Array;
+  /**
+   * `1` where a `textFiller` cell sits on a row BELOW its scaled text
+   * origin (never on the origin's own row) — `0` everywhere else,
+   * including every filler cell to the origin's own right on its own row
+   * (an all-zero buffer, the case for every existing caller, makes every
+   * reader of it a no-op). `encodeGlyphCanvasHtml` needs this distinction
+   * and none of the other exits do: on the origin's own row, a filler
+   * cell's space is already covered by the origin's own font-size-scaled
+   * advance width, so emitting nothing there is correct (`textFiller`'s
+   * own doc); on a row below, nothing else fills that space — the bigger
+   * glyph merely overflows DOWNWARD past its own line box in ink, it does
+   * not reserve column width on a later `\n`-separated line — so skipping
+   * those cells too silently dropped them from the row's own HTML string
+   * and shifted every later character on that row left by the filler
+   * width (P1-2: a "|" at column 8 landed at column 6 on the row below a
+   * `scale:2` glyph). A cell flagged here already carries a real blank
+   * (`grid.char === " "`, `grid.color === null`) from `text()`'s own
+   * fill loop, so the fix is simply to let it fall through the ordinary
+   * per-cell path below instead of `continue`-ing past it.
+   */
+  readonly textFillerBelowOrigin: Uint8Array;
   readonly report: GlyphCanvasReport;
 
   fillRect(x0: number, y0: number, x1: number, y1: number, opts: GlyphCanvasFillOptions): void;
@@ -659,6 +680,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
   const sub = new Uint8Array(n);
   const textScale = new Uint8Array(n);
   const textFiller = new Uint8Array(n);
+  const textFillerBelowOrigin = new Uint8Array(n);
   const report: GlyphCanvasReport = createGlyphCanvasReport();
   const edgeState: GlyphCanvasEdgeState = createGlyphCanvasEdgeState();
 
@@ -672,6 +694,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
     sub,
     textScale,
     textFiller,
+    textFillerBelowOrigin,
     report,
 
     fillRect(x0, y0, x1, y1, opts) {
@@ -849,7 +872,19 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
               const fy = y + dy;
               if (fx < 0 || fx >= cols || fy < 0 || fy >= rows) continue;
               const fidx = fy * cols + fx;
+              // Every OTHER write in this function refuses an occluded or
+              // already-reserved cell before touching it; this loop used to
+              // blank unconditionally, which both ignored occlusion and
+              // could ERASE a real glyph — an earlier scaled run's own
+              // ORIGIN, if a later run's box happens to land on it
+              // (`textScale[fidx] > 0` marks exactly that cell), or an
+              // earlier run's own filler reservation. Not reachable from
+              // `@glyphcss/charts`' fixed pipeline today (its label runs
+              // never overlap by layout) — a contract hole in the canvas
+              // itself (fable review, batch 4, P3-1).
+              if (isOccludedCell(grid, fidx) || textScale[fidx]! > 0 || isTextFillerCell(textFiller, fidx)) continue;
               textFiller[fidx] = 1;
+              if (dy > 0) textFillerBelowOrigin[fidx] = 1;
               grid.char[fidx] = " ";
               grid.color[fidx] = null;
             }

@@ -226,9 +226,17 @@ export function glyphChartLabelLayout(
     // one placement pass with different scales.
     const scale = Math.max(1, Math.floor(c.scale ?? 1));
     // The candidate's whole `scale`-row box must clear the viewport, not
-    // just its origin row.
-    if (c.y < 0 || c.y + scale - 1 >= rows) { dropped.push(c.id); continue; }
+    // just its origin row. This drop goes through the same ledger every
+    // other drop in this function does (codex P2-11) — silently pushing
+    // to `dropped` with no `report.ledger` entry left a caller with no
+    // way to learn a scaled label vanished for exceeding the viewport's
+    // own height.
     const role = c.role ?? "label";
+    if (c.y < 0 || c.y + scale - 1 >= rows) {
+      dropped.push(c.id);
+      ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "there was no room for it within the viewport's own height" }));
+      continue;
+    }
     // `c.maxWidth`/`cols` are COLUMN budgets in the FINAL (scaled)
     // rendering — divided by `scale` to get the CHARACTER budget
     // `abbreviateChartText` actually measures against.

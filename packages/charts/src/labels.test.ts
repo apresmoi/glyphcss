@@ -57,4 +57,20 @@ describe("glyphChartLabelLayout", () => {
     );
     expect(result.placed[0]!.id).toBe("high");
   });
+
+  // codex P2-11: a scaled label whose whole `scale`-row box overflows the
+  // viewport's height was silently pushed to `dropped` with no
+  // `report.ledger` entry — every OTHER drop reason in this function
+  // (width overflow, no free space, numeric overflow) logs one. Mutation:
+  // revert the height-bounds branch to `{ dropped.push(c.id); continue; }`
+  // with no ledger push -> this goes red.
+  it("logs a label-dropped ledger entry when a scaled label's box overflows the viewport height", () => {
+    const result = glyphChartLabelLayout(
+      [{ id: "a", x: 0, y: 9, text: "AAA", scale: 2 }],
+      { obstacles: [], viewport: { cols: 40, rows: 10 } },
+    );
+    expect(result.placed).toHaveLength(0);
+    expect(result.dropped).toEqual(["a"]);
+    expect(result.ledger.some((entry) => entry.code === "label-dropped")).toBe(true);
+  });
 });

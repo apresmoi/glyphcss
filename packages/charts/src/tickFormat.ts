@@ -90,8 +90,17 @@ function autoFormatValue(value: unknown): string {
   return String(value);
 }
 
+// Both current callers (`decimals.places`, `currency.decimals`) feed this
+// straight into `Number.prototype.toFixed`, whose own spec range is 0..100
+// inclusive — anything past it throws a native, untagged `RangeError` at
+// RENDER time rather than at validation (codex P2-12: `{ preset: "decimals",
+// places: 101 }` passed `renderGlyphChartJson`'s own schema/validate step,
+// then crashed inside `apply` with `code: null`/`hint: null` instead of the
+// documented `bad-tick-format` error). Bounding the ceiling here, where
+// every current and future caller of this helper already means "a fixed-
+// point digit count," closes it at the one place both presets share.
 function requireFiniteNonNegativeInteger(v: unknown, field: string, preset: string): void {
-  if (typeof v !== "number" || !Number.isInteger(v) || v < 0) tickFormatError(`${preset}'s ${field} must be a non-negative integer, got ${JSON.stringify(v)}.`);
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 100) tickFormatError(`${preset}'s ${field} must be an integer between 0 and 100, got ${JSON.stringify(v)}.`);
 }
 
 export const GLYPH_CHART_TICK_FORMAT_PRESETS: Readonly<Record<string, GlyphChartTickFormatPresetEntry>> = {

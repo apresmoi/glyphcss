@@ -31,8 +31,13 @@ const MARK_COLOR_SCHEMA = { anyOf: [HEX_COLOR_SCHEMA, { type: "array", minItems:
 // the shared `additionalProperties: false` below already enforces.
 const TICK_FORMAT_PRESET_PARAMS: Readonly<Record<string, { readonly properties: Record<string, unknown>; readonly required?: readonly string[] }>> = {
   percent: { properties: { of: { type: "number" } } },
-  currency: { properties: { symbol: { type: "string" }, decimals: { type: "integer", minimum: 0 } } },
-  decimals: { properties: { places: { type: "integer", minimum: 0 } }, required: ["places"] },
+  // `maximum: 100` mirrors `tickFormat.ts`'s own `requireFiniteNonNegativeInteger`
+  // bound (codex P2-12): both presets feed this straight into
+  // `Number.prototype.toFixed`, whose spec range is 0..100 inclusive — Ajv
+  // and the runtime validator must agree on the SAME ceiling or a spec that
+  // fails one and passes the other breaks the parity this schema exists for.
+  currency: { properties: { symbol: { type: "string" }, decimals: { type: "integer", minimum: 0, maximum: 100 } } },
+  decimals: { properties: { places: { type: "integer", minimum: 0, maximum: 100 } }, required: ["places"] },
   template: { properties: { pattern: { type: "string" } }, required: ["pattern"] },
 };
 const TICK_FORMAT_OBJECT_SCHEMA = {

@@ -232,6 +232,19 @@ describe("callback (TS/JS only)", () => {
     expect(out.code).toBe("bad-tick-format");
     expect(out.hint).toBeTruthy();
   });
+
+  // codex P2-12's own repro: a VALID line spec with
+  // `axes.y.format: { preset: "decimals", places: 101 }` used to pass
+  // validation (the old check only rejected a negative/non-integer value)
+  // and then crash inside `toFixed(101)` with a raw, untagged
+  // `RangeError` — the JSON API surfaced `code: null`/`hint: null` instead
+  // of the documented `bad-tick-format` shape.
+  it("renderGlyphChartJson rejects an out-of-range decimals.places with bad-tick-format, never a raw untagged error", () => {
+    const json = JSON.stringify({ marks: [{ type: "line", data: [1, 2], channels: {} }], axes: { y: { format: { preset: "decimals", places: 101 } } } });
+    const out = JSON.parse(renderGlyphChartJson(json));
+    expect(out.code).toBe("bad-tick-format");
+    expect(out.hint).toBeTruthy();
+  });
 });
 
 // ── (4) abbreviate/drop policy under a narrow axis ──────────────────────
@@ -284,6 +297,14 @@ describe("validation — GLYPH_CHART_TICK_FORMAT_PRESETS is the ONE table schema
     { label: "a preset object missing a required param (decimals needs places)", format: { preset: "decimals" } },
     { label: "a preset object with an unknown param", format: { preset: "currency", bogus: true } },
     { label: "a param of the wrong type (percent's of must be a number)", format: { preset: "percent", of: "ten" } },
+    // codex P2-12: `places`/`decimals` feed straight into
+    // `Number.prototype.toFixed`, whose own spec range is 0..100 — a value
+    // past it used to pass this same "non-negative integer" check and then
+    // throw a raw, untagged `RangeError` at RENDER time (`code: null`,
+    // `hint: null` through the JSON API) instead of rejecting here with
+    // `bad-tick-format`.
+    { label: "decimals.places past toFixed's own 0..100 range", format: { preset: "decimals", places: 101 } },
+    { label: "currency.decimals past toFixed's own 0..100 range", format: { preset: "currency", decimals: 101 } },
   ])("$label rejects at both runtime and Ajv, with the same rule", ({ format }) => {
     // Mutation: drop `resolvePreset`'s allowed-keys/required checks, or the
     // matching `allOf`/`if`/`then` clause in `schema.ts`'s

@@ -125,6 +125,37 @@ describe("cell canvas: text() scale (web textScale affordance)", () => {
     // resolves ties there); only the FILLER cells are protected.
   });
 
+  // fable review, batch 4, P3-1: the filler-writing loop blanked
+  // unconditionally, with none of the guards every OTHER write in this
+  // function has — it could silently erase an EARLIER scaled run's own
+  // ORIGIN glyph if a LATER run's box happened to land on that exact
+  // cell, and it ignored `occluded` entirely. Not reachable from
+  // `@glyphcss/charts`' own fixed pipeline (its label runs never overlap
+  // by layout) — a contract hole in the canvas primitive itself.
+  it("a later scaled run's filler cells never erase an earlier run's own origin glyph (mutation: drop the textScale guard on the filler loop -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 10, rows: 4, tier: "box" });
+    // Run 1: origin at (1,0), scale 2 -> box (1,0),(2,0),(1,1),(2,1).
+    canvas.text(1, 0, ["A"], { color: "#ffffff", scale: 2 });
+    // Run 2: origin at (0,0), scale 2 -> box (0,0),(1,0),(0,1),(1,1) —
+    // its filler cell (1,0) is run 1's own ORIGIN.
+    canvas.text(0, 0, ["B"], { color: "#000000", scale: 2 });
+    expect(canvas.grid.char[0 * 10 + 0]).toBe("B"); // run 2's own origin, unaffected
+    expect(canvas.grid.char[0 * 10 + 1], "run 1's own origin glyph must survive run 2's filler pass").toBe("A");
+    expect(canvas.textScale[0 * 10 + 1], "the surviving origin must still report its own scale").toBe(2);
+  });
+
+  it("the filler-writing loop respects occlusion, like every other painter (mutation: drop the isOccludedCell guard on the filler loop -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 10, rows: 4, tier: "box" });
+    canvas.grid.occluded = new Uint8Array(10 * 4);
+    canvas.grid.occluded[1] = 1; // (1,0) — one of the scaled run's own filler cells
+    canvas.grid.char[1] = "X"; // stands in for whatever an earlier occluding layer left there
+    canvas.text(0, 0, ["A"], { color: "#ffffff", scale: 2 });
+    // The occluded filler cell is left untouched — never blanked, never
+    // marked as this run's own reserved box.
+    expect(canvas.grid.char[1]).toBe("X");
+    expect(canvas.textFiller[1]).toBe(0);
+  });
+
   it("rejects a non-integer or sub-1 scale", () => {
     const canvas = createGlyphCanvas({ cols: 10, rows: 4, tier: "box" });
     expect(() => canvas.text(0, 0, ["a"], { scale: 1.5 })).toThrow(RangeError);
