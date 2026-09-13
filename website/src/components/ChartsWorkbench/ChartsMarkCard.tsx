@@ -1,10 +1,11 @@
 import type { CSSProperties, Dispatch, ReactNode } from "react";
 import type { GlyphChartMarkType, GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import {
-  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields, chartMarkTypeFits,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields,
   chartRelevantChannels,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
+import type { ChartsMarkTypeFitTable } from "./chartsMarkTypeFit";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { EditableReadout, IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
@@ -176,22 +177,19 @@ function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch 
   </div>;
 }
 
-export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }: {
-  mark: ChartsWorkbenchMark; index: number; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
+export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, dispatch }: {
+  mark: ChartsWorkbenchMark; index: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
   const fields = chartMarkFields(mark);
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
-  // P3-6 (review fix, REVIEW-showcase-opus.md): `sankey`/`funnel` are dead
-  // ends on a dataset with too few fields — disabled WITH A REASON rather
-  // than left clickable into a raw ledger error. Recomputed against this
-  // mark's OWN resolved fields (never a static list), so a genuinely
-  // flow-shaped dataset (`energy-flow-sankey`, `ecommerce-conversion-
-  // funnel`) enables them exactly like every other mark type.
+  // A type the data can't draw is disabled with its reason
+  // (`chartsMarkTypeFit.ts`, the `mapDirectionLocked` idiom). The CURRENT
+  // type always stays enabled, even when the table calls it unfit (a tray
+  // sample, a hand-built link), so a card is never stranded on a disabled
+  // button.
   const typeOptions = CHART_MARK_TYPE_TOGGLE.map((option) => {
-    const type = option.value as GlyphChartMarkType;
-    if (chartMarkTypeFits(mark, type)) return option;
-    const need = type === "sankey" ? "distinct source, target and value columns" : "distinct stage and value columns";
-    return { ...option, disabled: true, disabledReason: `This dataset doesn't have ${need}.` };
+    const fit = typeFits[option.value as GlyphChartMarkType];
+    return fit.fits || option.value === mark.type ? option : { ...option, disabled: true, disabledReason: fit.reason };
   });
   return <div className="voice-card charts-mark-card">
     <div className="voice-controls">
@@ -201,7 +199,7 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
       <div className="voice-row charts-mark-row" data-row="type">
         <span>Type</span>
         <IconToggle groupTitle={`Mark ${index + 1} type`} options={typeOptions} value={mark.type}
-          onChange={(type) => update({ type: type as ChartsWorkbenchMark["type"], options: {}, color: undefined })} />
+          onChange={(type) => dispatch({ type: "set-mark-type", id: mark.id, markType: type as GlyphChartMarkType })} />
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
       {(() => {

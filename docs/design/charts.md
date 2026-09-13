@@ -12,7 +12,7 @@ The fixed order is validation and channel materialization → transforms → one
 
 ### Byte-identity: the exception list ("claim A")
 
-Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. As of this batch it lists seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyBandPaintsSmooth`; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
+Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. It now lists nine — #8 sankey visual air and #9 an area's sub-cell silhouette (Round 23) came later; the batch that wrote this paragraph listed seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyBandPaintsSmooth`; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
 
 ## Quantities, domains and stack bounds
 
@@ -380,8 +380,7 @@ Two things landed together: the adversarial review of Round 12 itself (`REVIEW-s
 
 **P3-5 — the Random button now matches `/gallery`'s own exact markup.** `control-btn charts-random-btn` (an 11px/tight-padding override, no `--primary`) is now `control-btn control-btn--primary charts-random-btn` (placement-only CSS, no size/font override) — `gallery-workbench.css`'s `.control-btn` base rule already renders identically to the reference. The label dropped `⚄` (U+2684, DIE FACE-5 — outside the page's own "Glyph Mono" subset, so it rendered through OS emoji/symbol fallback) for plain "Random" text, which the page's font stack already covers exactly.
 
-**P3-6 — an incompatible mark type is disabled with a reason, not left clickable into a ledger error.** `chartMarkTypeFits(mark, type)` (`chartsWorkbenchState.ts`) gates only `sankey`/`funnel` (every other type reads x/y-shaped data generically enough to never fail): it reuses `dataProfile.ts`'s own column typing — `sankey` needs two independent `category`-typed columns (source, target) plus a numeric value column; `funnel` needs one category column plus numeric. A flat FIELD COUNT was tried first and rejected: it passed `global-temperature`'s plain `(date, number)` pair for funnel (2 fields, matching `CHART_FUNNEL_CHANNELS.length` exactly) while a category/numeric TYPE check correctly excludes a date axis. `IconToggle` (`SynthWorkbench/synthKit.tsx`, shared by every icon-toggle group on the site) gained optional per-option `disabled`/`disabledReason` — rendered `disabled`, with the reason folded into `title`/`aria-label` (`mapDirectionLocked`'s own idiom) and skipped by arrow-key roving-tabindex navigation — as a zero-cost addition for every OTHER consumer (`o.disabled` is `undefined` there, `disabled={undefined}` is not disabled). Verified against the REAL flow datasets a concurrent commit (`b2278e2f`) vendored in the same window: `energy-flow-sankey`/`ecommerce-conversion-funnel` enable the matching button; every other (non-flow) dataset disables both.
-
+**P3-6 — an incompatible mark type is disabled with a reason, not left clickable into a ledger error.** The first cut (`chartMarkTypeFits`) gated only `sankey`/`funnel` on column typing; it is superseded by the per-type fit table in "Mark-type fit" below, which found every other type failing too. `IconToggle` (`SynthWorkbench/synthKit.tsx`, shared by every icon-toggle group on the site) gained optional per-option `disabled`/`disabledReason` — rendered `disabled`, with the reason folded into `title`/`aria-label` (`mapDirectionLocked`'s own idiom) and skipped by arrow-key roving-tabindex navigation — as a zero-cost addition for every OTHER consumer (`o.disabled` is `undefined` there, `disabled={undefined}` is not disabled). 
 **Dataset SEARCH (`ChartsDatasetSearchBox.tsx`) — the user's own framing: "put a search and let's just index as much datasets as we can."** A second entry point into the exact same commit pipeline `select-dataset` already uses, sitting in the rail header above the stock `<select>`, matching `MapsWorkbench/MapSearchBox.tsx`'s look, 250ms debounce, `AbortController`-per-keystroke, and up/down/Enter/Escape keyboard model line for line (`ChartsDatasetSearchBox.test.tsx` mirrors that file's own test structure, including its fake-timer debounce idiom from `MapSearchBox.geocode.test.tsx`). Two new pure `website/src/lib/` modules:
 
 - **`datasetSearch.ts`** — `searchDatasets(query, { fetchJson, signal, limit })` queries the Hugging Face Hub's public, UNAUTHENTICATED `https://huggingface.co/api/datasets?search=` endpoint (no key, `Access-Control-Allow-Origin: *`), filters to hits whose own tags read as tabular (`format:csv`/`format:json`/`format:parquet`/`modality:tabular`/`task_categories:tabular-*`, or a small `size_categories` bucket — read off real live responses, not the docs), and ranks by `downloads`. `parseDatasetHitFromQuery(text)` recognizes THREE pasted shapes with NO network call at all: a raw GitHub file URL (`raw.githubusercontent.com/.../file.csv|json|tsv`), a Hugging Face resolve URL (`huggingface.co/datasets/<org>/<name>/resolve/<rev>/<file>`), and a bare `org/name` id — any of the three short-circuits the live search entirely (a precise reference beats a query for the literal pasted string).
@@ -439,7 +438,7 @@ Gates: `TargetPreview/TargetPreview.test.tsx` (C1/C2/C3/C4 unit-level, one asser
 
 ## Chart candidate ranking (`website/src/lib/chartCandidates.ts`)
 
-Replaces the old single-pick recommender (`dataProfile.ts`'s `recommendChart`, a hand-ordered priority list with fixed scores like "line: 100, bar: 90, dot: 65") with an **information-ranked enumeration**: every mark the profiled columns can honestly support, scored on how much information it actually shows, sorted best first. `recommendChart` is now a thin wrapper over `buildChartCandidates` (unchanged public signature); `chartsDataSource.ts`'s `chartsCandidatePick(profile, { mode, seed })` is the seam onto the full `ChartCandidate` (its `terms` included) for `"best"` or a seeded `"weighted-random"` pick.
+Replaces the old single-pick recommender (`dataProfile.ts`'s `recommendChart`, a hand-ordered priority list with fixed scores like "line: 100, bar: 90, dot: 65") with an **information-ranked enumeration**: every mark the profiled columns can honestly support, scored on how much information it actually shows, sorted best first. `recommendChart` is now a thin wrapper over `buildChartCandidates` (unchanged public signature). The mark-type toggle reads the full `ChartCandidate` list per type ("Mark-type fit", below).
 
 **Why `DataProfile` grew a `sample` field.** Entropy/structure scoring needs paired values across columns (a Pearson correlation, a between-group variance ratio) that column-level metadata (`min`/`max`/`distinctCount`) can't answer. `profileRows` now retains the row-aligned input, capped at `CHART_CANDIDATE_SAMPLE_CAP` (3,000 rows) — every vendored dataset is under 200 rows, so this never engages for them. The empty-profile shape (`{ rowCount: 0, columns: [] }`) is unchanged byte-for-byte (`dataProfile.test.ts` pins it with `toEqual`), since `sample` is only ever set on the non-empty branch.
 
@@ -452,7 +451,7 @@ score = 0.30*entropy + 0.30*structure + 0.15*coverage + 0.15*legibility + 0.10*p
 `prior` is deliberately the smallest weight — a name-lexicon match is documented as a tie-breaker in the brief, never the primary signal. `entropy` and `structure` are tied for largest: "does this view show real information" (entropy) and "is what it shows a real relationship" (structure) are the two questions that matter most for ranking.
 
 - **Entropy** — for a numeric measure, normalized Shannon entropy of its own value HISTOGRAM (`measureHistogramEntropy`): bin count is `clamp(distinctCount, 2, 10)`, so a constant column (one bin holds everything) scores exactly 0, and a column spread evenly across its bins scores near 1. For a category axis, normalized entropy of its value COUNTS, capped by a legibility-shaped cardinality bell (`categoryLegibilityBell`: 1.0 over 2-12 distinct values, tapering to 0.05 by 40+, 0 at a single value) — the "2-12 categories score best, 1 or 40 score low" the brief asks for. `arc`'s entropy is different in kind: entropy of the SHARE distribution (values summed per category, normalized to proportions) — a perfectly even pie scores maximal entropy even if the underlying measure is literally constant (four equal slices IS a balanced, informative composition, even though "the numbers don't vary" would score 0 as a bar's plain measure entropy — two different, both correct, questions).
-- **Structure** — ordered-x (`line`/`area`): `0.5*|Spearman rho| + 0.5*`lag-1 autocorrelation, per series-group (fill), averaged. Two-measure (`dot`): `|Pearson r|`. Category x measure (`bar`, category x category `cell`): an **omega-squared** between-group variance ratio (`betweenGroupVarianceRatio`) — the standard ANOVA effect-size correction over the naive eta-squared (`SSbetween/SStotal`), because the naive ratio is a mathematical ARTIFACT whenever there's no within-group replication (`k >= n`, one observation per group): every group's own sum-of-squares is trivially 0, so the naive ratio is *always* exactly 1 regardless of whether the category means anything. Omega-squared's `-(k-1)*MSwithin` correction term is 0 in that exact case too (no `MSwithin` to subtract, since it's undefined), so the guard is explicit: `k >= n` reads as `NEUTRAL_NO_REPLICATION` (0.3 — deliberately BELOW a coin-flip 0.5, since "cannot be estimated" is a weaker claim than "estimated and moderate"), never the naive 1. `arc` and `sankey` get the SAME flat neutral 0.5 — neither has a real "does the category explain the measure" question (a pie's value IS the composition; a sankey's value IS the flow topology, already gated at ELIGIBILITY by requiring the source/target pair form a genuine DAG), so a variance-ratio answer to the wrong question is worse than an honest "no opinion". `funnel`'s structure is the fraction of consecutive stage-value transitions that are non-increasing, shrunk toward 0.5 (chance) by `sampleConfidence` on the TRANSITION count — a coin flip clears 50% "non-increasing" on any short run, so 2-of-3 isn't meaningfully different from chance.
+- **Structure** — ordered-x (`line`/`area`): `0.5*|Spearman rho| + 0.5*`lag-1 autocorrelation, per series-group (fill), averaged. Two-measure (`dot`): `|Pearson r|`. Category x measure (`bar`, category x category `cell`): an **omega-squared** between-group variance ratio (`betweenGroupVarianceRatio`) — the standard ANOVA effect-size correction over the naive eta-squared (`SSbetween/SStotal`), because the naive ratio is a mathematical ARTIFACT whenever there's no within-group replication (`k >= n`, one observation per group): every group's own sum-of-squares is trivially 0, so the naive ratio is *always* exactly 1 regardless of whether the category means anything. Omega-squared's `-(k-1)*MSwithin` correction term is 0 in that exact case too (no `MSwithin` to subtract, since it's undefined), so the guard is explicit: `k >= n` reads as `NEUTRAL_NO_REPLICATION` (0.3 — deliberately BELOW a coin-flip 0.5, since "cannot be estimated" is a weaker claim than "estimated and moderate"), never the naive 1. `arc` and `sankey` get the SAME flat neutral 0.5 — neither has a real "does the category explain the measure" question (a pie's value IS the composition; a sankey's value IS the flow topology, already gated at ELIGIBILITY by requiring the source/target pair form a genuine DAG AND an edge list, "Mark-type fit" below), so a variance-ratio answer to the wrong question is worse than an honest "no opinion". `funnel`'s structure is the fraction of consecutive stage-value transitions that are non-increasing, shrunk toward 0.5 (chance) by `sampleConfidence` on the TRANSITION count — a coin flip clears 50% "non-increasing" on any short run, so 2-of-3 isn't meaningfully different from chance.
 - **Sample confidence** (`sampleConfidence(n)`) — a Pearson/Spearman correlation from a handful of points has real sampling uncertainty (standard error ~`1/sqrt(n-3)`); a "perfect" r from 3-4 points is not the same claim as one from 30. Reaches full confidence at 15 points, 0 at 3 or fewer. Applied to `dot`'s structure and to a MONOTONIC-NUMERIC-x `line`/`area`'s per-group trend/autocorrelation — but NOT to a genuine date-x line: a 2-point time series' direction is exactly, not approximately, what those 2 points show (it isn't estimating an unknown coefficient), so it earns no discount.
 - **Collinearity discount** (`collinearityDiscountFor`) — a `dot` pair (or a monotonic-numeric-x `line`/`area`, which is the same shape) whose axes ALSO correlate strongly (>= 0.8) with a THIRD available measure isn't distinctively related — it's one slice of a wider collinear cluster (several dimensions of the same underlying thing moving together), and a broader mark showing every measure at once (`bar`'s multi-measure melt, `cell`) captures that cluster without picking one arbitrary pair of it. `min(0.85, 0.3 x count of such other measures)`, multiplicative on structure.
 - **Coverage** — row completeness (fraction of rows with every used channel non-null), times 0.7 when a `group` transform aggregates (real, but lossy), times a **breadth factor** (`breadthFactor`): `channelsEngaged / totalEngageable` where `totalEngageable` is the profile's own count of measures + categories (excluding id-like columns) — a mapping using 2 of a table's 6 informative columns shows a narrower slice than one using all 6, which `coverage`'s row-completeness half alone can't see (a candidate can use every ROW and still leave most of the table's COLUMNS unshown). A pool of 1-2 total columns (nothing to have left out) never gets discounted.
@@ -490,20 +489,20 @@ A second, independent bug rode alongside it: `effectiveNumbers` fell back to the
 | renewable-electricity-share | area | 1 |
 | treasury-yield-10y | line | 0 |
 | olympics-2024-medals | bar (gold only) | 5 -- see below |
-| iris-flowers | dot | 3 -- see below |
+| iris-flowers | dot | 2 |
 | energy-flow-sankey | sankey | 0 |
 | ecommerce-conversion-funnel | funnel | 0 |
 | global-electricity-mix | arc | 0 |
 | city-monthly-temperatures | cell | 0 |
-| gdp-life-expectancy-2007 | dot | 1 |
+| gdp-life-expectancy-2007 | dot | 2 |
 | energy-consumption-by-source | area (stacked) | 1 |
 | gdp-growth-2020-crisis | bar | 0 |
-| olympics-2024-medals-by-type | bar (stacked) | 1 |
+| olympics-2024-medals-by-type | bar (stacked) | 0 (tied with the heatmap at 0.916) |
 
-**10 of 16 rank #1; 14 of 16 rank in the top 3.** Two documented disagreements, both judged to be the SCORER correctly finding more information, not a defect:
+**11 of 16 rank #1; 15 of 16 rank in the top 3** (re-measured after "Mark-type fit": `iris-flowers` rose from 3 when the overlapping melted species bar stopped being offered, and `olympics-2024-medals-by-type` from 1 when the prior stopped penalising a category x). One documented disagreement, judged to be the SCORER correctly finding more information, not a defect, plus one near miss:
 
 - **`olympics-2024-medals` (rank 5).** The curated mapping charts gold only; the table also has silver and bronze, correlated with gold across countries. The multi-measure melt bar (every medal, per country) and a gold-vs-silver/gold-vs-bronze scatter are both honestly more informative than "gold alone" for this exact table — and the maintainers' own later addition, `olympics-2024-medals-by-type` (the identical data, long-format), exists specifically because "the wide-format sibling dataset only ever charts gold alone" (its own header comment). Curation is narrow here for editorial reasons (one clean bar for a showcase card); the scorer isn't wrong to prefer showing all three medals. Moved from rank 4 to rank 5 by the `isIdLikeColumn` fix below (CHARTS-RESEARCH `REVIEW-batch4-*.md` P1-4/P1-8): `bronze`'s ten values happen to be all-distinct, which the old blanket `cardinality === "unique"` rule wrongly excluded as an identifier — correctly counting it as a real measure only strengthens the case for the melt/scatter candidates already outranking "gold alone", it doesn't introduce a new defect.
-- **`iris-flowers` (rank 3).** Real Fisher iris data: `petal_length` x `petal_width` correlates more strongly (r ~ 0.96) than the curated `sepal_length` x `petal_length` (r ~ 0.87). Both are genuinely strong, cross-part relationships; the curated pick is the more commonly cited pairing (spanning sepal and petal) but not the statistically stronger one on this exact data.
+- **`iris-flowers` (rank 2, in the top 3 but not first).** Real Fisher iris data: `petal_length` x `petal_width` correlates more strongly (r ~ 0.96) than the curated `sepal_length` x `petal_length` (r ~ 0.87). Both are genuinely strong, cross-part relationships; the curated pick is the more commonly cited pairing (spanning sepal and petal) but not the statistically stronger one on this exact data.
 
 Two scorer/profiler fixes were made DURING this work specifically because the ground-truth sweep caught them (not invented in the abstract): the `betweenGroupVarianceRatio` degenerate-replication guard above (without it, `gdp-life-expectancy-2007`-shaped data with one row per category always read as maximal, spurious structure), and `barAxisColumns` (without it, `gdp-growth-2020-crisis` -- 23 countries, 23 rows -- had literally zero bar/arc/cell/sankey/funnel candidates generated at all, since its country column fell just outside the UI-facing category cutoff).
 
@@ -511,9 +510,50 @@ Two scorer/profiler fixes were made DURING this work specifically because the gr
 
 `chartCandidates.test.ts`'s "mutation checks" describe block isolates the entropy and structure terms by holding every other candidate property equal between two otherwise-identical rows: a constant measure vs. a varying one sharing the same category/shape (entropy is the only term that can differ -- deleting entropy's weight would make them tie), and a genuinely correlated measure pair vs. an uncorrelated permutation of the same values sharing near-identical entropy (structure is the only term that can differ). Both assert the informative candidate scores strictly higher, not merely "differently".
 
-### Selection: `pickChartCandidate`
+### Mark-type fit (`website/src/components/ChartsWorkbench/chartsMarkTypeFit.ts`)
 
-`"best"` returns `candidates[0]`. `"weighted-random"` samples, with probability proportional to score, among candidates within `CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD` (0.85) of the top score -- so Random rotates between genuinely informative views, never a degenerate low-score one. Seeded via a small deterministic PRNG (mulberry32) for reproducible tests and replay. `buildChartCandidates` never returns an empty list for ANY profile (even `rowCount: 0`, whose only candidate is the channel-less fallback bar), so `pickChartCandidate`'s `null` return is a type-level accommodation for an empty input array only -- reachable by calling it directly with `[]`, not through `chartsCandidatePick`.
+The user's report: "if the data cannot display a specific chart, the chart should be disabled in the selector", and, on the same code, "the coordinates we are using when we select one chart often are not the ones that have great information". Full evidence in CHARTS-RESEARCH `DIAGNOSIS-mark-type-fit.md` (untracked); the checked-in record is `fixtures/markTypeFitDiagnosis.json`.
+
+**What happened before.** The Type toggle dispatched `update-mark { type, options: {}, color: undefined }` and KEPT the previous type's channels; only `sankey`/`funnel` were ever disabled. Rendering every one of the 16 datasets x 11 types through that real path (`renderChartsWorkbenchState`) and classifying the output:
+
+| Outcome | Cells |
+|---|---|
+| renders meaningfully | 33 |
+| renders but meaningless | 86 |
+| blank (title-only, `empty-total`) | 5 |
+| throws (`missing-xy-channels` 18, `sankey-bad-value` 15, `funnel-missing-value` 14, `bad-scale` 3, `arc-missing-value` 2) | 52 |
+
+Only 33 of 176 picks drew a real chart. Typical meaningless ones: a 146-slice pie of a date column, a funnel of `energy-flow-sankey` keyed by row index, a line through Fisher's iris in row order, text marks with no label, rule marks over records.
+
+**The rule.** One table, `CHARTS_MARK_TYPE_RULES` (name, plain-English `needs`, `ranked`, `series`); nothing else in the page branches on a type's name. A type FITS iff `buildChartCandidates` offers at least one candidate of that type the page can BIND (a `group` whose reduce is `mean` can't be, since the page's bare `group` sums). Picking it binds that type's TOP candidate's channels, transform and reshape pipeline, re-derived from the dataset's own rows (`chartsMarkTypeBase`), with `select-dataset`'s scale reset. Two exceptions, both data: a vendored dataset's curated type always fits and re-binds the curated mapping (transform included, so stacked area/bar survive a round trip); a bare numeric tray series fits `line`/`area`/`bar`/`dot` over its index. The current type is never disabled; the reducer refuses an unfit type.
+
+**Judgement calls** (each classified meaningless in the diagnosis, and disabled):
+
+- `rect` never fits: the page binds no x1/x2/y1/y2 range channels, and bound to x/y it paints exactly what `bar` paints.
+- `text` and `rule` never fit a dataset: they annotate another mark (a label layer, reference lines) and the page draws one mark at a time. Text over a curated mapping had no label column, and rule over records has no reference values.
+- A dot or line over a CATEGORY axis (a Cleveland dot plot of gold by country, a line over `Jan..Dec` strings) is disabled. The profiler can't tell ordinal strings from nominal ones, and the bar shows the same values.
+- A bar over more than 60 categories or dates (`CHART_CANDIDATE_BAR_AXIS_MAX`, where `scoreBar`'s crowding curve bottoms out) is disabled: each bar gets under two of the ~88 plot columns.
+- A sankey over a complete source x target grid (country x medal) is disabled as a contingency table, even though it renders; the heatmap and the stacked bar read it honestly.
+
+**Ranker misfires found and fixed** (each has a red test in `chartCandidates.test.ts`' "misfires" block):
+
+1. **Sankey on any two categories.** `categoryPairFormsDag` alone passes every pair of disjoint vocabularies, and sankey's neutral 0.5 structure beat real but noisy relationships. On a titanic-shaped table every top-6 candidate was a sankey at 0.673 (`fare` flowing `survived -> sex`), and the data_jobs shape's top sankey threw `sankey-bad-value` on a null salary. Now it requires an edge list: unique (source, target) pairs, a positive value on every link, and not a complete grid.
+2. **Code-like integers as measures.** `measureHistogramEntropy` gives a 3-value `pclass` one bin per value, so entropy is ~0.99 and "mean passenger class by sex" scored 0.571. An integer with ≤ 4 distinct values repeated ≥ 10x each is no longer a measure.
+3. **Rankings read as ordered axes.** The profiler's `monotonic` also accepts decreasing and tied values, so a medal table sorted by gold offered "a line of bronze over gold" (0.445). It was also taken over the whole column, so a long-format integer year repeated per country offered no line at all. An ordered numeric x must now STRICTLY increase in row order, across the table or within each value of a fill category.
+4. **Time-named integers scored as measures.** An integer `year` took the ordered-measure legibility discount (0.3), the breadth discount and sample-confidence shrinkage. On a gapminder shape, life expectancy against population (0.822) beat life expectancy over time, which wasn't offered at all. An ordered integer named like time is now a time axis and never a measure: that line now tops at 0.945.
+5. **Zig-zag lines.** An unfilled line over a date that repeats (six countries per year) draws vertical strokes through every row sharing it. Plain lines need a unique x, and filled ones a unique x within each series.
+6. **Overlapping bars.** A melted multi-measure bar over a repeated category (iris: 50 rows per species) and a split bar with repeated (x, fill) pairs draw several bars per sub-band on top of each other, showing only each group's maximum. Iris's top candidate (0.739) was such a chart. Both now require one row per key.
+7. **Prior penalised a category x.** `priorFor` averaged a 0 into every bar whose x wasn't time-named, halving its prior against a `cell` or `arc` that names no x. That was the entire 0.05 by which the heatmap beat the identical stacked bar on `olympics-2024-medals-by-type`. A time-named x is now a bonus only.
+
+Added so a fitting type has a candidate: a time scatter (`dot` over a date, legibility 0.08 below `area`, so line > area > dot) and a column chart over a date axis of 2 to 60 values.
+
+**After.** 41 of 176 vendored cells enabled, 135 disabled. Every enabled cell renders its binding and every disabled cell was diagnosed throwing, blank or meaningless (0 exceptions, gated per cell). No cell that rendered meaningfully before is disabled. By type: line 7, area 7, bar 10, dot 10, arc 2, cell 3, sankey 1, funnel 1, rect/text/rule 0. On five offline remote shapes (titanic, wine, data_jobs, seeds, gapminder), 9 of 55 are enabled.
+
+**Random on a remote dataset** now takes the top bindable candidate. The 85%-of-top weighted-random pool held 1 to 26 candidates, mostly the top pick's own mirror images (x/y swapped, sankey reversed) or its fill variants, and Random already varies by landing on a different dataset every press. `pickChartCandidate`, `chartsCandidatePick` and `candidateToTopRecommendation` were deleted with it.
+
+**Speed.** `profileRows` + `buildChartCandidates`, warm median over 30 runs: 0.01 to 0.9 ms on the vendored datasets (iris the slowest), 0.15 to 2.1 ms on the 200-row remote shapes (wine), about 9 ms on a 3,000-row table at the sample cap. Cold first runs spike to 5 to 10 ms. The fit table is memoised per base (`FIT_CACHE_LIMIT` 8), so a type switch or a re-render after the first costs a map lookup.
+
+**Residuals.** A remote dataset keeps no pre-reshape rows, so its fit reads the mark's own (possibly melted) data. Where the best view is a mean per category (titanic's fare by sex), bar stays disabled until the page can bind `reduce`. `olympics-2024-medals-by-type`'s curated bar and heatmap tie at 0.916, and only stable sort order puts the bar first. The synthetic remote shapes are noise, so their structure terms carry no real signal.
 
 ## Round 18: monochrome shade-family fill (pie/region-mark contrast)
 
@@ -783,3 +823,79 @@ The band-thickness column (data-PROPORTIONAL, row height ∝ throughput) already
 **Gates**: `pnpm --filter @glyphcss/charts test` (1176 tests, up from 1162 on the merged `feat/diagrams` baseline — 8 new sankey/funnel geometry tests in `flowMarks.test.ts`, 6 new axis-tick tests in `layout.test.ts`), `pnpm --filter @glyphcss/charts build`, `pnpm --filter @glyphcss/website test` (1987, unchanged — no website file touched by this packet). Mutation checks performed by hand (reverting one scaling factor at a time, confirming red, restoring): `nodeWidthCap`'s `* textScale` reverted freezes the measured node width at 16 for every density (test expects exact doubling/tripling — red); the funnel `labelGutter`'s `14 * textScale` reverted keeps the gutter frozen at its density-1 value (test expects it to more than double by density 3 — red); `xTickCountProvisional`'s `6 * textScale` reverted changes the kept tick set on 2 of 5 presets at density 2 (the bar preset's band labels and the yearly date axis both diverge — red).
 
 **The energy sankey, web/braille, density 2 (192×64 render, `renderGlyphChart(spec, { target: "web", width: 192, height: 64, textScale: 2, color: "none" })`)** — pasted in full in this session's own report; `report.ledger` carries `sankey-band-broken` (the skip-level Natural Gas→Industrial band's own run broken 114 cells by a crossing band — real cell contention, unrelated to this fix) and `label-abbreviated` ("Electricity Generation" → "Electricity Gen…" in the legend), both pre-existing, unaffected by this packet.
+
+## Round 23: stacked areas (CHARTS-RESEARCH `DIAGNOSIS-stacked-area.md`)
+
+The library already stacked an area (`area` + `transform: { kind: "stack" }`), but on the vendored `energy-consumption-by-source` dataset only the bottom band read as a band. Three root causes, all in `paint.ts`'s area painter:
+
+1. **S1 — the colour-off boundary line erased the band it bounds.** It was drawn along each layer's `y1`, i.e. on the band's own TOP row, after the fill. A layer under ~2 rows tall has its top row as its whole band.
+2. **S2 — the fill interpolated between whole-row-ROUNDED data points.** `scaleToRow` rounded each vertex, the column loop interpolated those integers and rounded again: the stack's top sat up to 0.82 rows off (centre sampling alone is bounded by 0.5) and 10-24 cells per band went to the neighbouring band.
+3. **S3 — every tier filled whole cells.** At braille 96x32 the stack's top rises 14 rows over 90 columns, which a whole-cell fill can only draw as 14 plateaus (longest 16 columns): the web page's reported staircase.
+
+`double-diagonal-solid` (logged 8 times at 80x24) was a side effect of S1: the fourth series' boundary takes `SERIES_STYLES[3] = "double"`, which has no diagonal form. It stays expected for an unstacked 4-series line or area chart.
+
+### Measured (share of each band's cells carrying its own `seriesShade` glyph)
+
+Band cells are defined independently of the painter (exact interpolated edges, centre inside `(top - 0.5, base - 0.5]`).
+
+| tier, size, colour off | Nuclear before | Renewables before | Traditional biomass before | every band after |
+|---|---|---|---|---|
+| box 80x24 | 16% | 33% | 15% | 100% |
+| ascii 80x24 | 23% | 33% | 60% | 100% |
+| blocks 80x24 | 2% | 12% | 13% | 100% |
+| braille 80x24 | 2% | 7% | 13% | 100% |
+| box 96x32 | 16% | 46% | 41% | 100% |
+| braille 96x32 | 1% | 22% | 37% | 100% |
+
+With colour on (no boundary drawn, so S2 alone) the same bands were 76-97% before and are 100% after.
+
+### Decisions
+
+- **No boundary line on a stacked layer.** Stacking partitions each column exactly, so every boundary is already the change from one band's glyph (or colour) to the next; there is no overlap for a line to disambiguate, which is the only reason an UNSTACKED area draws one. A boundary "only where the band is tall enough" was rejected: the same series' edge would switch vocabulary along its own length. `strokeWidth` is therefore inert on a stacked area.
+- **Exact rows, snapped columns.** A vertex keeps `scaleToCol`'s column (where a line or dot mark puts the same point) and its EXACT row; each column is centre-sampled against every segment through it. Sampling columns at their exact centre instead was built first and broke `chartsDatasetDateAxis.test.ts`'s `us-unemployment` snapshot: monthly data is denser than the plot, a one-month spike (April 2020) falls between two column centres, and centre sampling erased it. Every segment through a column contributes, so a one-sample spike still reaches its own column, exactly as the rounded painter always drew. `stackedArea.test.ts` pins it with a spike placed between centres.
+- **Sub-cell edge on the OUTER silhouette only.** On `braille`/`blocks`, a cell whose centre no layer covers but part of which one does takes `fillSubGlyph(mask)` (the blocks quadrant table, sampled at quadrant centres) in the colour of the layer covering most of it. That cell belongs to no band, so it costs no band an identity cell. At braille 96x32 the silhouette goes from whole-cell steps to 28 half-cell steps over 29 levels (longest flat run 9 cells, where a flat run is real data, not quantisation).
+- **Internal boundaries stay whole-cell glyph transitions** — the honest limit. A glyph cannot change mid-cell; a quadrant in every internal boundary cell would keep only the cells wholly inside a band at 2x4 dot resolution: braille 96x32 Nuclear 33%, Renewables 17%, Traditional biomass 55%. That breaks the region-mark rule for exactly the thin bands at issue. With S2 fixed they are the exact centre-sampled partition, never more than half a cell from the true boundary.
+- **An unstacked area gets the same fill fix** (same painter, same S2/S3). Its sub-cell silhouette is skipped when its colour-off boundary line is drawn (a named series), so its edge is drawn once. This is `reviewFixtures.ts` exception #9: `goodSpecs[1]` (`area([-1,1])`) on `blocks`/`braille` gained the silhouette; `stackedArea` (index 13) lands on whole rows and is byte-identical, as is every line chart.
+
+### Mutation checks (`stackedArea.test.ts`)
+
+| mutation | reddens |
+|---|---|
+| draw the boundary line on stacked layers again (S1) | 8 colour-off ownership tests, the `double-diagonal-solid` test, 4 thin-band tests, 2 silhouette-step tests |
+| round each vertex's row before interpolating (S2) | 16 ownership tests (colour on and off), 4 thin-band tests |
+| paint no silhouette (S3) | 2 silhouette-step tests, the unstacked-silhouette test |
+| let the silhouette overwrite a centre-covered cell | 8 blocks/braille ownership tests, 2 thin-band tests |
+| gate the silhouette on `stacked` alone | the unstacked-silhouette test |
+| always draw the silhouette | the named-area "edge drawn once" test |
+| keep only the last segment through a column | the dense-data spike test |
+
+### Renders, energy dataset, `color: "none"`
+
+Box 80x24, after:
+
+```
+160k ┤                                                       ╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚
+     │                                               ╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚░░░░░
+     │                                         ╱╱╱╱╱╱╱╱▚▚▚▚▚▚░░░░░░░░░░░░░░█████
+     │                                    ╱╱╱╱╱╱▚▚▚▚░░░░░░░░████████████████████
+120k ┤                               ╱╱╱╱╱╱╱▚▚░░░░░█████████████████████████████
+     │                      ╱╱╱╱╱╱╱╱╱╱╱╱▚░░░░███████████████████████████████████
+     │             ╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚░░░░░░███████████████████████████████████████
+     │    ╱╱╱╱╱╱╱╱╱╱▚▚░░░░░░░░░░░███████████████████████████████████████████████
+ 80k ┤╱╱╱╱╱▚▚▚▚░░░░█████████████████████████████████████████████████████████████
+```
+
+Braille 96x32, after (the quadrant caps are the sub-cell silhouette):
+
+```
+160k ┤                                                                            ▄▄▄▄▄▄╱╱╱╱╱▚▚▚
+     │                                                                 ▗▄╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚
+     │                                                           ▄╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚░░░
+     │                                                     ▗▄╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚░░░░░██
+     │                                                 ▄╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚░░░░░░░░░░░░░░░░░░██████
+     │                                             ▄╱╱╱╱╱╱╱╱▚▚▚▚▚░░░░░░░░░██████████████████████
+     │                                        ▗▄╱╱╱╱╱╱╱╱▚▚▚░░░░░░░██████████████████████████████
+120k ┤                                  ▄▄╱╱╱╱╱╱╱╱╱▚▚▚░░░░░░████████████████████████████████████
+```
+
+The /charts tray gains a "Stacked area" preset built from this dataset's own rows, its description carrying the CC BY credit (a preset clears the rail's dataset card).

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { profileRows } from "../../lib/dataProfile";
-import { buildDatasetMark, chartsCandidatePick, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
+import { buildDatasetMark, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
 import { buildChartsWorkbenchSpec, createChartsWorkbenchState, reduceChartsWorkbenchState } from "./chartsWorkbenchState";
 import { findChartsDataset } from "./datasets";
 
@@ -175,46 +174,5 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
     if (!top) throw new Error("expected a fallback recommendation");
     expect(top.channels).toEqual({});
     expect(top.reason).toMatch(/no obvious numeric or date column/i);
-  });
-});
-
-// The seam a REMOTE dataset's Random button calls (no curated mapping, so
-// there's no `randomChartsDatasetId`-style "pick a different dataset" — it
-// picks a different genuinely-informative VIEW of the same one).
-describe("chartsCandidatePick", () => {
-  const dataset = findChartsDataset("gdp-life-expectancy-2007");
-  if (!dataset) throw new Error("expected the gdp-life-expectancy-2007 fixture dataset");
-  const profile = profileRows(dataset.rows);
-
-  it("'best' returns the top-ranked candidate — the same one recommendChart's own top pick names", () => {
-    const picked = chartsCandidatePick(profile, { mode: "best" });
-    if (!picked) throw new Error("expected a candidate");
-    expect(picked.mark).toBe("dot");
-    expect(picked.channels.fill).toBe("continent");
-  });
-
-  it("'weighted-random' with a fixed seed is deterministic and reproducible", () => {
-    const a = chartsCandidatePick(profile, { mode: "weighted-random", seed: 42 });
-    const b = chartsCandidatePick(profile, { mode: "weighted-random", seed: 42 });
-    expect(a).toEqual(b);
-  });
-
-  it("'weighted-random' never drops below the top score's own threshold band", () => {
-    const top = chartsCandidatePick(profile, { mode: "best" });
-    if (!top) throw new Error("expected a candidate");
-    for (let seed = 0; seed < 20; seed++) {
-      const picked = chartsCandidatePick(profile, { mode: "weighted-random", seed });
-      if (!picked) throw new Error("expected a candidate");
-      expect(picked.score).toBeGreaterThanOrEqual(top.score * 0.85);
-    }
-  });
-
-  it("degrades to the channel-less fallback bar for an empty profile, never null", () => {
-    // `buildChartCandidates` always returns at least its own last-resort
-    // fallback (never an empty array), so `pickChartCandidate`'s `null`
-    // return is a type-level accommodation only — exercised directly on
-    // `pickChartCandidate([], ...)` below, never reachable through this seam.
-    const picked = chartsCandidatePick(profileRows([]), { mode: "best" });
-    expect(picked).toEqual({ mark: "bar", channels: {}, reason: "No obvious numeric or date column found.", score: 0, terms: { entropy: 0, structure: 0, coverage: 0, legibility: 0, prior: 0 } });
   });
 });

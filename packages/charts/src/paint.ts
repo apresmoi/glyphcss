@@ -149,24 +149,147 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
   }
 }
 
-/** See `paintBar`'s own doc — the same `styleIndex` -> `seriesShade` fill
- * glyph rule (CHARTS-RESEARCH diagnosis B2), applied per column since an
- * area's boundary is a slope rather than a flat-topped rect. */
-function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, total: number): void {
-  const glyph = seriesShade(canvas.tier, styleIndex, total);
-  for (const layer of areaLayers(rows)) {
-    const sorted = [...layer].sort((a, b) => scales.x.toFraction(a.x) - scales.x.toFraction(b.x));
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const a = sorted[i]!, b = sorted[i + 1]!;
-      const colA = scaleToCol(scales.x, layout.plot, a.x), colB = scaleToCol(scales.x, layout.plot, b.x);
-      const topA = scaleToRow(scales.y, layout.plot, a.y1 ?? a.y), topB = scaleToRow(scales.y, layout.plot, b.y1 ?? b.y);
-      const baseA = scaleToRow(scales.y, layout.plot, a.y0 ?? 0), baseB = scaleToRow(scales.y, layout.plot, b.y0 ?? 0);
-      for (let col = Math.max(layout.plot.x0, colA); col <= Math.min(layout.plot.x1, colB); col++) {
-        const t = colA === colB ? 0 : (col - colA) / (colB - colA);
-        const value = Math.round(topA + (topB - topA) * t), base = Math.round(baseA + (baseB - baseA) * t);
-        if (value === base) continue;
-        const top = Math.max(layout.plot.y0, Math.min(value, base) + (value > base ? 1 : 0)), bottom = Math.min(layout.plot.y1, Math.max(value, base) - (value < base ? 1 : 0));
-        if (top <= bottom) fillRegionShade(canvas, col, top, col, bottom, glyph, color);
+/** A `stack`-transformed area — its rows carry `y0`/`y1` bounds. */
+function isStackedArea(rows: readonly GlyphChartMarkRow[]): boolean {
+  return rows.some((r) => r.y1 !== undefined);
+}
+
+/** One area series as `paintAreaMark` paints it: its rows, resolved colour and `seriesShade` fill glyph. */
+interface AreaSeriesPaint {
+  readonly rows: readonly GlyphChartMarkRow[];
+  readonly color: string | null;
+  readonly glyph: string;
+}
+
+/**
+ * One polyline layer of an area. A vertex sits in the plot COLUMN containing
+ * its x (`scaleToCol`, the column a line or dot mark puts the same point
+ * in), but keeps its EXACT row coordinate: rounding the row before
+ * interpolating is S2 in `DIAGNOSIS-stacked-area.md`.
+ */
+interface AreaLayerEdges {
+  readonly cols: readonly number[];
+  readonly tops: readonly number[];
+  readonly bases: readonly number[];
+  readonly color: string | null;
+  readonly glyph: string;
+}
+
+function areaLayerEdges(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, layer: readonly GlyphChartMarkRow[], color: string | null, glyph: string): AreaLayerEdges | null {
+  const points = [...layer]
+    .sort((a, b) => scales.x.toFraction(a.x) - scales.x.toFraction(b.x))
+    .map((r) => ({ col: scaleToCol(scales.x, layout.plot, r.x), top: scaleToRowExact(scales.y, layout.plot, r.y1 ?? r.y), base: scaleToRowExact(scales.y, layout.plot, r.y0 ?? 0) }));
+  if (points.length < 2) return null;
+  return { cols: points.map((p) => p.col), tops: points.map((p) => p.top), bases: points.map((p) => p.base), color, glyph };
+}
+
+/**
+ * Every `[top, base]` the layer's segments give at exact column `x`, for the
+ * segments that paint plot column `col` (`x` is `col` itself, or one of its
+ * two quadrant columns). Several data points can share one column when the
+ * data is denser than the plot; each segment through the column contributes,
+ * so a one-sample spike still reaches its own column (the union the painter
+ * has always drawn). `x` is clamped to the segment, and a segment whose two
+ * points share a column reads its first point.
+ */
+function areaSpansAt(layer: AreaLayerEdges, col: number, x: number): [number, number][] {
+  const spans: [number, number][] = [];
+  for (let i = 0; i < layer.cols.length - 1; i++) {
+    const c0 = layer.cols[i]!, c1 = layer.cols[i + 1]!;
+    if (col < c0 || col > c1) continue;
+    const t = c0 === c1 ? 0 : (Math.min(c1, Math.max(c0, x)) - c0) / (c1 - c0);
+    spans.push([layer.tops[i]! + (layer.tops[i + 1]! - layer.tops[i]!) * t, layer.bases[i]! + (layer.bases[i + 1]! - layer.bases[i]!) * t]);
+  }
+  return spans;
+}
+
+/**
+ * Whether a point at exact row coordinate `y` lies inside the band between
+ * `top` (the value's row) and `base` (the baseline's row). The band runs
+ * from the value's row to the row strictly beyond the baseline's — the bar
+ * convention, `(baseline, value]` in cells — so a POSITIVE band (`top <
+ * base`, rows grow downward) covers `top - 0.5 < y <= base - 0.5` and a
+ * negative one `base + 0.5 < y <= top + 0.5`. At a cell centre (`y` an
+ * integer) this is exactly `Math.round` on both ends, the rows the fill
+ * paints, so an area whose data lands on whole rows is byte-identical to the
+ * rounded painter it replaced.
+ */
+function areaCovers(top: number, base: number, y: number): boolean {
+  if (top < base) return top - 0.5 < y && y <= base - 0.5;
+  if (top > base) return base + 0.5 < y && y <= top + 0.5;
+  return false;
+}
+
+// `GlyphCanvas.sub`'s dot bits for each QUADRANT (TL, TR, BL, BR), from its
+// public bit layout; a quadrant is lit by lighting both of its dots.
+const AREA_QUADRANT_SUB_BITS: readonly number[] = [0b00000011, 0b00011000, 0b01000100, 0b10100000];
+
+/**
+ * Paints one `area` mark's series (CHARTS-RESEARCH `DIAGNOSIS-stacked-area.md`).
+ *
+ * Every column is centre-sampled against band edges interpolated from EXACT
+ * row coordinates (S2): a cell carries a layer's own `seriesShade` glyph
+ * (the region-mark rule, B2) when its centre lies inside that layer's band.
+ * Interpolating between whole-row-rounded data points instead put the edge
+ * up to 0.82 rows off and handed 10-24 cells per band to its neighbour. A
+ * stack's layers partition each column exactly, so no layer overwrites
+ * another, and a band 1 to 2 rows tall owns at least one cell per column.
+ *
+ * `silhouette` (S3, `braille`/`blocks` only): a cell whose centre no layer
+ * covers but part of which a layer does — the cell just outside the band
+ * group's own edge — gets the tier's own partial FILL glyph (`fillSubGlyph`,
+ * the blocks quadrant table), sampled at quadrant centres, in the colour of
+ * the layer covering most of it. That cell belongs to no band, so the
+ * sub-cell edge costs no band an identity cell. An INTERNAL boundary
+ * between two layers stays a whole-cell glyph transition: a cell holds one
+ * glyph, and a quadrant there would strip a thin band of most of its
+ * identity cells (measured 45-83% of Nuclear/Renewables' cells).
+ *
+ * `stacked` groups every layer of every series into ONE band group, so the
+ * silhouette is the stack's outer edge; an unstacked mark treats each series
+ * as its own group, painted in series order (later series in front, exactly
+ * as before).
+ */
+function paintAreaMark(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, series: readonly AreaSeriesPaint[], stacked: boolean, silhouette: boolean): void {
+  const { plot } = layout;
+  const tier = GLYPH_CANVAS_TIERS[canvas.tier];
+  const subFill = tier.subcell ? (tier.fillSubGlyph ?? tier.subGlyph) : undefined;
+  const layersOf = (s: AreaSeriesPaint): AreaLayerEdges[] => areaLayers(s.rows)
+    .map((layer) => areaLayerEdges(layout, scales, layer, s.color, s.glyph))
+    .filter((l): l is AreaLayerEdges => l !== null);
+  const groups: AreaLayerEdges[][] = stacked ? [series.flatMap(layersOf)] : series.map(layersOf);
+  for (const group of groups) {
+    let groupC0 = Infinity, groupC1 = -Infinity;
+    for (const layer of group) {
+      const c0 = Math.max(plot.x0, layer.cols[0]!), c1 = Math.min(plot.x1, layer.cols[layer.cols.length - 1]!);
+      groupC0 = Math.min(groupC0, c0); groupC1 = Math.max(groupC1, c1);
+      for (let col = c0; col <= c1; col++) {
+        for (const [top, base] of areaSpansAt(layer, col, col)) {
+          if (Math.round(top) === Math.round(base)) continue;
+          const first = Math.max(plot.y0, top < base ? Math.round(top) : Math.round(base) + 1);
+          const last = Math.min(plot.y1, top < base ? Math.round(base) - 1 : Math.round(top));
+          if (first <= last) fillRegionShade(canvas, col, first, col, last, layer.glyph, layer.color);
+        }
+      }
+    }
+    if (!silhouette || !subFill) continue;
+    for (let col = groupC0; col <= groupC1; col++) {
+      // Per layer: its spans at this column's centre, and at its left/right quadrant columns.
+      const spans = group.map((l) => [col, col - 0.25, col + 0.25].map((x) => areaSpansAt(l, col, x)));
+      for (let row = plot.y0; row <= plot.y1; row++) {
+        if (spans.some((s) => s[0]!.some(([top, base]) => areaCovers(top, base, row)))) continue;
+        let mask = 0;
+        let owner = -1, ownerQuadrants = 0;
+        for (let li = 0; li < spans.length; li++) {
+          let quadrants = 0;
+          for (let q = 0; q < 4; q++) {
+            const y = row + (q < 2 ? -0.25 : 0.25);
+            if (spans[li]![q % 2 === 0 ? 1 : 2]!.some(([top, base]) => areaCovers(top, base, y))) { mask |= AREA_QUADRANT_SUB_BITS[q]!; quadrants++; }
+          }
+          // Ties go to the later (outer) layer of the group.
+          if (quadrants > 0 && quadrants >= ownerQuadrants) { owner = li; ownerQuadrants = quadrants; }
+        }
+        if (owner >= 0) canvas.text(col, row, [subFill(mask)], { color: group[owner]!.color });
       }
     }
   }
@@ -1103,6 +1226,7 @@ export function paintGlyphChart(
     for (const r of registered) sankeyRouted.set(r.mark, { layout: r.layout, routedRows: r.routedRows });
   }
   const sankeyClaimedBy = new Set<number>();
+  const areaBoundaryLines = !opts.colorEnabled && series.some((s) => s.name !== undefined);
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
@@ -1112,12 +1236,19 @@ export function paintGlyphChart(
       if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy, mark.options?.ribbon ?? "filled", textScale);
     }
     else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale);
+    else if (mark.type === "area") {
+      // One call per mark, not per series: a stack's silhouette is the edge
+      // of ALL its layers together. An unstacked area whose boundary LINE
+      // is drawn below takes that line as its edge instead of a sub-cell
+      // silhouette, so the edge is drawn once.
+      const stacked = isStackedArea(resolvedRows);
+      paintAreaMark(guarded, layout, scales, groups.map((g) => ({ rows: g.rows, color: resolveSeriesColor(g, opts.colorEnabled), glyph: seriesShade(canvas.tier, g.styleIndex, groups.length) })), stacked, stacked || !areaBoundaryLines);
+    }
     else for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!;
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
       if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, groups.length, { index: i, count: groups.length }, ledger, dodgeDegraded);
-      if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex, groups.length);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, groups.length, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
@@ -1154,8 +1285,13 @@ export function paintGlyphChart(
     const guarded = guardedCanvas(canvas, mark.type);
     const width = resolveStrokeWidth(mark.options);
     if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style, width);
-    // Area boundaries carry the same monochrome series vocabulary as lines.
-    if (mark.type === "area" && !opts.colorEnabled && series.some((s) => s.name !== undefined)) {
+    // An UNSTACKED area's boundaries carry the same monochrome series
+    // vocabulary as lines: its series' fills overlap, so a later fill can
+    // hide an earlier series and the line is what still shows it. A STACKED
+    // layer never draws one (DIAGNOSIS-stacked-area.md S1): its fill already
+    // partitions the column, so the change of glyph IS the boundary, and a
+    // line on the layer's own top row erased every band under ~2 rows.
+    if (mark.type === "area" && areaBoundaryLines && !isStackedArea(rows)) {
       for (const layer of areaLayers(rows)) paintLine(guarded, layout, scales, layer.map((r) => ({ ...r, y: r.y1 ?? r.y })), color, style, width);
     }
     if (mark.type === "dot") paintDot(guarded, layout, scales, rows, color, opts.colorEnabled ? 0 : styleIndex);

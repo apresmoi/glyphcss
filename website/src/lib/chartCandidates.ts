@@ -6,9 +6,9 @@
 // each mapping scored on how much information it actually shows, sorted
 // best first. `dataProfile.ts`'s `recommendChart` is now a thin wrapper
 // over `buildChartCandidates` (kept for callers that only want the old
-// `ChartRecommendation` shape); `chartsDataSource.ts`'s `chartsCandidatePick`
-// is the seam a page control uses for "best" (load/select) and
-// "weighted-random" (the Random button) picks.
+// `ChartRecommendation` shape). The `/charts` mark-type toggle
+// (`chartsMarkTypeFit.ts`) enables a type iff this list offers one the page
+// can bind, and binds its top candidate.
 //
 // No DOM. Pure functions of `DataProfile` (which now also carries a
 // row-aligned `sample` — see `dataProfile.ts` — because entropy/structure
@@ -422,7 +422,13 @@ function isShareLikeSum(values: readonly number[]): boolean {
 function priorFor(names: { readonly measure?: string; readonly x?: string }, opts?: { readonly shareLike?: boolean }): number {
   const signals: number[] = [];
   if (names.measure) signals.push(MEASURE_NAME_LEXICON_RE.test(names.measure) ? 1 : 0);
-  if (names.x) signals.push(X_NAME_LEXICON_RE.test(names.x) ? 1 : 0);
+  // A time-named x is a bonus, never a penalty: a bar's x is a CATEGORY
+  // and can't carry a time word, so averaging a 0 in for it halved every
+  // category mark's prior against a `cell` or `arc` that names no x at all
+  // — the whole 0.05 by which a heatmap out-ranked the identical stacked
+  // bar on `olympics-2024-medals-by-type` (`docs/design/charts.md`'s
+  // "Mark-type fit").
+  if (names.x && X_NAME_LEXICON_RE.test(names.x)) signals.push(1);
   if (opts?.shareLike !== undefined) signals.push(opts.shareLike ? 1 : 0);
   if (signals.length === 0) return 0.3;
   return clamp01(signals.reduce((a, b) => a + b, 0) / signals.length);
@@ -486,8 +492,14 @@ const AREA_LEGIBILITY_DISCOUNT = 0.04;
 /** See `scoreLineArea`'s own comment: connecting two independent MEASURES
  *  with a line implies an adjacency the data doesn't carry. */
 const MONOTONIC_X_LEGIBILITY_DISCOUNT = 0.3;
+/** A scatter of one measure over a DATE axis shows the trend a line does
+ *  without the stroke that makes adjacency legible — a documented notch
+ *  below `area`'s own discount, so for the same x/y the order is always
+ *  line > area > dot. It exists so a time scatter is a real, bindable
+ *  candidate for the mark-type toggle, never so it can win. */
+const DOT_OVER_TIME_LEGIBILITY_DISCOUNT = 0.08;
 
-function scoreLineArea(mark: "line" | "area", x: string, y: string, fill: string | undefined, xIsOrderedMeasure: boolean, otherMeasures: readonly string[], input: ScoreInput): { readonly terms: ChartCandidateTerms; readonly score: number } {
+function scoreLineArea(mark: "line" | "area" | "dot", x: string, y: string, fill: string | undefined, xIsOrderedMeasure: boolean, otherMeasures: readonly string[], input: ScoreInput): { readonly terms: ChartCandidateTerms; readonly score: number } {
   const rows = materialize(input.sample, input.pipeline);
   const groups = seriesGroups(rows, x, y, fill);
   const allYs = numericValues(rows, y);
@@ -526,7 +538,7 @@ function scoreLineArea(mark: "line" | "area", x: string, y: string, fill: string
   const totalPoints = groups.reduce((s, g) => s + g.xs.length, 0);
   const crowd = crowdingPenalty(totalPoints, 150, 800);
   const series = fill ? seriesPenalty(groups.length) : 0;
-  const areaPenalty = mark === "area" ? AREA_LEGIBILITY_DISCOUNT : 0;
+  const areaPenalty = mark === "area" ? AREA_LEGIBILITY_DISCOUNT : mark === "dot" ? DOT_OVER_TIME_LEGIBILITY_DISCOUNT : 0;
   // A line/area MEANS "x is a real ordered axis" — connecting two
   // independent MEASURES in x-sorted order implies an adjacency/path
   // narrative the data doesn't actually carry (unlike a genuine date/time
@@ -818,6 +830,107 @@ function categoryPairFormsDag(sample: readonly TabularRow[], sourceCol: string, 
   return true;
 }
 
+/** Ordered-axis values of `col` in ROW order, bucketed by `groupCol`'s own
+ *  value (one bucket for no group). A row whose x doesn't parse, or whose
+ *  group is null, is skipped. */
+function orderedAxisBuckets(sample: readonly TabularRow[], col: string, groupCol: string | undefined): readonly (readonly number[])[] {
+  const buckets = new Map<string, number[]>();
+  for (const row of sample) {
+    const v = orderedAxisValue(row[col] ?? null);
+    const key = groupCol === undefined ? "" : cellToString(row[groupCol] ?? null);
+    if (v === undefined || key === undefined) continue;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(v);
+  }
+  return [...buckets.values()];
+}
+
+/** A NUMERIC column is an ordered x axis (within `groupCol`, or across the
+ *  whole table) only when its values STRICTLY increase in row order in
+ *  every bucket, at least two per bucket. The profiler's own `monotonic`
+ *  flag, used before, fails twice (`docs/design/charts.md`'s "Mark-type
+ *  fit"): it also accepts a DEcreasing or tied column — a table pre-sorted
+ *  by rank (`olympics-2024-medals`' `gold`: 40, 40, 20, ...), a ranking and
+ *  not an axis, so "a line of bronze over gold" was a candidate — and it
+ *  is taken over the WHOLE column, so a long-format integer year repeated
+ *  per country read as `none` and produced no line at all. */
+function strictlyIncreasingWithin(sample: readonly TabularRow[], col: string, groupCol: string | undefined): boolean {
+  const buckets = orderedAxisBuckets(sample, col, groupCol);
+  if (buckets.length === 0) return false;
+  return buckets.every((vs) => vs.length >= 2 && vs.every((v, i) => i === 0 || v > vs[i - 1]!));
+}
+
+/** A DATE x connects into ONE honest line per bucket only when no date
+ *  repeats in it; a repeated date draws a vertical zig-zag through every
+ *  row that shares it (`world-population-by-country`'s UNFILLED line: six
+ *  countries per year, one stroke through all of them). */
+function uniqueWithin(sample: readonly TabularRow[], col: string, groupCol: string | undefined): boolean {
+  const buckets = orderedAxisBuckets(sample, col, groupCol);
+  if (buckets.length === 0) return false;
+  return buckets.every((vs) => new Set(vs).size === vs.length);
+}
+
+/** Every row's combination of `cols` values occurs once. */
+function keysUnique(sample: readonly TabularRow[], cols: readonly string[]): boolean {
+  const seen = new Set<string>();
+  for (const row of sample) {
+    const key = JSON.stringify(cols.map((c) => cellToString(row[c] ?? null) ?? null));
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+/** An integer column with a handful of distinct values repeated across
+ *  many rows is a CODE (a passenger class, a rating bucket), not a
+ *  measure: `measureHistogramEntropy` gives it one bin per value, so three
+ *  evenly-used codes score entropy ~1.0 — the maximum — and "mean
+ *  passenger class by sex" out-ranked every real measure on a titanic-
+ *  shaped table. Both bounds matter: a 4-row `{month, value}` table's
+ *  integer value has 4 distinct values and is a real measure, which the
+ *  repetition floor keeps. */
+const CODE_LIKE_MAX_DISTINCT = 4;
+const CODE_LIKE_MIN_ROWS_PER_VALUE = 10;
+export function isCodeLikeInteger(col: ColumnProfile, rowCount: number): boolean {
+  return col.type === "integer" && col.distinctCount <= CODE_LIKE_MAX_DISTINCT
+    && rowCount - col.nullCount >= CODE_LIKE_MIN_ROWS_PER_VALUE * col.distinctCount;
+}
+
+/** Widest axis (categories or dates) a bar chart is offered over — the
+ *  hard maximum `scoreBar`'s own crowding curve bottoms out at. Past it a
+ *  web chart's ~88 plot columns give each bar under two cells (142
+ *  countries on `gdp-life-expectancy-2007`), which the crowding penalty
+ *  alone only discounted and never ruled out. */
+export const CHART_CANDIDATE_BAR_AXIS_MAX = 60;
+
+/** A sankey needs an EDGE LIST, which `categoryPairFormsDag` alone never
+ *  checked — two category columns with disjoint vocabularies are always
+ *  acyclic, so every table with two categories had a sankey candidate on a
+ *  neutral 0.5 structure that out-ranked real but noisy relationships (a
+ *  titanic-shaped table's top pick was "fare flowing from survived to
+ *  sex"). An edge list has all three of:
+ *  - every (source, target) pair at most once — a repeated pair is a
+ *    cross-tab aggregated on the fly (200 passengers, 4 pairs);
+ *  - a finite positive value on every edge row — the library rejects the
+ *    first null or nonpositive flow outright (`sankey-bad-value`);
+ *  - NOT every source paired with every target — a complete grid is a
+ *    contingency table (10 countries x 3 medals, 30 rows), which `cell`
+ *    and a stacked `bar` read honestly and a sankey only tangles. */
+function sankeyEdgeList(sample: readonly TabularRow[], source: string, target: string, value: string): boolean {
+  const pairs = new Set<string>();
+  const sources = new Set<string>(), targets = new Set<string>();
+  for (const row of sample) {
+    const s = cellToString(row[source] ?? null), t = cellToString(row[target] ?? null);
+    if (s === undefined || t === undefined) continue;
+    const v = row[value];
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return false;
+    const key = JSON.stringify([s, t]);
+    if (pairs.has(key)) return false;
+    pairs.add(key); sources.add(s); targets.add(t);
+  }
+  return pairs.size >= 2 && pairs.size < sources.size * targets.size;
+}
+
 /** Every valid mapping the profiled table can honestly support, each
  *  scored — sorted best first, capped at `CHART_CANDIDATE_MAX`. Never
  *  empty for a non-empty profile: a last-resort "by row order" line, or a
@@ -840,9 +953,25 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
   // fires instead — `remoteDatasetRecommendationCheck` then reports
   // `{ ok: false }` and the dataset is never dispatched or recorded as
   // Recent (`ChartsWorkbench.tsx`'s own pre-dispatch usability check).
-  const effectiveNumbers = measureNumbers;
-  const monotonicNumeric = numbers.filter((c) => !isIdLikeColumn(c, rowCount) && c.monotonic && c.monotonic !== "none");
-  const orderedX = [...dates, ...monotonicNumeric];
+  // A code-like integer (`isCodeLikeInteger`) is no more a measure than an
+  // identifier is.
+  const fillCategories = categories.filter((c) => c.distinctCount >= 2 && c.distinctCount <= CHART_CANDIDATE_FILL_MAX_CATEGORIES);
+  // An ordered x is a date, or a numeric column that strictly increases in
+  // row order — across the table (`plain`) and/or within each value of a
+  // small category (`fills`). Only the variants whose own buckets pass are
+  // offered: an unfilled line over a repeated x zig-zags.
+  const orderedX = [
+    ...dates.map((col) => ({ col, isMeasure: false, plain: uniqueWithin(sample, col.name, undefined), fills: fillCategories.filter((cat) => uniqueWithin(sample, col.name, cat.name)) })),
+    // An ordered integer NAMED like time (`year`, `month`) is a time axis,
+    // not a measure: scoring it as one took the ordered-measure legibility
+    // discount (0.3), the breadth discount and sample-confidence shrinkage,
+    // so on a long-format `{country, year, life_exp, pop}` table a scatter
+    // of life expectancy against population out-ranked life expectancy
+    // over time. It also stops pairing into a `dot` as if it were a value.
+    ...measureNumbers.map((col) => ({ col, isMeasure: !X_NAME_LEXICON_RE.test(col.name), plain: strictlyIncreasingWithin(sample, col.name, undefined), fills: fillCategories.filter((cat) => strictlyIncreasingWithin(sample, col.name, cat.name)) })),
+  ].filter((x) => x.plain || x.fills.length > 0);
+  const timeAxisNames = new Set(orderedX.filter((x) => !x.isMeasure && x.col.type !== "date").map((x) => x.col.name));
+  const effectiveNumbers = measureNumbers.filter((c) => !isCodeLikeInteger(c, rowCount) && !timeAxisNames.has(c.name));
   const groupEligible = rowCount > CHART_CANDIDATE_GROUP_ROW_THRESHOLD;
 
   const out: ChartCandidate[] = [];
@@ -851,9 +980,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
 
   // ── line / area ──
   const firstCategory = categories[0];
-  const monotonicNumericNames = new Set(monotonicNumeric.map((c) => c.name));
-  for (const x of orderedX) {
-    const xIsOrderedMeasure = monotonicNumericNames.has(x.name);
+  for (const { col: x, isMeasure: xIsOrderedMeasure, plain, fills } of orderedX) {
     const otherMeasuresForX = effectiveNumbers.filter((m) => m.name !== x.name).map((m) => m.name);
     for (const y of effectiveNumbers) {
       if (y.name === x.name) continue;
@@ -864,8 +991,10 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
             ? `${y.name} over ${x.name} (see the filled variant, one line per ${firstCategory.name})`
             : `${x.name} over time vs ${y.name} (${firstCategory.name} has ${firstCategory.distinctCount} categories — too many to fill legibly)`
           : `${x.name} over time vs ${y.name}`;
-        const { terms, score } = scoreLineArea(mark, x.name, y.name, undefined, xIsOrderedMeasure, otherMeasures, input);
-        out.push({ mark, channels: { x: x.name, y: y.name }, reason: plainReason, score, terms });
+        if (plain) {
+          const { terms, score } = scoreLineArea(mark, x.name, y.name, undefined, xIsOrderedMeasure, otherMeasures, input);
+          out.push({ mark, channels: { x: x.name, y: y.name }, reason: plainReason, score, terms });
+        }
         if (groupEligible) {
           const reduce = reduceForMeasureName(y.name);
           const grouped = scoreLineArea(mark, x.name, y.name, undefined, xIsOrderedMeasure, otherMeasures, { ...input, transform: { kind: "group", reduce } });
@@ -875,12 +1004,41 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
           });
         }
       }
-      for (const cat of categories) {
-        if (cat.distinctCount < 2 || cat.distinctCount > CHART_CANDIDATE_FILL_MAX_CATEGORIES) continue;
+      for (const cat of fills) {
         for (const mark of ["line", "area"] as const) {
           const { terms, score } = scoreLineArea(mark, x.name, y.name, cat.name, xIsOrderedMeasure, otherMeasures, input);
           out.push({ mark, channels: { x: x.name, y: y.name, fill: cat.name }, reason: `${y.name} over ${x.name}, one ${mark} per ${cat.name}`, score, terms });
         }
+      }
+    }
+  }
+
+  // ── dot over time ── (a scatter needs no unique x; two-measure dots are
+  // enumerated below)
+  for (const x of dates) {
+    for (const y of effectiveNumbers) {
+      const plain = scoreLineArea("dot", x.name, y.name, undefined, false, [], input);
+      out.push({ mark: "dot", channels: { x: x.name, y: y.name }, reason: `${y.name} over ${x.name}, one point per row`, score: plain.score, terms: plain.terms });
+      for (const cat of fillCategories) {
+        const filled = scoreLineArea("dot", x.name, y.name, cat.name, false, [], input);
+        out.push({ mark: "dot", channels: { x: x.name, y: y.name, fill: cat.name }, reason: `${y.name} over ${x.name}, coloured by ${cat.name}`, score: filled.score, terms: filled.terms });
+      }
+    }
+  }
+
+  // ── bar over a short date axis ── (a column per period; the same
+  // one-bar-per-x rule as a category axis)
+  for (const x of dates) {
+    if (x.distinctCount < 2 || x.distinctCount > CHART_CANDIDATE_BAR_AXIS_MAX) continue;
+    for (const y of effectiveNumbers) {
+      if (uniqueWithin(sample, x.name, undefined)) {
+        const { terms, score } = scoreBar(x.name, y.name, undefined, input);
+        out.push({ mark: "bar", channels: { x: x.name, y: y.name }, reason: describe("bar", [y.name, `by ${x.name}`]), score, terms });
+      }
+      for (const cat of fillCategories) {
+        if (!uniqueWithin(sample, x.name, cat.name)) continue;
+        const { terms, score } = scoreBar(x.name, y.name, cat.name, input);
+        out.push({ mark: "bar", channels: { x: x.name, y: y.name, fill: cat.name }, reason: `${y.name} by ${x.name}, split by ${cat.name}`, score, terms });
       }
     }
   }
@@ -902,6 +1060,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
   // ── bar ── (its plain x-axis pool is WIDER than `categories` — see
   // `barAxisColumns`'s own doc)
   for (const cat of barAxisColumns(columns, rowCount)) {
+    if (cat.distinctCount > CHART_CANDIDATE_BAR_AXIS_MAX) continue;
     // A category whose distinct-value count is BELOW the row count repeats
     // keys — an ungrouped bar over it is AMBIGUOUS (which of several rows
     // sharing an x wins?) rather than a real per-category comparison, so
@@ -930,6 +1089,12 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
     const idColumns = columns.filter((c) => !effectiveNumbers.includes(c)).map((c) => c.name);
     const pipeline: readonly PipelineStep[] = [{ kind: "pivotLonger", idColumns, keyColumn: "measure", valueColumn: "value" }];
     for (const cat of categories) {
+      // Melted, a category with several rows per value has several bars per
+      // (category, measure) sub-band, drawn on top of one another — only the
+      // tallest shows. The page can't bind the MEAN that would honestly
+      // collapse them (`chartsCandidateBindable`), so only a category with
+      // one row per value melts (`docs/design/charts.md`'s "Mark-type fit").
+      if (cat.distinctCount < rowCount) continue;
       const { terms, score } = scoreBarMelt(cat.name, effectiveNumbers.map((m) => m.name), { ...input, pipeline });
       out.push({
         mark: "bar", channels: { x: cat.name, y: "value", fill: "measure" }, pipeline,
@@ -938,6 +1103,10 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
     }
   }
   for (const [ca, cb] of pairs(categories)) {
+    // A split bar draws one sub-bar per (x, fill) pair; a pair that repeats
+    // stacks its rows' bars on top of each other (the same overlap as the
+    // melt above), so only a table with one row per pair is split.
+    if (!keysUnique(sample, [ca.name, cb.name])) continue;
     for (const y of effectiveNumbers) {
       if (cb.distinctCount >= 2 && cb.distinctCount <= 8) {
         const { terms, score } = scoreBar(ca.name, y.name, cb.name, input);
@@ -995,6 +1164,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
     if (!categoryPairFormsDag(sample, ca.name, cb.name)) continue;
     for (const y of effectiveNumbers) {
       if (typeof y.min !== "number" || y.min <= 0) continue;
+      if (!sankeyEdgeList(sample, ca.name, cb.name, y.name)) continue;
       for (const [source, target] of [[ca, cb], [cb, ca]] as const) {
         const { terms, score } = scoreSankey(source.name, target.name, y.name, input);
         out.push({ mark: "sankey", channels: { source: source.name, target: target.name, value: y.name }, reason: `${y.name} flow from ${source.name} to ${target.name}`, score, terms });
@@ -1039,53 +1209,4 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
 
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, CHART_CANDIDATE_MAX);
-}
-
-// ── Selection ───────────────────────────────────────────────────────────
-
-/** Deterministic PRNG (mulberry32) so `mode: "weighted-random"` is
- *  reproducible under a `seed` — required for tests, and lets a caller
- *  replay a specific pick. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** Fraction of the top score a candidate must clear to enter the
- *  "weighted-random" pool — keeps Random rotating between genuinely
- *  informative views, never a degenerate low-score one. */
-export const CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD = 0.85;
-
-export interface ChartCandidatePickOptions {
-  readonly mode: "best" | "weighted-random";
-  /** Required for a reproducible "weighted-random" pick (tests, replay);
-   *  omitted falls back to a time-derived seed. */
-  readonly seed?: number;
-}
-
-/** `"best"` — the top-ranked candidate. `"weighted-random"` — samples,
- *  with probability proportional to score, among candidates within
- *  `CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD` of the top score. `null`
- *  only for an empty candidate list (never happens for a non-empty
- *  profile — see `buildChartCandidates`'s own fallbacks). */
-export function pickChartCandidate(candidates: readonly ChartCandidate[], options: ChartCandidatePickOptions): ChartCandidate | null {
-  if (candidates.length === 0) return null;
-  if (options.mode === "best") return candidates[0]!;
-  const topScore = candidates[0]!.score;
-  const threshold = topScore * CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD;
-  const pool = candidates.filter((c) => c.score >= threshold);
-  const rand = mulberry32(options.seed ?? Date.now());
-  const weight = (c: ChartCandidate) => Math.max(c.score, 1e-6);
-  const total = pool.reduce((s, c) => s + weight(c), 0);
-  let r = rand() * total;
-  for (const c of pool) {
-    r -= weight(c);
-    if (r <= 0) return c;
-  }
-  return pool[pool.length - 1]!;
 }

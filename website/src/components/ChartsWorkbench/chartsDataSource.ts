@@ -5,7 +5,6 @@
 // enumeration (`../../lib/chartCandidates.ts`), and `chartsWorkbenchState.ts`'s
 // mark shape. No DOM — `ChartsDock.tsx` is the thin component that reads a
 // file/textarea and calls into this. See AGENTS.md's "Charts" ("Data layer").
-import { buildChartCandidates, pickChartCandidate, type ChartCandidate, type ChartCandidatePickOptions } from "../../lib/chartCandidates";
 import { runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows, recommendChart, type ChartRecommendation, type DataProfile } from "../../lib/dataProfile";
 import { parseTabular, type TabularRow } from "../../lib/tabularParse";
@@ -145,6 +144,15 @@ function forwardableTransformKind(transform: ChartRecommendation["transform"]): 
   return transform && transform.reduce === "sum" ? transform.kind : undefined;
 }
 
+/** A `mean` group can't be forwarded (above), and building its channels
+ *  with no transform draws every duplicate-key row on top of the others —
+ *  so the one-click pick is the best recommendation the page can actually
+ *  bind, the same rule the mark-type toggle's fit uses
+ *  (`chartsMarkTypeFit.ts`'s `chartsCandidateBindable`). */
+function bindableRecommendation(rec: ChartRecommendation): boolean {
+  return rec.transform === undefined || rec.transform.reduce === "sum";
+}
+
 function describeRecommendation(mark: string, channels: ChartsRecommendedChannels): string {
   const parts: string[] = [];
   if (channels.y) parts.push(channels.y);
@@ -182,14 +190,14 @@ export function topChartsRecommendation(dataset: ChartsDataset | undefined, prof
     if (curatedChannelsResolve(channels, profile)) {
       return { mark, channels, transform, reason: `Curated recommendation for ${dataset.title}.` };
     }
-    const top = recommendations[0];
+    const top = recommendations.find(bindableRecommendation);
     if (!top) return null;
     return {
       mark: top.mark, channels: top.channels, reason: top.reason, pipeline: top.pipeline, transform: forwardableTransformKind(top.transform),
       fallbackNotice: `Pipeline changed the columns; using recommended ${describeRecommendation(top.mark, top.channels)}.`,
     };
   }
-  const top = recommendations[0];
+  const top = recommendations.find(bindableRecommendation);
   return top ? { mark: top.mark, channels: top.channels, reason: top.reason, pipeline: top.pipeline, transform: forwardableTransformKind(top.transform) } : null;
 }
 
@@ -247,38 +255,4 @@ export function buildDatasetMark(id: number, mark: ChartsWorkbenchMark["type"], 
 export function xChannelIsDate(profile: DataProfile, x: string | undefined): boolean {
   if (!x) return false;
   return profile.columns.find((c) => c.name === x)?.type === "date";
-}
-
-/** The page's own seam onto `chartCandidates.ts`'s full, scored
- *  enumeration — `"best"` for a load/select (the top-ranked candidate,
- *  what `topChartsRecommendation`'s general-profiler branch already
- *  reduces to via `recommendChart`'s own top pick), `"weighted-random"`
- *  for the rail's Random button on a REMOTE dataset (no curated mapping to
- *  fall back on, so Random should rotate between genuinely informative
- *  views of the SAME data rather than reloading a different dataset
- *  entirely — `pickChartCandidate`'s own doc explains the sampling). A
- *  STOCK dataset's Random still picks a different vendored dataset
- *  (`randomChartsDatasetId`); this is the remote-dataset counterpart. Pure
- *  — the caller is responsible for turning the result into a mark
- *  (`buildDatasetMark`, mirroring `topChartsRecommendation`'s own shape:
- *  `mark`/`channels`/`pipeline`). `null` is a type-level accommodation for
- *  an empty candidate list only — `buildChartCandidates` always returns at
- *  least its own last-resort fallback, even for an empty profile, so this
- *  never actually returns `null` in practice. */
-export function chartsCandidatePick(profile: DataProfile, options: ChartCandidatePickOptions): ChartCandidate | null {
-  return pickChartCandidate(buildChartCandidates(profile), options);
-}
-
-/** Converts a `chartCandidates.ts` `ChartCandidate` (`chartsCandidatePick`'s
- *  own return shape) into this module's `ChartsTopRecommendation` — what
- *  lets a WEIGHTED-RANDOM pick (Random's own choice for a REMOTE dataset,
- *  AGENTS.md's "Charts" "Data layer" "Random") feed the exact same
- *  reshape/date-normalize/mark-build path (`buildRecommendedMarkUpdate`,
- *  `chartsWorkbenchState.ts`) the plain top pick already goes through, so a
- *  candidate built either way is built identically. `forwardableTransformKind`
- *  is the SAME "only forward `reduce: sum`" narrowing `recommendChart`'s own
- *  ranked recommendations already take (see its own doc, above) — a
- *  candidate's `transform` is exactly a `ChartRecommendation`'s. */
-export function candidateToTopRecommendation(candidate: ChartCandidate): ChartsTopRecommendation {
-  return { mark: candidate.mark, channels: candidate.channels, reason: candidate.reason, pipeline: candidate.pipeline, transform: forwardableTransformKind(candidate.transform) };
 }

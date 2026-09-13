@@ -32,6 +32,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUI } from "lil-gui";
 import ChartsWorkbench from "./ChartsWorkbench";
 import { CHART_MARK_TYPE_TOGGLE } from "./ChartsMarkCard";
+import { CHARTS_MARK_TYPE_RULES, chartsCandidateBindable } from "./chartsMarkTypeFit";
+import { buildChartCandidates } from "../../lib/chartCandidates";
+import { profileRows } from "../../lib/dataProfile";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
@@ -731,7 +734,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const funnelBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!;
     expect(sankeyBtn.disabled).toBe(true);
     expect(funnelBtn.disabled).toBe(true);
-    expect(sankeyBtn.title.length).toBeGreaterThan(0);
+    expect(sankeyBtn.title).toBe(CHARTS_MARK_TYPE_RULES.sankey.needs);
 
     select("energy-flow-sankey");
     expect(activeMarkType()).toBe("sankey");
@@ -740,6 +743,38 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     select("ecommerce-conversion-funnel");
     expect(activeMarkType()).toBe("funnel");
     expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!.disabled).toBe(false);
+  });
+
+  // Every type the data can't draw is disabled, carries its reason on title
+  // and the composed aria-label, and can't be activated by a click; an
+  // enabled one re-binds the chart (`chartsMarkTypeFit.ts`).
+  it("Type toggle: a type the dataset can't draw is disabled with its reason and a click does nothing; an enabled one re-binds the chart", () => {
+    selectChartsDataset(container, "global-temperature");
+    const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Mark 1 type: ${type}"]`)!;
+    const enabled = CHART_MARK_TYPES.filter((type) => !typeButton(type).disabled);
+    expect(enabled).toEqual(["line", "area", "dot"]);
+    const bar = typeButton("bar");
+    expect(bar.title).toBe(CHARTS_MARK_TYPE_RULES.bar.needs);
+    expect(bar.getAttribute("aria-label")).toBe(`Mark 1 type: bar — ${CHARTS_MARK_TYPE_RULES.bar.needs}`);
+    const before = container.querySelector(".synth-viewport pre")!.textContent;
+    act(() => bar.click());
+    expect(activeMarkType()).toBe("line");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toBe(before);
+
+    act(() => typeButton("dot").click());
+    expect(activeMarkType()).toBe("dot");
+    expect(container.querySelector(".charts-error")).toBeNull();
+    // The line it came from is still enabled (never stranded).
+    expect(typeButton("line").disabled).toBe(false);
+  });
+
+  it("Type toggle: the CURRENT type stays enabled even when the data can't fit it (a tray rule mark over bare numbers)", () => {
+    const lineRule = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "apply-preset", id: "line-rule" });
+    act(() => root.render(<ChartsWorkbench key="line-rule" initialState={lineRule} />));
+    const ruleButton = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 2 type: rule"]')!;
+    expect(ruleButton.classList.contains("is-active")).toBe(true);
+    expect(ruleButton.disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 2 type: arc"]')!.disabled).toBe(true);
   });
 
   it("choosing a different dataset replaces the chart again, with no accumulation", () => {
@@ -1595,12 +1630,10 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
   // correct if either grows.
   const RANDOM_VALUE_FOR_FIRST_REMOTE_PICK = (CHARTS_DATASETS.length + 0.5) / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length);
 
-  it("Random picking a curated Hugging Face dataset stubs the network and renders a real chart from the weighted-random pick", async () => {
+  it("Random picking a curated Hugging Face dataset stubs the network and renders that dataset's top-ranked chart", async () => {
     // Deliberately NOT the dataset's real shape — `fetch` is fully stubbed,
-    // so the rows are this test's own, crafted with multiple genuinely
-    // close-scoring candidates (mirrors `chartsWorkbenchState.test.tsx`'s
-    // own weighted-random reducer fixture) so a weighted-random pick has
-    // real variety to draw from rather than one dominant answer.
+    // so the rows are this test's own, crafted with several close-scoring
+    // candidates, so "the top one" is a real choice rather than the only one.
     stubFetch({
       rows: {
         features: [{ name: "month" }, { name: "region" }, { name: "revenue" }, { name: "cost" }],
@@ -1630,6 +1663,16 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     expect(container.querySelector(".charts-error")).toBeNull();
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     expect(container.querySelector(".charts-data-loading")).toBeNull();
+    const rows = Array.from({ length: 24 }, (_, i) => ({
+      month: `2024-${String((i % 12) + 1).padStart(2, "0")}-01`, region: i % 3 === 0 ? "North" : i % 3 === 1 ? "South" : "East",
+      revenue: 500 + i * 13 + ((i * 7) % 17), cost: 300 + i * 9 + ((i * 5) % 13),
+    }));
+    const top = buildChartCandidates(profileRows(rows)).find(chartsCandidateBindable)!;
+    const activeType = container.querySelector('.charts-mark-row[data-row="type"] .gx-toggle-btn.is-active')!.getAttribute("aria-label")!;
+    expect(activeType).toBe(`Mark 1 type: ${top.mark}`);
+    for (const [channel, field] of Object.entries(top.channels)) {
+      expect(container.querySelector<HTMLSelectElement>(`[aria-label="Mark 1 ${channel}"]`)!.value).toBe(field);
+    }
   }, 10_000);
 
   it("a Random pick whose curated dataset has no chartable column falls back to a random built-in dataset, with a notice naming what failed, and no Recent entry", async () => {
@@ -1637,7 +1680,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     // doc: "every one of their real columns is categorical/boolean") — the
     // load SUCCEEDS but `remoteDatasetRecommendationCheck` finds nothing to
     // chart, exercising the NEW fallback branch this packet adds
-    // specifically for Random (`loadRemoteDataset`'s own `pickOptions` doc,
+    // specifically for Random (`loadRemoteDataset`'s own `fromRandom` doc,
     // `ChartsWorkbench.tsx`) — a manual search-box pick of the SAME shape
     // stays on the current chart with only a notice (unchanged, existing
     // behaviour), which is why this scenario is worth its own test rather

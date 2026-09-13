@@ -16,6 +16,7 @@ import { ChartsDataFolder } from "./ChartsDataFolder";
 import { pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
+import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
   dataSourceKey, findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, randomChartsDatasetPick,
@@ -278,17 +279,13 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     // showing a fetch nothing is still waiting on.
     setRemoteLoadingTitle(undefined);
   }, []);
-  // `pickOptions`, when given, is Random's own remote-pick request
-  // (`handleRandomDataset`, below — AGENTS.md's "Charts" "Data layer"
-  // "Random"): it routes the reducer's own mark-building through
-  // `chartsCandidatePick(profile, { mode: "weighted-random", seed })`
-  // instead of the plain top pick (`select-remote-dataset`'s own doc,
-  // `chartsWorkbenchState.ts`), AND widens the "load succeeded but nothing
-  // is chartable" branch below to fall back to a random BUILT-IN dataset —
-  // every OTHER caller (the search box's manual pick, a `?c=` remote
-  // re-fetch) omits it and keeps today's plain-top-pick, stay-on-the-
-  // current-chart-with-a-notice behaviour byte-identical.
-  const loadRemoteDataset = useCallback(async (hit: DatasetHit, pickOptions?: { readonly pick: "weighted-random"; readonly seed: number }) => {
+  // `fromRandom` is Random's own remote pick (`handleRandomDataset`,
+  // below — AGENTS.md's "Charts" "Data layer" "Random"): it widens the
+  // "load succeeded but nothing is chartable" branch below to fall back to
+  // a random BUILT-IN dataset. Every OTHER caller (the search box's manual
+  // pick, a `?c=` remote re-fetch) stays on the current chart with a
+  // notice. The mark itself is the ranker's top pick either way.
+  const loadRemoteDataset = useCallback(async (hit: DatasetHit, fromRandom = false) => {
     remoteLoadController.current?.abort();
     const controller = new AbortController();
     remoteLoadController.current = controller;
@@ -340,7 +337,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
       // promised a new one) — the manual search-box path stays on the
       // reader's current chart with only a notice, its long-standing
       // behaviour (this function's own doc, above).
-      if (pickOptions) {
+      if (fromRandom) {
         skipNextNoticeClear.current = true;
         dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
         setDatasetNotice(`Couldn't pick a chart for "${hit.title}" (${check.columns.join(", ")}) — showing a random dataset instead.`);
@@ -352,7 +349,6 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     pushRecentRemoteDataset(hit);
     dispatch({
       type: "select-remote-dataset", ref: hit.ref, title: hit.title, description: hit.description ?? "", source: result.source, rows: result.rows,
-      ...(pickOptions ? { pick: pickOptions.pick, seed: pickOptions.seed } : {}),
     });
     if (result.truncated) {
       skipNextNoticeClear.current = true;
@@ -466,17 +462,15 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // `randomChartsDatasetPick` excludes whatever `dataSourceKey` reports for
   // `state.data.source` right now, a built-in OR a remote key alike. A
   // built-in pick dispatches `select-dataset` exactly as before; a remote
-  // pick goes through the SAME `loadRemoteDataset` the search box uses,
-  // with a weighted-random mark pick (`select-remote-dataset`'s own doc)
-  // that differs run to run. The seed is derived from `Math.random()`
-  // (never `Date.now()`) so the WHOLE gesture — which dataset, which
-  // candidate — draws from one mockable source; a test pins `Math.random`
-  // to make both choices reproducible with no real clock dependency.
+  // pick goes through the SAME `loadRemoteDataset` the search box uses and
+  // draws that dataset's most informative chart (`select-remote-dataset`'s
+  // own doc); the variety comes from the dataset pick, never from a weaker
+  // view of the same data.
   const handleRandomDataset = () => {
     cancelInFlightRemoteLoad(); // P1-4 — see this ref's own doc, above
     const pick = randomChartsDatasetPick(dataSourceKey(state.data.source));
     if (pick.kind === "dataset") { dispatch({ type: "select-dataset", id: pick.id }); return; }
-    void loadRemoteDataset(pick.hit, { pick: "weighted-random", seed: Math.floor(Math.random() * 2 ** 31) });
+    void loadRemoteDataset(pick.hit, true);
   };
   // P1-4: the overlay's own `<select>` dispatches `select-dataset` DIRECTLY
   // (it has no `loadRemoteDataset` of its own to route through), so this
@@ -520,7 +514,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
         <ChartsDataFolder data={state.data} marks={state.marks}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
-          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} typeFits={chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark))} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         </div>
       </InstrumentRail>
       <InstrumentMain>

@@ -14,12 +14,13 @@ import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/d
 import { profileRows } from "../../lib/dataProfile";
 import type { TabularRow } from "../../lib/tabularParse";
 import {
-  buildDatasetMark, candidateToTopRecommendation, CHARTS_CUSTOM_MAX_BYTES, chartsCandidatePick, profileChartsData,
+  buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, profileChartsData,
   resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
   type ChartsDataSource, type ChartsTopRecommendation,
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { findChartsDataset } from "./datasets";
+import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
 export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, remoteDatasetRecommendationCheck, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
@@ -174,6 +175,15 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
   { id: "multi-line", label: "Multi-series line", spec: glyphChartPlot({ marks: [glyphChartLine(SERIES, { x: "month", y: "value", fill: "region" })], title: "Multi-series line" }) },
   { id: "bar", label: "Bar", spec: glyphChartPlot({ marks: [glyphChartBar(BARS, { x: "month", y: "value" }, { name: "Sales" })], title: "Bar" }) },
   { id: "stacked-bar", label: "Stacked bar", spec: glyphChartPlot({ marks: [{ ...glyphChartBar(STACKED, { x: "month", y: "value", fill: "region" }), transform: { kind: "stack" } }], title: "Stacked bar" }) },
+  // Real data, the vendored `energy-consumption-by-source` rows: three of
+  // its four layers are under two rows tall at a terminal size, the case a
+  // stacked area has to survive. The description carries its CC BY credit,
+  // since a preset clears the rail's dataset card.
+  { id: "stacked-area", label: "Stacked area", spec: glyphChartPlot({
+    marks: [{ ...glyphChartArea(energyConsumptionBySourceDataset.rows, { x: "year", y: "twh", fill: "source" }), transform: { kind: "stack" } }],
+    title: "Stacked area",
+    description: `${energyConsumptionBySourceDataset.title} (TWh). Source: ${energyConsumptionBySourceDataset.source.name}, ${energyConsumptionBySourceDataset.source.licence}.`,
+  }) },
   { id: "dot", label: "Dot", spec: glyphChartPlot({ marks: [glyphChartDot(SAMPLE, undefined, { name: "Visits" })], title: "Dot" }) },
   { id: "area", label: "Area", spec: glyphChartPlot({ marks: [glyphChartArea(SAMPLE, undefined, { name: "Traffic" })], title: "Area" }) },
   { id: "pie", label: "Pie", spec: glyphChartPlot({ marks: [sampleChartMark("arc")], title: "Pie" }) },
@@ -282,6 +292,10 @@ export type ChartsWorkbenchAction =
   | { type: "add-mark"; markType?: GlyphChartMarkType }
   | { type: "remove-mark"; id: number }
   | { type: "update-mark"; id: number; patch: Partial<Omit<ChartsWorkbenchMark, "id">> }
+  // The mark card's Type toggle: re-binds the mark to that type's own top-
+  // ranked mapping of the same data (`chartsMarkTypeFit.ts`) and refuses a
+  // type the data doesn't fit — never keeps the previous type's channels.
+  | { type: "set-mark-type"; id: number; markType: GlyphChartMarkType }
   | { type: "sample-mark"; id: number }
   | { type: "apply-preset"; id: string }
   | { type: "set-control"; control: GlyphChartsWorkbenchControlAction }
@@ -312,16 +326,7 @@ export type ChartsWorkbenchAction =
   // `select-dataset`'s own curated-mapping commit but reading the general
   // profiler's top pick (a remote dataset carries no curated `recommended`
   // field) and stamping `data.source` as `{ kind: "remote", ref, ... }`.
-  // `pick`/`seed` (both optional, omitted = today's plain top pick — byte-
-  // identical) are Random's own addition (AGENTS.md's "Charts" "Data
-  // layer" "Random"): `pick: "weighted-random"` routes through
-  // `chartsCandidatePick`/`candidateToTopRecommendation` instead of
-  // `topChartsRecommendation`, so pressing Random again on the SAME remote
-  // dataset can land on a different, still genuinely informative view
-  // (`chartsCandidatePick`'s own "weighted-random" doc) rather than always
-  // rebuilding the identical top-ranked chart; `seed` makes a specific pick
-  // reproducible for tests.
-  | { type: "select-remote-dataset"; ref: string; title: string; description: string; source: { name: string; url: string; licence?: string }; rows: readonly TabularRow[]; pick?: "weighted-random"; seed?: number }
+  | { type: "select-remote-dataset"; ref: string; title: string; description: string; source: { name: string; url: string; licence?: string }; rows: readonly TabularRow[] }
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
@@ -383,6 +388,29 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "add-mark": return { ...state, marks: [...state.marks, editableMark(sampleChartMark(action.markType ?? "line"), state.nextMarkId)], nextMarkId: state.nextMarkId + 1 };
     case "remove-mark": return { ...state, marks: state.marks.filter((mark) => mark.id !== action.id) };
     case "update-mark": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? { ...mark, ...action.patch } : mark) };
+    case "set-mark-type": {
+      const mark = state.marks.find((m) => m.id === action.id);
+      if (!mark || mark.type === action.markType) return state;
+      const base = chartsMarkTypeBase(state.data, mark);
+      const fit = chartsMarkTypeFitTable(base)[action.markType];
+      if (!fit.fits || base.rows === null) return state;
+      let next: ChartsWorkbenchMark;
+      let isDate = false;
+      if (base.rows.every((row) => typeof row === "number")) {
+        next = { ...mark, type: action.markType, channels: fit.binding.channels, transform: fit.binding.transform, options: {}, color: undefined };
+      } else {
+        const built = buildRecommendedMarkUpdate(mark.id, base.rows as readonly TabularRow[], { mark: action.markType, reason: "", ...fit.binding });
+        if (!built) return state;
+        next = built.mark;
+        isDate = built.isDate;
+      }
+      // Same scale reset `select-dataset` makes: a typed domain or an
+      // explicit time scale belongs to the previous binding's columns.
+      return {
+        ...state, marks: state.marks.map((m) => m.id === mark.id ? next : m),
+        scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
+      };
+    }
     case "sample-mark": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? editableMark(sampleChartMark(mark.type), mark.id) : mark) };
     case "apply-preset": {
       const preset = CHART_PRESETS.find((p) => p.id === action.id);
@@ -492,19 +520,14 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "select-remote-dataset": {
       const profiled = profileChartsData(action.rows);
       // A remote dataset carries no curated `recommended` field (only the
-      // vendored `datasets/` entries do), so the general profiler is the
-      // ONLY source of a mapping here: `action.pick === "weighted-random"`
-      // (Random's own remote pick) samples among near-top candidates
-      // through the SAME seam `chartsCandidatePick` exposes for it, and
-      // everything else — the search box's manual pick, a `?c=` remote
-      // re-fetch — takes the plain top pick exactly like a `dataset:
-      // undefined` caller already did before this option existed.
-      const top = action.pick === "weighted-random"
-        ? (() => {
-            const candidate = chartsCandidatePick(profiled.profile, { mode: "weighted-random", seed: action.seed });
-            return candidate ? candidateToTopRecommendation(candidate) : null;
-          })()
-        : topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
+      // vendored `datasets/` entries do), so the ranker's own top bindable
+      // candidate is the mapping — for the search box, a `?c=` re-fetch and
+      // Random alike. Random used to sample within 85% of the top score;
+      // the pool was mostly mirror images of the top pick (x/y swapped, a
+      // sankey reversed) or visibly weaker views
+      // (`docs/design/charts.md`'s "Mark-type fit"), and Random already
+      // varies by picking a different dataset every press.
+      const top = topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
       const built = buildRecommendedMarkUpdate(state.nextMarkId, action.rows, top);
       if (!built) return state;
       return {
@@ -559,42 +582,6 @@ export function chartMarkFields(mark: ChartsWorkbenchMark): string[] {
     return data.every((row) => typeof row === "number") ? ["index", "value"]
       : [...new Set(data.flatMap((row) => typeof row === "number" ? [] : Object.keys(row)))];
   } catch { return []; }
-}
-
-/**
- * P3-6 (review fix, REVIEW-showcase-opus.md): whether `mark`'s own
- * resolved data fields (`chartMarkFields`) can plausibly supply `type`'s
- * channels, so a card can disable an incompatible mark type WITH A REASON
- * (`mapDirectionLocked`'s idiom, AGENTS.md's "Maps") instead of letting a
- * reader pick it and hit a raw `sankey-bad-value`/`funnel-missing-value`
- * ledger error. Only `sankey` (needs distinct SOURCE/TARGET/VALUE columns)
- * and `funnel` (STAGE/VALUE) are field-count-gated — every other mark type
- * reads x/y-shaped data generically enough that no dataset this page ships
- * (vendored or remote) fails it, so this is a field-COUNT heuristic, not a
- * channel-name check: it stays true for a genuinely flow-shaped remote
- * dataset without hardcoding its column names.
- */
-export function chartMarkTypeFits(mark: ChartsWorkbenchMark, type: GlyphChartMarkType): boolean {
-  if (type !== "sankey" && type !== "funnel") return true;
-  let data: GlyphChartMark["data"];
-  try { data = parseChartMarkData(mark); } catch { return false; }
-  // A bare numeric array has no field identity at all — neither a stage
-  // name nor a source/target pair can come from it.
-  if (data.length === 0 || data.every((row) => typeof row === "number")) return false;
-  const records = data.filter((row): row is Record<string, TabularRow[string]> => typeof row === "object" && row !== null);
-  // Field COUNT alone (the first cut) passed a plain date+numeric dataset
-  // like `global-temperature` for funnel — 2 columns is also exactly
-  // `CHART_FUNNEL_CHANNELS.length`. Reusing `dataProfile.ts`'s own column
-  // typing is what actually distinguishes a STAGE/SOURCE/TARGET identity
-  // (a `category` column: a short, repeated, non-date vocabulary) from a
-  // continuous axis (a `date`/plain `number` column reads as neither) —
-  // `sankey` needs two independent category columns (source AND target),
-  // `funnel` only one (stage) alongside a numeric value column.
-  const profile = profileRows(records as TabularRow[]);
-  const categoryColumns = profile.columns.filter((c) => c.type === "category").length;
-  const numericColumns = profile.columns.filter((c) => c.type === "number" || c.type === "integer").length;
-  if (numericColumns < 1) return false;
-  return type === "sankey" ? categoryColumns >= 2 : categoryColumns >= 1;
 }
 
 function buildMark(mark: ChartsWorkbenchMark): GlyphChartMark {
