@@ -38,7 +38,7 @@ A bare `number[]` infers `x = index, y = identity` — the same shorthand `Plot.
 
 ## Marks
 
-Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal), a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends").
+Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal), a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends"). Two more constructors are non-cartesian, like `arc`: `glyphChartSankey(data, { source, target, value, name? })` and `glyphChartFunnel(data, { stage?, value?, name? })`.
 
 ### `glyphChartLine`
 
@@ -202,6 +202,75 @@ renderGlyphChart(glyphChartText([{ x: 1, y: 1, label: "hi" }], { x: "x", y: "y",
 ### `glyphChartRect`
 
 Like `bar`, but drawn as a plain 1-cell-wide column at each `x`/`y` pair rather than a band-scaled bar — the primitive a `bin`-transformed histogram paints into.
+
+### `glyphChartSankey`
+
+Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`), row height ∝ throughput, and a flow's band is ∝ value at BOTH ends — every row split (a column's node heights, a node's outgoing bands, a node's incoming bands) uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly. A flow whose share would round to zero rows folds into a single `(other)` band for that source (`sankey-folded-flows`); a non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive/non-finite value or a missing channel rejects with `sankey-bad-value`; a cycle rejects with `sankey-cycle`. Legend: one entry per source node.
+
+```ts
+const data = [
+  { from: "Coal", to: "Power", amount: 40 },
+  { from: "Gas", to: "Power", amount: 60 },
+  { from: "Power", to: "Homes", amount: 70 },
+  { from: "Power", to: "Industry", amount: 30 },
+];
+renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
+```
+```
+┌────────┐██████████┌────────┐▒▒▒▒▒▒▒▒▒▒┌────────┐
+│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+│  Coal  │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│ Homes  │
+└────────┘██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+              ▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
+┌────────┐▓▓▓▓▓▓▓▓▓▓│ Power  │▒▒▒▒▒▒▒▒▒▒│        │
+│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
+│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒└────────┘
+│  Gas   │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒               
+│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒┌────────┐
+│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│Industry│
+│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
+└────────┘▓▓▓▓▓▓▓▓▓▓└────────┘▒▒▒▒▒▒▒▒▒▒└────────┘
+   █  Coal          ▓  Gas         ▒  Power       
+```
+
+### `glyphChartFunnel`
+
+Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index). Every stage gets an EQUAL row band; only the bar's WIDTH is proportional to value/max, centred between a label column (stage name, right-aligned) and a `value · NN%` readout on the right — never an equal-step trapezoid. A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a proportional width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
+
+```ts
+const data = [
+  { stage: "Visits", count: 10000 },
+  { stage: "Product Views", count: 4000 },
+  { stage: "Add to Cart", count: 1000 },
+  { stage: "Checkout", count: 400 },
+  { stage: "Purchase", count: 260 },
+];
+renderGlyphChart(glyphChartFunnel(data, { stage: "stage", value: "count" }), { target: "chat", width: 64, height: 20 });
+```
+```
+             ████████████████████████████████████               
+       Visits████████████████████████████████████  10k · 100%   
+             ████████████████████████████████████               
+                                                                
+                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
+Product Views           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓             4k · 40%     
+                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
+                                                                
+                             ▒▒▒▒                               
+  Add to Cart                ▒▒▒▒                  1k · 10%     
+                             ▒▒▒▒                               
+                                                                
+                               ░                                
+     Checkout                  ░                   400 · 4%     
+                               ░                                
+                                                                
+                               █                                
+     Purchase                  █                   260 · 3%     
+                               █                                
+                                                                
+```
 
 ### Composing marks
 

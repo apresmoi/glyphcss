@@ -1,4 +1,4 @@
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartText } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import type { GlyphChartMark, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 export const categoricalSeriesData = [{ x: 0, y: 1, s: "A" }, { x: 1, y: 2, s: "A" }, { x: 0, y: 8, s: "B" }, { x: 1, y: 9, s: "B" }];
@@ -8,6 +8,14 @@ export const longBands = glyphChartBar([{ x: "abcdefghijklmnopqrstuvwx123456", y
 export const hourlyLine = glyphChartLine([{ x: "2026-01-01T00:00:00Z", y: 1 }, { x: "2026-01-01T02:00:00Z", y: 2 }], { x: "x", y: "y" });
 export const categoricalDots = glyphChartDot([{ x: 0, y: "low" }, { x: 1, y: "high" }], { x: "x", y: "y" });
 export const browserShares = [{ browser: "Chrome", share: 65 }, { browser: "Safari", share: 20 }, { browser: "Firefox", share: 15 }];
+export const sankeySample = glyphChartSankey(
+  [{ from: "A", to: "B", amount: 10 }, { from: "A", to: "C", amount: 5 }, { from: "B", to: "D", amount: 10 }, { from: "C", to: "D", amount: 5 }],
+  { source: "from", target: "to", value: "amount" },
+);
+export const funnelSample = glyphChartFunnel(
+  [{ stage: "Visits", count: 1000 }, { stage: "Views", count: 500 }, { stage: "Purchase", count: 100 }],
+  { stage: "stage", value: "count" },
+);
 export const markFactories = [glyphChartLine, glyphChartArea, glyphChartBar, glyphChartDot, glyphChartRect, glyphChartCell, glyphChartArc, glyphChartText, glyphChartRule];
 const spec = (mark: GlyphChartMark): GlyphChartSpec => ({ marks: [mark] });
 export const goodSpecs: GlyphChartSpec[] = [
@@ -15,6 +23,7 @@ export const goodSpecs: GlyphChartSpec[] = [
   spec(glyphChartLine([3, 5, 2, 8])), spec(glyphChartBar([0, 0, 0])), spec(glyphChartArc([0, 0, 0])),
   spec(glyphChartLine(categoricalSeriesData, { x: "x", y: "y", fill: "s" })),
   spec(stackedArea), spec(signedCells), spec(longBands), spec(categoricalDots),
+  spec(sankeySample), spec(funnelSample), spec(glyphChartFunnel([1000, 500, 100])),
   // Mutation: put arc back in XY_MARK_TYPES/schema's x+y clause -> this exact review input rejects.
   spec(glyphChartArc(browserShares, { fill: "browser", y: "share" })),
   spec(glyphChartArc(browserShares, { label: "browser", y: "share" })),
@@ -58,4 +67,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "bad-time-domain", spec: { marks: [hourlyLine], scales: { x: { type: "time", domain: ["invalid", "2026-01-02"] } } } },
   { id: "bad-title", spec: { marks: [glyphChartLine([1, 2])], title: { text: "x", align: "diagonal" } as never } },
   { id: "bad-legend", spec: { marks: [glyphChartLine([1, 2])], legend: { placement: "middle" } as never } },
+  // Mutation: drop the `sankey` schema `allOf` clause, the runtime channel
+  // check, or the rule's table/hint entry -> Ajv/runtime parity goes red.
+  { id: "sankey-bad-value", spec: spec({ ...glyphChartSankey([{ source: "a", target: "b", value: 1 }], { source: "source", target: "target", value: "value" }), channels: { source: "source", target: "target" } }) },
 ];

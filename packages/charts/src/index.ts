@@ -12,10 +12,12 @@ export {
   glyphChartCell,
   glyphChartText,
   glyphChartRule,
+  glyphChartSankey,
+  glyphChartFunnel,
   glyphChartPlot,
   normalizeGlyphChartInput,
 } from "./spec";
-export type { GlyphChartPlotOptions } from "./spec";
+export type { GlyphChartPlotOptions, GlyphChartSankeyChannels, GlyphChartFunnelChannels } from "./spec";
 
 export {
   validateGlyphChartSpec,

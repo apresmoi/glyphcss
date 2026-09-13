@@ -45,6 +45,12 @@ const MARK_SCHEMA = {
   }, {
     if: { properties: { type: { const: "arc" }, data: { contains: { type: "object" } } }, required: ["data", "type"] },
     then: { properties: { channels: { required: ["y"] } } },
+  }, {
+    // Sankey data is always records (a flow has no honest 1-D shorthand),
+    // so this fires regardless of `data`'s shape — the structural half of
+    // `sankey-bad-value` (see `validate.ts`'s own doc at that check).
+    if: { properties: { type: { const: "sankey" } }, required: ["type"] },
+    then: { properties: { channels: { required: ["source", "target", "value"] } } },
   }],
 };
 

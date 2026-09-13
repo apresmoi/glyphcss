@@ -9,6 +9,7 @@
 import { validateFiniteData } from "./validate";
 import { materializeGlyphChartMarkRows } from "./channels";
 import { applyGlyphChartTransform } from "./transforms";
+import { resolveFunnelRows, resolveSankeyRows } from "./flowMarks";
 import type { GlyphChartMark, GlyphChartMarkRow, GlyphChartSpec } from "./types";
 
 export interface GlyphChartResolvedMark {
@@ -35,6 +36,14 @@ export function resolveGlyphChartSpec(spec: GlyphChartSpec): GlyphChartResolvedM
   return spec.marks.map((mark) => {
     if (mark.type === "rule") {
       return { mark, rows: [], ruleValues: resolveRuleValues(mark) };
+    }
+    if (mark.type === "sankey") {
+      return { mark, rows: resolveSankeyRows(mark) };
+    }
+    if (mark.type === "funnel") {
+      const rows = resolveFunnelRows(mark);
+      validateFiniteData(rows);
+      return { mark, rows };
     }
     let rows = materializeGlyphChartMarkRows(mark);
     validateFiniteData(rows);

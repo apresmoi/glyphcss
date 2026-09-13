@@ -1,6 +1,6 @@
 import { useState, type Dispatch } from "react";
 import {
-  CHART_CHANNELS, CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields, chartMarkTable, nextChartTableColumnName,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields, chartMarkTable, chartRelevantChannels, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 
@@ -111,7 +111,7 @@ export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenc
       <div role="tabpanel" id={`charts-data-json-${mark.id}`} aria-labelledby={`charts-data-json-tab-${mark.id}`} hidden={dataView !== "json"}>
         <textarea id={`charts-data-${mark.id}`} className="charts-mark-data" aria-label={`Mark ${index + 1} data JSON`} value={mark.dataText} onChange={(event) => update({ dataText: event.target.value })} spellCheck={false} />
       </div>
-      {CHART_CHANNELS.map((channel) => <label className="voice-row charts-mark-row" key={channel}>
+      {chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
         <span>{channel}</span><span className="gx-select"><select aria-label={`Mark ${index + 1} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>
           {mark.channels[channel] && !fields.includes(mark.channels[channel]!) && <option value={mark.channels[channel]}>{mark.channels[channel]} (missing)</option>}

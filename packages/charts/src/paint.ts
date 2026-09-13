@@ -27,6 +27,7 @@ import {
 } from "./layout";
 import { abbreviateChartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
 import { ledgerEmptyTotal, ledgerLegendOverlapsMarks, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { paintFunnelMark, paintSankeyMark } from "./flowMarks";
 import { areaLayers, chartSeries, SERIES_COLORS, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
@@ -654,7 +655,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
     else canvas.line({ x: startCol, y: row }, { x: startCol, y: row }, { color, style: SERIES_STYLES[styleIdx % 4] });
     canvas.text(textCol, row, [text], { color });
@@ -720,6 +721,8 @@ export function paintGlyphChart(
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
     if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length);
+    else if (mark.type === "sankey") paintSankeyMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
+    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
     else for (let i = 0; i < groups.length; i++) {
       const { rows, styleIndex } = groups[i]!;
       const color = paletteColor(styleIndex, opts.colorEnabled);
@@ -847,7 +850,7 @@ export function paintGlyphChart(
       // continuous VALUE, not by series) — its swatch is the ramp's own
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
       // it can paint.
-      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") {
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
         guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });

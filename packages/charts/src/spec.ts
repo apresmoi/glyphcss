@@ -5,6 +5,7 @@
  */
 
 import type {
+  GlyphChartChannelValue,
   GlyphChartChannels,
   GlyphChartInput,
   GlyphChartMark,
@@ -66,6 +67,44 @@ export function glyphChartText(data: GlyphChartMark["data"], channels?: GlyphCha
  */
 export function glyphChartRule(values: readonly number[], options: GlyphChartMarkOptions = {}): GlyphChartMark {
   return mark("rule", values, {}, { ...options, axis: options.axis ?? "y" });
+}
+
+export interface GlyphChartSankeyChannels {
+  readonly source: GlyphChartChannelValue;
+  readonly target: GlyphChartChannelValue;
+  readonly value: GlyphChartChannelValue;
+  /** Same idiom as every other constructor's `options.name` — accepted here directly since a sankey has no other place for a caller-facing series label. */
+  readonly name?: string;
+}
+
+/**
+ * A sankey mark is non-cartesian, like `arc` — see `AGENTS.md`'s "Charts"
+ * section. `{ source, target, value }` are channel names/accessors/arrays
+ * exactly like every other channel; `name` folds into `mark.options.name`
+ * like `glyphChartRule`'s own does, so a hand-authored JSON mark (which
+ * sets `options.name` directly) and this constructor agree byte for byte.
+ */
+export function glyphChartSankey(data: GlyphChartMark["data"], channels: GlyphChartSankeyChannels): GlyphChartMark {
+  const { source, target, value, name } = channels;
+  return mark("sankey", data, { source, target, value }, name !== undefined ? { name } : undefined);
+}
+
+export interface GlyphChartFunnelChannels {
+  /** Omitted with a bare `number[]` `data`: the stage name defaults to the row index. */
+  readonly stage?: GlyphChartChannelValue;
+  /** Omitted with a bare `number[]` `data`: the value defaults to the array element itself. */
+  readonly value?: GlyphChartChannelValue;
+  readonly name?: string;
+}
+
+/**
+ * A funnel mark is non-cartesian, like `arc`/`sankey`. `data` may be a plain
+ * `number[]` (stage = index, value = the element) or records addressed by
+ * `{ stage, value }` channels.
+ */
+export function glyphChartFunnel(data: GlyphChartMark["data"], channels: GlyphChartFunnelChannels = {}): GlyphChartMark {
+  const { stage, value, name } = channels;
+  return mark("funnel", data, { stage, value }, name !== undefined ? { name } : undefined);
 }
 
 export interface GlyphChartPlotOptions {

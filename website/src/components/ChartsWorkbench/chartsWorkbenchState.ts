@@ -1,7 +1,7 @@
 import {
   GLYPH_CHART_TARGET_DEFAULTS,
-  glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot,
-  glyphChartLine, glyphChartPlot, glyphChartRect, glyphChartRule, glyphChartText,
+  glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel,
+  glyphChartLine, glyphChartPlot, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText,
   glyphChartScaleDomains,
   type GlyphChartAxisOptions, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartDetail,
   type GlyphChartLegendPlacement,
@@ -19,11 +19,21 @@ export const CHART_DETAILS = ["auto", "faithful", "balanced", "simplified"] as c
 export const CHART_LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"] as const;
 export const CHART_TITLE_ALIGNS = ["left", "center", "right"] as const;
 export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
-export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule"] as const;
+export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
-export const CHART_CHANNELS = ["x", "y", "fill", "label"] as const;
+export const CHART_CARTESIAN_CHANNELS = ["x", "y", "fill", "label"] as const;
+export const CHART_SANKEY_CHANNELS = ["source", "target", "value"] as const;
+export const CHART_FUNNEL_CHANNELS = ["stage", "value"] as const;
+/** Full channel vocabulary the editable-mark/URL-codec data model round-trips — a mark's own RELEVANT subset comes from `chartRelevantChannels`. */
+export const CHART_CHANNELS = [...CHART_CARTESIAN_CHANNELS, ...CHART_SANKEY_CHANNELS, "stage"] as const;
 type Channel = typeof CHART_CHANNELS[number];
+/** Which of `CHART_CHANNELS` a given mark type actually reads — `sankey`/`funnel` use their own vocabulary instead of x/y/fill/label (AGENTS.md's "Charts" section: they're non-cartesian, like `arc`). */
+export function chartRelevantChannels(type: GlyphChartMarkType): readonly Channel[] {
+  if (type === "sankey") return CHART_SANKEY_CHANNELS;
+  if (type === "funnel") return CHART_FUNNEL_CHANNELS;
+  return CHART_CARTESIAN_CHANNELS;
+}
 
 export interface GlyphChartsWorkbenchControls {
   readonly target: GlyphChartTarget;
@@ -74,6 +84,8 @@ export function sampleChartMark(type: GlyphChartMarkType): GlyphChartMark {
     case "cell": return glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" });
     case "text": return glyphChartText([{ x: 1, y: 3, label: "Peak" }, { x: 3, y: 1, label: "Low" }], { x: "x", y: "y", label: "label" });
     case "rule": return glyphChartRule([5]);
+    case "sankey": return glyphChartSankey([{ from: "A", to: "B", amount: 2 }, { from: "A", to: "C", amount: 1 }], { source: "from", target: "to", value: "amount" });
+    case "funnel": return glyphChartFunnel([{ stage: "Visits", count: 100 }, { stage: "Purchases", count: 20 }], { stage: "stage", value: "count" });
   }
 }
 
@@ -92,6 +104,8 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
   { id: "donut", label: "Donut", spec: glyphChartPlot({ marks: [glyphChartArc(SHARES, { y: "share", fill: "browser" }, { innerRadius: 0.5 })], title: "Donut" }) },
   { id: "heatmap", label: "Heatmap", spec: glyphChartPlot({ marks: [glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" }, { name: "Activity" })], title: "Heatmap" }) },
   { id: "line-rule", label: "Line + rule", spec: glyphChartPlot({ marks: [glyphChartLine(SAMPLE, undefined, { name: "Revenue" }), glyphChartRule([5], { name: "Target" })], title: "Line + rule" }) },
+  { id: "sankey", label: "Sankey", spec: glyphChartPlot({ marks: [glyphChartSankey([{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }, { from: "Power", to: "Industry", amount: 30 }], { source: "from", target: "to", value: "amount" })], title: "Sankey" }) },
+  { id: "funnel", label: "Funnel", spec: glyphChartPlot({ marks: [glyphChartFunnel([{ stage: "Visits", count: 1000 }, { stage: "Signups", count: 300 }, { stage: "Purchases", count: 80 }], { stage: "stage", value: "count" })], title: "Funnel" }) },
 ];
 
 export interface ChartsWorkbenchMark {
@@ -154,10 +168,12 @@ export type ChartsWorkbenchAction =
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
+  const indexKey = mark.type === "funnel" ? "stage" : "x";
+  const valueKey = mark.type === "funnel" ? "value" : "y";
   return {
     id, type: mark.type, dataText: JSON.stringify(mark.data, null, 2),
-    channels: Object.fromEntries(CHART_CHANNELS.map((key) => [key,
-      mark.channels[key] ?? (numeric && key === "x" ? "index" : numeric && key === "y" ? "value" : ""),
+    channels: Object.fromEntries(chartRelevantChannels(mark.type).map((key) => [key,
+      mark.channels[key] ?? (numeric && key === indexKey ? "index" : numeric && key === valueKey ? "value" : ""),
     ])),
     transform: mark.transform?.kind ?? "none", options: { ...mark.options },
   };
@@ -340,7 +356,7 @@ function tableRenameColumn(table: ChartsWorkbenchTable, column: string, next: st
 function buildMark(mark: ChartsWorkbenchMark): GlyphChartMark {
   const data = parseChartMarkData(mark);
   const numeric = data.every((row) => typeof row === "number");
-  const channels = Object.fromEntries(CHART_CHANNELS.flatMap((key) => {
+  const channels = Object.fromEntries(chartRelevantChannels(mark.type).flatMap((key) => {
     const field = mark.channels[key];
     if (!field || mark.type === "rule") return [];
     // Literal channel arrays keep index/value assignments executable through JSON.
