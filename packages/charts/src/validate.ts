@@ -1,3 +1,4 @@
+import { resolveGlyphChartTickFormat } from "./tickFormat";
 import type { GlyphChartLegendOption, GlyphChartMark, GlyphChartMarkType, GlyphChartSpec, GlyphChartTitleOption } from "./types";
 
 // Schema generation shares the vocabulary and repair rules; schema.test uses
@@ -8,7 +9,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value", "bad-stroke-width",
+  "funnel-missing-value", "bad-stroke-width", "bad-tick-format",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -81,6 +82,21 @@ export function validateGlyphChartAxisTitleAt(axes: GlyphChartSpec["axes"]): voi
   if (axes?.y?.titleAt !== undefined && !Y_AXIS_TITLE_ATS.includes(axes.y.titleAt)) {
     chartError("bad-axis-title-at", `axes.y.titleAt must be one of ${Y_AXIS_TITLE_ATS.join(", ")}, got ${JSON.stringify(axes.y.titleAt)}.`);
   }
+}
+
+/**
+ * `axes.x.format`/`axes.y.format` — delegates entirely to
+ * `resolveGlyphChartTickFormat` (`tickFormat.ts`), the one function that
+ * knows the preset table, so this file carries no parallel copy of it. A
+ * raw callback function always passes (the TS/JS-only escape hatch;
+ * `renderGlyphChartJson`'s own `JSON.parse` can never produce one, so this
+ * branch is unreachable from that path regardless). Anything else — an
+ * unknown preset name, bad/missing/unknown params, or a value that is
+ * neither a preset name/object nor a function — throws `bad-tick-format`.
+ */
+export function validateGlyphChartAxisFormat(axes: GlyphChartSpec["axes"]): void {
+  resolveGlyphChartTickFormat(axes?.x?.format);
+  resolveGlyphChartTickFormat(axes?.y?.format);
 }
 
 /** A mark's `options.color`: a single canonical hex, or a non-empty array of them. */
@@ -207,6 +223,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
   validateGlyphChartAxes(spec.axes);
   validateGlyphChartAxisColor(spec.axes);
   validateGlyphChartAxisTitleAt(spec.axes);
+  validateGlyphChartAxisFormat(spec.axes);
   if (spec.scales !== undefined && !object(spec.scales)) chartError("bad-scale", "scales must be an object.");
   const scales = { ...spec.scales };
   for (const [axis, opts] of Object.entries(spec.scales ?? {})) {
@@ -264,6 +281,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-axis-title-at": `Use one of ${X_AXIS_TITLE_ATS.join("/")} for axes.x.titleAt, or one of ${Y_AXIS_TITLE_ATS.join("/")} for axes.y.titleAt.`,
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
   "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
+  "bad-tick-format": "Use a known preset name, { preset, ...params } with valid params, or (TS/JS only) a callback (value, index, ticks) => string.",
 };
 
 /**

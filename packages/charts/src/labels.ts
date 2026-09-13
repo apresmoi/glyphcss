@@ -30,6 +30,20 @@ export interface GlyphChartLabelCandidate {
   /** Hint forwarded to `abbreviateChartText` — see its own doc. */
   readonly numeric?: boolean;
   /**
+   * The raw numeric value behind this candidate (an axis tick's own scale
+   * value) — lets `abbreviateChartText` try a PRESET-specific `siFallback`
+   * instead of re-parsing the DISPLAY text, which a formatted numeric label
+   * (`"$1,234.00"`, `"42%"`) no longer round-trips through `Number()`.
+   */
+  readonly rawValue?: number;
+  /**
+   * Preset-specific overflow fallback (`tickFormat.ts`'s own
+   * `GlyphChartResolvedTickFormat.siFallback`) — tried before dropping a
+   * numeric label that doesn't fit; absent falls back to the existing
+   * behaviour (a generic SI attempt off the parsed DISPLAY text, or drop).
+   */
+  readonly siFallback?: (value: number) => string;
+  /**
    * Human-readable role used ONLY for `report.ledger` phrasing (e.g. "chart
    * title", "legend label", "y-axis label") — never for placement or
    * measurement. Defaults to "label", which reads fine for an anonymous
@@ -98,20 +112,52 @@ export interface GlyphChartAbbreviateResult {
  * the fallback for a caller (a `text` mark, a legend) that has no such hint
  * and passed a RAW (unformatted) number as a string.
  */
-export function abbreviateChartText(text: string, maxWidth: number, charset: GlyphCanvasTierName = "box", numeric = false): GlyphChartAbbreviateResult {
+export function abbreviateChartText(
+  text: string,
+  maxWidth: number,
+  charset: GlyphCanvasTierName = "box",
+  numeric = false,
+  rawValue?: number,
+  siFallback?: (value: number) => string,
+): GlyphChartAbbreviateResult {
   const original = text;
   text = chartText(text, charset);
   if (text.length <= maxWidth) return { text, changed: text !== original };
   const asNumber = Number(text);
   const rawNumeric = Number.isFinite(asNumber) && text.trim() !== "";
+  // The GATE into the numeric drop-vs-abbreviate branch is unchanged from
+  // before `rawValue`/`siFallback` existed (`numeric` — the caller's own
+  // hint — or the display text itself parsing as a number): a candidate
+  // the caller marked NOT numeric (a band category, a callback's opaque
+  // output) must keep the category-style ellipsis path even when a
+  // `rawValue` happens to be attached, or a band tick like `"long-12"`
+  // would silently start dropping instead of truncating with `…`.
   if (numeric || rawNumeric) {
-    if (rawNumeric) {
+    // A caller-supplied `rawValue` marks this as a CUSTOM-FORMATTED tick
+    // (an `axes.{x,y}.format` preset) — only ITS OWN `siFallback` (if the
+    // preset declares one) may rescue it, never the generic
+    // reparse-the-display-text attempt below: a preset's own output can
+    // coincidentally still parse as a number (`"8.0000"` -> `8`), and
+    // falling back to that would silently swap the preset's chosen
+    // precision/format for a plain SI one instead of dropping — the
+    // opposite of "the preset's own SI fallback where it has one, else
+    // DROPPED" (AGENTS.md's "Charts" "Labels").
+    if (rawValue !== undefined && Number.isFinite(rawValue)) {
+      if (siFallback) {
+        const si = chartText(siFallback(rawValue), charset);
+        if (si.length <= maxWidth) return { text: si, changed: true };
+      }
+    } else if (rawNumeric) {
+      // No `rawValue` — the default (no `format`) path, or a non-axis
+      // caller (a legend/text mark) passing a raw numeric string: the
+      // original generic SI-of-the-parsed-text attempt, unchanged.
       const si = chartText(d3format(".2~s")(asNumber), charset);
       if (si.length <= maxWidth) return { text: si, changed: true };
     }
     // SI abbreviation still doesn't fit — or `text` is already an
     // SI-abbreviated/formatted number with nothing left to shrink without
-    // cutting digits: DROP, never truncate a number.
+    // cutting digits, or this preset has no fallback at all: DROP, never
+    // truncate a number.
     return { text: "", changed: true, dropped: true };
   }
   const ellipsis = charset === "ascii" ? "..." : "…";
@@ -150,7 +196,7 @@ export function glyphChartLabelLayout(
     if (c.y < 0 || c.y >= rows) { dropped.push(c.id); continue; }
     const role = c.role ?? "label";
     const maxWidth = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
-    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric);
+    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric, c.rawValue, c.siFallback);
     if (numericOverflow) {
       dropped.push(c.id);
       ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "the number couldn't be abbreviated to fit" }));

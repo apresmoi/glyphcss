@@ -30,6 +30,9 @@ export type { GlyphChartValidationRuleId, GlyphChartValidationError } from "./va
 export { glyphChartJsonSchema } from "./schema";
 export type { GlyphChartJsonSchema } from "./schema";
 
+export { GLYPH_CHART_TICK_FORMAT_PRESETS, GLYPH_CHART_TICK_FORMAT_PRESET_NAMES, resolveGlyphChartTickFormat } from "./tickFormat";
+export type { GlyphChartResolvedTickFormat } from "./tickFormat";
+
 export type { GlyphChartLedgerEntry } from "./ledger";
 
 export { glyphChartLabelLayout } from "./labels";
@@ -70,6 +73,9 @@ export type {
   GlyphChartScaleOptions,
   GlyphChartSpec,
   GlyphChartTarget,
+  GlyphChartTickFormat,
+  GlyphChartTickFormatCallback,
+  GlyphChartTickFormatPreset,
   GlyphChartTitleAlign,
   GlyphChartTitleOption,
   GlyphChartTitlePosition,

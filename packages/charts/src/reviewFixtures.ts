@@ -129,4 +129,9 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   // Mutation: drop the runtime strokeWidth check, its rule/hint entry, or
   // the schema's `strokeWidth` enum -> Ajv/runtime parity goes red.
   { id: "bad-stroke-width", spec: spec(glyphChartLine([1, 2], undefined, { strokeWidth: 4 as never })) },
+  // Mutation: drop `resolveGlyphChartTickFormat`'s preset-name check, its
+  // rule/hint entry, or the schema's `format` enum -> Ajv/runtime parity
+  // goes red. An unknown preset name (`tickFormat.test.ts` covers the rest
+  // — bad params, an unrecognised object shape).
+  { id: "bad-tick-format", spec: { marks: [glyphChartLine([1, 2])], axes: { y: { format: "nonsense-preset" as never } } } },
 ];

@@ -4,6 +4,7 @@ import {
   Y_AXIS_TITLE_ATS, glyphChartRepairHint,
   type GlyphChartValidationRuleId,
 } from "./validate";
+import { GLYPH_CHART_TICK_FORMAT_PRESET_NAMES } from "./tickFormat";
 
 export interface GlyphChartJsonSchema {
   readonly $schema: string;
@@ -20,8 +21,43 @@ const NUMERIC_DOMAIN = { type: "array", minItems: 2, maxItems: 2, items: { type:
 // (`schema.test.ts`) compares this pattern's verdict against that regex.
 const HEX_COLOR_SCHEMA = { type: "string", pattern: "^#[0-9a-f]{6}$" };
 const MARK_COLOR_SCHEMA = { anyOf: [HEX_COLOR_SCHEMA, { type: "array", minItems: 1, items: HEX_COLOR_SCHEMA }] };
-const X_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: X_AXIS_TITLE_ATS } } };
-const Y_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: Y_AXIS_TITLE_ATS } } };
+// Mirrors `tickFormat.ts`'s own per-preset `validate`/`required` clauses —
+// hand-written rather than derived generically (a preset's params carry
+// TYPES `GLYPH_CHART_TICK_FORMAT_PRESETS` doesn't declare structurally, only
+// checks at runtime), the same reason `SCALE_SCHEMA`/`MARK_SCHEMA` hardcode
+// their own `allOf`/`if`/`then` clauses instead of deriving them from
+// `validate.ts`. Only presets that TAKE params need an entry here — every
+// other preset name accepts `{ preset: "<name>" }` and nothing else, which
+// the shared `additionalProperties: false` below already enforces.
+const TICK_FORMAT_PRESET_PARAMS: Readonly<Record<string, { readonly properties: Record<string, unknown>; readonly required?: readonly string[] }>> = {
+  percent: { properties: { of: { type: "number" } } },
+  currency: { properties: { symbol: { type: "string" }, decimals: { type: "integer", minimum: 0 } } },
+  decimals: { properties: { places: { type: "integer", minimum: 0 } }, required: ["places"] },
+  template: { properties: { pattern: { type: "string" } }, required: ["pattern"] },
+};
+const TICK_FORMAT_OBJECT_SCHEMA = {
+  type: "object", required: ["preset"],
+  properties: { preset: { enum: GLYPH_CHART_TICK_FORMAT_PRESET_NAMES } },
+  allOf: GLYPH_CHART_TICK_FORMAT_PRESET_NAMES.map((name) => ({
+    if: { properties: { preset: { const: name } }, required: ["preset"] },
+    then: {
+      properties: { preset: { const: name }, ...(TICK_FORMAT_PRESET_PARAMS[name]?.properties ?? {}) },
+      required: ["preset", ...(TICK_FORMAT_PRESET_PARAMS[name]?.required ?? [])],
+      additionalProperties: false,
+    },
+  })),
+};
+// A bare string must be a KNOWN preset name that needs NO parameters — a
+// preset with a `required` param (`decimals`, `template`) can never be
+// legal as a bare string at runtime either (`resolvePreset`'s own
+// required-key check fires with `params: {}`), so admitting it here would
+// open an Ajv/runtime parity hole (Ajv says valid, `validateGlyphChartSpec`
+// throws). A plain function value (the TS/JS-only callback escape hatch)
+// has no JSON representation at all, so it never reaches this schema either way.
+const TICK_FORMAT_BARE_NAMES = GLYPH_CHART_TICK_FORMAT_PRESET_NAMES.filter((name) => (TICK_FORMAT_PRESET_PARAMS[name]?.required?.length ?? 0) === 0);
+const TICK_FORMAT_SCHEMA = { anyOf: [{ enum: TICK_FORMAT_BARE_NAMES }, TICK_FORMAT_OBJECT_SCHEMA] };
+const X_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: X_AXIS_TITLE_ATS }, format: TICK_FORMAT_SCHEMA } };
+const Y_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: Y_AXIS_TITLE_ATS }, format: TICK_FORMAT_SCHEMA } };
 const SCALE_SCHEMA = {
   type: "object",
   properties: { type: { enum: SCALE_TYPES }, nice: { type: "boolean" }, domain: { type: "array", minItems: 2, items: { anyOf: [{ type: "number" }, { type: "string" }] } } },
