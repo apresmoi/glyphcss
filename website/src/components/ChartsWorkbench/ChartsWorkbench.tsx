@@ -12,7 +12,7 @@ import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
-import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
+import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
@@ -61,6 +61,14 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   const [codeOpen, setCodeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
+  // N3: the PRE-drop size of a custom payload the LAST encode omitted from
+  // the link (KB, rounded up) — `null` whenever nothing was dropped. Kept
+  // separate from `urlSizeBytes` (the size of the link actually written,
+  // which SHRINKS once the payload is dropped) precisely because the two
+  // used to be conflated: the old "link is N KB" notice read the
+  // already-shrunk size, so it never fired for the one case — a big custom
+  // paste — that most needed telling the sharer their data didn't make it.
+  const [omittedCustomKB, setOmittedCustomKB] = useState<number | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
@@ -85,7 +93,10 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   }, [state]);
   // One writer for the component's lifetime — see chartsUrlState.ts's doc
   // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
-  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes }) => setUrlSizeBytes(sizeBytes))).current;
+  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes, omittedCustomBytes }) => {
+    setUrlSizeBytes(sizeBytes);
+    setOmittedCustomKB(omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
+  })).current;
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
   const urlTooLong = urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
 
@@ -122,8 +133,9 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // address bar is brought current in the same click.
   const copyLink = async () => {
     try {
-      const raw = await encodeChartsUrlState(state);
-      setUrlSizeBytes(new TextEncoder().encode(raw).length);
+      const { raw, sizeBytes, omittedCustomBytes } = await encodeChartsUrlStateInfo(state);
+      setUrlSizeBytes(sizeBytes);
+      setOmittedCustomKB(omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
       writeUrlParam(CHARTS_URL_PARAM, raw || null);
       const params = new URLSearchParams(window.location.search);
       if (raw) params.set(CHARTS_URL_PARAM, raw); else params.delete(CHARTS_URL_PARAM);
@@ -167,6 +179,12 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
             {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
             {urlTooLong && <p className="charts-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
+            {/* N3: the sharer's own signal that their custom data did NOT
+             *  make it into the link they're about to copy/have copied —
+             *  sized from the payload BEFORE it was dropped, so a big
+             *  paste that shrinks the encoded link back under
+             *  CHARTS_URL_SIZE_WARN_BYTES still gets told. */}
+            {omittedCustomKB !== null && <p className="charts-readout" role="status">Custom data ({omittedCustomKB} KB) isn't included in this link.</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

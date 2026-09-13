@@ -141,7 +141,18 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
 
   const onSelectDataset = (value: string) => {
     if (value === "") { dispatch({ type: "set-data-source", source: null }); return; }
-    if (value === CUSTOM_OPTION) { dispatch({ type: "set-data-source", source: { kind: "custom", raw: customText, ...customHint } }); return; }
+    if (value === CUSTOM_OPTION) {
+      // N2: mirror the paste/upload handler's own size check here too — the
+      // reducer (`set-data-source`) is the actual enforcement backstop that
+      // makes a bypass impossible, but showing the SAME refusal on this
+      // path keeps the UI honest about why re-selecting "Custom…" after a
+      // refused paste doesn't bring that paste back.
+      const sizeError = customSizeErrorFor(new TextEncoder().encode(customText).length);
+      setCustomSizeError(sizeError);
+      if (sizeError) return;
+      dispatch({ type: "set-data-source", source: { kind: "custom", raw: customText, ...customHint } });
+      return;
+    }
     dispatch({ type: "set-data-source", source: { kind: "dataset", id: value } });
   };
 
@@ -175,9 +186,12 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
 
   // F1: a STOCK dataset's own curated `recommended` mapping — never the
   // profiler's top pick — is what Apply commits; a custom source (no
-  // curated mapping) still falls back to the profiler's own ranking.
+  // curated mapping) still falls back to the profiler's own ranking. N1:
+  // the curated mapping is only trusted when it resolves against the
+  // ALREADY-pipelined `profiled.profile` — a column-changing step falls
+  // back to the profiler's own top pick instead (`top.fallbackNotice`).
   const top = useMemo(
-    () => profiled ? topChartsRecommendation(resolution?.ok ? resolution.dataset : undefined, profiled.recommendations) : null,
+    () => profiled ? topChartsRecommendation(resolution?.ok ? resolution.dataset : undefined, profiled.profile, profiled.recommendations) : null,
     [profiled, resolution],
   );
   const runnerUps = useMemo(() => {
@@ -188,7 +202,12 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
     return profiled.recommendations.filter((rec) => !sameAsTop(rec)).slice(0, 3);
   }, [profiled, top]);
 
-  const apply = (mark: GlyphChartMarkType, channels: ChartsRecommendedChannels) => dispatch({ type: "apply-data", mark, channels });
+  // N4: `pipeline` is the recommendation's own EXTRA reshape (present only
+  // for the multi-numeric long-format rewrite) — threaded through so
+  // `apply-data` runs it on top of the already-resolved rows before
+  // building the mark.
+  const apply = (mark: GlyphChartMarkType, channels: ChartsRecommendedChannels, pipeline?: readonly PipelineStep[]) =>
+    dispatch({ type: "apply-data", mark, channels, pipeline });
 
   return <div className="charts-data-folder">
     <label className="voice-row charts-mark-row">
@@ -225,11 +244,17 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
      *  no separate UI needed for "this link's data isn't here". */}
     {resolution && !resolution.ok && <p className="charts-error" role="alert">{resolution.error}</p>}
     {top && <div className="charts-data-recommend">
+      {/* N1: shown only when the curated mapping didn't survive the
+       *  pipeline's own column changes — the reader gets an explanation
+       *  for why the readout below isn't the dataset's usual chart,
+       *  instead of a silently different (or, before this fix, silently
+       *  EMPTY) recommendation. */}
+      {top.fallbackNotice && <p className="charts-readout" role="status">{top.fallbackNotice}</p>}
       <p className="charts-readout">Recommended: <strong>{top.mark}</strong> — {top.reason}</p>
-      <button type="button" className="gw-code-panel__action" onClick={() => apply(top.mark, top.channels)}>Apply</button>
+      <button type="button" className="gw-code-panel__action" onClick={() => apply(top.mark, top.channels, top.pipeline)}>Apply</button>
       {runnerUps.length > 0 && <ul className="charts-data-runnerups">
         {runnerUps.map((rec, i) => <li key={i}>
-          <button type="button" className="charts-data-runnerup" onClick={() => apply(rec.mark, rec.channels)}>{rec.mark}: {rec.reason}</button>
+          <button type="button" className="charts-data-runnerup" onClick={() => apply(rec.mark, rec.channels, rec.pipeline)}>{rec.mark}: {rec.reason}</button>
         </li>)}
       </ul>}
     </div>}

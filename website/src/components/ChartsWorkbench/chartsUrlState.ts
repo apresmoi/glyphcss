@@ -21,7 +21,8 @@ import {
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
-import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
+import { createJsonUrlEnvelope } from "../../lib/jsonUrlState";
+import { writeUrlParam } from "../../lib/urlState";
 
 export const CHARTS_URL_PARAM = "c";
 const VERSION = "v1";
@@ -301,34 +302,62 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
 
 const chartsUrlEnvelope = createJsonUrlEnvelope<ChartsWorkbenchState>(VERSION, validateChartsWorkbenchState);
 
-/** P2-5, second half: a custom paste/upload's raw text rides in `?c=` in
- *  full today, so an 8 KB CSV becomes an 8 KB-plus query string and a
- *  large one a query string past what a plain static host's request line
- *  tolerates (a 414 on reload — see F8's repro). The envelope already
- *  shows an advisory "link is N KB" notice at `CHARTS_URL_SIZE_WARN_BYTES`
- *  (`ChartsWorkbench.tsx`); this reuses that SAME threshold, but against
- *  the raw payload's OWN size, to decide when to drop it rather than merely
- *  warn: past it, the custom source is replaced with `{ kind: "custom",
- *  raw: "", omitted: true, filename }` before encoding, so the link still
- *  carries every OTHER setting (marks, scales, chart title, …) and the
- *  reader's own state object is never mutated — only the value handed to
- *  the encoder. `resolveChartsDataRows` turns `omitted: true` back into a
- *  clear "paste or upload it again" error on decode
- *  (`ChartsDataFolder.tsx`'s existing `role="alert"` readout shows it with
- *  no new UI). A dataset source or an under-threshold custom one is
- *  untouched, so the existing round-trip tests stay byte-identical. */
-function stateForUrl(state: ChartsWorkbenchState): ChartsWorkbenchState {
+export interface ChartsUrlEncodeResult {
+  readonly raw: string;
+  readonly sizeBytes: number;
+  /** N3: set — to the PRE-drop raw payload size, in bytes — when a custom
+   *  source was dropped from THIS encoding because including it in full
+   *  would have made the encoded link exceed `CHARTS_URL_SIZE_WARN_BYTES`.
+   *  Absent whenever nothing was dropped, so a caller's "this link doesn't
+   *  carry your data" notice can fire on the size the sharer's OWN paste
+   *  was, not on the (already-shrunk) size of the link that resulted. */
+  readonly omittedCustomBytes?: number;
+}
+
+/** P2-5, second half, rewritten for N3: a custom paste/upload's raw text
+ *  rides in `?c=` in full by default, so an 8 KB CSV becomes an 8 KB-plus
+ *  query string and a large one a query string past what a plain static
+ *  host's request line tolerates (a 414 on reload — see F8's repro).
+ *
+ *  Two things N3 found wrong with the first cut, both fixed here together
+ *  because they're the same decision made twice. (a) The THRESHOLD was
+ *  measured against the RAW payload, but `CHARTS_URL_SIZE_WARN_BYTES` is
+ *  sized for the ENCODED query string — deflate compresses real CSV/TSV
+ *  text roughly 1.6:1, so a raw payload comfortably over 8 KB could still
+ *  produce an encoded link comfortably under it, and got dropped anyway
+ *  for no reason. Fixed by encoding once WITH the payload in full and only
+ *  falling back to the dropped form when THAT actual encoded size is over
+ *  the threshold. (b) The sharer was never told: dropping the payload
+ *  shrinks the encoded link back under the threshold, so the page's own
+ *  "link is N KB" notice — the only signal that existed — never fires for
+ *  exactly the case it most needs to. `omittedCustomBytes` (the PRE-drop
+ *  raw size) is what lets a caller show that notice instead.
+ *
+ *  Either way the reader's own state object is never mutated — only the
+ *  value handed to the encoder — and `resolveChartsDataRows` still turns a
+ *  dropped `omitted: true` back into a clear "paste or upload it again"
+ *  error on decode. A dataset source, an under-threshold custom one, or a
+ *  custom source already marked `omitted` is untouched (one encode, same
+ *  as before this fix), so every existing round-trip test stays
+ *  byte-identical. */
+export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Promise<ChartsUrlEncodeResult> {
+  const full = await chartsUrlEnvelope.encode(state);
+  const fullSize = new TextEncoder().encode(full).length;
   const source = state.data.source;
-  if (source?.kind !== "custom" || source.omitted) return state;
-  if (new TextEncoder().encode(source.raw).length <= CHARTS_URL_SIZE_WARN_BYTES) return state;
-  return {
+  if (fullSize <= CHARTS_URL_SIZE_WARN_BYTES || source?.kind !== "custom" || source.omitted) {
+    return { raw: full, sizeBytes: fullSize };
+  }
+  const omittedCustomBytes = new TextEncoder().encode(source.raw).length;
+  const dropped: ChartsWorkbenchState = {
     ...state,
     data: { ...state.data, source: { kind: "custom", raw: "", omitted: true, ...(source.filename !== undefined ? { filename: source.filename } : {}) } },
   };
+  const raw = await chartsUrlEnvelope.encode(dropped);
+  return { raw, sizeBytes: new TextEncoder().encode(raw).length, omittedCustomBytes };
 }
 
-export function encodeChartsUrlState(state: ChartsWorkbenchState): Promise<string> {
-  return chartsUrlEnvelope.encode(stateForUrl(state));
+export async function encodeChartsUrlState(state: ChartsWorkbenchState): Promise<string> {
+  return (await encodeChartsUrlStateInfo(state)).raw;
 }
 export function decodeChartsUrlState(raw: string | null | undefined): Promise<ChartsWorkbenchState | null> {
   return chartsUrlEnvelope.decode(raw);
@@ -336,8 +365,30 @@ export function decodeChartsUrlState(raw: string | null | undefined): Promise<Ch
 
 /** One writer per mounted page (see ChartsWorkbench.tsx) — 150ms debounced,
  *  `history.replaceState`-only, skips the write when the encoded string is
- *  unchanged. `onEncoded` drives the page's "link is N KB" readout. */
-export function createChartsUrlWriter(onEncoded?: (info: { raw: string; sizeBytes: number }) => void): (state: ChartsWorkbenchState) => void {
-  const writer = createDebouncedJsonUrlWriter(chartsUrlEnvelope, CHARTS_URL_PARAM, 150, onEncoded);
-  return (state) => writer(stateForUrl(state));
+ *  unchanged. `onEncoded` drives the page's "link is N KB" readout AND (N3)
+ *  its "custom data isn't included in this link" one, via
+ *  `omittedCustomBytes`. Implemented directly (rather than through
+ *  `jsonUrlState.ts`'s generic `createDebouncedJsonUrlWriter`) because the
+ *  size-based drop decision above needs its OWN encode-then-maybe-re-encode
+ *  step, which that generic helper's single `envelope.encode(state)` call
+ *  has no hook for. */
+export function createChartsUrlWriter(onEncoded?: (info: ChartsUrlEncodeResult) => void): (state: ChartsWorkbenchState) => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastWritten: string | null = null;
+  let generation = 0;
+  return (state: ChartsWorkbenchState) => {
+    if (typeof window === "undefined") return;
+    const generationAtSchedule = ++generation;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void encodeChartsUrlStateInfo(state).then((info) => {
+        if (generationAtSchedule !== generation) return; // superseded by a later state change
+        onEncoded?.(info);
+        if (info.raw === lastWritten) return;
+        lastWritten = info.raw;
+        writeUrlParam(CHARTS_URL_PARAM, info.raw || null);
+      });
+    }, 150);
+  };
 }

@@ -95,10 +95,17 @@ function flattenRecord(row: TabularRow): TabularRow {
 
 // ── pivot ──────────────────────────────────────────────────────────────
 
+// N5: both pivots used to read `row[name]` bare — a column NAMED after an
+// inherited `Object.prototype` member (`constructor`, `toString`, …) then
+// resolved through the prototype chain to that live function instead of
+// the row's own (absent) column, handing it into a cell typed
+// `TabularCell` exactly the shape `rowColumn` (above) already guards
+// against for `filter`/`sort`/`parseDate`/`derive`'s "col" node — these two
+// steps just hadn't been switched onto the same guard yet.
 function pivotLonger(rows: readonly TabularRow[], idColumns: readonly string[], keyColumn: string, valueColumn: string): TabularRow[] {
   const out: TabularRow[] = [];
   for (const row of rows) {
-    const ids = Object.fromEntries(idColumns.map((c) => [c, row[c] ?? null]));
+    const ids = Object.fromEntries(idColumns.map((c) => [c, rowColumn(row, c)]));
     for (const [key, value] of Object.entries(row)) {
       if (idColumns.includes(key)) continue;
       out.push({ ...ids, [keyColumn]: key, [valueColumn]: value });
@@ -115,8 +122,8 @@ function pivotWider(rows: readonly TabularRow[], keyColumn: string, valueColumn:
     const groupKey = JSON.stringify(rest);
     let group = groups.get(groupKey);
     if (!group) { group = { ...rest }; groups.set(groupKey, group); order.push(groupKey); }
-    const keyValue = String(row[keyColumn] ?? "");
-    group[keyValue] = row[valueColumn] ?? null;
+    const keyValue = String(rowColumn(row, keyColumn) ?? "");
+    group[keyValue] = rowColumn(row, valueColumn);
   }
   return order.map((k) => groups.get(k)!);
 }
@@ -183,20 +190,50 @@ export class PipelineFormatError extends Error {}
  *  literal character it looks like. Compiled ONCE per `parseDate` step,
  *  never per cell — the fix for both the injection and the ReDoS is the
  *  same compile-time escaping; not recompiling per row is what keeps a
- *  large column from paying to rebuild an (already-safe) `RegExp` per cell. */
+ *  large column from paying to rebuild an (already-safe) `RegExp` per cell.
+ *
+ *  N6a/N6b close two remaining gaps in the same grammar. (a) A format with
+ *  no `Y`/`M`/`D` run at all (`"abc"`) or one spelled in the wrong CASE
+ *  (`"yyyy-mm-dd"`) used to pass this gate untouched — the bad-token scan
+ *  only matched uppercase runs, so a lowercase or letter-free format
+ *  compiled to a regex that can never match any real date, silently
+ *  nulling the whole column (`ok: true`) instead of naming the typo. The
+ *  scan is now case-INSENSITIVE for what counts as a token-shaped run (so
+ *  a lowercase run hits the SAME "unrecognized token" branch, never
+ *  silently surviving as literal text), and a format with no such run at
+ *  all is rejected outright — it can never produce a date, so a silent
+ *  null is strictly worse than an early, named error. (b) A format
+ *  repeating the SAME token (`"YYYY-YYYY"`) used to pass this gate (each
+ *  individual run is, on its own, a recognized token) and only fail inside
+ *  `new RegExp` itself, with the raw "Duplicate capture group name" host
+ *  message shown verbatim to the reader — a token is now rejected the
+ *  SECOND time it's used, as the same structured `PipelineFormatError`
+ *  every other bad format here produces. */
 export function compileDateFormat(format: string): RegExp {
-  const badTokenRun = /Y+|M+|D+/g;
+  const badTokenRun = /[YyMmDd]+/g;
   let run: RegExpExecArray | null;
+  let matchedToken = false;
   while ((run = badTokenRun.exec(format))) {
     if (!DATE_FORMAT_TOKENS.some((t) => t.token === run![0])) {
       throw new PipelineFormatError(`Unrecognized date format token "${run[0]}" — use YYYY, MM, or DD.`);
     }
+    matchedToken = true;
+  }
+  if (!matchedToken) {
+    throw new PipelineFormatError(`Date format "${format}" has no YYYY, MM, or DD token.`);
   }
   let pattern = "";
   let i = 0;
+  const usedTokens = new Set<string>();
   while (i < format.length) {
     const found = DATE_FORMAT_TOKENS.find((t) => format.startsWith(t.token, i));
-    if (found) { pattern += found.pattern; i += found.token.length; continue; }
+    if (found) {
+      if (usedTokens.has(found.token)) {
+        throw new PipelineFormatError(`Date format token "${found.token}" is repeated — use each of YYYY, MM, DD at most once.`);
+      }
+      usedTokens.add(found.token);
+      pattern += found.pattern; i += found.token.length; continue;
+    }
     const ch = format[i]!;
     pattern += REGEXP_METACHARS.test(ch) ? `\\${ch}` : ch;
     i += 1;

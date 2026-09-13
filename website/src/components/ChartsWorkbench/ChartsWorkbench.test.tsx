@@ -20,9 +20,11 @@ vi.hoisted(async () => {
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChartsWorkbench from "./ChartsWorkbench";
+import { ChartsDataFolder } from "./ChartsDataFolder";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
@@ -583,6 +585,23 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(Array.from(headerRow!.children).every((cell) => cell.getAttribute("role") === "columnheader")).toBe(true);
   });
 
+  // N10a — the footer row (add-row/add-column) is `role="row"` but held two
+  // bare `<button>`s with neither `columnheader` nor `gridcell`, the exact
+  // `aria-required-children` violation the original F7 finding named
+  // explicitly and the commit that fixed the header/data rows didn't touch.
+  // Mutation check: un-wrapping the buttons back to bare children (this
+  // finding's own pre-fix shape) makes every child's role come back `null`
+  // instead of `"gridcell"`.
+  it("the footer row's own children are role=\"gridcell\", not bare buttons (N10a)", () => {
+    const footer = container.querySelector<HTMLElement>(".voice-card .charts-grid-footer")!;
+    expect(footer.getAttribute("role")).toBe("row");
+    expect(footer.children.length).toBeGreaterThan(0);
+    expect(Array.from(footer.children).every((cell) => cell.getAttribute("role") === "gridcell")).toBe(true);
+    // The buttons themselves must still be reachable and functional inside
+    // the new `display: contents` wrapper — this isn't just markup.
+    expect(footer.querySelector("button")).not.toBeNull();
+  });
+
   // Data folder end-to-end (AGENTS.md's "Charts" — "Data layer"): picking a
   // real vendored dataset and clicking Apply must replace the marks with
   // the recommended mapping AND set an explicit time x-scale (see
@@ -693,6 +712,43 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     expect(container.querySelector(".charts-data-custom")!.textContent).toContain("people.csv");
   });
 
+  // N7 — the test above is defended by the `useEffect`, not by the lazy
+  // `useState` SEED it claims to test: `act(() => root.render(...))` flushes
+  // passive effects before it returns, so by the time that test reads
+  // `pasteBox().value` the effect has already re-seeded the box even if the
+  // initializer itself were reverted to a bare `useState("")`. `flushSync`
+  // is what makes the distinction observable: it forces React's COMMIT
+  // (the DOM write) to happen synchronously, exactly like a real browser's
+  // first paint, WITHOUT flushing passive effects — those are scheduled
+  // for after paint regardless of `flushSync`, so reading the DOM
+  // immediately afterward can only reflect the very FIRST render (the lazy
+  // initializer alone). Also mounts `ChartsDataFolder` DIRECTLY, not the
+  // whole `ChartsWorkbench` page — the Data folder normally lives behind a
+  // Dock PORTAL whose own host element is itself created inside an effect
+  // (`useDockSlot`, `Dock/primitives.tsx`), so testing through the full
+  // page could never reach a synchronous moment at all. Mutation check:
+  // reverting the initializer to `useState("")` while keeping the
+  // `useEffect` makes this go red (empty string at this exact point, fixed
+  // only on the next effect flush) — the one-frame flash of an empty box a
+  // real browser would paint, which the effect alone cannot prevent.
+  it("shows the decoded custom source on the very FIRST render, before any effect can run (F3 seed, not just the effect)", () => {
+    const raw = "name,city\nBob,Paris\nAnn,Lyon";
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw, filename: "people.csv" } });
+    const directContainer = document.createElement("div");
+    document.body.append(directContainer);
+    const directRoot = createRoot(directContainer);
+    flushSync(() => directRoot.render(<ChartsDataFolder data={state.data} dispatch={() => {}} />));
+    const box = directContainer.querySelector<HTMLTextAreaElement>('textarea[aria-label="Paste CSV/TSV/JSON"]');
+    expect(box).not.toBeNull();
+    expect(box!.value).toBe(raw);
+    // Flush the scheduled effect and unmount cleanly, both act()-wrapped so
+    // this test leaves no pending-update warning for the ones after it.
+    act(() => {});
+    act(() => directRoot.unmount());
+    directContainer.remove();
+  });
+
   // F3's second half: because the box is seeded correctly, continuing to
   // type (here: appending a row) commits the FULL accumulated text, never
   // just the freshly-typed fragment — a real browser's `onChange` always
@@ -732,6 +788,43 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     expect(container.querySelector(".charts-data-recommend")).toBeNull();
   });
 
+  // N2 — the review's own dropdown-round-trip repro: a refused paste used
+  // to survive in local `customText` state, and picking a dataset then
+  // "Custom…" again re-dispatched that SAME refused text with no size
+  // check on that path — installing the full 70,000-row payload (and
+  // rendering a chart from it) while the stale "must be under 256 KB"
+  // message was still on screen. Mutation check: reverting the reducer's
+  // own `set-data-source` size guard (dispatching whatever `customText`
+  // holds unconditionally) makes this go red — the recommend block
+  // reappears and the source resolves to all 70,000 rows.
+  it("a paste refused over the size cap cannot come back via a dataset-then-Custom… round trip (N2)", () => {
+    mount(createChartsWorkbenchState());
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    const selectValue = (value: string) => act(() => {
+      datasetSelect.value = value;
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    selectValue("__custom__");
+    const huge = `a,b\n${"1,2\n".repeat(70_000)}`; // well over 256 KB
+    setValue(pasteBox(), huge);
+    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+    expect(container.querySelector(".charts-data-recommend")).toBeNull();
+
+    // Pick a real dataset, then "Custom…" again — the round trip the
+    // review's own repro used.
+    selectValue("global-temperature");
+    selectValue("__custom__");
+
+    // The refused payload must not have been installed via this round
+    // trip: the dropdown reflects the actual (unchanged) source — the
+    // "Custom…" re-pick was rejected, never silently replaced with the
+    // 70,000-row payload — so the readout below still recommends the REAL
+    // dataset's own curated mapping, never a chart built from the huge
+    // custom text.
+    expect(datasetSelect.value).toBe("global-temperature");
+    expect(container.querySelector(".charts-data-recommend")?.textContent).toMatch(/Global temperature/);
+  });
+
   // P2-5 — same cap on a file upload, refused BEFORE `FileReader` ever
   // reads it (so a huge file is never even parsed into memory as text).
   it("refuses an oversized file upload before reading it, with an inline message", () => {
@@ -763,5 +856,35 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     expect(container.querySelector(".charts-data-custom")!.textContent).toContain("big.csv");
     expect(container.querySelector(".charts-error")?.textContent).toMatch(/isn't in this link/);
     expect(container.querySelector(".charts-data-recommend")).toBeNull();
+  });
+
+  // N3 — the sharer's own signal that their custom data did NOT make it
+  // into the link they just copied, sized from the PRE-drop payload. A real
+  // ~20 KB CSV (sequential integers, not a single repeated character —
+  // deflate would compress that away to nothing and never cross the
+  // threshold at all, which is the exact wrong-dimension bug N3 fixed)
+  // still exceeds CHARTS_URL_SIZE_WARN_BYTES once encoded, so the payload
+  // is dropped from the link and the notice must appear. Mutation check:
+  // reverting `chartsUrlState.ts`'s `encodeChartsUrlStateInfo` to the old
+  // `stateForUrl` (which decided on the RAW size and reported nothing back)
+  // makes this go red — no such notice text appears anywhere on the page.
+  it("shows a 'custom data isn't included in this link' notice, sized from the pre-drop payload, for a 20 KB paste (N3)", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    mount(createChartsWorkbenchState());
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.value = "__custom__";
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const twentyKb = `a,b\n${Array.from({ length: 2400 }, (_, i) => `${i},${i}`).join("\n")}`;
+    const rawBytes = new TextEncoder().encode(twentyKb).length;
+    expect(rawBytes).toBeGreaterThan(19 * 1024);
+    expect(rawBytes).toBeLessThan(30 * 1024);
+    setValue(pasteBox(), twentyKb);
+    const copyButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Copy link")!;
+    act(() => copyButton.click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
+    const expectedKB = Math.ceil(rawBytes / 1024);
+    expect(container.textContent).toMatch(new RegExp(`Custom data \\(${expectedKB} KB\\) isn't included in this link\\.`));
   });
 });

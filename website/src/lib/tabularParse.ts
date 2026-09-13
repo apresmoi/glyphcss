@@ -30,8 +30,16 @@ export interface ParseTabularHint {
  *  (`delimitedToRows`'s `h.trim()`) and a numeric cell effectively is too
  *  (`Number(" 42")` is `42`) — returning the untrimmed `raw` only for the
  *  plain-string case (P2-3) split the ubiquitous `"a, b"` CSV shape into
- *  two categories (`" Paris"` and `"Paris"`) purely from that inconsistency. */
-function coerceCell(raw: string): TabularCell {
+ *  two categories (`" Paris"` and `"Paris"`) purely from that inconsistency.
+ *
+ *  N9b: a QUOTED field is the one exception — RFC4180 (and d3-dsv, and
+ *  PapaParse) treat a quoted field's content as literal, which is the one
+ *  place the format lets an author SAY the padding is data (`" x "` inside
+ *  quotes means the two spaces are part of the value); trimming or
+ *  type-coercing it the same way an unquoted field is would silently
+ *  overrule that. A quoted field is returned exactly as written. */
+function coerceCell(raw: string, quoted: boolean): TabularCell {
+  if (quoted) return raw;
   const trimmed = raw.trim();
   if (trimmed === "") return "";
   if (trimmed === "true") return true;
@@ -46,26 +54,66 @@ function coerceCell(raw: string): TabularCell {
 /** A duplicate header used to silently drop the earlier column
  *  (`"a,a\n1,2"` -> `{a:2}`, only the LAST value survives object-key
  *  collision) — a later repeat now gets a numbered suffix instead, so both
- *  columns' data survives (P3). */
+ *  columns' data survives (P3). N9a: the naive `count===0 ? name :
+ *  name_(count+1)` scheme could still generate a suffix that COLLIDES with
+ *  a column that is ITSELF literally named that way — `"a,a,a_2"` used to
+ *  generate `a_2` for the second `a` and then silently re-collide with the
+ *  third column's own real name `a_2`, dropping ITS value too (the exact
+ *  object-key collision this function exists to prevent, one level later).
+ *  Walking left to right and tracking every name already committed (rather
+ *  than only how many times each ORIGINAL name repeats) means a column
+ *  whose own literal name is already taken — by an earlier duplicate OR by
+ *  an earlier duplicate's own generated suffix — keeps climbing the same
+ *  `_<n>` ladder for its base name until it lands on a free one:
+ *  `"a,a,a_2"` -> `"a,a_2,a_3"`, never a second collision. */
 function dedupeHeaders(headers: readonly string[]): string[] {
-  const seen = new Map<string, number>();
+  const used = new Set<string>();
+  const nextFree = (base: string, from: number): string => {
+    let n = from;
+    while (used.has(`${base}_${n}`)) n++;
+    return `${base}_${n}`;
+  };
   return headers.map((name) => {
-    const count = seen.get(name) ?? 0;
-    seen.set(name, count + 1);
-    return count === 0 ? name : `${name}_${count + 1}`;
+    const match = /^(.*)_(\d+)$/.exec(name);
+    const requested = match ? Number(match[2]) : NaN;
+    // Only treat a "_<n>" suffix as part of this scheme's own numbering
+    // when n >= 2 — the smallest suffix this function ever generates — so
+    // an ordinary column literally named e.g. "q_1" is never reinterpreted
+    // as base "q"'s first duplicate.
+    if (match && requested >= 2) {
+      const base = match[1]!;
+      const candidate = `${base}_${requested}`;
+      const final = used.has(candidate) ? nextFree(base, requested + 1) : candidate;
+      used.add(final);
+      return final;
+    }
+    if (!used.has(name)) { used.add(name); return name; }
+    const final = nextFree(name, 2);
+    used.add(final);
+    return final;
   });
+}
+
+interface DelimitedCell {
+  readonly value: string;
+  /** N9b: whether this field was wrapped in quotes in the source text —
+   *  `coerceCell` treats a quoted field's content as literal (RFC4180),
+   *  never trimmed or type-coerced. */
+  readonly quoted: boolean;
 }
 
 /** RFC4180-ish delimited-text tokenizer: quoted fields, escaped `""`,
  *  embedded delimiters/newlines inside quotes. Works for both CSV and TSV —
  *  the delimiter is the only difference. */
-function parseDelimited(text: string, delimiter: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
+function parseDelimited(text: string, delimiter: string): DelimitedCell[][] {
+  const rows: DelimitedCell[][] = [];
+  let row: DelimitedCell[] = [];
   let field = "";
+  let fieldQuoted = false;
   let inQuotes = false;
   let i = 0;
   const n = text.length;
+  const pushField = () => { row.push({ value: field, quoted: fieldQuoted }); field = ""; fieldQuoted = false; };
   while (i < n) {
     const c = text[i]!;
     if (inQuotes) {
@@ -75,25 +123,25 @@ function parseDelimited(text: string, delimiter: string): string[][] {
       }
       field += c; i++; continue;
     }
-    if (c === '"') { inQuotes = true; i++; continue; }
-    if (c === delimiter) { row.push(field); field = ""; i++; continue; }
+    if (c === '"') { inQuotes = true; fieldQuoted = true; i++; continue; }
+    if (c === delimiter) { pushField(); i++; continue; }
     if (c === "\r") { i++; continue; }
-    if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+    if (c === "\n") { pushField(); rows.push(row); row = []; i++; continue; }
     field += c; i++;
   }
-  row.push(field);
-  if (row.length > 1 || row[0] !== "") rows.push(row);
+  pushField();
+  if (row.length > 1 || row[0]!.value !== "") rows.push(row);
   return rows;
 }
 
 function delimitedToRows(text: string, delimiter: string): ParsedTabular {
   const table = parseDelimited(text, delimiter);
-  const nonEmpty = table.filter((r) => r.length > 1 || r[0] !== "");
+  const nonEmpty = table.filter((r) => r.length > 1 || r[0]!.value !== "");
   if (nonEmpty.length === 0) return { ok: false, error: "No rows found." };
-  const header = dedupeHeaders(nonEmpty[0]!.map((h) => h.trim() || "column"));
+  const header = dedupeHeaders(nonEmpty[0]!.map((h) => h.value.trim() || "column"));
   const rows: TabularRow[] = nonEmpty.slice(1).map((cells) => {
     const record: TabularRow = {};
-    header.forEach((name, i) => { record[name] = coerceCell(cells[i] ?? ""); });
+    header.forEach((name, i) => { record[name] = coerceCell(cells[i]?.value ?? "", cells[i]?.quoted ?? false); });
     return record;
   });
   return { ok: true, kind: "rows", rows };

@@ -44,6 +44,56 @@ describe("runPipeline — pivot", () => {
   });
 });
 
+// ── N5 — `pivotLonger`/`pivotWider` go through the SAME `rowColumn` guard
+// as `filter`/`sort`/`parseDate` and `derive`'s "col" node ────────────────
+//
+// Both pivots used to read `row[name]` bare: `pivotWider keyColumn:
+// "constructor"` produced a group keyed on the literal string
+// `"function Object() { [native code] }"`, and `pivotLonger
+// idColumns:["toString"]` handed the live `Object.prototype.toString`
+// function into a cell typed `TabularCell` — the SAME shape F4/P2-1 closed
+// for `filter`/`sort`/`parseDate`/`derive`, just on two step kinds that
+// hadn't been switched onto `rowColumn` yet. Mutation check: reverting
+// either pivot's `rowColumn(...)` call back to a bare `row[name] ?? null`
+// makes its own two assertions below go red (the "unowned" one recovers
+// the live prototype value instead of `null`).
+describe("runPipeline — pivotLonger/pivotWider column reads (N5)", () => {
+  const PROTOTYPE_NAMES = [
+    "constructor", "toString", "valueOf", "hasOwnProperty", "propertyIsEnumerable",
+    "isPrototypeOf", "toLocaleString", "__defineGetter__", "__defineSetter__", "__proto__",
+  ] as const;
+
+  it.each(PROTOTYPE_NAMES)("pivotLonger's %s id column is null when unowned, and its own value when owned", (name) => {
+    const unowned = runPipeline([{ metric: 1 }], [{ kind: "pivotLonger", idColumns: [name] }]);
+    if (!unowned.ok) throw new Error(unowned.error);
+    expect(unowned.rows[0]![name]).toBeNull();
+
+    const owned = runPipeline([{ [name]: "id-value", metric: 1 } as TabularRow], [{ kind: "pivotLonger", idColumns: [name] }]);
+    if (!owned.ok) throw new Error(owned.error);
+    expect(owned.rows[0]![name]).toBe("id-value");
+  });
+
+  it.each(PROTOTYPE_NAMES)("pivotWider's %s key column is null (group key \"\") when unowned, and its own value when owned", (name) => {
+    const unowned = runPipeline([{ v: 42 }], [{ kind: "pivotWider", keyColumn: name, valueColumn: "v" }]);
+    if (!unowned.ok) throw new Error(unowned.error);
+    expect(unowned.rows[0]).toEqual({ "": 42 });
+
+    const owned = runPipeline([{ [name]: "the-key", v: 42 } as TabularRow], [{ kind: "pivotWider", keyColumn: name, valueColumn: "v" }]);
+    if (!owned.ok) throw new Error(owned.error);
+    expect(owned.rows[0]).toEqual({ "the-key": 42 });
+  });
+
+  it.each(PROTOTYPE_NAMES)("pivotWider's %s value column is null when unowned, and its own value when owned", (name) => {
+    const unowned = runPipeline([{ k: "a" }], [{ kind: "pivotWider", keyColumn: "k", valueColumn: name }]);
+    if (!unowned.ok) throw new Error(unowned.error);
+    expect(unowned.rows[0]).toEqual({ a: null });
+
+    const owned = runPipeline([{ k: "a", [name]: "v-value" } as TabularRow], [{ kind: "pivotWider", keyColumn: "k", valueColumn: name }]);
+    if (!owned.ok) throw new Error(owned.error);
+    expect(owned.rows[0]).toEqual({ a: "v-value" });
+  });
+});
+
 describe("runPipeline — filter/sort/limit/parseDate", () => {
   const rows: TabularRow[] = [{ a: 3, d: "2021-06-01" }, { a: 1, d: "2020-01-01" }, { a: 2, d: "2022-12-31" }];
 
@@ -93,16 +143,55 @@ describe("runPipeline — filter/sort/limit/parseDate", () => {
   // ~50-60 SECONDS for `(a+)+b` against a 40-character row in the
   // reviewer's own repro) — it does not merely fail, it hangs the test run,
   // which is the defect itself.
+  // N6a: a format with NO YYYY/MM/DD token at all now rejects outright
+  // (see below) rather than silently compiling to a never-matching
+  // literal, so the ReDoS repro needs a token somewhere in the format to
+  // reach the metacharacter-escaping code this test actually exercises —
+  // "YYYY" up front, then the same adversarial `(a+)+b` suffix as literal
+  // text. Mutation check: reverting `compileDateFormat` to the old
+  // `format.replace(/YYYY/g,…).replace(...)` + bare `new RegExp` makes the
+  // ReDoS assertion below time out well past 50ms (measured ~50-60 SECONDS
+  // for `(a+)+b` against a 40-character row in the reviewer's own repro) —
+  // it does not merely fail, it hangs the test run, which is the defect
+  // itself.
   it("a catastrophic-backtracking format compiles to a literal match and returns in well under 50ms (ReDoS)", () => {
     const started = performance.now();
-    const result = runPipeline([{ d: "a".repeat(40) }], [{ kind: "parseDate", column: "d", format: "(a+)+b" }]);
+    const result = runPipeline([{ d: "a".repeat(40) }], [{ kind: "parseDate", column: "d", format: "YYYY(a+)+b" }]);
     const elapsedMs = performance.now() - started;
     expect(elapsedMs).toBeLessThan(50);
     if (!result.ok) throw new Error(result.error);
-    // The format has no YYYY/MM/DD token at all, so it can never produce a
-    // date — the important assertion is the ELAPSED TIME above; this just
-    // confirms the pipeline didn't throw or hang getting there.
+    // The row has no 4 digits followed by that literal suffix, so it can
+    // never match — the important assertion is the ELAPSED TIME above;
+    // this just confirms the pipeline didn't throw or hang getting there.
     expect(result.rows[0]!.d).toBeNull();
+  });
+
+  // N6a — the "second half" of F2's own typo protection: a format with no
+  // recognized token at all, or one spelled in the wrong case, used to
+  // compile successfully to a regex that can never match anything, so
+  // every row in the column silently became `null` with `ok: true` and no
+  // error at all — worse than the ALREADY-flagged "YYY" typo, which at
+  // least fails loudly.
+  it("rejects a format with no YYYY/MM/DD token at all, rather than silently nulling the whole column", () => {
+    const result = runPipeline([{ d: "2020-01-01" }], [{ kind: "parseDate", column: "d", format: "abc" }]);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.error).toMatch(/no YYYY, MM, or DD token/);
+  });
+
+  it("rejects a lowercase 'yyyy' as an unrecognized token, not a silently-never-matching literal", () => {
+    expect(() => compileDateFormat("yyyy-mm-dd")).toThrow(PipelineFormatError);
+  });
+
+  // N6b: each of "YYYY" and "YYYY" is, on its own, a recognized token —
+  // the old bad-token gate never looked at repetition, so this used to
+  // reach `new RegExp` with two capture groups both named `y` and throw
+  // the host's raw "Duplicate capture group name" message, unwrapped, all
+  // the way to the reader's `role="alert"` readout.
+  it("rejects a duplicated date-format token as a structured PipelineFormatError, never a raw RegExp syntax error", () => {
+    expect(() => compileDateFormat("YYYY-YYYY")).toThrow(PipelineFormatError);
+    try { compileDateFormat("YYYY-YYYY"); throw new Error("expected throw"); }
+    catch (error) { expect(String(error)).not.toMatch(/Duplicate capture group/); }
   });
 
   it("escapes a metacharacter used as a literal separator instead of interpreting it as regex syntax", () => {

@@ -59,6 +59,18 @@ describe("profileRows", () => {
     const rows: TabularRow[] = [{ d: "2024-02-28" }, { d: "2024-03-01" }];
     expect(profileRows(rows).columns[0]!.type).toBe("date");
   });
+
+  // N6c: the rolled-day check was ISO-only — `SLASH_DATE` ("MM/DD/YYYY")
+  // rolls exactly the same way and used to sail through unchecked.
+  it("does not classify a rolled slash-date day (2/30/2024) as a date", () => {
+    const rows: TabularRow[] = [{ d: "2/30/2024" }, { d: "3/01/2024" }];
+    expect(profileRows(rows).columns[0]!.type).not.toBe("date");
+  });
+
+  it("still classifies a genuinely valid slash-date column as a date", () => {
+    const rows: TabularRow[] = [{ d: "2/28/2024" }, { d: "3/01/2024" }];
+    expect(profileRows(rows).columns[0]!.type).toBe("date");
+  });
 });
 
 describe("recommendChart", () => {
@@ -125,14 +137,76 @@ describe("recommendChart", () => {
     expect(top!.channels).toEqual({ x: "year", y: "population", fill: "country" });
   });
 
-  it("a small category with SEVERAL numeric measurements recommends a grouped bar, never a pie of the first measurement (Fisher's iris shape)", () => {
+  // N4 — the multi-numeric bar rule REWRITE: `x`/`fill` naming the SAME
+  // category column (the pre-fix shape, which also silently dropped every
+  // numeric column but `numbers[1]`) is replaced by a long-format reshape
+  // that keeps every measure, distinguished by `fill` naming the MELTED
+  // measure column — never `x` again.
+  it("a small category with SEVERAL numeric measurements recommends a grouped bar naming every measure, never a pie (or a same-channel x/fill bar) for one arbitrary measurement (Fisher's iris shape)", () => {
     const rows: TabularRow[] = Array.from({ length: 12 }, (_, i) => ({
       sepal_length: 5 + i * 0.1, sepal_width: 3 + i * 0.05, petal_length: 1.5 + i * 0.1, petal_width: 0.2 + i * 0.02,
       species: ["setosa", "versicolor", "virginica"][i % 3],
     }));
     const [top] = recommendChart(profileRows(rows));
     expect(top!.mark).toBe("bar");
-    expect(top!.channels).toEqual({ x: "species", y: "sepal_width", fill: "species" });
+    expect(top!.channels.x).toBe("species");
+    expect(top!.channels.fill).not.toBe("species"); // never duplicates x into fill
+    expect(top!.pipeline).toEqual([
+      { kind: "pivotLonger", idColumns: ["species"], keyColumn: top!.channels.fill, valueColumn: top!.channels.y },
+    ]);
+    expect(recommendChart(profileRows(rows)).some((r) => r.mark === "arc")).toBe(false);
+  });
+
+  // N4 — the review's own repro: a 4-region table with TWO measures used to
+  // score a pie of one arbitrary measure ABOVE a bar that (post-round-1)
+  // plotted `numbers[1]` (target) alone with `fill` duplicating `x`,
+  // silently dropping `sales` entirely. The fixed rule's top pick must not
+  // be WORSE than the original pie — it now charts BOTH measures as their
+  // own series via the same long-format reshape, which is strictly more
+  // informative than a pie that can only ever show one.
+  it("a 4-region table with two measures charts BOTH measures as their own series, never one summed arbitrarily", () => {
+    const rows: TabularRow[] = [
+      { region: "North", sales: 100, target: 90 },
+      { region: "South", sales: 80, target: 85 },
+      { region: "East", sales: 120, target: 110 },
+      { region: "West", sales: 60, target: 70 },
+    ];
+    const [top] = recommendChart(profileRows(rows));
+    expect(top!.mark).toBe("bar");
+    expect(top!.channels.x).toBe("region");
+    expect(top!.channels.fill).not.toBe("region");
+    expect(top!.reason).toMatch(/2 numeric columns/);
+    if (!top!.pipeline) throw new Error("expected a reshape pipeline");
+    const [step] = top!.pipeline;
+    expect(step).toMatchObject({ kind: "pivotLonger", idColumns: ["region"] });
+  });
+
+  // N11 — an unfilled category count directly bounds a fill's own output:
+  // one line, one legend entry and one style (of a 4-style cycle) per
+  // distinct value. Past DATE_NUMERIC_CATEGORY_FILL_MAX_CATEGORIES (8) none
+  // of the three stays distinguishable, so the fill is dropped rather than
+  // silently degrading to an unreadable chart with no explanation.
+  it("caps the date+numeric+category fill rule at 8 categories, falling back to a plain (unfilled) line beyond that", () => {
+    const rows: TabularRow[] = [];
+    for (let i = 0; i < 12; i++) {
+      rows.push({ year: "2020-01-01", population: i, country: `Country${i}` });
+      rows.push({ year: "2021-01-01", population: i + 1, country: `Country${i}` });
+    }
+    const [top] = recommendChart(profileRows(rows));
+    expect(top!.mark).toBe("line");
+    expect(top!.channels).toEqual({ x: "year", y: "population" });
+    expect(top!.reason).toMatch(/12 categories/);
+  });
+
+  // N4 — arc stays reachable, but only for a numeric column that actually
+  // READS AS a share/count (non-negative) — a signed quantity like a
+  // temperature change has no honest "wedge size" reading.
+  it("does not recommend arc for a small category whose single numeric column has negative values", () => {
+    const rows: TabularRow[] = [
+      { city: "A", tempChangeC: -3 }, { city: "B", tempChangeC: 2 }, { city: "C", tempChangeC: -1 },
+    ];
+    const [top] = recommendChart(profileRows(rows));
+    expect(top!.mark).toBe("bar");
     expect(recommendChart(profileRows(rows)).some((r) => r.mark === "arc")).toBe(false);
   });
 });

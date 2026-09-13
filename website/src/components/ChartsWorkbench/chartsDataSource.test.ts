@@ -88,10 +88,10 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
     state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id } });
     const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
     if (!resolved.ok) throw new Error(resolved.error);
-    const { recommendations } = profileChartsData(resolved.rows);
-    const top = topChartsRecommendation(resolved.dataset, recommendations);
+    const { profile, recommendations } = profileChartsData(resolved.rows);
+    const top = topChartsRecommendation(resolved.dataset, profile, recommendations);
     if (!top) throw new Error("expected a top recommendation");
-    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels });
+    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels, pipeline: top.pipeline });
     return { top, spec: buildChartsWorkbenchSpec(state) };
   }
 
@@ -116,12 +116,41 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
 
   it("a custom source (no curated mapping) still falls back to the profiler's own top pick", () => {
     const rows = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
-    const { recommendations } = profileChartsData(rows);
-    const top = topChartsRecommendation(undefined, recommendations);
-    expect(top).toEqual({ mark: recommendations[0]!.mark, channels: recommendations[0]!.channels, reason: recommendations[0]!.reason });
+    const { profile, recommendations } = profileChartsData(rows);
+    const top = topChartsRecommendation(undefined, profile, recommendations);
+    expect(top).toEqual({
+      mark: recommendations[0]!.mark, channels: recommendations[0]!.channels, reason: recommendations[0]!.reason,
+      pipeline: recommendations[0]!.pipeline,
+    });
   });
 
   it("no recommendation at all (empty rows) is null, not a crash", () => {
-    expect(topChartsRecommendation(undefined, [])).toBeNull();
+    expect(topChartsRecommendation(undefined, { rowCount: 0, columns: [] }, [])).toBeNull();
+  });
+
+  // N1 — a column-changing pipeline step (here: pivotLonger) can rename or
+  // drop the very columns a dataset's curated `recommended` field names.
+  // Applying it anyway used to render an empty chart (no marks painted, an
+  // empty ledger, no error) — the curated mapping is now validated against
+  // the pipelined OUTPUT columns and falls back to the profiler's own top
+  // pick, with a `fallbackNotice` explaining why.
+  it("falls back to the profiler's own top pick, with a fallbackNotice, when a pipeline step drops a curated column (N1)", () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id: "world-population-by-country" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [{ kind: "pivotLonger", idColumns: ["year"] }] });
+    const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
+    if (!resolved.ok) throw new Error(resolved.error);
+    expect(resolved.rows[0] ? Object.keys(resolved.rows[0]) : []).not.toContain("population");
+    const { profile, recommendations } = profileChartsData(resolved.rows);
+    const top = topChartsRecommendation(resolved.dataset, profile, recommendations);
+    if (!top) throw new Error("expected a fallback recommendation");
+    // Never the curated mapping's own now-nonexistent columns.
+    expect(top.channels.x).not.toBe("year");
+    expect(top.channels.y).not.toBe("population");
+    expect(top.fallbackNotice).toMatch(/pipeline changed the columns/i);
+    // Applying it must actually render marks, not an empty chart.
+    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels, pipeline: top.pipeline });
+    const spec = buildChartsWorkbenchSpec(state);
+    expect(spec.marks.length).toBeGreaterThan(0);
   });
 });

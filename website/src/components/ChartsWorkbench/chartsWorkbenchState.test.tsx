@@ -6,7 +6,7 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec,
+  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, buildChartsWorkbenchSpec,
   chartMarkFields, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
   chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchInferredDomains,
   chartsWorkbenchRenderOptions, createChartsWorkbenchState, generateChartsWorkbenchSnippets,
@@ -417,5 +417,43 @@ describe("chartsScaleSliderBounds", () => {
     expect(bounds.max).toBeCloseTo(9.2);
     expect(bounds.loCeiling).toBeUndefined();
     expect(bounds.hiFloor).toBeUndefined();
+  });
+});
+
+// ── N2 — the 256 KB custom-payload cap is enforced in the REDUCER itself,
+// not only in `ChartsDataFolder.tsx`'s paste/upload handler ───────────────
+//
+// The original review's bypass went through that one component's own
+// `onSelectDataset` (a dispatch with no size check at all); this test skips
+// the component ENTIRELY and dispatches `set-data-source` directly, the way
+// any OTHER caller — present or future — would. That is the actual
+// guarantee N2 asks for: no dispatch path can install an oversized custom
+// source, not "the one path the review happened to find". Mutation check:
+// removing the reducer's own size guard (dispatching `action.source`
+// unconditionally, the pre-fix shape) makes every assertion below go red —
+// the oversized source is installed and `data.source.raw.length` comes back
+// the huge string's own length instead of the PREVIOUS state being kept.
+describe("reduceChartsWorkbenchState — set-data-source size cap (N2)", () => {
+  it("refuses an oversized custom source dispatched directly, keeping the previous state untouched", () => {
+    const start = createChartsWorkbenchState();
+    const huge = "a,b\n" + "1,2\n".repeat(70_000); // well over CHARTS_CUSTOM_MAX_BYTES
+    expect(new TextEncoder().encode(huge).length).toBeGreaterThan(CHARTS_CUSTOM_MAX_BYTES);
+    const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: huge, filename: "huge.csv" } });
+    expect(next).toBe(start); // a true no-op — not merely an equal-looking object
+    expect(next.data.source).toBeNull();
+  });
+
+  it("still installs a custom source AT or under the cap", () => {
+    const start = createChartsWorkbenchState();
+    const atCap = "a,b\n" + "1,2\n".repeat(10);
+    expect(new TextEncoder().encode(atCap).length).toBeLessThan(CHARTS_CUSTOM_MAX_BYTES);
+    const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: atCap } });
+    expect(next.data.source).toEqual({ kind: "custom", raw: atCap });
+  });
+
+  it("never refuses an already-omitted custom source (a decoded oversized link) regardless of its (empty) raw size", () => {
+    const start = createChartsWorkbenchState();
+    const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: "", omitted: true, filename: "huge.csv" } });
+    expect(next.data.source).toEqual({ kind: "custom", raw: "", omitted: true, filename: "huge.csv" });
   });
 });

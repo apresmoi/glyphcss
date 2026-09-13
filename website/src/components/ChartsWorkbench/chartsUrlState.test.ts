@@ -154,7 +154,12 @@ describe("chartsUrlState — round trip", () => {
   it("a decoded omitted custom source resolves to a clear 'paste it again' error, not silent empty rows", async () => {
     const { resolveChartsDataRows } = await import("./chartsDataSource");
     let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: "x".repeat(20000), filename: "huge.csv" } });
+    // N3: the drop decision is made on the ENCODED size, not the raw byte
+    // count — a real (non-repetitive) payload, unlike a single repeated
+    // character, doesn't deflate away to nothing, so this still exceeds
+    // CHARTS_URL_SIZE_WARN_BYTES after compression.
+    const hugeRaw = `a,b\n${Array.from({ length: 2000 }, (_, i) => `${i},${i}`).join("\n")}`;
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: hugeRaw, filename: "huge.csv" } });
     const raw = await encodeChartsUrlState(state);
     const decoded = await decodeChartsUrlState(raw);
     const resolved = resolveChartsDataRows(decoded!.data.source!, decoded!.data.pipeline);

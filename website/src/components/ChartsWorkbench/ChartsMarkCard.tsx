@@ -165,10 +165,21 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
         </div>
       </div>)}
 
+      {/* N10a: ARIA 1.2's `row` requires only `columnheader`/`gridcell`/
+       *  `rowheader` children — this row held two bare `<button>`s with
+       *  neither, the exact `aria-required-children` violation the
+       *  original F7 finding named and this file's other two row kinds
+       *  (header, data) already fixed. `display: contents` keeps each
+       *  button's own grid placement (it isn't a grid item itself) while
+       *  giving the accessibility tree a real `gridcell` ancestor. */}
       <div className="charts-grid-footer" role="row">
-        <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>
-        <button type="button" className="gw-code-panel__action charts-table-add" title="Add column" aria-label="Add column"
-          onClick={() => dispatch({ type: "add-column", id: mark.id, column: nextChartTableColumnName(table.columns) })}>+ column</button>
+        <div role="gridcell" style={{ display: "contents" }}>
+          <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>
+        </div>
+        <div role="gridcell" style={{ display: "contents" }}>
+          <button type="button" className="gw-code-panel__action charts-table-add" title="Add column" aria-label="Add column"
+            onClick={() => dispatch({ type: "add-column", id: mark.id, column: nextChartTableColumnName(table.columns) })}>+ column</button>
+        </div>
       </div>
     </div>
   </div>;

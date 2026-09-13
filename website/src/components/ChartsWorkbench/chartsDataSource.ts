@@ -69,6 +69,35 @@ export interface ChartsTopRecommendation {
   readonly mark: ChartsWorkbenchMark["type"];
   readonly channels: ChartsRecommendedChannels;
   readonly reason: string;
+  /** A reshape (currently only `pivotLonger`) that must run on top of the
+   *  already-resolved rows BEFORE building the mark, because `channels`
+   *  names a column the reshape itself produces (`recommendChart`'s own
+   *  multi-numeric rule, N4) rather than one the source data already has. */
+  readonly pipeline?: readonly PipelineStep[];
+  /** N1: set when a STOCK dataset's curated mapping named a column the
+   *  pipeline's OUTPUT no longer has — the profiler's own top pick was
+   *  substituted instead (never an empty chart with no explanation), and
+   *  this is the reader-facing note explaining why the readout no longer
+   *  matches the dataset's usual chart. */
+  readonly fallbackNotice?: string;
+}
+
+/** True when every channel a curated mapping names actually resolves
+ *  against the profiled OUTPUT columns (N1) — a column-changing pipeline
+ *  step (`select`/`flatten`/`pivotLonger`/`pivotWider`) can rename or drop
+ *  the very columns a dataset's `recommended` field hard-codes, and
+ *  applying it anyway used to render an empty chart with an empty ledger
+ *  and no error at all. */
+function curatedChannelsResolve(channels: ChartsRecommendedChannels, profile: DataProfile): boolean {
+  const names = new Set(profile.columns.map((c) => c.name));
+  return [channels.x, channels.y, channels.fill, channels.label].every((name) => name === undefined || names.has(name));
+}
+
+function describeRecommendation(mark: string, channels: ChartsRecommendedChannels): string {
+  const parts: string[] = [];
+  if (channels.y) parts.push(channels.y);
+  if (channels.x) parts.push(`by ${channels.x}`);
+  return parts.length > 0 ? `${mark} of ${parts.join(" ")}` : mark;
 }
 
 /** What the Data folder's Apply button (and its own "Recommended: …"
@@ -86,21 +115,38 @@ export interface ChartsTopRecommendation {
  *  unread in the same dataset object. A custom source has no curated
  *  mapping at all, so it still falls back to whatever `recommendChart`
  *  ranked first (which is why `dataProfile.ts` also gained two rules of its
- *  own, so that fallback is a better answer for the same shapes). */
-export function topChartsRecommendation(dataset: ChartsDataset | undefined, recommendations: readonly ChartRecommendation[]): ChartsTopRecommendation | null {
+ *  own, so that fallback is a better answer for the same shapes).
+ *
+ *  N1: the curated mapping is trusted only when its channels actually
+ *  resolve against `profile` (the ALREADY-pipelined columns) — a pipeline
+ *  step that renames/drops a column the curated field names falls back to
+ *  the profiler's own top pick instead, carrying a `fallbackNotice`
+ *  explaining why the readout changed, rather than silently rendering
+ *  nothing. */
+export function topChartsRecommendation(dataset: ChartsDataset | undefined, profile: DataProfile, recommendations: readonly ChartRecommendation[]): ChartsTopRecommendation | null {
   if (dataset) {
     const { mark, x, y, fill, label } = dataset.recommended;
-    return { mark, channels: { x, y, fill, label }, reason: `Curated recommendation for ${dataset.title}.` };
+    const channels = { x, y, fill, label };
+    if (curatedChannelsResolve(channels, profile)) {
+      return { mark, channels, reason: `Curated recommendation for ${dataset.title}.` };
+    }
+    const top = recommendations[0];
+    if (!top) return null;
+    return {
+      mark: top.mark, channels: top.channels, reason: top.reason, pipeline: top.pipeline,
+      fallbackNotice: `Pipeline changed the columns; using recommended ${describeRecommendation(top.mark, top.channels)}.`,
+    };
   }
   const top = recommendations[0];
-  return top ? { mark: top.mark, channels: top.channels, reason: top.reason } : null;
+  return top ? { mark: top.mark, channels: top.channels, reason: top.reason, pipeline: top.pipeline } : null;
 }
 
 /** Builds ONE editable mark (this package's own shape, `dataText` included)
  *  from resolved rows + a chosen mark type/channel mapping — what "Apply"
  *  in the Data folder commits into `state.marks` (replacing them, exactly
  *  like `apply-preset` already does), and what feeds `chartsDateAxis`'s own
- *  scale-type decision below. */
+ *  scale-type decision below. `rows` is expected to already have any
+ *  recommendation-carried `pipeline` (N4) applied. */
 export function buildDatasetMark(id: number, mark: ChartsWorkbenchMark["type"], rows: readonly TabularRow[], channels: ChartsRecommendedChannels): ChartsWorkbenchMark {
   return {
     id, type: mark, dataText: JSON.stringify(rows, null, 2),

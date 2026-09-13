@@ -4,6 +4,7 @@
 // what IS each column (`profileRows`), and what chart does this data ask
 // for (`recommendChart`).
 
+import type { PipelineStep } from "./dataPipeline";
 import type { TabularCell, TabularRow } from "./tabularParse";
 
 export type ColumnType = "number" | "integer" | "date" | "category" | "text" | "boolean";
@@ -33,20 +34,36 @@ const SLASH_DATE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 
 function isNullish(v: TabularCell): boolean { return v === null || v === undefined || v === ""; }
 
-/** P3: `Date.parse`/`new Date` silently ROLL an out-of-range calendar day
- *  onto the next month (`"2024-02-30"` -> March 1st) instead of rejecting
- *  it — a plausible-looking but WRONG date, rather than the flagged typo
- *  `"2024-13-45"` already gets (that one has no valid month at all, so
- *  `Date.parse` itself returns `NaN`). A full `YYYY-MM-DD` (no time part)
- *  is round-tripped through the parsed UTC calendar fields; a partial ISO
- *  date (`YYYY-MM`/`YYYY`), one with a time part, or the `SLASH_DATE` shape
- *  aren't checked here — there's no "day that rolled" to catch. */
+const SLASH_DATE_PARTS = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
+
+/** P3/N6c: `Date.parse`/`new Date` silently ROLL an out-of-range calendar
+ *  day onto the next month (`"2024-02-30"` -> March 1st) instead of
+ *  rejecting it — a plausible-looking but WRONG date, rather than the
+ *  flagged typo `"2024-13-45"` already gets (that one has no valid month at
+ *  all, so `Date.parse` itself returns `NaN`). A full `YYYY-MM-DD` (no time
+ *  part) is round-tripped through the parsed UTC calendar fields (a bare
+ *  ISO date parses as UTC midnight). `SLASH_DATE` (`MM/DD/YYYY`) rolls
+ *  exactly the same way and used to go unchecked — its own round-trip
+ *  reads LOCAL calendar fields instead, because `Date.parse` resolves THIS
+ *  shape at LOCAL midnight, not UTC; the year comparison is taken mod 100
+ *  for a 2-digit year so it never has to guess which century `Date.parse`
+ *  chose. A partial ISO date (`YYYY-MM`/`YYYY`) or one with a time part
+ *  still isn't checked — there's no "day that rolled" to catch there. */
 function isRolledCalendarDate(v: string, timestamp: number): boolean {
   const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
-  if (!isoDateOnly) return false;
-  const [, y, m, d] = isoDateOnly;
-  const date = new Date(timestamp);
-  return date.getUTCFullYear() !== Number(y) || date.getUTCMonth() + 1 !== Number(m) || date.getUTCDate() !== Number(d);
+  if (isoDateOnly) {
+    const [, y, m, d] = isoDateOnly;
+    const date = new Date(timestamp);
+    return date.getUTCFullYear() !== Number(y) || date.getUTCMonth() + 1 !== Number(m) || date.getUTCDate() !== Number(d);
+  }
+  const slashDate = SLASH_DATE_PARTS.exec(v);
+  if (slashDate) {
+    const [, m, d, yRaw] = slashDate;
+    const date = new Date(timestamp);
+    const yearMatches = yRaw!.length === 4 ? date.getFullYear() === Number(yRaw) : date.getFullYear() % 100 === Number(yRaw) % 100;
+    return !yearMatches || date.getMonth() + 1 !== Number(m) || date.getDate() !== Number(d);
+  }
+  return false;
 }
 
 function looksLikeDate(v: TabularCell): boolean {
@@ -137,7 +154,23 @@ export interface ChartRecommendation {
   readonly reason: string;
   /** Higher wins; only used to rank — never shown to the reader. */
   readonly score: number;
+  /** N4: a recommendation whose CHANNELS name a column that doesn't exist
+   *  yet (`key`/`value`, the reshape's own output names) needs the reshape
+   *  step that PRODUCES them run first — this recommender only sees column
+   *  METADATA (`DataProfile`), never the rows themselves, so it cannot
+   *  reshape data on its own. Whoever applies the recommendation (Apply's
+   *  own `pipeline` -> `resolveChartsDataRows`) runs these steps on top of
+   *  its already-resolved rows before building the mark. Absent for every
+   *  recommendation whose channels already name real source columns. */
+  readonly pipeline?: readonly PipelineStep[];
 }
+
+/** N11: a date+numeric+category line's `fill` puts one line, one legend
+ *  entry and one style (of a 4-style cycle) per distinct category — past
+ *  this many, none of the three stays distinguishable (measured: 12
+ *  categories = 12 identical truncated legend entries, 20 = one-character
+ *  labels with the style cycle repeated five times over). */
+const DATE_NUMERIC_CATEGORY_FILL_MAX_CATEGORIES = 8;
 
 function numericColumns(columns: readonly ColumnProfile[]): ColumnProfile[] {
   return columns.filter((c) => c.type === "number" || c.type === "integer");
@@ -168,14 +201,19 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
     // category column sitting right there went unread and the reader got
     // one flat line instead of the series-by-category picture the data
     // actually shows (measured: world-population-by-country). `fill` is
-    // omitted entirely (not `fill: undefined`) when there's no category,
-    // so the shape here matches the old single-series recommendation byte
-    // for byte.
+    // omitted entirely (not `fill: undefined`) when there's no category (or
+    // the category has more than DATE_NUMERIC_CATEGORY_FILL_MAX_CATEGORIES
+    // distinct values, N11), so the shape here matches the old
+    // single-series recommendation byte for byte.
+    const cat = categories.length >= 1 ? categories[0]! : undefined;
+    const fillableCategory = cat && cat.distinctCount <= DATE_NUMERIC_CATEGORY_FILL_MAX_CATEGORIES ? cat : undefined;
     out.push({
-      mark: "line", channels: { x: dates[0]!.name, y: numbers[0]!.name, ...(categories.length >= 1 ? { fill: categories[0]!.name } : {}) },
-      reason: categories.length >= 1
-        ? `${numbers[0]!.name} over ${dates[0]!.name}, one line per ${categories[0]!.name}`
-        : `${dates[0]!.name} over time vs ${numbers[0]!.name}`,
+      mark: "line", channels: { x: dates[0]!.name, y: numbers[0]!.name, ...(fillableCategory ? { fill: fillableCategory.name } : {}) },
+      reason: fillableCategory
+        ? `${numbers[0]!.name} over ${dates[0]!.name}, one line per ${fillableCategory.name}`
+        : cat
+          ? `${dates[0]!.name} over time vs ${numbers[0]!.name} (${cat.name} has ${cat.distinctCount} categories — too many to fill legibly)`
+          : `${dates[0]!.name} over time vs ${numbers[0]!.name}`,
       score: 100,
     });
     if (numbers.length >= 2) {
@@ -192,25 +230,33 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
     // three distinct values across exactly three rows is `cardinality:
     // "unique"` (every row differs) but is still a perfectly pie-shaped
     // three-category split. The pie itself is additionally gated to exactly
-    // ONE numeric column: a slice is a share of ONE total, and with several
-    // numeric measures present (F1/P1-1 — Fisher's iris: 4 measurements, 3
-    // species) there is no principled reason to sum the FIRST one into
-    // wedges rather than any other — that reads as an arbitrary, misleading
-    // pick ("a pie of summed sepal lengths"), where the multi-numeric rule
-    // below is the one this shape actually asks for. The bar's own score
-    // still defers on category size alone (unchanged from before that
-    // rule existed) so a small-category, several-numeric table ranks the
-    // multi-numeric bar over this single-column one, never the reverse.
+    // ONE numeric column (a slice is a share of ONE total) that itself
+    // READS AS a share/count (N4) — its own min is non-negative, since a
+    // pie of a signed quantity like a temperature change has no honest
+    // wedge-size reading. With several numeric measures present (F1/P1-1 —
+    // Fisher's iris: 4 measurements, 3 species) there is no principled
+    // reason to sum the FIRST one into wedges rather than any other — that
+    // reads as an arbitrary, misleading pick ("a pie of summed sepal
+    // lengths"), where the multi-numeric rule below is the one this shape
+    // actually asks for.
     const isSmallCategory = cat.distinctCount <= 6;
-    if (isSmallCategory && numbers.length === 1) {
+    const readsAsShareOrCount = numbers.length === 1 && typeof numbers[0]!.min === "number" && numbers[0]!.min >= 0;
+    if (isSmallCategory && numbers.length === 1 && readsAsShareOrCount) {
       out.push({
         mark: "arc", channels: { y: numbers[0]!.name, fill: cat.name },
         reason: `${cat.name} shares of ${numbers[0]!.name} (${cat.distinctCount} categories)`, score: 85,
       });
     }
+    // This bar names only `numbers[0]` — with several numeric columns
+    // present that's the SAME "arbitrary first measure" defect the pie is
+    // gated against above, so it scores BELOW the multi-numeric reshaped
+    // bar below (75) whenever there's more than one numeric column,
+    // regardless of category size; with exactly one numeric column it
+    // keeps its original score (deferring only to arc, when arc applies).
+    const singleNumericBarScore = numbers.length === 1 ? (isSmallCategory ? 60 : 90) : 55;
     out.push({
       mark: "bar", channels: { x: cat.name, y: numbers[0]!.name },
-      reason: `${numbers[0]!.name} by ${cat.name}`, score: isSmallCategory ? 60 : 90,
+      reason: `${numbers[0]!.name} by ${cat.name}`, score: singleNumericBarScore,
     });
   }
 
@@ -222,14 +268,27 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
   }
 
   if (categories.length >= 1 && numbers.length >= 2) {
-    // category + SEVERAL numerics -> grouped/stacked bar (F1/P1-1): the
-    // multi-measurement shape a lone pie (above) has no principled answer
-    // for. Scored above the single-numeric bar/arc pair so a table like
+    // category + SEVERAL numerics -> grouped bar, one series PER MEASURE
+    // (N4 — a rewrite of F1/P1-1's own rule, which plotted `numbers[1]`
+    // alone with `fill` duplicating `x`, silently dropping every OTHER
+    // numeric column including `numbers[0]`). Every numeric column becomes
+    // its own series through a LONG-FORMAT RESHAPE: a `pivotLonger` step
+    // melts every numeric column (never a category/date — those stay id
+    // columns, so a second category or date column rides through
+    // untouched) into one `measure`/`value` pair per row, so `x` is the
+    // category, `y` is the melted value, and `fill` is the melted MEASURE
+    // NAME — never `x` again. This is what lets a 4-region {sales, target}
+    // table chart BOTH measures instead of summing one arbitrarily
+    // (F1/P1-1's own reason this rule exists), and what a lone pie (above)
+    // has no principled answer for with more than one numeric column.
+    // Scored above the single-numeric bar/arc pair so a table like
     // Fisher's iris (one category, four numeric measurements) recommends
-    // this over a pie of one arbitrarily-chosen measurement.
+    // this over a pie — or a bar — of one arbitrarily-chosen measurement.
+    const idColumns = columns.filter((c) => !numbers.some((n) => n.name === c.name)).map((c) => c.name);
     out.push({
-      mark: "bar", channels: { x: categories[0]!.name, y: numbers[1]!.name, fill: categories[0]!.name },
-      reason: `${numbers.length} numeric columns by ${categories[0]!.name}`, score: 75,
+      mark: "bar", channels: { x: categories[0]!.name, y: "value", fill: "measure" },
+      reason: `${numbers.length} numeric columns by ${categories[0]!.name}, one series per measure`, score: 75,
+      pipeline: [{ kind: "pivotLonger", idColumns, keyColumn: "measure", valueColumn: "value" }],
     });
   }
 

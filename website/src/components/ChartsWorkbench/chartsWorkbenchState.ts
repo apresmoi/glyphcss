@@ -9,9 +9,9 @@ import {
   type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
 } from "@glyphcss/charts";
-import type { PipelineStep } from "../../lib/dataPipeline";
+import { runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
-import { buildDatasetMark, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
+import { buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
@@ -224,7 +224,11 @@ export type ChartsWorkbenchAction =
   // component reads `state.data` to compute what Apply's own button offers).
   | { type: "set-data-source"; source: ChartsDataSource | null }
   | { type: "set-pipeline"; pipeline: readonly PipelineStep[] }
-  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels }
+  // `pipeline` (N4) is an EXTRA reshape a recommendation carries when its
+  // own `channels` name a column only that reshape produces (the
+  // multi-numeric long-format rewrite) — applied on top of
+  // `state.data.pipeline`'s own already-resolved output, never in place of it.
+  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels; pipeline?: readonly PipelineStep[] }
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
@@ -330,6 +334,19 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       return { ...renamed, channels };
     }) };
     case "set-data-source": {
+      // N2: the 256 KB cap is enforced HERE — the one place ANY action can
+      // install a custom source — not only in `ChartsDataFolder.tsx`'s
+      // paste/upload handler, so a dropdown round trip (pick Custom…, type
+      // an oversized paste the handler already refused to DISPATCH, pick a
+      // dataset, pick Custom… again) can never re-dispatch that same
+      // refused text and bypass the cap: `onSelectDataset`'s "Custom…"
+      // branch has no size check of its own, and used to install whatever
+      // `customText` happened to hold regardless of what the paste handler
+      // already rejected.
+      if (action.source?.kind === "custom" && !action.source.omitted
+        && new TextEncoder().encode(action.source.raw).length > CHARTS_CUSTOM_MAX_BYTES) {
+        return state;
+      }
       // A new source's pipeline steps almost certainly name columns the
       // OLD source doesn't share — picking a genuinely different source
       // drops them; re-picking the same one (e.g. toggling Custom's file
@@ -342,8 +359,19 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       if (!state.data.source) return state;
       const resolved = resolveChartsDataRows(state.data.source, state.data.pipeline);
       if (!resolved.ok) return state;
-      const mark = buildDatasetMark(state.nextMarkId, action.mark, resolved.rows, action.channels);
-      const isDate = xChannelIsDate(profileRows(resolved.rows), action.channels.x);
+      // N4: a recommendation's own EXTRA reshape (a long-format
+      // `pivotLonger`, when `channels` names a melted column the source
+      // rows don't have yet) runs on top of the already-resolved rows —
+      // never in place of `state.data.pipeline`, which stays the reader's
+      // own editable steps.
+      let rows = resolved.rows;
+      if (action.pipeline && action.pipeline.length > 0) {
+        const reshaped = runPipeline(rows, action.pipeline);
+        if (!reshaped.ok) return state;
+        rows = reshaped.rows;
+      }
+      const mark = buildDatasetMark(state.nextMarkId, action.mark, rows, action.channels);
+      const isDate = xChannelIsDate(profileRows(rows), action.channels.x);
       return {
         ...state, marks: [mark], nextMarkId: state.nextMarkId + 1,
         scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },

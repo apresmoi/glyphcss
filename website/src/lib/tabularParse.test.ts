@@ -96,6 +96,36 @@ describe("parseTabular", () => {
     expect(result.rows).toEqual([{ a: 1, a_2: 2 }]);
   });
 
+  // N9a: the naive numbering scheme's own generated suffix could still
+  // collide with a LATER column that is itself literally named that way —
+  // `"a,a,a_2"` used to generate `a_2` for the second `a` and then silently
+  // re-collide with the third column's own real name `a_2`, losing ITS
+  // value to the exact object-key collision this function exists to
+  // prevent, one level later. Mutation check: reverting `dedupeHeaders` to
+  // the per-original-name counter (`count===0 ? name : name_(count+1)`,
+  // with no "already used" check) makes this go red — `a_2`'s value (3) is
+  // silently overwritten by the second `a`'s value (2) at the same key.
+  it("keeps climbing past an already-used name when a later column is itself literally the generated suffix", () => {
+    const result = parseTabular("a,a,a_2\n1,2,3");
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ a: 1, a_2: 2, a_3: 3 }]);
+  });
+
+  // N9b: RFC4180 (and d3-dsv, and PapaParse) treat a quoted field's content
+  // as literal — the one place the format lets an author SAY the padding
+  // is data. `coerceCell`'s trim (F6/P2-3, above) must not reach inside
+  // quotes. Mutation check: reverting `coerceCell` to trim/coerce
+  // unconditionally (dropping the `quoted` parameter) makes this go red
+  // (`" x "` comes back trimmed to `"x"`, and a quoted `"3"` would coerce
+  // to the number 3 instead of staying the literal string "3").
+  it("keeps a quoted field's padding and type exactly as written, never trimmed or coerced", () => {
+    const result = parseTabular('a,b,c\n" x ",2,"3"');
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ a: " x ", b: 2, c: "3" }]);
+  });
+
   // P2-6: a bare JSON array of scalars is the ONE shape `renderGlyphChart`
   // has documented sugar for (AGENTS.md: "x = index, y = identity"); before
   // this it fell through to `dataPipeline.ts`'s `toRows`, which rejects a
