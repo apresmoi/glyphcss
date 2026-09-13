@@ -70,6 +70,22 @@ export function ledgerLabelDropped(opts: { readonly role: string; readonly text:
   return entry("label-dropped", `Dropped the ${opts.role} "${opts.text}" — ${opts.reason}.`, { ...opts });
 }
 
+export function ledgerSankeyFoldedFlows(opts: { readonly source: string; readonly flows: readonly string[] }): GlyphChartLedgerEntry {
+  return entry("sankey-folded-flows", `Combined ${opts.flows.length} thin flow${opts.flows.length === 1 ? "" : "s"} out of "${opts.source}" into one "other" band: ${opts.flows.join(", ")}.`, { ...opts });
+}
+
+export function ledgerSankeyImbalance(opts: { readonly node: string; readonly inflow: number; readonly outflow: number }): GlyphChartLedgerEntry {
+  return entry("sankey-imbalance", `Node "${opts.node}" is unbalanced — ${opts.inflow} in vs ${opts.outflow} out.`, { ...opts });
+}
+
+export function ledgerFunnelNotMonotone(opts: { readonly stage: string; readonly value: number; readonly previousStage: string; readonly previousValue: number }): GlyphChartLedgerEntry {
+  return entry("funnel-not-monotone", `Stage "${opts.stage}" (${opts.value}) is larger than "${opts.previousStage}" (${opts.previousValue}) above it.`, { ...opts });
+}
+
+export function ledgerFunnelThinStage(opts: { readonly stage: string; readonly value: number }): GlyphChartLedgerEntry {
+  return entry("funnel-thin-stage", `Stage "${opts.stage}" is too small to draw proportionally — drew a one-cell stub instead.`, { ...opts });
+}
+
 /**
  * The cell canvas (`glyphcss`) still reports its own "double style has no
  * diagonal analogue" note as a free-text string (`GlyphCanvasReport.ledger`

@@ -31,17 +31,25 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[]): ChartSeri
   const out: ChartSeries[] = [];
   for (const resolved of marks) {
     const { mark, rows } = resolved;
-    const canGroup = ["line", "area", "bar", "dot", "rect", "arc"].includes(mark.type);
-    const channel = canGroup ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
+    // `sankey`/`funnel` are non-cartesian, like `arc` (AGENTS.md's "Charts"
+    // section) — a sankey groups by SOURCE node (`row.x`, one legend entry
+    // per source), a funnel groups by STAGE (`row.x`, one entry per stage,
+    // in the given order since a `Map`'s insertion order is first-appearance
+    // order and every row's `row.x` is normally distinct).
+    const canGroup = ["line", "area", "bar", "dot", "rect", "arc", "sankey", "funnel"].includes(mark.type);
+    const channel = canGroup && mark.type !== "sankey" && mark.type !== "funnel" ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
     const groups = new Map<string | undefined, GlyphChartMarkRow[]>();
     for (const row of rows) {
       // Nonpositive arc values occupy no angle and need no swatch; an all-zero pie stays empty.
       if (mark.type === "arc" && !(typeof row.y === "number" && Number.isFinite(row.y) && row.y > 0)) continue;
-      const name = canGroup && mark.type === "arc" ? String(row.fill ?? row.label ?? row.index) : channel ? String(row[channel]) : mark.options?.name;
+      const name = mark.type === "arc" ? String(row.fill ?? row.label ?? row.index)
+        : mark.type === "sankey" || mark.type === "funnel" ? String(row.x)
+        : channel ? String(row[channel])
+        : mark.options?.name;
       if (!groups.has(name)) groups.set(name, []);
       groups.get(name)!.push(row);
     }
-    if (!groups.size && mark.type !== "arc") groups.set(mark.options?.name, []);
+    if (!groups.size && !["arc", "sankey", "funnel"].includes(mark.type)) groups.set(mark.options?.name, []);
     let sliceIndex = 0;
     for (const [name, seriesRows] of groups) {
       if (name !== undefined && !named.has(name)) named.set(name, named.size);

@@ -7,6 +7,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
+  "sankey-bad-value",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -15,10 +16,10 @@ export function chartError(code: GlyphChartValidationRuleId, message: string): n
   throw Object.assign(new TypeError(`glyphcss: ${code}: ${message}`), { code });
 }
 
-export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule"];
+export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"];
 export const XY_MARK_TYPES = ["line", "area", "bar", "dot", "rect", "cell"];
 export const TRANSFORM_KINDS = ["bin", "stack", "group", "normalize", "window"];
-export const CHANNELS = ["x", "y", "fill", "stroke", "label"];
+export const CHANNELS = ["x", "y", "fill", "stroke", "label", "source", "target", "value", "stage"];
 export const SCALE_TYPES = ["linear", "log", "sqrt", "time", "band", "ordinal"];
 export const REDUCERS = ["mean", "sum", "min", "max"];
 export const TITLE_ALIGNS = ["left", "center", "right"];
@@ -44,6 +45,15 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   validateFiniteData(mark.channels);
   if (XY_MARK_TYPES.includes(mark.type) && !mark.data.every((v) => typeof v === "number") && (mark.channels.x === undefined || mark.channels.y === undefined)) chartError("missing-xy-channels", "Record data needs both x and y channels.");
   if (mark.type === "arc" && !mark.data.every((v) => typeof v === "number") && mark.channels.y === undefined) chartError("arc-missing-value", "Arc record data needs a y value channel.");
+  // Structural half of `sankey-bad-value` (mirrors `arc-missing-value`'s own
+  // presence check, and is what a declarative JSON Schema clause CAN prove);
+  // the deeper "every resolved value is finite and > 0" half is a per-row
+  // business rule that can only be checked once channels are resolved, so it
+  // runs at resolve time (`flowMarks.ts`) under this SAME code — see that
+  // file's own doc for why one code covers both.
+  if (mark.type === "sankey" && (mark.channels.source === undefined || mark.channels.target === undefined || mark.channels.value === undefined)) {
+    chartError("sankey-bad-value", "Sankey data needs source, target, and value channels.");
+  }
   if (mark.transform !== undefined) {
     const t = mark.transform;
     if (!object(t) || !TRANSFORM_KINDS.includes(t.kind)) chartError("unknown-transform", "Use a known transform kind.");
@@ -155,22 +165,27 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-time-domain": "Use valid ISO strings or Date objects for time values and domains.",
   "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
+  "sankey-bad-value": "Supply source, target, and value channels, and make sure every resolved value is finite and greater than 0.",
 };
 
 /**
- * Repair hints for the two runtime-only tagged codes (`mixed-x-scale`,
- * `GLYPH_CHART_INTERNAL_COORD`) that are deliberately NOT
- * `GLYPH_CHART_VALIDATION_RULES` entries (see `mixedXScaleError`'s and
- * `guardCoord`'s own docs) — a separate table, not a union-widening of
- * `GlyphChartValidationRuleId`, so schema-parity tests (which enumerate
- * that union) stay untouched. Without this, `renderGlyphChartJson`'s
+ * Repair hints for the runtime-only tagged codes (`mixed-x-scale`,
+ * `GLYPH_CHART_INTERNAL_COORD`, `sankey-cycle`) that are deliberately NOT
+ * `GLYPH_CHART_VALIDATION_RULES` entries (see `mixedXScaleError`'s,
+ * `guardCoord`'s, and `flowMarks.ts`'s own docs) — a separate table, not a
+ * union-widening of `GlyphChartValidationRuleId`, so schema-parity tests
+ * (which enumerate that union) stay untouched. `sankey-cycle` joins them for
+ * the identical reason `mixed-x-scale` does: "does this graph have a cycle"
+ * is a data-dependent, cross-row property no declarative JSON Schema clause
+ * can express. Without this, `renderGlyphChartJson`'s
  * documented `{ error, code, hint }` shape silently lost its `hint` key for
- * these two — `JSON.stringify` drops an `undefined` value entirely (review
+ * these — `JSON.stringify` drops an `undefined` value entirely (review
  * finding 10), indistinguishable from a code the lookup has never heard of.
  */
 const RUNTIME_REPAIR_HINTS: Readonly<Record<string, string>> = {
   "mixed-x-scale": "Set an explicit scales.x.type, or make every mark's x channel resolve to the same value type (or one that fits the same band domain).",
   "GLYPH_CHART_INTERNAL_COORD": "Check the named mark's x/y channels resolve to values already in-domain (a band scale needs a matching category; a continuous scale needs a finite number).",
+  "sankey-cycle": "Remove the cyclic source -> target link — a sankey's node columns are a DAG's depth order and have no honest position for a cycle.",
 };
 
 export function glyphChartRepairHint(id: string): string | undefined {

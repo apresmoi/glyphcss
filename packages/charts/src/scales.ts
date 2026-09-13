@@ -52,7 +52,7 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
       if (ruleAxis === axis) for (const v of ruleValues ?? []) values.push(v);
       continue;
     }
-    if (mark.type === "arc") continue; // radial — positioned independently of x/y scales.
+    if (mark.type === "arc" || mark.type === "sankey" || mark.type === "funnel") continue; // non-cartesian — positioned independently of x/y scales.
     for (const row of rows) {
       if (axis === "x") values.push(row.x);
       else {

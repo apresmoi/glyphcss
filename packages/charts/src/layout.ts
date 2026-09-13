@@ -36,10 +36,14 @@ export function resolveGlyphChartTitle(title: GlyphChartTitleOption | undefined)
 export interface GlyphChartResolvedLegendOption {
   readonly show: boolean;
   readonly placement: GlyphChartLegendPlacement;
+  /** `false` iff neither `spec.legend` nor render `options.legend` was set — `layoutGlyphChart` uses this to default a funnel's own legend OFF (its stage labels already carry identity) while an explicit `legend: true` still lists the stages. */
+  readonly explicit: boolean;
 }
 export function resolveGlyphChartLegendOption(specLegend: GlyphChartLegendOption | undefined, optionLegend: GlyphChartLegendOption | undefined): GlyphChartResolvedLegendOption {
-  const source = optionLegend ?? specLegend ?? true;
-  return typeof source === "boolean" ? { show: source, placement: "bottom" } : { show: true, placement: source.placement };
+  const chosen = optionLegend ?? specLegend;
+  const explicit = chosen !== undefined;
+  const source = chosen ?? true;
+  return typeof source === "boolean" ? { show: source, placement: "bottom", explicit } : { show: true, placement: source.placement, explicit: true };
 }
 
 export interface GlyphChartLayoutTick {
@@ -350,7 +354,7 @@ export function layoutGlyphChart(
   detail: GlyphChartDetail,
   ledger: GlyphChartLedgerEntry[],
   charset: GlyphChartCharset = "box",
-  legendOption: GlyphChartResolvedLegendOption = { show: true, placement: "bottom" },
+  legendOption: GlyphChartResolvedLegendOption = { show: true, placement: "bottom", explicit: false },
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
@@ -361,7 +365,8 @@ export function layoutGlyphChart(
   // ticks against a meaningless default [0,1] domain, is what keeps a
   // donut chart from wasting a third of a small viewport on an axis nobody
   // reads. Computed early (packet item 6 needs it to gate axis titles too).
-  const cartesian = marks.some(({ mark }) => mark.type !== "arc" && mark.type !== "text");
+  const NON_CARTESIAN_MARK_TYPES = ["arc", "text", "sankey", "funnel"];
+  const cartesian = marks.some(({ mark }) => !NON_CARTESIAN_MARK_TYPES.includes(mark.type));
 
   const xAxisOpts = spec.axes?.x;
   const yAxisOpts = spec.axes?.y;
@@ -425,7 +430,14 @@ export function layoutGlyphChart(
     if (legendWide) { legend = { placement: "bottom", row: bottom, items }; bottom -= 1; }
     return legendWide;
   };
-  if (legendOption.show && names.length > 0 && detail !== "simplified") {
+  // A funnel's stage labels already carry the same identity a legend
+  // entry would (AGENTS.md's "Charts" section) — an unrequested legend
+  // just repeats them below the chart, so the default is OFF for a spec
+  // whose only named series come from a `funnel` mark. An EXPLICIT
+  // `legend: true` (spec or render option) still lists the stages.
+  const funnelOnly = marks.length > 0 && marks.every(({ mark }) => mark.type === "funnel");
+  const showLegend = legendOption.show && !(!legendOption.explicit && funnelOnly);
+  if (showLegend && names.length > 0 && detail !== "simplified") {
     if (legendOption.placement === "bottom") {
       if (!reserveBottomLegend()) ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
     } else if (legendOption.placement === "title") {
@@ -448,7 +460,7 @@ export function layoutGlyphChart(
       // chart row reserved here at all.
       legend = { placement: legendOption.placement, items };
     }
-  } else if (legendOption.show && names.length > 0) {
+  } else if (showLegend && names.length > 0) {
     ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
   }
 

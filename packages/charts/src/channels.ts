@@ -10,9 +10,10 @@
 
 import type { GlyphChartChannelValue, GlyphChartDatum, GlyphChartMark, GlyphChartMarkRow } from "./types";
 
-type Accessor = (datum: unknown, index: number) => unknown;
+export type Accessor = (datum: unknown, index: number) => unknown;
 
-function accessorFor(value: GlyphChartChannelValue | undefined): Accessor | undefined {
+/** Exported for `flowMarks.ts` — sankey/funnel channels (`source`/`target`/`value`/`stage`) resolve through the identical field/accessor/array rule as `x`/`y`/`fill`/`stroke`/`label`. */
+export function accessorFor(value: GlyphChartChannelValue | undefined): Accessor | undefined {
   if (value === undefined) return undefined;
   if (typeof value === "function") return value as Accessor;
   if (Array.isArray(value)) return (_d, i) => (value as readonly unknown[])[i];
@@ -20,11 +21,11 @@ function accessorFor(value: GlyphChartChannelValue | undefined): Accessor | unde
   return (d) => (d as GlyphChartDatum)?.[field];
 }
 
-const identity: Accessor = (d) => d;
-const index: Accessor = (_d, i) => i;
+export const identity: Accessor = (d) => d;
+export const index: Accessor = (_d, i) => i;
 
-/** `true` iff every element of `data` is a plain finite number (the 1-D shorthand form). */
-function isNumericArray(data: GlyphChartMark["data"]): data is readonly number[] {
+/** `true` iff every element of `data` is a plain finite number (the 1-D shorthand form) — exported for `flowMarks.ts`'s funnel bare-array shorthand. */
+export function isNumericArray(data: GlyphChartMark["data"]): data is readonly number[] {
   return data.length > 0 && data.every((v) => typeof v === "number");
 }
 

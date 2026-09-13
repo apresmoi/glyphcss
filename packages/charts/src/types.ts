@@ -19,7 +19,9 @@ export type GlyphChartMarkType =
   | "rect"
   | "cell"
   | "text"
-  | "rule";
+  | "rule"
+  | "sankey"
+  | "funnel";
 
 /** One data record a mark's channels read fields from. */
 export type GlyphChartDatum = Record<string, unknown>;
@@ -41,6 +43,14 @@ export interface GlyphChartChannels {
   readonly fill?: GlyphChartChannelValue;
   readonly stroke?: GlyphChartChannelValue;
   readonly label?: GlyphChartChannelValue;
+  /** `sankey` only: the flow's origin node. */
+  readonly source?: GlyphChartChannelValue;
+  /** `sankey` only: the flow's destination node. */
+  readonly target?: GlyphChartChannelValue;
+  /** `sankey`/`funnel`: the flow value / stage value. */
+  readonly value?: GlyphChartChannelValue;
+  /** `funnel` only: the stage name. */
+  readonly stage?: GlyphChartChannelValue;
 }
 
 /** Mark-specific extras that don't fit the shared channel vocabulary. */
