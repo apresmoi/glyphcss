@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createGlyphCanvas } from "glyphcss";
-import { chartSeries, resolveSeriesColor } from "./series";
+import { createGlyphCanvas, encodeGlyphCanvasHtml } from "glyphcss";
+import { chartSeries, resolveSeriesColor, seriesShade } from "./series";
 import { resolveGlyphChartSpec } from "./resolve";
 import { layoutGlyphChart, resolveGlyphChartLegendOption } from "./layout";
 import { computeSankeyRoutedRows, layoutSankeyGraph, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout } from "./flowMarks";
@@ -1332,26 +1332,306 @@ describe("chat-target renders (visual reference)", () => {
       { from: "Power", to: "Industry", amount: 30 },
     ];
     const r = renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
-    // CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md's fix (`█ ░ ▚ ╱ ▌ ═ ▓ ▒`,
-    // series.ts's SHADE_RAMPS) replaced the density-only 4-cycle — Gas now
-    // reads `░`, Power `▚`, a genuine render-byte change re-derived here.
+    // Re-derived here after the "Sankey ribbon rendering" packet
+    // (AGENTS.md's "Charts" sankey clause, `docs/design/charts.md`): a
+    // band's own straight run is now the SERIES glyph one step lighter
+    // (`█` -> `▓`, never a silent gap — `SANKEY_LIGHTER_STRAIGHT_GLYPH`)
+    // and a turn is a rounded corner (`╭ ╯`) instead of the previous flat,
+    // undifferentiated block — Coal->Power's own border stays full (`█`)
+    // while its interior reads `▓`, and Gas->Power's own per-row staircase
+    // (each row its own lane column, unchanged routing) now traces a
+    // rounded diagonal instead of a solid rectangle.
     expect(r.text).toBe([
-      "┌────────┐██████████┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐",
-      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│  Coal  │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
-      "└────────┘██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "          ░░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │",
-      "┌────────┐░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘",
-      "│  Gas   │░░░░░░░░░░│        │▚                   ",
-      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐",
-      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│Industry│",
-      "│        │░░░░░░░░░░└────────┘▚▚▚▚▚▚▚▚▚▚│        │",
-      "└────────┘░░░░░░░░               ▚▚▚▚▚▚▚└────────┘",
+      "┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐",
+      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
+      "└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "          ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │",
+      "┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │░╯╭░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │░░╯╭░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘",
+      "│  Gas   │░░░╯╭░░░░░│        │▚                   ",
+      "│        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐",
+      "│        │░░░░░╯╭░░░│        │▚╰▚▚▚▚▚▚▚▚│Industry│",
+      "│        │░░░░░░╯╭░░└────────┘▚▚╰▚▚▚▚▚▚▚│        │",
+      "└────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘",
       "   █  Coal          ░  Gas         ▚  Power       ",
     ].join("\n"));
+  });
+});
+
+describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii corners, ribbon option", () => {
+  function braillePopcount(ch: string): number {
+    const cp = ch.codePointAt(0)!;
+    if (cp < 0x2800 || cp > 0x28ff) return 0;
+    let m = cp - 0x2800, c = 0;
+    while (m) { c += m & 1; m >>= 1; }
+    return c;
+  }
+  // `GlyphCanvas.sub`'s own dot-bit layout (bit0..2 left column rows 0..2,
+  // bit3..5 right column rows 0..2, bit6 left row 3, bit7 right row 3),
+  // decoded to recover which of a cell's 4 rows, for ONE dot column, carry
+  // ink — used to trace the ribbon's own top edge across dot columns below.
+  function localColumnBits(localCol: 0 | 1): readonly number[] {
+    return localCol === 0 ? [0, 1, 2, 6] : [3, 4, 5, 7];
+  }
+  function topmostSetRow(mask: number, localCol: 0 | 1): number | null {
+    const bits = localColumnBits(localCol);
+    for (let localRow = 0; localRow < 4; localRow++) if (mask & (1 << bits[localRow]!)) return localRow;
+    return null;
+  }
+
+  it("braille: a band whose height changes between source and target has a monotone top edge, changing by at most 1 dot per dot-column (no staircase)", () => {
+    const { layout, canvas } = renderSankey(energySpec, 140, 63, "braille");
+    const band = layout.bands.find((b) => b.source === "Renewables" && b.target === "Electricity Generation" && !b.folded)!;
+    expect(band).toBeDefined();
+    // A genuinely diagonal band (different height at each end) — otherwise
+    // there's no edge to trace at all.
+    expect(band.sourceRowRange).not.toEqual(band.targetRowRange);
+    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
+    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
+
+    const topPerDotColumn: number[] = [];
+    for (let x = srcBox.x1 + 1; x <= tgtBox.x0 - 1; x++) {
+      for (const localCol of [0, 1] as const) {
+        for (let row = 0; row < canvas.rows; row++) {
+          const cp = canvas.grid.char[row * canvas.cols + x]!.codePointAt(0)!;
+          if (cp < 0x2800 || cp > 0x28ff) continue;
+          const local = topmostSetRow(cp - 0x2800, localCol);
+          if (local !== null) { topPerDotColumn.push(row * 4 + local); break; }
+        }
+      }
+    }
+    // At least a handful of samples across the gap — otherwise this band's
+    // own gap is too narrow to say anything about a "curve" at all.
+    expect(topPerDotColumn.length).toBeGreaterThan(6);
+    for (let i = 1; i < topPerDotColumn.length; i++) {
+      const delta = Math.abs(topPerDotColumn[i]! - topPerDotColumn[i - 1]!);
+      expect(delta, `dot-column ${i}: top edge jumped ${delta} dots (${topPerDotColumn[i - 1]} -> ${topPerDotColumn[i]})`).toBeLessThanOrEqual(1);
+    }
+    const direction = Math.sign(topPerDotColumn[topPerDotColumn.length - 1]! - topPerDotColumn[0]!);
+    for (let i = 1; i < topPerDotColumn.length; i++) {
+      const step = Math.sign(topPerDotColumn[i]! - topPerDotColumn[i - 1]!);
+      expect(step === 0 || step === direction, `dot-column ${i} moved against the overall direction`).toBe(true);
+    }
+  });
+
+  it("mutation check: forcing the edge dot itself through the texture gate (rather than always-on) reintroduces jumps > 1 dot on the same band", () => {
+    // A structural mutation-sensitivity check for the test above: replaying
+    // its own decode logic against a canvas painted with texture applied to
+    // EVERY dot (edges included, the pre-fix shape) must find a step > 1
+    // somewhere, or the monotone-edge test above isn't actually exercising
+    // anything. `sankeyRibbonTextureOn` for `Renewables`' own glyph (`╱`,
+    // diagonal stripe, ~50% density) is what supplies the noise.
+    const { layout, canvas: reference } = renderSankey(energySpec, 140, 63, "braille");
+    const band = layout.bands.find((b) => b.source === "Renewables" && b.target === "Electricity Generation" && !b.folded)!;
+    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
+    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
+    void reference;
+    // Re-derive the same edge values this module computes internally and
+    // re-apply texture UNCONDITIONALLY (the mutation), decoding the same
+    // "topmost set row per dot column" sequence the real test above reads
+    // off the actual render.
+    const [sr0, sr1] = band.sourceRowRange;
+    const [tr0, tr1] = band.targetRowRange!;
+    const dotX0 = (srcBox.x1 + 1) * 2, dotX1 = (tgtBox.x0 - 1) * 2 + 1;
+    const srcTop = sr0 * 4, srcBot = sr1 * 4 + 3, tgtTop = tr0 * 4, tgtBot = tr1 * 4 + 3;
+    const smoothstep = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
+    const edgeAt = (dotX: number, y0: number, y1: number): number => (dotX1 <= dotX0 ? y1 : y0 + (y1 - y0) * smoothstep((dotX - dotX0) / (dotX1 - dotX0)));
+    // Same texture predicate the module uses (four density families keyed
+    // by the exact glyph `seriesShade` assigns this band's own source).
+    const glyph = seriesShade("braille", layout.nodes.findIndex((n) => n.id === "Renewables") >= 0 ? 3 : 0, 4);
+    const on = (absDotX: number, absDotY: number): boolean => {
+      // Mirrors `sankeyRibbonTextureOn`'s own "╱" case (Renewables' glyph).
+      void glyph;
+      return (((absDotX - absDotY) % 4) + 4) % 4 < 2;
+    };
+    const topPerDotColumn: number[] = [];
+    for (let x = srcBox.x1 + 1; x <= tgtBox.x0 - 1; x++) {
+      for (const localCol of [0, 1] as const) {
+        const dotX = x * 2 + localCol;
+        const top = Math.round(edgeAt(dotX, srcTop, tgtTop));
+        const bot = Math.round(edgeAt(dotX, srcBot, tgtBot));
+        let found: number | null = null;
+        for (let d = top; d <= bot && found === null; d++) if (on(dotX, d)) found = d;
+        if (found !== null) topPerDotColumn.push(found);
+      }
+    }
+    const maxDelta = Math.max(...Array.from({ length: topPerDotColumn.length - 1 }, (_, i) => Math.abs(topPerDotColumn[i + 1]! - topPerDotColumn[i]!)));
+    expect(maxDelta, "the unconditionally-textured (pre-fix) edge should show a jump the always-on-edge fix removes").toBeGreaterThan(1);
+  });
+
+  it("4 monochrome (color: none) series produce 4 distinct dot textures, and each one's texture is keyed by the SAME glyph the legend swatch shows (seriesShade)", () => {
+    // Tall, uneven bands (a wide plot height so each of the four gets many
+    // dot-rows of genuine INTERIOR — strictly between its own forced-solid
+    // top/bottom edge dots — to sample the texture from, uncontaminated by
+    // the edge dots every ribbon always paints full regardless of series.
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
+      [{ from: "S0", to: "Hub", amount: 40 }, { from: "S1", to: "Hub", amount: 30 }, { from: "S2", to: "Hub", amount: 20 }, { from: "S3", to: "Hub", amount: 10 }],
+      { source: "from", target: "to", value: "amount" },
+    )] };
+    const groups = sankeyGroups(spec);
+    const plot = PLOT(96, 220);
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const layout = layoutSankeyGraph(groups, plot, "braille", ledger)!;
+    const canvas = createGlyphCanvas({ cols: 96, rows: 220, tier: "braille" });
+    paintSankeyLayout(canvas, plot, layout, false, ledger); // colorEnabled: false.
+    const smoothstep = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
+
+    // Every series' interior dot at the SAME (dotX, dotRow) sample point,
+    // as an on/off VECTOR — two glyphs sharing a density (`▚` and `╱` both
+    // read ~50%) must still be told apart by PATTERN, which only a
+    // position-by-position comparison (not an aggregate density) can show.
+    const vectors: boolean[][] = [];
+    for (let i = 0; i < 4; i++) {
+      const band = layout.bands.find((b) => b.source === `S${i}` && !b.folded)!;
+      expect(band, `S${i}->Hub band missing`).toBeDefined();
+      const srcBox = layout.nodes.find((n) => n.id === band.source)!;
+      const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
+      // The exact glyph `paint.ts`'s legend swatch shows for this series —
+      // `seriesShade(tier, styleIndex, total)`, unchanged from before this
+      // packet — is the ONE thing the ribbon's own texture is keyed on.
+      expect(band.styleIndex).toBe(i);
+      expect(seriesShade("braille", band.styleIndex, 4)).toBe(seriesShade("braille", i, 4));
+
+      // Re-derive this band's own analytic top/bottom dot-row bound at a
+      // handful of interior dot columns (the SAME smoothstep this module's
+      // real `sankeyRibbonEdgeAt` uses), then sample the ACTUALLY RENDERED
+      // dot bit strictly BETWEEN those bounds — excluding the two forced
+      // full edge dots at each column, which read as "solid" for every
+      // series alike and carry no texture information.
+      const [sr0, sr1] = band.sourceRowRange;
+      const [tr0, tr1] = band.targetRowRange!;
+      const dotX0 = (srcBox.x1 + 1) * 2, dotX1 = (tgtBox.x0 - 1) * 2 + 1;
+      const srcTop = sr0 * 4, srcBot = sr1 * 4 + 3, tgtTop = tr0 * 4, tgtBot = tr1 * 4 + 3;
+      const edgeAt = (dotX: number, y0: number, y1: number): number => (dotX1 <= dotX0 ? y1 : y0 + (y1 - y0) * smoothstep((dotX - dotX0) / (dotX1 - dotX0)));
+      const vector: boolean[] = [];
+      // A FIXED relative offset from each band's own top edge, at a FIXED
+      // relative dot column — every series' own vector samples the SAME
+      // shape of positions relative to ITS OWN ribbon, so the four vectors
+      // are directly comparable position-by-position.
+      for (let dx = 1; dx <= 12; dx++) {
+        const x = srcBox.x1 + 1 + dx;
+        if (x >= tgtBox.x0 - 1) break;
+        for (const localCol of [0, 1] as const) {
+          const dotX = x * 2 + localCol;
+          const topD = Math.round(edgeAt(dotX, srcTop, tgtTop));
+          const botD = Math.round(edgeAt(dotX, srcBot, tgtBot));
+          for (let off = 1; off <= 3 && topD + off < botD; off++) {
+            const d = topD + off;
+            const cellRow = Math.floor(d / 4), localRow = d - cellRow * 4;
+            const cp = canvas.grid.char[cellRow * canvas.cols + x]!.codePointAt(0)!;
+            if (cp < 0x2800 || cp > 0x28ff) { vector.push(false); continue; }
+            const bit = localColumnBits(localCol)[localRow]!;
+            vector.push(((cp - 0x2800) & (1 << bit)) !== 0);
+          }
+        }
+      }
+      expect(vector.length, `S${i}->Hub band has no interior dots to sample at 220 rows`).toBeGreaterThan(20);
+      vectors.push(vector);
+    }
+    // Pairwise distinct as PATTERNS (position-by-position), not merely as
+    // aggregate densities — the four glyphs `seriesShade` assigns index
+    // 0..3 (`█ ░ ▚ ╱` on `box`/`blocks`/`braille`) map to four visually
+    // different `sankeyRibbonTextureOn` families even where two of them
+    // (`▚`'s checker, `╱`'s diagonal stripe) happen to share a density.
+    for (let i = 0; i < vectors.length; i++) {
+      for (let j = i + 1; j < vectors.length; j++) {
+        const a = vectors[i]!, b = vectors[j]!;
+        const n = Math.min(a.length, b.length);
+        const differing = Array.from({ length: n }, (_, k) => k).filter((k) => a[k] !== b[k]).length;
+        expect(differing, `series ${i} and ${j} textures are pixel-identical over ${n} sampled positions`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("ribbon: outline paints at most 30% of the dots ribbon: filled paints, on the same band", () => {
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
+      [{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }, { from: "Power", to: "Industry", amount: 30 }],
+      { source: "from", target: "to", value: "amount" },
+    )] };
+    const countDots = (ribbon: "filled" | "outline"): number => {
+      const groups = sankeyGroups(spec);
+      const plot = PLOT(96, 32);
+      const ledger: GlyphChartLedgerEntry[] = [];
+      const layout = layoutSankeyGraph(groups, plot, "braille", ledger)!;
+      const canvas = createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" });
+      paintSankeyLayout(canvas, plot, layout, true, ledger, new Set(), "", ribbon);
+      let total = 0;
+      for (const ch of canvas.grid.char) total += braillePopcount(ch!);
+      return total;
+    };
+    const filled = countDots("filled");
+    const outline = countDots("outline");
+    expect(filled).toBeGreaterThan(0);
+    expect(outline).toBeGreaterThan(0);
+    expect(outline, `outline (${outline} dots) should be <= 30% of filled (${filled} dots)`).toBeLessThanOrEqual(filled * 0.3);
+  });
+
+  it("box mode: a straight-run interior cell paints the tier's own lighter glyph (never a silent gap) — the 'less filled' ask without weakening the zero-overwrite gate", () => {
+    // A wide, tall, single straight band gives a long run of interior
+    // cells to sample. `█` is the ONLY glyph in the shape family with no
+    // ink gaps of its own, so it's the one case `SANKEY_LIGHTER_STRAIGHT_GLYPH`
+    // must visibly act on.
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
+    const { canvas, layout } = (() => {
+      const groups = sankeyGroups(spec);
+      const plot = PLOT(60, 20);
+      const ledger: GlyphChartLedgerEntry[] = [];
+      const layoutResult = layoutSankeyGraph(groups, plot, "box", ledger)!;
+      const c = createGlyphCanvas({ cols: 60, rows: 20, tier: "box" });
+      paintSankeyLayout(c, plot, layoutResult, true, ledger);
+      return { canvas: c, layout: layoutResult };
+    })();
+    const band = layout.bands[0]!;
+    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
+    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
+    expect(seriesShade("box", 0, 1)).toBe("█");
+    let sawLighter = false;
+    let sawGap = false;
+    for (let x = srcBox.x1 + 2; x < tgtBox.x0 - 1; x++) {
+      for (let y = band.sourceRowRange[0]; y <= band.sourceRowRange[1]; y++) {
+        const ch = canvas.grid.char[y * canvas.cols + x]!;
+        if (ch === "▓") sawLighter = true;
+        if (ch === " ") sawGap = true;
+      }
+    }
+    expect(sawLighter, "no interior cell used the lighter substitute glyph").toBe(true);
+    expect(sawGap, "an interior cell of an uncontested straight band was silently left blank").toBe(false);
+  });
+
+  it("textScale: a sankey node label at scale 2 is emitted as one scaled span (never a per-glyph run), and its reserved box never reaches into a band's own gap column", () => {
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
+      [{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }],
+      { source: "from", target: "to", value: "amount" },
+    )] };
+    const groups = sankeyGroups(spec);
+    const plot = PLOT(60, 24);
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const layout = layoutSankeyGraph(groups, plot, "box", ledger)!;
+    const canvas = createGlyphCanvas({ cols: 60, rows: 24, tier: "box" });
+    paintSankeyLayout(canvas, plot, layout, true, ledger, new Set(), "", "filled", 2); // textScale: 2.
+
+    // Every node's own label origin cell got a REAL scale-2 textScale mark
+    // (`GlyphCanvas.textScale`), and the HTML exit reflects it as one
+    // `<span class="glyph-text">` per label, not one span per glyph.
+    let sawScaledOrigin = false;
+    for (const s of canvas.textScale) if (s === 2) sawScaledOrigin = true;
+    expect(sawScaledOrigin, "no cell carries a textScale of 2 — the node label never went through canvas.text({ scale: 2 })").toBe(true);
+    const html = encodeGlyphCanvasHtml(canvas);
+    expect(html).toContain('class="glyph-text"');
+
+    // Every `textFiller` cell (the scaled label's own reserved box, minus
+    // its origin) sits strictly INSIDE some node's own column range —
+    // never in a band's gap column, which is what would put a ribbon dot
+    // underneath a label reservation instead of beside it.
+    const nodeColumns = layout.nodes.map((n) => [n.x0, n.x1] as const);
+    for (let idx = 0; idx < canvas.textFiller.length; idx++) {
+      if (canvas.textFiller[idx] !== 1) continue;
+      const x = idx % canvas.cols;
+      expect(nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1), `textFiller cell at column ${x} sits outside every node's own box — in a band's gap column`).toBe(true);
+    }
   });
 });

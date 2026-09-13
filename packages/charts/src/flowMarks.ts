@@ -899,6 +899,225 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
   return routedRows;
 }
 
+// ── ribbon rendering (visual shape of a painted band) ───────────────────────
+//
+// `computeSankeyRoutedRows` above is UNCHANGED by everything below: the
+// lane/free-row/conservation/fold/conflict math it and `layoutSankeyGraph`
+// own is exactly what every existing conservation/border-touch/zero-overwrite
+// gate exercises, and none of it needs to move for the ribbon to look
+// better — only HOW a routed cell (or, for `braille`/`blocks`, a smooth
+// per-dot span) gets PAINTED changes here.
+
+/** `options.ribbon` on a sankey mark (AGENTS.md's "Charts" sankey clause):
+ * `"filled"` (default) paints the whole band region; `"outline"` paints only
+ * its two edges plus a thin centre stroke. */
+export type GlyphChartSankeyRibbon = "filled" | "outline";
+
+type SankeyDir = "n" | "e" | "s" | "w";
+
+function sankeyDirOf(a: GlyphCanvasPoint, b: GlyphCanvasPoint): SankeyDir | null {
+  if (b.x > a.x) return "e";
+  if (b.x < a.x) return "w";
+  if (b.y > a.y) return "s";
+  if (b.y < a.y) return "n";
+  return null;
+}
+
+// Smoothstep — the same horizontal-tangent-at-both-ends S-curve
+// `d3-sankey`'s own `sankeyLinkHorizontal` draws. Monotonic in `u`, which is
+// what keeps a column-by-column sweep from ever doubling back (the property
+// the monotone-edge gate below checks).
+function sankeySmoothstep(u: number): number {
+  const t = u < 0 ? 0 : u > 1 ? 1 : u;
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * A band's own top/bottom DOT-ROW bound at absolute dot-column `dotX`,
+ * continuous. Evaluated exactly at the two border dot-columns (`dotX ===
+ * dotX0`/`dotX1`) it returns the EXACT source/target dot rows — `u` clamps
+ * to 0/1 there — which is what keeps row-quantity conservation exact at
+ * both borders even though the shape in between is now a curve, not a
+ * staircase.
+ */
+function sankeyRibbonEdgeAt(dotX: number, dotX0: number, dotX1: number, y0: number, y1: number): number {
+  if (dotX1 <= dotX0) return y1;
+  return y0 + (y1 - y0) * sankeySmoothstep((dotX - dotX0) / (dotX1 - dotX0));
+}
+
+// Sub-cell dot-bit groups for each visual quadrant — see `GlyphCanvas.sub`'s
+// own doc for the bit layout (bit0..2 left column rows 0..2, bit3..5 right
+// column rows 0..2, bit6 left row 3, bit7 right row 3): TL, TR, BL, BR.
+const SANKEY_QUADRANT_DOT_BITS: readonly (readonly number[])[] = [[0, 1], [3, 4], [2, 6], [5, 7]];
+const SANKEY_FULL_SUB_MASK = 0xff;
+
+function sankeySubMaskExcludingQuadrant(missing: number): number {
+  let mask = 0;
+  for (let q = 0; q < 4; q++) if (q !== missing) for (const bit of SANKEY_QUADRANT_DOT_BITS[q]!) mask |= 1 << bit;
+  return mask;
+}
+
+/** `GlyphCanvas.sub`'s own dot-bit position for a LOCAL (within-cell) dot —
+ * `localCol` in `{0,1}`, `localRow` in `{0,1,2,3}` — matching its doc
+ * exactly (mirrors `glyphcss`'s own private `subcellDotBit`, reimplemented
+ * here since it isn't exported and the bit layout itself is public). */
+function sankeyDotBit(localCol: number, localRow: number): number {
+  if (localCol === 0) return localRow < 3 ? localRow : 6;
+  return localRow < 3 ? 3 + localRow : 7;
+}
+
+/**
+ * A `braille`/`blocks` corner cell's rounded dot mask, for the routedRows
+ * fallback path (a folded/skip-level band — see `paintSankeyRoutedRows`'s
+ * own doc for why those still repaint the ORIGINAL lane/free-row cells
+ * rather than a continuous curve). The missing quadrant is the one OUTSIDE
+ * the turn's own arc, derived from the incoming/outgoing travel direction —
+ * routing here only ever moves east and/or vertically (`pushSankeyHorizontal`
+ * inside a gap only ever steps positive; `computeSankeyRoutedRows`'s own
+ * construction is x-monotonic), so only 4 of the table's 8 entries are ever
+ * actually reached; the rest are kept for totality rather than assumed.
+ */
+const SANKEY_CORNER_MISSING_QUADRANT: Readonly<Record<string, number>> = {
+  "e>s": 1, "e>n": 3, "s>e": 2, "n>e": 0,
+  "w>s": 0, "w>n": 2, "s>w": 3, "n>w": 1,
+};
+function sankeyCornerMissingQuadrant(prevDir: SankeyDir, nextDir: SankeyDir): number | null {
+  return SANKEY_CORNER_MISSING_QUADRANT[`${prevDir}>${nextDir}`] ?? null;
+}
+
+/** `ascii`/`box`'s own rounded corner glyph for a turn, by incoming/outgoing
+ * direction — `╭ ╮ ╰ ╯` on `box`, `/ \` (the only two diagonal glyphs
+ * either charset owns) on `ascii`. `null` for a direction pair that cannot
+ * occur (this routing never travels west) or a straight run. */
+function sankeyBoxCornerGlyph(prevDir: SankeyDir, nextDir: SankeyDir, ascii: boolean): string | null {
+  const key = `${prevDir}>${nextDir}`;
+  if (ascii) {
+    if (key === "e>s" || key === "s>e") return "\\";
+    if (key === "e>n" || key === "n>e") return "/";
+    return null;
+  }
+  const table: Readonly<Record<string, string>> = { "e>s": "╮", "e>n": "╯", "s>e": "╰", "n>e": "╭" };
+  return table[key] ?? null;
+}
+
+/**
+ * Deterministic per-dot texture for a `braille`/`blocks` ribbon, keyed by
+ * the LITERAL glyph `seriesShade(tier, styleIndex, total)` already picked
+ * for this band (`SankeyRoutedRow.glyph`) — never a separate style index —
+ * so a ribbon's own sub-cell density/orientation always agrees with the
+ * shape family the legend swatch shows for that series (the coordinator's
+ * own "must agree with the 3-arg shade table" note): `█`'s own glyph reads
+ * as the densest texture, `░`'s as the sparsest, and the four
+ * orientation glyphs (`▚ ╱ ▌ ═`) each pick the sub-cell pattern that most
+ * resembles their own shape (checker / diagonal / vertical / horizontal
+ * stripe). Anchored on GLOBAL dot coordinates (`absDotX`/`absDotY`, not
+ * cell-local), so the pattern reads as one continuous texture across a
+ * multi-cell run instead of restarting inside every cell. An unrecognised
+ * glyph (a future `SHADE_RAMPS` addition `series.ts` alone controls) falls
+ * back to a plain 62.5% checkerboard rather than a crash.
+ */
+function sankeyRibbonTextureOn(glyph: string, absDotX: number, absDotY: number): boolean {
+  switch (glyph) {
+    case "█": return (absDotX + absDotY) % 6 !== 0; // dense, ~83%
+    case "▓": return (absDotX + absDotY) % 4 !== 3; // dense-medium, 75%
+    case "▒": return (absDotX + absDotY) % 2 === 1; // medium, 50%
+    case "░": return (absDotX + absDotY) % 3 === 0; // sparse, ~33%
+    case "▚": return (absDotX + absDotY) % 2 === 0; // checker, 50%
+    case "╱": return (((absDotX - absDotY) % 4) + 4) % 4 < 2; // diagonal stripe, 50%
+    case "▌": return absDotX % 2 === 0; // vertical stripe (left half), 50%
+    case "═": return absDotY % 2 === 0; // horizontal stripe, 50%
+    default: return (absDotX + absDotY) % 8 < 5; // unrecognised glyph — plain 62.5%.
+  }
+}
+
+/**
+ * Paints a`braille`/`blocks` ADJACENT (non-skip-level, non-folded) band as a
+ * genuine per-dot-column smooth ribbon — real sub-cell resolution instead of
+ * a staircase of whole-cell blocks (the owner's own "fill these with braille
+ * and create better shapes" ask). Bypasses `routedRows`'s own lane/free-row
+ * cells entirely: that routing's job — steering a band's vertical run around
+ * an intermediate node's own box — has no analogue here, because there IS no
+ * intermediate column for an adjacent band. A skip-level band keeps routing
+ * around the mid column instead (see `paintSankeyRoutedRowsFallback`), which
+ * this function is never called for (its caller checks `mids.length` first).
+ *
+ * `paintCell` is the SAME per-cell ownership closure `paintSankeyRoutedRows`
+ * builds — every write here goes through `canvas.text` exactly like the
+ * fallback path's border/corner/box cells, so occlusion, `textFiller`
+ * (a scaled node label's own reserved box) and the shared `claimedBy` set
+ * all apply uniformly with no separate guard to keep in sync.
+ */
+function paintSankeyRibbonSmooth(
+  paintCell: (x: number, y: number, glyph: string, color: string | null | undefined) => boolean,
+  rows: number,
+  tierName: GlyphCanvasTierName,
+  band: SankeyBand,
+  glyph: string,
+  color: string | null,
+  srcBox: SankeyNodeBox,
+  tgtBox: SankeyNodeBox,
+  ribbon: GlyphChartSankeyRibbon,
+): void {
+  const subGlyph = GLYPH_CANVAS_TIERS[tierName].subGlyph!;
+  const [sr0, sr1] = band.sourceRowRange;
+  const [tr0, tr1] = band.targetRowRange!;
+  const xSrcCell = srcBox.x1 + 1;
+  const xTgtCell = tgtBox.x0 - 1;
+  if (xTgtCell < xSrcCell) return;
+  const dotX0 = xSrcCell * 2;
+  const dotX1 = xTgtCell * 2 + 1;
+  const srcTopDot = sr0 * 4, srcBotDot = sr1 * 4 + 3;
+  const tgtTopDot = tr0 * 4, tgtBotDot = tr1 * 4 + 3;
+  const maxDotRow = rows * 4 - 1;
+
+  for (let x = xSrcCell; x <= xTgtCell; x++) {
+    const isBorderCol = x === xSrcCell || x === xTgtCell;
+    // A border CELL's own two dot columns must show the EXACT SAME
+    // [top, bottom] pair — one of them (`dotX === dotX0` at the source, or
+    // `dotX1` at the target) is already exact by construction, but the
+    // OTHER sits one dot short of it (`dotX0 + 1`/`dotX1 - 1`), which
+    // `sankeyRibbonEdgeAt` interpolates at `u` fractionally short of 0/1.
+    // Left un-forced, that near-but-not-exact half can round OUTSIDE this
+    // band's own [sr0,sr1]/[tr0,tr1] and cross into a NEIGHBOURING band's
+    // own (contiguous, no-gap) row range at the very column every band's
+    // border-touch conservation is measured at — forcing both halves to the
+    // SAME exact pair closes that off entirely rather than narrowing it.
+    const edgesByLocalCol: [number, number][] = isBorderCol
+      ? (x === xSrcCell ? [[srcTopDot, srcBotDot], [srcTopDot, srcBotDot]] : [[tgtTopDot, tgtBotDot], [tgtTopDot, tgtBotDot]])
+      : ([0, 1].map((localCol) => {
+          const dotX = x * 2 + localCol;
+          return [sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcTopDot, tgtTopDot), sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcBotDot, tgtBotDot)];
+        }) as [number, number][]);
+    const topMin = Math.min(edgesByLocalCol[0]![0], edgesByLocalCol[1]![0]);
+    const botMax = Math.max(edgesByLocalCol[0]![1], edgesByLocalCol[1]![1]);
+    const rowMin = Math.max(0, Math.floor(topMin / 4));
+    const rowMax = Math.min(rows - 1, Math.floor(botMax / 4));
+    for (let r = rowMin; r <= rowMax; r++) {
+      let mask = 0;
+      for (let localCol = 0; localCol < 2; localCol++) {
+        const [top, bot] = edgesByLocalCol[localCol]!;
+        const topD = Math.max(0, Math.min(maxDotRow, Math.round(top)));
+        const botD = Math.max(0, Math.min(maxDotRow, Math.round(bot)));
+        const midD = Math.max(0, Math.min(maxDotRow, Math.round((top + bot) / 2)));
+        for (let localRow = 0; localRow < 4; localRow++) {
+          const dotRow = r * 4 + localRow;
+          const inSpan = ribbon === "outline" ? (dotRow === topD || dotRow === botD || dotRow === midD) : (dotRow >= topD && dotRow <= botD);
+          if (!inSpan) continue;
+          // The EDGE dots themselves (`topD`/`botD`) always paint — texture
+          // only thins the FILL strictly between them — which is what keeps
+          // the top/bottom edge a clean, traceable line (the monotone-edge
+          // property) rather than noise wherever that column's own texture
+          // phase happens to land near the boundary.
+          const on = isBorderCol || ribbon === "outline" || dotRow === topD || dotRow === botD || sankeyRibbonTextureOn(glyph, x * 2 + localCol, dotRow);
+          if (on) mask |= 1 << sankeyDotBit(localCol, localRow);
+        }
+      }
+      if (mask === 0) continue;
+      paintCell(x, r, subGlyph(mask), color);
+    }
+  }
+}
+
 /**
  * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
  * routing contract — see `computeSankeyRoutedRows` for the routing itself.
@@ -914,10 +1133,10 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
  * review, batch 3, finding c). `edgeIdPrefix` is `computeSankeyRoutedRows`'
  * own namespace (see its doc).
  */
-export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = ""): void {
+export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
   const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, edgeIdPrefix);
   canvas.resolveJunctions();
-  paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy);
+  paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale);
 }
 
 /**
@@ -937,8 +1156,10 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
  * is the fix: register every mark's routes, resolve junctions once, THEN
  * repaint every mark from its own already-computed `routedRows`.
  */
-export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSankeyLayout, routedRows: readonly SankeyRoutedRow[], ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set()): void {
+export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSankeyLayout, routedRows: readonly SankeyRoutedRow[], ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
+  const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
+  const cols = sankeyColumnsByX0(nodeBoxes);
 
   // Repaint in the SAME registration order `resolveJunctions()` itself
   // broke ties by: the first band/row to reach a cell keeps it, every later
@@ -946,58 +1167,68 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
   // cells the two routes actually share, never its whole run. A cell
   // already claimed by an EARLIER SANKEY MARK (this render's shared
   // `claimedBy`) is refused the same way, before this mark's own
-  // within-mark priority rules ever see it.
-  //
-  // BORDER cells go FIRST, and unconditionally: a row's own first cell
-  // (adjacent to its source) and last cell (adjacent to its target) are
-  // structurally UNIQUE to that row — no other row of the same node can
-  // ever own them, since sourceRowRange/targetRowRange partition a node's
-  // box without overlap. What CAN reach that exact cell is a DIFFERENT
-  // band's own TRANSIT (its vertical run merely passing through, on its
-  // way to a lane further out — inevitable once two bands' ribbons sit on
-  // opposite sides of a shared border column). Claiming border cells first
-  // means a transit arriving later at that same cell is the one that finds
-  // it already owned and draws nothing there, never the other way round —
-  // the exact failure this ordering exists to close: a later ribbon's
-  // sweep toward its own lane erasing an earlier row's proof of reaching
-  // its own border.
-  const paintCell = (x: number, y: number, glyph: string, color: string | null | undefined): void => {
+  // within-mark priority rules ever see it. `canvas.text` is the ONE write
+  // path every cell in this function goes through (bands, node boxes,
+  // labels alike) — it is what makes occlusion and a scaled node label's
+  // own `textFiller` reservation apply uniformly with no separate guard.
+  const paintCell = (x: number, y: number, glyph: string, color: string | null | undefined): boolean => {
     const idx = y * canvas.cols + x;
-    if (claimedBy.has(idx)) return;
+    if (claimedBy.has(idx)) return false;
     claimedBy.add(idx);
     canvas.text(x, y, [glyph], { color: color ?? null });
+    return true;
   };
-  for (const { cells, glyph, color } of routedRows) {
-    paintCell(cells[0]!.x, cells[0]!.y, glyph, color);
-    const last = cells[cells.length - 1]!;
-    paintCell(last.x, last.y, glyph, color);
+
+  // Group by band (preserving registration order) so an ADJACENT
+  // `braille`/`blocks` band can be painted ONCE, as a smooth ribbon, while a
+  // FOLDED stub or a SKIP-LEVEL band (one whose route crosses an
+  // intermediate node's own column — `sankeyMidColumnBoxes`) still replays
+  // its own already-computed lane/free-row cells, which is what steers it
+  // around that intermediate box in the first place; a smooth curve has no
+  // such steering and would paint straight through it.
+  const rowsByBand = new Map<SankeyBand, SankeyRoutedRow[]>();
+  const bandOrder: SankeyBand[] = [];
+  for (const row of routedRows) {
+    let list = rowsByBand.get(row.band);
+    if (!list) { list = []; rowsByBand.set(row.band, list); bandOrder.push(row.band); }
+    list.push(row);
   }
-  for (const { cells, glyph, color } of routedRows) {
-    for (const p of cells) paintCell(p.x, p.y, glyph, color);
+  const fallbackRows: SankeyRoutedRow[] = [];
+  for (const band of bandOrder) {
+    const rows = rowsByBand.get(band)!;
+    const srcBox = nodeBoxes.get(band.source);
+    const tgtBox = band.targetRowRange ? nodeBoxes.get(band.target) : undefined;
+    const skipLevel = srcBox && tgtBox ? sankeyMidColumnBoxes(cols, srcBox, tgtBox).length > 0 : false;
+    if (!band.folded && tierTable.subcell && srcBox && tgtBox && !skipLevel) {
+      const { glyph, color } = rows[0]!;
+      paintSankeyRibbonSmooth(paintCell, canvas.rows, canvas.tier, band, glyph, color, srcBox, tgtBox, ribbon);
+    } else {
+      fallbackRows.push(...rows);
+    }
   }
+  paintSankeyRoutedRowsFallback(canvas, fallbackRows, paintCell, ribbon);
 
   // `sankey-band-broken` (finding k/j): border cells and node conservation
   // stay exact, but a band's own run can still be split into disconnected
   // pieces by another band's genuine crossing (measured up to 22 cells on
   // the energy dataset at 140x40, with no ledger entry when the gap is
-  // narrower than a `sankey-crossings-merged` fold). Detecting it needs
-  // OWNERSHIP BY THIS MARK'S OWN ROWS, not the cross-mark `claimedBy`
-  // (whose values are `1`, with no band identity) — so this replays the
-  // SAME border-first-then-full-walk registration order locally, over
-  // `routedRows` alone, exactly like the painter's own two passes above.
+  // narrower than a `sankey-crossings-merged` fold). This is a property of
+  // the FALLBACK path's own routed cells only — a smooth ribbon's own
+  // painted span is contiguous by construction (a per-dot-column sweep with
+  // no lane/free-row detour), so only `fallbackRows` are walked here.
   const ownerRowIdx = new Map<number, number>();
   const claimLocal = (x: number, y: number, rowIndex: number): void => {
     const idx = y * canvas.cols + x;
     if (!ownerRowIdx.has(idx)) ownerRowIdx.set(idx, rowIndex);
   };
-  routedRows.forEach(({ cells }, i) => {
+  fallbackRows.forEach(({ cells }, i) => {
     claimLocal(cells[0]!.x, cells[0]!.y, i);
     const last = cells[cells.length - 1]!;
     claimLocal(last.x, last.y, i);
   });
-  routedRows.forEach(({ cells }, i) => { for (const p of cells) claimLocal(p.x, p.y, i); });
+  fallbackRows.forEach(({ cells }, i) => { for (const p of cells) claimLocal(p.x, p.y, i); });
   const longestGapByBand = new Map<SankeyBand, number>();
-  routedRows.forEach(({ band, cells }, i) => {
+  fallbackRows.forEach(({ band, cells }, i) => {
     let longestGap = 0;
     let curGap = 0;
     for (let ci = 1; ci < cells.length - 1; ci++) {
@@ -1011,6 +1242,128 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     if (cells > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells }));
   }
 
+  paintSankeyNodeBoxes(canvas, layout, ledger, paintCell, claimedBy, textScale);
+}
+
+/**
+ * The ORIGINAL lane/free-row cell path, unchanged in its OWNERSHIP order
+ * (border cells across every fallback band first, then every full run —
+ * EVERY cell in a band's own route is still painted exactly once in
+ * `"filled"` mode, never silently skipped, which is what keeps this path's
+ * existing zero-overwrite/border-touch/conflict gates exactly as they were)
+ * — only the GLYPH each cell paints changed, from one flat
+ * `seriesShade`-family glyph everywhere to a shape-aware one: `ascii`/`box`
+ * draw a rounded corner glyph at a turn, and — on a STRAIGHT run — the
+ * series' own glyph UNLESS it's the fully-solid one (`█`/`#`, the one shape
+ * in the family with no ink gaps of its own), which steps to the tier's own
+ * next-lighter `shadeRamp` neighbour instead (`▓`/`+`) so "less filled"
+ * never depends on a cell going unpainted; every other shape glyph (`░ ▚ ╱
+ * ▌ ═ ▓ ▒` / `. = / @ : | -`) is already non-solid ink and needs no
+ * substitute. A `braille`/`blocks` SKIP-LEVEL/folded band gets the sub-cell
+ * analogue (a rounded quadrant mask at a turn, a texture at a straight run)
+ * instead of a flat `subGlyph(0xff)` block.
+ *
+ * `ribbon: "outline"` thins every straight-run cell in EITHER charset
+ * family down to a single blank (never painted) — only border and corner
+ * cells still show ink, which is what keeps an outline band reading as two
+ * edges rather than a filled slab. A literal blank ROW GAP between two
+ * merely-ADJACENT (never overlapping) bands was tried and reverted: it
+ * left a band's own uncontested cell unpainted with no OTHER band's route
+ * claiming it, which is indistinguishable, to this module's own
+ * zero-silent-overwrite gate, from a genuine loss — see
+ * `docs/design/charts.md`'s "Sankey ribbon rendering" for the measurement.
+ */
+const SANKEY_LIGHTER_STRAIGHT_GLYPH: Readonly<Record<string, string>> = { "█": "▓", "#": "+" };
+function paintSankeyRoutedRowsFallback(
+  canvas: GlyphCanvas,
+  fallbackRows: readonly SankeyRoutedRow[],
+  paintCell: (x: number, y: number, glyph: string, color: string | null | undefined) => boolean,
+  ribbon: GlyphChartSankeyRibbon,
+): void {
+  const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
+  const ascii = canvas.tier === "ascii";
+  const paintTracked = (row: SankeyRoutedRow, x: number, y: number, glyph: string): void => {
+    paintCell(x, y, glyph, row.color);
+  };
+
+  // BORDER cells go FIRST, across every band, and unconditionally — see the
+  // original implementation's own doc (kept here in spirit): a row's first
+  // cell (touching its source) and last cell (touching its target) are
+  // structurally unique to that row, and claiming them ahead of every
+  // band's full run is what stops a later band's transit from stealing an
+  // earlier band's own border before that border is ever reached in path
+  // order.
+  const rowGlyphAt = (row: SankeyRoutedRow, ci: number): string | null => {
+    const { cells, glyph } = row;
+    const isBorder = ci === 0 || ci === cells.length - 1;
+    const prev = ci > 0 ? sankeyDirOf(cells[ci - 1]!, cells[ci]!) : null;
+    const next = ci < cells.length - 1 ? sankeyDirOf(cells[ci]!, cells[ci + 1]!) : null;
+    const isCorner = prev !== null && next !== null && prev !== next;
+    if (tierTable.subcell) {
+      const subGlyph = tierTable.subGlyph!;
+      if (isBorder) return subGlyph(SANKEY_FULL_SUB_MASK);
+      if (isCorner) {
+        const q = sankeyCornerMissingQuadrant(prev!, next!);
+        return subGlyph(q === null ? SANKEY_FULL_SUB_MASK : sankeySubMaskExcludingQuadrant(q));
+      }
+      if (ribbon === "outline") return null;
+      let mask = 0;
+      for (let lc = 0; lc < 2; lc++) for (let lr = 0; lr < 4; lr++) {
+        if (sankeyRibbonTextureOn(glyph, cells[ci]!.x * 2 + lc, cells[ci]!.y * 4 + lr)) mask |= 1 << sankeyDotBit(lc, lr);
+      }
+      return subGlyph(mask);
+    }
+    if (isBorder) return glyph;
+    if (isCorner) {
+      const g = sankeyBoxCornerGlyph(prev!, next!, ascii);
+      if (g) return g;
+    }
+    if (ribbon === "outline") return null;
+    return SANKEY_LIGHTER_STRAIGHT_GLYPH[glyph] ?? glyph;
+  };
+
+  for (const row of fallbackRows) {
+    const g0 = rowGlyphAt(row, 0);
+    if (g0) paintTracked(row, row.cells[0]!.x, row.cells[0]!.y, g0);
+    const lastIdx = row.cells.length - 1;
+    const gLast = rowGlyphAt(row, lastIdx);
+    if (gLast) paintTracked(row, row.cells[lastIdx]!.x, row.cells[lastIdx]!.y, gLast);
+  }
+  for (const row of fallbackRows) {
+    for (let ci = 0; ci < row.cells.length; ci++) {
+      const p = row.cells[ci]!;
+      const g = rowGlyphAt(row, ci);
+      if (g) paintTracked(row, p.x, p.y, g);
+    }
+  }
+}
+
+/**
+ * Node boxes and their labels — unchanged in shape (border, interior blank,
+ * centred label) from the original implementation, except the label now
+ * honours `textScale` (the coordinator's own "sankey node labels... must
+ * honour textScale" note): at `textScale > 1` the label is abbreviated to
+ * fit its SCALED footprint (`inner / textScale` glyphs, never `inner`) and
+ * painted through `canvas.text(..., { scale: textScale })` directly, so its
+ * own `s`x`s` boxes reserve `textFiller` exactly like an axis label's do —
+ * every band-painting path above already refuses a `textFiller` cell via
+ * the SAME `canvas.text` call every cell in this module goes through, so a
+ * scaled label reserved BEFORE a band reaches that column is automatically
+ * respected with no extra check. Labels are painted last (after every
+ * band), matching the original order, but a node's own box occupies ONLY
+ * its own node column — a band's ribbon never reaches into it — so a
+ * scaled label can never lose ground it already reserved to a band painted
+ * earlier, or gain ground into a cell a NEIGHBOURING mark's box already
+ * claims (still checked via `claimedBy` before the reservation is made).
+ */
+function paintSankeyNodeBoxes(
+  canvas: GlyphCanvas,
+  layout: GlyphChartSankeyLayout,
+  ledger: GlyphChartLedgerEntry[],
+  paintCell: (x: number, y: number, glyph: string, color: string | null | undefined) => boolean,
+  claimedBy: Set<number>,
+  textScale: number,
+): void {
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const { n: N, e: E, s: S, w: W } = GLYPH_CANVAS_DIRECTION_BITS;
   const hLine = tier.straight.h;
@@ -1019,18 +1372,13 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
   const cornerTR = tier.junction[S | W]!;
   const cornerBL = tier.junction[N | E]!;
   const cornerBR = tier.junction[N | W]!;
-  // Node boxes go through the SAME per-cell `paintCell` claim as bands
-  // (never a bulk `canvas.text(x, y, [wholeLine])`) so a cell another
-  // sankey mark already claimed — a band's ribbon OR another mark's own
-  // box — keeps what it has instead of one mark's border/label silently
-  // erasing it. `paintRun` claims every cell it touches (real content:
-  // corners, border lines, the label); `fillRun` is the interior BLANK
-  // padding alone — it refuses to overwrite a cell another mark already
-  // claimed (so a foreign box/band shows through a box's own empty
-  // interior) but does NOT itself claim a cell, because the label text
-  // painted moments later, in the SAME mark's own call, lands on exactly
-  // those interior cells and must not find them already "claimed" by its
-  // own box's blank filler.
+  // `paintRun` claims every cell it touches (real content: corners, border
+  // lines, the label); `fillRun` is the interior BLANK padding alone — it
+  // refuses to overwrite a cell another mark already claimed (so a foreign
+  // box/band shows through a box's own empty interior) but does NOT itself
+  // claim a cell, because the label text painted moments later, in the SAME
+  // mark's own call, lands on exactly those interior cells and must not
+  // find them already "claimed" by its own box's blank filler.
   const paintRun = (x0: number, y: number, run: string): void => {
     for (let i = 0; i < run.length; i++) paintCell(x0 + i, y, run[i]!, null);
   };
@@ -1041,12 +1389,12 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
       canvas.text(x, y, [run[i]!], { color: null });
     }
   };
-  for (const box of nodeBoxes.values()) {
+  for (const box of layout.nodes) {
     if (box.height <= 0) continue;
     const width = box.x1 - box.x0 + 1;
     if (width < 2) continue;
     const inner = Math.max(1, width - 2);
-    const { text } = abbreviateChartText(box.id, inner, canvas.tier);
+    const { text } = abbreviateChartText(box.id, Math.max(1, Math.floor(inner / textScale)), canvas.tier);
     if (box.y0 === box.y1) {
       const line = width >= 3 ? `${cornerTL}${text.padEnd(inner)}${cornerTR}` : text.padEnd(width);
       paintRun(box.x0, box.y0, line.slice(0, width));
@@ -1069,17 +1417,46 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
       continue;
     }
     const midRow = Math.floor((box.y0 + box.y1) / 2);
-    const pad = Math.max(0, Math.floor((inner - text.length) / 2));
-    paintRun(box.x0 + 1 + pad, midRow, text);
+    if (textScale <= 1) {
+      const pad = Math.max(0, Math.floor((inner - text.length) / 2));
+      paintRun(box.x0 + 1 + pad, midRow, text);
+      continue;
+    }
+    // A scaled label's footprint is `text.length * textScale` columns —
+    // reject (fall back to the label-dropped ledger entry, never a
+    // silently truncated/overflowing box) rather than paint outside the
+    // box or into a cell `claimedBy` already owns.
+    const footprint = text.length * textScale;
+    const padScaled = Math.max(0, Math.floor((inner - footprint) / 2));
+    const labelX = box.x0 + 1 + padScaled;
+    let fits = footprint <= inner;
+    const cellsNeeded: number[] = [];
+    if (fits) {
+      for (let gx = 0; gx < text.length; gx++) {
+        for (let dy = 0; dy < textScale; dy++) for (let dx = 0; dx < textScale; dx++) {
+          const cx = labelX + gx * textScale + dx;
+          const cy = midRow + dy;
+          if (cx > box.x1 - 1 || cy > box.y1 - 1) { fits = false; break; }
+          cellsNeeded.push(cy * canvas.cols + cx);
+        }
+        if (!fits) break;
+      }
+    }
+    if (fits && !cellsNeeded.some((idx) => claimedBy.has(idx))) {
+      for (const idx of cellsNeeded) claimedBy.add(idx);
+      canvas.text(labelX, midRow, [text], { color: null, scale: textScale });
+    } else {
+      ledger.push(ledgerLabelDropped({ role: "sankey node label", text: box.id, reason: "the node's box is too small for the label at the current textScale" }));
+    }
   }
 }
 
 /** `paint.ts`'s own call site for a SINGLE sankey mark — lays out then paints
  * in one step, `resolveJunctions()` included. For more than one sankey mark
  * in a render, use `paintSankeyMarks` instead (see its own doc for why). */
-export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = ""): void {
+export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
   const layout = layoutSankeyGraph(groups, plot, canvas.tier, ledger);
-  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix);
+  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix, ribbon, textScale);
 }
 
 /**
@@ -1096,18 +1473,18 @@ export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
  * calling `paintSankeyMark` directly (one iteration, one registration
  * batch, one `resolveJunctions()` call — indistinguishable from today's).
  */
-export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[] }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
-  const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }[] = [];
+export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
+  const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[]; readonly ribbon: GlyphChartSankeyRibbon }[] = [];
   for (let i = 0; i < entries.length; i++) {
     const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger);
     if (!layout) continue;
     const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`);
-    registered.push({ layout, routedRows });
+    registered.push({ layout, routedRows, ribbon: entries[i]!.ribbon ?? "filled" });
   }
   if (registered.length === 0) return;
   canvas.resolveJunctions();
   const claimedBy = new Set<number>();
-  for (const { layout, routedRows } of registered) paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy);
+  for (const { layout, routedRows, ribbon } of registered) paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale);
 }
 
 // ── funnel ───────────────────────────────────────────────────────────────
@@ -1137,7 +1514,7 @@ function formatFunnelValueCandidates(v: number): readonly string[] {
  * moved). Stage identity is by ROW, not name (`series.ts`'s `chartSeries`
  * keys a funnel by index) — two stages sharing a label are still two rows.
  */
-export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   const rawStages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (rawStages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
@@ -1225,10 +1602,14 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     }
 
     // Stage label: left of the bars, right-aligned in the label column.
-    const stageMax = Math.max(1, labelGutter - 1);
+    // `textScale` shrinks the CHARACTER budget (never the gutter) so the
+    // label's own SCALED footprint (`stageText.length * textScale`) still
+    // fits inside it — byte-identical to before `textScale` existed at its
+    // default `1`.
+    const stageMax = Math.max(1, Math.floor((labelGutter - 1) / textScale));
     const { text: stageText } = abbreviateChartText(stage.name, stageMax, canvas.tier);
-    const stageX = Math.max(plot.x0, plot.x0 + labelGutter - 1 - stageText.length);
-    canvas.text(stageX, midRow, [stageText]);
+    const stageX = Math.max(plot.x0, plot.x0 + labelGutter - 1 - stageText.length * textScale);
+    canvas.text(stageX, midRow, [stageText], { scale: textScale });
 
     // Value·percent label: right of the bars. `dot` is built by hand (`x`
     // on `ascii`, since that tier has no middle dot) rather than going
@@ -1240,7 +1621,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     // SI-abbreviated) WITH the percent suffix first, then without it, and
     // drop (never truncate a number) only when nothing fits.
     const pctSuffix = hasValidReference ? ` ${canvas.tier === "ascii" ? "x" : "·"} ${((stage.value / referenceValue) * 100).toFixed(0)}%` : "";
-    const valueMax = Math.max(1, labelGutter - 1);
+    const valueMax = Math.max(1, Math.floor((labelGutter - 1) / textScale));
     const candidates = formatFunnelValueCandidates(stage.value).map((v) => chartText(v, canvas.tier));
     let valueText = "";
     for (const v of candidates) {
@@ -1248,7 +1629,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
       if (withPct.length <= valueMax) { valueText = withPct; break; }
     }
     if (!valueText) for (const v of candidates) if (v.length <= valueMax) { valueText = v; break; }
-    if (valueText) canvas.text(Math.min(plot.x1, plot.x1 - labelGutter + 2), midRow, [valueText]);
+    if (valueText) canvas.text(Math.min(plot.x1, plot.x1 - labelGutter + 2), midRow, [valueText], { scale: textScale });
     else ledger.push(ledgerLabelDropped({ role: "funnel value label", text: candidates[0] ?? String(stage.value), reason: "it doesn't fit even after SI abbreviation" }));
   }
 }

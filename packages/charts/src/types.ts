@@ -90,6 +90,15 @@ export interface GlyphChartMarkOptions {
    * `bad-stroke-width`.
    */
   readonly strokeWidth?: 1 | 2 | 3;
+  /**
+   * `sankey`: how much of a band's own region gets painted, AGENTS.md's
+   * "Charts" sankey clause. `"filled"` (default, byte-identical to before
+   * this option existed) paints the whole ribbon; `"outline"` paints only
+   * its two edges plus a thin centre stroke — the "should be less filled"
+   * ask, for a reader who wants the shape without the ink. No effect on
+   * any other mark type. Any other value rejects with `bad-options`.
+   */
+  readonly ribbon?: "filled" | "outline";
 }
 
 export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";

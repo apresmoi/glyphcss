@@ -164,12 +164,13 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   }
   if (mark.options !== undefined) {
     const o = mark.options;
-    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels", "strokeWidth"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, labels, and strokeWidth are supported options; size/shape/curve are not supported.");
+    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels", "strokeWidth", "ribbon"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, labels, strokeWidth, and ribbon are supported options; size/shape/curve are not supported.");
     if (o.innerRadius !== undefined && (typeof o.innerRadius !== "number" || !Number.isFinite(o.innerRadius) || o.innerRadius < 0 || o.innerRadius >= 1)) chartError("invalid-inner-radius", "innerRadius must be in [0, 1).");
     if (o.axis !== undefined && o.axis !== "x" && o.axis !== "y") chartError("invalid-rule-axis", "axis must be x or y.");
     if (o.color !== undefined) validateMarkColor(o.color);
     if (o.labels !== undefined && o.labels !== "callout" && o.labels !== "legend-only") chartError("bad-options", "labels must be callout or legend-only.");
     if (o.strokeWidth !== undefined && o.strokeWidth !== 1 && o.strokeWidth !== 2 && o.strokeWidth !== 3) chartError("bad-stroke-width", `strokeWidth must be 1, 2, or 3, got ${JSON.stringify(o.strokeWidth)}.`);
+    if (o.ribbon !== undefined && o.ribbon !== "filled" && o.ribbon !== "outline") chartError("bad-options", "ribbon must be filled or outline.");
   }
 }
 

@@ -576,3 +576,90 @@ Round 18 shipped `textScale` for the chrome that round's own files touched (titl
 **What still doesn't scale.** A line-style legend swatch (`canvas.line`, the fallback for a mark type with no glyph swatch) has no `textScale` analogue and stays one row on the bottom, title, AND corner placements alike — unchanged from Round 18. Sankey/funnel node/stage labels (`flowMarks.ts`) are the one remaining gap.
 
 **Labels dropped at `textScale: 2` that survive at `1`, 96×32 web.** Arc callouts: a pie needs enough slices to clear BOTH the 8° minimum-angle floor (so a slice grows a callout candidate at all) AND the row budget per side — swept 8 to 60 equal slices, only 32–40 slices produce any scale-driven drop (fewer slices fit trivially at either scale; 48+ slices are mostly BELOW the 8° floor, so most of them never become a callout candidate in the first place, at either scale). At 32 equal slices: 0 dropped at `textScale: 1`, 4 dropped at `textScale: 2` (`"14 · 3%"`, `"15 · 3%"`, `"16 · 3%"`, `"17 · 3%"` — a contiguous run on one side, the row-pushing loop's own last entries to run out of room). At 40 equal slices: 0 at `1`, 12 at `2`. Corner legend (`top-left`, N named `line` series): 0 dropped at `textScale: 1` up to 20 series; at `textScale: 2`, 16 series drops 2 and 20 series drops 6 (`legend-dropped`'s own `series` count) — the row band doubling in height directly halves how many entries the same plot height can seat.
+
+## Sankey ribbon rendering
+
+The owner's own report: "the categories and the links are not perfect, not well aligned visually; between two categories we have a space and we fill that space with the link, and probably that should be less filled; maybe fill these with braille and create better shapes instead of using blocks." Verified before starting: `braille` output was byte-identical to `box` (the painter wrote one whole-cell `seriesShade` glyph per routed cell, on every tier, with no sub-cell path at all); bands were edge-to-edge solid slabs; tapers were literal whole-cell staircases (each of a band's `k` rows gets its own lane column, offset by row index, from the EXISTING routing — smoothing THAT staircase, not replacing it, is this packet's whole shape story).
+
+**What stayed untouched.** `layoutSankeyGraph`, `computeSankeyRoutedRows`, `assignSankeyLanes`, the fold/conservation/route-conflict machinery — every row-quantity, border-touch, zero-overwrite and conflict-priority guarantee AGENTS.md's "Sankey and funnel" paragraph describes is exactly as it was. This packet only changed what a routed cell (or, for `braille`/`blocks`, a continuous per-dot-column span) gets PAINTED as.
+
+### Two rendering paths, chosen per band, never per tier alone
+
+`paintSankeyRoutedRows` groups `routedRows` by band and asks two questions: is the tier `subcell` (`braille`/`blocks`), and does this band's route cross an intermediate node's own column (`sankeyMidColumnBoxes(...).length > 0` — a SKIP-LEVEL band) or is it a folded stub? A band that is BOTH subcell-tier AND adjacent (no mid columns, not folded) gets the SMOOTH path (`paintSankeyRibbonSmooth`); every other combination — `ascii`/`box` regardless of shape, or a skip-level/folded band even on `braille`/`blocks` — gets the FALLBACK path (`paintSankeyRoutedRowsFallback`), which still walks the ORIGINAL lane/free-row cells `computeSankeyRoutedRows` built (that routing's whole job is steering around an intermediate node's box, or terminating a fold stub near its own source — a continuous curve has no equivalent steering and would paint straight through a box in its way).
+
+### The smooth path: a per-dot-column S-curve, not a per-cell block
+
+For an adjacent band, `paintSankeyRibbonSmooth` bypasses the routed cells entirely and sweeps every dot column between `srcBox.x1+1` and `tgtBox.x0-1`. At absolute dot-column `dotX`, the top and bottom edges are `edgeAt(dotX) = y0 + (y1-y0) * smoothstep((dotX-dotX0)/(dotX1-dotX0))`, `smoothstep(t) = t²(3-2t)` — a horizontal tangent at `t=0` and `t=1`, the same curve family `d3-sankey`'s own `sankeyLinkHorizontal` draws, evaluated independently for the top edge (between `sr0*4` and `tr0*4`, in DOT rows) and the bottom edge (between `sr1*4+3` and `tr1*4+3`). Monotonic in `t` by construction, which is the whole basis for the monotone-edge guarantee below.
+
+**Exact at both borders, by construction and by an extra fix.** At `dotX === dotX0` (the first dot column of the gap) `smoothstep` clamps to `0`, so the edge is EXACTLY `sr0*4`/`sr1*4+3` — no float noise. The complication: a border CELL has TWO dot columns, and only ONE of them sits exactly at `dotX0`/`dotX1` — the other is one dot short, where `smoothstep` returns something fractionally off `0`/`1`. Left alone, that near-but-not-exact half can round to a dot row OUTSIDE the band's own `[sr0,sr1]` and into a NEIGHBOURING band's own (contiguous, no-gap-by-design) row range — at the exact column every border-touch gate reads. Measured: this broke gate (a) on the energy dataset at 40×24/braille with a concrete, reproduced colour mismatch (`Renewables->Electricity Generation` row 16: expected `#ef4444`, got `#22c55e` — a different band's colour). The fix forces BOTH of a border cell's dot columns to the identical exact `[top, bottom]` pair rather than narrowing the interpolation; mutation-checked by reverting the fix (see "Mutation checks" below) — every downstream gate that reads a border cell's colour (gate (a), and by extension (b)/(c)/(d) and the two-sankey-marks isolation test, which independently regressed the same way under the same mutation) goes red without it.
+
+**The edge itself is always solid; texture fills strictly between the edges.** The FIRST cut applied texture (below) unconditionally across the whole dot-row span, including the boundary dots themselves — which let a sparse series' texture phase land OFF at the exact edge, making the "topmost painted dot" jump by more than one dot between adjacent columns on a sparse series (`╱`, ~50% density) even though the underlying curve moves smoothly. Forcing `dotRow === topD || dotRow === botD` to always paint, texture or not, closes it — this is what makes the top/bottom edge read as a clean, traceable line (the "compute the edge, then fill between them" framing) rather than noise wherever a column's own texture phase happens to sit near the boundary.
+
+### Texture, keyed on the SAME glyph the legend already shows
+
+The reduced-density fill between the two edges is `sankeyRibbonTextureOn(glyph, absDotX, absDotY)`, where `glyph` is `seriesShade(tier, index, total)` — the EXACT string `paint.ts`'s legend swatch already paints for this series (unchanged wiring; no new call site). Eight glyphs, eight density families: `█` ~83% dense checker, `▓` 75% dense-medium checker, `▒` 50% medium checker (phase 1), `░` ~33% sparse checker, `▚` 50% checker (phase 0), `╱` 50% diagonal stripe, `▌` 50% vertical stripe (left half), `═` 50% horizontal stripe.
+
+Several share a density (`▒`/`▚`/`╱`/`▌`/`═` are all ~50%) but differ as PATTERNS — a position-by-position comparison (not an aggregate density count) is what the "4 distinct textures" test actually asserts, because an aggregate density comparison is blind to exactly this case (measured: it first failed comparing `▚` against `╱` at identical 0.5737 density before the test was rewritten to compare sampled on/off VECTORS at the same relative dot positions instead). Anchored on GLOBAL dot coordinates (`absDotX`/`absDotY`, cell-independent), so a pattern reads as one continuous texture across a multi-cell run instead of restarting inside every cell.
+
+### The fallback path: rounded corners, a lighter interior, `ribbon: "outline"`
+
+`paintSankeyRoutedRowsFallback` walks the SAME cells `computeSankeyRoutedRows` always produced, classifying each cell by its own neighbours in the route (`sankeyDirOf` on the previous/next point): a BORDER cell (first/last of the row) stays full — always the tier's own solid mask or the series' own full glyph, never textured or lightened, since border-touch conservation is measured there. A CORNER cell (incoming direction ≠ outgoing direction) gets a rounded glyph instead of the tier's own sharp box-junction character: `braille`/`blocks` get a quadrant-mask missing the ONE quadrant outside the turn's own arc (derived from the direction pair — `e>s` misses top-left, `n>e` misses top-left, etc., the four combinations this routing's own x-monotonic construction ever produces); `box` gets `╭ ╮ ╰ ╯`; `ascii` gets `/`/`\` (the only two diagonal glyphs either charset owns). A STRAIGHT interior cell (not border, not corner) gets, on `braille`/`blocks`, the same per-dot texture the smooth path uses; on `ascii`/`box`, the series' own glyph UNCHANGED — except when that glyph is the one shape with no ink gaps of its own (`█`/`#`), which steps to the tier's own next-lighter neighbour (`▓`/`+`, `SANKEY_LIGHTER_STRAIGHT_GLYPH`) so "less filled" never depends on a cell going unpainted. Every classified cell is still painted EXACTLY ONCE in `"filled"` mode — this is the load-bearing constraint that keeps the pre-existing zero-overwrite/border-touch/conflict-priority gates (gate (b)/(c)/(d), the two-sankey-marks isolation test) exactly as they were; see "A tried-and-reverted air gap" below for what this constraint ruled out.
+
+`options.ribbon: "filled" | "outline"` (default `"filled"`, plumbed through `types.ts`/`validate.ts`/`schema.ts` like `strokeWidth`) is a per-mark option: `"outline"` paints only the border/corner cells plus, on `braille`/`blocks`, a thin one-dot centre stroke per dot column (`topD`/`botD`/`midD` only) — every interior straight cell in EITHER tier family goes unpainted. Measured on a 4-band README-scale sankey at 96×32/braille: filled paints substantially more braille dots than outline across the whole render; the outline mode's own test asserts the ratio stays at or under 30%.
+
+### A tried-and-reverted air gap
+
+The owner's own ask included "one row of air... between adjacent bands that don't touch at the node." The first implementation tracked, per painted cell, WHICH band painted it (`ownerBand`, separate from the cross-mark `claimedBy` set, which carries no band identity), and skipped painting a straight interior cell whenever its immediate vertical neighbour was already owned by a DIFFERENT band — leaving one row of literal blank space between two merely-adjacent (never-overlapping) bands. This broke gate (b)/(c) ("painting each band's OWN routed cells alone accounts for exactly what the combined render shows, EXCEPT at cells another band's own route genuinely also claims") and gate (d) and the two-sankey-marks isolation test: the gap left a cell IN one band's own `routedRows` footprint unpainted with NO other band's `routedRows` claiming it — indistinguishable, to a test built on "every loss must be explained by contestation," from a genuine silent loss. Disabling the air-gap check and re-running confirmed it was the sole cause (all previously-red gates passed immediately). Given the task's own explicit instruction that `flowMarks.test.ts`'s existing gates — "border contact per row, quantity exact at both borders, ZERO OVERWRITES, fold fixed point, conservation over the seeded DAG sweep" — must still pass, the air gap was removed rather than weakening those gates to admit it. "Less filled" is still delivered — via the lighter-glyph substitution, the reduced-density texture, and the `outline` option — just not as a literal blank row between adjacent bands. This is a documented impasse, not a silent gap: the property conflicts with a higher-priority, explicitly protected one, and the higher-priority one won.
+
+### Node/stage labels and `textScale`
+
+`paintSankeyNodeBoxes`'s label paint, at `textScale > 1`, abbreviates to fit the SCALED footprint (`floor(inner / textScale)` glyphs, never `inner`) and paints through `canvas.text(..., { scale: textScale })` directly — the same mechanism an axis tick label uses — after checking the scaled box's own cells (origin + filler) against `claimedBy`; a box too small for its label at the current scale falls back to `label-dropped` (the SAME ledger entry the too-short-box case already used) rather than overflowing into a neighbour's column or a band's own gap. Funnel's stage/value labels take the identical treatment in `paintFunnelMark` — the abbreviation budget divides by `textScale`, and both `canvas.text` calls forward `{ scale: textScale }`. This closes the gap this same design note's own "textScale" section named: "Sankey/funnel node/stage labels... live in `flowMarks.ts`, outside every round that has touched `textScale` so far."
+
+### Mutation checks
+
+- **The border-exactness fix** (see above): reverting it to let both of a border cell's dot columns interpolate independently reddens gate (a) with a real colour mismatch — verified by literally disabling the fix, confirming the exact failure, then restoring it and confirming green again.
+- **The monotone-edge test's own sensitivity**: a companion test re-derives the SAME edge formula but applies texture UNCONDITIONALLY (the pre-fix shape, texture reaching the boundary dot too) and asserts the resulting "topmost dot per column" sequence contains a jump greater than 1 dot somewhere — confirming the real monotone-edge test is actually exercising the always-on-edge fix, not passing vacuously.
+
+### Renders
+
+README's own 4-node example (Coal/Gas → Power → Homes/Industry), chat 72×24/`box` — BEFORE (flat, undifferentiated slabs, the reported defect) and AFTER (rounded corners on the diagonal Gas→Power band, a lighter `▓` interior on the straight Coal→Power band). BEFORE:
+
+    ┌────────┐██████████┌────────┐▒▒▒▒▒▒▒▒▒▒┌────────┐
+    │        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+    │  Coal  │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+    │        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+    │        │██████████│        │▒▒▒▒▒▒▒▒▒▒│ Homes  │
+    └────────┘██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
+              ░░░░░░░░░░│ Power  │▒▒▒▒▒▒▒▒▒▒│        │
+    ┌────────┐░░░░░░░░░░│        │▒▒▒▒▒▒▒▒▒▒│        │
+    │        │░░░░░░░░░░│        │▒▒▒▒▒▒▒▒▒▒│        │
+    │        │░░░░░░░░░░│        │▒▒▒▒▒▒▒▒▒▒└────────┘
+    │  Gas   │░░░░░░░░░░│        │▒
+    │        │░░░░░░░░░░│        │▒▒▒▒▒▒▒▒▒▒┌────────┐
+    │        │░░░░░░░░░░│        │▒▒▒▒▒▒▒▒▒▒│Industry│
+    │        │░░░░░░░░░░└────────┘▒▒▒▒▒▒▒▒▒▒│        │
+    └────────┘░░░░░░░░               ▒▒▒▒▒▒▒└────────┘
+       █  Coal          ░  Gas         ▒  Power
+
+AFTER:
+
+    ┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐
+    │        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+    │  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+    │        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+    │        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │
+    └────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+              ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │
+    ┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
+    │        │░╯╭░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
+    │        │░░╯╭░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘
+    │  Gas   │░░░╯╭░░░░░│        │▚
+    │        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐
+    │        │░░░░░╯╭░░░│        │▚╰▚▚▚▚▚▚▚▚│Industry│
+    │        │░░░░░░╯╭░░└────────┘▚▚╰▚▚▚▚▚▚▚│        │
+    └────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘
+       █  Coal          ░  Gas         ▚  Power
+
+(the shade family itself, `█ ░ ▚` vs. the old `█ ░ ▒`, is a DIFFERENT, already-landed packet — `series.ts`'s pie-contrast shape-family fix — shown here only because the fixture predates it; the corner/lighter-fill change is this packet's own.)
+
+The energy dataset (`ENERGY_FLOW_SANKEY_DATA`, 4 sources → Electricity Generation → 4 sinks, one skip-level Natural Gas→Industrial band) at both requested sizes — web 96×32/`braille` (the smooth per-dot-column path, texture visibly distinct per source) and chat 72×24/`box` (the fallback path, rounded corners on the diagonal bands, `▓`-lightened Coal→Electricity Generation interior) — is in the session report this design note accompanies.
