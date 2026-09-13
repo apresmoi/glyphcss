@@ -502,7 +502,16 @@
   border: 1px solid rgba(255, 232, 184, 0.18); border-left-width: 0; cursor: pointer;
 }
 .gx-toggle-btn:first-child { border-left-width: 1px; }
-.gx-toggle-btn:hover:not(.is-active) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
+.gx-toggle-btn:hover:not(.is-active):not(:disabled) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
+/* A disabled option must READ as unavailable, not merely ignore clicks: it
+   was byte-for-byte the idle style, so a greyed-out chart type on /charts
+   looked clickable and silently did nothing. Dimmed ink, a darker ground,
+   no hover lift and a not-allowed cursor; its reason stays on `title`. */
+.gx-toggle-btn:disabled {
+  color: rgba(255, 232, 184, 0.18);
+  background: #090c11;
+  cursor: not-allowed;
+}
 /* box-shadow (not border-color) draws the active ring: border-left-width is 0 on
    every button but the first (adjacent buttons share an edge), so a border-color
    change alone paints cyan on 3 sides and leaves the neighbour's default-colored

@@ -197,7 +197,6 @@ export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, d
         <span className="voice-title">Mark {index + 1}</span>
       </div>
       <div className="voice-row charts-mark-row" data-row="type">
-        <span>Type</span>
         <IconToggle groupTitle={`Mark ${index + 1} type`} options={typeOptions} value={mark.type}
           onChange={(type) => dispatch({ type: "set-mark-type", id: mark.id, markType: type as GlyphChartMarkType })} />
       </div>

@@ -4,6 +4,13 @@
 .charts-mark-row { align-items: center; font-size: 11px; }
 .charts-mark-row > span:first-child { flex: 0 0 70px; }
 .charts-mark-row > .gx-toggle { flex: 1; }
+/* The mark-type row has no text label: the eleven chart icons ARE the row
+   and span the card's full width (the group keeps its accessible name via
+   `groupTitle`). Icons render a touch larger than the shared 15px so each
+   chart shape reads at a glance. */
+.charts-mark-row[data-row="type"] > .gx-toggle { flex: 1 1 100%; }
+.charts-mark-row[data-row="type"] .gx-toggle-btn { padding: 6px 0; }
+.charts-mark-row[data-row="type"] .gx-toggle-btn svg { width: 19px; height: 19px; }
 .charts-mark-data {
   box-sizing: border-box;
   width: 100%;
