@@ -6,13 +6,14 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_SERIES_PALETTE, buildChartsWorkbenchSpec,
-  chartMarkFields, chartMarkSeriesNames, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsWorkbenchInferredDomains,
+  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec,
+  chartMarkFields, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
+  chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchInferredDomains,
   chartsWorkbenchRenderOptions, createChartsWorkbenchState, generateChartsWorkbenchSnippets,
-  reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchMark, type ChartsWorkbenchState,
+  reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+import { renderChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 
 const initial = createChartsWorkbenchState;
 const presetState = (id: string) => reduceChartsWorkbenchState(initial(), { type: "apply-preset", id });
@@ -244,10 +245,6 @@ describe("ChartsWorkbench presets through the page", () => {
   });
 });
 
-function markFixture(patch: Partial<ChartsWorkbenchMark>): ChartsWorkbenchMark {
-  return { id: 1, type: "line", dataText: "[]", channels: {}, transform: "none", options: {}, ...patch };
-}
-
 describe("ChartsWorkbench colour controls — state", () => {
   it("defaults the axis colour to the shared muted-grey constant", () => {
     expect(initial().style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
@@ -266,69 +263,42 @@ describe("ChartsWorkbench colour controls — state", () => {
     expect(state.marks[1]!.color).toBeUndefined();
   });
 
-  it("reset-target clears axis colour and every mark's colour, staying a no-op reference when nothing was customised", () => {
+  // P2-6 (REVIEW-dock-colours-sliders-opus.md): the Output header's reset
+  // is scoped to OUTPUT settings ONLY — a hand-picked axis/mark colour or a
+  // typed scale domain lives in the Chart/Scales folders and must survive
+  // it, with no undo otherwise. `reset-chart-style` is the folder-scoped
+  // reset for exactly those.
+  it("reset-target touches ONLY controls — style and scale domains survive it untouched", () => {
     const clean = initial();
-    const untouchedReset = reduceChartsWorkbenchState(clean, { type: "reset-target" });
-    expect(untouchedReset.marks).toBe(clean.marks);
-    expect(untouchedReset.style).toBe(clean.style);
+    let dirty = reduceChartsWorkbenchState(clean, { type: "set-axis-color", which: "shared", color: "#ff0000" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-mark-color", id: dirty.marks[0]!.id, color: "#00ff00" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-scale", axis: "y", patch: { min: "1", max: "9" } });
+    const reset = reduceChartsWorkbenchState(dirty, { type: "reset-target" });
+    expect(reset.style).toBe(dirty.style);
+    expect(reset.marks).toBe(dirty.marks);
+    expect(reset.scales).toBe(dirty.scales);
+  });
+
+  it("reset-chart-style clears axis colour, every mark's colour and every scale's typed domain, staying a no-op reference when nothing was customised", () => {
+    const clean = initial();
+    const untouched = reduceChartsWorkbenchState(clean, { type: "reset-chart-style" });
+    expect(untouched.marks).toBe(clean.marks);
+    expect(untouched.style).toBe(clean.style);
+    expect(untouched.scales).toBe(clean.scales);
 
     let dirty = reduceChartsWorkbenchState(clean, { type: "set-axis-color", which: "shared", color: "#ff0000" });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-mark-color", id: dirty.marks[0]!.id, color: "#00ff00" });
-    const reset = reduceChartsWorkbenchState(dirty, { type: "reset-target" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-scale", axis: "y", patch: { min: "1", max: "9" } });
+    const reset = reduceChartsWorkbenchState(dirty, { type: "reset-chart-style" });
     expect(reset.style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
     expect(reset.marks[0]!.color).toBeUndefined();
+    expect(reset.scales).toEqual({ x: { type: "auto", min: "", max: "" }, y: { type: "auto", min: "", max: "" } });
+    // Never touches output settings.
+    expect(reset.controls).toBe(dirty.controls);
   });
 
-  it("CHART_AXIS_COLOR_MODES/CHARTS_SERIES_PALETTE are non-empty vocabularies the Dock reads from", () => {
+  it("CHART_AXIS_COLOR_MODES is a non-empty vocabulary the Dock reads from", () => {
     expect(CHART_AXIS_COLOR_MODES).toEqual(["shared", "per-axis"]);
-    expect(CHARTS_SERIES_PALETTE.length).toBeGreaterThan(1);
-  });
-});
-
-describe("chartMarkSeriesNames", () => {
-  it("is null for a single-series line/area/bar/dot/rect mark", () => {
-    for (const type of ["line", "area", "bar", "dot", "rect"] as const) {
-      expect(chartMarkSeriesNames(markFixture({ type, dataText: "[3,5,2]", channels: { x: "index", y: "value" } }))).toBeNull();
-    }
-  });
-
-  it("splits a categorical fill/stroke into series in first-appearance row order", () => {
-    const mark = markFixture({
-      type: "line",
-      dataText: JSON.stringify([{ month: 0, value: 3, region: "South" }, { month: 0, value: 1, region: "North" }, { month: 1, value: 5, region: "South" }]),
-      channels: { x: "month", y: "value", fill: "region" },
-    });
-    expect(chartMarkSeriesNames(mark)).toEqual(["South", "North"]);
-  });
-
-  it("groups arc slices by fill, skipping nonpositive values, and is null for an all-zero pie", () => {
-    const mark = markFixture({
-      type: "arc",
-      dataText: JSON.stringify([{ browser: "Chrome", share: 65 }, { browser: "Safari", share: 0 }, { browser: "Firefox", share: 15 }]),
-      channels: { y: "share", fill: "browser" },
-    });
-    expect(chartMarkSeriesNames(mark)).toEqual(["Chrome", "Firefox"]);
-    const allZero = markFixture({ type: "arc", dataText: JSON.stringify([{ browser: "Chrome", share: 0 }]), channels: { y: "share", fill: "browser" } });
-    expect(chartMarkSeriesNames(allZero)).toBeNull();
-  });
-
-  it("groups sankey by source node and funnel by stage", () => {
-    const sankey = markFixture({
-      type: "sankey",
-      dataText: JSON.stringify([{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }]),
-      channels: { source: "from", target: "to", value: "amount" },
-    });
-    expect(chartMarkSeriesNames(sankey)).toEqual(["Coal", "Gas", "Power"]);
-    const funnel = markFixture({
-      type: "funnel",
-      dataText: JSON.stringify([{ stage: "Visits", count: 1000 }, { stage: "Signups", count: 300 }]),
-      channels: { stage: "stage", value: "count" },
-    });
-    expect(chartMarkSeriesNames(funnel)).toEqual(["Visits", "Signups"]);
-  });
-
-  it("returns null (not an empty array) for invalid mark JSON", () => {
-    expect(chartMarkSeriesNames(markFixture({ dataText: "not json" }))).toBeNull();
   });
 });
 
@@ -336,12 +306,26 @@ describe("chartsWorkbenchInferredDomains / scale bound conversion", () => {
   it("infers the numeric extent from mark data, ignoring any typed min/max", () => {
     const state = reduceChartsWorkbenchState(initial(), { type: "update-mark", id: initial().marks[0]!.id, patch: { dataText: "[3,5,2,8,6,9,4]" } });
     const withOverride = reduceChartsWorkbenchState(state, { type: "set-scale", axis: "y", patch: { min: "0", max: "1" } });
-    expect(chartsWorkbenchInferredDomains(withOverride)!.y.domain).toEqual(chartsWorkbenchInferredDomains(state)!.y.domain);
+    expect(chartsWorkbenchInferredDomains(withOverride).y!.domain).toEqual(chartsWorkbenchInferredDomains(state).y!.domain);
   });
 
-  it("degrades to null on invalid mark data rather than throwing", () => {
+  it("degrades to undefined per-axis on invalid mark data rather than throwing", () => {
     const bad = reduceChartsWorkbenchState(initial(), { type: "update-mark", id: initial().marks[0]!.id, patch: { dataText: "not json" } });
-    expect(chartsWorkbenchInferredDomains(bad)).toBeNull();
+    expect(chartsWorkbenchInferredDomains(bad)).toEqual({ x: undefined, y: undefined });
+  });
+
+  it("a failing Y (sign-crossing log) domain doesn't blank X's own, otherwise-valid inference", () => {
+    const state = reduceChartsWorkbenchState(initial(), {
+      type: "update-mark", id: initial().marks[0]!.id, patch: { dataText: "[-3,5,2]", channels: { x: "index", y: "value" } },
+    });
+    const withLogY = reduceChartsWorkbenchState(state, { type: "set-scale", axis: "y", patch: { type: "log" } });
+    const inferred = chartsWorkbenchInferredDomains(withLogY);
+    expect(inferred.x).toBeDefined();
+    expect(inferred.x!.domain).toEqual(chartsWorkbenchInferredDomains(state).x!.domain);
+    expect(inferred.y!.disabledReason).toBe("A log domain must have one sign and exclude zero.");
+    // Tagged with the LINEAR reading, not a fabricated placeholder — real
+    // numbers a disabled control can still show.
+    expect(inferred.y!.domain).toEqual([-3, 5]);
   });
 
   it("round-trips a linear bound and a time bound through number<->string", () => {
@@ -352,5 +336,86 @@ describe("chartsWorkbenchInferredDomains / scale bound conversion", () => {
     const iso = "2024-06-01T00:00:00.000Z";
     expect(chartsScaleBoundToNumber("time", iso)).toBe(new Date(iso).getTime());
     expect(chartsNumberToScaleBound("time", new Date(iso).getTime())).toBe(iso);
+  });
+});
+
+// P1-1/P1-2 (REVIEW-dock-colours-sliders-opus.md): the slider's own bounds
+// must never admit a thumb position the library rejects. Both the
+// zero-anchor cap and the log rule are gated at every value ON the boundary
+// (0, and the exact `min(0,extent)`/`max(0,extent)` end) through a REAL
+// render, not just the pure bounds arithmetic — a mutation that dropped
+// either cap would still pass a pure-arithmetic-only assertion (the number
+// itself only matters through what it lets a thumb reach).
+// P2-2 (REVIEW-dock-colours-sliders-opus.md): the old pair was
+// `toLocaleDateString()`/`new Date(raw)` — not inverses of each other, and
+// locale-dependent (`de-DE`/`en-GB` both parsed the FORMATTED string back
+// as `Invalid Date`, `en-US` shifted by the reader's own UTC offset).
+describe("chartsTimeBoundDisplay / chartsTimeBoundFromDisplay", () => {
+  it("round-trips a UTC-midnight timestamp exactly, independent of format/parse order", () => {
+    const utcMidnight = Date.UTC(2024, 5, 15);
+    expect(chartsTimeBoundDisplay(utcMidnight)).toBe("2024-06-15");
+    expect(chartsTimeBoundFromDisplay(chartsTimeBoundDisplay(utcMidnight))).toBe(utcMidnight);
+  });
+
+  it("parses a plain YYYY-MM-DD as UTC midnight, never the reader's local timezone", () => {
+    expect(chartsTimeBoundFromDisplay("2024-06-15")).toBe(Date.UTC(2024, 5, 15));
+  });
+
+  it("also accepts a full ISO string, and rejects garbage as null (not Invalid Date)", () => {
+    expect(chartsTimeBoundFromDisplay("2024-06-15T00:00:00.000Z")).toBe(Date.UTC(2024, 5, 15));
+    expect(chartsTimeBoundFromDisplay("15.6.2024")).toBeNull();
+    expect(chartsTimeBoundFromDisplay("15/06/2024")).toBeNull();
+    expect(chartsTimeBoundFromDisplay("")).toBeNull();
+  });
+});
+
+describe("chartsScaleSliderBounds", () => {
+  it("pads a zero-anchored (bar/area/rect) domain symmetrically, and caps each thumb at zero", () => {
+    const bounds = chartsScaleSliderBounds("linear", 0, 8, true);
+    expect(bounds.min).toBeCloseTo(-1.6);
+    expect(bounds.max).toBeCloseTo(9.6);
+    expect(bounds.loCeiling).toBe(0);
+    expect(bounds.hiFloor).toBe(0);
+    // Every legal render for this bound set keeps zero in the domain —
+    // the low thumb can reach `bounds.min` but never past `loCeiling`,
+    // the high thumb never below `hiFloor`.
+    for (const lo of [bounds.min, bounds.loCeiling!, -0.4]) {
+      for (const hi of [bounds.hiFloor!, 4, bounds.max]) {
+        const spec = { marks: [{ type: "bar" as const, data: [1, 2, 3], channels: {}, options: {} }], scales: { y: { type: "linear" as const, domain: [lo, hi] } } };
+        const rendered = renderChartsWorkbenchSpec(JSON.stringify(spec), { target: "web", width: 24, height: 8 });
+        expect(rendered.ok, `lo=${lo} hi=${hi}: ${!rendered.ok ? rendered.error : ""}`).toBe(true);
+      }
+    }
+  });
+
+  it("a zero-anchored negative-only domain pads both ends the same span-relative amount", () => {
+    const bounds = chartsScaleSliderBounds("linear", -8, 0, true);
+    expect(bounds.min).toBeCloseTo(-9.6);
+    expect(bounds.max).toBeCloseTo(1.6);
+    expect(bounds.loCeiling).toBe(0);
+    expect(bounds.hiFloor).toBe(0);
+  });
+
+  it("a log domain pads multiplicatively (never additively, which can cross zero)", () => {
+    const bounds = chartsScaleSliderBounds("log", 1, 1000, false);
+    expect(bounds.min).toBeCloseTo(1 / 1.2);
+    expect(bounds.max).toBeCloseTo(1200);
+    expect(bounds.loCeiling).toBeUndefined();
+    for (const lo of [bounds.min, 1, 500]) {
+      for (const hi of [500, 1000, bounds.max]) {
+        if (lo >= hi) continue;
+        const spec = { marks: [{ type: "line" as const, data: [1, 10, 100, 1000], channels: {}, options: {} }], scales: { y: { type: "log" as const, domain: [lo, hi] } } };
+        const rendered = renderChartsWorkbenchSpec(JSON.stringify(spec), { target: "web", width: 24, height: 8 });
+        expect(rendered.ok, `lo=${lo} hi=${hi}: ${!rendered.ok ? rendered.error : ""}`).toBe(true);
+      }
+    }
+  });
+
+  it("an ordinary (non-zero-anchored) scale keeps the original symmetric +/-20% pad, and sets no thumb cap", () => {
+    const bounds = chartsScaleSliderBounds("linear", 2, 8, false);
+    expect(bounds.min).toBeCloseTo(0.8);
+    expect(bounds.max).toBeCloseTo(9.2);
+    expect(bounds.loCeiling).toBeUndefined();
+    expect(bounds.hiFloor).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
-import { useDockSlot, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
+import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
@@ -10,8 +10,9 @@ import { ChartsDataFolder } from "./ChartsDataFolder";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS,
-  chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsWorkbenchInferredDomains,
-  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchScale, type ChartsWorkbenchState,
+  chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
+  chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
+  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
 
@@ -38,21 +39,31 @@ const TITLE_ALIGN_TOGGLE = CHART_TITLE_ALIGNS.map((v) => ({ value: v as string, 
 const TITLE_POSITION_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Title position: ${v}` }));
 const AXIS_COLOR_MODE_LABEL: Record<string, string> = { shared: "shared", "per-axis": "per axis" };
 
-type InferredAxisDomain = { readonly type: string; readonly domain: readonly (number | string | Date)[] } | undefined;
-
 /**
  * Dual-handle domain control (packet item 3) for one axis's Scales row —
- * a `RangeSlider` over the data extent (padded 20%, `bounds`) for a
- * numeric/time scale, or the ORIGINAL plain min/max text pair for `band`
- * (a category name isn't a slider position) or when inference failed (bad
- * mark JSON — `inferred` is `null`). `scale.min`/`.max` stay the same
- * strings `buildScale` already reads; this control only translates them to
- * and from the slider's numeric domain.
+ * a `RangeSlider` over the data extent for a numeric/time scale, or the
+ * ORIGINAL plain min/max text pair for `band` (a category name isn't a
+ * slider position) or when inference failed entirely (bad mark JSON —
+ * `inferred` is `undefined`). `scale.min`/`.max` stay the same strings
+ * `buildScale` already reads; this control only translates them to and
+ * from the slider's numeric domain.
+ *
+ * Slider BOUNDS come from `chartsScaleSliderBounds` (P1: never a flat pad
+ * that can hand a bar/area/rect y-domain or a log domain an illegal
+ * position — REVIEW-dock-colours-sliders-opus.md), widened past their own
+ * padded range to include any already-typed override (P2-1: the two
+ * number fields may exceed the visible bounds, and the slider re-derives
+ * around them on the next render). `inferred.disabledReason` (a log scale
+ * whose real data can't produce a legal domain) renders the slider
+ * `disabled` with that reason instead of falling back to the plain text
+ * pair, showing the LINEAR reading of the same data rather than a
+ * fabricated placeholder.
  */
-function ScaleDomainControl({ axis, scale, inferred, dispatch }: {
+function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, dispatch }: {
   axis: "x" | "y";
   scale: ChartsWorkbenchScale;
-  inferred: InferredAxisDomain;
+  inferred: ChartsWorkbenchAxisDomain | undefined;
+  zeroAnchored: boolean;
   dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
   const resolvedType = scale.type === "auto" ? inferred?.type : scale.type;
@@ -66,25 +77,31 @@ function ScaleDomainControl({ axis, scale, inferred, dispatch }: {
     </>;
   }
   const type = resolvedType as "linear" | "log" | "sqrt" | "time";
+  const disabled = inferred.disabledReason !== undefined;
   const toNumber = (v: number | string | Date) => v instanceof Date ? v.getTime() : Number(v);
   const domainMin = toNumber(inferred.domain[0]!);
   const domainMax = toNumber(inferred.domain.at(-1)!);
-  const span = domainMax - domainMin;
-  const pad = span > 0 ? span * 0.2 : (Math.abs(domainMin) || 1) * 0.2;
-  const min = domainMin - pad;
-  const max = domainMax + pad;
-  const value: readonly [number, number] | null = scale.min.trim() || scale.max.trim()
-    ? [
-        scale.min.trim() ? (chartsScaleBoundToNumber(type, scale.min) ?? domainMin) : domainMin,
-        scale.max.trim() ? (chartsScaleBoundToNumber(type, scale.max) ?? domainMax) : domainMax,
-      ]
-    : null;
-  const format = (n: number) => type === "time" ? new Date(n).toLocaleDateString() : String(Math.round(n * 1000) / 1000);
-  const parse = (raw: string) => type === "time" ? chartsScaleBoundToNumber(type, raw) : (Number.isFinite(Number(raw)) ? Number(raw) : null);
-  return <RangeSlider label={`${axis.toUpperCase()} domain`} min={min} max={max} value={value} format={format} parse={parse}
+  // A `disabledReason` reading is already the LINEAR fallback (the axis's
+  // own declared log type failed) — zero-anchoring is a claim about the
+  // REAL scale that would render, which this one, by construction, never
+  // will.
+  const bounds = chartsScaleSliderBounds(disabled ? "linear" : type, domainMin, domainMax, !disabled && zeroAnchored);
+  const explicitLo = scale.min.trim() ? chartsScaleBoundToNumber(type, scale.min) : null;
+  const explicitHi = scale.max.trim() ? chartsScaleBoundToNumber(type, scale.max) : null;
+  const min = explicitLo !== null ? Math.min(bounds.min, explicitLo) : bounds.min;
+  const max = explicitHi !== null ? Math.max(bounds.max, explicitHi) : bounds.max;
+  const value: readonly [number | null, number | null] | null = scale.min.trim() || scale.max.trim() ? [explicitLo, explicitHi] : null;
+  const format = (n: number) => type === "time" ? chartsTimeBoundDisplay(n) : String(Math.round(n * 1000) / 1000);
+  const parse = (raw: string) => type === "time" ? chartsTimeBoundFromDisplay(raw) : (Number.isFinite(Number(raw)) ? Number(raw) : null);
+  return <RangeSlider label={`${axis.toUpperCase()} domain`} min={min} max={max} domain={[domainMin, domainMax]}
+    loCeiling={bounds.loCeiling} hiFloor={bounds.hiFloor} disabled={disabled} disabledReason={inferred.disabledReason}
+    value={value} format={format} parse={parse}
     onChange={(next) => dispatch({
       type: "set-scale", axis,
-      patch: next === null ? { min: "", max: "" } : { min: chartsNumberToScaleBound(type, next[0]), max: chartsNumberToScaleBound(type, next[1]) },
+      patch: next === null ? { min: "", max: "" } : {
+        min: next[0] === null ? "" : chartsNumberToScaleBound(type, next[0]),
+        max: next[1] === null ? "" : chartsNumberToScaleBound(type, next[1]),
+      },
     })} />;
 }
 
@@ -92,6 +109,15 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   const gui = useDockGui();
   const controls = resolveGlyphChartsWorkbenchControls(state.controls);
   const setControl = (control: GlyphChartsWorkbenchControlAction) => dispatch({ type: "set-control", control });
+  // P3-6 (REVIEW-dock-colours-sliders-opus.md): under `Color: none` the
+  // library drops every colour from the render, but every swatch (axis and
+  // per-mark) stayed fully live with no signal — a picked value that
+  // silently paints nothing reads as broken, not as a colour the reader
+  // chose to suppress. Dimmed with the reason on `title`, `/maps`'
+  // `mapDirectionLocked` idiom for "disabled with its reason", not hidden —
+  // the colour is still real state, just inert while `Color` is off.
+  const colorDisabled = controls.color === "none";
+  const colorDisabledReason = colorDisabled ? "Color mode is off — pick a colour mode below to see it painted." : undefined;
   const output = useFolder(gui, "Output", { open: true });
   // Folder-header reset (owner packet item 3: "reset to target defaults
   // could be something in the OUTPUT ======== [reset] folder header") —
@@ -117,6 +143,13 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   const dataSlot = useDockSlot(dataFolder, { position: "bottom", className: "charts-data-folder-slot" });
 
   const chart = useFolder(gui, "Chart", { open: true });
+  // Folder-header reset (P2-6, REVIEW-dock-colours-sliders-opus.md) — the
+  // Output folder's own header reset is scoped to output settings only
+  // (target/charset/color/width/height/detail) and no longer touches a
+  // hand-picked axis/mark colour or a typed scale domain, both of which
+  // live in THIS folder (and Scales, below it) — this is their own reset,
+  // same header idiom, requested FIRST for the same reason Output's is.
+  const chartHeaderSlot = useDockSlot(chart, { position: "top", className: "dock-folder-header-slot" });
   useText(chart, "Title", state.chart.title, (title) => dispatch({ type: "set-chart", patch: { title } }));
   const titlePlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
   useText(chart, "Description", state.chart.description, (description) => dispatch({ type: "set-chart", patch: { description } }));
@@ -133,13 +166,16 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   const xDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
   useOption(scales, "Y type", options(CHART_SCALE_TYPES), state.scales.y.type, (type) => dispatch({ type: "set-scale", axis: "y", patch: { type } }));
   const yDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
-  useReadonlyText(scales, "Domain", "Blank = inferred");
   // Recomputed off the raw mark data (never the current min/max override —
   // see `chartsWorkbenchInferredDomains`'s own doc), so a `RangeSlider`'s
   // own draggable bounds don't shrink every time a reader narrows the
-  // selection. `null` on invalid marks degrades each axis to the original
-  // plain min/max text inputs (`ScaleDomainControl` below).
+  // selection. Each axis degrades to the original plain min/max text
+  // inputs (`ScaleDomainControl` below) independently — a failing Y no
+  // longer takes X's own, otherwise-valid, control down with it. No
+  // separate "Blank = inferred" readout: the `RangeSlider`'s own `auto`
+  // toggle IS that state now, and the two number fields are never blank.
   const inferredDomains = useMemo(() => chartsWorkbenchInferredDomains(state), [state]);
+  const zeroAnchoredY = useMemo(() => chartsWorkbenchHasZeroAnchoredMark(state), [state]);
 
   const axes = useFolder(gui, "Axes", { open: false });
   useSlider(axes, "X ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.x.ticks, (ticks) => dispatch({ type: "set-axis", axis: "x", patch: { ticks } }));
@@ -165,6 +201,14 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
         <button type="button" className="dock-folder-header-reset" title="Reset target, charset, color, width, height, and detail to this target's defaults" onClick={() => dispatch({ type: "reset-target" })}>reset</button>
       </div>,
       outputHeaderSlot,
+    )}
+    {chartHeaderSlot && createPortal(
+      <div className="dock-folder-header">
+        <span>CHART</span>
+        <span className="dock-folder-header-rule" />
+        <button type="button" className="dock-folder-header-reset" title="Reset axis colour, mark colours, and typed scale domains to their defaults" onClick={() => dispatch({ type: "reset-chart-style" })}>reset</button>
+      </div>,
+      chartHeaderSlot,
     )}
     {targetSlot && createPortal(
       <div className="dock-toggle-row">
@@ -221,20 +265,20 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
           </button>
         </div>
         {state.style.axisColor.mode === "shared"
-          ? <ChartsColorSwatch label="Colour" value={state.style.axisColor.shared} onChange={(color) => dispatch({ type: "set-axis-color", which: "shared", color })} />
+          ? <ChartsColorSwatch label="Colour" value={state.style.axisColor.shared} onChange={(color) => dispatch({ type: "set-axis-color", which: "shared", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
           : <>
-              <ChartsColorSwatch label="X" value={state.style.axisColor.x} onChange={(color) => dispatch({ type: "set-axis-color", which: "x", color })} />
-              <ChartsColorSwatch label="Y" value={state.style.axisColor.y} onChange={(color) => dispatch({ type: "set-axis-color", which: "y", color })} />
+              <ChartsColorSwatch label="X" value={state.style.axisColor.x} onChange={(color) => dispatch({ type: "set-axis-color", which: "x", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
+              <ChartsColorSwatch label="Y" value={state.style.axisColor.y} onChange={(color) => dispatch({ type: "set-axis-color", which: "y", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
             </>}
       </div>,
       axisColorSlot,
     )}
     {xDomainSlot && createPortal(
-      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains?.x} dispatch={dispatch} />,
+      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains.x} zeroAnchored={false} dispatch={dispatch} />,
       xDomainSlot,
     )}
     {yDomainSlot && createPortal(
-      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains?.y} dispatch={dispatch} />,
+      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} dispatch={dispatch} />,
       yDomainSlot,
     )}
   </>;

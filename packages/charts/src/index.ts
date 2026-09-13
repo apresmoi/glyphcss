@@ -45,6 +45,8 @@ export { renderGlyphChart, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
 export { GLYPH_CHART_AXIS_DEFAULT_COLOR } from "./layout";
 export { renderGlyphChartJson } from "./json";
 export { glyphChartScaleDomains } from "./domains";
+export { glyphChartSeriesPreview } from "./seriesPublic";
+export type { GlyphChartSeriesPreviewEntry } from "./seriesPublic";
 
 export type {
   GlyphChartCharset,

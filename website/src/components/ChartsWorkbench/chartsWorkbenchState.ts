@@ -31,14 +31,12 @@ export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
 export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
-// Colour controls (this packet): a shared axis colour or one swatch per
-// axis, and a default per-series swatch palette (a local copy of
-// `@glyphcss/charts`' own `SERIES_COLORS` — that constant isn't part of the
-// package's public surface, and these are just starting values a reader can
-// repick, not a shared source of truth two modules must agree on byte for
-// byte).
 export const CHART_AXIS_COLOR_MODES = ["shared", "per-axis"] as const;
-export const CHARTS_SERIES_PALETTE: readonly string[] = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#06b6d4", "#eab308", "#ec4899"];
+/** A colour-picker swatch shown when a mark's own series preview
+ *  (`glyphChartSeriesPreview`, `@glyphcss/charts`) couldn't be computed at
+ *  all — invalid mark JSON, mid-edit. Not a palette: the real default
+ *  per-series colours always come from the library's own resolution. */
+export const CHARTS_DEFAULT_SWATCH_COLOR = "#3b82f6";
 export const CHART_CARTESIAN_CHANNELS = ["x", "y", "fill", "label"] as const;
 export const CHART_SANKEY_CHANNELS = ["source", "target", "value"] as const;
 export const CHART_FUNNEL_CHANNELS = ["stage", "value"] as const;
@@ -134,11 +132,12 @@ export interface ChartsWorkbenchMark {
   readonly transform: "none" | GlyphChartTransformKind;
   readonly options: GlyphChartMarkOptions;
   /** A single colour (one series, or every series the same) or one colour
-   *  per series in `chartMarkSeriesNames` order. Kept OUT of `options`
-   *  (which mirrors the real `GlyphChartMarkOptions` shape exactly) because
-   *  the built `@glyphcss/charts` in this worktree doesn't accept it yet —
-   *  see `chartsWorkbenchRender.ts`'s `applyChartStyle`, the one place this
-   *  reaches the rendered spec. `undefined` = unset (library default). */
+   *  per series in `glyphChartSeriesPreview` order. Kept OUT of `options`
+   *  (which mirrors the real `GlyphChartMarkOptions` shape exactly) purely
+   *  so `chartsWorkbenchRender.ts`'s `applyChartStyle` stays the ONE place
+   *  a workbench colour choice reaches the built spec's real
+   *  `options.color` — same reason `state.style.axisColor` is kept out of
+   *  `state.axes`. `undefined` = unset (library default). */
   readonly color?: string | readonly string[];
 }
 export interface ChartsWorkbenchScale {
@@ -204,6 +203,7 @@ export type ChartsWorkbenchAction =
   | { type: "apply-preset"; id: string }
   | { type: "set-control"; control: GlyphChartsWorkbenchControlAction }
   | { type: "reset-target" }
+  | { type: "reset-chart-style" }
   | { type: "set-scale"; axis: "x" | "y"; patch: Partial<ChartsWorkbenchScale> }
   | { type: "set-axis"; axis: "x" | "y"; patch: Partial<ChartsWorkbenchAxis> }
   | { type: "set-chart"; patch: Partial<ChartsWorkbenchState["chart"]> }
@@ -282,16 +282,26 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
         chart: { ...state.chart, title: preset.label, description: preset.spec.description ?? "" } };
     }
     case "set-control": return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, action.control) };
-    case "reset-target": {
-      // The Output folder's header reset also clears the colour controls
-      // (this packet) — both stay no-ops (same array/object reference)
-      // when nothing was customised, matching `reset.marks === state.marks`
-      // for a reset that never touched a mark's colour.
+    // P2-6 (REVIEW-dock-colours-sliders-opus.md): the Output folder's own
+    // header reset touches OUTPUT settings only — target/charset/color/
+    // width/height/detail — and never a hand-picked axis/mark colour or a
+    // typed scale domain, which live in a different folder entirely and
+    // used to be silently destroyed by this button with no undo. Style
+    // (colours + slider domains) gets its OWN reset, `reset-chart-style`,
+    // scoped to the Chart folder that shows those controls.
+    case "reset-target": return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, { type: "reset" }) };
+    case "reset-chart-style": {
+      // A no-op stays the same array/object reference when nothing was
+      // customised — same discipline as `withTable`'s table-editor no-ops.
       const marks = state.marks.some((m) => m.color !== undefined)
         ? state.marks.map((m) => m.color === undefined ? m : { ...m, color: undefined })
         : state.marks;
       const style = isDefaultAxisColor(state.style.axisColor) ? state.style : { axisColor: defaultAxisColor() };
-      return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, { type: "reset" }), marks, style };
+      const hasDomain = ([state.scales.x, state.scales.y] as const).some((s) => s.min.trim() || s.max.trim());
+      const scales = hasDomain
+        ? { x: { ...state.scales.x, min: "", max: "" }, y: { ...state.scales.y, min: "", max: "" } }
+        : state.scales;
+      return { ...state, marks, style, scales };
     }
     case "set-axis-color-mode": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, mode: action.mode } } };
     case "set-axis-color": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, [action.which]: action.color } } };
@@ -359,70 +369,6 @@ export function chartMarkFields(mark: ChartsWorkbenchMark): string[] {
     return data.every((row) => typeof row === "number") ? ["index", "value"]
       : [...new Set(data.flatMap((row) => typeof row === "number" ? [] : Object.keys(row)))];
   } catch { return []; }
-}
-
-/** Resolves one channel's raw per-row values the same way `buildMark` does
- *  (the numeric-array "index"/"value" pseudo-fields, or a plain record
- *  field lookup) — the shared step `chartMarkSeriesNames` below needs for
- *  every channel it reads. */
-function chartMarkChannelValues(data: readonly unknown[], numeric: boolean, field: string | undefined): unknown[] | undefined {
-  if (!field) return undefined;
-  if (numeric && field === "index") return data.map((_, i) => i);
-  if (numeric && field === "value") return data as unknown[];
-  return data.map((row) => typeof row === "object" && row !== null && !Array.isArray(row) ? (row as Record<string, unknown>)[field] : undefined);
-}
-
-/**
- * The distinct series identities a mark's per-series colour swatches should
- * line up with, in the same first-appearance ROW ORDER `@glyphcss/charts`'
- * own `chartSeries` (`packages/charts/src/series.ts`) groups by — close
- * enough for a colour-picker UI without reaching into that module's
- * private resolve/series pipeline: arc slices (`fill` ?? `label` ?? index,
- * positive values only, mirroring the pie's own "no swatch for a
- * nonpositive slice" rule), sankey SOURCE nodes, funnel STAGES, and a
- * categorical `fill`/`stroke` split for line/area/bar/dot/rect. `null`
- * means the mark is single-series — one plain colour swatch, not a list.
- */
-export function chartMarkSeriesNames(mark: ChartsWorkbenchMark): string[] | null {
-  let data: unknown[];
-  try { data = parseChartMarkData(mark); } catch { return null; }
-  const numeric = data.every((row) => typeof row === "number");
-  const names = (values: readonly unknown[] | undefined): string[] => {
-    const seen: string[] = [];
-    for (const value of values ?? []) {
-      const name = String(value);
-      if (!seen.includes(name)) seen.push(name);
-    }
-    return seen;
-  };
-  if (mark.type === "arc") {
-    const fill = chartMarkChannelValues(data, numeric, mark.channels.fill);
-    const label = chartMarkChannelValues(data, numeric, mark.channels.label);
-    const y = chartMarkChannelValues(data, numeric, mark.channels.y);
-    const seen: string[] = [];
-    data.forEach((_, i) => {
-      const value = y ? Number(y[i]) : NaN;
-      if (!(Number.isFinite(value) && value > 0)) return;
-      const name = String(fill?.[i] ?? label?.[i] ?? i);
-      if (!seen.includes(name)) seen.push(name);
-    });
-    return seen.length ? seen : null;
-  }
-  if (mark.type === "sankey") {
-    const list = names(chartMarkChannelValues(data, numeric, mark.channels.source));
-    return list.length ? list : null;
-  }
-  if (mark.type === "funnel") {
-    const list = names(chartMarkChannelValues(data, numeric, mark.channels.stage));
-    return list.length ? list : null;
-  }
-  if (["line", "area", "bar", "dot", "rect"].includes(mark.type)) {
-    const channel = (["fill", "stroke"] as const).find((c) => mark.channels[c]);
-    if (!channel) return null;
-    const list = names(chartMarkChannelValues(data, numeric, mark.channels[channel]));
-    return list.length > 1 ? list : null;
-  }
-  return null;
 }
 
 // ── Table editor (packet item 7) ────────────────────────────────────────
@@ -582,23 +528,129 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
   return { ...spec, scales: { x: buildScale(state.scales.x, inferred?.x), y: buildScale(state.scales.y, inferred?.y) } };
 }
 
+export type ChartsWorkbenchAxisDomain = (ReturnType<typeof glyphChartScaleDomains>["x"]) & {
+  /**
+   * Set only when this axis's OWN declared scale type (`"log"`) couldn't
+   * produce a legal domain from the data (a sign-crossing or zero-touching
+   * range — `@glyphcss/charts`' own `log-domain` rule), but reading the
+   * SAME data as `"linear"` succeeds. `type`/`domain` above are then that
+   * linear reading — never a fabricated placeholder — so a disabled
+   * control still shows real bounds; the caller (`ScaleDomainControl`)
+   * renders its `RangeSlider` `disabled` with this as the reason, rather
+   * than silently reverting to the plain min/max text pair.
+   */
+  readonly disabledReason?: string;
+};
+
+/**
+ * The OTHER axis is ALWAYS resolved as `"auto"` here, regardless of its own
+ * declared scale type — `glyphChartScaleDomains` builds both scales in one
+ * call, so a failing OTHER axis (a sign-crossing log domain, say) would
+ * otherwise take this one down with it too. `typeOverride` forces THIS
+ * axis's own type to `"auto"` as well, for the log-disabled-reason fallback
+ * probe below (reading the same data as linear once the real log reading
+ * has already failed).
+ */
+function computeAxisDomain(state: ChartsWorkbenchState, axis: "x" | "y", typeOverride?: "auto"): ReturnType<typeof glyphChartScaleDomains>["x"] | undefined {
+  try {
+    const scaleOpts = { x: {}, y: {} } as { x: GlyphChartScaleOptions; y: GlyphChartScaleOptions };
+    scaleOpts[axis] = typeOverride === "auto" ? {} : scaleType(state.scales[axis]);
+    const spec = glyphChartPlot({ marks: state.marks.map(buildMark), scales: scaleOpts });
+    return glyphChartScaleDomains(spec)[axis];
+  } catch { return undefined; }
+}
+
 /**
  * The raw data extent for each axis, ignoring any `min`/`max` the reader
- * has already typed — what a `RangeSlider`'s own `min`/`max` (its
- * draggable BOUNDS, padded by the caller) must be computed from, since
- * bounds computed from the CURRENT selection would shrink every time a
- * reader narrows it. Reuses the exact same `scaleType`/`buildMark`/
- * `glyphChartScaleDomains` pipeline `buildChartsWorkbenchSpec` already
- * runs for its own "blank bound" inference, just with no domain override
- * fed back in. `null` on invalid marks (bad JSON, an unresolved channel) —
- * degrade to no bounds rather than throw, since this reads on every
- * keystroke in the mark editor.
+ * has already typed — what a `RangeSlider`'s own bounds (padded/legality-
+ * narrowed by the caller, `chartsScaleSliderBounds`) must be computed from,
+ * since bounds computed from the CURRENT selection would shrink every time
+ * a reader narrows it. Reuses the exact same `scaleType`/`buildMark`/
+ * `glyphChartScaleDomains` pipeline `buildChartsWorkbenchSpec` already runs
+ * for its own "blank bound" inference, just with no domain override fed
+ * back in.
+ *
+ * Each axis is computed and can fail INDEPENDENTLY — a sign-crossing log
+ * Y domain used to blank BOTH axes' controls (one shared try/catch around
+ * the whole `{x,y}` pair), so a perfectly valid X domain lost its slider
+ * too whenever Y's own scale choice made the data illegal. An axis whose
+ * own declared type fails but reads fine as `"linear"` gets that reading
+ * back tagged `disabledReason` (see `ChartsWorkbenchAxisDomain`) instead of
+ * `undefined`, so its control can show real numbers while staying
+ * disabled; anything else invalid (bad mark JSON, an unresolved channel)
+ * still degrades to `undefined` — the caller's plain min/max text pair.
  */
-export function chartsWorkbenchInferredDomains(state: ChartsWorkbenchState): ReturnType<typeof glyphChartScaleDomains> | null {
-  try {
-    const spec = glyphChartPlot({ marks: state.marks.map(buildMark), scales: { x: scaleType(state.scales.x), y: scaleType(state.scales.y) } });
-    return glyphChartScaleDomains(spec);
-  } catch { return null; }
+export function chartsWorkbenchInferredDomains(state: ChartsWorkbenchState): Readonly<Record<"x" | "y", ChartsWorkbenchAxisDomain | undefined>> {
+  const axis = (a: "x" | "y"): ChartsWorkbenchAxisDomain | undefined => {
+    const typed = computeAxisDomain(state, a);
+    if (typed) return typed;
+    if (state.scales[a].type !== "log") return undefined;
+    const linear = computeAxisDomain(state, a, "auto");
+    return linear ? { ...linear, disabledReason: "A log domain must have one sign and exclude zero." } : undefined;
+  };
+  return { x: axis("x"), y: axis("y") };
+}
+
+export interface ChartsScaleSliderBounds {
+  readonly min: number;
+  readonly max: number;
+  /** Bar/area/rect y-domain only: the low thumb's own reachable ceiling
+   *  and the high thumb's own reachable floor — both `0`, so no thumb
+   *  position can ever push the committed domain's minimum above zero or
+   *  its maximum below zero (P1: `bar-domain-excludes-zero`). */
+  readonly loCeiling?: number;
+  readonly hiFloor?: number;
+}
+
+/**
+ * The LEGAL slider bounds for one axis's resolved scale type — never a
+ * flat +/-20% pad, which let a bar/area/rect y-domain's low thumb cross
+ * zero (excluding it from the committed domain) and let a log domain's pad
+ * go negative or through zero (both hard `chartError`s that used to blank
+ * the whole chart). `domainMin`/`domainMax` are the actual, already-legal
+ * inferred domain (for a zero-anchored mark, `numericDomain` in
+ * `scales.ts` has already forced `domainMin <= 0 <= domainMax` — this
+ * function narrows the DRAGGABLE range around that fact, it doesn't
+ * establish it).
+ *
+ * - `log`: `[domainMin / 1.2, domainMax * 1.2]` — multiplicative padding,
+ *   since additive padding on a log domain routinely crosses zero.
+ *   `domainMin` is already `> 0` here (a non-positive log domain fails
+ *   inference upstream and never reaches this function with a real
+ *   domain — `chartsWorkbenchInferredDomains`'s `disabledReason` path
+ *   handles that case separately, with `zeroAnchored` forced off).
+ * - zero-anchored (`zeroAnchored`): pad AWAY from zero only — the low
+ *   bound moves further negative only when it's already negative, the
+ *   high bound further positive only when it's already positive — and the
+ *   low/high THUMBS are additionally capped at `loCeiling`/`hiFloor: 0`,
+ *   because bounds alone don't stop a thumb from being dragged to the
+ *   wrong side of zero within them.
+ * - otherwise: the original symmetric +/-20%-of-span pad (a plain line/dot
+ *   chart's axis legitimately need not include zero at all).
+ */
+export function chartsScaleSliderBounds(
+  type: "linear" | "log" | "sqrt" | "time",
+  domainMin: number,
+  domainMax: number,
+  zeroAnchored: boolean,
+): ChartsScaleSliderBounds {
+  const span = domainMax - domainMin;
+  if (type === "log") return { min: domainMin / 1.2, max: domainMax * 1.2 };
+  // `domainMin <= 0 <= domainMax` already holds whenever `zeroAnchored` —
+  // subtracting from a non-positive `domainMin` and adding to a
+  // non-negative `domainMax` can only move EACH bound further from zero,
+  // never past it onto the other side, so the pad itself needs no special
+  // casing; only the THUMB caps (`loCeiling`/`hiFloor`) are new.
+  const pad = span > 0 ? span * 0.2 : (Math.abs(domainMin) || 1) * 0.2;
+  return { min: domainMin - pad, max: domainMax + pad, ...(zeroAnchored ? { loCeiling: 0, hiFloor: 0 } : {}) };
+}
+
+/** `true` iff any mark in the workbench is a `bar`/`area`/`rect` —
+ *  mirrors `@glyphcss/charts`' own `hasZeroAnchoredMark` (`scales.ts`,
+ *  unexported), which is exactly the condition under which the library
+ *  forces zero into the Y domain and rejects a domain that excludes it. */
+export function chartsWorkbenchHasZeroAnchoredMark(state: ChartsWorkbenchState): boolean {
+  return state.marks.some((mark) => ["bar", "area", "rect"].includes(mark.type));
 }
 
 /** A `RangeSlider`'s numeric domain is timestamps for a `"time"` scale,
@@ -614,6 +666,29 @@ export function chartsScaleBoundToNumber(type: "linear" | "log" | "sqrt" | "time
 /** The inverse of `chartsScaleBoundToNumber` — what `set-scale`'s `min`/`max` string fields store. */
 export function chartsNumberToScaleBound(type: "linear" | "log" | "sqrt" | "time", value: number): string {
   return type === "time" ? new Date(value).toISOString() : String(value);
+}
+
+/**
+ * `RangeSlider`'s DISPLAY pair for a `"time"` domain end — never
+ * `toLocaleDateString()`/`new Date(raw)`, which are not inverses of each
+ * other and are locale-dependent (P2-2, REVIEW-dock-colours-sliders-opus.md:
+ * `de-DE "15.6.2024"` and `en-GB "15/06/2024"` both parsed back as `Invalid
+ * Date`, and `en-US "6/15/2024"` parsed back a day off by the reader's own
+ * UTC offset). `chartsTimeBoundDisplay` formats to a plain UTC
+ * `YYYY-MM-DD`; `chartsTimeBoundFromDisplay` parses that same shape (or a
+ * full ISO string) back to UTC midnight — an exact round trip for any
+ * value that was itself UTC midnight (every domain end this control ever
+ * produces, since it's the only writer of `set-scale`'s time strings).
+ */
+export function chartsTimeBoundDisplay(value: number): string {
+  return new Date(value).toISOString().slice(0, 10);
+}
+export function chartsTimeBoundFromDisplay(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? `${trimmed}T00:00:00.000Z` : trimmed;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
 }
 export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): GlyphChartRenderOptions {
   // `legend` is NOT set here — it already rides in the built spec

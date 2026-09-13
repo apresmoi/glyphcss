@@ -217,6 +217,12 @@
 }
 .charts-color-hex:hover { border-bottom-color: rgba(255, 232, 184, 0.4); }
 .charts-color-hex:focus-visible { outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-bottom-color: rgba(56, 189, 248, 0.8); }
+/* `Color: none` (P3-6, REVIEW-dock-colours-sliders-opus.md) — the picked
+   value is real state, just inert while colour is off, so this dims rather
+   than hides the row (the reason rides on the row's own `title`). */
+.charts-color-row.is-disabled { opacity: 0.45; }
+.charts-color-row.is-disabled .charts-color-hex,
+.charts-color-row.is-disabled input[type="color"] { cursor: not-allowed; }
 
 /* Axis colour row (Chart folder — packet item 1): the shared/per-axis
    toggle sits in an ordinary `.dock-toggle-row`-shaped header; the swatch

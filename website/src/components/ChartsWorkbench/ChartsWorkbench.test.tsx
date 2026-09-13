@@ -335,6 +335,48 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(axisSpan()!.getAttribute("style")).toContain("#ff0000");
   });
 
+  // P2-6 (REVIEW-dock-colours-sliders-opus.md): the Output folder's reset
+  // must never destroy a Chart-folder style choice, and the Chart folder
+  // gets its own reset for exactly that — tested at the DOM level, through
+  // the actual axis-colour swatch and both header reset buttons, since a
+  // reducer-level test alone can't see which folder's button is wired to
+  // which action.
+  it("the Output reset leaves a picked axis colour alone; the Chart folder's own reset clears it", () => {
+    const swatch = container.querySelector<HTMLInputElement>('.charts-axis-color input[type="color"]')!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(swatch, "#ff0000");
+      swatch.dispatchEvent(new Event("input", { bubbles: true }));
+      swatch.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(swatch.value).toBe("#ff0000");
+    act(() => resetOutputButton().click());
+    expect(swatch.value).toBe("#ff0000");
+    const chartHeaders = Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-header-reset"));
+    expect(chartHeaders).toHaveLength(2);
+    const chartReset = chartHeaders.find((btn) => btn.title.startsWith("Reset axis colour"))!;
+    act(() => chartReset.click());
+    expect(swatch.value).not.toBe("#ff0000");
+  });
+
+  // P3-6 (REVIEW-dock-colours-sliders-opus.md): under `Color: none` the
+  // library drops every colour, but every swatch stayed fully enabled with
+  // no signal — a picked value that paints nothing should read as inert,
+  // not broken.
+  it("Color: none dims the axis and mark colour swatches, with a reason", () => {
+    const axisSwatch = () => container.querySelector<HTMLInputElement>('.charts-axis-color input[type="color"]')!;
+    const markSwatch = () => container.querySelector<HTMLInputElement>('.charts-mark-colors input[type="color"]')!;
+    expect(axisSwatch().disabled).toBe(false);
+    expect(markSwatch().disabled).toBe(false);
+    pickToggle("Color", "none");
+    expect(axisSwatch().disabled).toBe(true);
+    expect(markSwatch().disabled).toBe(true);
+    expect(axisSwatch().closest(".charts-color-row")!.getAttribute("title")).toMatch(/Color mode is off/);
+    pickToggle("Color", "css");
+    expect(axisSwatch().disabled).toBe(false);
+    expect(markSwatch().disabled).toBe(false);
+  });
+
   // Mutation: copy result.text (the ANSI encoding) from Copy ASCII, or copy plain cells from Copy ANSI.
   it("copies plain cells from Copy ASCII and escapes from Copy ANSI", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();

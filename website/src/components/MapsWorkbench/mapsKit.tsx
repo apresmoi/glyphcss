@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, ReactNode } from "react";
 import type { GUI } from "lil-gui";
+import { parseHex } from "../InstrumentWorkbench/colorHex";
 import {
   glyphMapEquirectangular,
   glyphMapGlobe,
@@ -461,14 +462,15 @@ export const parsePriority = (min: number, max: number) => (raw: string) => {
 /**
  * `#rgb`/`#rrggbb`, with or without the `#`, normalised to the canonical
  * `#rrggbb` an `<input type="color">` requires. `null` for anything else, so
- * a half-typed colour reverts instead of writing an invalid value.
+ * a half-typed colour reverts instead of writing an invalid value. Kept as
+ * a named re-export (rather than every call site importing `parseHex`
+ * directly) since `parseMapsHex` is this module's own established public
+ * name (`LayersPanel.dockRows.test.tsx` imports it) — the shared
+ * `InstrumentWorkbench/colorHex.ts` implementation is now the single
+ * source both this and `/charts`' `ChartsColorSwatch` read (P3-1,
+ * REVIEW-dock-colours-sliders-opus.md — the two were byte-for-byte copies).
  */
-export function parseMapsHex(raw: string): string | null {
-  const m = /^\s*#?([0-9a-f]{3}|[0-9a-f]{6})\s*$/i.exec(raw);
-  if (!m) return null;
-  const hex = m[1].toLowerCase();
-  return `#${hex.length === 3 ? hex.replace(/./g, (c) => c + c) : hex}`;
-}
+export const parseMapsHex = parseHex;
 
 function LayerCard({ label, visible, onVisible, children }: {
   label: string;

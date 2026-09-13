@@ -1018,8 +1018,13 @@
    control family. `pointer-events: none` on each input except its own
    thumb (`::-webkit-slider-thumb`/`::-moz-range-thumb`) is what lets both
    thumbs be dragged independently despite sharing one stacking position;
-   `.range-slider-range--hi` sits one z-index above `--lo` so the two
-   remain independently grabbable even when their values coincide. */
+   `.range-slider-range--hi`'s base z-index sits one above `--lo`, so on a
+   FRESH coincidence (never yet hovered) the high thumb wins the click —
+   but `.is-front` (applied by `RangeSlider`'s own pointermove tracking
+   over the track, never a fixed rule) always wins over both base values:
+   whichever thumb sits on the side of the coincident point the pointer is
+   currently hovering gets it, so approaching from the left re-grabs the
+   low thumb and approaching from the right re-grabs the high one. */
 .range-slider { display: flex; flex-direction: column; gap: 4px; }
 .range-slider-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .range-slider-label { font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
@@ -1049,6 +1054,7 @@
   z-index: 1;
 }
 .range-slider-range--hi { z-index: 2; }
+.range-slider-range.is-front { z-index: 3; }
 .range-slider-range::-webkit-slider-runnable-track { background: transparent; height: 18px; }
 .range-slider-range::-moz-range-track { background: transparent; height: 18px; }
 .range-slider-range::-webkit-slider-thumb {

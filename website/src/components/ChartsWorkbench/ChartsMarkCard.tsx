@@ -1,6 +1,7 @@
 import { useRef, useState, type Dispatch, type KeyboardEvent } from "react";
+import type { GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import {
-  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_SERIES_PALETTE, chartMarkFields, chartMarkSeriesNames, chartMarkTable,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields, chartMarkTable,
   chartRelevantChannels, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
@@ -8,29 +9,36 @@ import { ChartsColorSwatch } from "./ChartsColorSwatch";
 
 /**
  * Per-mark/per-series colour swatches (packet item 2), next to the mark's
- * own Type row. A single-series mark gets ONE swatch; a mark that splits
- * into series (`chartMarkSeriesNames` — categorical fill/stroke, arc
- * slices, sankey source nodes, funnel stages) gets one swatch PER SERIES,
- * named and prefilled from `CHARTS_SERIES_PALETTE` in the same order
- * `@glyphcss/charts`' own `chartSeries` groups them, so swatch N lines up
- * with the Nth entry `applyChartStyle` writes into `options.color[N]`.
+ * own Type row. `series` is `@glyphcss/charts`' own `glyphChartSeriesPreview`
+ * output for the WHOLE spec (`ChartsWorkbench.tsx`, computed on the same
+ * styled spec a real render uses), filtered to this mark's own entries — so
+ * every swatch's prefill and displayed colour is the exact one the render
+ * paints, through the SAME `chartSeries`/`resolveSeriesColor` pipeline
+ * (cross-mark `styleIndex`, a numeric `fill` resolving to one series, a
+ * short colour array's cycled entry — see REVIEW-dock-colours-sliders-opus.md
+ * P2-3/P2-4/P2-5). A single-series mark gets ONE swatch; a mark that splits
+ * into series (categorical fill/stroke, arc slices, sankey source nodes,
+ * funnel stages) gets one swatch PER SERIES, in the library's own order.
  * Editing any one series swatch materialises the WHOLE array (every other
- * series keeps its current prefilled colour) rather than leaving a sparse
- * array — a later series's default never silently shifts under an earlier
- * edit.
+ * series keeps its current — prefilled or overridden — colour) rather than
+ * leaving a sparse array, so a later series's default never silently shifts
+ * under an earlier edit.
  */
-function ChartsMarkColorControls({ mark, dispatch }: { mark: ChartsWorkbenchMark; dispatch: Dispatch<ChartsWorkbenchAction> }) {
-  const seriesNames = chartMarkSeriesNames(mark);
+function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch }: {
+  mark: ChartsWorkbenchMark; index: number; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
+}) {
+  const markSeries = series.filter((s) => s.markIndex === index);
   const setColor = (color: string | readonly string[] | undefined) => dispatch({ type: "set-mark-color", id: mark.id, color });
-  if (!seriesNames) {
-    const value = typeof mark.color === "string" ? mark.color : CHARTS_SERIES_PALETTE[0]!;
-    return <div className="charts-mark-colors"><ChartsColorSwatch label="Colour" value={value} onChange={setColor} /></div>;
+  const disabledReason = colorDisabled ? "Color mode is off — pick a colour mode in the Output folder to see it painted." : undefined;
+  if (markSeries.length <= 1) {
+    const value = markSeries[0]?.color ?? CHARTS_DEFAULT_SWATCH_COLOR;
+    return <div className="charts-mark-colors"><ChartsColorSwatch label="Colour" value={value} onChange={setColor} disabled={colorDisabled} disabledReason={disabledReason} /></div>;
   }
   const current = Array.isArray(mark.color) ? mark.color : undefined;
-  const paletteFor = (i: number) => current?.[i] ?? CHARTS_SERIES_PALETTE[i % CHARTS_SERIES_PALETTE.length]!;
-  const setSeriesColor = (i: number, color: string) => setColor(seriesNames.map((_, idx) => idx === i ? color : paletteFor(idx)));
+  const paletteFor = (i: number) => current?.[i] ?? markSeries[i]!.color;
+  const setSeriesColor = (i: number, color: string) => setColor(markSeries.map((_, idx) => idx === i ? color : paletteFor(idx)));
   return <div className="charts-mark-colors">
-    {seriesNames.map((name, i) => <ChartsColorSwatch key={name} label={name} value={paletteFor(i)} onChange={(color) => setSeriesColor(i, color)} />)}
+    {markSeries.map((s, i) => <ChartsColorSwatch key={s.name} label={s.name} value={paletteFor(i)} onChange={(color) => setSeriesColor(i, color)} disabled={colorDisabled} disabledReason={disabledReason} />)}
   </div>;
 }
 
@@ -166,7 +174,9 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
   </div>;
 }
 
-export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenchMark; index: number; dispatch: Dispatch<ChartsWorkbenchAction> }) {
+export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }: {
+  mark: ChartsWorkbenchMark; index: number; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
+}) {
   const fields = chartMarkFields(mark);
   const [dataView, setDataView] = useState<typeof DATA_VIEWS[number]["id"]>("table");
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
@@ -183,7 +193,7 @@ export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenc
           {CHART_MARK_TYPES.map((type) => <option key={type}>{type}</option>)}
         </select></span>
       </label>
-      <ChartsMarkColorControls mark={mark} dispatch={dispatch} />
+      <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
       <div className="voice-head">
         <label className="charts-mark-label" id={`charts-data-label-${mark.id}`}>Data</label>
         <button type="button" className="gw-code-panel__action" title={`Fill sample ${mark.type} data and channels`} onClick={() => dispatch({ type: "sample-mark", id: mark.id })}>sample</button>

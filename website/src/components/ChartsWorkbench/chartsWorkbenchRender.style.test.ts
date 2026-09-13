@@ -3,11 +3,14 @@
 // Unit tests for `applyChartStyle`/`chartsWorkbenchChartStyle` — the ONLY
 // place the workbench writes `axes.color`/`axes.x.color`/`axes.y.color`
 // and mark `options.color` into a spec (see `chartsWorkbenchRender.ts`'s
-// own doc comment above both). Asserted on the returned SPEC OBJECT, never
-// on a rendered chart's colours — the built `@glyphcss/charts` in this
-// worktree doesn't accept these fields yet (`mark.options.color` throws
-// `bad-options`), and the merge that adds them is a separate packet.
-import { glyphChartArc, glyphChartLine, glyphChartPlot } from "@glyphcss/charts";
+// own doc comment above both). Most of these assert on the returned SPEC
+// OBJECT (cheap, and the merge logic itself has nothing to do with
+// rendering); the "reaches a rendered span" describe block below goes
+// through the real `renderGlyphChart` to prove the resulting spec's
+// `options.color` is actually painted, not just present on the object —
+// `@glyphcss/charts` has accepted both fields for real since the parent
+// packet (`47fa302b`).
+import { glyphChartArc, glyphChartLine, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
 import { describe, expect, it } from "vitest";
 import { applyChartStyle, chartsWorkbenchChartStyle, type ChartsWorkbenchChartStyle } from "./chartsWorkbenchRender";
 import { createChartsWorkbenchState, reduceChartsWorkbenchState } from "./chartsWorkbenchState";
@@ -73,5 +76,29 @@ describe("chartsWorkbenchChartStyle", () => {
     let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "add-mark" });
     state = reduceChartsWorkbenchState(state, { type: "set-mark-color", id: state.marks[1]!.id, color: "#abcdef" });
     expect(chartsWorkbenchChartStyle(state).markColors).toEqual([undefined, "#abcdef"]);
+  });
+});
+
+// P3-2 (REVIEW-dock-colours-sliders-opus.md): the axis half of this feature
+// was already proven end-to-end through a real render (`ChartsWorkbench.test.tsx`'s
+// "an axis colour picked in the Dock reaches the HTML preview's own axis
+// span colour"); nothing exercised the MARK half the same way — every test
+// above stops at the built spec object, which cannot tell a colour that's
+// merely PRESENT on `options.color` from one the painter actually used.
+describe("a mark colour set through applyChartStyle reaches a rendered span", () => {
+  it("a single-string mark colour paints the mark's own cells", () => {
+    const spec = applyChartStyle(glyphChartPlot({ marks: [glyphChartLine([1, 2, 3])] }), { markColors: ["#3b82f6"] });
+    const result = renderGlyphChart(spec, { target: "web", width: 24, height: 8 });
+    expect(result.html).toContain("#3b82f6");
+  });
+
+  it("a per-series colour array paints each series with its own colour", () => {
+    const spec = applyChartStyle(
+      glyphChartPlot({ marks: [{ type: "bar", data: [{ x: "a", y: 1, region: "N" }, { x: "a", y: 2, region: "S" }], channels: { x: "x", y: "y", fill: "region" } }] }),
+      { markColors: [["#ff0000", "#00ff00"]] },
+    );
+    const result = renderGlyphChart(spec, { target: "web", width: 24, height: 8 });
+    expect(result.html).toContain("#ff0000");
+    expect(result.html).toContain("#00ff00");
   });
 });

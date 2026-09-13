@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { renderGlyphChart } from "@glyphcss/charts";
+import { glyphChartSeriesPreview, renderGlyphChart, type GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import {
@@ -11,9 +11,9 @@ import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
-import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, type ChartsWorkbenchState } from "./chartsWorkbenchState";
+import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
-import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
 
@@ -63,6 +63,21 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
+  // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
+  // REVIEW-dock-colours-sliders-opus.md) — computed on the SAME styled
+  // spec the real render uses, so a swatch always shows the colour that
+  // spec actually paints (prefill included) rather than a page-side
+  // re-derivation that can diverge from it (a numeric `fill`, a `group`
+  // transform, a short colour array's cycled entry). `[]` on an invalid
+  // spec (bad mark JSON mid-edit) — every card then falls back to
+  // `CHARTS_DEFAULT_SWATCH_COLOR`.
+  const seriesPreview = useMemo<readonly GlyphChartSeriesPreviewEntry[]>(() => {
+    try { return glyphChartSeriesPreview(buildStyledChartsWorkbenchSpec(state)); }
+    catch { return []; }
+  }, [state]);
+  // P3-6 — dims every mark-card swatch (with a reason) under `Color: none`,
+  // mirroring the Chart folder's own axis-colour swatches (`ChartsDock.tsx`).
+  const colorDisabled = resolveGlyphChartsWorkbenchControls(state.controls).color === "none";
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
   const snippets = useMemo(() => {
     try { return generateChartsWorkbenchSnippets(state); }
@@ -137,7 +152,7 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
     <InstrumentBody>
       <InstrumentRail id="charts-marks-panel" title="Marks" open={mobilePanel === "marks"}
         action={<button type="button" className="voice-add" onClick={() => dispatch({ type: "add-mark" })}>+ Add mark</button>}>
-        {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} dispatch={dispatch} />)}
+        {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         {state.marks.length === 0 && <p className="synth-empty">No marks — add one to start.</p>}
       </InstrumentRail>
       <InstrumentMain>

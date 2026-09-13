@@ -103,9 +103,15 @@ export function renderChartsWorkbenchSpec(specJson: string, options: GlyphChartR
   catch (error) { return { ok: false, error: `Invalid JSON: ${(error as Error).message}` }; }
   return renderSpec(input, options);
 }
+/** The fully-styled spec (`buildChartsWorkbenchSpec` + `applyChartStyle`)
+ *  a real render is built from — the one input `glyphChartSeriesPreview`
+ *  must also read (`ChartsWorkbench.tsx`), so a mark card's per-series
+ *  swatch shows the exact colour the render paints, prefill included. */
+export function buildStyledChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChartSpec {
+  return applyChartStyle(buildChartsWorkbenchSpec(state), chartsWorkbenchChartStyle(state));
+}
 export function renderChartsWorkbenchState(state: ChartsWorkbenchState): ChartsWorkbenchRender {
   try {
-    const spec = applyChartStyle(buildChartsWorkbenchSpec(state), chartsWorkbenchChartStyle(state));
-    return renderSpec(spec, chartsWorkbenchRenderOptions(state));
+    return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state));
   } catch (error) { return failure(error); }
 }
