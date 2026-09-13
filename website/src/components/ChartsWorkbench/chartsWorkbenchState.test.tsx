@@ -8,7 +8,7 @@ vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
   CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS,
   CHARTS_DEFAULT_DENSITY, CHARTS_DENSITY_MAX, CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX,
-  buildChartsWorkbenchSpec, chartMarkFields, chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
+  buildChartsWorkbenchSpec, chartMarkFields, chartMarkTypeFits, chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
   chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchEffectiveDensity,
   chartsWorkbenchInferredDomains,
   chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets,
@@ -612,10 +612,17 @@ describe("select-dataset — date x-channel installs a time scale (P1-5)", () =>
 });
 
 // `select-dataset` — item 1's ONE reducer action replacing the old
-// `set-data-source` + `apply-data` pair: picking a dataset immediately
-// replaces the chart with that dataset's own curated `recommended` mapping,
-// no separate Apply step (AGENTS.md's "Charts" — "Data layer").
+// `set-data-source` + Apply pair: picking a dataset immediately replaces
+// the chart with that dataset's own curated `recommended` mapping, no
+// separate Apply step (AGENTS.md's "Charts" — "Data layer").
 describe("select-dataset", () => {
+  it("apply-preset clears a previously selected dataset's source (P2-1, REVIEW-showcase-opus.md) — the card, select and credit link must not describe a dataset while a tray preset's synthetic sample data is plotted", () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
+    expect(state.data.source).toEqual({ kind: "dataset", id: "iris-flowers" });
+    state = reduceChartsWorkbenchState(state, { type: "apply-preset", id: "pie" });
+    expect(state.data.source).toBeNull();
+    expect(state.data.pipeline).toEqual([]);
+  });
   it("installs the dataset's curated mark/channels, sets data.source, and resets scales/axes to auto", () => {
     let state = createChartsWorkbenchState();
     state = reduceChartsWorkbenchState(state, { type: "set-axis", axis: "x", patch: { ticks: 6 } });
@@ -693,5 +700,38 @@ describe("reduceChartsWorkbenchState — set-data-source size cap (N2)", () => {
     const start = createChartsWorkbenchState();
     const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: "", omitted: true, filename: "huge.csv" } });
     expect(next.data.source).toEqual({ kind: "custom", raw: "", omitted: true, filename: "huge.csv" });
+  });
+});
+
+// P3-6 (review fix, REVIEW-showcase-opus.md): `sankey`/`funnel` are dead
+// ends on every current vendored dataset (they need distinct
+// source/target/value or stage/value columns none of the 8 happen to
+// have), so a mark-type toggle must disable them WITH A REASON rather than
+// let a reader hit a raw ledger error. Mutation check: `type !== "sankey"
+// && type !== "funnel"` removed from the early-return makes the "a line
+// dataset" case below go red (fields.length for iris-flowers is 5, which
+// would then read as "fits" for sankey's 3-field floor too, so the
+// distinction collapses).
+describe("chartMarkTypeFits", () => {
+  it("every non-flow mark type always fits, regardless of field count", () => {
+    const mark = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" }).marks[0]!;
+    for (const type of CHART_MARK_TYPES) {
+      if (type === "sankey" || type === "funnel") continue;
+      expect(chartMarkTypeFits(mark, type)).toBe(true);
+    }
+  });
+
+  it("sankey/funnel are disabled on a plain line dataset (too few fields)", () => {
+    const mark = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "global-temperature" }).marks[0]!;
+    expect(chartMarkFields(mark).length).toBeLessThan(3);
+    expect(chartMarkTypeFits(mark, "sankey")).toBe(false);
+    expect(chartMarkTypeFits(mark, "funnel")).toBe(false);
+  });
+
+  it("sankey/funnel fit their own sample flow-shaped data (source/target/value, stage/value)", () => {
+    const sankeyMark = presetState("sankey").marks[0]!;
+    expect(chartMarkTypeFits(sankeyMark, "sankey")).toBe(true);
+    const funnelMark = presetState("funnel").marks[0]!;
+    expect(chartMarkTypeFits(funnelMark, "funnel")).toBe(true);
   });
 });

@@ -5,7 +5,7 @@ import {
 } from "./chartsWorkbenchState";
 import { buildDatasetMark, resolveChartsDataRows } from "./chartsDataSource";
 import {
-  CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateForEncode, createChartsUrlWriter, decodeChartsUrlState,
+  CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateForEncode, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState,
   encodeChartsUrlState, encodeChartsUrlStateInfo,
 } from "./chartsUrlState";
 
@@ -158,6 +158,42 @@ describe("chartsUrlState — round trip", () => {
     // The mark's real content never changes in the reader's own state —
     // only the copy handed to the encoder.
     expect(state.marks[0]!.dataText).not.toBe("[]");
+  });
+
+  // P2-2 (review fix, REVIEW-showcase-opus.md): the commit's headline
+  // guarantee — "a shared chart link carries no rows for a stock dataset"
+  // — was pinned by ONE assertion on ONE dataset; this loops over the
+  // WHOLE index and checks the property the two round-trip tests above
+  // never actually observe (only that decode equals encode, which holds
+  // whether or not rows were omitted). Mutation check: reverting
+  // `chartsUrlStateForEncode` to the identity function makes every
+  // iteration's `dataText`/size assertion fail, for all 16 datasets — not
+  // just the one dataset the pre-existing test happened to cover.
+  it("every vendored dataset's link carries no rows: dataText is the sentinel and the encoded envelope stays small", async () => {
+    for (const dataset of CHARTS_DATASETS) {
+      const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: dataset.id });
+      expect(state.marks[0]!.dataText.length).toBeGreaterThan(2); // sanity: the mark really did get real rows first
+      const info = await encodeChartsUrlStateInfo(state);
+      expect(chartsUrlStateForEncode(state).marks[0]!.dataText, `dataset ${dataset.id}`).toBe("[]");
+      expect(info.sizeBytes, `dataset ${dataset.id}`).toBeLessThan(2048);
+    }
+  });
+
+  // P3-2 (review fix, REVIEW-showcase-opus.md): a mark's `dataText` reading
+  // literally `"[]"` under a `"dataset"` source is NOT by itself proof the
+  // rows were omitted — the parent UI's old table editor could (and did)
+  // produce a genuine empty array this same way, by design, before this
+  // sentinel existed. Only `dataOmitted: true` (absent here, since this
+  // link is hand-built to look exactly like that pre-existing case) may
+  // trigger rehydration; without it, decode must leave the real (if empty)
+  // content alone rather than silently substituting the full dataset.
+  it("a mark whose dataText is genuinely \"[]\" with NO dataOmitted flag is never rehydrated to the full dataset", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
+    const handBuilt = { ...state, marks: [{ ...state.marks[0]!, dataText: "[]" }] };
+    const raw = await encodeChartsUrlState(handBuilt);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.marks[0]!.dataText).toBe("[]");
+    expect(decoded!.marks[0]!.dataOmitted).toBeUndefined();
   });
 
   it("decoding re-derives a blanked stock-dataset mark's dataText from the dataset id + its own x channel", async () => {
@@ -372,6 +408,64 @@ describe("chartsUrlState — round trip", () => {
     // DECODE-side cap on `dataText` itself, independent of that mechanism).
     const raw = await encodeChartsUrlState(state);
     expect(await decodeChartsUrlState(raw)).toBeNull();
+  });
+});
+
+// Dataset search (glyphcss dataset-search feature): a "remote" source's
+// rows are never re-derivable locally the way a stock dataset's are, so
+// EVERY mark under one is blanked unconditionally on encode and never
+// rehydrated on decode — the page re-fetches instead (see
+// `chartsUrlState.ts`'s "Stock/remote-dataset mark data omission" doc).
+describe("chartsUrlState — remote dataset", () => {
+  const remoteState = (): ChartsWorkbenchState => {
+    const mark = buildDatasetMark(1, "line", [{ x: 1, y: 2 }, { x: 3, y: 4 }], { x: "x", y: "y" });
+    const base = createChartsWorkbenchState();
+    return {
+      ...base, marks: [mark], nextMarkId: 2,
+      data: { source: { kind: "remote", ref: "mstz/titanic", title: "Titanic survival", description: "desc", source: { name: "Hugging Face — mstz/titanic", url: "https://huggingface.co/datasets/mstz/titanic", licence: "CC0" } }, pipeline: [] },
+    };
+  };
+
+  it("blanks every mark's dataText unconditionally (no byte-match comparison, unlike a stock dataset)", () => {
+    const encoded = chartsUrlStateForEncode(remoteState());
+    expect(encoded.marks[0]!.dataText).toBe("[]");
+    expect(encoded.marks[0]!.dataOmitted).toBe(true);
+  });
+
+  it("round-trips the remote source's own metadata (ref/title/description/source) through the envelope, with marks blanked and never rehydrated", async () => {
+    const state = remoteState();
+    const raw = await encodeChartsUrlState(state);
+    expect(new TextEncoder().encode(raw).length).toBeLessThan(1024); // no rows in the link
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.data.source).toEqual(state.data.source);
+    // Never rehydrated — a remote source has no local copy to rehydrate FROM.
+    expect(decoded!.marks[0]!.dataText).toBe("[]");
+  });
+
+  it("chartsUrlStateResolveDataset reports the ref for the page to re-fetch, leaving state untouched", () => {
+    const state = remoteState();
+    const result = chartsUrlStateResolveDataset(state);
+    expect(result.remoteRef).toBe("mstz/titanic");
+    expect(result.notice).toBeUndefined();
+    expect(result.state).toBe(state);
+  });
+});
+
+describe("chartsUrlState — unresolvable stock dataset id (P2-3, REVIEW-showcase-opus.md)", () => {
+  it("falls back to a random vendored dataset with a notice, rather than decoding to a hard empty-data render", () => {
+    const state: ChartsWorkbenchState = { ...createChartsWorkbenchState(), data: { source: { kind: "dataset", id: "not-a-real-dataset-id" }, pipeline: [] } };
+    const result = chartsUrlStateResolveDataset(state);
+    expect(result.notice).toContain("not-a-real-dataset-id");
+    expect(result.state.data.source?.kind).toBe("dataset");
+    expect(CHARTS_DATASETS.some((d) => d.id === (result.state.data.source as { id: string }).id)).toBe(true);
+    expect(result.remoteRef).toBeUndefined();
+  });
+
+  it("a resolvable stock id is left completely untouched", () => {
+    const state: ChartsWorkbenchState = { ...createChartsWorkbenchState(), data: { source: { kind: "dataset", id: "iris-flowers" }, pipeline: [] } };
+    const result = chartsUrlStateResolveDataset(state);
+    expect(result).toEqual({ state });
   });
 });
 

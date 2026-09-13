@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { glyphChartSeriesPreview, renderGlyphChart, type GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
@@ -8,8 +8,11 @@ import {
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
+import { loadDatasetRows } from "../../lib/datasetLoad";
+import { parseDatasetHitFromQuery, type DatasetHit } from "../../lib/datasetSearch";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDataFolder } from "./ChartsDataFolder";
+import { ChartsDatasetSearchBox, pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import {
@@ -17,7 +20,7 @@ import {
   generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
-import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
+import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
@@ -60,11 +63,28 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
     if (initialState) return initialState;
     return readUrlParam(CHARTS_URL_PARAM) ? null : createRandomChartsWorkbenchState();
   });
+  const [notice, setNotice] = useState<string | undefined>(undefined);
+  // Set only when the decoded link named a REMOTE dataset (`data.source.kind
+  // === "remote"`) — its rows are never in the link (`chartsUrlState.ts`'s
+  // "URL state" doc), so the page mounts on the decoded shell (mark data
+  // still blank) and `ChartsWorkbenchInner`'s own mount effect re-fetches
+  // this ref immediately, exactly like a fresh search-box selection would.
+  const [remoteRef, setRemoteRef] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (initialState || resolved) return;
     let cancelled = false;
     void decodeChartsUrlState(readUrlParam(CHARTS_URL_PARAM)).then((decoded) => {
-      if (!cancelled) setResolved(decoded ?? createRandomChartsWorkbenchState());
+      if (cancelled) return;
+      if (!decoded) { setResolved(createRandomChartsWorkbenchState()); return; }
+      // P2-3 (review fix, REVIEW-showcase-opus.md): an unresolvable stock
+      // dataset id degrades to a random vendored dataset with a notice,
+      // the same graceful fallback a CORRUPT envelope already gets —
+      // never a hard `empty-data` render. A remote source is reported the
+      // same way but resolved via `remoteRef` below, not a fallback.
+      const { state, notice: fallbackNotice, remoteRef: ref } = chartsUrlStateResolveDataset(decoded);
+      setResolved(state);
+      setNotice(fallbackNotice);
+      setRemoteRef(ref);
     });
     return () => { cancelled = true; };
     // Only ever runs once: `resolved` starts non-null (no gate needed) or
@@ -73,10 +93,10 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!resolved) return null;
-  return <ChartsWorkbenchInner initialState={resolved} />;
+  return <ChartsWorkbenchInner initialState={resolved} initialNotice={notice} initialRemoteRef={remoteRef} />;
 }
 
-function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchState }) {
+function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }: { initialState: ChartsWorkbenchState; initialNotice?: string; initialRemoteRef?: string }) {
   const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   // Portal target for the dataset `<select>` — the rail's own header
@@ -86,7 +106,13 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // renders the select inline for that one frame instead of dropping it.
   const [dataSelectSlot, setDataSelectSlot] = useState<HTMLElement | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState(initialNotice ?? "");
+  // The plain `useEffect(() => setFeedback(""), [state])` below runs on
+  // MOUNT too (React effects always fire after the first commit) — without
+  // this guard it would immediately erase the `initialNotice` seeded above
+  // before a reader ever saw it.
+  const feedbackClearedOnce = useRef(false);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
@@ -142,12 +168,59 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => { setFeedback(""); }, [state]);
+  useEffect(() => {
+    if (!feedbackClearedOnce.current) { feedbackClearedOnce.current = true; return; }
+    setFeedback("");
+  }, [state]);
   useEffect(() => {
     if (!feedback) return;
     const timer = window.setTimeout(() => setFeedback(""), 1800);
     return () => window.clearTimeout(timer);
   }, [feedback]);
+
+  // Dataset search (glyphcss dataset-search feature): loads a chosen hit
+  // off-network (`lib/datasetLoad.ts`) and commits it with ONE synchronous
+  // dispatch (`select-remote-dataset`, `chartsWorkbenchState.ts`) once the
+  // rows land — a reducer action can't itself be async. A failed load
+  // (gated/404/network/too-big/not-tabular — every `DatasetLoadResult`
+  // kind) falls back to a random VENDORED dataset with the error shown in
+  // the feedback banner, rather than leaving the page on a stale or
+  // half-loaded chart.
+  const loadRemoteDataset = useCallback(async (hit: DatasetHit) => {
+    setRemoteLoading(true);
+    const result = await loadDatasetRows(hit);
+    setRemoteLoading(false);
+    if (!result.ok) {
+      dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
+      setFeedback(`Couldn't load "${hit.title}": ${result.error}`);
+      return;
+    }
+    pushRecentRemoteDataset(hit);
+    dispatch({ type: "select-remote-dataset", ref: hit.ref, title: hit.title, description: hit.description ?? "", source: result.source, rows: result.rows });
+    if (result.truncated) setFeedback(`Loaded a ${result.rows.length}-row sample of "${hit.title}" (it's larger than this page loads).`);
+  }, [dispatch]);
+
+  // A `?c=` link naming a remote dataset carries no rows (see
+  // `chartsUrlState.ts`'s "URL state" doc) — the page mounts on the
+  // decoded shell immediately and this re-fetches the SAME ref exactly
+  // once, so "share a remote-dataset chart" behaves like re-running the
+  // search box's own selection rather than needing a second code path.
+  const remoteRefLoadedOnMount = useRef(false);
+  useEffect(() => {
+    if (!initialRemoteRef || remoteRefLoadedOnMount.current) return;
+    remoteRefLoadedOnMount.current = true;
+    const hit = parseDatasetHitFromQuery(initialRemoteRef);
+    if (!hit) {
+      dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
+      setFeedback(`Couldn't resolve "${initialRemoteRef}" — showing a random dataset instead.`);
+      return;
+    }
+    void loadRemoteDataset(hit);
+    // Runs once on mount only — `loadRemoteDataset`'s own identity is
+    // stable across the reducer's lifetime (it closes only over `dispatch`,
+    // which `useReducer` never changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const copy = async (encoding: "ascii" | "ansi") => {
     if (!rendered.ok) return;
@@ -213,20 +286,26 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
     <InstrumentBody>
       {/* Data is this page's own "model" (AGENTS.md's "Charts" — "Data
        *  layer"), exactly as synth's rail is the voice/model picker: the
-       *  header action carries the dataset picker + the "⚄ Random" button
+       *  header carries the dataset SEARCH box (`ChartsDatasetSearchBox`,
+       *  matching `MapsWorkbench/MapSearchBox.tsx`'s own look/behaviour —
+       *  a Hugging Face Hub lookup, never replacing the vendored picker)
+       *  above the stock dataset `<select>` + the "Random" button
        *  (GalleryWorkbench.tsx's own "Load Random" idiom), the body shows
        *  the dataset as a card (`ChartsDataFolder` — title, description,
        *  source credit, a read-only "View data" disclosure), and a second
        *  section below holds the mark this is a showcase of one chart at a
        *  time, not a builder: picking a dataset REPLACES the chart
-       *  immediately (`select-dataset`), with no separate Apply step and
-       *  no add/remove-mark controls. */}
+       *  immediately (`select-dataset`/`select-remote-dataset`), with no
+       *  separate Apply step and no add/remove-mark controls. */}
       <InstrumentRail id="charts-data-panel" title="Data" open={mobilePanel === "data"}
         action={<span className="charts-rail-header-actions">
-          <span className="charts-dataset-select-slot" ref={setDataSelectSlot} />
-          <button type="button" className="control-btn charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={handleRandomDataset}>⚄ Random</button>
+          <ChartsDatasetSearchBox onSelect={(hit) => void loadRemoteDataset(hit)} />
+          <span className="charts-rail-header-actions-row">
+            <span className="charts-dataset-select-slot" ref={setDataSelectSlot} />
+            <button type="button" className="control-btn control-btn--primary charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={handleRandomDataset}>Random</button>
+          </span>
         </span>}>
-        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} />
+        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} marks={state.marks} loading={remoteLoading} />
         <div className="charts-marks-section">
           {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         </div>

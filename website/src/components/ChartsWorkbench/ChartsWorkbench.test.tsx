@@ -620,6 +620,58 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector(".synth-viewport pre")!.textContent).not.toContain("T00:00:00");
   });
 
+  // `buildDatasetMark` grew a 5th `transform` parameter (feat/diagrams
+  // `b2278e2f`, vendoring the flow/stacked datasets) and `select-dataset`
+  // must forward a curated `recommended.transform` (e.g. this dataset's
+  // `"stack"`) through to it — the old 4-arg call silently dropped it, so
+  // the mark rendered as an OVERLAPPING (unstacked) area instead of a
+  // stacked one, with no ledger reject to notice by (an unstacked area is
+  // still valid input). Checked at the DOM layer (the mark's own Transform
+  // `<select>`, which mirrors `mark.transform` exactly) rather than the
+  // reducer directly, so this is the same "what a reader would see" proof
+  // the other Data-folder tests in this block use.
+  it("Data folder: choosing a stacked-area dataset (energy-consumption-by-source) carries its curated transform to the mark and renders with no ledger reject", () => {
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.value = "energy-consumption-by-source";
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(activeMarkType()).toBe("area");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 transform"]')!.value).toBe("stack");
+    expect(container.querySelector(".charts-error")).toBeNull();
+    const pre = container.querySelector(".synth-viewport pre")!;
+    expect(pre.textContent).toContain("World primary energy consumption by source");
+    expect(pre.textContent!.trim().length).toBeGreaterThan(0);
+  });
+
+  // P3-6 (review fix, REVIEW-showcase-opus.md): the sankey/funnel
+  // mark-type buttons must be DISABLED (with a reason, never a raw ledger
+  // error a click would otherwise reach) on a dataset that can't feed
+  // them, and ENABLED on a genuinely flow-shaped one — proven against the
+  // real vendored flow datasets now that `feat/diagrams` `b2278e2f` added
+  // them, not just a synthetic fixture.
+  it("Data folder: sankey/funnel mark-type buttons are disabled on a line dataset and enabled on their own flow datasets", () => {
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    const select = (value: string) => act(() => {
+      datasetSelect.value = value;
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    select("global-temperature");
+    const sankeyBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: sankey"]')!;
+    const funnelBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!;
+    expect(sankeyBtn.disabled).toBe(true);
+    expect(funnelBtn.disabled).toBe(true);
+    expect(sankeyBtn.title.length).toBeGreaterThan(0);
+
+    select("energy-flow-sankey");
+    expect(activeMarkType()).toBe("sankey");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: sankey"]')!.disabled).toBe(false);
+
+    select("ecommerce-conversion-funnel");
+    expect(activeMarkType()).toBe("funnel");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!.disabled).toBe(false);
+  });
+
   it("choosing a different dataset replaces the chart again, with no accumulation", () => {
     const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
     const select = (value: string) => act(() => {
@@ -872,6 +924,135 @@ describe("ChartsWorkbench — showcase mount (items 2/3)", () => {
     await mountWithLink(raw);
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("made-up");
   });
+});
+
+// ── Dataset search (glyphcss dataset-search feature) — the mounted page,
+// with `global.fetch` stubbed to real `Response` objects shaped like the
+// Hugging Face Hub search + datasets-server endpoints (never the real
+// network). Its own `beforeEach`/`afterEach` install and tear down the
+// stub so no other describe block in this file is affected.
+describe("ChartsWorkbench — dataset search (remote)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const STUB_ID = "stub/demo";
+  function stubFetch(overrides: { search?: unknown; splits?: unknown; rows?: unknown; rowsStatus?: number } = {}) {
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.startsWith("https://huggingface.co/api/datasets?")) {
+        return new Response(JSON.stringify(overrides.search ?? [
+          { id: STUB_ID, downloads: 42, likes: 1, private: false, gated: false, disabled: false, tags: ["format:csv", "modality:tabular"], cardData: { pretty_name: "Stub Demo" }, description: "A stub demo dataset." },
+        ]), { status: 200 });
+      }
+      if (url.startsWith("https://datasets-server.huggingface.co/splits?")) {
+        return new Response(JSON.stringify(overrides.splits ?? { splits: [{ config: "default", split: "train" }] }), { status: 200 });
+      }
+      if (url.startsWith("https://datasets-server.huggingface.co/rows?")) {
+        return new Response(JSON.stringify(overrides.rows ?? {
+          features: [{ name: "x" }, { name: "y" }],
+          rows: [{ row_idx: 0, row: { x: 1, y: 2 } }, { row_idx: 1, row: { x: 3, y: 4 } }],
+          num_rows_total: 2,
+        }), { status: overrides.rowsStatus ?? 200 });
+      }
+      throw new Error(`unstubbed url in test: ${url}`);
+    }));
+  }
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    window.history.replaceState(null, "", "/charts");
+    vi.unstubAllGlobals();
+  });
+  const mount = () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench initialState={createChartsWorkbenchState()} />));
+  };
+  // The search box's own 250ms debounce — a plain awaited real-timer delay,
+  // the same idiom `mountWithLink` above uses for the async decode effect
+  // (see its own comment: `act(async () => vi.waitFor(...))` does not
+  // observe a microtask-driven update reliably in this harness).
+  const settleDebounce = () => new Promise((resolve) => setTimeout(resolve, 320));
+
+  it("typing → live results → Enter loads and renders the chart, with no Apply step anywhere", async () => {
+    stubFetch();
+    mount();
+    expect(container.querySelector(".charts-error")).toBeNull();
+    expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "Apply")).toBe(false);
+    const input = container.querySelector<HTMLInputElement>(".charts-dataset-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "demo");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { await settleDebounce(); });
+    const option = container.querySelector<HTMLButtonElement>(".charts-dataset-search-option");
+    expect(option).not.toBeNull();
+    expect(option!.textContent).toContain("Stub Demo");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    const start = Date.now();
+    while (!container.querySelector(".charts-data-info")) {
+      if (Date.now() - start > 3000) throw new Error("timed out waiting for the remote dataset to load");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    expect(container.querySelector(".charts-data-info")!.textContent).toContain("Stub Demo");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    expect(container.querySelector(".charts-error")).toBeNull();
+  }, 10_000);
+
+  it("a failing remote load falls back to a random vendored dataset, with the error shown", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
+    mount();
+    // Drive the load directly via a pasted bare id (skips the live-search
+    // half entirely — `parseDatasetHitFromQuery` recognizes it with no
+    // network call, so this exercises exactly the LOAD failure path).
+    const input = container.querySelector<HTMLInputElement>(".charts-dataset-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, STUB_ID);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const before = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value;
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    const start = Date.now();
+    const hasLoadFailureFeedback = () => Array.from(container.querySelectorAll(".charts-readout")).some((el) => el.textContent?.includes("Couldn't load"));
+    while (!hasLoadFailureFeedback()) {
+      if (Date.now() - start > 3000) throw new Error("timed out waiting for the load-failure fallback");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    // Fell back to SOME vendored dataset (never left on a blank/half state).
+    expect(CHARTS_DATASETS.map((d) => d.id)).toContain(container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value);
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    void before; // (documents intent: a different dataset than "none selected" — the exact id is randomized, not asserted)
+  }, 10_000);
+
+  it("a ?c= link naming a remote dataset re-fetches on decode (rows are never in the link) and renders the fresh chart", async () => {
+    stubFetch();
+    const linkState = {
+      ...createChartsWorkbenchState(),
+      data: { source: { kind: "remote" as const, ref: STUB_ID, title: "Stub Demo", description: "old description", source: { name: "Hugging Face — stub/demo", url: "https://huggingface.co/datasets/stub/demo" } }, pipeline: [] },
+    };
+    const raw = await encodeChartsUrlState(linkState);
+    const url = new URL("http://localhost/charts");
+    url.searchParams.set(CHARTS_URL_PARAM, raw);
+    window.history.replaceState(null, "", url.pathname + url.search);
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench />));
+    const start = Date.now();
+    while (!container.querySelector(".charts-data-info")) {
+      if (Date.now() - start > 3000) throw new Error("timed out waiting for the remote re-fetch to land");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    expect(container.querySelector(".charts-error")).toBeNull();
+  }, 10_000);
 });
 
 // ── Mark-type icon toggle options (owner packet item 3, extended to the

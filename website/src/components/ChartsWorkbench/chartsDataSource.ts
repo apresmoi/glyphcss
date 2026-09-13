@@ -20,6 +20,22 @@ export type ChartsDataSource =
        *  than writing a query string a plain static host's request-line
        *  limit would 414 on reload. `raw` is `""` whenever this is `true`. */
       readonly omitted?: true;
+    }
+  | {
+      /** A dataset resolved off the network (`lib/datasetSearch.ts` +
+       *  `lib/datasetLoad.ts`) rather than one of the 8 vendored
+       *  `datasets/` entries — a Hugging Face Hub search hit or a pasted
+       *  raw-file URL. `ref` is what `select-remote-dataset` (and a `?c=`
+       *  decode's re-fetch) resolves AGAIN on demand: a Hugging Face
+       *  dataset id (`"org/name"`) or the exact URL that was searched/
+       *  pasted — never the rows themselves, which this source never
+       *  carries (see `chartsUrlState.ts`'s "URL state" doc). `title`/
+       *  `description`/`source` are a snapshot of what was shown when the
+       *  dataset was chosen, carried here (rather than re-derived) because,
+       *  unlike a vendored `ChartsDataset`, there is no local object to
+       *  read them back off between loads. */
+      readonly kind: "remote"; readonly ref: string; readonly title: string; readonly description: string;
+      readonly source: { readonly name: string; readonly url: string; readonly licence?: string };
     };
 
 export type ChartsDataResolution =
@@ -42,6 +58,14 @@ export function resolveChartsDataRows(source: ChartsDataSource, pipeline: readon
     if (!dataset) return { ok: false, error: `Unknown dataset "${source.id}".` };
     const result = runPipeline(dataset.rows, pipeline);
     return result.ok ? { ok: true, rows: result.rows, dataset } : { ok: false, error: `Step ${result.stepIndex + 1}: ${result.error}` };
+  }
+  if (source.kind === "remote") {
+    // Unlike a vendored dataset or a pasted "Custom…" paste, a remote
+    // source's rows live off-network and this function is SYNCHRONOUS —
+    // `select-remote-dataset` (`chartsWorkbenchState.ts`) is the one path
+    // that resolves one, and it's handed already-loaded rows directly
+    // (`lib/datasetLoad.ts`), never through here.
+    return { ok: false, error: "A remote dataset resolves asynchronously — see lib/datasetLoad.ts." };
   }
   if (source.omitted) return { ok: false, error: "Custom data isn't in this link — paste or upload it again." };
   const parsed = parseTabular(source.raw, { filename: source.filename, mimeType: source.mimeType });

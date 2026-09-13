@@ -1,5 +1,5 @@
 // /charts' whole workbench configuration in one shareable `?c=` query param
-// — see AGENTS.md's "## Charts" ("URL state") and website/src/lib/
+// — see docs/design/charts.md's "URL state" and website/src/lib/
 // jsonUrlState.ts's file header for why this is a JSON envelope rather than
 // urlState.ts's flat packed-field schema: a chart's marks are an
 // open-ended array, each with its own data/channels/options, not a
@@ -15,6 +15,7 @@
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
+  createChartsWorkbenchState, findChartsDataset, randomChartsDatasetId, reduceChartsWorkbenchState,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
   type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
@@ -56,7 +57,7 @@ function validateMarkColor(value: unknown): string | readonly string[] | null | 
 
 function validateMark(value: unknown): ChartsWorkbenchMark | null {
   if (!isRecord(value)) return null;
-  const { id, type, dataText, channels, transform, options, color: rawColor } = value;
+  const { id, type, dataText, channels, transform, options, color: rawColor, dataOmitted } = value;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (!oneOf(type, CHART_MARK_TYPES)) return null;
   if (typeof dataText !== "string") return null;
@@ -101,7 +102,14 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
   // `editableMark`'s default.
   const color = validateMarkColor(rawColor);
   if (color === null) return null;
-  return { id, type, dataText, channels: cleanChannels, transform: transform as ChartsWorkbenchMark["transform"], options: cleanOptions, ...(color !== undefined ? { color } : {}) };
+  // P3-1/P3-2 (review fix): a NEW field, never a reinterpretation of
+  // `dataText`'s own value space — see `ChartsWorkbenchMark.dataOmitted`'s
+  // own doc. Absent on every link written before this flag existed, so
+  // such a link's `dataText` (including a genuine `"[]"` a reader's own
+  // edit produced, pre-showcase) is never mistaken for the omission
+  // sentinel.
+  if (dataOmitted !== undefined && dataOmitted !== true) return null;
+  return { id, type, dataText, channels: cleanChannels, transform: transform as ChartsWorkbenchMark["transform"], options: cleanOptions, ...(color !== undefined ? { color } : {}), ...(dataOmitted === true ? { dataOmitted: true as const } : {}) };
 }
 
 function validateScale(value: unknown): ChartsWorkbenchScale | null {
@@ -169,6 +177,14 @@ function validateDataSource(value: unknown): ChartsDataSource | null {
   if (!isRecord(value)) return null;
   if (value.kind === "dataset") {
     return typeof value.id === "string" ? { kind: "dataset", id: value.id } : null;
+  }
+  if (value.kind === "remote") {
+    if (typeof value.ref !== "string" || typeof value.title !== "string" || typeof value.description !== "string") return null;
+    if (!isRecord(value.source)) return null;
+    const { name, url, licence } = value.source;
+    if (typeof name !== "string" || typeof url !== "string") return null;
+    if (licence !== undefined && typeof licence !== "string") return null;
+    return { kind: "remote", ref: value.ref, title: value.title, description: value.description, source: { name, url, ...(licence !== undefined ? { licence } : {}) } };
   }
   if (value.kind === "custom") {
     if (typeof value.raw !== "string") return null;
@@ -357,8 +373,9 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
 
 const chartsUrlEnvelope = createJsonUrlEnvelope<ChartsWorkbenchState>(VERSION, validateChartsWorkbenchState);
 
-// ── Stock-dataset mark data omission (AGENTS.md's "## Charts" — "URL
-// state": "the mark's DATA is never in the link for a stock dataset") ─────
+// ── Stock/remote-dataset mark data omission (docs/design/charts.md's "URL
+// state": the mark's data is never in the link for a stock OR remote
+// dataset) ─────────────────────────────────────────────────────────────
 //
 // `select-dataset` (`chartsWorkbenchState.ts`) builds a mark's `dataText`
 // straight from the vendored dataset's own rows, so writing it into `?c=`
@@ -368,7 +385,21 @@ const chartsUrlEnvelope = createJsonUrlEnvelope<ChartsWorkbenchState>(VERSION, v
 // re-runs the exact same derivation `select-dataset` used (dataset id + the
 // mark's OWN x channel, for the date-normalize decision — see its doc); a
 // mark whose `dataText` matches it byte for byte is safe to blank, because
-// decode reconstructs the identical string from the same inputs.
+// decode reconstructs the identical string from the same inputs. A REMOTE
+// source has no such local copy to re-derive from at all — its marks are
+// blanked unconditionally, and a decode instead triggers a fresh network
+// re-fetch (`chartsUrlStateResolveDataset`'s own doc; the page, not this
+// module, owns that fetch).
+//
+// P3-1/P3-2 (REVIEW-showcase-opus.md): the blank is the sentinel `"[]"`
+// PLUS the mark's own `dataOmitted: true` flag — a NEW `v1`-append-only
+// field, not a reinterpretation of `dataText`'s existing value space. Before
+// this flag existed, `"[]"` alone was read as "omitted", which could not
+// tell that apart from a genuine empty array a reader's own (pre-showcase)
+// table edit produced under a `"dataset"` source — decode silently
+// discarded that real (if empty) edit and rehydrated the full dataset in
+// its place. `dataOmitted` makes the two cases syntactically distinct: only
+// a mark carrying the flag is ever rehydrated.
 
 /** `null` when the dataset id doesn't resolve (never true for a real
  *  vendored id, but this is also called from decode on a value the URL
@@ -386,52 +417,89 @@ function chartsDatasetDerivedDataText(datasetId: string, xChannel: string | unde
 
 /**
  * Exported for its own direct test: the state actually handed to the JSON
- * envelope for encoding. `state.data.source.kind === "dataset"` blanks
- * every mark whose `dataText` matches `chartsDatasetDerivedDataText` for
- * that mark's own x channel to `"[]"`; a mark that diverges (a channel
- * changed after selection so the derivation no longer matches, or a
- * hand-built/historical link with genuinely different data) is real data
- * with no other copy and rides in full — never guessed at, never dropped
- * silently. A non-`"dataset"` source (`null`, or the backward-compat
- * `"custom"` shape) returns `state` untouched; `encodeChartsUrlStateInfo`'s
- * own oversized-custom-payload drop runs after this and is unaffected.
+ * envelope for encoding. A `"remote"` source blanks EVERY mark
+ * unconditionally (there is no local copy to compare against — decode
+ * always re-fetches instead of rehydrating). A `"dataset"` source blanks
+ * only a mark whose `dataText` matches `chartsDatasetDerivedDataText` for
+ * that mark's own x channel; a mark that diverges (a channel changed after
+ * selection so the derivation no longer matches, or a hand-built/historical
+ * link with genuinely different data) is real data with no other copy and
+ * rides in full — never guessed at, never dropped silently. Any other
+ * source (`null`, or the backward-compat `"custom"` shape) returns `state`
+ * untouched; `encodeChartsUrlStateInfo`'s own oversized-custom-payload drop
+ * runs after this and is unaffected.
  */
 export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWorkbenchState {
   const source = state.data.source;
+  if (source?.kind === "remote") {
+    const marks = state.marks.map((mark) => mark.dataText === "[]" && mark.dataOmitted === true ? mark : { ...mark, dataText: "[]", dataOmitted: true as const });
+    return marks.some((mark, i) => mark !== state.marks[i]) ? { ...state, marks } : state;
+  }
   if (source?.kind !== "dataset") return state;
   let changed = false;
   const marks = state.marks.map((mark) => {
     const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
     if (derived === null || derived !== mark.dataText) return mark;
     changed = true;
-    return { ...mark, dataText: "[]" };
+    return { ...mark, dataText: "[]", dataOmitted: true as const };
   });
   return changed ? { ...state, marks } : state;
 }
 
 /**
- * The inverse, run on every decode: a mark whose `dataText` is EXACTLY the
- * omission sentinel `"[]"` under a `"dataset"` source is re-derived fresh
- * from the dataset id + that mark's own x channel — the same derivation
- * `chartsUrlStateForEncode` compared against, so this is exact. A link
- * encoded before this feature existed always wrote a mark's real data in
- * full (never `"[]"` for a non-empty dataset), so it never matches this
- * sentinel and decodes with that real content completely untouched — a
- * "legacy" link renders exactly as it always did, with no re-derivation
- * involved at all.
+ * The inverse, run on every decode: a mark carrying `dataOmitted: true`
+ * under a `"dataset"` source is re-derived fresh from the dataset id +
+ * that mark's own x channel — the same derivation `chartsUrlStateForEncode`
+ * compared against, so this is exact. A link encoded before this flag
+ * existed (or one whose `dataText` happens to be `"[]"` for an honest
+ * reason, pre-showcase) carries no `dataOmitted` at all and is never
+ * touched here — its content decodes exactly as saved, sentinel or not.
+ * A `"remote"` source is left alone too: there is nothing local to
+ * rehydrate from, and `chartsUrlStateResolveDataset` (run separately, by
+ * the page) is what turns its still-blank mark into a fresh network fetch.
  */
 function chartsUrlStateRehydrated(state: ChartsWorkbenchState): ChartsWorkbenchState {
   const source = state.data.source;
   if (source?.kind !== "dataset") return state;
   let changed = false;
   const marks = state.marks.map((mark) => {
-    if (mark.dataText !== "[]") return mark;
+    if (mark.dataOmitted !== true) return mark;
     const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
     if (derived === null) return mark;
     changed = true;
-    return { ...mark, dataText: derived };
+    const { dataOmitted: _dataOmitted, ...rest } = mark;
+    return { ...rest, dataText: derived };
   });
   return changed ? { ...state, marks } : state;
+}
+
+/**
+ * P2-3 (review fix, REVIEW-showcase-opus.md): a decoded envelope's
+ * `data.source` may legitimately name a `"dataset"` id `findChartsDataset`
+ * (aliases included — `datasets/index.ts`) can no longer resolve, or a
+ * `"remote"` source that still needs its rows fetched (never rehydrated —
+ * see `chartsUrlStateRehydrated`'s own doc). Before this, both reached the
+ * page as-is: an unresolvable STOCK id rendered a hard `empty-data` ledger
+ * error (`findChartsDataset` → `undefined` → the mark's own `dataText`
+ * stays `"[]"`) — the exact failure mode a CORRUPT envelope already
+ * degrades gracefully from (`decodeChartsUrlState` returning `null` falls
+ * back to a random dataset). This closes that gap: an unresolvable stock
+ * id degrades to a random vendored dataset, with `notice` naming what
+ * happened so the page can tell the reader (`ChartsWorkbench.tsx`'s
+ * existing `feedback` banner). Deliberately NOT folded into
+ * `decodeChartsUrlState` itself (whose `ChartsWorkbenchState | null`
+ * signature ~45 existing tests depend on) — a separate pure step the page
+ * runs on the decoded result, so every prior decode test is untouched. A
+ * `"remote"` source is reported the SAME way but with no fallback DATASET
+ * attached — `ref` is what the caller re-fetches; only a fetch FAILURE
+ * (the page's own concern, `lib/datasetLoad.ts`) falls back to random.
+ */
+export function chartsUrlStateResolveDataset(state: ChartsWorkbenchState): { readonly state: ChartsWorkbenchState; readonly notice?: string; readonly remoteRef?: string } {
+  const source = state.data.source;
+  if (source?.kind === "remote") return { state, remoteRef: source.ref };
+  if (source?.kind !== "dataset" || findChartsDataset(source.id)) return { state };
+  const fallback = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: randomChartsDatasetId() });
+  return { state: fallback, notice: `Dataset "${source.id}" is no longer available — showing a random dataset instead.` };
 }
 
 export interface ChartsUrlEncodeResult {

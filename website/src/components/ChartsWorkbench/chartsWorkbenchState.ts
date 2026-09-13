@@ -12,9 +12,10 @@ import {
 } from "@glyphcss/charts";
 import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
+import type { TabularRow } from "../../lib/tabularParse";
 import {
   buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
-  type ChartsDataSource,
+  type ChartsDataSource, type ChartsTopRecommendation,
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { findChartsDataset } from "./datasets";
@@ -196,6 +197,15 @@ export interface ChartsWorkbenchMark {
    *  `options.color` — same reason `state.style.axisColor` is kept out of
    *  `state.axes`. `undefined` = unset (library default). */
   readonly color?: string | readonly string[];
+  /** URL-envelope plumbing ONLY (`chartsUrlState.ts`) — never set by any
+   *  reducer action. `true` means `dataText` is the `"[]"` OMISSION
+   *  SENTINEL: encode blanks a stock/remote-dataset mark's real rows to
+   *  keep them out of the `?c=` link, and sets this flag alongside the
+   *  blank so decode can tell that blank apart from a genuine empty array
+   *  a reader's own edit produced (P3-1/P3-2, REVIEW-showcase-opus.md) — a
+   *  NEW field rather than overloading `dataText`'s own value space, so a
+   *  link from before this flag existed is never mistaken for one. */
+  readonly dataOmitted?: true;
 }
 export interface ChartsWorkbenchScale {
   readonly type: typeof CHART_SCALE_TYPES[number];
@@ -278,15 +288,6 @@ export type ChartsWorkbenchAction =
   | { type: "set-axis"; axis: "x" | "y"; patch: Partial<ChartsWorkbenchAxis> }
   | { type: "set-chart"; patch: Partial<ChartsWorkbenchState["chart"]> }
   | { type: "set-terminal"; flag: "NO_COLOR" | "FORCE_COLOR"; value: boolean }
-  // Table editor (packet item 7) — setCell/addRow/removeRow/addColumn/
-  // removeColumn/renameColumn, spelled with this file's own kebab-case
-  // action-type convention (every other action here already is).
-  | { type: "set-cell"; id: number; row: number; column: string; value: string }
-  | { type: "add-row"; id: number }
-  | { type: "remove-row"; id: number; row: number }
-  | { type: "add-column"; id: number; column: string }
-  | { type: "remove-column"; id: number; column: string }
-  | { type: "rename-column"; id: number; column: string; next: string }
   // Data folder (AGENTS.md's "Charts" — "Data layer"): `set-data-source`/
   // `set-pipeline` stay for backward-compat decode of a link built before
   // this feature (a "Custom…" paste, or a hand-edited pipeline) and for
@@ -300,6 +301,15 @@ export type ChartsWorkbenchAction =
   | { type: "set-data-source"; source: ChartsDataSource | null }
   | { type: "set-pipeline"; pipeline: readonly PipelineStep[] }
   | { type: "select-dataset"; id: string }
+  // Dataset search (glyphcss dataset-search feature): a Hugging Face hit or
+  // a pasted URL/id resolves to ROWS off-thread (`lib/datasetSearch.ts` +
+  // `lib/datasetLoad.ts`, both async and network-touching — a reducer
+  // action must not be), so the page loads them first and dispatches this
+  // ONE synchronous action with the already-resolved rows, mirroring
+  // `select-dataset`'s own curated-mapping commit but reading the general
+  // profiler's top pick (a remote dataset carries no curated `recommended`
+  // field) and stamping `data.source` as `{ kind: "remote", ref, ... }`.
+  | { type: "select-remote-dataset"; ref: string; title: string; description: string; source: { name: string; url: string; licence?: string }; rows: readonly TabularRow[] }
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
@@ -348,7 +358,9 @@ function isDefaultAxisTitlePlacement(placement: ChartsWorkbenchAxisTitlePlacemen
  *  certainly name columns the new source doesn't have). */
 function dataSourceKey(source: ChartsDataSource | null): string {
   if (!source) return "";
-  return source.kind === "dataset" ? `dataset:${source.id}` : `custom:${source.filename ?? ""}`;
+  if (source.kind === "dataset") return `dataset:${source.id}`;
+  if (source.kind === "remote") return `remote:${source.ref}`;
+  return `custom:${source.filename ?? ""}`;
 }
 export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: ChartsWorkbenchAction): ChartsWorkbenchState {
   switch (action.type) {
@@ -359,9 +371,18 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "apply-preset": {
       const preset = CHART_PRESETS.find((p) => p.id === action.id);
       if (!preset) return state;
+      // P2-1 (review fix, REVIEW-showcase-opus.md): a tray preset REPLACES
+      // the chart, but a stale `data.source` used to survive it — the rail
+      // card, the `<select>` and the "View data" disclosure kept describing
+      // the dataset the PREVIOUS chart was made of, crediting its licence
+      // for data that is no longer plotted. A showcase's dataset card is a
+      // provenance statement ("this chart is made of THESE rows"), so it
+      // must go empty (the `<select>`'s own "— pick a dataset —"
+      // placeholder) the moment a preset makes that statement false.
       return { ...state, marks: preset.spec.marks.map((mark, i) => editableMark(mark, state.nextMarkId + i)),
         nextMarkId: state.nextMarkId + preset.spec.marks.length, scales: { x: autoScale(), y: autoScale() }, axes: { x: autoAxis(), y: autoAxis() },
-        chart: { ...state.chart, title: preset.label, description: preset.spec.description ?? "" } };
+        chart: { ...state.chart, title: preset.label, description: preset.spec.description ?? "" },
+        data: { source: null, pipeline: [] } };
     }
     case "set-control": return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, action.control) };
     // P2-6 (REVIEW-dock-colours-sliders-opus.md): the Output folder's own
@@ -402,25 +423,6 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-axis": return { ...state, axes: { ...state.axes, [action.axis]: { ...state.axes[action.axis], ...action.patch } } };
     case "set-chart": return { ...state, chart: { ...state.chart, ...action.patch } };
     case "set-terminal": return { ...state, terminal: { ...state.terminal, [action.flag]: action.value } };
-    case "set-cell": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableSetCell(t, action.row, action.column, action.value)) : mark) };
-    case "add-row": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, tableAddRow) : mark) };
-    case "remove-row": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableRemoveRow(t, action.row)) : mark) };
-    case "add-column": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableAddColumn(t, action.column)) : mark) };
-    case "remove-column": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableRemoveColumn(t, action.column)) : mark) };
-    case "rename-column": return { ...state, marks: state.marks.map((mark) => {
-      if (mark.id !== action.id) return mark;
-      const renamed = withTable(mark, (t) => tableRenameColumn(t, action.column, action.next));
-      if (renamed === mark || renamed.dataText === mark.dataText) return renamed;
-      // final-gate-2 (codex #6): a channel naming the OLD column (e.g.
-      // `x: "month"`) went stale the moment the column itself was renamed
-      // — the data no longer has that field at all, and the mark then
-      // reached the canvas with an unresolved channel, thrown as
-      // GLYPH_CHART_INTERNAL_COORD. Every channel that named exactly the
-      // renamed column follows it to the new name; any other channel value
-      // (a different field, an accessor, "index"/"value") is untouched.
-      const channels = Object.fromEntries(Object.entries(renamed.channels).map(([key, value]) => [key, value === action.column ? action.next : value])) as ChartsWorkbenchMark["channels"];
-      return { ...renamed, channels };
-    }) };
     case "set-data-source": {
       // N2: the 256 KB cap is enforced HERE — the one place ANY action can
       // install a custom source — not only in `ChartsDataFolder.tsx`'s
@@ -458,41 +460,64 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       // so a dataset that somehow doesn't resolve degrades the same way
       // Apply always did, rather than crashing.
       const top = topChartsRecommendation(resolved.dataset, profiled.profile, profiled.recommendations);
+      const built = buildRecommendedMarkUpdate(state.nextMarkId, resolved.rows, top);
       // A1: a channel-less recommendation is an honest "nothing to plot"
       // answer, not a chart — never replace the reader's current chart with
       // a 0-ink one.
-      if (!top || Object.values(top.channels).every((value) => value === undefined)) return state;
-      // N4: a recommendation's own EXTRA reshape (a long-format
-      // `pivotLonger`, when `channels` names a melted column the source
-      // rows don't have yet) runs on top of the resolved rows.
-      let rows = resolved.rows;
-      if (top.pipeline && top.pipeline.length > 0) {
-        const reshaped = runPipeline(rows, top.pipeline);
-        if (reshaped.ok) rows = reshaped.rows;
-      }
-      const isDate = xChannelIsDate(profileRows(rows), top.channels.x);
-      // The profiler recognizes date SHAPES (`dataProfile.ts`'s
-      // `ISO_DATE`/`SLASH_DATE`) the library's own `scales.ts` time domain
-      // does not — a bare `YYYY-MM` or a slash date profiles as `date` but
-      // fails the renderer's `ISO_DATE_PATTERN` with `bad-time-domain`.
-      // Normalize the x column to the calendar date the renderer accepts
-      // BEFORE building the mark, through the SAME `normaliseDateColumn`
-      // the `parseDate` step uses, so the mark's own `dataText` and the
-      // `time` scale this action installs never disagree.
-      const dateColumn = isDate ? top.channels.x : undefined;
-      const markRows = dateColumn
-        ? rows.map((row) => ({ ...row, [dateColumn]: normaliseDateColumn(Object.hasOwn(row, dateColumn) ? row[dateColumn] ?? null : null) }))
-        : rows;
-      const mark = buildDatasetMark(state.nextMarkId, top.mark, markRows, top.channels);
+      if (!built) return state;
       return {
-        ...state, marks: [mark], nextMarkId: state.nextMarkId + 1,
+        ...state, marks: [built.mark], nextMarkId: state.nextMarkId + 1,
         data: { source, pipeline: [] },
-        scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
+        scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
         axes: { x: autoAxis(), y: autoAxis() },
         chart: { ...state.chart, title: dataset.title, description: dataset.description },
       };
     }
+    case "select-remote-dataset": {
+      const profiled = profileChartsData(action.rows);
+      // A remote dataset carries no curated `recommended` field (only the
+      // vendored `datasets/` entries do) — the general profiler's own top
+      // pick is the ONLY answer here, exactly the fallback branch
+      // `topChartsRecommendation` already takes for a `dataset: undefined`
+      // caller (a "Custom…" source, before this feature existed).
+      const top = topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
+      const built = buildRecommendedMarkUpdate(state.nextMarkId, action.rows, top);
+      if (!built) return state;
+      return {
+        ...state, marks: [built.mark], nextMarkId: state.nextMarkId + 1,
+        data: { source: { kind: "remote", ref: action.ref, title: action.title, description: action.description, source: action.source }, pipeline: [] },
+        scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
+        axes: { x: autoAxis(), y: autoAxis() },
+        chart: { ...state.chart, title: action.title, description: action.description },
+      };
+    }
   }
+}
+
+/**
+ * Shared by `select-dataset` and `select-remote-dataset`: apply a
+ * recommendation's own reshape pipeline (N4), normalize a date x column
+ * (the profiler recognizes date SHAPES — `dataProfile.ts`'s
+ * `ISO_DATE`/`SLASH_DATE` — the library's own `scales.ts` time domain does
+ * not, so a bare `YYYY-MM` or a slash date profiles as `date` but fails
+ * `ISO_DATE_PATTERN` with `bad-time-domain` unless normalized BEFORE the
+ * mark is built, through the SAME `normaliseDateColumn` the `parseDate`
+ * step uses), and build the one resulting mark. `null` when there is no
+ * usable recommendation at all (a channel-less top pick, or none).
+ */
+function buildRecommendedMarkUpdate(nextMarkId: number, rows: readonly TabularRow[], top: ChartsTopRecommendation | null): { readonly mark: ChartsWorkbenchMark; readonly isDate: boolean } | null {
+  if (!top || Object.values(top.channels).every((value) => value === undefined)) return null;
+  let out = rows;
+  if (top.pipeline && top.pipeline.length > 0) {
+    const reshaped = runPipeline(out, top.pipeline);
+    if (reshaped.ok) out = reshaped.rows;
+  }
+  const isDate = xChannelIsDate(profileRows(out), top.channels.x);
+  const dateColumn = isDate ? top.channels.x : undefined;
+  const markRows = dateColumn
+    ? out.map((row) => ({ ...row, [dateColumn]: normaliseDateColumn(Object.hasOwn(row, dateColumn) ? row[dateColumn] ?? null : null) }))
+    : out;
+  return { mark: buildDatasetMark(nextMarkId, top.mark, markRows, top.channels, top.transform), isDate };
 }
 
 export function parseChartMarkData(mark: ChartsWorkbenchMark): GlyphChartMark["data"] {
@@ -512,112 +537,42 @@ export function chartMarkFields(mark: ChartsWorkbenchMark): string[] {
   } catch { return []; }
 }
 
-// ── Table editor (packet item 7) ────────────────────────────────────────
-//
-// The table and the JSON textarea are ONE state: both read/write the same
-// `dataText` string, so switching tabs never loses an edit either view
-// made. A numeric array is presented as a single "value" column — the
-// same pseudo-field `chartMarkFields`'s channel selects already offer —
-// and a table edit that TOUCHES that shape (adding/renaming a column)
-// promotes it to a record array on the spot, `value` included, so no data
-// point silently disappears.
-export type ChartsWorkbenchCell = string | number;
-export type ChartsWorkbenchTableRow = Readonly<Record<string, ChartsWorkbenchCell>>;
-export interface ChartsWorkbenchTable {
-  readonly columns: readonly string[];
-  readonly rows: readonly ChartsWorkbenchTableRow[];
-  /** `false` when `dataText` isn't currently valid table JSON (an array of numbers/records) — the table view shows the JSON tab's own error instead. */
-  readonly ok: boolean;
+/**
+ * P3-6 (review fix, REVIEW-showcase-opus.md): whether `mark`'s own
+ * resolved data fields (`chartMarkFields`) can plausibly supply `type`'s
+ * channels, so a card can disable an incompatible mark type WITH A REASON
+ * (`mapDirectionLocked`'s idiom, AGENTS.md's "Maps") instead of letting a
+ * reader pick it and hit a raw `sankey-bad-value`/`funnel-missing-value`
+ * ledger error. Only `sankey` (needs distinct SOURCE/TARGET/VALUE columns)
+ * and `funnel` (STAGE/VALUE) are field-count-gated — every other mark type
+ * reads x/y-shaped data generically enough that no dataset this page ships
+ * (vendored or remote) fails it, so this is a field-COUNT heuristic, not a
+ * channel-name check: it stays true for a genuinely flow-shaped remote
+ * dataset without hardcoding its column names.
+ */
+export function chartMarkTypeFits(mark: ChartsWorkbenchMark, type: GlyphChartMarkType): boolean {
+  if (type !== "sankey" && type !== "funnel") return true;
+  let data: GlyphChartMark["data"];
+  try { data = parseChartMarkData(mark); } catch { return false; }
+  // A bare numeric array has no field identity at all — neither a stage
+  // name nor a source/target pair can come from it.
+  if (data.length === 0 || data.every((row) => typeof row === "number")) return false;
+  const records = data.filter((row): row is Record<string, TabularRow[string]> => typeof row === "object" && row !== null);
+  // Field COUNT alone (the first cut) passed a plain date+numeric dataset
+  // like `global-temperature` for funnel — 2 columns is also exactly
+  // `CHART_FUNNEL_CHANNELS.length`. Reusing `dataProfile.ts`'s own column
+  // typing is what actually distinguishes a STAGE/SOURCE/TARGET identity
+  // (a `category` column: a short, repeated, non-date vocabulary) from a
+  // continuous axis (a `date`/plain `number` column reads as neither) —
+  // `sankey` needs two independent category columns (source AND target),
+  // `funnel` only one (stage) alongside a numeric value column.
+  const profile = profileRows(records as TabularRow[]);
+  const categoryColumns = profile.columns.filter((c) => c.type === "category").length;
+  const numericColumns = profile.columns.filter((c) => c.type === "number" || c.type === "integer").length;
+  if (numericColumns < 1) return false;
+  return type === "sankey" ? categoryColumns >= 2 : categoryColumns >= 1;
 }
 
-function recordRow(row: unknown): ChartsWorkbenchTableRow {
-  return typeof row === "object" && row !== null && !Array.isArray(row) ? row as ChartsWorkbenchTableRow : {};
-}
-
-/** Pure derivation of the table view from `dataText` — no DOM, easily unit-tested. */
-export function chartMarkTable(mark: ChartsWorkbenchMark): ChartsWorkbenchTable {
-  let data: unknown[];
-  try { data = parseChartMarkData(mark); }
-  catch { return { columns: [], rows: [], ok: false }; }
-  if (data.every((row) => typeof row === "number")) {
-    return { columns: ["value"], rows: data.map((value) => ({ value: value as number })), ok: true };
-  }
-  const columns = [...new Set(data.flatMap((row) => Object.keys(recordRow(row))))];
-  return { columns, rows: data.map(recordRow), ok: true };
-}
-
-function tableToDataText(table: ChartsWorkbenchTable): string {
-  // A single numeric "value" column round-trips back to the plain number-array shorthand.
-  if (table.columns.length === 1 && table.columns[0] === "value" && table.rows.every((row) => typeof row.value === "number")) {
-    return JSON.stringify(table.rows.map((row) => row.value), null, 2);
-  }
-  return JSON.stringify(table.rows.map((row) => Object.fromEntries(table.columns.map((c) => [c, row[c] ?? null]))), null, 2);
-}
-
-/** `Date`-looking strings ("2026-01-01", with or without a time part) stay
- * strings; anything else that parses as a finite number becomes one;
- * everything else (including "") stays the literal typed text. */
-function parseTableCellInput(raw: string): ChartsWorkbenchCell {
-  const trimmed = raw.trim();
-  if (trimmed === "") return raw;
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return raw;
-  const n = Number(trimmed);
-  return Number.isFinite(n) ? n : raw;
-}
-
-function withTable(mark: ChartsWorkbenchMark, fn: (table: ChartsWorkbenchTable) => ChartsWorkbenchTable): ChartsWorkbenchMark {
-  const table = chartMarkTable(mark);
-  if (!table.ok) return mark;
-  const next = fn(table);
-  // A rejected edit (duplicate/empty column name) returns the SAME table
-  // reference — skip re-serializing so a no-op action never reformats
-  // `dataText`'s whitespace out from under an untouched JSON tab.
-  return next === table ? mark : { ...mark, dataText: tableToDataText(next) };
-}
-/** `setCell` (packet item 7). */
-function tableSetCell(table: ChartsWorkbenchTable, row: number, column: string, raw: string): ChartsWorkbenchTable {
-  const value = parseTableCellInput(raw);
-  return { ...table, rows: table.rows.map((r, i) => i === row ? { ...r, [column]: value } : r) };
-}
-/** `addRow`. */
-function tableAddRow(table: ChartsWorkbenchTable): ChartsWorkbenchTable {
-  const blank: Record<string, ChartsWorkbenchCell> = Object.fromEntries(table.columns.map((c) => [c, 0]));
-  return { ...table, rows: [...table.rows, blank] };
-}
-/** `removeRow`. */
-function tableRemoveRow(table: ChartsWorkbenchTable, row: number): ChartsWorkbenchTable {
-  return { ...table, rows: table.rows.filter((_, i) => i !== row) };
-}
-/** `addColumn` — a numeric-array table promotes to records first (its one
- * column becomes an explicit "value" field) so the new column has somewhere
- * to live without discarding any existing point. */
-function tableAddColumn(table: ChartsWorkbenchTable, column: string): ChartsWorkbenchTable {
-  if (!column || table.columns.includes(column)) return table;
-  return { columns: [...table.columns, column], rows: table.rows.map((r) => ({ ...r, [column]: 0 })) };
-}
-/** `removeColumn`. */
-function tableRemoveColumn(table: ChartsWorkbenchTable, column: string): ChartsWorkbenchTable {
-  return {
-    columns: table.columns.filter((c) => c !== column),
-    rows: table.rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== column))),
-  };
-}
-/** The name `ChartsMarkCard`'s "+ column" button uses for a freshly added
- * column — the header's own rename input (`renameColumn`) is how it gets a
- * real name. */
-export function nextChartTableColumnName(existing: readonly string[]): string {
-  let i = 1;
-  while (existing.includes(`column${i}`)) i++;
-  return `column${i}`;
-}
-/** `renameColumn`. */
-function tableRenameColumn(table: ChartsWorkbenchTable, column: string, next: string): ChartsWorkbenchTable {
-  if (!next || column === next || table.columns.includes(next)) return table;
-  return {
-    columns: table.columns.map((c) => c === column ? next : c),
-    rows: table.rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k === column ? next : k, v]))),
-  };
-}
 function buildMark(mark: ChartsWorkbenchMark): GlyphChartMark {
   const data = parseChartMarkData(mark);
   const numeric = data.every((row) => typeof row === "number");

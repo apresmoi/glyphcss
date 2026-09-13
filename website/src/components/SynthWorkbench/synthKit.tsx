@@ -523,18 +523,37 @@ export const SUBCELL_TOGGLE = SUBCELL_RES.map((v) => ({
  * (if group-less) `aria-label` per button, exactly as before this existed.
  */
 export function IconToggle({ options, value, onChange, groupTitle, groupLabel }: {
-  options: { value: string; icon: ReactNode; label: string; desc?: string }[]; value: string; onChange: (v: string) => void; groupTitle?: string; groupLabel?: string;
+  // `disabled`/`disabledReason` (P3-6, REVIEW-showcase-opus.md): an option
+  // that can't act on the CURRENT data — `/charts`' mark-type toggle, a
+  // sankey/funnel button on a dataset with too few fields
+  // (`chartMarkTypeFits`) — renders `disabled` with the reason on its
+  // `title`/`aria-label`, the repo's `mapDirectionLocked` idiom
+  // (AGENTS.md's "Maps"), rather than letting a reader pick it and hit a
+  // raw ledger error. Both optional and undefined for every OTHER
+  // `IconToggle` consumer (wave shapes, ramp densities, …), so this is a
+  // zero-cost addition for them: `o.disabled` is `undefined` there,
+  // `disabled={undefined}` is not disabled, byte-identical rendering.
+  options: { value: string; icon: ReactNode; label: string; desc?: string; disabled?: boolean; disabledReason?: string }[]; value: string; onChange: (v: string) => void; groupTitle?: string; groupLabel?: string;
 }) {
   const name = groupLabel ?? groupTitle;
   const moveTo = (root: HTMLElement | null, index: number) => {
     root?.querySelectorAll<HTMLButtonElement>(":scope > .gx-toggle-btn")[index]?.focus();
   };
+  // Arrow/Home/End navigation skips a disabled option entirely — selecting
+  // one via `onChange` would silently override the very state that made it
+  // disabled, and a keyboard user has no other way to know it was skipped.
+  const nextEnabledIndex = (from: number, step: 1 | -1): number => {
+    for (let i = 0, index = from; i < options.length; i++, index = (index + step + options.length) % options.length) {
+      if (!options[index]!.disabled) return index;
+    }
+    return from;
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = -1;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % options.length;
-    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + options.length) % options.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = options.length - 1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = nextEnabledIndex((index + 1) % options.length, 1);
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = nextEnabledIndex((index - 1 + options.length) % options.length, -1);
+    else if (event.key === "Home") next = nextEnabledIndex(0, 1);
+    else if (event.key === "End") next = nextEnabledIndex(options.length - 1, -1);
     if (next < 0) return;
     event.preventDefault();
     const nextOption = options[next]!;
@@ -548,9 +567,10 @@ export function IconToggle({ options, value, onChange, groupTitle, groupLabel }:
           key={o.value}
           type="button"
           className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`}
-          title={o.desc ? `${o.label} — ${o.desc}` : o.label}
-          aria-label={name ? `${name}: ${o.label}` : o.label}
+          title={o.disabled && o.disabledReason ? o.disabledReason : o.desc ? `${o.label} — ${o.desc}` : o.label}
+          aria-label={name ? `${name}: ${o.label}${o.disabled && o.disabledReason ? ` — ${o.disabledReason}` : ""}` : o.label}
           aria-pressed={o.value === value}
+          disabled={o.disabled}
           tabIndex={o.value === value ? 0 : -1}
           onClick={() => onChange(o.value)}
           onKeyDown={(event) => onKeyDown(event, i)}

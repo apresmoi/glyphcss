@@ -43,8 +43,21 @@ export const CHARTS_DATASETS: readonly ChartsDataset[] = [
   gdpLifeExpectancy2007Dataset, energyConsumptionBySourceDataset, gdpGrowth2020CrisisDataset, olympics2024MedalsByTypeDataset,
 ];
 
+/**
+ * P2-3 (review fix, REVIEW-showcase-opus.md): a dataset `id` is a FROZEN
+ * public contract — it rides in every `?c=` link `select-dataset` ever
+ * wrote, and Round 12's own omission sentinel re-derives a mark's data FROM
+ * this id alone (`chartsUrlState.ts`'s "URL state" doc), so renaming one in
+ * place bricks every link ever shared for it (`chartsUrlStateResolveDataset`
+ * degrades that gracefully now, but a rename is still a real break for
+ * anyone who had it open). `ids.test.ts` pins the current 16 ids; renaming
+ * one means adding an entry HERE (old id -> new id) and updating that
+ * test's own pinned list — never editing an id in place. Empty today: no
+ * dataset has ever been renamed. */
+export const CHARTS_DATASET_ID_ALIASES: Readonly<Record<string, string>> = {};
+
 export function findChartsDataset(id: string): ChartsDataset | undefined {
-  return CHARTS_DATASETS.find((d) => d.id === id);
+  return CHARTS_DATASETS.find((d) => d.id === id) ?? CHARTS_DATASETS.find((d) => d.id === CHARTS_DATASET_ID_ALIASES[id]);
 }
 
 /** `/charts`' own version of GalleryWorkbench.tsx's `randomPreset()` — a

@@ -1,7 +1,7 @@
 import type { Dispatch, ReactNode } from "react";
-import type { GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
+import type { GlyphChartMarkType, GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import {
-  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields, chartMarkTypeFits,
   chartRelevantChannels,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
@@ -134,6 +134,18 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
 }) {
   const fields = chartMarkFields(mark);
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
+  // P3-6 (review fix, REVIEW-showcase-opus.md): `sankey`/`funnel` are dead
+  // ends on a dataset with too few fields — disabled WITH A REASON rather
+  // than left clickable into a raw ledger error. Recomputed against this
+  // mark's OWN resolved fields (never a static list), so a genuinely
+  // flow-shaped dataset (`energy-flow-sankey`, `ecommerce-conversion-
+  // funnel`) enables them exactly like every other mark type.
+  const typeOptions = CHART_MARK_TYPE_TOGGLE.map((option) => {
+    const type = option.value as GlyphChartMarkType;
+    if (chartMarkTypeFits(mark, type)) return option;
+    const need = type === "sankey" ? "distinct source, target and value columns" : "distinct stage and value columns";
+    return { ...option, disabled: true, disabledReason: `This dataset doesn't have ${need}.` };
+  });
   return <div className="voice-card charts-mark-card">
     <div className="voice-controls">
       <div className="voice-head">
@@ -141,7 +153,7 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
       </div>
       <div className="voice-row charts-mark-row" data-row="type">
         <span>Type</span>
-        <IconToggle groupTitle={`Mark ${index + 1} type`} options={CHART_MARK_TYPE_TOGGLE} value={mark.type}
+        <IconToggle groupTitle={`Mark ${index + 1} type`} options={typeOptions} value={mark.type}
           onChange={(type) => update({ type: type as ChartsWorkbenchMark["type"], options: {}, color: undefined })} />
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />

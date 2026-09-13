@@ -4,7 +4,6 @@
 .charts-mark-row { align-items: center; font-size: 11px; }
 .charts-mark-row > span:first-child { flex: 0 0 70px; }
 .charts-mark-row > .gx-toggle { flex: 1; }
-.charts-mark-label { font-size: 11px; }
 .charts-mark-data {
   box-sizing: border-box;
   width: 100%;
@@ -49,6 +48,13 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-grid-header { background: #0d1118; font-weight: 700; }
 /* Numeric cells right-align. */
 .charts-grid-cell.is-numeric { justify-content: flex-end; text-align: right; }
+/* P3-7 (review fix, REVIEW-showcase-opus.md): the dataset card's own
+   read-only "View data" table (`ChartsDataTable`) carries this class with
+   no rule of its own before this — a plain `cursor: default` (never the
+   editable table's own text-input cursor, since there is none here to
+   invite) is the whole visual difference a reader needs from a table they
+   could otherwise mistake for editable. */
+.charts-grid--readonly .charts-grid-cell { cursor: default; }
 
 /* A chart has a fixed cell budget, so scroll its text instead of clipping it.
    Leave the floating Dock's lane free; the shared shell still positions it. */
@@ -170,14 +176,65 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
-/* Rail header actions — the dataset select (portaled from
-   `ChartsDataFolder.tsx`) plus the "⚄ Random" button
-   (GalleryWorkbench.tsx's own "Load Random" idiom), sized so a long
-   dataset title never pushes the "DATA" title out of the header row. */
-.charts-rail-header-actions { display: flex; align-items: center; gap: 6px; }
+/* Rail header actions — the dataset SEARCH box on its own row, above the
+   stock dataset select (portaled from `ChartsDataFolder.tsx`) + the
+   "Random" button (P3-5, REVIEW-showcase-opus.md: GalleryWorkbench.tsx's
+   own "Load Random" idiom, exact classes — `.control-btn.control-btn--primary`,
+   no page-specific size/padding override, no glyph outside the page's own
+   Glyph Mono subset), sized so a long dataset title never pushes the
+   "DATA" title out of the header row. */
+.charts-rail-header-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
+.charts-rail-header-actions-row { display: flex; align-items: center; gap: 6px; }
 .charts-dataset-select-slot .gx-select,
 .charts-dataset-select-slot { display: block; width: 150px; }
-.charts-random-btn { flex: 0 0 auto; padding: 4px 6px; font-size: 11px; }
+.charts-random-btn { flex: 0 0 auto; }
+.charts-data-loading { font-style: italic; }
+
+/* Dataset search box — matches `MapsWorkbench/MapSearchBox.tsx`'s own
+   `.maps-search*` rules (same field/list/option/note/egress shape), sized
+   for the rail header instead of a floating map overlay: no
+   `position: absolute`, it sits in normal flow as the header's own top
+   row. */
+.charts-dataset-search { position: relative; width: 100%; }
+.charts-dataset-search-field {
+  display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255, 232, 184, 0.22);
+  background: #0b0d10; padding: 3px 6px;
+}
+.charts-dataset-search-field:focus-within { border-color: #f97316; }
+.charts-dataset-search-glyph { color: rgba(255, 232, 184, 0.5); font-size: 11px; }
+.charts-dataset-search-input {
+  flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: inherit;
+  font: inherit; font-size: 11px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+.charts-dataset-search-input::placeholder { color: rgba(255, 232, 184, 0.35); }
+.charts-dataset-search-clear {
+  flex: 0 0 auto; background: transparent; border: none; color: rgba(255, 232, 184, 0.6);
+  cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px;
+}
+.charts-dataset-search-clear:hover { color: rgba(255, 232, 184, 0.94); }
+.charts-dataset-search-list {
+  position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 2px 0 0;
+  padding: 0; list-style: none; max-height: 260px; overflow: auto;
+  background: #0b0d10; border: 1px solid rgba(255, 232, 184, 0.22);
+}
+.charts-dataset-search-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%;
+  padding: 5px 8px; background: transparent; border: none; border-bottom: 1px solid rgba(255, 232, 184, 0.1);
+  color: inherit; text-align: left; cursor: pointer; font: inherit; font-size: 11px;
+}
+.charts-dataset-search-option:last-child { border-bottom: none; }
+.charts-dataset-search-option.is-active { background: rgba(249, 115, 22, 0.1); }
+.charts-dataset-search-name { font-weight: 600; }
+.charts-dataset-search-context,
+.charts-dataset-search-metric { color: rgba(255, 232, 184, 0.55); font-size: 10px; }
+.charts-dataset-search-group {
+  padding: 3px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: rgba(255, 232, 184, 0.45); background: #0d1118;
+}
+.charts-dataset-search-note,
+.charts-dataset-search-egress { margin: 4px 2px 0; font-size: 10px; color: rgba(255, 232, 184, 0.55); }
+.charts-dataset-search-egress a { color: inherit; }
+.charts-dataset-search-egress a:hover { color: #f97316; }
 
 /* Marks section — the rail's SECOND section, below the dataset card: a
    showcase renders exactly the ONE mark `select-dataset` built (a preset
