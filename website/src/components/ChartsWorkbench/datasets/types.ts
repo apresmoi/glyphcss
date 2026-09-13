@@ -20,6 +20,19 @@ export interface ChartsDatasetRecommendation {
   readonly y?: string;
   readonly fill?: string;
   readonly label?: string;
+  /** `sankey`'s own channel vocabulary (non-cartesian, like `arc` — AGENTS.md's
+   *  "Charts"): the source/target node names and the flow value, instead of `x`/`y`. */
+  readonly source?: string;
+  readonly target?: string;
+  readonly value?: string;
+  /** `funnel`'s own stage-name channel (paired with `value` above). */
+  readonly stage?: string;
+  /** A row transform the mark needs to read as intended — e.g. `"stack"`
+   *  for a genuinely stacked bar/area rather than a dodged one — forwarded
+   *  onto the built mark's `transform: { kind }` (`chartsDataSource.ts`'s
+   *  `buildDatasetMark`), mirroring `ChartsWorkbenchMark.transform`'s own
+   *  vocabulary at the UI layer. */
+  readonly transform?: "stack" | "group" | "normalize";
 }
 
 export interface ChartsDataset {

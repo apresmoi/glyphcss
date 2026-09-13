@@ -62,8 +62,15 @@ export function profileChartsData(rows: readonly TabularRow[]): ChartsDataProfil
 
 /** `recommended.mark` (dataset or profiler) is `GlyphChartMarkType`-shaped
  *  already; only `rect`/`text`/`rule` never come out of a recommendation,
- *  so this covers exactly what `recommendChart`/a dataset's own field emit. */
-export type ChartsRecommendedChannels = { readonly x?: string; readonly y?: string; readonly fill?: string; readonly label?: string };
+ *  so this covers exactly what `recommendChart`/a dataset's own field emit.
+ *  `source`/`target`/`value`/`stage` are `sankey`/`funnel`'s own channel
+ *  vocabulary (`datasets/types.ts`'s `ChartsDatasetRecommendation`) — the
+ *  profiler itself never emits them (it has no sankey/funnel rule), so a
+ *  profiler-derived recommendation always leaves these `undefined`. */
+export type ChartsRecommendedChannels = {
+  readonly x?: string; readonly y?: string; readonly fill?: string; readonly label?: string;
+  readonly source?: string; readonly target?: string; readonly value?: string; readonly stage?: string;
+};
 
 export interface ChartsTopRecommendation {
   readonly mark: ChartsWorkbenchMark["type"];
@@ -80,6 +87,10 @@ export interface ChartsTopRecommendation {
    *  this is the reader-facing note explaining why the readout no longer
    *  matches the dataset's usual chart. */
   readonly fallbackNotice?: string;
+  /** A dataset's own curated `recommended.transform` (e.g. `"stack"` for a
+   *  genuinely stacked bar/area) — forwarded only for a curated mapping;
+   *  the profiler's own ranked recommendations carry no transform opinion. */
+  readonly transform?: ChartsWorkbenchMark["transform"];
 }
 
 /** True when every channel a curated mapping names actually resolves
@@ -90,7 +101,8 @@ export interface ChartsTopRecommendation {
  *  and no error at all. */
 function curatedChannelsResolve(channels: ChartsRecommendedChannels, profile: DataProfile): boolean {
   const names = new Set(profile.columns.map((c) => c.name));
-  return [channels.x, channels.y, channels.fill, channels.label].every((name) => name === undefined || names.has(name));
+  return [channels.x, channels.y, channels.fill, channels.label, channels.source, channels.target, channels.value, channels.stage]
+    .every((name) => name === undefined || names.has(name));
 }
 
 function describeRecommendation(mark: string, channels: ChartsRecommendedChannels): string {
@@ -125,10 +137,10 @@ function describeRecommendation(mark: string, channels: ChartsRecommendedChannel
  *  nothing. */
 export function topChartsRecommendation(dataset: ChartsDataset | undefined, profile: DataProfile, recommendations: readonly ChartRecommendation[]): ChartsTopRecommendation | null {
   if (dataset) {
-    const { mark, x, y, fill, label } = dataset.recommended;
-    const channels = { x, y, fill, label };
+    const { mark, x, y, fill, label, source, target, value, stage, transform } = dataset.recommended;
+    const channels = { x, y, fill, label, source, target, value, stage };
     if (curatedChannelsResolve(channels, profile)) {
-      return { mark, channels, reason: `Curated recommendation for ${dataset.title}.` };
+      return { mark, channels, transform, reason: `Curated recommendation for ${dataset.title}.` };
     }
     const top = recommendations[0];
     if (!top) return null;
@@ -146,12 +158,17 @@ export function topChartsRecommendation(dataset: ChartsDataset | undefined, prof
  *  in the Data folder commits into `state.marks` (replacing them, exactly
  *  like `apply-preset` already does), and what feeds `chartsDateAxis`'s own
  *  scale-type decision below. `rows` is expected to already have any
- *  recommendation-carried `pipeline` (N4) applied. */
-export function buildDatasetMark(id: number, mark: ChartsWorkbenchMark["type"], rows: readonly TabularRow[], channels: ChartsRecommendedChannels): ChartsWorkbenchMark {
+ *  recommendation-carried `pipeline` (N4) applied. `transform`
+ *  (`ChartsTopRecommendation.transform`, e.g. `"stack"`) defaults to
+ *  `"none"`, matching every call site that predates the field. */
+export function buildDatasetMark(id: number, mark: ChartsWorkbenchMark["type"], rows: readonly TabularRow[], channels: ChartsRecommendedChannels, transform: ChartsWorkbenchMark["transform"] = "none"): ChartsWorkbenchMark {
   return {
     id, type: mark, dataText: JSON.stringify(rows, null, 2),
-    channels: { x: channels.x, y: channels.y, fill: channels.fill, label: channels.label },
-    transform: "none", options: {},
+    channels: {
+      x: channels.x, y: channels.y, fill: channels.fill, label: channels.label,
+      source: channels.source, target: channels.target, value: channels.value, stage: channels.stage,
+    },
+    transform, options: {},
   };
 }
 
