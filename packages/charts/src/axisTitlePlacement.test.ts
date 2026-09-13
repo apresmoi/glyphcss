@@ -114,6 +114,21 @@ describe.each([40, 72, 96])("x-axis titleAt at %i cols", (cols) => {
     const b = renderGlyphChart(withExplicit, { width: cols, height: 20 });
     expect(b.text).toBe(a.text);
   });
+
+  it("(default, F3) the centred start column matches an independently re-derived formula, not merely a second call into the same code", () => {
+    const spec = glyphChartPlot({ marks: [glyphChartLine(data, { x: "x", y: "y" })], axes: { x: { title } } });
+    const p = picture(spec, cols, 20);
+    const plotWidth = p.layout.plot.x1 - p.layout.plot.x0 + 1;
+    const expectedStart = Math.max(p.layout.plot.x0, p.layout.plot.x0 + Math.floor((plotWidth - title.length) / 2));
+    const row = p.rowText(p.layout.xAxisTitleRow);
+    // Mutation: `paint.ts`'s centred start-column `Math.floor` -> `Math.ceil`
+    // shifts every default-centred x title by one column whenever
+    // `plotWidth - title.length` is odd — F3's own review finding measured
+    // this mutation leaving the ENTIRE pre-fix charts suite green (1,034/
+    // 1,034), because every other guard either painted no title at all or
+    // compared two calls into the same (possibly mutated) formula.
+    expect(row.indexOf(title)).toBe(expectedStart);
+  });
 });
 
 describe.each([40, 72, 96])("y-axis titleAt at %i cols", (cols) => {
@@ -132,8 +147,49 @@ describe.each([40, 72, 96])("y-axis titleAt at %i cols", (cols) => {
     const p = picture(spec, cols, 20);
     expect(p.layout.yAxisTitle).toBe(title);
     expect(p.layout.yAxisTitleRow).toBeGreaterThan(p.layout.plot.y1);
+    // F1: the y title's row must sit BELOW the x tick-label row — never
+    // between the axis line and the labels it names. Mutation: reserve the
+    // y-title-bottom row from `bottom` AFTER the x-label row already
+    // claimed it (the pre-fix order) -> this goes red (the title lands one
+    // row ABOVE the labels instead of below them).
+    expect(p.layout.yAxisTitleRow).toBeGreaterThan(p.layout.xAxisLabelRow);
     expect(p.rowText(p.layout.yAxisTitleRow).indexOf(title)).toBe(0);
     expect(p.ledger.some((e) => e.code === "axis-title-stacked")).toBe(false);
+  });
+});
+
+describe("y-axis titleAt: 'bottom' does not perturb the y tick ladder (F2)", () => {
+  // A wide y-domain (mirroring the review's own `max=4`/`max=23` repros) —
+  // the reported divergence is a difference in TICK COUNT/spacing, which a
+  // narrow domain (few candidate "nice" ticks at any budget) can't expose.
+  const wideData = [{ x: 0, y: 0 }, { x: 1, y: 23 }, { x: 2, y: 4 }, { x: 3, y: 17 }];
+
+  it("the fitted y ticks equal the same spec's ticks rendered at the plot height the option leaves, across a height sweep", () => {
+    let compared = 0;
+    for (const cols of [40, 60, 96]) {
+      for (let h = 8; h <= 30; h++) {
+        const baseline = glyphChartPlot({ marks: [glyphChartLine(wideData, { x: "x", y: "y" })] });
+        const titled = glyphChartPlot({ marks: [glyphChartLine(wideData, { x: "x", y: "y" })], axes: { y: { title: "Income", titleAt: "bottom" } } });
+        const pb = picture(baseline, cols, h - 1);
+        const pt = picture(titled, cols, h);
+        // Title dropped for lack of room at this height — nothing to compare
+        // (mirrors the pre-existing "top" path's own small-chart degradation).
+        if (pt.layout.yAxisTitleRow < 0) continue;
+        compared += 1;
+        // `titleAt: "bottom"` at height `h` spends exactly the one extra row
+        // the baseline never does, so the two plot heights coincide here by
+        // construction — the review's own "equal plot height" comparison.
+        expect(pt.layout.plot.y1 - pt.layout.plot.y0).toBe(pb.layout.plot.y1 - pb.layout.plot.y0);
+        // Mutation: reserve the `titleAt: "bottom"` row AFTER
+        // `fitTicksToRowSpacing` already ran (the pre-fix order) -> the
+        // titled ladder is fitted against a `bottom` one row taller than the
+        // plot it actually lands in, producing a denser, non-arithmetic
+        // ladder (review's own `[2,2,2,3,2,2]` vs `[4,3,4]` example) that
+        // diverges from the baseline at the same plot height.
+        expect(pt.layout.yTicks.map((t) => t.label)).toEqual(pb.layout.yTicks.map((t) => t.label));
+      }
+    }
+    expect(compared).toBeGreaterThan(30);
   });
 });
 
@@ -172,6 +228,15 @@ describe("y-axis titleAt: 'bottom' sharing/stacking with the x-axis title", () =
     // The stacked row is still below the plot and still column 0, and the
     // x title's own row keeps its text intact (no collision damage).
     expect(p.layout.yAxisTitleRow).toBeGreaterThan(p.layout.plot.y1);
+    // F1 (stacked case): the y title's own row must be the LAST row of the
+    // whole bottom stack — below both the x title's row and the x
+    // tick-label row — matching `ledger.ts`'s own "gave the y-axis title
+    // its own row below the x-axis title" wording. Mutation: reserve this
+    // row where the pre-fix code did (after `xAxisTitleRow`/
+    // `xAxisLabelRow` already claimed the true bottom rows) -> this goes
+    // red (the y title lands ABOVE the x title instead of below it).
+    expect(p.layout.yAxisTitleRow).toBeGreaterThan(p.layout.xAxisTitleRow);
+    expect(p.layout.yAxisTitleRow).toBeGreaterThan(p.layout.xAxisLabelRow);
     expect(p.rowText(p.layout.yAxisTitleRow).indexOf("A very long y-axis title")).toBe(0);
   });
 
@@ -191,6 +256,34 @@ describe("y-axis titleAt: 'bottom' sharing/stacking with the x-axis title", () =
     expect(titleRows.has(p.layout.xAxisLineRow)).toBe(false);
     expect(titleRows.has(p.layout.xAxisLabelRow)).toBe(false);
     for (const t of p.layout.yTicks) expect(titleRows.has(t.cell)).toBe(false);
+  });
+
+  // F10: `fitsSharing` must measure the y title's PAINTED CELL width (what
+  // `canvas.text` folds it to), not its raw UTF-16 `.length` — a combining
+  // mark adds a code unit with no extra cell. `AVeryTallY` is a plain
+  // 10-cell word; appending U+0301 (combining acute) to its last letter
+  // makes the grapheme cluster "Ý" fold to ONE cell (box/ASCII has no
+  // such precomposed glyph), so the folded width stays 10 while the raw JS
+  // length is 11. `cols: 13` is chosen so the threshold falls exactly
+  // between the two: `xTitleStartCol` (x title "X", `titleAt: "end"`) is
+  // `cols - 1 = 12`, and sharing needs `yLen + 1 < 12` — true at the real
+  // folded width (11 < 12) and false at the raw one (12 < 12 is not).
+  it("measures the y title's folded cell width, not its raw string length, when deciding whether it shares the x title's row", () => {
+    const yTitle = "AVeryTallÝ";
+    const spec = glyphChartPlot({
+      marks: [glyphChartLine(data, { x: "x", y: "y" })],
+      axes: { x: { title: "X", titleAt: "end" }, y: { title: yTitle, titleAt: "bottom" } },
+    });
+    const p = picture(spec, 13, 20);
+    expect(p.layout.xAxisTitleRow).toBeGreaterThanOrEqual(0);
+    // Mutation: measure `yAxisTitleText.length` (raw UTF-16 units, the
+    // pre-fix code) instead of the folded cell count -> the combining mark
+    // makes the raw length 11 (10 base letters + the mark), so the check
+    // becomes `11 + 1 < 12`, which is FALSE — this flips from a shared row
+    // to a separate, stacked one, where the correct folded measurement
+    // (10 cells, `10 + 1 < 12` true) shares it.
+    expect(p.layout.yAxisTitleRow).toBe(p.layout.xAxisTitleRow);
+    expect(p.ledger.some((e) => e.code === "axis-title-stacked")).toBe(false);
   });
 });
 

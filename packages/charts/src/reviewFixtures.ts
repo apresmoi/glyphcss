@@ -36,6 +36,17 @@ export const goodSpecs: GlyphChartSpec[] = [
   // + position) alongside a corner legend placement, both new option shapes.
   { marks: [glyphChartLine([1, 2, 3], undefined, { name: "A" })], title: { text: "Left title", align: "left", position: "bottom" }, legend: { placement: "top-right" } },
   ...(["bin", "stack", "group", "normalize", "window"] as const).map((kind) => spec({ ...glyphChartBar([1, 2, 4]), transform: { kind } })),
+  // Axis title AUTOMATIC default coverage (review finding F3): every other
+  // entry above has no axis title painted at all (a field name of "x"/"y",
+  // or an accessor/literal-array channel with no field name to show), so
+  // the byte-identity comparison below never exercised the default
+  // `"center"`/`"top"` placement's actual painted position — a `paint.ts`
+  // `floor`->`ceil` mutation on the centred title's start column left the
+  // whole pre-fix suite green. Real field names (`> 2` characters) at the
+  // package default web target (96x32, well past the `rows>=20`/`cols>=60`
+  // auto-title gate) so both titles paint with no `titleAt` set at all —
+  // this entry's own index (33) is in `axisTitleParentGoodSpecs.json`.
+  spec(glyphChartLine([{ population: 0, income: 1 }, { population: 1, income: 3 }, { population: 2, income: 2 }, { population: 3, income: 4 }], { x: "population", y: "income" })),
   // Axis title placement: both axes' titleAt vocabularies exercised at once.
   // Appended last so every EARLIER fixture's index — including
   // `axisTitlePlacement.test.ts`'s own byte-identity comparison against a

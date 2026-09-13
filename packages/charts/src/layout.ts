@@ -10,7 +10,7 @@
 
 import { timeFormat } from "d3-time-format";
 import { chartSeries, chartSeriesColors } from "./series";
-import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
+import { abbreviateChartText, chartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
 import {
   ledgerAxisTitleStacked, ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped,
@@ -516,16 +516,126 @@ export function layoutGlyphChart(
   let yTicks: GlyphChartLayoutTick[] = [];
 
   if (cartesian && rows - top >= 3 && cols >= 4) {
+    // y-axis gutter width and the y-tick ladder are computed by this same
+    // closure twice below — once PROVISIONALLY (to size the column gutter
+    // for the `titleAt: "bottom"` sharing check, before any bottom-stack
+    // row is reserved) and once FINALLY (against the true, fully-reserved
+    // `bottom`, so the tick ladder painted is the one actually fitted to
+    // the plot it lands in — see the reservation-order comment below).
+    // `bottomForFit` is the only thing that varies between the two calls.
+    //
+    // The requested count is derived from what the MINIMUM label spacing
+    // (2 rows, `axisTicks`'s own y-collision rule) can actually hold —
+    // asking d3 for more than that just gets greedily thinned back down to
+    // an arbitrary, unevenly-spaced subset (review finding 5) rather than
+    // d3's own evenly-spaced "nice" answer for a count that already fits.
+    // `axes.y.ticks` (packet item 6) overrides this budget outright — a
+    // caller-requested count, not a fitting heuristic; `axisTicks`'s own
+    // collision/stride thinning still applies underneath it.
+    // `bottomForFit - top` is the number of ROW-INTERVALS the plot's
+    // `bottomForFit - top + 1` rows span (one fewer than the row count),
+    // and a minimum 2-row spacing between adjacent ticks (`axisTicks`'s own
+    // y-collision rule) admits at most `floor(intervals / 2) + 1` of them.
+    // This is only ever a STARTING GUESS, never the final count:
+    // `fitTicksToRowSpacing` below re-asks d3 for one fewer tick at a time
+    // until the ladder it gets back already clears the minimum spacing on
+    // its own, so the final ladder converges to the same answer regardless
+    // of which reasonable count this seeds it with — final-gate-2 review
+    // (Opus finding 9, "the yRowBudget off-by-one fix is inert") measured
+    // this directly: restoring the interval-vs-row-count off-by-one this
+    // replaced (`floor((bottomForFit - top + 1) / 2) + 1`) leaves every
+    // kept y-ladder byte-identical across every tray-preset/width/height
+    // this package sweeps. Kept in its now-correct (interval-counting)
+    // form because it is the more honest formula for what this variable is
+    // actually named, not because a wrong seed would change the result.
+    const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
+    const computeYGutter = (bottomForFit: number) => {
+      const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottomForFit - top) / 2) + 1));
+      // Only the auto-computed budget gets shrunk to fit actual row
+      // spacing — an explicit `axes.y.ticks` count is a caller request, not
+      // a fitting heuristic (matches `axisTicks`'s own stride/collision
+      // thinning, which still applies underneath either path). Band ticks
+      // ignore `count` entirely (`buildBand`'s own `ticks()`), so they're
+      // excluded too.
+      const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
+        ? scales.y.ticks(yRowBudget)
+        : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, 2);
+      let yTicksRaw: readonly GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
+      // The zero baseline is the one tick a bar/rect/area chart must always
+      // label, whether or not d3's own "nice" set happened to include it.
+      if (yZeroAnchored && !yTicksRaw.some((t) => t.value === 0)) {
+        yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: scales.y.format(0) }];
+      }
+      const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
+      return { yRowBudget, yTicksRaw, yLabelWidth, yAxisCol: yLabelWidth + 1 };
+    };
+
     // x-axis title, when present, is the BOTTOM-most row (drawn "under the
     // x axis", i.e. below its own tick labels) — reserved before the label
     // row so both survive together or the title alone drops first on a
     // short chart.
-    if (xAxisTitleText && detail !== "simplified" && rows - top >= 4) {
+    const xAxisTitleWillShow = !!(xAxisTitleText && detail !== "simplified" && rows - top >= 4);
+    const wantsYTitleBottomRow = !!(yTitleAt === "bottom" && yAxisTitleText && detail !== "simplified");
+
+    // y-axis title, `titleAt: "bottom"`: below the plot at the axis column
+    // (column 0, mirroring `"top"`'s own column) — shares the x-axis
+    // title's own row when it fits to the LEFT of it (column math only,
+    // resolved from a PROVISIONAL gutter below); when both titles genuinely
+    // want the bottom and don't fit side by side, the y title claims a
+    // second row of its own and logs `axis-title-stacked`. With no x-axis
+    // title to share with, it simply claims its own row — the same base
+    // cost `titleAt: "bottom"`'s own doc describes, no stacking conflict to
+    // report.
+    let fitsSharing = false;
+    if (wantsYTitleBottomRow) {
+      const provisionalBottom = bottom - (xAxisTitleWillShow ? 1 : 0) - 1;
+      const provisionalGutter = computeYGutter(provisionalBottom);
+      const titlePlotX0 = Math.min(cols - 1, provisionalGutter.yAxisCol + 1);
+      const titlePlotWidth = Math.max(1, cols - 1 - titlePlotX0 + 1);
+      let xTitleStartCol = cols;
+      if (xAxisTitleWillShow && xAxisTitleText) {
+        // Measured through the SAME `canvas.text` fold `paint.ts` paints
+        // with (F10) — a raw JS `.length` counts UTF-16 code units, not
+        // painted CELLS, so a combining-mark sequence or any character
+        // `canvas.text` folds to something else would size this check
+        // differently from what actually lands on screen.
+        const xLen = chartText(xAxisTitleText, charset).length;
+        xTitleStartCol = xTitleAt === "start" ? titlePlotX0
+          : xTitleAt === "end" ? Math.max(titlePlotX0, cols - xLen)
+          : Math.max(titlePlotX0, titlePlotX0 + Math.floor((titlePlotWidth - xLen) / 2));
+      }
+      fitsSharing = xAxisTitleWillShow && chartText(yAxisTitleText!, charset).length + 1 < xTitleStartCol;
+    }
+
+    // Rows are reserved here in true visual (bottom-up) ORDER, not merely
+    // by how many are spent: the y-axis title's own row (when it needs
+    // one) is claimed FIRST — as the actual bottommost row of the grid —
+    // so it lands BELOW the x-axis title and its tick labels, never
+    // between the axis line and the labels the pre-fix code produced
+    // (review F1: `xAxisTitleRow`/`xAxisLabelRow` had already claimed the
+    // true bottom rows by the time this block used to run, so a
+    // non-sharing y title was pushed ABOVE both instead of below them).
+    // Claiming it here — before `computeYGutter`'s FINAL call below runs —
+    // is also what keeps the y-tick ladder identical to what the same plot
+    // height gets via `titleAt: "top"` (review F2): the "top" path already
+    // reserves its own row from `top` before any tick fit runs, so
+    // `titleAt: "bottom"` must reserve its row from `bottom` on the same
+    // schedule rather than after `computeYGutter` has already fitted ticks
+    // against a `bottom` one row taller than the plot ends up being.
+    if (wantsYTitleBottomRow && !fitsSharing && bottom - (xAxisTitleWillShow ? 1 : 0) - 1 > top) {
+      yAxisTitleRow = bottom;
+      bottom -= 1;
+      if (xAxisTitleWillShow) ledger.push(ledgerAxisTitleStacked({ cols, rows }));
+    }
+    if (xAxisTitleWillShow) {
       xAxisTitleRow = bottom;
       bottom -= 1;
     }
     xAxisLabelRow = bottom;
     bottom -= 1;
+    if (wantsYTitleBottomRow && fitsSharing) {
+      yAxisTitleRow = xAxisTitleRow;
+    }
     // The axis LINE is no longer a separately reserved row below the plot
     // (CHARTS-RESEARCH diagnosis B1) — `xAxisLineRow` is reassigned below,
     // once the plot rect and y scale are known, to whichever row the
@@ -536,86 +646,14 @@ export function layoutGlyphChart(
     // the plot, put the drawn rule one row past the plot's own y=0 row,
     // floating every bar/area a full row off the line meant to anchor them.
 
-    // y-axis gutter width: measure a generous tick set's label width first,
-    // then reserve exactly that many columns plus the axis-line column.
-    // The requested count is derived from what the MINIMUM label spacing
-    // (2 rows, `axisTicks`'s own y-collision rule) can actually hold —
-    // asking d3 for more than that just gets greedily thinned back down to
-    // an arbitrary, unevenly-spaced subset (review finding 5) rather than
-    // d3's own evenly-spaced "nice" answer for a count that already fits.
-    // `axes.y.ticks` (packet item 6) overrides this budget outright — a
-    // caller-requested count, not a fitting heuristic; `axisTicks`'s own
-    // collision/stride thinning still applies underneath it.
-    // `bottom - top` is the number of ROW-INTERVALS the plot's `bottom -
-    // top + 1` rows span (one fewer than the row count), and a minimum
-    // 2-row spacing between adjacent ticks (`axisTicks`'s own y-collision
-    // rule) admits at most `floor(intervals / 2) + 1` of them. This is only
-    // ever a STARTING GUESS, never the final count: `fitTicksToRowSpacing`
-    // below re-asks d3 for one fewer tick at a time until the ladder it
-    // gets back already clears the minimum spacing on its own, so the
-    // final ladder converges to the same answer regardless of which
-    // reasonable count this seeds it with — final-gate-2 review (Opus
-    // finding 9, "the yRowBudget off-by-one fix is inert") measured this
-    // directly: restoring the interval-vs-row-count off-by-one this
-    // replaced (`floor((bottom - top + 1) / 2) + 1`) leaves every kept
-    // y-ladder byte-identical across every tray-preset/width/height this
-    // package sweeps. Kept in its now-correct (interval-counting) form
-    // because it is the more honest formula for what this variable is
-    // actually named, not because a wrong seed would change the result.
-    const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottom - top) / 2) + 1));
-    // Only the auto-computed budget gets shrunk to fit actual row spacing —
-    // an explicit `axes.y.ticks` count is a caller request, not a fitting
-    // heuristic (matches `axisTicks`'s own stride/collision thinning, which
-    // still applies underneath either path). Band ticks ignore `count`
-    // entirely (`buildBand`'s own `ticks()`), so they're excluded too.
-    const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
-      ? scales.y.ticks(yRowBudget)
-      : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottom, 2);
-    let yTicksRaw: readonly GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
-    const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
-    // The zero baseline is the one tick a bar/rect/area chart must always
-    // label, whether or not d3's own "nice" set happened to include it.
-    if (yZeroAnchored && !yTicksRaw.some((t) => t.value === 0)) {
-      yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: scales.y.format(0) }];
-    }
-    const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
-    yAxisCol = yLabelWidth + 1;
-
-    // y-axis title, `titleAt: "bottom"`: below the plot at the axis column
-    // (column 0, mirroring `"top"`'s own column), on its own row — the same
-    // row cost the x-axis title's own reservation above already paid. The
-    // plot's COLUMN extent (`x0`/`x1`) depends only on `yAxisCol`/`cols`,
-    // never on the row budget, so it's safe to resolve this — and spend a
-    // further row of `bottom` for it when needed — before `plotForTicks`
-    // and the tick fitting below lock in the FINAL row extent; a stale
-    // `yRowBudget` computed one row taller than what actually remains is
-    // harmless; `fitTicksToRowSpacing`/`axisTicks` re-fit and collision-test
-    // against the real, final `bottom` either way, so nothing can overlap.
-    // Shares the x-axis title's row when it fits to the LEFT of it; when
-    // both titles genuinely want the bottom and don't fit side by side, the
-    // y title claims a second row of its own and logs `axis-title-stacked`.
-    // With no x-axis title to share with, it simply claims its own row —
-    // the same base cost `titleAt: "bottom"`'s own doc describes, no
-    // stacking conflict to report.
-    if (yTitleAt === "bottom" && yAxisTitleText && detail !== "simplified") {
-      const titlePlotX0 = Math.min(cols - 1, yAxisCol + 1);
-      const titlePlotWidth = Math.max(1, cols - 1 - titlePlotX0 + 1);
-      let xTitleStartCol = cols;
-      if (xAxisTitleRow >= 0 && xAxisTitleText) {
-        const xLen = xAxisTitleText.length;
-        xTitleStartCol = xTitleAt === "start" ? titlePlotX0
-          : xTitleAt === "end" ? Math.max(titlePlotX0, cols - xLen)
-          : Math.max(titlePlotX0, titlePlotX0 + Math.floor((titlePlotWidth - xLen) / 2));
-      }
-      const fitsSharing = xAxisTitleRow >= 0 && yAxisTitleText.length + 1 < xTitleStartCol;
-      if (fitsSharing) {
-        yAxisTitleRow = xAxisTitleRow;
-      } else if (bottom > top) {
-        if (xAxisTitleRow >= 0) ledger.push(ledgerAxisTitleStacked({ cols, rows }));
-        yAxisTitleRow = bottom;
-        bottom -= 1;
-      }
-    }
+    // The FINAL gutter/tick fit, against the now fully-reserved `bottom` —
+    // see `computeYGutter`'s own comment above for why this must be a
+    // second, later call rather than reusing the provisional one.
+    const finalGutter = computeYGutter(bottom);
+    yAxisCol = finalGutter.yAxisCol;
+    const yLabelWidth = finalGutter.yLabelWidth;
+    let yTicksRaw: readonly GlyphChartTick[] = finalGutter.yTicksRaw;
+    const yRowBudget = finalGutter.yRowBudget;
 
     const plotForTicks: GlyphChartPlotRect = {
       x0: Math.min(cols - 1, yAxisCol + 1),

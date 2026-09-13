@@ -153,6 +153,14 @@ function row(host: HTMLElement, label: string): HTMLElement {
 const anchorGroup = (el: HTMLElement) => el.querySelector<HTMLElement>(".maps-osm-anchor .gx-toggle");
 const anchorButtons = (el: HTMLElement) => Array.from(el.querySelectorAll<HTMLButtonElement>(".maps-osm-anchor .gx-toggle-btn"));
 const activeAnchor = (el: HTMLElement) => anchorButtons(el).find((b) => b.classList.contains("is-active")) ?? null;
+/** `IconToggle`'s F5 a11y pass (synthKit.tsx) prefixes each button's
+ *  `aria-label` with its own `groupTitle` (this row's long descriptive
+ *  placement text) — the bare anchor value is the text after the LAST
+ *  ": ", robust to that text carrying no colon of its own (true here). */
+const anchorOf = (button: HTMLButtonElement): string => {
+  const parts = (button.getAttribute("aria-label") ?? "").split(": ");
+  return parts[parts.length - 1]!;
+};
 
 afterEach(() => {
   act(() => { root?.unmount(); });
@@ -194,7 +202,7 @@ describe("every row that draws labels carries its own placement control", () => 
 
   it("offers left / centre / right at minimum, in MapLibre's own vocabulary", () => {
     const buttons = anchorButtons(row(render(), "Places"));
-    const labels = buttons.map((b) => b.getAttribute("aria-label"));
+    const labels = buttons.map((b) => anchorOf(b));
     for (const wanted of ["center", "left", "right"]) expect(labels).toContain(wanted);
   });
 
@@ -202,7 +210,7 @@ describe("every row that draws labels carries its own placement control", () => 
     // The same `IconToggle` markup the Projection picker and the Sun toggle
     // portal into the Dock.
     const group = anchorGroup(row(render(), "Places"))!;
-    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("role")).toBe("radiogroup");
     for (const button of anchorButtons(row(render(), "Places"))) {
       expect(button.className).toContain("gx-toggle-btn");
       expect(button.getAttribute("type")).toBe("button");
@@ -225,15 +233,15 @@ describe("the control shows and writes THAT row's own answer", () => {
         anchor: s.id === "omt-places" ? "left" : s.id === "omt-water-labels" ? "bottom" : MAP_OSM_DEFAULT_ANCHOR,
       })),
     });
-    expect(activeAnchor(row(host, "Places"))!.getAttribute("aria-label")).toBe("left");
-    expect(activeAnchor(row(host, "Water labels"))!.getAttribute("aria-label")).toBe("bottom");
-    expect(activeAnchor(row(host, "Peaks"))!.getAttribute("aria-label")).toBe(MAP_OSM_DEFAULT_ANCHOR);
+    expect(anchorOf(activeAnchor(row(host, "Places"))!)).toBe("left");
+    expect(anchorOf(activeAnchor(row(host, "Water labels"))!)).toBe("bottom");
+    expect(anchorOf(activeAnchor(row(host, "Peaks"))!)).toBe(MAP_OSM_DEFAULT_ANCHOR);
   });
 
   it("routes a click back with that row's id and nothing else", () => {
     const onSublayerAnchor = vi.fn();
     const host = render({ onSublayerAnchor });
-    const button = anchorButtons(row(host, "Places")).find((b) => b.getAttribute("aria-label") === "left")!;
+    const button = anchorButtons(row(host, "Places")).find((b) => anchorOf(b) === "left")!;
     act(() => { button.click(); });
     expect(onSublayerAnchor).toHaveBeenCalledTimes(1);
     expect(onSublayerAnchor).toHaveBeenCalledWith("omt-places", "left");
@@ -244,7 +252,7 @@ describe("the control shows and writes THAT row's own answer", () => {
     const host = render({ onSublayerAnchor });
     for (const spec of LABELLED_ROWS) {
       onSublayerAnchor.mockClear();
-      const button = anchorButtons(row(host, spec.label)).find((b) => b.getAttribute("aria-label") === "bottom")!;
+      const button = anchorButtons(row(host, spec.label)).find((b) => anchorOf(b) === "bottom")!;
       act(() => { button.click(); });
       expect(onSublayerAnchor, spec.label).toHaveBeenCalledTimes(1);
       expect(onSublayerAnchor, spec.label).toHaveBeenCalledWith(spec.id, "bottom");
