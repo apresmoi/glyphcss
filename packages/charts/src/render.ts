@@ -9,12 +9,35 @@
  * caller asking for `target: "terminal"` wants the string it can print
  * as-is, exactly like `@glyphcss/compile`'s own CLI conflates "the current
  * output string" with the chosen `--format` (`packages/compile/src/cli.ts`).
- * `html` is populated only for `color: "css"`. The tier-safety gate ("chat
- * has no `\x1b`") holds because `chat`'s DEFAULT `color` is `"none"`, which
- * never touches the ANSI encoder at all.
+ *
+ * `html` is populated for `color: "css"` on every `textScale`, AND for any
+ * OTHER colour mode whenever `textScale > 1` (N2, CHARTS-RESEARCH
+ * `REVIEW-batch4-fixes-opus.md`) — a `.glyph-text` scaled-text span is the
+ * ONLY way a caller recovers Density's own text-scale reservation in HTML,
+ * and gating that on `color === "css"` forced a `none`/ANSI caller through
+ * a second `color: "css"` render plus a page-side strip/requantize just to
+ * get the markup back, stripping colour also stripped the MONOCHROME series
+ * encoding `paintGlyphChart` chose in its place (line/area-boundary dash
+ * styles, `● × + ◆` dot glyphs — chosen from `colorEnabled`, which is
+ * already false for `color: "none"`), so the re-rendered `css` html carried
+ * neither the real colour nor the honest monochrome fallback. Painting is
+ * unaffected either way — `colorEnabled` here is a function of the
+ * ACTUALLY requested `color`, never forced to `"css"` — so this `html` is
+ * simply the canvas that already exists, encoded a second way; `none`
+ * reads it with no colour at all (the canvas already carries none), and
+ * `ansi16`/`ansi256` recolour PER SPAN to the same palette
+ * `encodeGlyphCanvasAnsi` itself downgrades to (`nearestAnsiCanvasColor`,
+ * `glyphcss`) rather than the page re-deriving that quantization from
+ * already-encoded HTML. `truecolor` needs no recolour: its `colorEnabled`
+ * is identical to `css`'s own, so the two renders' canvases (and therefore
+ * their `html`) are byte-identical without any extra step. The tier-safety
+ * gate ("chat has no `\x1b`") holds because `chat`'s DEFAULT `color` is
+ * `"none"`, which never touches the ANSI encoder at all.
  */
 
-import { createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "glyphcss";
+import {
+  createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
+} from "glyphcss";
 import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
 import { chartLedgerEntryFromCanvasMessage } from "./ledger";
 import { paintGlyphChart } from "./paint";
@@ -131,11 +154,26 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   let html: string | undefined;
   if (color === "none") {
     text = encodeGlyphCanvasText(canvas);
+    // No colour was painted (`colorEnabled` is false), so the canvas
+    // already carries none — `encodeGlyphCanvasHtml` needs no `recolor` to
+    // stay colourless; it exists purely to recover the `.glyph-text`
+    // scaled-text markup for `textScale > 1` (N2, this file's own doc).
+    if (textScale > 1) html = encodeGlyphCanvasHtml(canvas);
   } else if (color === "css") {
     text = encodeGlyphCanvasText(canvas);
     html = encodeGlyphCanvasHtml(canvas);
   } else {
     text = encodeGlyphCanvasAnsi(canvas, { colors: ansiColorMode(color), env: options.env });
+    if (textScale > 1) {
+      // `truecolor`'s `colorEnabled` is identical to `css`'s own, so its
+      // canvas (and thus its `html`) is already byte-identical — no
+      // recolour needed. `ansi16`/`ansi256` requantize per span to the
+      // SAME palette `encodeGlyphCanvasAnsi` above just downgraded to.
+      const recolor = color === "truecolor"
+        ? undefined
+        : (hex: string) => nearestAnsiCanvasColor(hex, color === "ansi16" ? "16" : "256");
+      html = encodeGlyphCanvasHtml(canvas, recolor ? { recolor } : {});
+    }
   }
 
   const series = seriesNames(marks);

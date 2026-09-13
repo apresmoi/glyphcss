@@ -242,6 +242,91 @@ describe("renderGlyphChart — web target", () => {
   });
 });
 
+// N2 (CHARTS-RESEARCH `REVIEW-batch4-fixes-opus.md`): `html` used to be
+// populated only inside the `color === "css"` branch, so a caller wanting
+// the `.glyph-text` scaled-text markup under `none`/an ANSI colour mode had
+// to re-render at `css` and strip/requantize the colour back out — which
+// also stripped the MONOCHROME series encoding (dash styles, `● × + ◆` dot
+// glyphs) `paintGlyphChart` painted in colour's place. `html` is now
+// populated whenever `textScale > 1`, on every colour mode, painted with
+// that mode's own `colorEnabled` — never forced through `css`.
+describe("renderGlyphChart — html for textScale > 1 under every colour mode (N2)", () => {
+  const spec = glyphChartPlot({
+    marks: [
+      glyphChartLine([1, 2, 3], undefined, { name: "A" }),
+      glyphChartLine([3, 2, 1], undefined, { name: "B" }),
+    ],
+    title: "Title",
+  });
+
+  it("textScale === 1 (the default) never emits html outside css — byte-identical to before N2", () => {
+    for (const color of ["none", "ansi16", "ansi256", "truecolor"] as const) {
+      const r = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color });
+      expect(r.html, color).toBeUndefined();
+    }
+  });
+
+  // De-tagged/de-escaped glyph SET (never position — the origin-row filler
+  // skip described in `encode.test.ts`'s P1-2 tests makes a positional
+  // comparison meaningless) — a mutation reverting to the OLD "re-render
+  // at css, strip colour" path would show only `style: "solid"` glyphs
+  // (`paint.ts`: `opts.colorEnabled ? "solid" : SERIES_STYLES[...]`, and
+  // the forced-css render has `colorEnabled: true`), silently dropping
+  // every dashed/dotted/double glyph the real `color: "none"` canvas
+  // painted for the second series (N2's own measured defect).
+  function glyphSet(s: string): Set<string> {
+    return new Set(
+      s.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+        .split("").filter((c) => c !== " " && c !== "\n"),
+    );
+  }
+
+  it("none: html carries the scaled markup with NO colour and the SAME glyph set the real color:none plain text uses", () => {
+    const r = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color: "none", textScale: 2 });
+    expect(r.html).toBeDefined();
+    expect(r.html).toContain("glyph-text");
+    expect(r.html).not.toMatch(/style="[^"]*(?:^|;)\s*color:#[0-9a-f]{6}/);
+    expect(r.html).not.toContain("background-color:#");
+    const textGlyphs = glyphSet(r.text);
+    const htmlGlyphs = glyphSet(r.html!);
+    for (const glyph of textGlyphs) expect(htmlGlyphs.has(glyph), glyph).toBe(true);
+  });
+
+  it("truecolor: html is byte-identical to css's own (same colorEnabled, no recolour needed)", () => {
+    const truecolor = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color: "truecolor", textScale: 2 });
+    const css = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color: "css", textScale: 2 });
+    expect(truecolor.html).toBeDefined();
+    expect(truecolor.html).toBe(css.html);
+  });
+
+  it("ansi16/ansi256: html carries the scaled markup, recoloured to the SAME palette the real ansi export downgrades to — never the full-colour css hex", () => {
+    const css = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color: "css", textScale: 2 });
+    for (const color of ["ansi16", "ansi256"] as const) {
+      const r = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color, textScale: 2 });
+      expect(r.html, color).toBeDefined();
+      expect(r.html, color).toContain("glyph-text");
+      // A quantized palette is coarser than 24-bit css — at least one
+      // series colour must have changed under quantization for this
+      // fixture (both series get distinct palette entries), or the
+      // recolour step is a no-op and this assertion is meaningless.
+      expect(r.html, color).not.toBe(css.html);
+    }
+  });
+
+  it("mutation guard: recolours every hex the html carries, not merely the first one it sees", () => {
+    const r16 = renderGlyphChart(spec, { target: "web", width: 40, height: 14, color: "ansi16", textScale: 2 });
+    const hexes = Array.from(new Set((r16.html ?? "").match(/#[0-9a-f]{6}/g) ?? []));
+    // Every colour literal the html carries must itself already be a member
+    // of the 16-colour ANSI palette — a hex that ISN'T one means it slipped
+    // through unrecoloured.
+    const ANSI_16 = new Set([
+      "#000000", "#800000", "#008000", "#808000", "#000080", "#800080", "#008080", "#c0c0c0",
+      "#808080", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+    ]);
+    for (const hex of hexes) expect(ANSI_16.has(hex), hex).toBe(true);
+  });
+});
+
 describe("renderGlyphChart — validation surfaces", () => {
   it("throws a tagged error for an invalid render size", () => {
     expect(() => renderGlyphChart(glyphChartLine([1, 2]), { width: 0 })).toThrow();

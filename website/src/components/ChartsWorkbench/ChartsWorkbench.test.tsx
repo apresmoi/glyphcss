@@ -43,7 +43,9 @@ import {
   resolveGlyphChartsWorkbenchControls,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
-import { chartsWorkbenchDisplayRender, renderChartsWorkbenchSpec, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
+import {
+  chartsWorkbenchDisplayRender, renderChartsWorkbenchSpec, renderChartsWorkbenchState, type ChartsWorkbenchRender,
+} from "./chartsWorkbenchRender";
 import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
 import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
 import * as urlStateModule from "../../lib/urlState";
@@ -1503,6 +1505,67 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     expect(container.querySelector(".charts-data-loading")).toBeNull();
     expect(container.querySelector(".charts-data-title")?.textContent).not.toBe(STUB_ID);
   }, 10_000);
+
+  // M5b (CHARTS-RESEARCH `REVIEW-batch4-fixes-opus.md`): P1-4's own
+  // `cancelInFlightRemoteLoad` call is wired into BOTH stock-pick paths
+  // (`ChartsWorkbench.tsx`'s own doc, above the ref) — the overlay's browse
+  // chevron (the test above) and "Random". Only the chevron path had a
+  // mounted regression test; the Random path was fixed in code but
+  // undefended (the review's own M5b mutation — removing the cancel call
+  // from `handleRandomDataset` — left 71/71 green). Mirrors the test above
+  // exactly, but drives the SAME race through the Random button instead.
+  it("clicking Random while a remote load is in flight keeps Random's own pick when the stale remote response later resolves", async () => {
+    let resolveRows: ((response: Response) => void) | undefined;
+    const rowsPromise = new Promise<Response>((resolve) => { resolveRows = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.startsWith("https://datasets-server.huggingface.co/splits?")) {
+        return new Response(JSON.stringify({ splits: [{ config: "default", split: "train" }] }), { status: 200 });
+      }
+      if (url.startsWith("https://datasets-server.huggingface.co/rows?")) {
+        return rowsPromise; // deferred — this test resolves it explicitly, below
+      }
+      throw new Error(`unstubbed url in test: ${url}`);
+    }));
+    mount();
+    const input = container.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, STUB_ID);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    const loadingStart = Date.now();
+    while (!container.querySelector(".charts-data-loading")?.textContent?.includes(STUB_ID)) {
+      if (Date.now() - loadingStart > 3000) throw new Error("timed out waiting for the remote load's loading title");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+
+    // "Random" (never `selectChartsDataset`'s browse chevron), while the
+    // remote load above is still outstanding.
+    const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
+    act(() => randomButton.click());
+    const afterRandom = chartsActiveDatasetTitle(container);
+    expect(CHARTS_DATASETS.map((d) => d.title)).toContain(afterRandom);
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+
+    // Now let the STALE remote response resolve.
+    resolveRows!(new Response(JSON.stringify({
+      features: [{ name: "x" }, { name: "y" }],
+      rows: [{ row_idx: 0, row: { x: 1, y: 2 } }, { row_idx: 1, row: { x: 3, y: 4 } }],
+      num_rows_total: 2,
+    }), { status: 200 }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    act(() => {});
+
+    // Random's own pick survived — the stale remote dispatch never landed
+    // on top of it.
+    expect(chartsActiveDatasetTitle(container)).toBe(afterRandom);
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+    expect(container.querySelector(".charts-data-title")?.textContent).not.toBe(STUB_ID);
+  }, 10_000);
 });
 
 // Rule 1/2 (render-area cleanup): the viewport is the chart's own `<pre>`
@@ -1551,6 +1614,45 @@ describe("ChartsWorkbench — copy/export button confirmations", () => {
     expect(container.querySelectorAll(".charts-viewport p")).toHaveLength(0);
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
     expect(button("Copy ASCII")).toBeDefined();
+  }, 10_000);
+
+  // M10 (CHARTS-RESEARCH `REVIEW-batch4-fixes-opus.md`): Copy ASCII must
+  // copy the LOGICAL (density 1) render, not the dense grid's own `text` —
+  // the plain-text exit ignores `textScale` by contract (AGENTS.md's
+  // "Charts" "Density"), so the dense grid's own text shows a scaled
+  // label's origin glyph plus its now-REAL filler blanks
+  // (`ChartsWorkbench.tsx`'s own `logicalRendered` doc — "National" would
+  // paste as "N a t i o n a l"). `ChartsWorkbench.tsx` already computes
+  // `logicalRendered` this way; the review's own M10 mutation (reverting
+  // `copy("ascii")` to read the dense `rendered.text` instead) left
+  // 71/71 green, so this pins it directly against a real density-2 mount
+  // (the shared `beforeEach` above stays at density 1, where the two
+  // renders coincide and couldn't distinguish the mutation).
+  it("Copy ASCII at density 2 copies the density-1 LOGICAL text, not the dense grid's own", async () => {
+    const densityState = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-control", control: { type: "density", value: 2 } });
+    const dense = renderChartsWorkbenchState(densityState);
+    const logical = renderChartsWorkbenchState({
+      ...densityState, controls: { ...densityState.controls, overrides: { ...densityState.controls.overrides, density: 1 } },
+    });
+    expect(dense.ok && logical.ok).toBe(true);
+    if (!dense.ok || !logical.ok) return;
+    // Sanity check the assertion below is actually meaningful — density 2
+    // must render a genuinely DIFFERENT plain-text grid than density 1.
+    expect(dense.text).not.toBe(logical.text);
+
+    const denseContainer = document.createElement("div");
+    document.body.append(denseContainer);
+    const denseRoot = createRoot(denseContainer);
+    act(() => denseRoot.render(<ChartsWorkbench initialState={densityState} />));
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const copyButton = Array.from(denseContainer.querySelectorAll("button")).find((node) => node.textContent === "Copy ASCII")!;
+    act(() => copyButton.click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1)); });
+    expect(writeText).toHaveBeenCalledWith(logical.text);
+    expect(writeText).not.toHaveBeenCalledWith(dense.text);
+
+    act(() => denseRoot.unmount());
+    denseContainer.remove();
   }, 10_000);
 
   it("Copy link flips its own button label to Copied and reverts", async () => {

@@ -1,13 +1,13 @@
 import {
-  renderGlyphChart, GLYPH_CHART_TARGET_DEFAULTS,
-  type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartInput, type GlyphChartMeta, type GlyphChartRenderOptions,
+  renderGlyphChart,
+  type GlyphChartCharset, type GlyphChartInput, type GlyphChartMeta, type GlyphChartRenderOptions,
   type GlyphChartReport, type GlyphChartSpec, type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import {
   buildChartsWorkbenchSpec, chartsWorkbenchEffectiveDensity, chartsWorkbenchRenderOptions, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { correctChartHtmlTextScale, recolorChartHtmlForAnsiDepth, stripChartHtmlColor } from "./chartsWorkbenchHtmlColor";
+import { correctChartHtmlTextScale } from "./chartsWorkbenchHtmlColor";
 
 // ── Colour controls ──────────────────────────────────────────────────────
 //
@@ -261,41 +261,25 @@ function chatCharsetDowngrade(options: GlyphChartRenderOptions): GlyphChartRende
 }
 /**
  * Web-target text-scale fix (CHARTS-RESEARCH `REVIEW-batch4-codex.md` P1-3,
- * `-fable.md` P1-5/P2-1): `renderGlyphChart` only emits `.glyph-text`
- * scaled-text spans (the `html` exit) when `color: "css"` is requested
- * (`packages/charts/src/render.ts` — `html` is populated only inside that
- * one branch), so a web-target render under `none`/an ANSI colour mode
- * never carries them and Density's own `textScale` shrinks every label
- * along with the marks (the page's own font-size halving,
- * `chartsWorkbenchState.ts`'s `densityStyle`, has nothing to counteract
- * it there). Density is web-only (AGENTS.md's "Charts" "Density" —
- * "Locked to 1 off web"), so this only ever re-renders for `target: "web"`
- * with a real `textScale`.
- *
- * `layoutGlyphChart` never reads `color` (the pipeline is
- * `validate → transforms → scales → layout → paint → encode`, colour
- * reaches only the last two stages), so a SECOND render taken at
- * `color: "css"` carries the identical tick/title/legend layout — which
- * cells are scaled-text origins, and at what integer `textScale` — as the
- * actually requested colour mode would, whether or not that mode's own
- * render can itself produce `html`. This function takes that render
- * purely to recover the scaled markup, then adapts its COLOUR to the
- * requested mode (`chartsWorkbenchHtmlColor.ts`) rather than trusting its
- * content: stripped for `none`, requantized to the ANSI palette for
- * `ansi16`/`ansi256` (`truecolor` needs neither — 24-bit is numerically
- * identical to `css`'s own hex, so that `html` is used as-is). Finally
- * corrects the baked-in integer `Nem`/`calc(1 / N)` pair down to the
- * slider's own fractional `logicalEm` (`density`) whenever they diverge —
- * `textScale` must stay the positive integer the library validates and
- * lays reserved cells out at, but the glyph painted inside that reserved
- * box can read smaller/larger, so a 1.5x/1.75x/… density still lands
- * text at its exact logical size instead of only at integer steps.
+ * `-fable.md` P1-5/P2-1, N1/N2 `REVIEW-batch4-fixes-opus.md`).
+ * `renderGlyphChart` now emits `.glyph-text` scaled-text markup (the `html`
+ * exit) for the CALLER's own requested colour mode whenever `textScale > 1`
+ * — not only `color: "css"` (`packages/charts/src/render.ts`'s own doc,
+ * N2) — so a `none`/ANSI-mode render already carries it with no second
+ * render and no page-side colour surgery: `result.html` below is simply
+ * used as-is. What remains genuinely page-owned is the FRACTIONAL density
+ * correction (`correctChartHtmlTextScale`, N1): the library's own
+ * `textScale` must stay the positive integer it laid reserved cells out
+ * at, so a 1.5x/1.75x/… density still needs its baked `Nem`/`width`
+ * reservation corrected down to the slider's own exact em — that pass runs
+ * on whatever `result.html` this render already produced, for every colour
+ * mode alike.
  *
  * `logicalEm` is `renderChartsWorkbenchState`'s own fractional density —
  * `renderChartsWorkbenchSpec` (the raw, `state`-free public entry the
  * target-matrix unit tests call directly) never passes one, so a caller
  * supplying `options.textScale` explicitly keeps today's byte-identical
- * behaviour with no extra render.
+ * behaviour with no extra pass.
  */
 function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions, logicalEm?: number): ChartsWorkbenchRender {
   try {
@@ -305,30 +289,19 @@ function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions, lo
     const text = Array.from({ length: result.grid.rows }, (_, row) =>
       result.grid.char.slice(row * result.grid.cols, (row + 1) * result.grid.cols).join("")
     ).join("\n");
-    // `html` is produced for `color: "css"` on every target (the library
-    // has no target gate of its own — CHARTS-RESEARCH C2) — `TargetPreview`
-    // is what decides whether a given target may SHOW it (never `chat`;
+    // `html` is produced for `color: "css"` on every target, and for any
+    // OTHER colour mode once `textScale > 1` (N2) — the library has no
+    // target gate of its own (CHARTS-RESEARCH C2) — `TargetPreview` is
+    // what decides whether a given target may SHOW it (never `chat`;
     // `terminal` shows it with its own chrome note), so this stays
     // ungated rather than re-implementing that decision here too.
-    let isHtml = result.html !== undefined;
+    const isHtml = result.html !== undefined;
     let display = isHtml ? result.html! : text;
     // NO_COLOR may have suppressed ANSI despite the requested colour depth.
     const ansi = result.text.includes("\x1b[") ? result.text : undefined;
 
     const target = downgraded.target ?? "web";
-    const requestedColor: GlyphChartColorMode = downgraded.color ?? GLYPH_CHART_TARGET_DEFAULTS[target].color;
     const textScale = downgraded.textScale ?? 1;
-    if (target === "web" && textScale > 1 && requestedColor !== "css") {
-      const cssResult = renderGlyphChart(input, { ...downgraded, color: "css" });
-      if (cssResult.html !== undefined) {
-        display = requestedColor === "none"
-          ? stripChartHtmlColor(cssResult.html)
-          : requestedColor === "truecolor"
-            ? cssResult.html
-            : recolorChartHtmlForAnsiDepth(cssResult.html, requestedColor === "ansi16" ? "16" : "256");
-        isHtml = true;
-      }
-    }
     if (isHtml && target === "web" && textScale > 1 && logicalEm !== undefined) {
       display = correctChartHtmlTextScale(display, textScale, logicalEm);
     }

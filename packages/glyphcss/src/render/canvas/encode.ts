@@ -26,7 +26,7 @@
  * attacker- or typo-supplied colour string.
  */
 
-import { nearestPaletteIndex, packHexColor } from "../paletteQuantize";
+import { nearestPaletteIndex, packHexColor, unpackHexColor } from "../paletteQuantize";
 import type { GlyphCanvas } from "./canvas";
 
 /** Plain text, one row per line, `"\n"`-joined. No escaping of any kind. */
@@ -101,6 +101,22 @@ function ansi16Index(hex: string): number {
 
 function ansi256Index(hex: string): number {
   return nearestPaletteIndex(ANSI_256_RGB, packValidatedHexColor(hex));
+}
+
+/**
+ * `hex` requantized to the nearest entry of the SAME 16/256-colour palette
+ * {@link encodeGlyphCanvasAnsi} downgrades SGR colour codes to — exported so
+ * a caller that must produce COLOURED HTML for an ANSI colour depth (a
+ * scaled-text `.glyph-text` render, which {@link encodeGlyphCanvasHtml}'s
+ * `recolor` option exists for, since the library's own `html` exit is
+ * otherwise full 24-bit) can match the same palette the real ANSI export
+ * quantizes to, rather than a second, independently-tuned distance metric
+ * that could disagree with it. `"truecolor"` needs no entry here — 24-bit
+ * is numerically identical to the raw canvas colour already.
+ */
+export function nearestAnsiCanvasColor(hex: string, depth: "16" | "256"): string {
+  const table = depth === "16" ? ANSI_16_RGB : ANSI_256_RGB;
+  return unpackHexColor(table[depth === "16" ? ansi16Index(hex) : ansi256Index(hex)]!);
 }
 
 function truecolorTriplet(hex: string): [number, number, number] {
@@ -208,6 +224,23 @@ function escapeCanvasHtml(glyph: string): string {
   return glyph;
 }
 
+export interface GlyphCanvasHtmlOptions {
+  /**
+   * Applied to every `color`/`background-color` hex value just before it
+   * reaches the emitted `style="…"` attribute — never to `canvas.grid.color`
+   * itself, so run coalescing (which groups adjacent cells by their RAW
+   * colour identity, exactly like {@link encodeGlyphCanvasAnsi}'s own runs)
+   * is unaffected: two adjacent cells whose raw colours differ but recolour
+   * to the same value still emit two `<span>`s, one per raw colour, the same
+   * redundancy the ANSI encoder already accepts for the identical reason
+   * (`colorCodes` quantizes per run, not per merge). Exists so a caller
+   * producing HTML for an ANSI colour DEPTH can requantize to that exact
+   * palette (`nearestAnsiCanvasColor`) without a second render or a
+   * string-level regex pass over the already-encoded markup.
+   */
+  readonly recolor?: (hex: string) => string;
+}
+
 /**
  * Encode for `innerHTML`. Escapes `< > &` itself (never delegates escaping
  * to `cells.ts`, which has no reason to export it) and emits `color` +
@@ -228,12 +261,13 @@ function escapeCanvasHtml(glyph: string): string {
  * bindings/CSS surface a later phase can add deliberately rather than a
  * silent "sometimes atlas, sometimes spans" toggle a caller cannot detect.
  */
-export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
+export function encodeGlyphCanvasHtml(canvas: GlyphCanvas, opts: GlyphCanvasHtmlOptions = {}): string {
   const { cols, rows, char, color } = canvas.grid;
   const bg = canvas.bg;
   const textScale = canvas.textScale;
   const textFiller = canvas.textFiller;
   const textFillerBelowOrigin = canvas.textFillerBelowOrigin;
+  const recolor = opts.recolor;
   const lines: string[] = [];
   for (let r = 0; r < rows; r++) {
     let line = "";
@@ -243,11 +277,13 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
     const flush = () => {
       if (!runText) return;
       if (runFg !== null || runBg !== null) {
-        const style = runFg !== null && runBg !== null
-          ? `color:${runFg};background-color:${runBg}`
-          : runFg !== null
-            ? `color:${runFg}`
-            : `background-color:${runBg}`;
+        const fg = runFg !== null && recolor ? recolor(runFg) : runFg;
+        const bgc = runBg !== null && recolor ? recolor(runBg) : runBg;
+        const style = fg !== null && bgc !== null
+          ? `color:${fg};background-color:${bgc}`
+          : fg !== null
+            ? `color:${fg}`
+            : `background-color:${bgc}`;
         line += `<span style="${style}">${runText}</span>`;
       } else {
         line += runText;
@@ -279,8 +315,10 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
         // plain-run `<span>` above), then resume normal accumulation.
         flush();
         const glyph = char[idx]!;
-        const fg = color[idx] ?? null;
-        const bgc = bg[idx] ?? null;
+        const rawFg = color[idx] ?? null;
+        const rawBg = bg[idx] ?? null;
+        const fg = rawFg !== null && recolor ? recolor(rawFg) : rawFg;
+        const bgc = rawBg !== null && recolor ? recolor(rawBg) : rawBg;
         // `line-height: calc(1 / scale)` (unitless — CSS inherits/computes
         // it against THIS element's own, already `scale`-times-bigger,
         // font-size) cancels the growth back to exactly ONE normal row:
@@ -294,7 +332,28 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
         // own line box, downward (`vertical-align: top`, the page's own
         // `.glyph-text` rule) into the space those already-blank filler
         // rows reserve.
-        const styleParts = [`font-size:${scale}em`, `line-height:calc(1 / ${scale})`];
+        //
+        // `display:inline-block;width:1ch` reserves the origin's own
+        // COLUMN footprint independent of `font-size` (N1, CHARTS-RESEARCH
+        // `REVIEW-batch4-fixes-opus.md`): a `<span>` is inline by default,
+        // so `width` does nothing on it at all without `inline-block`
+        // first; `1ch` at THIS element's own font-size (`scale em`, i.e.
+        // `scale` times the ancestor `<pre>`'s size) already equals
+        // `scale` ancestor cells, because `ch` scales linearly with
+        // font-size for one font exactly like `em` does — `1ch` here IS
+        // the `scale`-cell box the layout reserved, with no multiplier
+        // needed. A caller that later shrinks `font-size` down to a
+        // FRACTIONAL density without touching `width` would silently
+        // shrink this reservation too (the row-drift `correctChartHtmlTextScale`
+        // exists to avoid) — that correction rewrites `width` to
+        // `calc(<N> / <newEm> * 1ch)` alongside `font-size`, pinning the
+        // ORIGINAL integer cell count independent of the painted size.
+        const styleParts = [
+          "display:inline-block",
+          `font-size:${scale}em`,
+          `line-height:calc(1 / ${scale})`,
+          "width:1ch",
+        ];
         if (fg !== null) styleParts.push(`color:${fg}`);
         if (bgc !== null) styleParts.push(`background-color:${bgc}`);
         line += `<span class="glyph-text" style="${styleParts.join(";")}">${escapeCanvasHtml(glyph)}</span>`;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGlyphCanvas } from "./canvas";
-import { encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "./encode";
+import { encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor } from "./encode";
 
 describe("encodeGlyphCanvasText: raw, no escaping", () => {
   it("emits literal < > & (mutation: escape in the text exit -> red)", () => {
@@ -403,11 +403,11 @@ describe("encodeGlyphCanvasHtml: text({ scale }) — the web textScale affordanc
     const canvas = createGlyphCanvas({ cols: 6, rows: 2, tier: "box" });
     canvas.text(0, 0, ["a"], { color: "#ff0000", scale: 2 });
     const html = encodeGlyphCanvasHtml(canvas);
-    expect(html).toContain('<span class="glyph-text" style="font-size:2em;line-height:calc(1 / 2);color:#ff0000">a</span>');
+    expect(html).toContain('<span class="glyph-text" style="display:inline-block;font-size:2em;line-height:calc(1 / 2);width:1ch;color:#ff0000">a</span>');
     // Row 0: "a" span, then columns 2..5 are still blank (never a literal
     // space belonging to the origin's own box).
     const rows = html.split("\n");
-    expect(rows[0]).toBe('<span class="glyph-text" style="font-size:2em;line-height:calc(1 / 2);color:#ff0000">a</span>    ');
+    expect(rows[0]).toBe('<span class="glyph-text" style="display:inline-block;font-size:2em;line-height:calc(1 / 2);width:1ch;color:#ff0000">a</span>    ');
     // Row 1: columns 0-1 are FILLER too, but on the row BELOW the origin —
     // nothing else reserves that column's width there (the bigger glyph
     // only overflows DOWNWARD in ink, past its own line box; it never
@@ -461,5 +461,63 @@ describe("encodeGlyphCanvasHtml: text({ scale }) — the web textScale affordanc
     const ansi = encodeGlyphCanvasAnsi(canvas, { colors: "truecolor" });
     expect(ansi).not.toContain("glyph-text");
     expect(ansi).not.toContain("<span");
+  });
+
+  // N1 (CHARTS-RESEARCH `REVIEW-batch4-fixes-opus.md`): the reserved
+  // COLUMN footprint of a scaled origin's own span must not depend on its
+  // `font-size` — `display:inline-block;width:1ch` is what makes that
+  // true (mutation: drop either declaration -> the byte-exact assertions
+  // above already go red, since they pin the full style string).
+  it("the scaled span is display:inline-block with a self-cancelling width:1ch reservation, independent of colour", () => {
+    const canvas = createGlyphCanvas({ cols: 4, rows: 1, tier: "box" });
+    canvas.text(0, 0, ["a"], { scale: 3 });
+    const html = encodeGlyphCanvasHtml(canvas);
+    expect(html).toContain('<span class="glyph-text" style="display:inline-block;font-size:3em;line-height:calc(1 / 3);width:1ch">a</span>');
+  });
+});
+
+describe("encodeGlyphCanvasHtml: recolor option — requantizing colour for an ANSI-depth html", () => {
+  it("applies recolor to a plain run's colour and background, not to the raw grouping key", () => {
+    const canvas = createGlyphCanvas({ cols: 2, rows: 1, tier: "box" });
+    canvas.fillRect(0, 0, 1, 0, { fill: "solid", color: "#123456", bg: "#654321" });
+    const html = encodeGlyphCanvasHtml(canvas, { recolor: () => "#ff0000" });
+    expect(html).toContain("color:#ff0000;background-color:#ff0000");
+    expect(html).not.toContain("#123456");
+    expect(html).not.toContain("#654321");
+  });
+
+  it("applies recolor to a scaled origin span's colour too", () => {
+    const canvas = createGlyphCanvas({ cols: 2, rows: 1, tier: "box" });
+    canvas.text(0, 0, ["a"], { color: "#123456", scale: 2 });
+    const html = encodeGlyphCanvasHtml(canvas, { recolor: () => "#00ff00" });
+    expect(html).toContain('color:#00ff00');
+    expect(html).not.toContain("#123456");
+  });
+
+  it("two adjacent cells with different raw colours that recolour to the SAME value still emit two spans, mirroring the ANSI encoder's own per-run quantization (mutation: recolour before grouping -> merges into one span)", () => {
+    const canvas = createGlyphCanvas({ cols: 2, rows: 1, tier: "box" });
+    canvas.text(0, 0, ["a"], { color: "#100000" });
+    canvas.text(1, 0, ["b"], { color: "#200000" });
+    const html = encodeGlyphCanvasHtml(canvas, { recolor: () => "#ff0000" });
+    expect(html.match(/<span/g)?.length).toBe(2);
+  });
+
+  it("with no recolor, colours pass through unchanged (byte-identical to before this option existed)", () => {
+    const canvas = createGlyphCanvas({ cols: 2, rows: 1, tier: "box" });
+    canvas.text(0, 0, ["a"], { color: "#123456" });
+    expect(encodeGlyphCanvasHtml(canvas)).toContain("#123456");
+  });
+});
+
+describe("nearestAnsiCanvasColor — the same palette encodeGlyphCanvasAnsi downgrades to", () => {
+  it("maps pure red to ANSI red at both depths", () => {
+    expect(nearestAnsiCanvasColor("#ff0000", "16")).toBe("#ff0000");
+    expect(nearestAnsiCanvasColor("#ff0000", "256")).toBe("#ff0000");
+  });
+
+  it("is deterministic and always returns a canonical lowercase #rrggbb", () => {
+    const hex = nearestAnsiCanvasColor("#7a7f8a", "256");
+    expect(hex).toMatch(/^#[0-9a-f]{6}$/);
+    expect(nearestAnsiCanvasColor("#7a7f8a", "256")).toBe(hex);
   });
 });

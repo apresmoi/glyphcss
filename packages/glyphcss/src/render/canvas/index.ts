@@ -47,8 +47,10 @@ export {
   encodeGlyphCanvasText,
   encodeGlyphCanvasAnsi,
   encodeGlyphCanvasHtml,
+  nearestAnsiCanvasColor,
 } from "./encode";
 export type {
   GlyphCanvasAnsiColorMode,
   GlyphCanvasAnsiOptions,
+  GlyphCanvasHtmlOptions,
 } from "./encode";
