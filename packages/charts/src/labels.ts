@@ -52,6 +52,20 @@ export interface GlyphChartLabelCandidate {
    * into a sentence a reader was meant to see.
    */
   readonly role?: string;
+  /**
+   * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
+   * paragraph): this candidate will be painted via `canvas.text({ scale })`,
+   * so its glyphs occupy `scale x scale` cells, not one — see
+   * `glyphChartLabelLayout`'s own doc for the box/budget derivation. PER
+   * CANDIDATE (not a call-level option) because one `glyphChartLabelLayout`
+   * call places chart CHROME (title, legend — scaled under `textScale`)
+   * alongside a mark's own `text`-mark data labels (never scaled — they're
+   * the mark's own ink, not chrome) in the SAME priority-ordered collision
+   * pass, so a scaled title/legend candidate and an unscaled data-label
+   * candidate correctly dodge each other's real (possibly very different)
+   * footprints. Default `1`, byte-identical to before this option existed.
+   */
+  readonly scale?: number;
 }
 
 export interface GlyphChartLabelLayoutOptions {
@@ -66,6 +80,8 @@ export interface GlyphChartPlacedLabel {
   readonly y: number;
   readonly text: string;
   readonly abbreviated: boolean;
+  /** Resolved from the candidate's own `scale` (default `1`) — pass straight through to `canvas.text({ scale })`. */
+  readonly scale: number;
 }
 
 export interface GlyphChartLabelLayoutResult {
@@ -174,9 +190,10 @@ export function abbreviateChartText(
   return { text: text.slice(0, maxWidth - ellipsis.length) + ellipsis, changed: true };
 }
 
-function rectFor(x: number, y: number, width: number): GlyphChartObstacleRect {
+/** `width`/`height` are already the FINAL scaled cell footprint (never a raw character count) — see `glyphChartLabelLayout`'s own `boxWidth`/`scale` derivation. */
+function rectFor(x: number, y: number, width: number, height: number): GlyphChartObstacleRect {
   const half = Math.floor(width / 2);
-  return { x0: x - half, y0: y, x1: x - half + width - 1, y1: y };
+  return { x0: x - half, y0: y, x1: x - half + width - 1, y1: y + height - 1 };
 }
 
 function overlaps(a: GlyphChartObstacleRect, b: GlyphChartObstacleRect): boolean {
@@ -202,9 +219,21 @@ export function glyphChartLabelLayout(
   const { cols, rows } = opts.viewport;
 
   for (const c of ordered) {
-    if (c.y < 0 || c.y >= rows) { dropped.push(c.id); continue; }
+    // Reduces to `1` (an inert multiplier) at the default — every derived
+    // quantity below is then byte-identical to before `scale` existed.
+    // PER CANDIDATE (`GlyphChartLabelCandidate.scale`'s own doc), not a
+    // call-level option — chart chrome and a mark's own data labels share
+    // one placement pass with different scales.
+    const scale = Math.max(1, Math.floor(c.scale ?? 1));
+    // The candidate's whole `scale`-row box must clear the viewport, not
+    // just its origin row.
+    if (c.y < 0 || c.y + scale - 1 >= rows) { dropped.push(c.id); continue; }
     const role = c.role ?? "label";
-    const maxWidth = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
+    // `c.maxWidth`/`cols` are COLUMN budgets in the FINAL (scaled)
+    // rendering — divided by `scale` to get the CHARACTER budget
+    // `abbreviateChartText` actually measures against.
+    const maxWidthCols = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
+    const maxWidth = Math.max(1, Math.floor(maxWidthCols / scale));
     const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric, c.rawValue, c.siFallback);
     if (numericOverflow) {
       dropped.push(c.id);
@@ -213,11 +242,16 @@ export function glyphChartLabelLayout(
     }
     if (changed) ledger.push(ledgerLabelAbbreviated({ role, before: c.text, after: text }));
 
+    // The label's actual cell footprint is `text.length * scale` columns
+    // by `scale` rows (its origin cell holds the first glyph; the rest is
+    // the `scale x scale` boxes `canvas.text({ scale })` will reserve).
+    const boxWidth = text.length * scale;
+
     // Clamp the centred placement so it never runs off either edge.
-    const half = Math.floor(text.length / 2);
+    const half = Math.floor(boxWidth / 2);
     let startX = c.x - half;
-    startX = Math.max(0, Math.min(cols - text.length, startX));
-    let rect = rectFor(startX + half, c.y, text.length);
+    startX = Math.max(0, Math.min(cols - boxWidth, startX));
+    let rect = rectFor(startX + half, c.y, boxWidth, scale);
 
     // Nudge along the row (both directions) to dodge an obstacle/prior label
     // before giving up — a label that simply vanished on the first collision
@@ -226,8 +260,8 @@ export function glyphChartLabelLayout(
     if (!ok) {
       for (let d = 1; d <= cols && !ok; d++) {
         for (const dir of [-1, 1]) {
-          const nx = Math.max(0, Math.min(cols - text.length, startX + dir * d));
-          const candidateRect = { x0: nx, y0: c.y, x1: nx + text.length - 1, y1: c.y };
+          const nx = Math.max(0, Math.min(cols - boxWidth, startX + dir * d));
+          const candidateRect = { x0: nx, y0: c.y, x1: nx + boxWidth - 1, y1: c.y + scale - 1 };
           if (!obstacles.some((o) => overlaps(o, candidateRect))) {
             startX = nx;
             rect = candidateRect;
@@ -244,7 +278,7 @@ export function glyphChartLabelLayout(
       continue;
     }
 
-    placed.push({ id: c.id, x: startX, y: c.y, text, abbreviated: changed });
+    placed.push({ id: c.id, x: startX, y: c.y, text, abbreviated: changed, scale });
     obstacles.push(rect);
   }
 

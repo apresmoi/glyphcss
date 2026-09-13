@@ -186,6 +186,7 @@ function axisTicks(
   requestedCount = Infinity,
   timeAxis = false,
   format?: GlyphChartResolvedTickFormat,
+  textScale = 1,
 ): GlyphChartLayoutTick[] {
   let sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
   // The leftmost tick is the reader's only anchor for what date the WHOLE
@@ -283,26 +284,35 @@ function axisTicks(
       // generic SI-of-the-parsed-text fallback for an immediate drop.
       rawValue: numeric && format ? (t.value as number) : undefined,
       siFallback: numeric ? format?.siFallback : undefined,
+      scale: textScale,
     }], { obstacles: [], viewport: { cols, rows }, charset });
     ledger.push(...label.ledger);
     const placed = label.placed[0];
     if (!placed) continue;
-    const start = axis === "x" ? placed.x : Math.max(0, maxWidth - placed.text.length);
+    // `placed.text.length * textScale` is the label's actual COLUMN
+    // footprint once painted via `canvas.text({ scale: textScale })` — the
+    // y-axis gutter right-aligns against it exactly like it always
+    // right-aligned against the raw character count at `textScale === 1`.
+    const labelCols = placed.text.length * textScale;
+    const start = axis === "x" ? placed.x : Math.max(0, maxWidth - labelCols);
     // A full interval-overlap test (order-independent) rather than the
     // one-directional "does the new label start before the previous kept
     // one ends" check: priority reordering means `kept` is no longer
     // guaranteed to be in ascending cell order while this loop runs (it is
     // re-sorted at the end), so a one-directional test would misjudge a
     // candidate that sorts BEFORE an already-kept priority tick.
-    const tEnd = start + placed.text.length - 1;
+    const tEnd = start + labelCols - 1;
     // Symmetric (order-independent) form of the original one-directional
     // "does the new label start before a 1-cell gap past the previous kept
     // one ends" test — reduces to exactly that test when candidates are
     // visited in ascending cell order (the un-prioritised case), and also
     // catches a candidate that sorts BEFORE an already-kept priority tick.
+    // The y-axis test's own minimum spacing generalizes from "2" (one
+    // scale-1 label row + one blank gap row) to `textScale + 1` (a
+    // `textScale`-row label + the same one-row gap).
     const collides = kept.some((k) => axis === "x"
-      ? start <= k.labelStart + k.label.length && k.labelStart <= tEnd + 1
-      : Math.abs(t.cell - k.cell) < 2);
+      ? start <= k.labelStart + k.label.length * textScale && k.labelStart <= tEnd + 1
+      : Math.abs(t.cell - k.cell) < textScale + 1);
     if (collides) continue;
     // Never show the identical label text twice — ambiguous, not merely
     // crowded (review finding 5/8: a multi-day time axis kept THREE ticks
@@ -420,6 +430,17 @@ export function layoutGlyphChart(
   ledger: GlyphChartLedgerEntry[],
   charset: GlyphChartCharset = "box",
   legendOption: GlyphChartResolvedLegendOption = { show: true, placement: "bottom", explicit: false },
+  /**
+   * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
+   * paragraph, `render.ts`'s own `GlyphChartRenderOptions.textScale` doc):
+   * every row/column this function reserves for TEXT (title, axis titles,
+   * tick labels, the bottom/title-shared legend row) reserves `textScale`
+   * of them instead of `1` — the label is painted later via
+   * `canvas.text({ scale: textScale })`, so its box is genuinely that
+   * large. Default `1`, byte-identical to before this parameter existed
+   * (every `+= textScale`/`-= textScale` below is `+= 1`/`-= 1` there).
+   */
+  textScale = 1,
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
@@ -480,9 +501,9 @@ export function layoutGlyphChart(
   // of the whole chart, with the legend and axis rows stacking above it.
   const resolvedTitle = resolveGlyphChartTitle(spec.title);
   let titleRow: number | null = null;
-  if (resolvedTitle.text && detail !== "simplified" && rows > 4) {
-    if (resolvedTitle.position === "bottom") { titleRow = bottom; bottom -= 1; }
-    else { titleRow = top; top += 1; }
+  if (resolvedTitle.text && detail !== "simplified" && rows > 4 * textScale) {
+    if (resolvedTitle.position === "bottom") { titleRow = bottom - textScale + 1; bottom -= textScale; }
+    else { titleRow = top; top += textScale; }
   } else if (resolvedTitle.text) {
     ledger.push(ledgerTitleDropped({ cols, rows }));
   }
@@ -495,9 +516,9 @@ export function layoutGlyphChart(
   // fixes the plot's column extent, independent of the row budget) are both
   // known — see that block's own comment.
   let yAxisTitleRow = -1;
-  if (yAxisTitleText && detail !== "simplified" && yTitleAt === "top" && rows - top > 3) {
+  if (yAxisTitleText && detail !== "simplified" && yTitleAt === "top" && rows - top > 3 * textScale) {
     yAxisTitleRow = top;
-    top += 1;
+    top += textScale;
   }
 
   // >= 1, not > 1: a single NAMED mark (packet item 4 — every mark
@@ -516,8 +537,8 @@ export function layoutGlyphChart(
   const seriesColors = chartSeriesColors(marks);
   const items = names.map((label) => ({ label, color: seriesColors.get(label)! }));
   const reserveBottomLegend = (): boolean => {
-    const legendWide = cols >= 12 && rows - top - 3 > 2;
-    if (legendWide) { legend = { placement: "bottom", row: bottom, items }; bottom -= 1; }
+    const legendWide = cols >= 12 && rows - top - 3 * textScale > 2 * textScale;
+    if (legendWide) { legend = { placement: "bottom", row: bottom - textScale + 1, items }; bottom -= textScale; }
     return legendWide;
   };
   // A funnel's stage labels already carry the same identity a legend
@@ -595,8 +616,12 @@ export function layoutGlyphChart(
     // form because it is the more honest formula for what this variable is
     // actually named, not because a wrong seed would change the result.
     const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
+    // The minimum y-tick row spacing generalizes from `2` (a scale-1 label
+    // row + a blank gap row, `axisTicks`'s own y-collision rule) to
+    // `textScale + 1` — see that function's own matching comment.
+    const yMinRowSpacing = textScale + 1;
     const computeYGutter = (bottomForFit: number) => {
-      const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottomForFit - top) / 2) + 1));
+      const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottomForFit - top) / yMinRowSpacing) + 1));
       // Only the auto-computed budget gets shrunk to fit actual row
       // spacing — an explicit `axes.y.ticks` count is a caller request, not
       // a fitting heuristic (matches `axisTicks`'s own stride/collision
@@ -605,7 +630,7 @@ export function layoutGlyphChart(
       // excluded too.
       const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
         ? scales.y.ticks(yRowBudget)
-        : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, 2);
+        : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, yMinRowSpacing);
       let yTicksRaw: readonly GlyphChartTick[] = formatAxisTicks(
         integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y")),
         yTickFormat,
@@ -617,14 +642,17 @@ export function layoutGlyphChart(
         yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: zeroLabel }];
       }
       const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
-      return { yRowBudget, yTicksRaw, yLabelWidth, yAxisCol: yLabelWidth + 1 };
+      // The gutter reserves `yLabelWidth * textScale` COLUMNS — each
+      // character of a right-aligned y-tick label now occupies `textScale`
+      // columns once painted via `canvas.text({ scale: textScale })`.
+      return { yRowBudget, yTicksRaw, yLabelWidth, yAxisCol: yLabelWidth * textScale + 1 };
     };
 
     // x-axis title, when present, is the BOTTOM-most row (drawn "under the
     // x axis", i.e. below its own tick labels) — reserved before the label
     // row so both survive together or the title alone drops first on a
     // short chart.
-    const xAxisTitleWillShow = !!(xAxisTitleText && detail !== "simplified" && rows - top >= 4);
+    const xAxisTitleWillShow = !!(xAxisTitleText && detail !== "simplified" && rows - top >= 4 * textScale);
     const wantsYTitleBottomRow = !!(yTitleAt === "bottom" && yAxisTitleText && detail !== "simplified");
 
     // y-axis title, `titleAt: "bottom"`: below the plot at the axis column
@@ -638,7 +666,7 @@ export function layoutGlyphChart(
     // report.
     let fitsSharing = false;
     if (wantsYTitleBottomRow) {
-      const provisionalBottom = bottom - (xAxisTitleWillShow ? 1 : 0) - 1;
+      const provisionalBottom = bottom - (xAxisTitleWillShow ? textScale : 0) - textScale;
       const provisionalGutter = computeYGutter(provisionalBottom);
       const titlePlotX0 = Math.min(cols - 1, provisionalGutter.yAxisCol + 1);
       const titlePlotWidth = Math.max(1, cols - 1 - titlePlotX0 + 1);
@@ -654,7 +682,10 @@ export function layoutGlyphChart(
           : xTitleAt === "end" ? Math.max(titlePlotX0, cols - xLen)
           : Math.max(titlePlotX0, titlePlotX0 + Math.floor((titlePlotWidth - xLen) / 2));
       }
-      fitsSharing = xAxisTitleWillShow && chartText(yAxisTitleText!, charset).length + 1 < xTitleStartCol;
+      // The y-title's own painted footprint scales to `textScale` columns
+      // per character; the trailing `+1` (one blank gap column before the
+      // x-title's own start column) stays a single column regardless.
+      fitsSharing = xAxisTitleWillShow && chartText(yAxisTitleText!, charset).length * textScale + 1 < xTitleStartCol;
     }
 
     // Rows are reserved here in true visual (bottom-up) ORDER, not merely
@@ -672,17 +703,17 @@ export function layoutGlyphChart(
     // `titleAt: "bottom"` must reserve its row from `bottom` on the same
     // schedule rather than after `computeYGutter` has already fitted ticks
     // against a `bottom` one row taller than the plot ends up being.
-    if (wantsYTitleBottomRow && !fitsSharing && bottom - (xAxisTitleWillShow ? 1 : 0) - 1 > top) {
-      yAxisTitleRow = bottom;
-      bottom -= 1;
+    if (wantsYTitleBottomRow && !fitsSharing && bottom - (xAxisTitleWillShow ? textScale : 0) - textScale > top) {
+      yAxisTitleRow = bottom - textScale + 1;
+      bottom -= textScale;
       if (xAxisTitleWillShow) ledger.push(ledgerAxisTitleStacked({ cols, rows }));
     }
     if (xAxisTitleWillShow) {
-      xAxisTitleRow = bottom;
-      bottom -= 1;
+      xAxisTitleRow = bottom - textScale + 1;
+      bottom -= textScale;
     }
-    xAxisLabelRow = bottom;
-    bottom -= 1;
+    xAxisLabelRow = bottom - textScale + 1;
+    bottom -= textScale;
     if (wantsYTitleBottomRow && fitsSharing) {
       yAxisTitleRow = xAxisTitleRow;
     }
@@ -805,8 +836,13 @@ export function layoutGlyphChart(
       : scales.y.type === "time" ? yTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
       : [],
     );
-    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat);
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat);
+    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat, textScale);
+    // `yLabelWidth * textScale`: `axisTicks`' own `maxWidth` is a COLUMN
+    // budget (its `slot` is fed straight into `glyphChartLabelLayout`,
+    // which now divides a candidate's `maxWidth` by `scale` to recover the
+    // character budget) — `yLabelWidth` itself stays a raw character count
+    // (the y gutter's own `yAxisCol` derivation multiplies it the same way).
+    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale);
   }
 
   const plot: GlyphChartPlotRect = {

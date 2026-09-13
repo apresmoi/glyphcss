@@ -950,9 +950,28 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     setInputValue(densityInput(), "2");
     const after = pre().textContent!.split("\n");
     expect(after).toHaveLength(64);
-    expect(after[0]).toHaveLength(192);
+    // Density also carries `@glyphcss/charts`' own `textScale: round(density)`
+    // (AGENTS.md's "Charts" "Density" paragraph) — the title/tick text a
+    // scaled row carries is painted through the HTML exit's own
+    // `<span class="glyph-text">`, which emits NOTHING for a label's
+    // filler columns (never a literal blank — the point is for the span's
+    // own font-size-scaled advance width to fill that space instead), so a
+    // row carrying scaled text reads SHORTER in the parsed DOM's own
+    // `textContent` than the raw `cols` count. A row untouched by any
+    // scaled label (most of the plot) still reads the full doubled width —
+    // checked via the row-length MAXIMUM rather than a specific index, so
+    // this doesn't depend on which row the preset happens to put its title
+    // or a tick label on.
+    expect(Math.max(...after.map((row) => row.length))).toBe(192);
     expect(pre().style.fontSize).toBe("calc(13px / 2)");
     expect(pre().style.lineHeight).toBe("1");
+    // The library's `textScale: round(density)` (AGENTS.md's "Charts"
+    // "Density" paragraph) reaches the mounted page: the HTML exit's own
+    // `.glyph-text` spans, at `font-size:2em` RELATIVE to this same `<pre>`'s
+    // `calc(13px / 2)` — so a scaled glyph paints at the ORIGINAL 13px,
+    // over a `<pre>` whose OWN base size has been halved.
+    expect(pre().innerHTML).toContain("glyph-text");
+    expect(pre().innerHTML).toContain("font-size:2em");
   });
 
   it("Density is disabled with a reason on terminal and chat, and the render renders at density 1 there even with a dialed-in value", () => {
@@ -1225,8 +1244,27 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     document.body.append(container);
     root = createRoot(container);
     act(() => root.render(<ChartsWorkbench />));
+    // NOT `.charts-data-info`'s mere presence — this mount decodes straight
+    // into an ALREADY-`remote`-shaped state (`linkState.data.source`, the
+    // STALE title/description carried in the link itself, per the doc
+    // above: "rows are never in the link"), so `.charts-data-info` (`remote
+    // && !loadingTitle`, `ChartsDataFolder.tsx`) can already be satisfied on
+    // the very FIRST render — before `loadRemoteDataset`'s effect has even
+    // set `remoteLoadingTitle`, let alone resolved the re-fetch — making
+    // this a genuine race, not a timing quirk: whichever of "the stale
+    // paint" and "the loading effect's first `setState`" React happens to
+    // flush first inside `act()` decides whether the poll below observes
+    // the stale shell or the real load in flight, and that ordering is
+    // exactly the kind of thing sensitive to how much other work shares the
+    // process (reproduced: reliably passes when this file's other tests run
+    // first and warm up the event loop, reliably fails run alone). Waiting
+    // for the FRESH title instead (`parseDatasetHitFromQuery`'s own
+    // `title: value` for a bare id, i.e. `STUB_ID` itself — "stub/demo",
+    // never the stale "Stub Demo" pretty-name the link carried) only
+    // becomes true once `select-remote-dataset` has actually dispatched,
+    // which is the one signal this test is actually trying to wait for.
     const start = Date.now();
-    while (!container.querySelector(".charts-data-info")) {
+    while (container.querySelector(".charts-data-title")?.textContent !== STUB_ID) {
       if (Date.now() - start > 3000) throw new Error("timed out waiting for the remote re-fetch to land");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }

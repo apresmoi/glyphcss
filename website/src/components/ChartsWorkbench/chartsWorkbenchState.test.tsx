@@ -135,6 +135,28 @@ describe("ChartsWorkbench state", () => {
       expect(chartsWorkbenchRenderOptions(state).width).toBe(51);
     });
 
+    // `@glyphcss/charts`' own `textScale` (AGENTS.md's "Charts" "Density"
+    // paragraph) — `chartsWorkbenchRenderOptions` is the ONE place this
+    // page decides `textScale: round(density)`.
+    it("chartsWorkbenchRenderOptions carries textScale: round(density) on web, and OMITS it at density 1 (byte-identical to before textScale existed)", () => {
+      const at1 = chartsWorkbenchRenderOptions(initial());
+      expect(at1).not.toHaveProperty("textScale");
+
+      const at2 = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 2 } });
+      expect(chartsWorkbenchRenderOptions(at2).textScale).toBe(2);
+
+      // round(density), not density itself — a non-integer density (2.5)
+      // still yields an integer textScale, matching `canvas.text`'s own
+      // integer-scale contract.
+      const at2point5 = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 2.5 } });
+      expect(chartsWorkbenchRenderOptions(at2point5).textScale).toBe(3); // round(2.5) === 3
+
+      // Off web, effective density is always 1 regardless of the dialed-in
+      // override, so textScale is omitted there too.
+      const terminalAt2 = reduceChartsWorkbenchState(at2, { type: "set-control", control: { type: "target", value: "terminal" } });
+      expect(chartsWorkbenchRenderOptions(terminalAt2)).not.toHaveProperty("textScale");
+    });
+
     it("chartsDensitySliderMax caps at the legible floor, snapped to the step grid, never above CHARTS_DENSITY_MAX", () => {
       expect(chartsDensitySliderMax(13)).toBeCloseTo(13 / CHARTS_DENSITY_MIN_FONT_PX, 5); // 3.25 — already on the 0.25 grid
       expect(chartsDensitySliderMax(1000)).toBe(CHARTS_DENSITY_MAX); // never past the nominal ceiling

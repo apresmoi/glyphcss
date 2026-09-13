@@ -21,7 +21,9 @@ import { paintGlyphChart } from "./paint";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { normalizeGlyphChartInput } from "./spec";
-import { validateGlyphChartLegendOption, validateGlyphChartRenderSize, validateGlyphChartSpec } from "./validate";
+import {
+  validateGlyphChartLegendOption, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
+} from "./validate";
 import type {
   GlyphChartCharset,
   GlyphChartColorMode,
@@ -107,13 +109,15 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const color: GlyphChartColorMode = options.color ?? defaults.color;
   const detail: GlyphChartDetail = options.detail ?? "auto";
   const cellAspect = options.cellAspect ?? defaults.cellAspect;
+  const textScale = options.textScale ?? 1;
+  validateGlyphChartTextScale(textScale);
 
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
 
   const ledger: GlyphChartLedgerEntry[] = [];
   const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);
-  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, legendOption);
+  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, legendOption, textScale);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
   // The ANSI encoder's non-empty env flags also determine whether colour
@@ -121,7 +125,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const ansi = color !== "none" && color !== "css";
   const noColor = Boolean(options.env?.NO_COLOR) && !options.env?.FORCE_COLOR;
   const colorEnabled = color !== "none" && !(ansi && noColor);
-  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled }, ledger);
+  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale }, ledger);
 
   let text: string;
   let html: string | undefined;

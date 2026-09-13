@@ -876,8 +876,19 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): Glyph
   // either (AGENTS.md's "Per-mesh detail layers").
   const { density: _density, ...resolved } = resolveGlyphChartsWorkbenchControls(state.controls);
   const density = chartsWorkbenchEffectiveDensity(state.controls);
+  const textScale = Math.round(density);
   return { ...resolved, width: Math.round(resolved.width * density), height: Math.round(resolved.height * density),
     detail: state.controls.overrides.detail ?? "auto",
+    // `@glyphcss/charts`' own `textScale` (AGENTS.md's "Charts" "Density"
+    // paragraph) — the library's ONE render, two-font-size mechanism that
+    // keeps chart TEXT at a readable size on the denser grid above. Omitted
+    // (never `1`) at `round(density) === 1` — the library's own
+    // byte-identical default — matching every other option here (`env`,
+    // `charset`/`color`/`width`/`height` themselves) that rides in the
+    // returned object only when it differs from doing nothing; this also
+    // keeps the generated TypeScript snippet and every option-object
+    // snapshot untouched at the page's own default density.
+    ...(textScale !== 1 ? { textScale } : {}),
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState) {
