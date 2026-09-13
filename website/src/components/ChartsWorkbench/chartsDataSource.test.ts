@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildDatasetMark, profileChartsData, resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
+import { buildDatasetMark, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
+import { buildChartsWorkbenchSpec, createChartsWorkbenchState, reduceChartsWorkbenchState } from "./chartsWorkbenchState";
 
 describe("resolveChartsDataRows", () => {
   it("resolves a stock dataset with no pipeline", () => {
@@ -65,5 +66,62 @@ describe("buildDatasetMark", () => {
     expect(mark.type).toBe("line");
     expect(mark.channels).toEqual({ x: "year", y: "anomaly_c", fill: undefined, label: undefined });
     expect(JSON.parse(mark.dataText)).toEqual(rows);
+  });
+});
+
+// ── F1/P1-1 — Apply uses each STOCK dataset's own curated `recommended`
+// mapping, never the general profiler's top pick ─────────────────────────
+//
+// Before this fix, `ChartsDataFolder.tsx`'s Apply button always committed
+// `profiled.recommendations[0]` — the profiler's own ranking — even for a
+// dataset that ships a curated `recommended` field naming a DIFFERENT
+// mapping. `topChartsRecommendation` is the fix: it reads the dataset's own
+// field when one exists. These two datasets are the review's own repro
+// (`world-population-by-country`: profiler picks an unfilled line;
+// `iris-flowers`: profiler picks a pie of summed sepal lengths) — both are
+// tested end to end as the actual chart SPEC Apply produces, mirroring
+// exactly what `ChartsDataFolder.tsx` now does (`topChartsRecommendation`
+// -> `apply-data` -> `buildChartsWorkbenchSpec`).
+describe("topChartsRecommendation (F1/P1-1)", () => {
+  function applyDataset(id: string) {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id } });
+    const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
+    if (!resolved.ok) throw new Error(resolved.error);
+    const { recommendations } = profileChartsData(resolved.rows);
+    const top = topChartsRecommendation(resolved.dataset, recommendations);
+    if (!top) throw new Error("expected a top recommendation");
+    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels });
+    return { top, spec: buildChartsWorkbenchSpec(state) };
+  }
+
+  it("world-population-by-country: Apply produces a line filled by country, reading the dataset's curated mapping directly", () => {
+    const { top, spec } = applyDataset("world-population-by-country");
+    expect(top).toEqual({
+      mark: "line", channels: { x: "year", y: "population", fill: "country", label: undefined },
+      reason: expect.stringContaining("Population"),
+    });
+    expect(spec.marks[0]).toMatchObject({ type: "line", channels: { fill: "country" } });
+  });
+
+  it("iris-flowers: Apply produces a species-coloured scatter (dot), never a pie of summed sepal lengths", () => {
+    const { top, spec } = applyDataset("iris-flowers");
+    expect(top).toEqual({
+      mark: "dot", channels: { x: "sepal_length_cm", y: "petal_length_cm", fill: "species", label: undefined },
+      reason: expect.stringContaining("Iris"),
+    });
+    expect(spec.marks[0]).toMatchObject({ type: "dot", channels: { fill: "species" } });
+    expect(spec.marks[0].type).not.toBe("arc");
+  });
+
+  it("a custom source (no curated mapping) still falls back to the profiler's own top pick", () => {
+    const rows = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
+    const { recommendations } = profileChartsData(rows);
+    const top = topChartsRecommendation(undefined, recommendations);
+    expect(top).toEqual({ mark: recommendations[0]!.mark, channels: recommendations[0]!.channels, reason: recommendations[0]!.reason });
+  });
+
+  it("no recommendation at all (empty rows) is null, not a crash", () => {
+    expect(topChartsRecommendation(undefined, [])).toBeNull();
   });
 });

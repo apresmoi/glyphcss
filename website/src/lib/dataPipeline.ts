@@ -62,6 +62,15 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** `Object.hasOwn`-guarded column read — a `filter`/`sort`/`parseDate` step
+ *  names a column the same way `derive`'s "col" AST node does (F4/P2-1), so
+ *  a column named after an inherited `Object.prototype` member (say
+ *  `constructor`) reads `null` here too, never the live prototype value a
+ *  plain `row[name]` lookup would resolve through the prototype chain. */
+function rowColumn(row: TabularRow, name: string): TabularCell {
+  return Object.hasOwn(row, name) ? row[name] ?? null : null;
+}
+
 function toRows(value: unknown): TabularRow[] | null {
   if (Array.isArray(value)) {
     if (value.every(isPlainRecord)) return value.map((v) => v as TabularRow);
@@ -149,17 +158,63 @@ function compareForSort(a: TabularCell, b: TabularCell): number {
 /** Minimal format tokens: `YYYY`, `MM`, `DD` — enough for the common
  *  non-ISO shapes a pasted CSV carries (`MM/DD/YYYY`, `DD-MM-YYYY`). No
  *  format = try `Date.parse` directly (handles ISO and most JS-parseable text). */
-function parseDateCell(raw: TabularCell, format?: string): string | null {
-  if (raw === null || raw === undefined || raw === "") return null;
-  const text = String(raw);
-  if (!format) {
-    const t = Date.parse(text);
-    return Number.isNaN(t) ? null : new Date(t).toISOString();
+const DATE_FORMAT_TOKENS = [
+  { token: "YYYY", pattern: "(?<y>\\d{4})" },
+  { token: "MM", pattern: "(?<mo>\\d{1,2})" },
+  { token: "DD", pattern: "(?<d>\\d{1,2})" },
+] as const;
+const REGEXP_METACHARS = /[.*+?^${}()|[\]\\]/;
+
+export class PipelineFormatError extends Error {}
+
+/** Compiles a `parseDate` format string into a `RegExp` — the ONE user-typed
+ *  string in this whole file that used to reach `new RegExp` unescaped
+ *  (AGENTS.md's "Charts" — "Data layer"'s safe-evaluator guarantee is about
+ *  `derive`'s expression grammar; this is the OTHER free-text field). Only
+ *  `YYYY`/`MM`/`DD` are recognized tokens; a run of `Y`/`M`/`D` that doesn't
+ *  spell one of them exactly (a typo, or an attempt at a token this grammar
+ *  doesn't have) is rejected as a structured `PipelineFormatError` naming
+ *  the step, rather than silently degrading to a literal that can never
+ *  match anything. Every other character — including a metacharacter used
+ *  as a literal separator (`.`, `(`, …) — is escaped, so a hostile format
+ *  can never inject regex syntax (a ReDoS pattern like `(a+)+b` compiles to
+ *  the equivalent literal string, not a backtracking regex) and an
+ *  accidental metacharacter in an otherwise-valid format still matches the
+ *  literal character it looks like. Compiled ONCE per `parseDate` step,
+ *  never per cell — the fix for both the injection and the ReDoS is the
+ *  same compile-time escaping; not recompiling per row is what keeps a
+ *  large column from paying to rebuild an (already-safe) `RegExp` per cell. */
+export function compileDateFormat(format: string): RegExp {
+  const badTokenRun = /Y+|M+|D+/g;
+  let run: RegExpExecArray | null;
+  while ((run = badTokenRun.exec(format))) {
+    if (!DATE_FORMAT_TOKENS.some((t) => t.token === run![0])) {
+      throw new PipelineFormatError(`Unrecognized date format token "${run[0]}" — use YYYY, MM, or DD.`);
+    }
   }
-  const pattern = format.replace(/YYYY/g, "(?<y>\\d{4})").replace(/MM/g, "(?<m>\\d{1,2})").replace(/DD/g, "(?<d>\\d{1,2})");
-  const match = new RegExp(`^${pattern}$`).exec(text);
+  let pattern = "";
+  let i = 0;
+  while (i < format.length) {
+    const found = DATE_FORMAT_TOKENS.find((t) => format.startsWith(t.token, i));
+    if (found) { pattern += found.pattern; i += found.token.length; continue; }
+    const ch = format[i]!;
+    pattern += REGEXP_METACHARS.test(ch) ? `\\${ch}` : ch;
+    i += 1;
+  }
+  return new RegExp(`^${pattern}$`);
+}
+
+function parseDateCellFreeform(raw: TabularCell): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const t = Date.parse(String(raw));
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+function parseDateCellWithFormat(raw: TabularCell, regex: RegExp): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const match = regex.exec(String(raw));
   if (!match?.groups) return null;
-  const y = Number(match.groups.y ?? "1970"); const m = Number(match.groups.m ?? "1"); const d = Number(match.groups.d ?? "1");
+  const y = Number(match.groups.y ?? "1970"); const m = Number(match.groups.mo ?? "1"); const d = Number(match.groups.d ?? "1");
   const date = new Date(Date.UTC(y, m - 1, d));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
@@ -319,24 +374,36 @@ function dateComponent(value: ExprValue, part: "year" | "month" | "day"): number
 
 /** Closed whitelist — the ONLY functions `derive` can call. Every entry is
  *  a pure function of its (already-evaluated) arguments; none can reach
- *  anything outside them. */
-const EXPRESSION_FUNCTIONS: Record<string, (args: ExprValue[]) => ExprValue> = {
-  abs: ([a]) => Math.abs(Number(a)),
-  min: (args) => Math.min(...args.map(Number)),
-  max: (args) => Math.max(...args.map(Number)),
-  round: ([a]) => Math.round(Number(a)),
-  log: ([a]) => Math.log(Number(a)),
-  sqrt: ([a]) => Math.sqrt(Number(a)),
-  year: ([a]) => dateComponent(a!, "year"),
-  month: ([a]) => dateComponent(a!, "month"),
-  day: ([a]) => dateComponent(a!, "day"),
-};
+ *  anything outside them. `Object.create(null)` (never a plain object
+ *  literal) so `EXPRESSION_FUNCTIONS[node.name]` cannot resolve to an
+ *  INHERITED `Object.prototype` member (`constructor`, `toString`,
+ *  `hasOwnProperty`, `__proto__`, …) for a call the reader never wrote into
+ *  this table — a plain-object whitelist is reachable on TEN such names
+ *  even though none of them appear here. */
+const EXPRESSION_FUNCTIONS: Record<string, (args: ExprValue[]) => ExprValue> = Object.assign(Object.create(null), {
+  abs: ([a]: ExprValue[]) => Math.abs(Number(a)),
+  min: (args: ExprValue[]) => Math.min(...args.map(Number)),
+  max: (args: ExprValue[]) => Math.max(...args.map(Number)),
+  round: ([a]: ExprValue[]) => Math.round(Number(a)),
+  log: ([a]: ExprValue[]) => Math.log(Number(a)),
+  sqrt: ([a]: ExprValue[]) => Math.sqrt(Number(a)),
+  year: ([a]: ExprValue[]) => dateComponent(a!, "year"),
+  month: ([a]: ExprValue[]) => dateComponent(a!, "month"),
+  day: ([a]: ExprValue[]) => dateComponent(a!, "day"),
+});
 
 function evaluateNode(node: Node, row: TabularRow): ExprValue {
   switch (node.kind) {
     case "num": return node.value;
     case "str": return node.value;
-    case "col": return (row[node.name] ?? null) as ExprValue;
+    // `Object.hasOwn`, not a plain `row[node.name]` read — a `TabularRow` is
+    // a plain object, so an unqualified `row[name]` lookup for a name like
+    // `constructor`/`toString`/`__proto__` resolves through the PROTOTYPE
+    // chain to the real `Object.prototype` member instead of the row's own
+    // (absent) column, handing a live function value into a cell typed
+    // `TabularCell`. `hasOwn` makes every such name read `null`, same as
+    // any other column the row doesn't have.
+    case "col": return (Object.hasOwn(row, node.name) ? row[node.name] : null) as ExprValue;
     case "unary": {
       const v = evaluateNode(node.value, row);
       return node.op === "-" ? -Number(v) : !truthy(v);
@@ -395,7 +462,7 @@ function applyStep(rows: readonly TabularRow[], raw: unknown, step: PipelineStep
       return { raw, rows: pivotWider(rows, step.keyColumn, step.valueColumn) };
     case "filter": {
       const literal = parseLiteralForCompare(step.value);
-      return { raw, rows: rows.filter((row) => compareCells(row[step.column] ?? null, step.operator, literal)) };
+      return { raw, rows: rows.filter((row) => compareCells(rowColumn(row, step.column), step.operator, literal)) };
     }
     case "derive": {
       const evaluate = compileExpression(step.expression);
@@ -403,13 +470,16 @@ function applyStep(rows: readonly TabularRow[], raw: unknown, step: PipelineStep
     }
     case "sort": {
       const direction = step.direction ?? "asc";
-      const sorted = [...rows].sort((a, b) => compareForSort(a[step.column] ?? null, b[step.column] ?? null));
+      const sorted = [...rows].sort((a, b) => compareForSort(rowColumn(a, step.column), rowColumn(b, step.column)));
       return { raw, rows: direction === "desc" ? sorted.reverse() : sorted };
     }
     case "limit":
       return { raw, rows: rows.slice(0, Math.max(0, step.count)) };
-    case "parseDate":
-      return { raw, rows: rows.map((row) => ({ ...row, [step.column]: parseDateCell(row[step.column] ?? null, step.format) })) };
+    case "parseDate": {
+      if (!step.format) return { raw, rows: rows.map((row) => ({ ...row, [step.column]: parseDateCellFreeform(rowColumn(row, step.column)) })) };
+      const regex = compileDateFormat(step.format);
+      return { raw, rows: rows.map((row) => ({ ...row, [step.column]: parseDateCellWithFormat(rowColumn(row, step.column), regex) })) };
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, type Dispatch, type KeyboardEvent } from "react";
+import { useRef, useState, type Dispatch, type KeyboardEvent } from "react";
 import {
   CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_SERIES_PALETTE, chartMarkFields, chartMarkSeriesNames, chartMarkTable,
   chartRelevantChannels, nextChartTableColumnName,
@@ -102,27 +102,42 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
     }
   };
 
-  const gridStyle = { gridTemplateColumns: `repeat(${table.columns.length}, minmax(6ch, 1fr)) 2ch` };
+  // `repeat(0, …)` is invalid CSS (`repeat()` requires an integer >= 1) and
+  // drops the WHOLE `grid-template-columns` declaration — a zero-column
+  // table (the JSON tab holding `[{}]`) used to fall back to the browser
+  // default and every cell/row lost its grid placement. `Math.max(1, …)`
+  // keeps the declaration valid; there is nothing to paint in that one
+  // fallback track since `table.columns` is empty.
+  const gridStyle = { gridTemplateColumns: `repeat(${Math.max(1, table.columns.length)}, minmax(6ch, 1fr)) 2ch` };
   return <div className="charts-grid-wrap">
     <div className="charts-grid" role="grid" aria-label={`Mark ${index + 1} data table`} style={gridStyle} ref={gridRef}>
-      {table.columns.map((column, c) => <div className="charts-grid-header" role="columnheader" key={`h-${c}`}>
-        <input className="charts-table-header" data-row={-1} data-col={c}
-          value={editingColumn?.index === c ? editingColumn.value : column} aria-label={`Rename column ${column}`}
-          onChange={(event) => setEditingColumn({ index: c, value: event.target.value })}
-          onFocus={() => setEditingColumn({ index: c, value: column })}
-          onBlur={(event) => commitColumn(column, event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") { event.currentTarget.blur(); focusCell(0, c); }
-            else if (event.key === "ArrowDown") { event.preventDefault(); focusCell(0, c); }
-            else if (event.key === "ArrowRight" && event.currentTarget.selectionStart === event.currentTarget.value.length) { event.preventDefault(); focusCell(-1, c + 1); }
-            else if (event.key === "ArrowLeft" && event.currentTarget.selectionStart === 0) { event.preventDefault(); focusCell(-1, c - 1); }
-          }} />
-        <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
-          onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
-      </div>)}
-      <div className="charts-grid-header charts-grid-header--spacer" role="columnheader" aria-hidden="true" />
+      {/* ARIA 1.2: `grid` must own `row`/`rowgroup`, and `columnheader`/
+       *  `gridcell` must be owned by a `row` — the CSS-grid rebuild (packet
+       *  item 1) dropped this when it replaced `<table><thead><tr><th>`,
+       *  which carried it implicitly. `display: contents` keeps every
+       *  child's own grid placement (the row element itself is not a grid
+       *  item) while still giving the accessibility tree a real `row`
+       *  ancestor for each header/data cell. */}
+      <div className="charts-grid-row" role="row" style={{ display: "contents" }}>
+        {table.columns.map((column, c) => <div className="charts-grid-header" role="columnheader" key={`h-${c}`}>
+          <input className="charts-table-header" data-row={-1} data-col={c}
+            value={editingColumn?.index === c ? editingColumn.value : column} aria-label={`Rename column ${column}`}
+            onChange={(event) => setEditingColumn({ index: c, value: event.target.value })}
+            onFocus={() => setEditingColumn({ index: c, value: column })}
+            onBlur={(event) => commitColumn(column, event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") { event.currentTarget.blur(); focusCell(0, c); }
+              else if (event.key === "ArrowDown") { event.preventDefault(); focusCell(0, c); }
+              else if (event.key === "ArrowRight" && event.currentTarget.selectionStart === event.currentTarget.value.length) { event.preventDefault(); focusCell(-1, c + 1); }
+              else if (event.key === "ArrowLeft" && event.currentTarget.selectionStart === 0) { event.preventDefault(); focusCell(-1, c - 1); }
+            }} />
+          <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
+            onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
+        </div>)}
+        <div className="charts-grid-header charts-grid-header--spacer" role="columnheader" aria-hidden="true" />
+      </div>
 
-      {table.rows.map((row, r) => <Fragment key={r}>
+      {table.rows.map((row, r) => <div className="charts-grid-row" role="row" style={{ display: "contents" }} key={r}>
         {table.columns.map((column, c) => {
           const key = `${r}:${column}`;
           const committed = row[column] ?? "";
@@ -140,7 +155,7 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
           <button type="button" className="charts-table-remove" title={`Remove row ${r + 1}`} aria-label={`Remove row ${r + 1}`}
             onClick={() => dispatch({ type: "remove-row", id: mark.id, row: r })}>×</button>
         </div>
-      </Fragment>)}
+      </div>)}
 
       <div className="charts-grid-footer" role="row">
         <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>

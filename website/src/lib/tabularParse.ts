@@ -23,9 +23,14 @@ export interface ParseTabularHint {
 }
 
 /** "3", "3.5", "-2e3" -> number; "true"/"false" -> boolean; everything else
- *  (including "", a date-looking string, and free text) stays a string —
+ *  (including a date-looking string and free text) stays a TRIMMED string —
  *  `dataProfile.ts` is where date detection actually happens, so a cell
- *  parser doesn't need to guess dates itself. */
+ *  parser doesn't need to guess dates itself. Trimming is consistent with
+ *  every OTHER cell shape here: the header is trimmed
+ *  (`delimitedToRows`'s `h.trim()`) and a numeric cell effectively is too
+ *  (`Number(" 42")` is `42`) — returning the untrimmed `raw` only for the
+ *  plain-string case (P2-3) split the ubiquitous `"a, b"` CSV shape into
+ *  two categories (`" Paris"` and `"Paris"`) purely from that inconsistency. */
 function coerceCell(raw: string): TabularCell {
   const trimmed = raw.trim();
   if (trimmed === "") return "";
@@ -35,7 +40,20 @@ function coerceCell(raw: string): TabularCell {
     const n = Number(trimmed);
     if (Number.isFinite(n)) return n;
   }
-  return raw;
+  return trimmed;
+}
+
+/** A duplicate header used to silently drop the earlier column
+ *  (`"a,a\n1,2"` -> `{a:2}`, only the LAST value survives object-key
+ *  collision) — a later repeat now gets a numbered suffix instead, so both
+ *  columns' data survives (P3). */
+function dedupeHeaders(headers: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return headers.map((name) => {
+    const count = seen.get(name) ?? 0;
+    seen.set(name, count + 1);
+    return count === 0 ? name : `${name}_${count + 1}`;
+  });
 }
 
 /** RFC4180-ish delimited-text tokenizer: quoted fields, escaped `""`,
@@ -72,7 +90,7 @@ function delimitedToRows(text: string, delimiter: string): ParsedTabular {
   const table = parseDelimited(text, delimiter);
   const nonEmpty = table.filter((r) => r.length > 1 || r[0] !== "");
   if (nonEmpty.length === 0) return { ok: false, error: "No rows found." };
-  const header = nonEmpty[0]!.map((h) => h.trim() || "column");
+  const header = dedupeHeaders(nonEmpty[0]!.map((h) => h.trim() || "column"));
   const rows: TabularRow[] = nonEmpty.slice(1).map((cells) => {
     const record: TabularRow = {};
     header.forEach((name, i) => { record[name] = coerceCell(cells[i] ?? ""); });
@@ -110,6 +128,17 @@ function jsonToParsedTabular(value: unknown): ParsedTabular {
         return record;
       });
       return { ok: true, kind: "rows", rows };
+    }
+    // A bare array of scalars (numbers, strings, booleans, null) — the ONE
+    // shape `renderGlyphChart` has documented sugar for (AGENTS.md: "a bare
+    // `number[]` ... copying Observable Plot's own shorthand"), and the
+    // shape the mark table already renders as a single "value" column
+    // (`chartMarkTable`). Without this a bare `[1,2,3]` fell through to the
+    // mixed-shape branch below, `dataPipeline.ts`'s `toRows` rejected it
+    // (not every element is a plain record), and the Data folder recommended
+    // an empty "bar" with no data at all (P2-6).
+    if (value.every((v) => v === null || typeof v !== "object")) {
+      return { ok: true, kind: "rows", rows: value.map((v) => ({ value: v as TabularCell })) };
     }
     // Mixed-shape array — hand it back raw for `select`/`flatten` to sort out.
     return { ok: true, kind: "json", value };

@@ -14,8 +14,8 @@ import { profileRows } from "../../lib/dataProfile";
 import { buildDatasetMark, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 
-export type { ChartsDataSource, ChartsRecommendedChannels } from "./chartsDataSource";
-export { profileChartsData, resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
+export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
+export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
 export { CHARTS_DATASETS, findChartsDataset } from "./datasets";
 export type { ChartsDataset } from "./datasets";
 

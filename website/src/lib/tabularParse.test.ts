@@ -71,4 +71,40 @@ describe("parseTabular", () => {
     if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
     expect(result.rows[0]).toEqual({ flag: true, count: 3.5, label: "hello" });
   });
+
+  // P2-3: `coerceCell` used to trim for TYPE DETECTION and then return the
+  // untrimmed original for the plain-string fallback — inconsistent with
+  // the header (already trimmed) and a numeric cell (`Number` trims
+  // implicitly), and it split the ubiquitous `"a, b"` CSV shape into two
+  // categories. Mutation check: reverting the fallback from `trimmed` to
+  // `raw` makes this assertion fail (`" Paris"` !== `"Paris"`).
+  it("trims a plain-string cell the same way a numeric/boolean cell is trimmed (F6/P2-3)", () => {
+    const result = parseTabular("name, city\nBob, Paris\nAnn,Paris");
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ name: "Bob", city: "Paris" }, { name: "Ann", city: "Paris" }]);
+    // Both rows now land in the SAME category — the whole point of the fix.
+    expect(new Set(result.rows.map((r) => r.city)).size).toBe(1);
+  });
+
+  // P3: a duplicate header used to silently drop the earlier column via
+  // plain object-key collision (`"a,a\n1,2"` -> `{a:2}`, one value lost).
+  it("gives a duplicate header a numbered suffix instead of silently dropping the earlier column", () => {
+    const result = parseTabular("a,a\n1,2");
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ a: 1, a_2: 2 }]);
+  });
+
+  // P2-6: a bare JSON array of scalars is the ONE shape `renderGlyphChart`
+  // has documented sugar for (AGENTS.md: "x = index, y = identity"); before
+  // this it fell through to `dataPipeline.ts`'s `toRows`, which rejects a
+  // non-record array and left the Data folder with zero rows and an empty
+  // "bar" recommendation.
+  it("resolves a bare JSON array of numbers to a single 'value' column (P2-6)", () => {
+    const result = parseTabular("[1,2,3]");
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ value: 1 }, { value: 2 }, { value: 3 }]);
+  });
 });

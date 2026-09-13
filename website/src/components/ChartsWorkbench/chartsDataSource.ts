@@ -12,11 +12,28 @@ import type { ChartsWorkbenchMark } from "./chartsWorkbenchState";
 
 export type ChartsDataSource =
   | { readonly kind: "dataset"; readonly id: string }
-  | { readonly kind: "custom"; readonly raw: string; readonly filename?: string; readonly mimeType?: string };
+  | {
+      readonly kind: "custom"; readonly raw: string; readonly filename?: string; readonly mimeType?: string;
+      /** Set only when a `?c=` link was encoded with this source's `raw`
+       *  over `CHARTS_URL_SIZE_WARN_BYTES` (`chartsUrlState.ts`, P2-5): the
+       *  envelope carries the FILENAME but drops the payload itself rather
+       *  than writing a query string a plain static host's request-line
+       *  limit would 414 on reload. `raw` is `""` whenever this is `true`. */
+      readonly omitted?: true;
+    };
 
 export type ChartsDataResolution =
   | { readonly ok: true; readonly rows: readonly TabularRow[]; readonly dataset?: ChartsDataset }
   | { readonly ok: false; readonly error: string };
+
+/** Cap on a pasted/uploaded custom payload (P2-5) — `ChartsDataFolder.tsx`
+ *  refuses a paste/file over this with an inline message before it ever
+ *  reaches `dispatch`, so an accidentally-huge file never becomes the
+ *  reducer's `dataText`/URL-envelope problem in the first place. 256 KB is
+ *  generous for the CSV/TSV/JSON shapes this feature targets (every
+ *  vendored dataset is under 200 rows) while still ruling out "pasted a
+ *  multi-megabyte export by mistake". */
+export const CHARTS_CUSTOM_MAX_BYTES = 256 * 1024;
 
 /** Raw input (a dataset's own rows, or a freshly parsed custom paste/file) → pipeline output. */
 export function resolveChartsDataRows(source: ChartsDataSource, pipeline: readonly PipelineStep[]): ChartsDataResolution {
@@ -26,6 +43,7 @@ export function resolveChartsDataRows(source: ChartsDataSource, pipeline: readon
     const result = runPipeline(dataset.rows, pipeline);
     return result.ok ? { ok: true, rows: result.rows, dataset } : { ok: false, error: `Step ${result.stepIndex + 1}: ${result.error}` };
   }
+  if (source.omitted) return { ok: false, error: "Custom data isn't in this link — paste or upload it again." };
   const parsed = parseTabular(source.raw, { filename: source.filename, mimeType: source.mimeType });
   if (!parsed.ok) return { ok: false, error: parsed.error };
   const input = parsed.kind === "rows" ? parsed.rows : parsed.value;
@@ -46,6 +64,37 @@ export function profileChartsData(rows: readonly TabularRow[]): ChartsDataProfil
  *  already; only `rect`/`text`/`rule` never come out of a recommendation,
  *  so this covers exactly what `recommendChart`/a dataset's own field emit. */
 export type ChartsRecommendedChannels = { readonly x?: string; readonly y?: string; readonly fill?: string; readonly label?: string };
+
+export interface ChartsTopRecommendation {
+  readonly mark: ChartsWorkbenchMark["type"];
+  readonly channels: ChartsRecommendedChannels;
+  readonly reason: string;
+}
+
+/** What the Data folder's Apply button (and its own "Recommended: …"
+ *  readout) actually offers as the ONE-CLICK choice (F1/P1-1).
+ *
+ *  A STOCK dataset's own curated `recommended` mapping always wins over the
+ *  general profiler's ranking — `datasets/types.ts` documents it as exactly
+ *  this ("what the Data folder's … flow applies with one click"), and it
+ *  used to go completely unread at runtime: Apply called
+ *  `profiled.recommendations[0]` unconditionally, so two of eight vendored
+ *  datasets (`world-population-by-country`, `iris-flowers`) rendered a
+ *  materially wrong chart — a plain unfilled line where the curated mapping
+ *  fills by country, and a pie of summed sepal lengths where the curated
+ *  mapping is a species-coloured scatter — while the CORRECT mapping sat
+ *  unread in the same dataset object. A custom source has no curated
+ *  mapping at all, so it still falls back to whatever `recommendChart`
+ *  ranked first (which is why `dataProfile.ts` also gained two rules of its
+ *  own, so that fallback is a better answer for the same shapes). */
+export function topChartsRecommendation(dataset: ChartsDataset | undefined, recommendations: readonly ChartRecommendation[]): ChartsTopRecommendation | null {
+  if (dataset) {
+    const { mark, x, y, fill, label } = dataset.recommended;
+    return { mark, channels: { x, y, fill, label }, reason: `Curated recommendation for ${dataset.title}.` };
+  }
+  const top = recommendations[0];
+  return top ? { mark: top.mark, channels: top.channels, reason: top.reason } : null;
+}
 
 /** Builds ONE editable mark (this package's own shape, `dataText` included)
  *  from resolved rows + a chosen mark type/channel mapping — what "Apply"

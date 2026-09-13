@@ -14,3 +14,5 @@ Every dataset under `datasets/` is vendored (no runtime fetch) from a public sou
 | `irisFlowersDataset` (`iris-flowers`) | Hugging Face datasets, `scikit-learn/iris` (originally the UCI Machine Learning Repository's Iris dataset) — <https://huggingface.co/datasets/scikit-learn/iris> | Public domain (UCI Machine Learning Repository) |
 
 Each dataset's own `source` field (`{ name, url, licence }`) carries this same credit at runtime — the Data folder's dataset picker shows it as a link under the description.
+
+`renewableElectricityShareDataset` covers 1985-2025, matching the cited source's own published range — Ember (and the Energy Institute Statistical Review behind it) begin in the mid-1980s, so there is no real world-renewable-share datapoint for earlier years to vendor (P2-2).

@@ -121,6 +121,60 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // ── P2-5 — a custom payload over the size-warn threshold never rides in
+  // the `?c=` envelope; a link saved before this cap existed still
+  // round-trips exactly ──────────────────────────────────────────────────
+  it("keeps an under-threshold custom source in the envelope untouched (byte-identical to before P2-5)", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: "a,b\n1,2", filename: "small.csv" } });
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toEqual(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.data.source).toEqual({ kind: "custom", raw: "a,b\n1,2", filename: "small.csv" });
+  });
+
+  it("drops an over-threshold custom source's raw payload from the encoded link, keeping the filename and every OTHER setting", async () => {
+    let state = createChartsWorkbenchState();
+    const hugeRaw = `a,b\n${Array.from({ length: 2000 }, (_, i) => `${i},${i}`).join("\n")}`;
+    expect(new TextEncoder().encode(hugeRaw).length).toBeGreaterThan(8192);
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: hugeRaw, filename: "huge.csv" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-chart", patch: { title: "Kept setting" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    // The reader's own in-memory state is untouched — only the encoded copy differs.
+    expect(state.data.source).toEqual({ kind: "custom", raw: hugeRaw, filename: "huge.csv" });
+    expect(decoded!.data.source).toEqual({ kind: "custom", raw: "", omitted: true, filename: "huge.csv" });
+    expect(decoded!.chart.title).toBe("Kept setting");
+    // Mutation check: an un-omitted encode of the same state would carry
+    // the whole 20KB+ payload — the encoded link itself must be small.
+    expect(raw.length).toBeLessThan(2000);
+  });
+
+  it("a decoded omitted custom source resolves to a clear 'paste it again' error, not silent empty rows", async () => {
+    const { resolveChartsDataRows } = await import("./chartsDataSource");
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: "x".repeat(20000), filename: "huge.csv" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    const resolved = resolveChartsDataRows(decoded!.data.source!, decoded!.data.pipeline);
+    expect(resolved).toEqual({ ok: false, error: "Custom data isn't in this link — paste or upload it again." });
+  });
+
+  it("accepts a payload-carrying custom source with an explicit omitted:false the same as one with the key absent", async () => {
+    const raw = await encodeChartsUrlState(reduceChartsWorkbenchState(createChartsWorkbenchState(), {
+      type: "set-data-source", source: { kind: "custom", raw: "a,b\n1,2" },
+    }));
+    expect(await decodeChartsUrlState(raw)).not.toBeNull();
+  });
+
+  it("rejects a malformed omitted flag (not exactly true) rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    const withBadFlag = { ...base, data: { source: { kind: "custom", raw: "a", omitted: "yes" }, pipeline: [] } };
+    const raw = await encodeChartsUrlState(withBadFlag as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(raw)).toBeNull();
+  });
+
   // Colour controls (this packet), appended after `v1` already existed —
   // the fixed historical link below (encoded before this feature existed,
   // carrying no `style` key and no mark `color` key at all) still decodes

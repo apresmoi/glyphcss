@@ -26,8 +26,11 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
+  createChartsWorkbenchState,
+  reduceChartsWorkbenchState,
   reduceGlyphChartsWorkbenchControls,
   resolveGlyphChartsWorkbenchControls,
+  type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
 import { renderChartsWorkbenchSpec } from "./chartsWorkbenchRender";
@@ -508,6 +511,36 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
   });
 
+  // F7/P2-4 — ARIA 1.2 requires `grid` to own `row`/`rowgroup`, and
+  // `columnheader`/`gridcell` to be owned by a `row`; the CSS-grid rebuild
+  // (packet item 1) dropped this when it replaced `<table><thead><tr><th>`,
+  // which carried it implicitly. Every row (header AND data, not just the
+  // add-row/add-column footer) is now wrapped in its own `role="row"`
+  // `display: contents` element, so a screen reader recovers row/column
+  // position on every cell while the CSS-grid alignment is UNCHANGED (each
+  // row still contributes exactly N+1 real grid items). Mutation check:
+  // un-wrapping the header/data rows back to a bare `Fragment` (this
+  // review's actual pre-fix shape) makes `row.children.length` come back
+  // `NaN`/throw instead of `N + 1`, since `[role="row"]` then matches
+  // nothing but the footer — verified by hand against the pre-fix file.
+  it("every mark-table row (header and data) owns exactly N+1 cells — grid/row/cell ARIA ownership (F7/P2-4)", () => {
+    const grid = container.querySelector<HTMLElement>(".voice-card .charts-grid")!;
+    expect(grid.getAttribute("role")).toBe("grid");
+    const rows = Array.from(grid.children).filter((el) => el.getAttribute("role") === "row" && !el.classList.contains("charts-grid-footer"));
+    // The default preset's table is the bare-number "value" column: N = 1.
+    expect(rows.length).toBeGreaterThanOrEqual(2); // one header row + at least one data row
+    const [headerRow, ...dataRows] = rows;
+    const n = headerRow!.querySelectorAll('[role="columnheader"]:not(.charts-grid-header--spacer)').length;
+    expect(n).toBeGreaterThan(0);
+    expect(headerRow!.children).toHaveLength(n + 1);
+    for (const row of dataRows) {
+      expect(row.getAttribute("role")).toBe("row");
+      expect(row.children).toHaveLength(n + 1);
+      expect(Array.from(row.children).every((cell) => cell.getAttribute("role") === "gridcell")).toBe(true);
+    }
+    expect(Array.from(headerRow!.children).every((cell) => cell.getAttribute("role") === "columnheader")).toBe(true);
+  });
+
   // Data folder end-to-end (AGENTS.md's "Charts" — "Data layer"): picking a
   // real vendored dataset and clicking Apply must replace the marks with
   // the recommended mapping AND set an explicit time x-scale (see
@@ -574,4 +607,119 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
   });
 
+});
+
+// ── F3/P2-5 — the Data folder's custom-source paste box ──────────────────
+//
+// Each test mounts its own root with a specific `initialState` (bypassing
+// the async `?c=` URL gate entirely, exactly like a decoded shared link
+// would land — `ChartsWorkbench.tsx`'s own doc: "initialState … bypasses
+// the URL entirely"), because the defect and the fix are both about what
+// the very FIRST render shows.
+describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const mount = (state: ChartsWorkbenchState) => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench initialState={state} />));
+  };
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+  const pasteBox = () => container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Paste CSV/TSV/JSON"]')!;
+  const setValue = (el: HTMLTextAreaElement, value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  // F3 — the review's own repro: a shared link with a custom dataset used
+  // to show an EMPTY paste box (`useState("")` had no dependency on the
+  // already-decoded `data.source`), even though the chart itself rendered
+  // correctly from that same source. Mutation check: reverting the
+  // textarea's seed back to a bare `useState("")` makes this fail (`""`
+  // !== the raw CSV) — verified by hand.
+  it("seeds the paste box from an already-decoded custom data source, never showing it empty", () => {
+    const raw = "name,city\nBob,Paris\nAnn,Lyon";
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw, filename: "people.csv" } });
+    mount(state);
+    expect(pasteBox().value).toBe(raw);
+    expect(container.querySelector(".charts-data-custom")!.textContent).toContain("people.csv");
+  });
+
+  // F3's second half: because the box is seeded correctly, continuing to
+  // type (here: appending a row) commits the FULL accumulated text, never
+  // just the freshly-typed fragment — a real browser's `onChange` always
+  // reports the field's whole current value, and that value now STARTS
+  // from the real content instead of an incorrectly-empty box.
+  it("typing after mount extends the seeded content instead of replacing the whole dataset", () => {
+    const raw = "name,city\nBob,Paris\nAnn,Lyon";
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw, filename: "people.csv" } });
+    mount(state);
+    setValue(pasteBox(), `${raw}\nSam,Berlin`);
+    act(() => pasteBox().dispatchEvent(new Event("blur", { bubbles: true })));
+    expect(container.querySelector(".charts-data-recommend")).not.toBeNull();
+    // Three rows survive (the two original plus the appended one) — a
+    // one-character-destroys-everything regression would leave one row
+    // (or a parse error) instead.
+    const applyButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Apply")!;
+    act(() => applyButton.click());
+    const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
+    act(() => jsonTab.click());
+    const rows = JSON.parse(container.querySelector("textarea")!.value) as unknown[];
+    expect(rows).toHaveLength(3);
+  });
+
+  // P2-5 — a paste over the cap is refused with an inline message and never
+  // reaches the reducer (no "Recommended" readout ever appears for it).
+  it("refuses a paste over the size cap with an inline message, without ever applying it", () => {
+    mount(createChartsWorkbenchState());
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.selectedIndex = Array.from(datasetSelect.options).findIndex((o) => o.value === "__custom__");
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const huge = `a,b\n${"1,2\n".repeat(70_000)}`; // well over 256 KB
+    setValue(pasteBox(), huge);
+    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+    expect(container.querySelector(".charts-data-recommend")).toBeNull();
+  });
+
+  // P2-5 — same cap on a file upload, refused BEFORE `FileReader` ever
+  // reads it (so a huge file is never even parsed into memory as text).
+  it("refuses an oversized file upload before reading it, with an inline message", () => {
+    mount(createChartsWorkbenchState());
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.selectedIndex = Array.from(datasetSelect.options).findIndex((o) => o.value === "__custom__");
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const readAsText = vi.spyOn(window.FileReader.prototype, "readAsText");
+    const huge = new File([new Uint8Array(300 * 1024)], "huge.csv", { type: "text/csv" });
+    const fileInput = container.querySelector<HTMLInputElement>('input[aria-label="Upload data file"]')!;
+    act(() => {
+      Object.defineProperty(fileInput, "files", { value: [huge], configurable: true });
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(readAsText).not.toHaveBeenCalled();
+    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+  });
+
+  // P2-5's other half, at the UI level: a decoded "omitted" custom source
+  // (a shared link whose payload was too large to carry) shows the SAME
+  // structured error the Data folder already renders for any resolution
+  // failure — no new UI surface needed.
+  it("shows the 'isn't in this link' note for a decoded omitted custom source", () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: "", filename: "big.csv", omitted: true } });
+    mount(state);
+    expect(container.querySelector(".charts-data-custom")!.textContent).toContain("big.csv");
+    expect(container.querySelector(".charts-error")?.textContent).toMatch(/isn't in this link/);
+    expect(container.querySelector(".charts-data-recommend")).toBeNull();
+  });
 });

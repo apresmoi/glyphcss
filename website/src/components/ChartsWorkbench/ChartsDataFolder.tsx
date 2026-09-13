@@ -1,10 +1,18 @@
-import { useMemo, useState, type ChangeEvent, type Dispatch } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type Dispatch } from "react";
 import type { GlyphChartMarkType } from "@glyphcss/charts";
 import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import {
-  CHARTS_DATASETS, profileChartsData, resolveChartsDataRows,
+  CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, profileChartsData, resolveChartsDataRows, topChartsRecommendation,
   type ChartsRecommendedChannels, type ChartsWorkbenchAction, type ChartsWorkbenchDataState,
 } from "./chartsWorkbenchState";
+
+/** P2-5: refuse a paste/file over the cap with an inline message rather
+ *  than silently accepting it — a multi-megabyte accidental paste used to
+ *  ride straight into `dataText`/the `?c=` envelope. */
+function customSizeErrorFor(bytes: number): string | null {
+  if (bytes <= CHARTS_CUSTOM_MAX_BYTES) return null;
+  return `Custom data must be under ${Math.round(CHARTS_CUSTOM_MAX_BYTES / 1024)} KB (this is ${Math.ceil(bytes / 1024)} KB).`;
+}
 
 const CUSTOM_OPTION = "__custom__";
 
@@ -111,8 +119,23 @@ function ChartsPipelineEditor({ pipeline, onChange }: { pipeline: readonly Pipel
  * has no equivalent for.
  */
 export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchDataState; dispatch: Dispatch<ChartsWorkbenchAction> }) {
-  const [customText, setCustomText] = useState("");
-  const [customHint, setCustomHint] = useState<{ filename?: string; mimeType?: string }>({});
+  // F3: seeded from `data.source` itself, not `useState("")` — a shared
+  // link decodes `data.source` (`ChartsWorkbench.tsx` gates the first
+  // render on that decode) BEFORE this component ever mounts, so a lazy
+  // initializer reading it is unambiguous and needs no effect for the
+  // common (mount) case. The `useEffect` below covers the one remaining
+  // gap: `data.source` changing WITHOUT going through this component's own
+  // `applyCustomText` (there is no such path today, but a local mirror that
+  // silently drifts from its source of truth is exactly this bug's shape).
+  const [customText, setCustomText] = useState(() => data.source?.kind === "custom" ? data.source.raw : "");
+  const [customHint, setCustomHint] = useState<{ filename?: string; mimeType?: string }>(() =>
+    data.source?.kind === "custom" ? { filename: data.source.filename, mimeType: data.source.mimeType } : {});
+  const [customSizeError, setCustomSizeError] = useState<string | null>(null);
+  useEffect(() => {
+    if (data.source?.kind !== "custom") return;
+    setCustomText(data.source.raw);
+    setCustomHint({ filename: data.source.filename, mimeType: data.source.mimeType });
+  }, [data.source]);
 
   const selectValue = data.source === null ? "" : data.source.kind === "dataset" ? data.source.id : CUSTOM_OPTION;
 
@@ -122,13 +145,22 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
     dispatch({ type: "set-data-source", source: { kind: "dataset", id: value } });
   };
 
+  // P2-5: a paste/upload over `CHARTS_CUSTOM_MAX_BYTES` is refused with an
+  // inline message rather than silently accepted — the reader still sees
+  // (and can trim) what they typed/picked, but nothing is dispatched, so an
+  // accidentally-huge payload never reaches `dataText` or the `?c=` link.
   const applyCustomText = (raw: string, hint: { filename?: string; mimeType?: string }) => {
     setCustomText(raw); setCustomHint(hint);
+    const sizeError = customSizeErrorFor(new TextEncoder().encode(raw).length);
+    setCustomSizeError(sizeError);
+    if (sizeError) return;
     dispatch({ type: "set-data-source", source: { kind: "custom", raw, ...hint } });
   };
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const sizeError = customSizeErrorFor(file.size);
+    if (sizeError) { setCustomSizeError(sizeError); event.target.value = ""; return; }
     const reader = new FileReader();
     reader.onload = () => applyCustomText(String(reader.result ?? ""), { filename: file.name, mimeType: file.type || undefined });
     reader.readAsText(file);
@@ -140,6 +172,21 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
 
   const resolution = useMemo(() => data.source ? resolveChartsDataRows(data.source, data.pipeline) : null, [data.source, data.pipeline]);
   const profiled = useMemo(() => resolution?.ok ? profileChartsData(resolution.rows) : null, [resolution]);
+
+  // F1: a STOCK dataset's own curated `recommended` mapping — never the
+  // profiler's top pick — is what Apply commits; a custom source (no
+  // curated mapping) still falls back to the profiler's own ranking.
+  const top = useMemo(
+    () => profiled ? topChartsRecommendation(resolution?.ok ? resolution.dataset : undefined, profiled.recommendations) : null,
+    [profiled, resolution],
+  );
+  const runnerUps = useMemo(() => {
+    if (!profiled || !top) return [];
+    const sameAsTop = (rec: (typeof profiled.recommendations)[number]) =>
+      rec.mark === top.mark && rec.channels.x === top.channels.x && rec.channels.y === top.channels.y
+      && rec.channels.fill === top.channels.fill && rec.channels.label === top.channels.label;
+    return profiled.recommendations.filter((rec) => !sameAsTop(rec)).slice(0, 3);
+  }, [profiled, top]);
 
   const apply = (mark: GlyphChartMarkType, channels: ChartsRecommendedChannels) => dispatch({ type: "apply-data", mark, channels });
 
@@ -162,8 +209,10 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
 
     {isCustom && <div className="charts-data-custom">
       <input type="file" aria-label="Upload data file" accept=".csv,.tsv,.json,text/csv,text/tab-separated-values,application/json" onChange={onFile} />
+      {customHint.filename && <p className="charts-readout">{customHint.filename}</p>}
       <textarea className="charts-mark-data" aria-label="Paste CSV/TSV/JSON" placeholder="Paste CSV, TSV, or JSON…"
         value={customText} onChange={(e) => applyCustomText(e.target.value, customHint)} spellCheck={false} />
+      {customSizeError && <p className="charts-error" role="alert">{customSizeError}</p>}
     </div>}
 
     {data.source && <>
@@ -171,14 +220,15 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
       <ChartsPipelineEditor pipeline={data.pipeline} onChange={(pipeline) => dispatch({ type: "set-pipeline", pipeline })} />
     </>}
 
+    {/* P2-5: an omitted custom source resolves to a structured error
+     *  (`resolveChartsDataRows`) that this same readout already shows —
+     *  no separate UI needed for "this link's data isn't here". */}
     {resolution && !resolution.ok && <p className="charts-error" role="alert">{resolution.error}</p>}
-    {profiled && profiled.recommendations.length > 0 && <div className="charts-data-recommend">
-      {profiled.recommendations.slice(0, 1).map((top, i) => <p className="charts-readout" key={i}>
-        Recommended: <strong>{top.mark}</strong> — {top.reason}
-      </p>)}
-      <button type="button" className="gw-code-panel__action" onClick={() => apply(profiled.recommendations[0]!.mark, profiled.recommendations[0]!.channels)}>Apply</button>
-      {profiled.recommendations.length > 1 && <ul className="charts-data-runnerups">
-        {profiled.recommendations.slice(1, 4).map((rec, i) => <li key={i}>
+    {top && <div className="charts-data-recommend">
+      <p className="charts-readout">Recommended: <strong>{top.mark}</strong> — {top.reason}</p>
+      <button type="button" className="gw-code-panel__action" onClick={() => apply(top.mark, top.channels)}>Apply</button>
+      {runnerUps.length > 0 && <ul className="charts-data-runnerups">
+        {runnerUps.map((rec, i) => <li key={i}>
           <button type="button" className="charts-data-runnerup" onClick={() => apply(rec.mark, rec.channels)}>{rec.mark}: {rec.reason}</button>
         </li>)}
       </ul>}

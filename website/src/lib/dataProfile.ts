@@ -33,10 +33,28 @@ const SLASH_DATE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 
 function isNullish(v: TabularCell): boolean { return v === null || v === undefined || v === ""; }
 
+/** P3: `Date.parse`/`new Date` silently ROLL an out-of-range calendar day
+ *  onto the next month (`"2024-02-30"` -> March 1st) instead of rejecting
+ *  it — a plausible-looking but WRONG date, rather than the flagged typo
+ *  `"2024-13-45"` already gets (that one has no valid month at all, so
+ *  `Date.parse` itself returns `NaN`). A full `YYYY-MM-DD` (no time part)
+ *  is round-tripped through the parsed UTC calendar fields; a partial ISO
+ *  date (`YYYY-MM`/`YYYY`), one with a time part, or the `SLASH_DATE` shape
+ *  aren't checked here — there's no "day that rolled" to catch. */
+function isRolledCalendarDate(v: string, timestamp: number): boolean {
+  const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!isoDateOnly) return false;
+  const [, y, m, d] = isoDateOnly;
+  const date = new Date(timestamp);
+  return date.getUTCFullYear() !== Number(y) || date.getUTCMonth() + 1 !== Number(m) || date.getUTCDate() !== Number(d);
+}
+
 function looksLikeDate(v: TabularCell): boolean {
   if (typeof v !== "string") return false;
   if (!ISO_DATE.test(v) && !SLASH_DATE.test(v)) return false;
-  return !Number.isNaN(Date.parse(v));
+  const t = Date.parse(v);
+  if (Number.isNaN(t)) return false;
+  return !isRolledCalendarDate(v, t);
 }
 
 function toTimestamp(v: TabularCell): number {
@@ -144,9 +162,21 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
   const out: ChartRecommendation[] = [];
 
   if (dates.length >= 1 && numbers.length >= 1) {
+    // date + numeric + category -> one LINE per category (F1/P1-1): the
+    // plain date+numeric line below already wins this shape (score 100),
+    // so the missing piece was never the RANKING, only the CHANNELS — a
+    // category column sitting right there went unread and the reader got
+    // one flat line instead of the series-by-category picture the data
+    // actually shows (measured: world-population-by-country). `fill` is
+    // omitted entirely (not `fill: undefined`) when there's no category,
+    // so the shape here matches the old single-series recommendation byte
+    // for byte.
     out.push({
-      mark: "line", channels: { x: dates[0]!.name, y: numbers[0]!.name },
-      reason: `${dates[0]!.name} over time vs ${numbers[0]!.name}`, score: 100,
+      mark: "line", channels: { x: dates[0]!.name, y: numbers[0]!.name, ...(categories.length >= 1 ? { fill: categories[0]!.name } : {}) },
+      reason: categories.length >= 1
+        ? `${numbers[0]!.name} over ${dates[0]!.name}, one line per ${categories[0]!.name}`
+        : `${dates[0]!.name} over time vs ${numbers[0]!.name}`,
+      score: 100,
     });
     if (numbers.length >= 2) {
       out.push({
@@ -161,9 +191,18 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
     // "Small" is about the RAW distinct count, not the cardinality bucket —
     // three distinct values across exactly three rows is `cardinality:
     // "unique"` (every row differs) but is still a perfectly pie-shaped
-    // three-category split.
-    const isSmall = cat.distinctCount <= 6;
-    if (isSmall) {
+    // three-category split. The pie itself is additionally gated to exactly
+    // ONE numeric column: a slice is a share of ONE total, and with several
+    // numeric measures present (F1/P1-1 — Fisher's iris: 4 measurements, 3
+    // species) there is no principled reason to sum the FIRST one into
+    // wedges rather than any other — that reads as an arbitrary, misleading
+    // pick ("a pie of summed sepal lengths"), where the multi-numeric rule
+    // below is the one this shape actually asks for. The bar's own score
+    // still defers on category size alone (unchanged from before that
+    // rule existed) so a small-category, several-numeric table ranks the
+    // multi-numeric bar over this single-column one, never the reverse.
+    const isSmallCategory = cat.distinctCount <= 6;
+    if (isSmallCategory && numbers.length === 1) {
       out.push({
         mark: "arc", channels: { y: numbers[0]!.name, fill: cat.name },
         reason: `${cat.name} shares of ${numbers[0]!.name} (${cat.distinctCount} categories)`, score: 85,
@@ -171,7 +210,7 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
     }
     out.push({
       mark: "bar", channels: { x: cat.name, y: numbers[0]!.name },
-      reason: `${numbers[0]!.name} by ${cat.name}`, score: isSmall ? 60 : 90,
+      reason: `${numbers[0]!.name} by ${cat.name}`, score: isSmallCategory ? 60 : 90,
     });
   }
 
@@ -183,9 +222,14 @@ export function recommendChart(profile: DataProfile): ChartRecommendation[] {
   }
 
   if (categories.length >= 1 && numbers.length >= 2) {
+    // category + SEVERAL numerics -> grouped/stacked bar (F1/P1-1): the
+    // multi-measurement shape a lone pie (above) has no principled answer
+    // for. Scored above the single-numeric bar/arc pair so a table like
+    // Fisher's iris (one category, four numeric measurements) recommends
+    // this over a pie of one arbitrarily-chosen measurement.
     out.push({
       mark: "bar", channels: { x: categories[0]!.name, y: numbers[1]!.name, fill: categories[0]!.name },
-      reason: `${numbers.length} series by ${categories[0]!.name}`, score: 55,
+      reason: `${numbers.length} numeric columns by ${categories[0]!.name}`, score: 75,
     });
   }
 
