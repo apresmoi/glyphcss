@@ -43,8 +43,9 @@ import {
   resolveGlyphChartsWorkbenchControls,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
-import { renderChartsWorkbenchSpec } from "./chartsWorkbenchRender";
+import { chartsWorkbenchDisplayRender, renderChartsWorkbenchSpec, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
+import * as urlStateModule from "../../lib/urlState";
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
 vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
@@ -114,6 +115,33 @@ describe("ChartsWorkbench — renderChartsWorkbenchSpec", () => {
       expect(result.code).toBe("bad-size");
       expect(result.error).toContain("bad-size");
     }
+  });
+});
+
+// Render-area cleanup (the user's own words: "it shouldn't be in the
+// rendering area — it moves the chart"): the viewport's own content rule —
+// current render if it's ok, else the frozen last-good — pinned with no DOM
+// or reducer in the loop.
+describe("ChartsWorkbench — chartsWorkbenchDisplayRender (viewport fallback rule)", () => {
+  const ok = (text: string): Extract<ChartsWorkbenchRender, { ok: true }> =>
+    ({ ok: true, display: text, isHtml: false, text, meta: {} as never, report: { ledger: [] } as never });
+  const bad: ChartsWorkbenchRender = { ok: false, error: "boom" };
+
+  it("shows the current render when it's ok, regardless of any last-good on hand", () => {
+    const current = ok("current");
+    expect(chartsWorkbenchDisplayRender(current, null)).toBe(current);
+    expect(chartsWorkbenchDisplayRender(current, ok("stale"))).toBe(current);
+  });
+
+  it("falls back to the last-good render when the current one errored", () => {
+    const lastGood = ok("stale");
+    expect(chartsWorkbenchDisplayRender(bad, lastGood)).toBe(lastGood);
+  });
+
+  // Mutation: return the bad render itself, or throw, instead of null when
+  // nothing has ever rendered OK.
+  it("has nothing to show when the current render errored and no last-good exists", () => {
+    expect(chartsWorkbenchDisplayRender(bad, null)).toBeNull();
   });
 });
 
@@ -415,23 +443,25 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(outputSize()).toEqual(["96", "32"]);
   });
 
-  // Mutation: inject result.text with SGR into <pre>, or remove the ANSI explanation.
-  it("shows a decoded-colour terminal frame with the copy explanation, never raw SGR bytes", () => {
+  // Mutation: inject result.text with SGR into <pre>, or lose the decoded colour.
+  // The viewport carries no explanatory note any more (the render area holds
+  // only the chart) — decoded colour and the Copy ANSI affordance are the
+  // whole test.
+  it("shows a decoded-colour terminal frame, never raw SGR bytes, with no readout in the viewport", () => {
     pickToggle("Target", "terminal");
     expect(container.querySelector(".target-preview--terminal")).not.toBeNull();
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
     expect(container.querySelector("pre span[style]")).not.toBeNull();
-    expect(container.querySelector('[role="status"]')!.textContent).toContain("ANSI escapes are included only with Copy ANSI");
+    expect(container.querySelector(".charts-viewport p")).toBeNull();
     expect(button("Copy ANSI")).toBeDefined();
   });
 
-  // Mutation: show an ANSI copy affordance/notice for a terminal render explicitly set to no colour.
+  // Mutation: show an ANSI copy affordance for a terminal render explicitly set to no colour.
   it("shows plain text without ANSI controls for a terminal with color none", () => {
     pickToggle("Target", "terminal");
     pickToggle("Color", "none");
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
     expect(container.querySelector("pre span")).toBeNull();
-    expect(container.querySelector('[role="status"]')).toBeNull();
     expect(button("Copy ANSI")).toBeUndefined();
   });
 
@@ -745,6 +775,36 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(decoded!.marks[0]!.type).toBe("bar");
   });
 
+  // options.strokeWidth (AGENTS.md's "Charts" — "options.strokeWidth"): a
+  // per-mark Stroke row, same shape as innerRadius/axis (`mark.options`,
+  // forwarded straight into the built spec — no `applyChartStyle` in the
+  // loop). `@glyphcss/charts`' own `strokeWidth.test.ts` already proves a
+  // wider stroke changes rendered ink; this only needs to prove the click
+  // reaches the render.
+  // A DISABLED option's `aria-label` appends " — <reason>" after its own
+  // label (`IconToggle`'s own idiom — see the sankey/funnel test above,
+  // which matches the same way with `^=`), so an exact-equality `optionOf`
+  // lookup only works for an ENABLED button; a substring match works for both.
+  function strokeButton(width: "1" | "2" | "3"): HTMLButtonElement {
+    const group = container.querySelector('.charts-mark-row[data-row="strokeWidth"]')!;
+    return Array.from(group.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => (b.getAttribute("aria-label") ?? "").includes(`: ${width}`))!;
+  }
+  it("the Stroke row is enabled for a line mark, and picking width 3 changes the rendered ink", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    expect(strokeButton("1").disabled).toBe(false);
+    const before = container.querySelector("pre.glyph-output")!.textContent!;
+    act(() => strokeButton("3").click());
+    expect(strokeButton("3").getAttribute("aria-pressed")).toBe("true");
+    const after = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(after).not.toBe(before);
+  });
+
+  it("the Stroke row dims with a reason on a mark type with no stroke (bar)", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
+    expect(strokeButton("1").disabled).toBe(true);
+    expect(strokeButton("1").title).toMatch(/Only line, area, and rule marks have a stroke\./);
+  });
+
   // ── The dataset card's read-only table/JSON views (item 5) are real
   // surfaces a reader rarely needs open — collapsed by default (native
   // `<details>`, no URL state) and revealed only on request.
@@ -847,6 +907,53 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(densityInput().value).toBe("1");
     expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(32);
     expect(container.querySelector<HTMLPreElement>("pre.glyph-output")!.style.fontSize).toBe("");
+  });
+});
+
+// Render-area cleanup: a bad chart config's error surfaces in the RAIL's
+// dataset card, never over the render, and the viewport dims instead of
+// going blank.
+describe("ChartsWorkbench — render errors stay out of the viewport", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  it("a broken chart config shows its error in the rail's dataset card, not the viewport, with the viewport dimmed", () => {
+    // A mark whose `dataText` is invalid JSON fails at render — the mounted
+    // page's own controls can no longer produce this (item 5's read-only
+    // data view), so the state is built directly the same way the
+    // "legacy-shaped link" showcase test below does.
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { dataText: "{not json" } });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench initialState={state} />));
+    const railError = container.querySelector("#charts-data-panel .charts-error");
+    expect(railError).not.toBeNull();
+    expect(railError!.getAttribute("role")).toBe("alert");
+    expect(container.querySelector(".charts-viewport .charts-error")).toBeNull();
+    expect(container.querySelector(".charts-viewport p")).toBeNull();
+    expect(container.querySelector(".charts-grid-scroll")!.classList.contains("is-stale")).toBe(true);
+    // Never had a good render to fall back to — the frame is empty (still
+    // no readout in it) rather than showing anything wrong.
+    expect(container.querySelector("pre.glyph-output")!.textContent).toBe("");
+  });
+});
+
+// The pulse (`is-loading`) is a PAGE animation, applied via a plain CSS
+// class — `prefers-reduced-motion` disables it with no JS branch, so this
+// is a CSS-source assertion, the same idiom the Glyph Mono font test above
+// (A4) already uses for a rule happy-dom can't compute the cascade for.
+describe("ChartsWorkbench — reduced motion disables the viewport pulse", () => {
+  it("the loading pulse keyframes are disabled under prefers-reduced-motion: reduce", () => {
+    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const reducedMotionBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{[^]*?\n\}/)![0];
+    expect(reducedMotionBlock).toContain(".charts-grid-scroll.is-loading");
+    expect(reducedMotionBlock).toMatch(/animation:\s*none/);
+    expect(css).toMatch(/\.charts-grid-scroll\.is-stale\s*\{[^}]*opacity:\s*0\.45/);
   });
 });
 
@@ -1020,7 +1127,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     const start = Date.now();
     const hasLoadFailureFeedback = () => Array.from(container.querySelectorAll(".charts-readout")).some((el) => el.textContent?.includes("Couldn't load"));
     while (!hasLoadFailureFeedback()) {
-      if (Date.now() - start > 3000) throw new Error("timed out waiting for the load-failure fallback");
+      if (Date.now() - start > 5000) throw new Error("timed out waiting for the load-failure fallback");
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     act(() => {});
@@ -1052,6 +1159,73 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     act(() => {});
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     expect(container.querySelector(".charts-error")).toBeNull();
+  }, 10_000);
+});
+
+// Rule 1/2 (render-area cleanup): the viewport is the chart's own `<pre>`
+// frame and nothing else, and every copy/export action confirms on its OWN
+// button label instead (the CodePanel/SynthWorkbench idiom), reverting
+// after a short delay. Kept in its OWN describe block, mounted last, rather
+// than folded into "mounted controls and clipboard" above: each revert
+// check needs >1.2s of REAL wall time (`window.setTimeout` — this file's
+// `window` is a happy-dom instance installed onto `globalThis`, not
+// `globalThis` itself, so a faked clock would never patch it), and running
+// that many seconds of real waiting BEFORE the async `?c=`-link decode
+// tests above measurably raised their flake rate under this file's shared,
+// real-clock `writeUrlParam` rate limiter (`lib/urlState.ts`'s own 30-
+// second rolling window) — moving it after those tests removes that
+// interaction rather than papering over it.
+describe("ChartsWorkbench — copy/export button confirmations", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    // Never asserted on here (each test reads the CLIPBOARD mock and the
+    // button's own label) — stubbed so this block draws nothing from the
+    // file-wide real `history.replaceState` budget.
+    vi.spyOn(urlStateModule, "writeUrlParam").mockImplementation(() => {});
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench initialState={createChartsWorkbenchState()} />));
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+  const button = (label: string): HTMLButtonElement => Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
+
+  it("the viewport holds only the pre frame — no readout ever renders beside it", () => {
+    expect(container.querySelectorAll(".charts-viewport p")).toHaveLength(0);
+    expect(container.querySelector(".charts-viewport")!.querySelectorAll("pre")).toHaveLength(1);
+  });
+
+  it("Copy ASCII flips its own button label to Copied, with no readout appearing, and reverts", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => button("Copy ASCII").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1)); });
+    expect(button("Copied")).toBeDefined();
+    expect(container.querySelectorAll(".charts-viewport p")).toHaveLength(0);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Copy ASCII")).toBeDefined();
+  }, 10_000);
+
+  it("Copy link flips its own button label to Copied and reverts", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => button("Copy link").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1)); });
+    expect(button("Copied")).toBeDefined();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Copy link")).toBeDefined();
+  }, 10_000);
+
+  // Download SVG is fully synchronous (no clipboard/network round trip), so
+  // its flip needs no `vi.waitFor` — only the revert needs real time to pass.
+  it("Download SVG flips its own button label and reverts", async () => {
+    act(() => button("Download SVG").click());
+    expect(button("Downloaded") ?? button("Download failed")).toBeDefined();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Download SVG")).toBeDefined();
   }, 10_000);
 });
 

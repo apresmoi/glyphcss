@@ -86,18 +86,28 @@ function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string;
  * (`select-dataset`/`select-remote-dataset`, `chartsWorkbenchState.ts`),
  * no intermediate "Apply" step. The card itself shows the dataset's
  * title, description, source credit, and a closed "View data ▸"
- * disclosure over its own rows — for a `"remote"` source, `loading`
- * shows an inline "Loading…" state instead while a search result's rows
- * are still in flight (`ChartsWorkbench.tsx`'s own `loadRemoteDataset`).
+ * disclosure over its own rows.
+ *
+ * This card is also where feedback that used to float over the render
+ * area now lives (the user's own words: "it shouldn't be in the rendering
+ * area — it moves the chart"): `loadingTitle` names a remote dataset still
+ * in flight (a small inline spinner glyph beside its title, no "Loading…"
+ * word — `ChartsWorkbench.tsx`'s own `loadRemoteDataset`), `notice` is a
+ * quiet one-line dataset-level message (a failed load, a truncated
+ * sample, an unresolvable link's fallback), and `renderError` is the
+ * CURRENT chart config's own render error (`!rendered.ok`) — distinct
+ * from `notice` because it tracks live validity, not a past event, and
+ * clears the instant the config is valid again rather than fading on a
+ * timer.
  *
  * The `<select>` renders into `selectSlot` — the rail header's own `action`
  * slot (`ChartsWorkbench.tsx`, beside the "Random" button) — via a plain
  * `createPortal`; `selectSlot` omitted/`null` (this file's own direct-mount
  * tests) renders it inline instead.
  */
-export function ChartsDataFolder({ data, dispatch, selectSlot, marks, loading }: {
+export function ChartsDataFolder({ data, dispatch, selectSlot, marks, loadingTitle, notice, renderError }: {
   readonly data: ChartsWorkbenchDataState; readonly dispatch: Dispatch<ChartsWorkbenchAction>; readonly selectSlot?: HTMLElement | null;
-  readonly marks?: readonly ChartsWorkbenchMark[]; readonly loading?: boolean;
+  readonly marks?: readonly ChartsWorkbenchMark[]; readonly loadingTitle?: string; readonly notice?: string; readonly renderError?: string;
 }) {
   const activeDataset = data.source?.kind === "dataset" ? findChartsDataset(data.source.id) : undefined;
   const remote = data.source?.kind === "remote" ? data.source : undefined;
@@ -116,7 +126,12 @@ export function ChartsDataFolder({ data, dispatch, selectSlot, marks, loading }:
       ? createPortal(selectField, selectSlot)
       : <label className="voice-row charts-mark-row"><span>Dataset</span>{selectField}</label>}
 
-    {loading && <p className="charts-readout charts-data-loading" role="status">Loading…</p>}
+    {renderError && <p className="charts-readout charts-error" role="alert">{renderError}</p>}
+    {notice && <p className="charts-readout" role="status">{notice}</p>}
+
+    {loadingTitle && <p className="charts-readout charts-data-loading" role="status">
+      {loadingTitle} <span className="charts-data-loading-spinner" aria-hidden="true">⟳</span>
+    </p>}
 
     {activeDataset && <div className="charts-data-info">
       <p className="charts-data-title">{activeDataset.title}</p>
@@ -125,7 +140,7 @@ export function ChartsDataFolder({ data, dispatch, selectSlot, marks, loading }:
       <ChartsDatasetDataView dataset={activeDataset} />
     </div>}
 
-    {remote && !loading && <div className="charts-data-info">
+    {remote && !loadingTitle && <div className="charts-data-info">
       <p className="charts-data-title">{remote.title}</p>
       <p className="charts-readout">{remote.description}</p>
       <p className="charts-readout"><a href={remote.source.url} target="_blank" rel="noreferrer">{remote.source.name}</a>{remote.source.licence ? ` — ${remote.source.licence}` : ""}</p>

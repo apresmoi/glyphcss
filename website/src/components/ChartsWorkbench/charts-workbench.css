@@ -92,6 +92,28 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-readout { color: rgba(255, 232, 184, 0.65); }
 .charts-error { color: #fda4af; }
 
+/* The viewport holds only the render — no readout ever lives beside it
+   (rule: "it shouldn't be in the rendering area — it moves the chart").
+   While the CURRENT config errors or a remote dataset is loading, this
+   wrapper instead keeps showing whatever last rendered OK, dimmed so the
+   frame reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while something is actually in flight — as
+   the page's own animation, never the render's. */
+.charts-grid-scroll.is-stale { opacity: 0.45; transition: opacity 0.2s ease; }
+.charts-grid-scroll.is-loading { animation: charts-viewport-pulse 1.6s ease-in-out infinite; }
+@keyframes charts-viewport-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) {
+  .charts-grid-scroll.is-loading { animation: none; }
+}
+/* The rail's own loading indicator (AGENTS.md's "Charts" — "Data layer"):
+   the dataset TITLE with a small spinning glyph beside it, no "Loading…"
+   word. */
+.charts-data-loading-spinner { display: inline-block; animation: charts-spin 0.9s linear infinite; }
+@keyframes charts-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .charts-data-loading-spinner { animation: none; }
+}
+
 /* Target preview frames (packet item 3): terminal-window chrome / chat bubble. */
 .charts-grid-scroll .target-preview--terminal,
 .charts-grid-scroll .target-preview--chat { margin: 0 auto; text-align: left; }

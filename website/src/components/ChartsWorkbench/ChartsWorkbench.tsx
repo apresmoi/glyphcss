@@ -20,13 +20,25 @@ import {
   generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, remoteDatasetRecommendationCheck,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
-import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
-import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+import { CHARTS_URL_PARAM, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
+import { buildStyledChartsWorkbenchSpec, chartsWorkbenchDisplayRender, renderChartsWorkbenchState, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
 
 type MobilePanel = "data" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
+
+/**
+ * A copy/export confirmation lives on the CLICKED BUTTON's own label — the
+ * `CodePanel.tsx`/`SynthWorkbench.tsx` idiom ("the user's own words: the
+ * confirmations when I copy... it shouldn't be in the rendering area") —
+ * never a separate element that could shift the layout around it. `idle`
+ * reverts automatically after `ms`.
+ */
+function flashButtonState<T extends string>(setState: (value: T) => void, idle: T, value: T, ms = 1200): void {
+  setState(value);
+  window.setTimeout(() => setState(idle), ms);
+}
 
 /**
  * `/charts` is a SHOWCASE, not a builder (the user's own framing) — mirrors
@@ -106,16 +118,32 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // renders the select inline for that one frame instead of dropping it.
   const [dataSelectSlot, setDataSelectSlot] = useState<HTMLElement | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [feedback, setFeedback] = useState(initialNotice ?? "");
-  // The plain `useEffect(() => setFeedback(""), [state])` below runs on
-  // MOUNT too (React effects always fire after the first commit) — without
-  // this guard it would immediately erase the `initialNotice` seeded above
-  // before a reader ever saw it.
-  const feedbackClearedOnce = useRef(false);
-  const [remoteLoading, setRemoteLoading] = useState(false);
-  const [urlSizeBytes, setUrlSizeBytes] = useState(0);
+  // Dataset-level notices (a failed remote load, a truncated sample, an
+  // unresolvable link falling back to a random dataset) live as a quiet
+  // line on the rail's dataset card, never over the render — the user's own
+  // words: "it shouldn't be in the rendering area". `initialNotice`
+  // (seeded from a `?c=` link that had to fall back) must survive the
+  // first commit; the plain `useEffect(() => setDatasetNotice(""), [state])`
+  // below also runs on mount (React effects always fire after the first
+  // commit), so this guard skips exactly that first run.
+  const [datasetNotice, setDatasetNotice] = useState(initialNotice ?? "");
+  const datasetNoticeClearedOnce = useRef(false);
+  // The dataset currently being fetched, or `undefined` when idle — the
+  // rail shows this title with a spinner glyph (no "Loading…" word) and the
+  // viewport dims + pulses the LAST GOOD render rather than going blank.
+  const [remoteLoadingTitle, setRemoteLoadingTitle] = useState<string | undefined>(undefined);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
+  // The viewport's own content: the CURRENT render when it's valid, else
+  // whatever last rendered OK — so a config error (Dock controls, a bad
+  // legacy link) dims the frame instead of collapsing it. Mutated during
+  // render, not in an effect: the value must be current for THIS render's
+  // JSX, and re-storing the same reference on every ok render is idempotent.
+  const lastGoodRenderRef = useRef<Extract<ChartsWorkbenchRender, { ok: true }> | null>(null);
+  if (rendered.ok) lastGoodRenderRef.current = rendered;
+  const displayRendered = chartsWorkbenchDisplayRender(rendered, lastGoodRenderRef.current);
+  const isRemoteLoading = remoteLoadingTitle !== undefined;
+  const isViewportStale = !rendered.ok || isRemoteLoading;
   // Density (task's own framing: "the same shapes with more character
   // density") — web only, mirrors glyphcss's own per-mesh `density`
   // (AGENTS.md's "Per-mesh detail layers"): the RENDER grid grows by the
@@ -154,12 +182,16 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     catch { return null; }
   }, [state]);
   // One writer for the component's lifetime — see chartsUrlState.ts's doc
-  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
-  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes }) => {
-    setUrlSizeBytes(sizeBytes);
-  })).current;
+  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged). No
+  // size-warning readout lives on this page any more (unreachable through
+  // its own UI — a stock dataset's mark data is always omitted from the
+  // link and a remote dataset carries only a `ref`, so a normal `?c=` link
+  // never approaches the warn threshold; `encodeChartsUrlStateInfo`'s own
+  // `tooLarge` safety net for a hand-built/legacy "custom" source link
+  // stays, surfaced on the Copy link button itself below), so the writer
+  // needs no callback.
+  const urlWriter = useRef(createChartsUrlWriter()).current;
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
-  const urlTooLong = urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -168,35 +200,45 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  // A notice set IN THE SAME SYNCHRONOUS SCOPE as a `dispatch` call (a
+  // failed/truncated remote load, an unresolvable link's fallback — all
+  // below) must survive the state change it rides in on: React 18 batches
+  // both `setDatasetNotice` and `dispatch` into ONE commit, so the effect
+  // right below would otherwise see `state` as freshly "changed" on that
+  // very commit and wipe the notice before a reader ever saw it. Set
+  // alongside `setDatasetNotice` at each such call site; the clearing
+  // effect consumes (and skips) it exactly once.
+  const skipNextNoticeClear = useRef(false);
   useEffect(() => {
-    if (!feedbackClearedOnce.current) { feedbackClearedOnce.current = true; return; }
-    setFeedback("");
+    if (!datasetNoticeClearedOnce.current) { datasetNoticeClearedOnce.current = true; return; }
+    if (skipNextNoticeClear.current) { skipNextNoticeClear.current = false; return; }
+    setDatasetNotice("");
   }, [state]);
   useEffect(() => {
-    if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(""), 1800);
+    if (!datasetNotice) return;
+    const timer = window.setTimeout(() => setDatasetNotice(""), 1800);
     return () => window.clearTimeout(timer);
-  }, [feedback]);
+  }, [datasetNotice]);
 
   // Dataset search (glyphcss dataset-search feature): loads a chosen hit
   // off-network (`lib/datasetLoad.ts`) and commits it with ONE synchronous
   // dispatch (`select-remote-dataset`, `chartsWorkbenchState.ts`) once the
   // rows land — a reducer action can't itself be async. A failed load
   // (gated/404/network/too-big/not-tabular — every `DatasetLoadResult`
-  // kind) falls back to a random VENDORED dataset with the error shown in
-  // the feedback banner, rather than leaving the page on a stale or
-  // half-loaded chart.
+  // kind) falls back to a random VENDORED dataset with the error named in
+  // the rail's dataset-notice line, rather than leaving the page on a
+  // stale or half-loaded chart.
   //
   // P2-5 (REVIEW-arc-density-search-opus.md): two picks in a row used to
   // race — no `signal` and no in-flight guard meant the LAST LOAD TO
-  // SETTLE won (clearing "Loading…" and dispatching last), not the last
-  // one clicked, and the loads are genuinely not fast (the siblings
-  // fallback is 3 sequential requests). `remoteLoadRef` holds the current
-  // in-flight `AbortController` (aborted at the top of every new call and
-  // on unmount) and `remoteLoadSeq` is a generation counter — a settled
-  // result whose sequence number is no longer current is dropped rather
-  // than touching `remoteLoading`/`feedback`/`dispatch`, so the load a
-  // reader is actually waiting on is always the one that wins.
+  // SETTLE won (clearing the loading title and dispatching last), not the
+  // last one clicked, and the loads are genuinely not fast (the siblings
+  // fallback is 3 sequential requests). `remoteLoadController` holds the
+  // current in-flight `AbortController` (aborted at the top of every new
+  // call and on unmount) and `remoteLoadSeq` is a generation counter — a
+  // settled result whose sequence number is no longer current is dropped
+  // rather than touching `remoteLoadingTitle`/`datasetNotice`/`dispatch`,
+  // so the load a reader is actually waiting on is always the one that wins.
   const remoteLoadController = useRef<AbortController | null>(null);
   const remoteLoadSeq = useRef(0);
   useEffect(() => () => remoteLoadController.current?.abort(), []);
@@ -205,7 +247,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     const controller = new AbortController();
     remoteLoadController.current = controller;
     const seq = ++remoteLoadSeq.current;
-    setRemoteLoading(true);
+    setRemoteLoadingTitle(hit.title);
     let result: Awaited<ReturnType<typeof loadDatasetRows>>;
     try {
       result = await loadDatasetRows(hit, { signal: controller.signal });
@@ -214,14 +256,15 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
       // unmounting) rejects rather than resolving `{ ok: false }` — a
       // newer load (or nothing) already owns the UI, so there's nothing
       // to report and nothing to touch.
-      if (seq === remoteLoadSeq.current) setRemoteLoading(false);
+      if (seq === remoteLoadSeq.current) setRemoteLoadingTitle(undefined);
       return;
     }
     if (seq !== remoteLoadSeq.current) return; // superseded while in flight
-    setRemoteLoading(false);
+    setRemoteLoadingTitle(undefined);
     if (!result.ok) {
+      skipNextNoticeClear.current = true;
       dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
-      setFeedback(`Couldn't load "${hit.title}": ${result.error}`);
+      setDatasetNotice(`Couldn't load "${hit.title}": ${result.error}`);
       return;
     }
     // P2-3: a load can succeed and still have NO usable chart at all —
@@ -230,15 +273,18 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     // so a dataset nothing can be charted from is never dispatched (which
     // would silently no-op — `chartsWorkbenchState.ts`'s A1 guard) and
     // never recorded as Recent, and the reader sees exactly why nothing
-    // changed instead of a mute "Loading…" that just goes away.
+    // changed instead of a mute loading state that just goes away.
     const check = remoteDatasetRecommendationCheck(result.rows);
     if (!check.ok) {
-      setFeedback(`Couldn't pick a chart for "${hit.title}": columns ${check.columns.join(", ")}.`);
+      setDatasetNotice(`Couldn't pick a chart for "${hit.title}": columns ${check.columns.join(", ")}.`);
       return;
     }
     pushRecentRemoteDataset(hit);
     dispatch({ type: "select-remote-dataset", ref: hit.ref, title: hit.title, description: hit.description ?? "", source: result.source, rows: result.rows });
-    if (result.truncated) setFeedback(`Loaded a ${result.rows.length}-row sample of "${hit.title}" (it's larger than this page loads).`);
+    if (result.truncated) {
+      skipNextNoticeClear.current = true;
+      setDatasetNotice(`Loaded a ${result.rows.length}-row sample of "${hit.title}" (it's larger than this page loads).`);
+    }
   }, [dispatch]);
 
   // A `?c=` link naming a remote dataset carries no rows (see
@@ -252,8 +298,9 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     remoteRefLoadedOnMount.current = true;
     const hit = parseDatasetHitFromQuery(initialRemoteRef);
     if (!hit) {
+      skipNextNoticeClear.current = true;
       dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
-      setFeedback(`Couldn't resolve "${initialRemoteRef}" — showing a random dataset instead.`);
+      setDatasetNotice(`Couldn't resolve "${initialRemoteRef}" — showing a random dataset instead.`);
       return;
     }
     void loadRemoteDataset(hit);
@@ -263,12 +310,20 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Every export/copy action confirms on its OWN button label
+  // (`flashButtonState`, above) — the CodePanel/SynthWorkbench idiom —
+  // rather than a separate readout, so nothing in the render area moves.
+  const [copyAsciiState, setCopyAsciiState] = useState<"idle" | "copied" | "error">("idle");
+  const [copyAnsiState, setCopyAnsiState] = useState<"idle" | "copied" | "error">("idle");
+  const [copyLinkState, setCopyLinkState] = useState<"idle" | "copied" | "error" | "toolarge">("idle");
+  const [downloadState, setDownloadState] = useState<"idle" | "downloaded" | "error">("idle");
   const copy = async (encoding: "ascii" | "ansi") => {
     if (!rendered.ok) return;
     const value = encoding === "ascii" ? rendered.text : rendered.ansi;
     if (value === undefined) return;
-    try { await navigator.clipboard.writeText(value); setFeedback(encoding === "ascii" ? "Copied ASCII" : "Copied ANSI"); }
-    catch { setFeedback("Copy failed — select the chart to copy it manually."); }
+    const setState = encoding === "ascii" ? setCopyAsciiState : setCopyAnsiState;
+    try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
+    catch { flashButtonState(setState, "idle", "error"); }
   };
   // Final-gate-2 review (codex #7): copying `window.location.href` directly
   // copied whatever the 150ms-DEBOUNCED `urlWriter` had last committed —
@@ -282,32 +337,41 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // address bar is brought current in the same click.
   const copyLink = async () => {
     try {
-      const { raw, sizeBytes, tooLarge } = await encodeChartsUrlStateInfo(state);
-      setUrlSizeBytes(sizeBytes);
+      const { raw, tooLarge } = await encodeChartsUrlStateInfo(state);
       // `tooLarge` (an oversized "Custom…" payload) is unreachable through
       // this page's own UI now — there's no way left to install a custom
       // source — but the reducer/URL layer still accepts one from a
       // hand-built or legacy link, so this stays a real safety net rather
-      // than an assumption this branch can't fire.
-      if (tooLarge) { setFeedback(`Link too large to share (${Math.ceil(sizeBytes / 1024)} KB).`); return; }
+      // than an assumption this branch can't fire; the button itself
+      // reports it, in place of the KB-count readout this page used to show.
+      if (tooLarge) { flashButtonState(setCopyLinkState, "idle", "toolarge"); return; }
       writeUrlParam(CHARTS_URL_PARAM, raw || null);
       const params = new URLSearchParams(window.location.search);
       if (raw) params.set(CHARTS_URL_PARAM, raw); else params.delete(CHARTS_URL_PARAM);
       const search = params.toString();
       const link = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
       await navigator.clipboard.writeText(link);
-      setFeedback("Copied link");
-    } catch { setFeedback("Copy failed — copy the address bar manually."); }
+      flashButtonState(setCopyLinkState, "idle", "copied");
+    } catch { flashButtonState(setCopyLinkState, "idle", "error"); }
   };
   const download = () => {
-    try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-chart.svg") ? "Downloaded SVG" : "Download failed"); }
-    catch { setFeedback("Download failed"); }
+    let ok = false;
+    try { ok = downloadGlyphSvg(preRef.current, "glyphcss-chart.svg"); } catch { ok = false; }
+    flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={() => void copy("ascii")}>Copy ASCII</button>
-    {rendered.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>Copy ANSI</button>}
-    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>Copy link</button>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={download}>Download SVG</button>
+    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={() => void copy("ascii")}>
+      {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
+    </button>
+    {rendered.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+      {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
+    </button>}
+    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
+      {copyLinkState === "copied" ? "Copied" : copyLinkState === "error" ? "Copy failed" : copyLinkState === "toolarge" ? "Too large" : "Copy link"}
+    </button>
+    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={download}>
+      {downloadState === "downloaded" ? "Downloaded" : downloadState === "error" ? "Download failed" : "Download SVG"}
+    </button>
   </>;
   const togglePanel = (panel: MobilePanel) => {
     setCodeOpen(false);
@@ -346,7 +410,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
             <button type="button" className="control-btn control-btn--primary charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={handleRandomDataset}>Random</button>
           </span>
         </span>}>
-        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} marks={state.marks} loading={remoteLoading} />
+        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} marks={state.marks}
+          loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
           {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         </div>
@@ -354,17 +419,20 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
       <InstrumentMain>
         <InstrumentViewport className="charts-viewport">
           <div className="charts-preview">
-            <div className="charts-grid-scroll">
+            {/* The viewport holds only the render; feedback lives on the
+             *  buttons and in the rail (the user's own words: "it shouldn't
+             *  be in the rendering area — it moves the chart"). While the
+             *  live render is bad or a remote dataset is loading, this stays
+             *  on the LAST GOOD render, dimmed (`is-stale`) — pulsing too
+             *  (`is-loading`) only while something is actually in flight, so
+             *  the frame never collapses or shifts. */}
+            <div className={`charts-grid-scroll${isViewportStale ? " is-stale" : ""}${isRemoteLoading ? " is-loading" : ""}`}>
               <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss chart …"
-                isHtml={rendered.ok && rendered.isHtml} text={rendered.ok ? rendered.text : ""}
-                html={rendered.ok && rendered.isHtml ? rendered.display : undefined} ansi={rendered.ok ? rendered.ansi : undefined}
+                isHtml={Boolean(displayRendered?.isHtml)} text={displayRendered?.text ?? ""}
+                html={displayRendered?.isHtml ? displayRendered.display : undefined} ansi={displayRendered?.ansi}
                 style={densityStyle}
                 ariaLabel={state.chart.title || "Chart preview"} ariaDescription={state.chart.description || undefined} />
             </div>
-            {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
-            {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
-            {urlTooLong && <p className="charts-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
-            {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>
         <div className="synth-export-bar">

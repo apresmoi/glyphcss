@@ -33,7 +33,7 @@ describe("chartsUrlState — round trip", () => {
     state = reduceChartsWorkbenchState(state, {
       type: "update-mark",
       id: state.marks[1]!.id,
-      patch: { transform: "stack", options: { name: "Series A", innerRadius: 0.4, axis: "x" } },
+      patch: { transform: "stack", options: { name: "Series A", innerRadius: 0.4, axis: "x", strokeWidth: 3 } },
     });
     const raw = await encodeChartsUrlState(state);
     expect(await decodeChartsUrlState(raw)).toEqual(state);
@@ -377,6 +377,14 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(badMode)).toBeNull();
     const badMarkColor = await encodeChartsUrlState({ ...base, marks: [{ ...base.marks[0]!, color: "not-a-hex-colour" }] } as unknown as ChartsWorkbenchState);
     expect(await decodeChartsUrlState(badMarkColor)).toBeNull();
+  });
+
+  // options.strokeWidth (AGENTS.md's "Charts" — "options.strokeWidth"):
+  // append-only optional field, same rejection discipline as innerRadius/axis.
+  it("rejects an out-of-vocabulary strokeWidth rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    const bad = await encodeChartsUrlState({ ...base, marks: [{ ...base.marks[0]!, options: { strokeWidth: 4 } }] } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(bad)).toBeNull();
   });
 
   it("rejects a pipeline step with an out-of-vocabulary operator/kind", async () => {

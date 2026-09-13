@@ -68,6 +68,29 @@ export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
   value: type as string, icon: CHART_MARK_TYPE_ICONS[type], label: type, desc: CHART_MARK_TYPE_DESCRIPTIONS[type],
 }));
 
+// Stroke width (`options.strokeWidth`, `@glyphcss/charts` — landed with a
+// canvas `line({ width })` option, AGENTS.md's "Charts" own
+// "options.strokeWidth" paragraph): a per-mark override, same storage shape
+// as `innerRadius`/`axis` above (`mark.options`, forwarded verbatim by
+// `buildMark` — never `applyChartStyle`, which exists only for `color`'s own
+// cross-mark series resolution and has no reason to own this). Three icons,
+// one line of increasing weight each, `ToggleIcon`'s own shared size
+// untouched (the F6 review finding this file's own Type row comment cites).
+const STROKE_WIDTH_VALUES = [1, 2, 3] as const;
+const STROKE_WIDTH_TOGGLE = STROKE_WIDTH_VALUES.map((width) => ({
+  value: String(width),
+  icon: <ToggleIcon><line x1="2" y1="8" x2="14" y2="8" strokeWidth={1 + width} /></ToggleIcon>,
+  label: String(width),
+  desc: `${width}px stroke weight`,
+}));
+/** Only `line`, `area` (its own boundary) and `rule` marks paint a stroke
+ *  (`packages/charts/src/paint.ts`'s own `resolveStrokeWidth` callers) — the
+ *  row stays visible so a reader always sees it exists, but every option
+ *  dims with a reason on any other mark type. */
+function chartMarkHasStroke(type: ChartsWorkbenchMark["type"]): boolean {
+  return type === "line" || type === "area" || type === "rule";
+}
+
 /**
  * Per-mark/per-series colour swatches (packet item 2), next to the mark's
  * own Type row. `series` is `@glyphcss/charts`' own `glyphChartSeriesPreview`
@@ -157,6 +180,13 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
           onChange={(type) => update({ type: type as ChartsWorkbenchMark["type"], options: {}, color: undefined })} />
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
+      <div className="voice-row charts-mark-row" data-row="strokeWidth">
+        <span>Stroke</span>
+        <IconToggle groupTitle={`Mark ${index + 1} stroke width`}
+          options={chartMarkHasStroke(mark.type) ? STROKE_WIDTH_TOGGLE : STROKE_WIDTH_TOGGLE.map((option) => ({ ...option, disabled: true, disabledReason: "Only line, area, and rule marks have a stroke." }))}
+          value={String(mark.options.strokeWidth ?? 1)}
+          onChange={(width) => update({ options: { ...mark.options, strokeWidth: Number(width) as 1 | 2 | 3 } })} />
+      </div>
       {chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
         <span>{channel}</span><span className="gx-select"><select aria-label={`Mark ${index + 1} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>

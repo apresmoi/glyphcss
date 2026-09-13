@@ -258,3 +258,20 @@ export function renderChartsWorkbenchState(state: ChartsWorkbenchState): ChartsW
     return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state));
   } catch (error) { return failure(error); }
 }
+
+/**
+ * The viewport's own content rule (never a readout, AGENTS.md's "Charts" —
+ * "the viewport holds only the render; feedback lives on the buttons and
+ * in the rail"): the CURRENT render when it's valid, else whatever last
+ * rendered OK — so a bad chart config (a Dock control, a legacy link)
+ * dims the frame instead of collapsing it. Pure and separate from
+ * `ChartsWorkbench.tsx`'s own `useRef` bookkeeping so the FALLBACK rule
+ * itself — "current if ok, else the frozen last-good, never null-out a
+ * working picture" — has a test with no DOM in the loop.
+ */
+export function chartsWorkbenchDisplayRender(
+  current: ChartsWorkbenchRender,
+  lastGood: Extract<ChartsWorkbenchRender, { ok: true }> | null,
+): Extract<ChartsWorkbenchRender, { ok: true }> | null {
+  return current.ok ? current : lastGood;
+}

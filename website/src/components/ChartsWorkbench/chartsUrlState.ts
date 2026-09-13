@@ -133,6 +133,13 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
       if (options.axis !== "x" && options.axis !== "y") return null;
       cleanOptions.axis = options.axis;
     }
+    // Append-only optional field (AGENTS.md's "Charts" — "options.strokeWidth"
+    // landed in the library after this envelope; `v1` still covers it since
+    // it's optional and defaulted absent). Mirrors `innerRadius`'s own shape.
+    if (options.strokeWidth !== undefined) {
+      if (options.strokeWidth !== 1 && options.strokeWidth !== 2 && options.strokeWidth !== 3) return null;
+      cleanOptions.strokeWidth = options.strokeWidth;
+    }
     if (options.name !== undefined) {
       if (typeof options.name !== "string") return null;
       cleanOptions.name = options.name;

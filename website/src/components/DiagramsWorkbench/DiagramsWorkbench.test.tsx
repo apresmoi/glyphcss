@@ -23,6 +23,7 @@ import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
 import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 import { decodeDiagramsUrlState } from "./diagramsUrlState";
 import * as renderModule from "./diagramsWorkbenchRender";
+import * as urlStateModule from "../../lib/urlState";
 import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 
 // Standalone Vitest lacks Astro's alias; only unused palette calibration needs a stub.
@@ -173,7 +174,6 @@ describe("DiagramsWorkbench mounted integration", () => {
     await select("Target", "terminal");
     const plain = preview().textContent!;
     expect(plain).not.toContain("\x1b");
-    expect(container.textContent).toContain("ANSI escapes are included only with Copy ANSI");
     await act(async () => button("Copy as text").click());
     expect(writeText).toHaveBeenLastCalledWith(plain);
     await act(async () => button("Copy ANSI").click());
@@ -185,7 +185,11 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(button("Copy ANSI")).toBeUndefined();
     await act(async () => controller("FORCE_COLOR").querySelector<HTMLInputElement>("input")!.click());
     await settlePreview();
-    expect(button("Copy ANSI")).toBeDefined();
+    // The button's OWN label may still transiently read "Copied" from the
+    // earlier click above (`flashButtonState`'s 1.2s revert, real time,
+    // hasn't necessarily elapsed yet) — either label proves the Copy ANSI
+    // affordance is back, which is what this assertion is actually for.
+    expect(button("Copy ANSI") ?? button("Copied")).toBeDefined();
   });
 
   it("renders CSS colour overrides on any target", async () => {
@@ -208,13 +212,22 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(container.querySelector("textarea")!.value).toContain("Updated");
     expect(preview().textContent).toContain("Updated");
     await edit("sequenceDiagram\nAlice->>Bob: hello");
-    expect(container.querySelector("[role='alert']")!.textContent).toContain("GLYPH_MERMAID_UNSUPPORTED_");
-    expect(preview().textContent).toBe("");
+    // Render-area cleanup: the error names itself in the RAIL (never the
+    // viewport), and the viewport keeps the LAST GOOD diagram ("Updated")
+    // dimmed rather than collapsing to blank — the user's own words: "it
+    // shouldn't be in the rendering area — it moves the chart".
+    const railError = container.querySelector("#diagrams-source-panel [role='alert']");
+    expect(railError).not.toBeNull();
+    expect(railError!.textContent).toContain("GLYPH_MERMAID_UNSUPPORTED_");
+    expect(container.querySelector(".diagrams-viewport [role='alert']")).toBeNull();
+    expect(preview().textContent).toContain("Updated");
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-stale")).toBe(true);
     expect(button("Copy as text").disabled).toBe(true);
     await act(async () => container.querySelector<HTMLButtonElement>("[aria-label='Apply Chain']")!.click());
     await settlePreview();
     expect(container.querySelector("[role='alert']")).toBeNull();
     expect(preview().textContent).toMatch(/\S/);
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-stale")).toBe(false);
     await act(async () => button("nodes/edges JSON").click());
     await edit("{");
     expect(container.querySelector("textarea")!.value).toBe("{");
@@ -318,4 +331,101 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(preview().textContent).toContain("New");
     expect(preview().textContent).not.toContain("Old");
   });
+
+  // Rule 3/4 (render-area cleanup): a layout still in flight for the
+  // CURRENT state keeps showing the LAST GOOD diagram, dimmed AND pulsing
+  // (the page's own animation — no "Laying out diagram…" text anywhere),
+  // rather than collapsing the viewport to blank while it computes.
+  it("a layout still in flight dims and pulses the viewport over the last good diagram, with no text readout", async () => {
+    const before = preview().textContent!;
+    let finishNew: ((value: renderModule.GlyphDiagramsWorkbenchRender) => void) | undefined;
+    vi.spyOn(renderModule, "renderGlyphDiagramsWorkbenchState").mockImplementationOnce(() => new Promise((resolve) => { finishNew = resolve; }));
+    await edit("flowchart LR\nA[Pending] --> B[Result]", false);
+    await vi.waitFor(() => expect(finishNew).toBeTypeOf("function"));
+    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+    expect(preview().textContent).toBe(before);
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-stale")).toBe(true);
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-loading")).toBe(true);
+    expect(container.querySelector(".diagrams-viewport p")).toBeNull();
+    // Resolve the hung layout so this test's own pending work doesn't leak
+    // into whatever runs next — the settled content isn't under test here.
+    await act(async () => finishNew!({ ok: false, error: "resolved for teardown" }));
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-loading")).toBe(false);
+  });
+
+  it("the viewport holds only the pre frame — no readout ever renders beside it", () => {
+    expect(container.querySelectorAll(".diagrams-viewport p")).toHaveLength(0);
+    expect(container.querySelector(".diagrams-viewport")!.querySelectorAll("pre")).toHaveLength(1);
+  });
+});
+
+// The pulse (`is-loading`) is a PAGE animation, applied via a plain CSS
+// class — `prefers-reduced-motion` disables it with no JS branch, so this
+// is a CSS-source assertion, mirroring ChartsWorkbench.test.tsx's own.
+describe("DiagramsWorkbench — reduced motion disables the viewport pulse", () => {
+  it("the loading pulse keyframes are disabled under prefers-reduced-motion: reduce", () => {
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const reducedMotionBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{[^]*?\n\}/)![0];
+    expect(reducedMotionBlock).toContain(".diagrams-grid-scroll.is-loading");
+    expect(reducedMotionBlock).toMatch(/animation:\s*none/);
+    expect(css).toMatch(/\.diagrams-grid-scroll\.is-stale\s*\{[^}]*opacity:\s*0\.45/);
+  });
+});
+
+// Every copy/export action confirms on its OWN button label (the CodePanel/
+// SynthWorkbench idiom), reverting after a short delay — kept in its own
+// describe block, mounted separately, and using a plain awaited real delay
+// rather than `vi.waitFor` for the revert (ChartsWorkbench.test.tsx's own
+// hard-won lesson: this file's `window` is a happy-dom instance installed
+// onto `globalThis`, not `globalThis` itself, so a component's
+// `window.setTimeout` is never one `vi.useFakeTimers` would patch, and
+// `vi.waitFor`'s own polling did not reliably observe it either — a plain
+// awaited `setTimeout` does). `writeUrlParam` is stubbed so this block draws
+// nothing from `lib/urlState.ts`'s shared, real-clock rate-limited write
+// budget; nothing here asserts on the visible address bar.
+describe("DiagramsWorkbench — copy/export button confirmations", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  beforeEach(async () => {
+    vi.spyOn(urlStateModule, "writeUrlParam").mockImplementation(() => {});
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => root.render(<GlyphDiagramsWorkbench />));
+    await vi.waitFor(async () => {
+      await act(async () => { await vi.dynamicImportSettled(); });
+      expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
+    }, { timeout: 2000, interval: 10 });
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+  const button = (label: string): HTMLButtonElement => Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
+
+  it("Copy as text flips its own button label to Copied and reverts", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => button("Copy as text").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1)); });
+    expect(button("Copied")).toBeDefined();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Copy as text")).toBeDefined();
+  }, 10_000);
+
+  it("Copy link flips its own button label to Copied and reverts", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => button("Copy link").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1)); });
+    expect(button("Copied")).toBeDefined();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Copy link")).toBeDefined();
+  }, 10_000);
+
+  it("Download SVG flips its own button label and reverts", async () => {
+    act(() => button("Download SVG").click());
+    expect(button("Downloaded") ?? button("Download failed")).toBeDefined();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); });
+    expect(button("Download SVG")).toBeDefined();
+  }, 10_000);
 });

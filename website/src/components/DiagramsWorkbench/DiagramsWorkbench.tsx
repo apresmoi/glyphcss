@@ -8,13 +8,24 @@ import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
-import { DIAGRAMS_URL_PARAM, DIAGRAMS_URL_SIZE_WARN_BYTES, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
-import { renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
+import { DIAGRAMS_URL_PARAM, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
+import { glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
 
 type MobilePanel = "source" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TS" }, { id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const;
+
+/**
+ * A copy/export confirmation lives on the CLICKED BUTTON's own label
+ * (`ChartsWorkbench.tsx`'s own `flashButtonState`, the CodePanel/
+ * SynthWorkbench idiom) — never a separate element that could shift the
+ * layout around it. `idle` reverts automatically after `ms`.
+ */
+function flashButtonState<T extends string>(setState: (value: T) => void, idle: T, value: T, ms = 1200): void {
+  setState(value);
+  window.setTimeout(() => setState(idle), ms);
+}
 
 /**
  * Table editor (packet item 7) — a nodes table (id, label, kind) and an
@@ -89,22 +100,33 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; result: GlyphDiagramsWorkbenchRender } | null>(null);
   const [thumbnails, setThumbnails] = useState<readonly string[]>([]);
-  const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   // State identity prevents an old result from becoming copyable during a new layout.
   const rendered = completed?.state === state ? completed.result : null;
+  // The viewport's own content: while a layout is in flight for the
+  // CURRENT state (`rendered === null`) or the current one errored, this
+  // stays on the last one that actually succeeded — dimmed, never blank —
+  // so an edit never collapses the frame (the user's own words: "it
+  // shouldn't be in the rendering area — it moves the chart"). Mutated
+  // during render (not an effect): must be current for THIS render's JSX.
+  const lastGoodResultRef = useRef<Extract<GlyphDiagramsWorkbenchRender, { ok: true }> | null>(null);
+  if (rendered?.ok) lastGoodResultRef.current = rendered;
+  const displayResult = glyphDiagramsWorkbenchDisplayResult(rendered, lastGoodResultRef.current);
+  const isPending = rendered === null;
+  const hasError = rendered !== null && !rendered.ok;
+  const isViewportStale = isPending || hasError;
   const snippets = useMemo(() => {
     try { return generateGlyphDiagramsWorkbenchSnippets(state); }
     catch { return null; }
   }, [state]);
   // One writer for the component's lifetime — see diagramsUrlState.ts's doc
-  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
-  const urlWriter = useRef(createDiagramsUrlWriter(({ sizeBytes }) => setUrlSizeBytes(sizeBytes))).current;
+  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged). No
+  // size-warning readout lives on this page — diagrams carry no "custom
+  // source" concept a legacy link could still blow the cap with.
+  const urlWriter = useRef(createDiagramsUrlWriter()).current;
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
-  const urlTooLong = urlSizeBytes > DIAGRAMS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     let current = true;
@@ -124,19 +146,20 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => { setFeedback(""); }, [state]);
-  useEffect(() => {
-    if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(""), 1800);
-    return () => window.clearTimeout(timer);
-  }, [feedback]);
 
+  // Every export/copy action confirms on its OWN button label
+  // (`flashButtonState`, above) rather than a separate readout.
+  const [copyTextState, setCopyTextState] = useState<"idle" | "copied" | "error">("idle");
+  const [copyAnsiState, setCopyAnsiState] = useState<"idle" | "copied" | "error">("idle");
+  const [copyLinkState, setCopyLinkState] = useState<"idle" | "copied" | "error">("idle");
+  const [downloadState, setDownloadState] = useState<"idle" | "downloaded" | "error">("idle");
   const copy = async (encoding: "text" | "ansi") => {
     if (!rendered?.ok) return;
     const value = encoding === "text" ? rendered.text : rendered.ansi;
     if (value === undefined) return;
-    try { await navigator.clipboard.writeText(value); setFeedback(encoding === "text" ? "Copied text" : "Copied ANSI"); }
-    catch { setFeedback("Copy failed — select the diagram to copy it manually."); }
+    const setState = encoding === "text" ? setCopyTextState : setCopyAnsiState;
+    try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
+    catch { flashButtonState(setState, "idle", "error"); }
   };
   // Final-gate-2 review (codex #7, same fix as ChartsWorkbench.tsx's own
   // `copyLink`): copying `window.location.href` directly copied whatever
@@ -146,25 +169,33 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const copyLink = async () => {
     try {
       const raw = await encodeDiagramsUrlState(state);
-      setUrlSizeBytes(new TextEncoder().encode(raw).length);
       writeUrlParam(DIAGRAMS_URL_PARAM, raw || null);
       const params = new URLSearchParams(window.location.search);
       if (raw) params.set(DIAGRAMS_URL_PARAM, raw); else params.delete(DIAGRAMS_URL_PARAM);
       const search = params.toString();
       const link = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
       await navigator.clipboard.writeText(link);
-      setFeedback("Copied link");
-    } catch { setFeedback("Copy failed — copy the address bar manually."); }
+      flashButtonState(setCopyLinkState, "idle", "copied");
+    } catch { flashButtonState(setCopyLinkState, "idle", "error"); }
   };
   const download = () => {
-    try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-diagram.svg") ? "Downloaded SVG" : "Download failed"); }
-    catch { setFeedback("Download failed"); }
+    let ok = false;
+    try { ok = downloadGlyphSvg(preRef.current, "glyphcss-diagram.svg"); } catch { ok = false; }
+    flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={() => void copy("text")}>Copy as text</button>
-    {rendered?.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>Copy ANSI</button>}
-    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>Copy link</button>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={download}>Download SVG</button>
+    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={() => void copy("text")}>
+      {copyTextState === "copied" ? "Copied" : copyTextState === "error" ? "Copy failed" : "Copy as text"}
+    </button>
+    {rendered?.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+      {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
+    </button>}
+    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
+      {copyLinkState === "copied" ? "Copied" : copyLinkState === "error" ? "Copy failed" : "Copy link"}
+    </button>
+    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={download}>
+      {downloadState === "downloaded" ? "Downloaded" : downloadState === "error" ? "Download failed" : "Download SVG"}
+    </button>
   </>;
 
   return <InstrumentShell kind="synth" className="diagrams-shell">
@@ -172,6 +203,11 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
       <InstrumentRail id="diagrams-source-panel" title="Graph" open={mobilePanel === "source"}>
         <div className="voice-card diagrams-source-card">
           <div className="voice-controls">
+            {/* A render error (invalid Mermaid/JSON) names itself here, in
+             *  the rail — never over the render, which keeps showing the
+             *  last diagram that actually laid out (see the viewport
+             *  below). */}
+            {rendered && !rendered.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered.error}</p>}
             <div className="gx-toggle" role="tablist" aria-label="Graph source format">
               {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
             </div>
@@ -186,18 +222,18 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
       </InstrumentRail>
       <InstrumentMain>
         <InstrumentViewport className="diagrams-viewport">
-          <div className="diagrams-preview" aria-busy={rendered === null}>
-            <div className="diagrams-grid-scroll">
+          <div className="diagrams-preview" aria-busy={isPending}>
+            {/* The viewport holds only the render; feedback lives on the
+             *  buttons and in the rail. `is-stale` (a config error or a
+             *  layout still in flight) dims the LAST GOOD diagram instead
+             *  of collapsing the frame; `is-loading` (in flight only) also
+             *  pulses it — the page's own animation, never the render's. */}
+            <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}`}>
               <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
-                isHtml={Boolean(rendered?.ok && rendered.isHtml)} text={rendered?.ok ? rendered.text : ""}
-                html={rendered?.ok && rendered.isHtml ? rendered.display : undefined} ansi={rendered?.ok ? rendered.ansi : undefined}
-                ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={rendered?.ok ? rendered.meta.description ?? undefined : undefined} />
+                isHtml={Boolean(displayResult?.isHtml)} text={displayResult?.text ?? ""}
+                html={displayResult?.isHtml ? displayResult.display : undefined} ansi={displayResult?.ansi}
+                ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={displayResult?.meta.description ?? undefined} />
             </div>
-            {!rendered && <p className="diagrams-readout" role="status">Laying out diagram…</p>}
-            {rendered && !rendered.ok && <p className="diagrams-error" role="alert">{rendered.error}</p>}
-            {rendered?.ok && rendered.ansi !== undefined && <p className="diagrams-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
-            {urlTooLong && <p className="diagrams-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
-            {feedback && <p className="diagrams-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>
         <div className="synth-export-bar">{exportActions}

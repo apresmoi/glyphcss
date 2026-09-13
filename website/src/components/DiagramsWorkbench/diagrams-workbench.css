@@ -51,6 +51,20 @@
 .diagrams-readout, .diagrams-error { margin: 0; font-size: 10px; line-height: 1.4; }
 .diagrams-readout { color: rgba(255, 232, 184, 0.65); }
 .diagrams-error { color: #fda4af; }
+
+/* The viewport holds only the render — no readout ever lives beside it.
+   While the graph errors or a layout is still in flight, this wrapper
+   instead keeps showing whatever last laid out OK, dimmed so the frame
+   reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while a layout is actually in flight — as
+   the page's own animation, never the render's (mirrors
+   charts-workbench.css's own `.charts-grid-scroll` rules). */
+.diagrams-grid-scroll.is-stale { opacity: 0.45; transition: opacity 0.2s ease; }
+.diagrams-grid-scroll.is-loading { animation: diagrams-viewport-pulse 1.6s ease-in-out infinite; }
+@keyframes diagrams-viewport-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) {
+  .diagrams-grid-scroll.is-loading { animation: none; }
+}
 /* Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
    the same A4/A5 cascade defect this file's `.diagrams-grid-scroll >
    .glyph-output` rule above already documents: `inherit` here took
