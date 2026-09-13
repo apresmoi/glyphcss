@@ -91,8 +91,13 @@ function chartMarkStrokeSliderFill(value: number): CSSProperties {
  *  (`packages/charts/src/paint.ts`'s own `resolveStrokeWidth` callers) — the
  *  row stays visible so a reader always sees it exists, but dims with a
  *  reason on any other mark type. */
-function chartMarkHasStroke(type: ChartsWorkbenchMark["type"]): boolean {
-  return type === "line" || type === "area" || type === "rule";
+// A STACKED area paints no boundary line (`@glyphcss/charts`' stacked-area
+// rule: the line erased thin layers), so `strokeWidth` has nothing to draw
+// there — the row dims with that reason instead of silently doing nothing.
+function chartMarkStrokeReason(mark: Pick<ChartsWorkbenchMark, "type" | "transform">): string | null {
+  if (mark.type !== "line" && mark.type !== "area" && mark.type !== "rule") return "Only line, area, and rule marks have a stroke.";
+  if (mark.type === "area" && mark.transform === "stack") return "A stacked area draws no outline, so it has no stroke.";
+  return null;
 }
 
 // Arc "Labels" (`options.labels`, `@glyphcss/charts` — AGENTS.md's "Charts"
@@ -212,11 +217,12 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
       {(() => {
-        const hasStroke = chartMarkHasStroke(mark.type);
+        const strokeReason = chartMarkStrokeReason(mark);
+        const hasStroke = strokeReason === null;
         const strokeWidth = mark.options.strokeWidth ?? 1;
         const setStrokeWidth = (next: number) => update({ options: { ...mark.options, strokeWidth: next as 1 | 2 | 3 } });
         return <label className={`voice-slider charts-mark-row${hasStroke ? "" : " is-disabled"}`} data-row="strokeWidth"
-          title={hasStroke ? "Stroke width in cells." : "Only line, area, and rule marks have a stroke."}>
+          title={strokeReason ?? "Stroke width in cells."}>
           <span>Stroke</span>
           <span className="voice-slider-track">
             <input type="range" min={STROKE_WIDTH_MIN} max={STROKE_WIDTH_MAX} step={1} disabled={!hasStroke}

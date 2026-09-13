@@ -96,3 +96,24 @@ describe("ChartsMarkCard — a tray preset with two marks", () => {
     expect(getComputedStyle(cards[1]!).borderTopStyle).toBe("solid");
   });
 });
+
+describe("ChartsMarkCard — Stroke row", () => {
+  // A stacked area paints no boundary line, so its Stroke row must dim with
+  // that reason rather than sit live and do nothing. Mutation: drop the
+  // stacked-area clause in `chartMarkStrokeReason` -> red.
+  it("dims Stroke with its reason on a stacked area, and keeps it live on an unstacked one", () => {
+    const stacked = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "energy-consumption-by-source" });
+    expect(stacked.marks[0]!.type).toBe("area");
+    expect(stacked.marks[0]!.transform).toBe("stack");
+    let host = mountMarks(stacked);
+    let input = host.querySelector<HTMLInputElement>('[aria-label="Chart stroke width"]')!;
+    expect(input.disabled).toBe(true);
+    expect(host.querySelector('[data-row="strokeWidth"]')!.getAttribute("title")).toMatch(/stacked area draws no outline/);
+    act(() => { root?.unmount(); });
+    container?.remove();
+    const unstacked = { ...stacked, marks: [{ ...stacked.marks[0]!, transform: "none" as const }] };
+    host = mountMarks(unstacked);
+    input = host.querySelector<HTMLInputElement>('[aria-label="Chart stroke width"]')!;
+    expect(input.disabled).toBe(false);
+  });
+});
