@@ -5,11 +5,11 @@
 // covers the individual business rules (id exclusion, fill caps, the
 // wide-year pivot, the multi-measure melt) through `recommendChart`'s
 // public surface; this file covers `chartCandidates.ts` directly — the
-// full ranked list, `pickChartCandidate`, and whether real vendored
+// full ranked list and whether real vendored
 // datasets' own curated mappings land where a reader would expect.
 import { describe, expect, it } from "vitest";
 import {
-  buildChartCandidates, CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD, isIdLikeColumn, pickChartCandidate, type ChartCandidate,
+  buildChartCandidates, isIdLikeColumn, type ChartCandidate,
 } from "./chartCandidates";
 import { profileRows } from "./dataProfile";
 import type { TabularRow } from "./tabularParse";
@@ -47,37 +47,6 @@ describe("buildChartCandidates", () => {
     const candidates = buildChartCandidates(profileRows(rows));
     expect(candidates.length).toBeGreaterThan(0);
     expect(candidates[0]!.mark).toBe("bar");
-  });
-});
-
-describe("pickChartCandidate", () => {
-  const candidates = buildChartCandidates(profileRows(gdpLifeExpectancy2007Dataset.rows));
-
-  it("'best' returns the top of the sorted list", () => {
-    expect(pickChartCandidate(candidates, { mode: "best" })).toBe(candidates[0]);
-  });
-
-  it("'weighted-random' is reproducible under a fixed seed and stays within the threshold band", () => {
-    for (let seed = 0; seed < 30; seed++) {
-      const picked = pickChartCandidate(candidates, { mode: "weighted-random", seed });
-      const pickedAgain = pickChartCandidate(candidates, { mode: "weighted-random", seed });
-      expect(picked).toEqual(pickedAgain);
-      expect(picked!.score).toBeGreaterThanOrEqual(candidates[0]!.score * CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD);
-    }
-  });
-
-  it("'weighted-random' actually rotates across seeds rather than always landing on 'best' (real datasets have more than one informative view)", () => {
-    const picks = new Set<string>();
-    for (let seed = 0; seed < 30; seed++) {
-      const picked = pickChartCandidate(candidates, { mode: "weighted-random", seed })!;
-      picks.add(`${picked.mark}:${JSON.stringify(picked.channels)}`);
-    }
-    expect(picks.size).toBeGreaterThan(1);
-  });
-
-  it("returns null only for a genuinely empty candidate list", () => {
-    expect(pickChartCandidate([], { mode: "best" })).toBeNull();
-    expect(pickChartCandidate([], { mode: "weighted-random", seed: 1 })).toBeNull();
   });
 });
 
@@ -157,19 +126,18 @@ describe("mutation checks", () => {
 // still supplies), only the mark/channel SHAPE.
 interface GroundTruthCase {
   readonly dataset: ChartsDataset;
-  /** Present for the 14 datasets the STATED criterion covers (`docs/design/
-   *  charts.md`'s "Ground truth" — "14 of 16 rank in the top 3"): the
+  /** Present for the 15 datasets the STATED criterion covers (`docs/design/
+   *  charts.md`'s "Ground truth" — "15 of 16 rank in the top 3"): the
    *  curated mapping must land at or above this 0-indexed rank. */
   readonly maxRank?: number;
   /**
    * CHARTS-RESEARCH `REVIEW-batch4-codex.md` P2-10 / `-fable.md` F-P3-2:
-   * the two NAMED exceptions used to accept ANY rank under 6 — a loose
-   * bound that would silently absorb a further regression (say, rank 4
-   * sliding to rank 9) with no failing test. Each now pins its OWN real,
-   * currently-measured rank exactly, so a scorer change that moves either
-   * one is caught precisely rather than passing through a wide net; the
-   * "14 of 16 top-3, two named exceptions" summary above these two entries
-   * stays what's actually true, not a rounded-up claim.
+   * a NAMED exception used to accept ANY rank under 6 — a loose bound that
+   * would silently absorb a further regression (say, rank 4 sliding to
+   * rank 9) with no failing test. It pins its OWN real, currently-measured
+   * rank exactly, so a scorer change that moves it is caught precisely;
+   * the "15 of 16 top-3, one named exception" summary stays what's
+   * actually true, not a rounded-up claim.
    */
   readonly exactRank?: number;
 }
@@ -211,12 +179,12 @@ const GROUND_TRUTH: readonly GroundTruthCase[] = [
   // correctly counting it only strengthens this same disagreement).
   { dataset: olympics2024MedalsDataset, exactRank: 5 },
   // Real Fisher iris: petal_length x petal_width correlates MORE strongly
-  // (r ~ 0.96) than the curated sepal_length x petal_length (r ~ 0.87) —
-  // both are genuinely strong, cross-part relationships; the curated pick
-  // is the more commonly cited pairing but not the statistically
-  // stronger one on this exact data, so it lands 4th, not top 3. A
-  // defensible information disagreement, not a scorer defect.
-  { dataset: irisFlowersDataset, exactRank: 3 },
+  // (r ~ 0.96) than the curated sepal_length x petal_length (r ~ 0.87), so
+  // the curated dot sits under that pair and its mirror. It used to be
+  // 4th, behind a melted species bar too — which drew 50 overlapping bars
+  // per (species, measure) sub-band and showed only each group's maximum
+  // (`docs/design/charts.md`'s "Mark-type fit"), and is no longer offered.
+  { dataset: irisFlowersDataset, maxRank: 2 },
   { dataset: energyFlowSankeyDataset, maxRank: 0 },
   { dataset: ecommerceConversionFunnelDataset, maxRank: 0 },
   { dataset: globalElectricityMixDataset, maxRank: 0 },
@@ -247,14 +215,14 @@ describe("ground truth: curated recommendation vs. the general enumeration", () 
   });
 
   // codex P2-10 / fable F-P3-2: the STATED criterion (`docs/design/
-  // charts.md`'s "Ground truth" — "14 of 16 rank in the top 3") is a
+  // charts.md`'s "Ground truth" — "15 of 16 rank in the top 3") is a
   // real, checkable claim, not prose — this is what verifies it directly
   // rather than trusting the per-dataset cases above to add up to it.
-  it("14 of the 16 curated mappings rank in the top 3 — the other 2 are the named exceptions above", () => {
+  it("15 of the 16 curated mappings rank in the top 3 — the other is the named exception above", () => {
     const top3 = GROUND_TRUTH.filter((c) => rankOfCurated(c.dataset) <= 2).length;
-    expect(top3).toBe(14);
+    expect(top3).toBe(15);
     const namedExceptions = GROUND_TRUTH.filter((c) => c.exactRank !== undefined);
-    expect(namedExceptions).toHaveLength(2);
+    expect(namedExceptions).toHaveLength(1);
     for (const c of namedExceptions) expect(rankOfCurated(c.dataset)).toBeGreaterThan(2);
   });
 
@@ -452,11 +420,10 @@ describe("review cases", () => {
     // built as near-linear in `i`, so their own correlation is real, not
     // a defect) — the claim under test is that year-as-x now EXISTS as a
     // real candidate, not that it wins.
-    // `year` is now also a legitimate distinct-integer MEASURE in its own
-    // right (not just an ordered x), so it can pair into a `dot` scatter
-    // too (e.g. `year` vs `gdp`) — a genuine additional candidate, not a
-    // defect. The claim under test is narrower: at least one real
-    // line/area over year now exists.
+    // An ordered integer NAMED like time is a time axis only, never a
+    // measure (`docs/design/charts.md`'s "Mark-type fit"), so it no longer
+    // pairs into a year-vs-gdp scatter. The claim under test is narrower:
+    // at least one real line/area over year exists.
     const lineOverYear = candidates.filter((c) => c.channels.x === "year" && (c.mark === "line" || c.mark === "area"));
     expect(lineOverYear.length).toBeGreaterThan(0);
     for (const c of lineOverYear) expect(["gdp", "debt"]).toContain(c.channels.y);
@@ -465,5 +432,87 @@ describe("review cases", () => {
     // excluded either.
     expect(candidates.some((c) => c.channels.y === "gdp" || c.channels.value === "gdp")).toBe(true);
     expect(candidates.some((c) => c.channels.y === "debt" || c.channels.value === "debt")).toBe(true);
+  });
+});
+
+// ── Mark-type fit: candidates that drew a wrong or empty chart ────────────
+//
+// `docs/design/charts.md`'s "Mark-type fit": the mark-type toggle enables a
+// type iff this enumeration offers one and binds its top candidate, so a
+// candidate that renders a misleading picture is a toggle that lies.
+describe("mark-type fit: misfires the diagnosis measured", () => {
+  const ofMark = (rows: TabularRow[], mark: ChartCandidate["mark"]) => buildChartCandidates(profileRows(rows)).filter((c) => c.mark === mark);
+
+  it("sankey needs an edge list: a repeated (source, target) pair is a cross-tab, not a flow", () => {
+    const crossTab: TabularRow[] = Array.from({ length: 40 }, (_, i) => ({ survived: i % 3 === 0 ? "yes" : "no", sex: i % 2 ? "male" : "female", fare: 10 + i }));
+    expect(ofMark(crossTab, "sankey")).toHaveLength(0);
+  });
+
+  it("sankey needs a positive value on every link: one null flow makes the library reject the whole chart", () => {
+    const flows: TabularRow[] = [
+      { from: "Coal", to: "Power", tj: 40 }, { from: "Gas", to: "Power", tj: 60 }, { from: "Power", to: "Homes", tj: null }, { from: "Power", to: "Industry", tj: 30 },
+    ];
+    expect(ofMark(flows, "sankey")).toHaveLength(0);
+    expect(ofMark(flows.map((r) => ({ ...r, tj: r.tj ?? 5 })), "sankey").length).toBeGreaterThan(0);
+  });
+
+  it("sankey is not offered for a complete grid (every source x every target), which is a contingency table", () => {
+    const grid: TabularRow[] = ["US", "China", "Japan"].flatMap((country, i) => ["gold", "silver", "bronze"].map((medal, j) => ({ country, medal, count: 5 + i * 3 + j })));
+    expect(ofMark(grid, "sankey")).toHaveLength(0);
+    expect(ofMark(grid, "cell").length).toBeGreaterThan(0);
+  });
+
+  it("a code-like integer (3 passenger classes over 200 rows) is never a measure", () => {
+    const rows: TabularRow[] = Array.from({ length: 200 }, (_, i) => ({ pclass: 1 + (i % 3), sex: i % 2 ? "male" : "female", fare: 10 + ((i * 37) % 240) }));
+    const candidates = buildChartCandidates(profileRows(rows));
+    expect(candidates.some((c) => c.channels.y === "pclass" || c.channels.value === "pclass" || (c.mark === "cell" && c.channels.fill === "pclass"))).toBe(false);
+  });
+
+  it("a table sorted DESCENDING by a measure offers no line over that measure (a ranking is not an axis)", () => {
+    const rows: TabularRow[] = [40, 40, 20, 18, 16, 15, 14, 13, 12, 12].map((gold, i) => ({ country: `C${i}`, gold, bronze: 40 - ((i * 7) % 30) }));
+    expect(ofMark(rows, "line")).toHaveLength(0);
+    expect(ofMark(rows, "area")).toHaveLength(0);
+  });
+
+  it("a long-format integer year repeated per country is a time axis: its filled line tops the ranking", () => {
+    const rows: TabularRow[] = ["Chile", "Kenya", "Japan", "Norway"].flatMap((country, c) => Array.from({ length: 12 }, (_, i) => ({
+      country, year: 1952 + i * 5, life_exp: 45 + c * 6 + i * 1.8 + ((i * c) % 3) * 0.4, pop: (5 + c * 20 + i * (1 + c)) * 1e6,
+    })));
+    const candidates = buildChartCandidates(profileRows(rows));
+    expect(candidates[0]!.mark).toBe("line");
+    expect(candidates[0]!.channels).toMatchObject({ x: "year", fill: "country" });
+    // Neither an unfilled zig-zag over the repeated year nor year-as-a-value.
+    expect(candidates.some((c) => c.mark === "line" && c.channels.x === "year" && !c.channels.fill && !c.transform)).toBe(false);
+    expect(candidates.some((c) => c.channels.y === "year")).toBe(false);
+  });
+
+  it("a split bar with repeated (x, fill) pairs is not offered: its bars overlap and show only each group's maximum", () => {
+    const rows: TabularRow[] = Array.from({ length: 60 }, (_, i) => ({ schedule: ["Full", "Part", "Contract"][i % 3]!, country: ["US", "IN", "DE"][(i * 7) % 3]!, salary: 50000 + ((i * 7919) % 90000) }));
+    expect(ofMark(rows, "bar").some((c) => c.channels.fill !== undefined && c.pipeline === undefined)).toBe(false);
+  });
+
+  it("a bar axis past 60 values is not offered", () => {
+    const rows: TabularRow[] = Array.from({ length: 142 }, (_, i) => ({ country: `Country ${i}`, gdp: 1000 + ((i * 7919) % 50000) }));
+    expect(ofMark(rows, "bar")).toHaveLength(0);
+    expect(ofMark(rows.slice(0, 23), "bar").length).toBeGreaterThan(0);
+  });
+
+  it("a category x costs a bar no prior: a stacked-bar mapping and a heatmap of the same count carry the same name prior", () => {
+    const rows = olympics2024MedalsByTypeDataset.rows as TabularRow[];
+    const candidates = buildChartCandidates(profileRows(rows));
+    const bar = candidates.find((c) => c.mark === "bar" && c.channels.x === "country" && c.channels.fill === "medal")!;
+    const cell = candidates.find((c) => c.mark === "cell" && c.channels.x === "country" && c.channels.y === "medal")!;
+    expect(bar.terms.prior).toBe(cell.terms.prior);
+    expect(bar.score).toBeGreaterThanOrEqual(cell.score);
+  });
+
+  it("a date series offers a time scatter that never out-ranks its own line, and a column chart over a short date axis", () => {
+    const rows: TabularRow[] = Array.from({ length: 41 }, (_, i) => ({ year: `${1985 + i}-01-01`, share: 20 + i * 0.3 + ((i * 7) % 5) * 0.2 }));
+    const candidates = buildChartCandidates(profileRows(rows));
+    const line = candidates.find((c) => c.mark === "line")!;
+    const dot = candidates.find((c) => c.mark === "dot")!;
+    expect(dot.channels).toEqual(line.channels);
+    expect(dot.score).toBeLessThan(line.score);
+    expect(ofMark(rows, "bar").map((c) => c.channels)).toContainEqual({ x: "year", y: "share" });
   });
 });

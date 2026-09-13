@@ -156,19 +156,20 @@ describe("recommendChart", () => {
   // numeric column but `numbers[1]`) is replaced by a long-format reshape
   // that keeps every measure, distinguished by `fill` naming the MELTED
   // measure column — never `x` again.
-  it("a small category with SEVERAL numeric measurements recommends a grouped bar naming every measure, never a pie (or a same-channel x/fill bar) for one arbitrary measurement (Fisher's iris shape)", () => {
+  // …but only for a category with ONE row per value. Fisher's iris shape
+  // repeats every species, so a melted species bar has several bars per
+  // (species, measure) sub-band drawn on top of each other and shows only
+  // each group's maximum (`docs/design/charts.md`'s "Mark-type fit") — it
+  // is not offered at all, and neither is a pie of one measure.
+  it("a REPEATED category with several numeric measurements never melts into overlapping bars, nor a pie of one measurement (Fisher's iris shape)", () => {
     const rows: TabularRow[] = Array.from({ length: 12 }, (_, i) => ({
       sepal_length: 5 + i * 0.1, sepal_width: 3 + i * 0.05, petal_length: 1.5 + i * 0.1, petal_width: 0.2 + i * 0.02,
       species: ["setosa", "versicolor", "virginica"][i % 3],
     }));
-    const [top] = recommendChart(profileRows(rows));
-    expect(top!.mark).toBe("bar");
-    expect(top!.channels.x).toBe("species");
-    expect(top!.channels.fill).not.toBe("species"); // never duplicates x into fill
-    expect(top!.pipeline).toEqual([
-      { kind: "pivotLonger", idColumns: ["species"], keyColumn: top!.channels.fill, valueColumn: top!.channels.y },
-    ]);
-    expect(recommendChart(profileRows(rows)).some((r) => r.mark === "arc")).toBe(false);
+    const ranked = recommendChart(profileRows(rows));
+    expect(ranked.some((r) => r.pipeline !== undefined)).toBe(false);
+    expect(ranked.some((r) => r.mark === "arc")).toBe(false);
+    expect(ranked[0]!.mark).toBe("dot");
   });
 
   // N4 — the review's own repro: a 4-region table with TWO measures used to
@@ -200,16 +201,21 @@ describe("recommendChart", () => {
   // distinct value. Past DATE_NUMERIC_CATEGORY_FILL_MAX_CATEGORIES (8) none
   // of the three stays distinguishable, so the fill is dropped rather than
   // silently degrading to an unreadable chart with no explanation.
-  it("caps the date+numeric+category fill rule at 8 categories, falling back to a plain (unfilled) line beyond that", () => {
+  // Beyond 8 categories there is no fill; and because every year repeats
+  // twelve times, an UNFILLED line would zig-zag vertically through all
+  // twelve countries per year (`docs/design/charts.md`'s "Mark-type fit"),
+  // so it is not offered either — a time scatter is the honest view.
+  it("caps the date+numeric+category fill rule at 8 categories, and never offers an unfilled line over a repeated date", () => {
     const rows: TabularRow[] = [];
     for (let i = 0; i < 12; i++) {
       rows.push({ year: "2020-01-01", population: i, country: `Country${i}` });
       rows.push({ year: "2021-01-01", population: i + 1, country: `Country${i}` });
     }
-    const [top] = recommendChart(profileRows(rows));
-    expect(top!.mark).toBe("line");
-    expect(top!.channels).toEqual({ x: "year", y: "population" });
-    expect(top!.reason).toMatch(/12 categories/);
+    const ranked = recommendChart(profileRows(rows));
+    expect(ranked[0]!.mark).toBe("dot");
+    expect(ranked[0]!.channels).toEqual({ x: "year", y: "population" });
+    expect(ranked.some((r) => r.channels.fill === "country")).toBe(false);
+    expect(ranked.some((r) => (r.mark === "line" || r.mark === "area") && !r.transform)).toBe(false);
   });
 
   // N4 — arc stays reachable, but only for a numeric column that actually

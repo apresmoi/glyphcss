@@ -8,15 +8,12 @@ vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
   CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS,
   CHARTS_DEFAULT_DENSITY, CHARTS_DENSITY_MAX, CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX,
-  buildChartsWorkbenchSpec, chartMarkFields, chartMarkTypeFits, chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
+  buildChartsWorkbenchSpec, chartMarkFields, chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
   chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchEffectiveDensity,
   chartsWorkbenchInferredDomains,
-  chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets, profileChartsData,
+  chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets,
   reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
-import { chartsCandidatePick } from "./chartsDataSource";
-import { buildChartCandidates } from "../../lib/chartCandidates";
-import type { TabularRow } from "../../lib/tabularParse";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { renderChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 
@@ -726,93 +723,5 @@ describe("reduceChartsWorkbenchState — set-data-source size cap (N2)", () => {
     const start = createChartsWorkbenchState();
     const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: "", omitted: true, filename: "huge.csv" } });
     expect(next.data.source).toEqual({ kind: "custom", raw: "", omitted: true, filename: "huge.csv" });
-  });
-});
-
-// P3-6 (review fix, REVIEW-showcase-opus.md): `sankey`/`funnel` are dead
-// ends on every current vendored dataset (they need distinct
-// source/target/value or stage/value columns none of the 8 happen to
-// have), so a mark-type toggle must disable them WITH A REASON rather than
-// let a reader hit a raw ledger error. Mutation check: `type !== "sankey"
-// && type !== "funnel"` removed from the early-return makes the "a line
-// dataset" case below go red (fields.length for iris-flowers is 5, which
-// would then read as "fits" for sankey's 3-field floor too, so the
-// distinction collapses).
-describe("chartMarkTypeFits", () => {
-  it("every non-flow mark type always fits, regardless of field count", () => {
-    const mark = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" }).marks[0]!;
-    for (const type of CHART_MARK_TYPES) {
-      if (type === "sankey" || type === "funnel") continue;
-      expect(chartMarkTypeFits(mark, type)).toBe(true);
-    }
-  });
-
-  it("sankey/funnel are disabled on a plain line dataset (too few fields)", () => {
-    const mark = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "global-temperature" }).marks[0]!;
-    expect(chartMarkFields(mark).length).toBeLessThan(3);
-    expect(chartMarkTypeFits(mark, "sankey")).toBe(false);
-    expect(chartMarkTypeFits(mark, "funnel")).toBe(false);
-  });
-
-  it("sankey/funnel fit their own sample flow-shaped data (source/target/value, stage/value)", () => {
-    const sankeyMark = presetState("sankey").marks[0]!;
-    expect(chartMarkTypeFits(sankeyMark, "sankey")).toBe(true);
-    const funnelMark = presetState("funnel").marks[0]!;
-    expect(chartMarkTypeFits(funnelMark, "funnel")).toBe(true);
-  });
-});
-
-// Random's own weighted-random candidate pick for a REMOTE dataset
-// (AGENTS.md's "Charts" — "Data layer" — "Random"): `select-remote-dataset`
-// with `pick: "weighted-random"` routes the mark-building path through
-// `chartsCandidatePick` instead of the plain top pick, so a Random click on
-// a dataset that's already loaded can land on a genuinely different, still
-// informative view. No DOM, no network — this dispatches the reducer
-// action directly with crafted rows.
-describe("reduceChartsWorkbenchState — select-remote-dataset weighted-random pick", () => {
-  // Multiple correlated numeric measures against a date, plus a small
-  // category — the same shape `chartCandidates.test.ts`'s own F-P1-4 case
-  // uses to get several genuinely close-scoring candidates (a line over
-  // one measure, a line over another, a fill-by-category variant, a
-  // measure-vs-measure scatter), never one dominant winner with nothing
-  // else near it.
-  const rows: TabularRow[] = Array.from({ length: 24 }, (_, i) => ({
-    month: `2024-${String((i % 12) + 1).padStart(2, "0")}-01`,
-    region: i % 3 === 0 ? "North" : i % 3 === 1 ? "South" : "East",
-    revenue: 500 + i * 13 + ((i * 7) % 17),
-    cost: 300 + i * 9 + ((i * 5) % 13),
-  }));
-  const remoteBase = { ref: "test/weighted-random", title: "Weighted random fixture", description: "", source: { name: "Test", url: "https://example.com/test" } };
-
-  it("a weighted-random pick can build a materially different mark than the plain top pick, for the SAME rows", () => {
-    const profiled = profileChartsData(rows);
-    const candidates = buildChartCandidates(profiled.profile);
-    expect(candidates.length).toBeGreaterThan(1);
-    const top = candidates[0]!;
-    // Search for a seed whose weighted-random pick genuinely differs from
-    // the top candidate — deterministic (no real randomness), just probing
-    // the real sampler across seeds until one diverges; every vendored
-    // dataset shape this feature ships against (`remoteIndex.ts`) has real
-    // near-ties, so this always finds one well within the bound.
-    let seed = -1;
-    for (let candidateSeed = 0; candidateSeed < 5000; candidateSeed++) {
-      const picked = chartsCandidatePick(profiled.profile, { mode: "weighted-random", seed: candidateSeed });
-      if (picked && (picked.mark !== top.mark || JSON.stringify(picked.channels) !== JSON.stringify(top.channels))) { seed = candidateSeed; break; }
-    }
-    expect(seed).toBeGreaterThanOrEqual(0);
-
-    const bestState = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-remote-dataset", ...remoteBase, rows });
-    const randomState = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-remote-dataset", ...remoteBase, rows, pick: "weighted-random", seed });
-    // The plain pick always matches the top-ranked candidate.
-    expect(bestState.marks[0]!.type).toBe(top.mark);
-    // The weighted-random pick, at the seed that diverges, does NOT.
-    expect(randomState.marks[0]).not.toEqual(bestState.marks[0]);
-    expect(randomState.data.source).toEqual({ kind: "remote", ...remoteBase });
-  });
-
-  it("omitting pick (a manual search-box selection, a shared-link re-fetch) is byte-identical to before this option existed", () => {
-    const withoutPick = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-remote-dataset", ...remoteBase, rows });
-    const explicitlyUndefined = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-remote-dataset", ...remoteBase, rows, pick: undefined, seed: undefined });
-    expect(withoutPick).toEqual(explicitlyUndefined);
   });
 });

@@ -165,8 +165,8 @@ export function profileRows(rows: readonly TabularRow[]): DataProfile {
 // module keeps the OLD, narrower `ChartRecommendation` shape (no `terms`)
 // for callers that only ever wanted the ranked list; a caller that wants
 // the full `ChartCandidate` (including `terms`, for a "why this chart"
-// readout, or a seeded weighted-random pick) uses `chartCandidates.ts`
-// directly, or `chartsDataSource.ts`'s `chartsCandidatePick` seam.
+// readout, or the mark-type toggle's per-type fit) uses `chartCandidates.ts`
+// directly.
 
 export type RecommendedMark = ChartCandidateMark;
 

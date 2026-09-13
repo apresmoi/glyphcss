@@ -40,8 +40,8 @@ const CHARTS_RANDOM_DATASET_POOL: readonly ChartsRandomDatasetPick[] = [
  * which never happens at 44 entries), widened to a pool that isn't all one
  * kind. The caller (`ChartsWorkbench.tsx`'s `handleRandomDataset`) routes a
  * `"dataset"` pick through the existing `select-dataset` action and a
- * `"remote"` pick through `loadRemoteDataset` with a weighted-random
- * candidate pick (AGENTS.md's "Charts" "Data layer" "Random").
+ * `"remote"` pick through `loadRemoteDataset`, which draws that dataset's
+ * top-ranked chart (AGENTS.md's "Charts" "Data layer" "Random").
  */
 export function randomChartsDatasetPick(excludeKey?: string): ChartsRandomDatasetPick {
   const pool = excludeKey ? CHARTS_RANDOM_DATASET_POOL.filter((pick) => chartsRandomDatasetPickKey(pick) !== excludeKey) : CHARTS_RANDOM_DATASET_POOL;

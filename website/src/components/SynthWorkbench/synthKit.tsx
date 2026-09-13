@@ -525,8 +525,8 @@ export const SUBCELL_TOGGLE = SUBCELL_RES.map((v) => ({
 export function IconToggle({ options, value, onChange, groupTitle, groupLabel }: {
   // `disabled`/`disabledReason` (P3-6, REVIEW-showcase-opus.md): an option
   // that can't act on the CURRENT data — `/charts`' mark-type toggle, a
-  // sankey/funnel button on a dataset with too few fields
-  // (`chartMarkTypeFits`) — renders `disabled` with the reason on its
+  // chart type the loaded dataset can't draw (`chartsMarkTypeFit.ts`) —
+  // renders `disabled` with the reason on its
   // `title`/`aria-label`, the repo's `mapDirectionLocked` idiom
   // (AGENTS.md's "Maps"), rather than letting a reader pick it and hit a
   // raw ledger error. Both optional and undefined for every OTHER
