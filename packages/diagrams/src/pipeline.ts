@@ -114,7 +114,18 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, options));
   const dagre = await import("@dagrejs/dagre");
   const g = new dagre.graphlib.Graph({ multigraph: true, compound: true });
-  g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin });
+  // dagre's own default is `edgesep: 20`, a bare pixel constant left over from
+  // its browser-diagram origin. `makeSpaceForEdgeLabels` inserts one dummy
+  // label-proxy node per edge into the intervening rank and spaces same-rank
+  // dummies `edgesep` apart, which pulls their real sibling endpoints to the
+  // same pitch. In TB that pitch coincides with `nodesep` + label width
+  // (~20 already) and the defect is invisible; in LR the transverse axis is
+  // node HEIGHT (3), so three siblings cost 45 rows instead of ~19
+  // (DIAGNOSIS-diagrams-fanout.md RC1/RC3). `1` is the smallest legal
+  // separation on this integer cell grid — measured identical in extent to
+  // `edgesep: nodesep` (80x19 either way) once it is off the pixel default,
+  // so there is no reason to spend more of the grid on it than its own unit.
+  g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1 });
   g.setDefaultEdgeLabel(() => ({}));
   const ledger = [...reserved.ledger];
   const groupKeys = new Map<string, string>();

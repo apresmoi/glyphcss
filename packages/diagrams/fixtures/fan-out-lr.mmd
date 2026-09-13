@@ -1,0 +1,8 @@
+graph LR
+  O[Orchestrator] --> T[Test]
+  O --> S[Spec]
+  O --> D[Docs]
+  T --> M[Merge]
+  S --> M
+  D --> M
+  M --> R[Report]

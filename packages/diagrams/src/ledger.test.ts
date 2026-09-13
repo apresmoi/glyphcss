@@ -10,6 +10,7 @@ import {
   ledgerLabelAbbreviated,
   ledgerLabelDropped,
   ledgerLabelFolded,
+  ledgerLayoutOverflow,
   ledgerLeafClusterCollapsed,
   ledgerRouteConflict,
   ledgerRoutingAttempt,
@@ -30,6 +31,9 @@ const SAMPLES = [
   ledgerRouteConflict({ kind: "multi", col: 5, row: 6, edgeIds: ["e1", "e2", "e3"] }),
   ledgerRoutingAttempt({ edgeId: "e1", stage: "degrade" }),
   ledgerRoutingAttempt({ edgeId: "e1", stage: "split" }),
+  ledgerLayoutOverflow({ stage: "degrade", width: 80, height: 45, requestedWidth: 72, requestedHeight: 24 }),
+  ledgerLayoutOverflow({ stage: "split", width: 80, height: 45, requestedWidth: 72, requestedHeight: 24 }),
+  ledgerBudgetStage("compaction"),
   ledgerBudgetStage("decoration"),
   ledgerBudgetStage("duplicates"),
   ledgerBudgetStage("leaf-clusters"),
@@ -50,8 +54,8 @@ describe("diagram ledger entries read like sentences, not internal logs", () => 
   it("every code is a stable kebab id", () => {
     for (const entry of SAMPLES) expect(entry.code).toMatch(/^[a-z][a-z0-9-]*$/);
   });
-  it("the four budget-ladder stage markers are distinguishable from a per-panel drop", () => {
-    const stageCodes = ["decoration", "duplicates", "leaf-clusters", "split"].map((s) => ledgerBudgetStage(s as never).code);
+  it("the five budget-ladder stage markers are distinguishable from a per-panel drop", () => {
+    const stageCodes = ["compaction", "decoration", "duplicates", "leaf-clusters", "split"].map((s) => ledgerBudgetStage(s as never).code);
     for (const code of stageCodes) expect(code.startsWith("budget-")).toBe(true);
     expect(ledgerSplitPanelDropped({ panel: 1, width: 10, height: 10, nodes: [] }).code.startsWith("budget-")).toBe(false);
   });

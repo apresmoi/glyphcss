@@ -60,14 +60,31 @@ export function ledgerRoutingAttempt(opts: { readonly edgeId: string; readonly s
   return entry("routing-attempt", message, { ...opts });
 }
 
-const BUDGET_STAGE_MESSAGE: Readonly<Record<"decoration" | "duplicates" | "leaf-clusters" | "split", string>> = {
+/**
+ * RC4 (DIAGNOSIS-diagrams-fanout.md): `attempt()` used to route against the
+ * requested viewport even when the layout itself didn't fit, so every port
+ * lying outside it was logged as a `routing-attempt` failure — a SIZE
+ * overflow misreported as a routing one, and the entry never said which
+ * dimension overflowed by how much. `layout-overflow` is the honest report
+ * for that case; `routing-attempt` is reserved for a genuine A* failure
+ * inside a layout that already fits.
+ */
+export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"; readonly width: number; readonly height: number; readonly requestedWidth: number; readonly requestedHeight: number }): GlyphDiagramLedgerEntry {
+  const message = opts.stage === "degrade"
+    ? `The layout is ${opts.width}x${opts.height}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and needs simplifying.`
+    : `The layout is ${opts.width}x${opts.height}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and will be split into panels.`;
+  return entry("layout-overflow", message, { ...opts });
+}
+
+const BUDGET_STAGE_MESSAGE: Readonly<Record<"compaction" | "decoration" | "duplicates" | "leaf-clusters" | "split", string>> = {
+  compaction: "Tightened the layout's margins and spacing to fit the diagram's size limit, before changing anything it draws.",
   decoration: "Dropped optional shapes, group captions, edge labels and line styling to fit the diagram's size limit; the originals are kept in the diagram's metadata.",
   duplicates: "Merged duplicate parallel connections to fit the diagram's size limit.",
   "leaf-clusters": "Collapsed sibling leaf nodes to fit the diagram's size limit.",
   split: "Split the diagram into multiple panels to fit the size limit; boundary nodes repeat across panels so every connection stays visible.",
 };
 
-export function ledgerBudgetStage(stage: "decoration" | "duplicates" | "leaf-clusters" | "split"): GlyphDiagramLedgerEntry {
+export function ledgerBudgetStage(stage: "compaction" | "decoration" | "duplicates" | "leaf-clusters" | "split"): GlyphDiagramLedgerEntry {
   return entry(`budget-${stage}`, BUDGET_STAGE_MESSAGE[stage]);
 }
 
