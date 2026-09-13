@@ -86,12 +86,15 @@ export interface RangeSliderProps {
    *  last committed value) instead of silently substituting the capped
    *  number, which used to read as "your number was accepted" with no
    *  signal that it wasn't the one typed. A thumb DRAG or a Shift+arrow
-   *  keyboard nudge still clamps silently at the same caps — a continuous
-   *  gesture settling AT a boundary needs no interruption, only a discrete
-   *  typed value that silently became a different number does. Omit this
-   *  (the caller has no cap on this axis) and a typed value is never
-   *  refused for exceeding a cap, matching the component's behaviour
-   *  before this option existed. */
+   *  keyboard nudge still WRITES the clamped value with no interruption —
+   *  a continuous gesture settling AT a boundary needs none — but shows
+   *  this SAME message for as long as it stays pinned there (`commit`'s
+   *  own `capped` tracking), clearing the instant it moves off the cap:
+   *  a zero-anchored Y domain's low thumb used to snap back to `0` with no
+   *  signal at all (P3, DIAGNOSIS-scale-domain.md), which read as the drag
+   *  doing nothing. Omit this (the caller has no cap on this axis) and
+   *  neither path is ever refused or flashed for exceeding a cap, matching
+   *  the component's behaviour before this option existed. */
   capReason?: string;
 }
 
@@ -198,14 +201,37 @@ export function RangeSlider({
   };
 
   const commit = (which: "lo" | "hi", raw: number | null) => {
-    setCapError(null);
     let next = raw;
+    // Tracks whether a `loFloor`/`loCeiling`/`hiFloor` cap actually MOVED
+    // this value (never the "never cross the sibling" clamp below, which
+    // is a different rule with no `capReason` of its own) — a drag or
+    // Shift+arrow nudge has no typed-refusal gate in front of it, so this
+    // is the ONLY point that ever sees such a value land on a cap. `commit`
+    // still WRITES the clamped value (a continuous gesture settles at the
+    // boundary with no interruption, AGENTS.md's own rule for this
+    // control) — this only decides whether the same inline message
+    // `capReason`'s typed-refusal path shows also flashes here, so the
+    // snap is never silent (P3, DIAGNOSIS-scale-domain.md).
+    let capped = false;
     if (next !== null) {
       // both ends — see `loFloor`'s own doc for the sign split.
-      if (loFloor !== undefined) next = loFloor >= 0 ? Math.max(next, loFloor) : Math.min(next, loFloor);
-      if (which === "lo" && loCeiling !== undefined) next = Math.min(next, loCeiling);
-      if (which === "hi" && hiFloor !== undefined) next = Math.max(next, hiFloor);
+      if (loFloor !== undefined) {
+        const floored = loFloor >= 0 ? Math.max(next, loFloor) : Math.min(next, loFloor);
+        if (floored !== next) capped = true;
+        next = floored;
+      }
+      if (which === "lo" && loCeiling !== undefined) {
+        const ceiled = Math.min(next, loCeiling);
+        if (ceiled !== next) capped = true;
+        next = ceiled;
+      }
+      if (which === "hi" && hiFloor !== undefined) {
+        const floored = Math.max(next, hiFloor);
+        if (floored !== next) capped = true;
+        next = floored;
+      }
     }
+    setCapError(capped && capReason !== undefined ? which : null);
     const otherRaw = which === "lo" ? rawHi : rawLo;
     const otherResolved = which === "lo" ? hi : lo;
     if (next !== null) {

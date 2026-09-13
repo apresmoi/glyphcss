@@ -13,7 +13,7 @@ import {
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
   CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX, CHARTS_DENSITY_STEP,
   chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
-  chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
+  chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchHasCartesianMark, chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
@@ -125,16 +125,73 @@ function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, act
  * pair, showing the LINEAR reading of the same data rather than a
  * fabricated placeholder.
  */
-function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, dispatch }: {
+/** Dock-fix bundle item 4 — a spec built entirely of `arc`/`sankey`/`funnel`
+ *  marks has no x/y scale for ANY axis to control (AGENTS.md's "Charts":
+ *  non-cartesian, excluded from `layoutGlyphChart`'s own cartesian gutter),
+ *  but `glyphChartScaleDomains` still hands back some `{ type: "linear",
+ *  domain: [0, 1] }` placeholder for the axis regardless (`numericDomain([])`
+ *  has no "there is no scale" answer to give). Reading that placeholder as
+ *  a real, draggable domain rendered a fully live `RangeSlider` whose every
+ *  drag/typed commit landed in `state.scales` and reached `spec.scales` —
+ *  and the render was BYTE-IDENTICAL either way, since nothing downstream
+ *  of a sankey/funnel/arc spec ever reads `scales.x`/`scales.y`
+ *  (DIAGNOSIS-scale-domain.md P3-4). Disabled with the reason instead, the
+ *  same "disabled with its reason" idiom every other locked Dock control in
+ *  this codebase uses (`@glyphcss/maps`' `mapDirectionLocked`) — never a
+ *  slider a reader can still move with no render to show for it. */
+export const CHARTS_NO_SCALE_REASON = "This chart type has no x/y scale.";
+
+// Exported for direct unit coverage (dock-fix bundle items 4/5) — mounting
+// the full `ChartsDock` needs a live lil-gui `GUI` plus every OTHER folder's
+// own state; this control's own disabled/band/numeric branches are pure
+// enough to drive with plain props.
+export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCartesianScale, dispatch }: {
   axis: "x" | "y";
   scale: ChartsWorkbenchScale;
   inferred: ChartsWorkbenchAxisDomain | undefined;
   zeroAnchored: boolean;
+  hasCartesianScale: boolean;
   dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
+  const AXIS = axis.toUpperCase();
+  if (!hasCartesianScale) {
+    return <RangeSlider label={`${AXIS} domain`} min={0} max={1} value={null} disabled disabledReason={CHARTS_NO_SCALE_REASON} onChange={() => {}} />;
+  }
   const resolvedType = scale.type === "auto" ? inferred?.type : scale.type;
+  // Dock-fix bundle item 5 — a `band` axis with a real, resolved category
+  // list gets two `<select>`s naming those categories in DATA ORDER (never
+  // free text): `buildScale`'s own band branch (`chartsWorkbenchState.ts`)
+  // throws `Band bounds must name at least two categories in data order`
+  // on anything else — a typed number, a near-miss spelling, a reversed
+  // pair — which used to reach the reader as a hard render error with the
+  // viewport stuck on the last good chart (DIAGNOSIS-scale-domain.md P3-5).
+  // A `<select>` can only ever commit one of its own `<option>`s, so that
+  // whole failure class is now unreachable from this control. `ordinal`/
+  // `undefined`/a too-short domain (inference failed entirely — bad mark
+  // JSON, an unresolved channel) keeps the ORIGINAL plain text pair below,
+  // since there is no category list to populate a `<select>` from.
+  if (inferred && resolvedType === "band" && inferred.domain.length >= 2) {
+    const categories = inferred.domain.map(String);
+    const first = categories[0]!;
+    const last = categories.at(-1)!;
+    const minValue = scale.min.trim() && categories.includes(scale.min) ? scale.min : "";
+    const maxValue = scale.max.trim() && categories.includes(scale.max) ? scale.max : "";
+    return <>
+      <label className="voice-row charts-mark-row"><span>{AXIS} min</span>
+        <select className="charts-pipeline-input" aria-label={`${AXIS} scale minimum category`} value={minValue}
+          onChange={(e) => dispatch({ type: "set-scale", axis, patch: { min: e.target.value } })}>
+          <option value="">{`Auto (${first})`}</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select></label>
+      <label className="voice-row charts-mark-row"><span>{AXIS} max</span>
+        <select className="charts-pipeline-input" aria-label={`${AXIS} scale maximum category`} value={maxValue}
+          onChange={(e) => dispatch({ type: "set-scale", axis, patch: { max: e.target.value } })}>
+          <option value="">{`Auto (${last})`}</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select></label>
+    </>;
+  }
   if (!inferred || resolvedType === "band" || resolvedType === "ordinal" || resolvedType === undefined || inferred.domain.length < 2) {
-    const AXIS = axis.toUpperCase();
     return <>
       <label className="voice-row charts-mark-row"><span>{AXIS} min</span>
         <input className="charts-pipeline-input" aria-label={`${AXIS} scale minimum`} value={scale.min} onChange={(e) => dispatch({ type: "set-scale", axis, patch: { min: e.target.value } })} /></label>
@@ -255,11 +312,6 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   useText(chart, "Description", state.chart.description, (description) => dispatch({ type: "set-chart", patch: { description } }));
   useToggle(chart, "Legend", state.chart.legend, (legend) => dispatch({ type: "set-chart", patch: { legend } }));
   const legendPlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
-  // Axis colour (packet item 1) — a Chart-folder row, not the Axes folder's
-  // own tick/grid rows below: the colour is a CHART-wide style choice
-  // (`applyChartStyle`, `chartsWorkbenchRender.ts`), and lives beside
-  // legend/title placement rather than the per-axis tick machinery.
-  const axisColorSlot = useDockSlot(chart, { position: "bottom", className: "charts-axis-color-slot" });
 
   const scales = useFolder(gui, "Scales", { open: true });
   useOption(scales, "X type", options(CHART_SCALE_TYPES), state.scales.x.type, (type) => dispatch({ type: "set-scale", axis: "x", patch: { type } }));
@@ -276,8 +328,17 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   // toggle IS that state now, and the two number fields are never blank.
   const inferredDomains = useMemo(() => chartsWorkbenchInferredDomains(state), [state]);
   const zeroAnchoredY = useMemo(() => chartsWorkbenchHasZeroAnchoredMark(state), [state]);
+  const hasCartesianScale = useMemo(() => chartsWorkbenchHasCartesianMark(state), [state]);
 
   const axes = useFolder(gui, "Axes", { open: false });
+  // Axis colour (packet item 1; dock-fix bundle item 7) — MOVED here from
+  // the Chart folder: this IS "the ticks/title rows" folder for an axis,
+  // and a shared or per-axis swatch reads as one more axis-level control
+  // beside them, not a chart-wide style choice living apart from what it
+  // colours. The Chart folder's own title-bar reset above still clears it
+  // (its tooltip already named "axis colour" before this moved, and still
+  // does) — only the ROW moved, not which reset owns it.
+  const axisColorSlot = useDockSlot(axes, { position: "top", className: "charts-axis-color-slot" });
   useTicksControl(axes, "x", state.axes.x.ticks, actualXTicks, dispatch);
   useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
   useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
@@ -362,11 +423,11 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
       axisColorSlot,
     )}
     {xDomainSlot && createPortal(
-      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains.x} zeroAnchored={false} dispatch={dispatch} />,
+      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains.x} zeroAnchored={false} hasCartesianScale={hasCartesianScale} dispatch={dispatch} />,
       xDomainSlot,
     )}
     {yDomainSlot && createPortal(
-      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} dispatch={dispatch} />,
+      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} hasCartesianScale={hasCartesianScale} dispatch={dispatch} />,
       yDomainSlot,
     )}
     {xTitleAtSlot && createPortal(

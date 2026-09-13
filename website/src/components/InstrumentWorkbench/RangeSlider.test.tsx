@@ -246,6 +246,45 @@ describe("RangeSlider", () => {
     expect(host.querySelector(".range-slider-error")).toBeNull();
   });
 
+  // Dock-fix bundle item 3 (DIAGNOSIS-scale-domain.md P3) — a DRAG or
+  // Shift+arrow nudge that lands ON a `loCeiling`/`hiFloor`/`loFloor` cap
+  // still WRITES the clamped value with no interruption (a continuous
+  // gesture settling at a boundary needs none, unlike the typed-refusal
+  // path above), but now shows the SAME inline `capReason` message instead
+  // of snapping back with no signal at all — the reported zero-anchored Y
+  // domain whose low thumb dragged to `0` and back with nothing to show
+  // for it. Mutation: reverting `commit`'s own `capped` tracking to the old
+  // unconditional `setCapError(null)` would make this assert a `null`
+  // query where a `role="alert"` paragraph is required.
+  it("a DRAG that lands on loCeiling/hiFloor shows the same capReason message (P3) and still commits the clamped value", () => {
+    const onChange = vi.fn();
+    const host = render(<RangeSlider min={-20} max={20} loCeiling={0} hiFloor={0} capReason="Must include zero." value={[-10, 10]} onChange={onChange} label="Domain" />);
+    const { lo } = ranges(host);
+    act(() => setRangeValue(lo, 15)); // asks for a value past the cap
+    expect(onChange).toHaveBeenCalledWith([0, 10]); // still commits, clamped
+    expect(host.querySelector(".range-slider-error")?.textContent).toBe("Must include zero.");
+    // Moving back off the cap clears the message immediately — it is a
+    // flash tied to being PINNED there, not a sticky error state.
+    act(() => setRangeValue(ranges(host).lo, -5));
+    expect(host.querySelector(".range-slider-error")).toBeNull();
+  });
+
+  it("a Shift+arrow nudge that lands on loCeiling/hiFloor shows the same capReason message (P3)", () => {
+    const host = render(<Harness min={-20} max={20} loCeiling={0} hiFloor={0} capReason="Must include zero." initial={[-2, 10]} label="Domain" step={1} />);
+    const { lo } = ranges(host);
+    act(() => { lo.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true })); });
+    expect(Number(ranges(host).lo.value)).toBe(0); // clamped at the cap
+    expect(host.querySelector(".range-slider-error")?.textContent).toBe("Must include zero.");
+  });
+
+  it("with no capReason supplied, a drag that lands on a cap clamps silently — no message, matching pre-existing behaviour", () => {
+    const host = render(<Harness min={-20} max={20} loCeiling={0} hiFloor={0} initial={[-10, 10]} label="Domain" />);
+    const { lo } = ranges(host);
+    act(() => setRangeValue(lo, 15));
+    expect(ranges(host).lo.value).toBe("0");
+    expect(host.querySelector(".range-slider-error")).toBeNull();
+  });
+
   // NEW-1 (REVIEW-dock-colours-sliders-opus-round2.md): `loFloor` is the
   // log scale's OWN cap — it refuses `0`/negative exactly like `capReason`
   // above, but on BOTH ends, and a value that's merely SMALL (not
