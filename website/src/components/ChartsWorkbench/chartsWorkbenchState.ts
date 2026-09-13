@@ -12,6 +12,7 @@ import {
 import type { PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
 import { buildDatasetMark, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
+import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 
 export type { ChartsDataSource, ChartsRecommendedChannels } from "./chartsDataSource";
 export { profileChartsData, resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
@@ -30,6 +31,14 @@ export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
 export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
+// Colour controls (this packet): a shared axis colour or one swatch per
+// axis, and a default per-series swatch palette (a local copy of
+// `@glyphcss/charts`' own `SERIES_COLORS` — that constant isn't part of the
+// package's public surface, and these are just starting values a reader can
+// repick, not a shared source of truth two modules must agree on byte for
+// byte).
+export const CHART_AXIS_COLOR_MODES = ["shared", "per-axis"] as const;
+export const CHARTS_SERIES_PALETTE: readonly string[] = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#06b6d4", "#eab308", "#ec4899"];
 export const CHART_CARTESIAN_CHANNELS = ["x", "y", "fill", "label"] as const;
 export const CHART_SANKEY_CHANNELS = ["source", "target", "value"] as const;
 export const CHART_FUNNEL_CHANNELS = ["stage", "value"] as const;
@@ -124,6 +133,13 @@ export interface ChartsWorkbenchMark {
   readonly channels: Readonly<Partial<Record<Channel, string>>>;
   readonly transform: "none" | GlyphChartTransformKind;
   readonly options: GlyphChartMarkOptions;
+  /** A single colour (one series, or every series the same) or one colour
+   *  per series in `chartMarkSeriesNames` order. Kept OUT of `options`
+   *  (which mirrors the real `GlyphChartMarkOptions` shape exactly) because
+   *  the built `@glyphcss/charts` in this worktree doesn't accept it yet —
+   *  see `chartsWorkbenchRender.ts`'s `applyChartStyle`, the one place this
+   *  reaches the rendered spec. `undefined` = unset (library default). */
+  readonly color?: string | readonly string[];
 }
 export interface ChartsWorkbenchScale {
   readonly type: typeof CHART_SCALE_TYPES[number];
@@ -150,6 +166,21 @@ export interface ChartsWorkbenchDataState {
   readonly pipeline: readonly PipelineStep[];
 }
 
+/** Axis colour control (packet item 1) — `"shared"` writes one colour to
+ *  both axes, `"per-axis"` writes `x`/`y` independently; all three swatches
+ *  are kept even in `"shared"` mode (`x`/`y` simply go unused) so toggling
+ *  the mode never loses a colour the reader already picked on either
+ *  swatch. */
+export interface ChartsWorkbenchAxisColorState {
+  readonly mode: typeof CHART_AXIS_COLOR_MODES[number];
+  readonly shared: string;
+  readonly x: string;
+  readonly y: string;
+}
+export interface ChartsWorkbenchStyleState {
+  readonly axisColor: ChartsWorkbenchAxisColorState;
+}
+
 export interface ChartsWorkbenchState {
   readonly marks: readonly ChartsWorkbenchMark[];
   readonly nextMarkId: number;
@@ -163,6 +194,7 @@ export interface ChartsWorkbenchState {
   };
   readonly terminal: { readonly NO_COLOR: boolean; readonly FORCE_COLOR: boolean };
   readonly data: ChartsWorkbenchDataState;
+  readonly style: ChartsWorkbenchStyleState;
 }
 export type ChartsWorkbenchAction =
   | { type: "add-mark"; markType?: GlyphChartMarkType }
@@ -192,7 +224,11 @@ export type ChartsWorkbenchAction =
   // component reads `state.data` to compute what Apply's own button offers).
   | { type: "set-data-source"; source: ChartsDataSource | null }
   | { type: "set-pipeline"; pipeline: readonly PipelineStep[] }
-  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels };
+  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels }
+  // Colour controls (this packet).
+  | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
+  | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
+  | { type: "set-mark-color"; id: number; color: string | readonly string[] | undefined };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -208,6 +244,7 @@ function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
 }
 const autoScale = (): ChartsWorkbenchScale => ({ type: "auto", min: "", max: "" });
 const autoAxis = (): ChartsWorkbenchAxis => ({ ticks: 0, tickMarks: true, title: "", grid: false });
+const defaultAxisColor = (): ChartsWorkbenchAxisColorState => ({ mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR });
 export function createChartsWorkbenchState(): ChartsWorkbenchState {
   const preset = CHART_PRESETS[0]!;
   return {
@@ -216,7 +253,12 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     chart: { title: preset.label, description: "", legend: true, legendPlacement: "bottom", titleAlign: "center", titlePosition: "top" },
     terminal: { NO_COLOR: false, FORCE_COLOR: false },
     data: { source: null, pipeline: [] },
+    style: { axisColor: defaultAxisColor() },
   };
+}
+function isDefaultAxisColor(axisColor: ChartsWorkbenchAxisColorState): boolean {
+  return axisColor.mode === "shared" && axisColor.shared === CHARTS_AXIS_DEFAULT_COLOR
+    && axisColor.x === CHARTS_AXIS_DEFAULT_COLOR && axisColor.y === CHARTS_AXIS_DEFAULT_COLOR;
 }
 
 /** Identity string for a data source — used only to decide whether picking
@@ -240,7 +282,20 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
         chart: { ...state.chart, title: preset.label, description: preset.spec.description ?? "" } };
     }
     case "set-control": return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, action.control) };
-    case "reset-target": return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, { type: "reset" }) };
+    case "reset-target": {
+      // The Output folder's header reset also clears the colour controls
+      // (this packet) — both stay no-ops (same array/object reference)
+      // when nothing was customised, matching `reset.marks === state.marks`
+      // for a reset that never touched a mark's colour.
+      const marks = state.marks.some((m) => m.color !== undefined)
+        ? state.marks.map((m) => m.color === undefined ? m : { ...m, color: undefined })
+        : state.marks;
+      const style = isDefaultAxisColor(state.style.axisColor) ? state.style : { axisColor: defaultAxisColor() };
+      return { ...state, controls: reduceGlyphChartsWorkbenchControls(state.controls, { type: "reset" }), marks, style };
+    }
+    case "set-axis-color-mode": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, mode: action.mode } } };
+    case "set-axis-color": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, [action.which]: action.color } } };
+    case "set-mark-color": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? { ...mark, color: action.color } : mark) };
     case "set-scale": return { ...state, scales: { ...state.scales, [action.axis]: { ...state.scales[action.axis], ...action.patch } } };
     case "set-axis": return { ...state, axes: { ...state.axes, [action.axis]: { ...state.axes[action.axis], ...action.patch } } };
     case "set-chart": return { ...state, chart: { ...state.chart, ...action.patch } };
@@ -304,6 +359,70 @@ export function chartMarkFields(mark: ChartsWorkbenchMark): string[] {
     return data.every((row) => typeof row === "number") ? ["index", "value"]
       : [...new Set(data.flatMap((row) => typeof row === "number" ? [] : Object.keys(row)))];
   } catch { return []; }
+}
+
+/** Resolves one channel's raw per-row values the same way `buildMark` does
+ *  (the numeric-array "index"/"value" pseudo-fields, or a plain record
+ *  field lookup) — the shared step `chartMarkSeriesNames` below needs for
+ *  every channel it reads. */
+function chartMarkChannelValues(data: readonly unknown[], numeric: boolean, field: string | undefined): unknown[] | undefined {
+  if (!field) return undefined;
+  if (numeric && field === "index") return data.map((_, i) => i);
+  if (numeric && field === "value") return data as unknown[];
+  return data.map((row) => typeof row === "object" && row !== null && !Array.isArray(row) ? (row as Record<string, unknown>)[field] : undefined);
+}
+
+/**
+ * The distinct series identities a mark's per-series colour swatches should
+ * line up with, in the same first-appearance ROW ORDER `@glyphcss/charts`'
+ * own `chartSeries` (`packages/charts/src/series.ts`) groups by — close
+ * enough for a colour-picker UI without reaching into that module's
+ * private resolve/series pipeline: arc slices (`fill` ?? `label` ?? index,
+ * positive values only, mirroring the pie's own "no swatch for a
+ * nonpositive slice" rule), sankey SOURCE nodes, funnel STAGES, and a
+ * categorical `fill`/`stroke` split for line/area/bar/dot/rect. `null`
+ * means the mark is single-series — one plain colour swatch, not a list.
+ */
+export function chartMarkSeriesNames(mark: ChartsWorkbenchMark): string[] | null {
+  let data: unknown[];
+  try { data = parseChartMarkData(mark); } catch { return null; }
+  const numeric = data.every((row) => typeof row === "number");
+  const names = (values: readonly unknown[] | undefined): string[] => {
+    const seen: string[] = [];
+    for (const value of values ?? []) {
+      const name = String(value);
+      if (!seen.includes(name)) seen.push(name);
+    }
+    return seen;
+  };
+  if (mark.type === "arc") {
+    const fill = chartMarkChannelValues(data, numeric, mark.channels.fill);
+    const label = chartMarkChannelValues(data, numeric, mark.channels.label);
+    const y = chartMarkChannelValues(data, numeric, mark.channels.y);
+    const seen: string[] = [];
+    data.forEach((_, i) => {
+      const value = y ? Number(y[i]) : NaN;
+      if (!(Number.isFinite(value) && value > 0)) return;
+      const name = String(fill?.[i] ?? label?.[i] ?? i);
+      if (!seen.includes(name)) seen.push(name);
+    });
+    return seen.length ? seen : null;
+  }
+  if (mark.type === "sankey") {
+    const list = names(chartMarkChannelValues(data, numeric, mark.channels.source));
+    return list.length ? list : null;
+  }
+  if (mark.type === "funnel") {
+    const list = names(chartMarkChannelValues(data, numeric, mark.channels.stage));
+    return list.length ? list : null;
+  }
+  if (["line", "area", "bar", "dot", "rect"].includes(mark.type)) {
+    const channel = (["fill", "stroke"] as const).find((c) => mark.channels[c]);
+    if (!channel) return null;
+    const list = names(chartMarkChannelValues(data, numeric, mark.channels[channel]));
+    return list.length > 1 ? list : null;
+  }
+  return null;
 }
 
 // ── Table editor (packet item 7) ────────────────────────────────────────
@@ -461,6 +580,40 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
   const needsDomain = [state.scales.x, state.scales.y].some((scale) => scale.min.trim() || scale.max.trim());
   const inferred = needsDomain ? glyphChartScaleDomains(spec) : undefined;
   return { ...spec, scales: { x: buildScale(state.scales.x, inferred?.x), y: buildScale(state.scales.y, inferred?.y) } };
+}
+
+/**
+ * The raw data extent for each axis, ignoring any `min`/`max` the reader
+ * has already typed — what a `RangeSlider`'s own `min`/`max` (its
+ * draggable BOUNDS, padded by the caller) must be computed from, since
+ * bounds computed from the CURRENT selection would shrink every time a
+ * reader narrows it. Reuses the exact same `scaleType`/`buildMark`/
+ * `glyphChartScaleDomains` pipeline `buildChartsWorkbenchSpec` already
+ * runs for its own "blank bound" inference, just with no domain override
+ * fed back in. `null` on invalid marks (bad JSON, an unresolved channel) —
+ * degrade to no bounds rather than throw, since this reads on every
+ * keystroke in the mark editor.
+ */
+export function chartsWorkbenchInferredDomains(state: ChartsWorkbenchState): ReturnType<typeof glyphChartScaleDomains> | null {
+  try {
+    const spec = glyphChartPlot({ marks: state.marks.map(buildMark), scales: { x: scaleType(state.scales.x), y: scaleType(state.scales.y) } });
+    return glyphChartScaleDomains(spec);
+  } catch { return null; }
+}
+
+/** A `RangeSlider`'s numeric domain is timestamps for a `"time"` scale,
+ *  the raw number otherwise — the same two cases `buildScale`'s own
+ *  `parse`/domain-mapping already distinguish. `null` for an unparsed or
+ *  non-finite value (an in-progress edit, or a bound that doesn't apply to
+ *  a "band" scale, which never reaches this helper). */
+export function chartsScaleBoundToNumber(type: "linear" | "log" | "sqrt" | "time", raw: string): number | null {
+  if (type === "time") { const t = new Date(raw).getTime(); return Number.isFinite(t) ? t : null; }
+  const n = Number(raw);
+  return raw.trim() !== "" && Number.isFinite(n) ? n : null;
+}
+/** The inverse of `chartsScaleBoundToNumber` — what `set-scale`'s `min`/`max` string fields store. */
+export function chartsNumberToScaleBound(type: "linear" | "log" | "sqrt" | "time", value: number): string {
+  return type === "time" ? new Date(value).toISOString() : String(value);
 }
 export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): GlyphChartRenderOptions {
   // `legend` is NOT set here — it already rides in the built spec

@@ -6,10 +6,12 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec, chartMarkFields, chartsWorkbenchRenderOptions,
-  createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState,
-  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
+  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_SERIES_PALETTE, buildChartsWorkbenchSpec,
+  chartMarkFields, chartMarkSeriesNames, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsWorkbenchInferredDomains,
+  chartsWorkbenchRenderOptions, createChartsWorkbenchState, generateChartsWorkbenchSnippets,
+  reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchMark, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
+import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 
 const initial = createChartsWorkbenchState;
@@ -239,5 +241,116 @@ describe("ChartsWorkbench presets through the page", () => {
     expect(page).toContain("synth-shell dn-root dn-root--synth");
     expect(page).toContain('id="charts-controls-panel"');
     expect(page).toContain('aria-label="Chart presets"');
+  });
+});
+
+function markFixture(patch: Partial<ChartsWorkbenchMark>): ChartsWorkbenchMark {
+  return { id: 1, type: "line", dataText: "[]", channels: {}, transform: "none", options: {}, ...patch };
+}
+
+describe("ChartsWorkbench colour controls — state", () => {
+  it("defaults the axis colour to the shared muted-grey constant", () => {
+    expect(initial().style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
+  });
+
+  it("set-axis-color-mode/set-axis-color write only the addressed field", () => {
+    let state = reduceChartsWorkbenchState(initial(), { type: "set-axis-color-mode", mode: "per-axis" });
+    expect(state.style.axisColor.mode).toBe("per-axis");
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-color", which: "x", color: "#ff0000" });
+    expect(state.style.axisColor).toEqual({ mode: "per-axis", shared: CHARTS_AXIS_DEFAULT_COLOR, x: "#ff0000", y: CHARTS_AXIS_DEFAULT_COLOR });
+  });
+
+  it("set-mark-color writes only the addressed mark", () => {
+    const state = reduceChartsWorkbenchState(reduceChartsWorkbenchState(initial(), { type: "add-mark" }), { type: "set-mark-color", id: 1, color: "#123456" });
+    expect(state.marks[0]!.color).toBe("#123456");
+    expect(state.marks[1]!.color).toBeUndefined();
+  });
+
+  it("reset-target clears axis colour and every mark's colour, staying a no-op reference when nothing was customised", () => {
+    const clean = initial();
+    const untouchedReset = reduceChartsWorkbenchState(clean, { type: "reset-target" });
+    expect(untouchedReset.marks).toBe(clean.marks);
+    expect(untouchedReset.style).toBe(clean.style);
+
+    let dirty = reduceChartsWorkbenchState(clean, { type: "set-axis-color", which: "shared", color: "#ff0000" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-mark-color", id: dirty.marks[0]!.id, color: "#00ff00" });
+    const reset = reduceChartsWorkbenchState(dirty, { type: "reset-target" });
+    expect(reset.style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
+    expect(reset.marks[0]!.color).toBeUndefined();
+  });
+
+  it("CHART_AXIS_COLOR_MODES/CHARTS_SERIES_PALETTE are non-empty vocabularies the Dock reads from", () => {
+    expect(CHART_AXIS_COLOR_MODES).toEqual(["shared", "per-axis"]);
+    expect(CHARTS_SERIES_PALETTE.length).toBeGreaterThan(1);
+  });
+});
+
+describe("chartMarkSeriesNames", () => {
+  it("is null for a single-series line/area/bar/dot/rect mark", () => {
+    for (const type of ["line", "area", "bar", "dot", "rect"] as const) {
+      expect(chartMarkSeriesNames(markFixture({ type, dataText: "[3,5,2]", channels: { x: "index", y: "value" } }))).toBeNull();
+    }
+  });
+
+  it("splits a categorical fill/stroke into series in first-appearance row order", () => {
+    const mark = markFixture({
+      type: "line",
+      dataText: JSON.stringify([{ month: 0, value: 3, region: "South" }, { month: 0, value: 1, region: "North" }, { month: 1, value: 5, region: "South" }]),
+      channels: { x: "month", y: "value", fill: "region" },
+    });
+    expect(chartMarkSeriesNames(mark)).toEqual(["South", "North"]);
+  });
+
+  it("groups arc slices by fill, skipping nonpositive values, and is null for an all-zero pie", () => {
+    const mark = markFixture({
+      type: "arc",
+      dataText: JSON.stringify([{ browser: "Chrome", share: 65 }, { browser: "Safari", share: 0 }, { browser: "Firefox", share: 15 }]),
+      channels: { y: "share", fill: "browser" },
+    });
+    expect(chartMarkSeriesNames(mark)).toEqual(["Chrome", "Firefox"]);
+    const allZero = markFixture({ type: "arc", dataText: JSON.stringify([{ browser: "Chrome", share: 0 }]), channels: { y: "share", fill: "browser" } });
+    expect(chartMarkSeriesNames(allZero)).toBeNull();
+  });
+
+  it("groups sankey by source node and funnel by stage", () => {
+    const sankey = markFixture({
+      type: "sankey",
+      dataText: JSON.stringify([{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }]),
+      channels: { source: "from", target: "to", value: "amount" },
+    });
+    expect(chartMarkSeriesNames(sankey)).toEqual(["Coal", "Gas", "Power"]);
+    const funnel = markFixture({
+      type: "funnel",
+      dataText: JSON.stringify([{ stage: "Visits", count: 1000 }, { stage: "Signups", count: 300 }]),
+      channels: { stage: "stage", value: "count" },
+    });
+    expect(chartMarkSeriesNames(funnel)).toEqual(["Visits", "Signups"]);
+  });
+
+  it("returns null (not an empty array) for invalid mark JSON", () => {
+    expect(chartMarkSeriesNames(markFixture({ dataText: "not json" }))).toBeNull();
+  });
+});
+
+describe("chartsWorkbenchInferredDomains / scale bound conversion", () => {
+  it("infers the numeric extent from mark data, ignoring any typed min/max", () => {
+    const state = reduceChartsWorkbenchState(initial(), { type: "update-mark", id: initial().marks[0]!.id, patch: { dataText: "[3,5,2,8,6,9,4]" } });
+    const withOverride = reduceChartsWorkbenchState(state, { type: "set-scale", axis: "y", patch: { min: "0", max: "1" } });
+    expect(chartsWorkbenchInferredDomains(withOverride)!.y.domain).toEqual(chartsWorkbenchInferredDomains(state)!.y.domain);
+  });
+
+  it("degrades to null on invalid mark data rather than throwing", () => {
+    const bad = reduceChartsWorkbenchState(initial(), { type: "update-mark", id: initial().marks[0]!.id, patch: { dataText: "not json" } });
+    expect(chartsWorkbenchInferredDomains(bad)).toBeNull();
+  });
+
+  it("round-trips a linear bound and a time bound through number<->string", () => {
+    expect(chartsScaleBoundToNumber("linear", "42")).toBe(42);
+    expect(chartsScaleBoundToNumber("linear", "")).toBeNull();
+    expect(chartsScaleBoundToNumber("linear", "nope")).toBeNull();
+    expect(chartsNumberToScaleBound("linear", 42)).toBe("42");
+    const iso = "2024-06-01T00:00:00.000Z";
+    expect(chartsScaleBoundToNumber("time", iso)).toBe(new Date(iso).getTime());
+    expect(chartsNumberToScaleBound("time", new Date(iso).getTime())).toBe(iso);
   });
 });

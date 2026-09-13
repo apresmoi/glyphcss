@@ -13,11 +13,13 @@
 // an EXISTING field bumps to `v2`, at which point `decodeChartsUrlState`
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
 import {
-  CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
+  CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS,
-  type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
-  type ChartsWorkbenchScale, type ChartsWorkbenchState, type GlyphChartsWorkbenchControls,
+  type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchDataState,
+  type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
+  type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
+import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 
@@ -33,10 +35,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function oneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
+/** The only hex shape the app ever writes into state — `ChartsColorSwatch`
+ *  and a native `<input type="color">`'s own `onChange` both always yield
+ *  canonical lowercase `#rrggbb`, so a payload carrying anything else
+ *  (including the momentarily-uppercase/3-digit forms the SWATCH itself
+ *  tolerates while typing) is malformed, not merely non-canonical. */
+function isChartsHex(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/.test(value);
+}
+function validateMarkColor(value: unknown): string | readonly string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (isChartsHex(value)) return value;
+  if (Array.isArray(value) && value.every(isChartsHex)) return value as string[];
+  return null;
+}
 
 function validateMark(value: unknown): ChartsWorkbenchMark | null {
   if (!isRecord(value)) return null;
-  const { id, type, dataText, channels, transform, options } = value;
+  const { id, type, dataText, channels, transform, options, color: rawColor } = value;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (!oneOf(type, CHART_MARK_TYPES)) return null;
   if (typeof dataText !== "string") return null;
@@ -65,7 +81,13 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
       cleanOptions.name = options.name;
     }
   }
-  return { id, type, dataText, channels: cleanChannels, transform: transform as ChartsWorkbenchMark["transform"], options: cleanOptions };
+  // Colour controls (this packet), appended after `v1` already existed —
+  // an old link carries no `color` key at all, and `validateMarkColor`'s
+  // own `undefined` case keeps that mark's `color` unset, exactly
+  // `editableMark`'s default.
+  const color = validateMarkColor(rawColor);
+  if (color === null) return null;
+  return { id, type, dataText, channels: cleanChannels, transform: transform as ChartsWorkbenchMark["transform"], options: cleanOptions, ...(color !== undefined ? { color } : {}) };
 }
 
 function validateScale(value: unknown): ChartsWorkbenchScale | null {
@@ -176,6 +198,25 @@ function validatePipelineStep(value: unknown): PipelineStep | null {
   }
 }
 
+// Colour controls (this packet), appended after `v1` already existed — an
+// old link carries no `style` key at all, and `validateStyleState`'s own
+// `value === undefined` branch defaults it to exactly `createChartsWorkbenchState()`'s
+// own default axis-colour state (proven by the fixed historical link).
+function validateAxisColorState(value: unknown): ChartsWorkbenchAxisColorState | null {
+  if (!isRecord(value)) return null;
+  const { mode, shared, x, y } = value;
+  if (!oneOf(mode, CHART_AXIS_COLOR_MODES)) return null;
+  if (!isChartsHex(shared) || !isChartsHex(x) || !isChartsHex(y)) return null;
+  return { mode, shared, x, y };
+}
+function validateStyleState(value: unknown): ChartsWorkbenchStyleState | null {
+  if (value === undefined) return { axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } };
+  if (!isRecord(value)) return null;
+  const axisColor = validateAxisColorState(value.axisColor);
+  if (!axisColor) return null;
+  return { axisColor };
+}
+
 function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
   if (value === undefined) return { source: null, pipeline: [] };
   if (!isRecord(value)) return null;
@@ -193,7 +234,7 @@ function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
 
 function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { marks, nextMarkId, controls, scales, axes, chart, terminal, data } = value;
+  const { marks, nextMarkId, controls, scales, axes, chart, terminal, data, style } = value;
 
   if (!Array.isArray(marks)) return null;
   const cleanMarks: ChartsWorkbenchMark[] = [];
@@ -234,6 +275,9 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   const cleanData = validateDataState(data);
   if (!cleanData) return null;
 
+  const cleanStyle = validateStyleState(style);
+  if (!cleanStyle) return null;
+
   return {
     marks: cleanMarks,
     nextMarkId,
@@ -248,6 +292,7 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
     },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
     data: cleanData,
+    style: cleanStyle,
   };
 }
 

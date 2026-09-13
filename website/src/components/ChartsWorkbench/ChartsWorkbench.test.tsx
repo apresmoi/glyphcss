@@ -312,6 +312,26 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
   });
 
+  // Colour controls: an axis colour picked in the Dock (Chart folder's
+  // "Axes" row) reaches the real render through `applyChartStyle` — this is
+  // a full render-level check (`@glyphcss/charts` now accepts `axes.color`
+  // for real, merged from the parallel packet), not just the pure spec
+  // assertions in `chartsWorkbenchRender.style.test.ts`.
+  it("an axis colour picked in the Dock reaches the HTML preview's own axis span colour", () => {
+    pickToggle("Target", "web");
+    const axisSpan = () => Array.from(container.querySelectorAll<HTMLElement>("pre span")).find((s) => /[┤┴└│─]/.test(s.textContent ?? ""));
+    expect(axisSpan()!.getAttribute("style")).not.toContain("#ff0000");
+    const swatch = container.querySelector<HTMLInputElement>('.charts-axis-color input[type="color"]')!;
+    expect(swatch).toBeTruthy();
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(swatch, "#ff0000");
+      swatch.dispatchEvent(new Event("input", { bubbles: true }));
+      swatch.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(axisSpan()!.getAttribute("style")).toContain("#ff0000");
+  });
+
   // Mutation: copy result.text (the ANSI encoding) from Copy ASCII, or copy plain cells from Copy ANSI.
   it("copies plain cells from Copy ASCII and escapes from Copy ANSI", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();

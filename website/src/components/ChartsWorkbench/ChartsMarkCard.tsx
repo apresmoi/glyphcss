@@ -1,8 +1,38 @@
 import { Fragment, useRef, useState, type Dispatch, type KeyboardEvent } from "react";
 import {
-  CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields, chartMarkTable, chartRelevantChannels, nextChartTableColumnName,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_SERIES_PALETTE, chartMarkFields, chartMarkSeriesNames, chartMarkTable,
+  chartRelevantChannels, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
+import { ChartsColorSwatch } from "./ChartsColorSwatch";
+
+/**
+ * Per-mark/per-series colour swatches (packet item 2), next to the mark's
+ * own Type row. A single-series mark gets ONE swatch; a mark that splits
+ * into series (`chartMarkSeriesNames` — categorical fill/stroke, arc
+ * slices, sankey source nodes, funnel stages) gets one swatch PER SERIES,
+ * named and prefilled from `CHARTS_SERIES_PALETTE` in the same order
+ * `@glyphcss/charts`' own `chartSeries` groups them, so swatch N lines up
+ * with the Nth entry `applyChartStyle` writes into `options.color[N]`.
+ * Editing any one series swatch materialises the WHOLE array (every other
+ * series keeps its current prefilled colour) rather than leaving a sparse
+ * array — a later series's default never silently shifts under an earlier
+ * edit.
+ */
+function ChartsMarkColorControls({ mark, dispatch }: { mark: ChartsWorkbenchMark; dispatch: Dispatch<ChartsWorkbenchAction> }) {
+  const seriesNames = chartMarkSeriesNames(mark);
+  const setColor = (color: string | readonly string[] | undefined) => dispatch({ type: "set-mark-color", id: mark.id, color });
+  if (!seriesNames) {
+    const value = typeof mark.color === "string" ? mark.color : CHARTS_SERIES_PALETTE[0]!;
+    return <div className="charts-mark-colors"><ChartsColorSwatch label="Colour" value={value} onChange={setColor} /></div>;
+  }
+  const current = Array.isArray(mark.color) ? mark.color : undefined;
+  const paletteFor = (i: number) => current?.[i] ?? CHARTS_SERIES_PALETTE[i % CHARTS_SERIES_PALETTE.length]!;
+  const setSeriesColor = (i: number, color: string) => setColor(seriesNames.map((_, idx) => idx === i ? color : paletteFor(idx)));
+  return <div className="charts-mark-colors">
+    {seriesNames.map((name, i) => <ChartsColorSwatch key={name} label={name} value={paletteFor(i)} onChange={(color) => setSeriesColor(i, color)} />)}
+  </div>;
+}
 
 const DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label: "JSON" }] as const;
 
@@ -134,10 +164,11 @@ export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenc
         </span>
       </div>
       <label className="voice-row charts-mark-row">
-        <span>Type</span><span className="gx-select"><select aria-label={`Mark ${index + 1} type`} value={mark.type} onChange={(event) => update({ type: event.target.value as ChartsWorkbenchMark["type"], options: {} })}>
+        <span>Type</span><span className="gx-select"><select aria-label={`Mark ${index + 1} type`} value={mark.type} onChange={(event) => update({ type: event.target.value as ChartsWorkbenchMark["type"], options: {}, color: undefined })}>
           {CHART_MARK_TYPES.map((type) => <option key={type}>{type}</option>)}
         </select></span>
       </label>
+      <ChartsMarkColorControls mark={mark} dispatch={dispatch} />
       <div className="voice-head">
         <label className="charts-mark-label" id={`charts-data-label-${mark.id}`}>Data</label>
         <button type="button" className="gw-code-panel__action" title={`Fill sample ${mark.type} data and channels`} onClick={() => dispatch({ type: "sample-mark", id: mark.id })}>sample</button>

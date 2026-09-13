@@ -1011,3 +1011,55 @@
   }
   :is(.dn-root--synth, .dn-root--generative) .synth-presets.is-mobile-open { display: flex; }
 }
+
+/* Dual-handle range slider (Chart folder's Scales rows) — two overlapping
+   native `<input type="range">` thumbs sharing one track, styled to match
+   `.voice-slider`'s own bracketed `[ ─█──── ]` bar so it reads as the same
+   control family. `pointer-events: none` on each input except its own
+   thumb (`::-webkit-slider-thumb`/`::-moz-range-thumb`) is what lets both
+   thumbs be dragged independently despite sharing one stacking position;
+   `.range-slider-range--hi` sits one z-index above `--lo` so the two
+   remain independently grabbable even when their values coincide. */
+.range-slider { display: flex; flex-direction: column; gap: 4px; }
+.range-slider-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.range-slider-label { font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
+.range-slider-auto {
+  font: inherit; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 1px 6px; background: transparent; color: rgba(255, 232, 184, 0.5);
+  border: 1px solid rgba(255, 232, 184, 0.25); border-radius: 0; cursor: pointer;
+}
+.range-slider-auto:hover:not(:disabled) { color: rgba(255, 232, 184, 0.85); border-color: rgba(255, 232, 184, 0.5); }
+.range-slider-auto.is-active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.7); background: rgba(56, 189, 248, 0.12); }
+.range-slider-auto:disabled { opacity: 0.4; cursor: not-allowed; }
+.range-slider-inputs { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 6px; }
+.range-slider-number {
+  box-sizing: border-box; width: 100%; min-width: 0; font: inherit; font-size: 11px; text-align: center;
+  color: #38bdf8; background: #0d1118; border: 1px solid rgba(255, 232, 184, 0.22); padding: 2px 3px;
+  -webkit-appearance: none; appearance: none;
+}
+.range-slider-number:disabled { opacity: 0.5; cursor: not-allowed; }
+.range-slider-number:focus-visible { outline: 1px solid #38bdf8; }
+.range-slider-track { position: relative; height: 18px; padding-inline: 5px; }
+.range-slider-fill {
+  position: absolute; top: 8px; height: 2px; background: #38bdf8; pointer-events: none;
+}
+.range-slider-range {
+  position: absolute; inset: 0; width: 100%; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
+  z-index: 1;
+}
+.range-slider-range--hi { z-index: 2; }
+.range-slider-range::-webkit-slider-runnable-track { background: transparent; height: 18px; }
+.range-slider-range::-moz-range-track { background: transparent; height: 18px; }
+.range-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; width: 3px; height: 14px; margin-top: 2px;
+  background: #38bdf8; border: none; border-radius: 0; cursor: ew-resize;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
+}
+.range-slider-range::-moz-range-thumb {
+  pointer-events: auto; width: 3px; height: 14px; background: #38bdf8; border: none; border-radius: 0; cursor: ew-resize;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
+}
+.range-slider-range:disabled::-webkit-slider-thumb { background: rgba(56, 189, 248, 0.4); cursor: not-allowed; }
+.range-slider-range:disabled::-moz-range-thumb { background: rgba(56, 189, 248, 0.4); cursor: not-allowed; }
+.range-slider.is-disabled .range-slider-fill { background: rgba(56, 189, 248, 0.4); }

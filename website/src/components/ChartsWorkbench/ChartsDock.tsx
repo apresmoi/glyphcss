@@ -1,14 +1,17 @@
-import { useEffect, type Dispatch } from "react";
+import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
 import { useDockSlot, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
+import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
+import { ChartsColorSwatch } from "./ChartsColorSwatch";
 import { ChartsDataFolder } from "./ChartsDataFolder";
 import {
-  CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
+  CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS,
-  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchState,
+  chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsWorkbenchInferredDomains,
+  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
 
@@ -33,6 +36,57 @@ const LEGEND_TOGGLE = CHART_LEGEND_PLACEMENTS.map((v) => ({ value: v as string, 
 const TITLE_ALIGN_SYMBOL: Record<string, string> = { left: "⇤", center: "⇔", right: "⇥" };
 const TITLE_ALIGN_TOGGLE = CHART_TITLE_ALIGNS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{TITLE_ALIGN_SYMBOL[v]}</span>, label: v, desc: `Title align: ${v}` }));
 const TITLE_POSITION_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Title position: ${v}` }));
+const AXIS_COLOR_MODE_LABEL: Record<string, string> = { shared: "shared", "per-axis": "per axis" };
+
+type InferredAxisDomain = { readonly type: string; readonly domain: readonly (number | string | Date)[] } | undefined;
+
+/**
+ * Dual-handle domain control (packet item 3) for one axis's Scales row —
+ * a `RangeSlider` over the data extent (padded 20%, `bounds`) for a
+ * numeric/time scale, or the ORIGINAL plain min/max text pair for `band`
+ * (a category name isn't a slider position) or when inference failed (bad
+ * mark JSON — `inferred` is `null`). `scale.min`/`.max` stay the same
+ * strings `buildScale` already reads; this control only translates them to
+ * and from the slider's numeric domain.
+ */
+function ScaleDomainControl({ axis, scale, inferred, dispatch }: {
+  axis: "x" | "y";
+  scale: ChartsWorkbenchScale;
+  inferred: InferredAxisDomain;
+  dispatch: Dispatch<ChartsWorkbenchAction>;
+}) {
+  const resolvedType = scale.type === "auto" ? inferred?.type : scale.type;
+  if (!inferred || resolvedType === "band" || resolvedType === "ordinal" || resolvedType === undefined || inferred.domain.length < 2) {
+    const AXIS = axis.toUpperCase();
+    return <>
+      <label className="voice-row charts-mark-row"><span>{AXIS} min</span>
+        <input className="charts-pipeline-input" aria-label={`${AXIS} scale minimum`} value={scale.min} onChange={(e) => dispatch({ type: "set-scale", axis, patch: { min: e.target.value } })} /></label>
+      <label className="voice-row charts-mark-row"><span>{AXIS} max</span>
+        <input className="charts-pipeline-input" aria-label={`${AXIS} scale maximum`} value={scale.max} onChange={(e) => dispatch({ type: "set-scale", axis, patch: { max: e.target.value } })} /></label>
+    </>;
+  }
+  const type = resolvedType as "linear" | "log" | "sqrt" | "time";
+  const toNumber = (v: number | string | Date) => v instanceof Date ? v.getTime() : Number(v);
+  const domainMin = toNumber(inferred.domain[0]!);
+  const domainMax = toNumber(inferred.domain.at(-1)!);
+  const span = domainMax - domainMin;
+  const pad = span > 0 ? span * 0.2 : (Math.abs(domainMin) || 1) * 0.2;
+  const min = domainMin - pad;
+  const max = domainMax + pad;
+  const value: readonly [number, number] | null = scale.min.trim() || scale.max.trim()
+    ? [
+        scale.min.trim() ? (chartsScaleBoundToNumber(type, scale.min) ?? domainMin) : domainMin,
+        scale.max.trim() ? (chartsScaleBoundToNumber(type, scale.max) ?? domainMax) : domainMax,
+      ]
+    : null;
+  const format = (n: number) => type === "time" ? new Date(n).toLocaleDateString() : String(Math.round(n * 1000) / 1000);
+  const parse = (raw: string) => type === "time" ? chartsScaleBoundToNumber(type, raw) : (Number.isFinite(Number(raw)) ? Number(raw) : null);
+  return <RangeSlider label={`${axis.toUpperCase()} domain`} min={min} max={max} value={value} format={format} parse={parse}
+    onChange={(next) => dispatch({
+      type: "set-scale", axis,
+      patch: next === null ? { min: "", max: "" } : { min: chartsNumberToScaleBound(type, next[0]), max: chartsNumberToScaleBound(type, next[1]) },
+    })} />;
+}
 
 export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction> }) {
   const gui = useDockGui();
@@ -68,15 +122,24 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useText(chart, "Description", state.chart.description, (description) => dispatch({ type: "set-chart", patch: { description } }));
   useToggle(chart, "Legend", state.chart.legend, (legend) => dispatch({ type: "set-chart", patch: { legend } }));
   const legendPlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
+  // Axis colour (packet item 1) — a Chart-folder row, not the Axes folder's
+  // own tick/grid rows below: the colour is a CHART-wide style choice
+  // (`applyChartStyle`, `chartsWorkbenchRender.ts`), and lives beside
+  // legend/title placement rather than the per-axis tick machinery.
+  const axisColorSlot = useDockSlot(chart, { position: "bottom", className: "charts-axis-color-slot" });
 
   const scales = useFolder(gui, "Scales", { open: true });
   useOption(scales, "X type", options(CHART_SCALE_TYPES), state.scales.x.type, (type) => dispatch({ type: "set-scale", axis: "x", patch: { type } }));
-  useText(scales, "X min", state.scales.x.min, (min) => dispatch({ type: "set-scale", axis: "x", patch: { min } }));
-  useText(scales, "X max", state.scales.x.max, (max) => dispatch({ type: "set-scale", axis: "x", patch: { max } }));
+  const xDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
   useOption(scales, "Y type", options(CHART_SCALE_TYPES), state.scales.y.type, (type) => dispatch({ type: "set-scale", axis: "y", patch: { type } }));
-  useText(scales, "Y min", state.scales.y.min, (min) => dispatch({ type: "set-scale", axis: "y", patch: { min } }));
-  useText(scales, "Y max", state.scales.y.max, (max) => dispatch({ type: "set-scale", axis: "y", patch: { max } }));
+  const yDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
   useReadonlyText(scales, "Domain", "Blank = inferred");
+  // Recomputed off the raw mark data (never the current min/max override —
+  // see `chartsWorkbenchInferredDomains`'s own doc), so a `RangeSlider`'s
+  // own draggable bounds don't shrink every time a reader narrows the
+  // selection. `null` on invalid marks degrades each axis to the original
+  // plain min/max text inputs (`ScaleDomainControl` below).
+  const inferredDomains = useMemo(() => chartsWorkbenchInferredDomains(state), [state]);
 
   const axes = useFolder(gui, "Axes", { open: false });
   useSlider(axes, "X ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.x.ticks, (ticks) => dispatch({ type: "set-axis", axis: "x", patch: { ticks } }));
@@ -145,6 +208,34 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
         <IconToggle groupTitle="Legend placement" options={LEGEND_TOGGLE} value={state.chart.legendPlacement} onChange={(legendPlacement) => dispatch({ type: "set-chart", patch: { legendPlacement: legendPlacement as ChartsWorkbenchState["chart"]["legendPlacement"] } })} />
       </div>,
       legendPlacementSlot,
+    )}
+    {axisColorSlot && createPortal(
+      <div className="charts-axis-color">
+        <div className="dock-toggle-row">
+          <span className="dock-toggle-row-label">Axes</span>
+          <button type="button" className={`charts-axis-color-mode${state.style.axisColor.mode === "per-axis" ? " is-active" : ""}`}
+            aria-pressed={state.style.axisColor.mode === "per-axis"}
+            title="Toggle between one shared axis colour and separate X/Y swatches"
+            onClick={() => dispatch({ type: "set-axis-color-mode", mode: state.style.axisColor.mode === CHART_AXIS_COLOR_MODES[0] ? CHART_AXIS_COLOR_MODES[1] : CHART_AXIS_COLOR_MODES[0] })}>
+            {AXIS_COLOR_MODE_LABEL[state.style.axisColor.mode]}
+          </button>
+        </div>
+        {state.style.axisColor.mode === "shared"
+          ? <ChartsColorSwatch label="Colour" value={state.style.axisColor.shared} onChange={(color) => dispatch({ type: "set-axis-color", which: "shared", color })} />
+          : <>
+              <ChartsColorSwatch label="X" value={state.style.axisColor.x} onChange={(color) => dispatch({ type: "set-axis-color", which: "x", color })} />
+              <ChartsColorSwatch label="Y" value={state.style.axisColor.y} onChange={(color) => dispatch({ type: "set-axis-color", which: "y", color })} />
+            </>}
+      </div>,
+      axisColorSlot,
+    )}
+    {xDomainSlot && createPortal(
+      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains?.x} dispatch={dispatch} />,
+      xDomainSlot,
+    )}
+    {yDomainSlot && createPortal(
+      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains?.y} dispatch={dispatch} />,
+      yDomainSlot,
     )}
   </>;
 }

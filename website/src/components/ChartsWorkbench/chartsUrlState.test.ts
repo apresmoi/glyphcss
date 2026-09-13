@@ -121,6 +121,33 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // Colour controls (this packet), appended after `v1` already existed —
+  // the fixed historical link below (encoded before this feature existed,
+  // carrying no `style` key and no mark `color` key at all) still decodes
+  // to today's default `style` and every mark's `color` left unset, so
+  // this test's own job is the OTHER half: a link saved WITH a customised
+  // axis colour and per-series mark colours round-trips them exactly.
+  it("round-trips a per-axis colour choice and a per-series mark colour array", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-color-mode", mode: "per-axis" });
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-color", which: "x", color: "#ff0000" });
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-color", which: "y", color: "#00ff00" });
+    state = reduceChartsWorkbenchState(state, { type: "set-mark-color", id: state.marks[0]!.id, color: ["#3b82f6", "#f97316"] });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.style.axisColor).toEqual({ mode: "per-axis", shared: expect.any(String), x: "#ff0000", y: "#00ff00" });
+    expect(decoded!.marks[0]!.color).toEqual(["#3b82f6", "#f97316"]);
+  });
+
+  it("rejects a malformed axis colour mode or a non-hex mark colour rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    const badMode = await encodeChartsUrlState({ ...base, style: { axisColor: { ...base.style.axisColor, mode: "rainbow" } } } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(badMode)).toBeNull();
+    const badMarkColor = await encodeChartsUrlState({ ...base, marks: [{ ...base.marks[0]!, color: "not-a-hex-colour" }] } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(badMarkColor)).toBeNull();
+  });
+
   it("rejects a pipeline step with an out-of-vocabulary operator/kind", async () => {
     const base = createChartsWorkbenchState();
     const withBadStep = { ...base, data: { source: null, pipeline: [{ kind: "filter", column: "a", operator: "~=", value: "1" }] } };
