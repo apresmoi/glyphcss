@@ -630,6 +630,28 @@ function sankeyMidColumnBoxes(cols: ReturnType<typeof sankeyColumnsByX0>, srcBox
 }
 
 /**
+ * Whether `band` will be painted as a genuine per-dot-column smooth ribbon
+ * (`paintSankeyRibbonSmooth`) rather than through the lane/free-row fallback
+ * path (`paintSankeyRoutedRowsFallback`) — the SAME predicate
+ * `computeSankeyRoutedRows` and `paintSankeyRoutedRows` must agree on
+ * exactly, since the two disagreeing is the root of codex P1-5: a band
+ * computed as smooth-eligible here but still registered with the canvas's
+ * junction system (`canvas.edge`/`canvas.route`) gets its OLD lane/free-row
+ * footprint resolved into box-drawing glyphs by `resolveJunctions()` before
+ * the smooth painter ever runs, and the smooth painter's own footprint
+ * (a per-dot-column sweep between `srcBox`/`tgtBox`, never the lane route)
+ * never revisits those abandoned cells to clear them — stray `┌──────`
+ * glyphs outside the painted ribbon. A single shared predicate is what
+ * keeps "registered with the junction system" and "painted through the
+ * fallback path" the same set of bands, so nothing is ever registered and
+ * then abandoned.
+ */
+function sankeyBandPaintsSmooth(band: SankeyBand, srcBox: SankeyNodeBox | undefined, tgtBox: SankeyNodeBox | undefined, cols: ReturnType<typeof sankeyColumnsByX0>, tierTable: (typeof GLYPH_CANVAS_TIERS)[GlyphCanvasTierName]): boolean {
+  if (band.folded || !srcBox || !tgtBox || !tierTable.subcell) return false;
+  return sankeyMidColumnBoxes(cols, srcBox, tgtBox).length === 0;
+}
+
+/**
  * A row that clears every node box in `midColumns` — the row a skip-level
  * band's pass-through segment can safely cross those columns at without
  * entering a box that isn't its own endpoint. Tries `preferred` first (so a
@@ -814,6 +836,7 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
+  const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
   const laneStartByBand = assignSankeyLanes(bands, nodeBoxes, cols, ledger);
 
   // A sankey's shade identity is per SOURCE node (AGENTS.md's "Charts" —
@@ -867,6 +890,18 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
     const firstGapX1 = nextColX0 - 1;
     const laneStart = straight ? tgtBox.x0 - 1 : (laneStartByBand.get(band) ?? gapX0);
     const k = Math.max(srcHeight, tgtHeight);
+    // `paintSankeyRoutedRows` paints this exact band through
+    // `paintSankeyRibbonSmooth` instead of this row's own lane/free-row
+    // cells whenever `sankeyBandPaintsSmooth` agrees — and when it does,
+    // this row's cells are never registered with the canvas's junction
+    // system below (codex P1-5 / fable P1-1): registering them anyway let
+    // `canvas.resolveJunctions()` paint box-drawing glyphs into a footprint
+    // the smooth painter's own per-dot-column sweep then never revisits,
+    // leaving stray residue (`┌──────`) outside the painted ribbon. The
+    // row is still computed and still pushed to `routedRows` — the caller
+    // reads `rows[0]!.glyph`/`.color` off it to hand the smooth painter its
+    // own shade — only the canvas registration is skipped.
+    const smooth = sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable);
     for (let i = 0; i < k; i++) {
       const srcRow = sr0 + Math.min(i, srcHeight - 1);
       const tgtRow = tr0 + Math.min(i, tgtHeight - 1);
@@ -889,9 +924,11 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
           }
         }
       }
-      const edgeId = `${edgeIdPrefix}${order}`;
-      canvas.edge(edgeId, { from: band.source, to: band.target });
-      canvas.route(edgeId, cells);
+      if (!smooth) {
+        const edgeId = `${edgeIdPrefix}${order}`;
+        canvas.edge(edgeId, { from: band.source, to: band.target });
+        canvas.route(edgeId, cells);
+      }
       routedRows.push({ band, cells, glyph, color });
       order++;
     }
@@ -1048,7 +1085,7 @@ function sankeyRibbonTextureOn(glyph: string, absDotX: number, absDotY: number):
  * all apply uniformly with no separate guard to keep in sync.
  */
 function paintSankeyRibbonSmooth(
-  paintCell: (x: number, y: number, glyph: string, color: string | null | undefined) => boolean,
+  paintCell: (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined) => void,
   rows: number,
   tierName: GlyphCanvasTierName,
   band: SankeyBand,
@@ -1098,10 +1135,16 @@ function paintSankeyRibbonSmooth(
         const [top, bot] = edgesByLocalCol[localCol]!;
         const topD = Math.max(0, Math.min(maxDotRow, Math.round(top)));
         const botD = Math.max(0, Math.min(maxDotRow, Math.round(bot)));
-        const midD = Math.max(0, Math.min(maxDotRow, Math.round((top + bot) / 2)));
         for (let localRow = 0; localRow < 4; localRow++) {
           const dotRow = r * 4 + localRow;
-          const inSpan = ribbon === "outline" ? (dotRow === topD || dotRow === botD || dotRow === midD) : (dotRow >= topD && dotRow <= botD);
+          // `outline` paints ONLY the two edge dots — no centre stroke
+          // (fable P1-2 / codex P2-9): a midpoint dot ate too much of a
+          // THIN band (up to 62.9% of a filled band's own ink on an 8-way
+          // fan-in at 40x20) and, combined with the P1-1 junction-residue
+          // fix above, is no longer needed to keep a "blank" interior cell
+          // from reading as ambiguous — a genuinely unpainted interior cell
+          // is now genuinely blank, never a leftover routing glyph.
+          const inSpan = ribbon === "outline" ? (dotRow === topD || dotRow === botD) : (dotRow >= topD && dotRow <= botD);
           if (!inSpan) continue;
           // The EDGE dots themselves (`topD`/`botD`) always paint — texture
           // only thins the FILL strictly between them — which is what keeps
@@ -1113,7 +1156,14 @@ function paintSankeyRibbonSmooth(
         }
       }
       if (mask === 0) continue;
-      paintCell(x, r, subGlyph(mask), color);
+      // A crossing smooth ribbon's own claim can refuse this cell (two
+      // adjacent bands' curves genuinely overlap, or an earlier mark/band
+      // already painted it) — the smooth path used to ignore that refusal
+      // entirely (fable P1-3), so a crossing loss was never reported at all
+      // on braille/blocks. `paintCell` (the caller's `paintForBand`) counts
+      // it, per band and excluding this band's own self-revisits, into a
+      // `sankey-band-broken` ledger entry.
+      paintCell(band, x, r, subGlyph(mask), color);
     }
   }
 }
@@ -1179,6 +1229,37 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     return true;
   };
 
+  // `paintForBand` wraps `paintCell` with per-band OWNERSHIP (`cellOwner`,
+  // scoped to this one call — a fresh, per-render map, never the
+  // cross-mark `claimedBy`) so a refusal can be told apart from a harmless
+  // SELF-revisit: a multi-row band's own later rows routinely converge
+  // onto the SAME pass-through cell at a shared free-row detour around an
+  // intermediate node (`pickSankeyFreeRow` — every row of a tall
+  // skip-level band can pick the identical clear row), and `claimedBy`
+  // alone can't distinguish "my own earlier row already painted this" from
+  // "a genuinely different band took it" — counting the former as a break
+  // reported a fabricated 670-cell "break" for a single uncrossed band
+  // (`Natural Gas -> Industrial` at 140x40) where the true figure, once
+  // self-claims are excluded, is a real but far smaller crossing loss.
+  // This REPLACES a synthetic per-fallback-row ownership map that used to
+  // key a cell's "owner" by its local array INDEX rather than its band
+  // (agy P2-1: a multi-row band's own later rows always disagreed with row
+  // 0's index at a cell all of them legitimately share, logging a false
+  // break on every band with height > 1) and that never saw a smooth
+  // ribbon's own cells at all (fable P1-3: two crossing smooth ribbons
+  // silently drop one's cells with no ledger entry). Counting `paintCell`'s
+  // own real refusals, per band, minus self-overlap, is ground truth for
+  // both paths at once.
+  const cellOwner = new Map<number, SankeyBand>();
+  const refusedByBand = new Map<SankeyBand, number>();
+  const paintForBand = (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined): void => {
+    const idx = y * canvas.cols + x;
+    if (paintCell(x, y, glyph, color)) { cellOwner.set(idx, band); return; }
+    if (cellOwner.get(idx) !== band) {
+      refusedByBand.set(band, (refusedByBand.get(band) ?? 0) + 1);
+    }
+  };
+
   // Group by band (preserving registration order) so an ADJACENT
   // `braille`/`blocks` band can be painted ONCE, as a smooth ribbon, while a
   // FOLDED stub or a SKIP-LEVEL band (one whose route crosses an
@@ -1198,47 +1279,15 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     const rows = rowsByBand.get(band)!;
     const srcBox = nodeBoxes.get(band.source);
     const tgtBox = band.targetRowRange ? nodeBoxes.get(band.target) : undefined;
-    const skipLevel = srcBox && tgtBox ? sankeyMidColumnBoxes(cols, srcBox, tgtBox).length > 0 : false;
-    if (!band.folded && tierTable.subcell && srcBox && tgtBox && !skipLevel) {
+    if (sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable)) {
       const { glyph, color } = rows[0]!;
-      paintSankeyRibbonSmooth(paintCell, canvas.rows, canvas.tier, band, glyph, color, srcBox, tgtBox, ribbon);
+      paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, srcBox!, tgtBox!, ribbon);
     } else {
       fallbackRows.push(...rows);
     }
   }
-  paintSankeyRoutedRowsFallback(canvas, fallbackRows, paintCell, ribbon);
-
-  // `sankey-band-broken` (finding k/j): border cells and node conservation
-  // stay exact, but a band's own run can still be split into disconnected
-  // pieces by another band's genuine crossing (measured up to 22 cells on
-  // the energy dataset at 140x40, with no ledger entry when the gap is
-  // narrower than a `sankey-crossings-merged` fold). This is a property of
-  // the FALLBACK path's own routed cells only — a smooth ribbon's own
-  // painted span is contiguous by construction (a per-dot-column sweep with
-  // no lane/free-row detour), so only `fallbackRows` are walked here.
-  const ownerRowIdx = new Map<number, number>();
-  const claimLocal = (x: number, y: number, rowIndex: number): void => {
-    const idx = y * canvas.cols + x;
-    if (!ownerRowIdx.has(idx)) ownerRowIdx.set(idx, rowIndex);
-  };
-  fallbackRows.forEach(({ cells }, i) => {
-    claimLocal(cells[0]!.x, cells[0]!.y, i);
-    const last = cells[cells.length - 1]!;
-    claimLocal(last.x, last.y, i);
-  });
-  fallbackRows.forEach(({ cells }, i) => { for (const p of cells) claimLocal(p.x, p.y, i); });
-  const longestGapByBand = new Map<SankeyBand, number>();
-  fallbackRows.forEach(({ band, cells }, i) => {
-    let longestGap = 0;
-    let curGap = 0;
-    for (let ci = 1; ci < cells.length - 1; ci++) {
-      const p = cells[ci]!;
-      if (ownerRowIdx.get(p.y * canvas.cols + p.x) !== i) { curGap++; longestGap = Math.max(longestGap, curGap); }
-      else curGap = 0;
-    }
-    if (longestGap > (longestGapByBand.get(band) ?? 0)) longestGapByBand.set(band, longestGap);
-  });
-  for (const [band, cells] of longestGapByBand) {
+  paintSankeyRoutedRowsFallback(canvas, fallbackRows, paintForBand, ribbon);
+  for (const [band, cells] of refusedByBand) {
     if (cells > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells }));
   }
 
@@ -1264,26 +1313,39 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
  * instead of a flat `subGlyph(0xff)` block.
  *
  * `ribbon: "outline"` thins every straight-run cell in EITHER charset
- * family down to a single blank (never painted) — only border and corner
- * cells still show ink, which is what keeps an outline band reading as two
- * edges rather than a filled slab. A literal blank ROW GAP between two
- * merely-ADJACENT (never overlapping) bands was tried and reverted: it
- * left a band's own uncontested cell unpainted with no OTHER band's route
- * claiming it, which is indistinguishable, to this module's own
- * zero-silent-overwrite gate, from a genuine loss — see
- * `docs/design/charts.md`'s "Sankey ribbon rendering" for the measurement.
+ * family down to a single BLANK — never `null`/skipped (codex P2-9 / fable
+ * P1-2): `canvas.resolveJunctions()` already wrote a box-drawing glyph into
+ * every registered cell of a fallback band's route BEFORE this function
+ * ever runs, so "don't call `paintCell` here" left that residue standing —
+ * an outline band read as a solid slab of `───` rules with MORE ink than a
+ * filled one, on every tier. Actually PAINTING the blank (claiming the
+ * cell) is what erases it — only border and corner cells still show ink,
+ * which is what keeps an outline band reading as two edges rather than a
+ * filled slab. A literal blank ROW GAP between two merely-ADJACENT (never
+ * overlapping) bands was tried and reverted: it left a band's own
+ * uncontested cell unpainted with no OTHER band's route claiming it, which
+ * is indistinguishable, to this module's own zero-silent-overwrite gate,
+ * from a genuine loss — see `docs/design/charts.md`'s "Sankey ribbon
+ * rendering" for the measurement.
  */
 const SANKEY_LIGHTER_STRAIGHT_GLYPH: Readonly<Record<string, string>> = { "█": "▓", "#": "+" };
 function paintSankeyRoutedRowsFallback(
   canvas: GlyphCanvas,
   fallbackRows: readonly SankeyRoutedRow[],
-  paintCell: (x: number, y: number, glyph: string, color: string | null | undefined) => boolean,
+  paintCell: (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined) => void,
   ribbon: GlyphChartSankeyRibbon,
 ): void {
   const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
   const ascii = canvas.tier === "ascii";
+  const blank = tierTable.subcell ? tierTable.subGlyph!(0) : " ";
+  // A row's SECOND visit to its own already-painted border cell (loop 2
+  // below walks only the INTERIOR cells, `ci` in `[1, length - 2]`) never
+  // reaches `paintCell` at all, so a border a row claims in loop 1 can
+  // never be miscounted as a foreign refusal against that same row's own
+  // band; the caller's `paintForBand` separately excludes any OTHER
+  // self-revisit (a different row of the SAME band sharing a cell).
   const paintTracked = (row: SankeyRoutedRow, x: number, y: number, glyph: string): void => {
-    paintCell(x, y, glyph, row.color);
+    paintCell(row.band, x, y, glyph, row.color);
   };
 
   // BORDER cells go FIRST, across every band, and unconditionally — see the
@@ -1306,7 +1368,7 @@ function paintSankeyRoutedRowsFallback(
         const q = sankeyCornerMissingQuadrant(prev!, next!);
         return subGlyph(q === null ? SANKEY_FULL_SUB_MASK : sankeySubMaskExcludingQuadrant(q));
       }
-      if (ribbon === "outline") return null;
+      if (ribbon === "outline") return blank;
       let mask = 0;
       for (let lc = 0; lc < 2; lc++) for (let lr = 0; lr < 4; lr++) {
         if (sankeyRibbonTextureOn(glyph, cells[ci]!.x * 2 + lc, cells[ci]!.y * 4 + lr)) mask |= 1 << sankeyDotBit(lc, lr);
@@ -1318,7 +1380,7 @@ function paintSankeyRoutedRowsFallback(
       const g = sankeyBoxCornerGlyph(prev!, next!, ascii);
       if (g) return g;
     }
-    if (ribbon === "outline") return null;
+    if (ribbon === "outline") return blank;
     return SANKEY_LIGHTER_STRAIGHT_GLYPH[glyph] ?? glyph;
   };
 
@@ -1330,7 +1392,7 @@ function paintSankeyRoutedRowsFallback(
     if (gLast) paintTracked(row, row.cells[lastIdx]!.x, row.cells[lastIdx]!.y, gLast);
   }
   for (const row of fallbackRows) {
-    for (let ci = 0; ci < row.cells.length; ci++) {
+    for (let ci = 1; ci < row.cells.length - 1; ci++) {
       const p = row.cells[ci]!;
       const g = rowGlyphAt(row, ci);
       if (g) paintTracked(row, p.x, p.y, g);

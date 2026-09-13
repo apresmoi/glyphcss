@@ -233,6 +233,7 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
   const bg = canvas.bg;
   const textScale = canvas.textScale;
   const textFiller = canvas.textFiller;
+  const textFillerBelowOrigin = canvas.textFillerBelowOrigin;
   const lines: string[] = [];
   for (let r = 0; r < rows; r++) {
     let line = "";
@@ -255,11 +256,21 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
     };
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
-      // A `text({ scale })` FILLER cell (`GlyphCanvas.textFiller`'s own
-      // doc) emits NOTHING — no span, no blank glyph — so the origin
-      // glyph's own font-size-scaled advance width is what fills this
-      // column, instead of a literal blank character doubling the space.
-      if (textFiller[idx] === 1) continue;
+      // A `text({ scale })` FILLER cell on the ORIGIN's own row
+      // (`GlyphCanvas.textFiller`'s own doc) emits NOTHING — no span, no
+      // blank glyph — so the origin glyph's own font-size-scaled advance
+      // width is what fills this column, instead of a literal blank
+      // character doubling the space. A filler cell on a row BELOW the
+      // origin (`textFillerBelowOrigin`) is different: nothing else
+      // reserves that column's width on a later `\n`-separated line (the
+      // bigger glyph only overflows DOWNWARD in ink, past its own line
+      // box — it never widens a later row's own text), so skipping it
+      // too silently dropped it from the row's HTML string and shifted
+      // every later character on that row left by the filler width
+      // (P1-2). It already carries a real blank (`grid.char === " "`,
+      // `grid.color === null`, written by `text()` itself), so falling
+      // through to the ordinary per-cell path below is exactly right.
+      if (textFiller[idx] === 1 && textFillerBelowOrigin[idx] !== 1) continue;
       const scale = textScale[idx]!;
       if (scale > 1) {
         // A scaled-text ORIGIN is its own standalone run: flush whatever

@@ -1,3 +1,56 @@
+/**
+ * `goodSpecs` below is what every "byte-identity against a real parent
+ * build" gate (`strokeWidth.test.ts`, `textScale.test.ts`,
+ * `tickFormat.test.ts`, `axisTitlePlacement.test.ts`) renders against a
+ * checkout of the commit BEFORE that feature existed. "Claim A" — every
+ * review round's baseline byte-identity check — holds across the WHOLE
+ * `goodSpecs` array except for the following documented, deliberate
+ * exceptions (each one a real, intentional change from some earlier
+ * commit, verified against ITS OWN real parent build by its own dedicated
+ * test file, never an accidental drift caught by a later review round):
+ *
+ * 1. `strokeWidth.test.ts` — a wide line's subcell anti-aliasing refinement.
+ * 2. `textScale.test.ts` — 2x/3x character-cell allocation under `textScale`.
+ * 3. `tickFormat.test.ts` — smart numeric tick compression (`1.2M`, `450k`)
+ *    under a `format` preset.
+ * 4. `axisTitlePlacement.test.ts` — start/center/end axis-title offset
+ *    alignment.
+ * 5. (codex P1-7, batch 4) A bar/rect/cell mark sharing an x axis with
+ *    calendar-valid ISO date strings uses BAND (categorical, evenly-spaced)
+ *    x-positions, never a continuous time scale — `scales.ts`'s
+ *    `axisHasBandOnlyMark`/`BAND_ONLY_MARK_TYPES`. These three mark types
+ *    are fundamentally discrete (one bar/cell per category); a time
+ *    scale's own irregular date-interval spacing is the WRONG shape for
+ *    them regardless of what their x values look like as strings. A line
+ *    or dot mark on the identical data is unaffected — only bar/rect/cell.
+ * 6. (fable review, batch 3, finding b — see `paint.ts`'s
+ *    `paintCornerLegend`) A corner-placed legend's own swatch gutter grew
+ *    from `text.length + 2` to `text.length*textScale + 3*textScale`
+ *    columns, so a LINE-style series (dash/dot/double cadence) has enough
+ *    room in its own swatch to actually show that cadence — a single-cell
+ *    `canvas.line(p, p)` degenerates to one dot/glyph and can never carry
+ *    it. Visible only on a `legend: { placement: "top-right" | ... }`
+ *    corner spec with a named line series.
+ * 7. (codex P1-5, fable P1-1, batch 4 — see `flowMarks.ts`'s
+ *    `sankeyBandPaintsSmooth`) A smooth-eligible sankey band (adjacent,
+ *    non-folded, `braille`/`blocks`) is no longer registered with the
+ *    canvas's junction system at all, so `canvas.resolveJunctions()` no
+ *    longer writes stray box-drawing residue (`┌──────`-style glyphs) into
+ *    its old, abandoned lane/free-row footprint before the smooth painter's
+ *    own (different-shaped) footprint ever runs. Affects `goodSpecs[17]`
+ *    (`sankeySample`) on `blocks`/`braille` ONLY — `ascii`/`box` have no
+ *    subcell smooth path to abandon a footprint from, and every other
+ *    `goodSpecs` entry has no sankey mark at all. The three fixture JSON
+ *    files that carry index 17 on those two tiers (`textScaleParentFixtures
+ *    .json`, `strokeWidthParentFixtures.json`, `axisTitleParentGoodSpecs
+ *    .json`) have that one key's own VALUE re-derived from the current
+ *    (fixed) build — every other key in each file is untouched, still the
+ *    real 926ab7b0/pre-feature parent output.
+ *
+ * A NEW divergence found outside these seven is a real regression, not an
+ * eighth exception to wave through — add it here, with its own dedicated
+ * test, only when it is a genuinely deliberate change.
+ */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import type { GlyphChartMark, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 

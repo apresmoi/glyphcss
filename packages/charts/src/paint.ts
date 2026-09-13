@@ -502,16 +502,26 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
         // `x`/`y` here are never read for placement (only `.text` is used —
         // this call's own box math is discarded in favour of the leader-
         // relative `textCol` geometry below), so any in-bounds anchor
-        // works; `obstacles: []` means this can never itself drop for lack
-        // of space, only for a non-finite/out-of-viewport `y` (never the
-        // case here) — the SAME per-candidate pattern `axisTicks` uses to
-        // fold a tick's own scale into its abbreviation budget.
+        // works; `obstacles: []` means this can never drop for lack of
+        // SPACE on the row (nothing else is registered to collide with) —
+        // but the NAME itself can still be dropped, either because it
+        // reads as numeric (a slice name that happens to parse as a
+        // number, e.g. `"20240101"`) and SI-abbreviation still can't make
+        // it fit, or because the row landed outside the viewport's own
+        // height. Either way `placed` comes back EMPTY, never a one-entry
+        // array with an empty `.text` — a review finding (codex P1-1)
+        // caught this dereferencing `placed[0]` unconditionally and
+        // crashing on a narrow pie with numeric-looking slice names.
         const nameResult = glyphChartLabelLayout([{
           id: "arc-callout-name", x: textCol, y: row, text: c.name,
           maxWidth: maxWidthCols, role: "pie callout", scale: textScale,
         }], { obstacles: [], viewport: { cols: canvas.cols, rows: canvas.rows }, charset: canvas.tier });
         ledger.push(...nameResult.ledger);
-        text = nameResult.placed[0]!.text;
+        if (nameResult.placed.length === 0) {
+          ledger.push(ledgerLabelDropped({ role: "pie callout", text: full, reason: "there was no room for even the slice's own name" }));
+          continue;
+        }
+        text = nameResult.placed[0].text;
         if (text === "") {
           ledger.push(ledgerLabelDropped({ role: "pie callout", text: full, reason: "there was no room for even the slice's own name" }));
           continue;

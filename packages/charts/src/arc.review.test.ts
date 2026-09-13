@@ -125,4 +125,22 @@ describe("Phase 1 round 2 arc regressions", () => {
     expect(new Set(disc(r))).toEqual(new Set(expectedGlyphs));
     expect(r.report.ledger.some((e) => e.code === "series-shade-repeat")).toBe(false);
   });
+
+  // codex P1-1: a slice name that happens to read as a NUMBER (a raw ISO
+  // date string used as a category, e.g. "20240101") falls into the
+  // numeric abbreviation path; when even the SI-abbreviated form can't fit
+  // the callout's own narrow gutter at 20x12, `glyphChartLabelLayout`
+  // legitimately places nothing — HEAD then dereferenced `placed[0]!.text`
+  // unconditionally and crashed instead of recording a `label-dropped`
+  // entry and moving on. Mutation: restore the unguarded `placed[0]!.text`
+  // dereference -> this throws instead of asserting.
+  it("drops (never throws) a callout whose numeric-looking slice name can't fit", () => {
+    expect(() => {
+      const r = renderGlyphChart(
+        glyphChartArc([{ n: "20240101", v: 3 }, { n: "20240201", v: 2 }], { y: "v", fill: "n" }),
+        { target: "chat", width: 20, height: 12, charset: "box", color: "none" },
+      );
+      expect(r.report.ledger.some((e) => e.code === "label-dropped")).toBe(true);
+    }).not.toThrow();
+  });
 });

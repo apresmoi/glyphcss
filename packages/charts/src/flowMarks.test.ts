@@ -1547,7 +1547,7 @@ describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii cor
     }
   });
 
-  it("ribbon: outline paints at most 30% of the dots ribbon: filled paints, on the same band", () => {
+  it("ribbon: outline paints at most 30% of the dots ribbon: filled paints, on this band (a representative, not universal, case)", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartSankey(
       [{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }, { from: "Power", to: "Industry", amount: 30 }],
       { source: "from", target: "to", value: "amount" },
@@ -1568,6 +1568,35 @@ describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii cor
     expect(filled).toBeGreaterThan(0);
     expect(outline).toBeGreaterThan(0);
     expect(outline, `outline (${outline} dots) should be <= 30% of filled (${filled} dots)`).toBeLessThanOrEqual(filled * 0.3);
+  });
+
+  // codex P2-9 / fable P1-2: the 30% figure above holds for THIS band, not
+  // universally — an 8-way fan-in into one hub (thin bands, the shape the
+  // review's own repro used) measured 62.9%-36.5% at 40x20..96x32 on
+  // braille/blocks even with the P1-1 junction-residue fix in place (the
+  // remaining ink is the two EDGE dots themselves, `topD`/`botD`, which
+  // `outline` always paints so the ribbon still reads as two traced
+  // lines — for a band only 2-4 dots tall those edges ARE most of its own
+  // cross-section). No fixed percentage is honest across every band
+  // width, so the real, universal claim is narrower: outline is NEVER
+  // MORE ink than filled, on every tier, and (since the P1-1 fix removed
+  // the junction residue that used to make an ascii/box outline band read
+  // as a solid slab, sometimes with MORE ink than filled — ratios up to
+  // 1.42 measured pre-fix) that specifically excludes the "outline looks
+  // filled" regression this fix targets.
+  it("ribbon: outline is NEVER more ink than filled, on every tier, at every size (an 8-way fan-in — the thinnest realistic band shape)", () => {
+    const data = Array.from({ length: 8 }, (_, i) => ({ from: `S${i}`, to: "Hub", amount: 10 }));
+    const base = glyphChartSankey(data, { source: "from", target: "to", value: "amount" });
+    const ink = (text: string): number => [...text].filter((c) => c !== " " && c !== "\n").length;
+    for (const [w, h] of [[40, 20], [72, 24], [96, 32], [140, 40]] as const) {
+      for (const charset of ["ascii", "box", "blocks", "braille"] as const) {
+        const filled = renderGlyphChart({ marks: [{ ...base, options: { ...base.options, ribbon: "filled" } }] }, { target: "web", width: w, height: h, charset, legend: false });
+        const outline = renderGlyphChart({ marks: [{ ...base, options: { ...base.options, ribbon: "outline" } }] }, { target: "web", width: w, height: h, charset, legend: false });
+        const fi = ink(filled.text), oi = ink(outline.text);
+        expect(fi, `${w}x${h} ${charset}: filled render is unexpectedly empty`).toBeGreaterThan(0);
+        expect(oi, `${w}x${h} ${charset}: outline (${oi}) must be less ink than filled (${fi})`).toBeLessThan(fi);
+      }
+    }
   });
 
   it("box mode: a straight-run interior cell paints the tier's own lighter glyph (never a silent gap) — the 'less filled' ask without weakening the zero-overwrite gate", () => {
@@ -1633,5 +1662,93 @@ describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii cor
       const x = idx % canvas.cols;
       expect(nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1), `textFiller cell at column ${x} sits outside every node's own box — in a band's gap column`).toBe(true);
     }
+  });
+});
+
+describe("batch-4 review: smooth ribbon junction residue, crossing refusals, and self-overlap (codex P1-5/P1-6, fable P1-1/P1-3, agy P2-1)", () => {
+  // codex P1-5 / fable P1-1: `A→C:10, B→C:5` at 40x16 braille used to leave
+  // seven unclaimed `┌──────`-style glyphs outside the painted ribbons,
+  // because the smooth painter's own footprint never revisited the OLD
+  // lane/free-row cells `resolveJunctions()` had already written box-
+  // drawing glyphs into. The root fix (`sankeyBandPaintsSmooth`) stops
+  // REGISTERING a smooth-eligible band's route with the canvas's junction
+  // system at all, so no residue is ever written for it in the first
+  // place. Every painted glyph must be either inside a node box, part of
+  // the two ribbons' own braille/dot ink, or blank — never a leftover
+  // box-drawing/line glyph (`─│┌└┘┐╌╎┴┬├┤┼`) floating in open space.
+  it("no stray junction glyphs outside the painted ribbons or node boxes (A->C:10, B->C:5, 40x16 braille)", () => {
+    const data = [{ from: "A", to: "C", amount: 10 }, { from: "B", to: "C", amount: 5 }];
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] };
+    const { layout, canvas } = renderSankey(spec, 40, 16, "braille");
+    // A node box's own border legitimately IS one of these glyphs
+    // (`┌─┐│└┘`) — the residue this gate exists to catch only ever
+    // appeared in the GAP columns strictly between two node boxes, so
+    // only cells outside every node's own [x0,x1] range are checked.
+    const nodeColumns = layout!.nodes.map((n) => [n.x0, n.x1] as const);
+    const junctionGlyphs = new Set(["─", "│", "┌", "└", "┘", "┐", "╌", "╎", "┴", "┬", "├", "┤", "┼"]);
+    const stray: { x: number; y: number; char: string }[] = [];
+    for (let idx = 0; idx < canvas.grid.char.length; idx++) {
+      const c = canvas.grid.char[idx]!;
+      if (!junctionGlyphs.has(c)) continue;
+      const x = idx % canvas.cols, y = Math.floor(idx / canvas.cols);
+      if (nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1)) continue;
+      stray.push({ x, y, char: c });
+    }
+    expect(stray, `found stray junction glyphs outside every node box: ${JSON.stringify(stray)}`).toEqual([]);
+  });
+
+  // codex P1-6 / fable P1-3: two crossing SMOOTH ribbons used to silently
+  // drop the loser's cells with no ledger entry at all (`report.ledger`
+  // stayed `[]` on braille/blocks while the identical topology on box
+  // reported two `sankey-band-broken` entries) — the smooth path ignored
+  // `paintCell`'s own refusal result entirely. K2,2 (A/B -> C/D) genuinely
+  // crosses on both diagonals.
+  it("a genuine smooth-ribbon crossing (K2,2 on braille) is reported via sankey-band-broken, never silently dropped", () => {
+    const data = [
+      { from: "A", to: "C", amount: 1 }, { from: "A", to: "D", amount: 1 },
+      { from: "B", to: "C", amount: 1 }, { from: "B", to: "D", amount: 1 },
+    ];
+    const r = renderGlyphChart(
+      { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] },
+      { target: "web", width: 72, height: 24, charset: "braille", legend: false },
+    );
+    const entries = r.report.ledger.filter((e) => e.code === "sankey-band-broken");
+    expect(entries.length, "a crossing K2,2 on braille must report at least one sankey-band-broken entry").toBeGreaterThan(0);
+    for (const e of entries) expect((e.detail as { cells: number }).cells).toBeGreaterThan(0);
+  });
+
+  // agy P2-1: the OLD mechanism keyed a cell's "owner" by the fallback
+  // row's own local ARRAY INDEX, not its band — so a multi-row band's
+  // later rows always disagreed with row 0's index at a shared
+  // pass-through cell (`pickSankeyFreeRow` routinely converges every
+  // internal row of a tall skip-level band onto the SAME free row across
+  // an intermediate node's column), fabricating a break for every band
+  // with height > 1 even with nothing else competing for its cells. The
+  // fix tracks real ownership PER BAND (`cellOwner`/`paintForBand`): a
+  // band's own later rows re-claiming a cell its own earlier row already
+  // painted is excluded, while a genuine foreign claim still counts. This
+  // is checked directly: A->C is a wide (200-unit, many-row) skip-level
+  // band with no possible foreign claim on most of its own free-row
+  // stretch, so it must not appear in the ledger at all, while B->C (the
+  // adjacent straight band A->C's own detour genuinely merges into, near
+  // C's own border) legitimately does.
+  it("a multi-row band's own internal rows sharing a cell (self-overlap) is never reported as sankey-band-broken", () => {
+    const data = [
+      { from: "A", to: "B", amount: 5 },
+      { from: "B", to: "C", amount: 5 },
+      { from: "A", to: "C", amount: 200 },
+    ];
+    const r = renderGlyphChart(
+      { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] },
+      { target: "chat", width: 72, height: 40 },
+    );
+    const bySource = (source: string) => r.report.ledger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string }).source === source);
+    expect(bySource("A"), "A->C's own multi-row self-overlap must not be reported as a break").toBeUndefined();
+  });
+
+  it("mutation-check baseline: a band with no crossing at all still reports nothing (unaffected by the ownership fix)", () => {
+    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
+    const r = renderGlyphChart(spec, { target: "chat", width: 72, height: 24 });
+    expect(r.report.ledger.some((e) => e.code === "sankey-band-broken")).toBe(false);
   });
 });

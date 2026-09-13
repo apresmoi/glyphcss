@@ -399,7 +399,7 @@ describe("encodeGlyphCanvasAnsi: NO_COLOR / FORCE_COLOR — non-empty counts, em
 });
 
 describe("encodeGlyphCanvasHtml: text({ scale }) — the web textScale affordance", () => {
-  it("emits a single <span class=\"glyph-text\"> per origin glyph, styled font-size:<s>em, and nothing for its filler cells (mutation: emit a blank glyph for fillers -> red)", () => {
+  it("emits a single <span class=\"glyph-text\"> per origin glyph, styled font-size:<s>em, and nothing for its filler cells on the ORIGIN's own row (mutation: emit a blank glyph for fillers -> red)", () => {
     const canvas = createGlyphCanvas({ cols: 6, rows: 2, tier: "box" });
     canvas.text(0, 0, ["a"], { color: "#ff0000", scale: 2 });
     const html = encodeGlyphCanvasHtml(canvas);
@@ -408,11 +408,43 @@ describe("encodeGlyphCanvasHtml: text({ scale }) — the web textScale affordanc
     // space belonging to the origin's own box).
     const rows = html.split("\n");
     expect(rows[0]).toBe('<span class="glyph-text" style="font-size:2em;line-height:calc(1 / 2);color:#ff0000">a</span>    ');
-    // Row 1: columns 0-1 are FILLER (the origin's own box) and emit
-    // nothing at all — not even a blank space, which would double the
-    // horizontal space the origin's own font-size-scaled advance already
-    // fills; columns 2-5 are ordinary blank cells and emit real spaces.
-    expect(rows[1]).toBe("    ");
+    // Row 1: columns 0-1 are FILLER too, but on the row BELOW the origin —
+    // nothing else reserves that column's width there (the bigger glyph
+    // only overflows DOWNWARD in ink, past its own line box; it never
+    // widens a later `\n`-separated row's own text), so unlike row 0's
+    // same-row fillers these DO emit real blanks, keeping the row's own
+    // column count exact (P1-2 — codex review: skipping them too shifted
+    // any later content on that row left by the filler width).
+    expect(rows[1]).toBe("      ");
+  });
+
+  // codex P1-2's own repro: a 12x3 canvas, "A" at (2,0) scale:2, and a "|"
+  // at column 8 on rows 0 AND 1. HEAD placed the lower bar at column 6
+  // (shifted left by the 2 skipped filler columns on row 1); it must stay
+  // at real column 8. Row 1 has no scaled origin of its own, so every one
+  // of its cells (filler or not) emits exactly one plain character —
+  // stripping tags and counting characters up to the bar therefore reads
+  // the bar's true column directly (mutation: skip below-origin fillers
+  // again -> the count drops to 6).
+  it("does not shift later content left on a row below a scaled origin (P1-2)", () => {
+    const canvas = createGlyphCanvas({ cols: 12, rows: 3, tier: "box" });
+    canvas.text(2, 0, ["A"], { color: "#ff0000", scale: 2 });
+    canvas.text(8, 0, ["|"], { color: "#00ff00" });
+    canvas.text(8, 1, ["|"], { color: "#00ff00" });
+    const html = encodeGlyphCanvasHtml(canvas);
+    const rows = html.split("\n");
+    const barCol = (row: string) => row.replace(/<[^>]*>/g, "").indexOf("|");
+    expect(barCol(rows[1]!)).toBe(8);
+    // Row 0's own bar sits one STRIPPED character earlier than its real
+    // column (7, not 8) for a reason that is NOT the P1-2 bug: the
+    // scaled "A" origin renders as ONE character in this plain-text
+    // stripping (real column width is a CSS `font-size` fact this test
+    // can't observe from the string alone) while its own same-row filler
+    // column (col 3) correctly emits nothing at all — so the origin+
+    // filler pair contributes 1 stripped character for 2 real columns.
+    // Only row 1 (no scaled origin) has a 1:1 stripped-character-to-
+    // column mapping, which is what the assertion above actually pins.
+    expect(barCol(rows[0]!)).toBe(7);
   });
 
   it("a scale-1 (default) label renders exactly like before this option existed — no glyph-text span anywhere", () => {
