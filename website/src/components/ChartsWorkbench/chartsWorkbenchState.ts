@@ -21,7 +21,7 @@ import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
-export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
+export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, remoteDatasetRecommendationCheck, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
 export { CHARTS_DATASETS, findChartsDataset, randomChartsDatasetId } from "./datasets";
 export type { ChartsDataset } from "./datasets";
 

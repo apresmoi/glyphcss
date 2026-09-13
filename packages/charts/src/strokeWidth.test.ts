@@ -66,6 +66,13 @@ function fixturePath(relative: string): string {
 // height: 24, charset, color: "none" })`. No `goodSpecs` entry in this PR
 // sets `strokeWidth` (reviewFixtures.ts's own comment on why), so every one
 // of these must still match byte for byte.
+// Every `arc`-mark entry's own fixture text (`:ascii`/`:box`/`:blocks`/
+// `:braille` keys) was regenerated after the P1-1 fix
+// (`GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect`, AGENTS.md's "Arc shape
+// and callouts") — this suite renders with an explicit `charset`/`color`
+// but no explicit `target`, so it defaults to `web`, and that fix changes
+// web's disc shape independently of `strokeWidth`. Every non-arc entry is
+// untouched.
 const parentFixtures: Record<string, string> = JSON.parse(
   readFileSync(fixturePath("fixtures/strokeWidthParentFixtures.json"), "utf8"),
 );

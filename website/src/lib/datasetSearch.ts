@@ -60,14 +60,29 @@ export const DATASET_SEARCH_FETCH_LIMIT = 50;
 /** How many rows `searchDatasets` returns after filtering/ranking, by default. */
 export const DATASET_SEARCH_RESULT_LIMIT = 8;
 
-/** Tag prefixes/values the Hub attaches to a dataset card that reads as TABULAR — read off real live responses (`scikit-learn/iris` carries `format:csv`, `modality:tabular`, `size_categories:n<1K`), never guessed from the docs. A dataset carrying NONE of these is almost always image/audio/raw-text and is dropped before it's ever shown. */
-const TABULAR_TAG_PREFIXES = ["format:csv", "format:json", "format:parquet", "modality:tabular", "task_categories:tabular"];
-/** `size_categories` values small enough that a browser can plausibly render the whole thing — the loader still caps rows/bytes regardless (`lib/datasetLoad.ts`), this is only a search-time signal that a hit is the RIGHT SHAPE of dataset, not a promise about size. */
-const SMALL_SIZE_CATEGORIES = new Set(["n<1K", "1K<n<10K", "10K<n<100K", "100K<n<1M"]);
+/**
+ * Tag EVIDENCE, split into two kinds, per REVIEW-arc-density-search-opus.md
+ * (P2-2) — measured live: `format:parquet` is the Hub's own auto-conversion
+ * tag and rides on essentially every modern dataset regardless of modality
+ * (query `"cats images"` on the real Hub returned 4 pure image-folder
+ * datasets tagged `format:parquet` + `modality:image`, 16 of 17 hits passing
+ * the OLD filter), so a `format:*`/`task_categories:tabular*` tag alone is
+ * evidence FOR tabular but not proof — a co-occurring `modality:*` tag that
+ * names a non-tabular medium overrides it. Only `modality:tabular` or a
+ * `task_categories:tabular*` tag is STRONG evidence (never overridden).
+ * `size_categories` (row-count bucket) carries NO signal about shape at
+ * all and is no longer read here — it used to accept a hit on its own,
+ * which is how the image-folder query's 17th hit passed.
+ */
+const TABULAR_STRONG_TAG_PREFIXES = ["modality:tabular", "task_categories:tabular"];
+const TABULAR_WEAK_TAG_PREFIXES = ["format:csv", "format:json", "format:parquet"];
+const NON_TABULAR_MODALITY_TAGS = ["modality:image", "modality:audio", "modality:video", "modality:text-only"];
 
 function isLikelyTabularHit(tags: readonly string[]): boolean {
-  return tags.some((tag) => TABULAR_TAG_PREFIXES.some((prefix) => tag.startsWith(prefix)))
-    || tags.some((tag) => tag.startsWith("size_categories:") && SMALL_SIZE_CATEGORIES.has(tag.slice("size_categories:".length)));
+  if (tags.some((tag) => TABULAR_STRONG_TAG_PREFIXES.some((prefix) => tag.startsWith(prefix)))) return true;
+  const hasWeakEvidence = tags.some((tag) => TABULAR_WEAK_TAG_PREFIXES.some((prefix) => tag.startsWith(prefix)));
+  if (!hasWeakEvidence) return false;
+  return !tags.some((tag) => NON_TABULAR_MODALITY_TAGS.includes(tag));
 }
 
 /** The transport seam — defaults to `fetch` + a status check + `json()`; injected by tests, which must never touch the network. Mirrors `MapsWorkbench/mapsGeocode.ts`'s `MapGeocodeFetch`. */

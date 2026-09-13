@@ -122,9 +122,9 @@ describe("ChartsWorkbench — explicit control overrides", () => {
   it("changes every unmodified control when the target changes", () => {
     const initial: GlyphChartsWorkbenchControls = { target: "chat", overrides: {} };
     const terminal = reduceGlyphChartsWorkbenchControls(initial, { type: "target", value: "terminal" });
-    expect(resolveGlyphChartsWorkbenchControls(terminal)).toEqual({ target: "terminal", charset: "braille", color: "truecolor", width: 80, height: 24 });
+    expect(resolveGlyphChartsWorkbenchControls(terminal)).toEqual({ target: "terminal", charset: "braille", color: "truecolor", width: 80, height: 24, cellAspect: 0.5 });
     const web = reduceGlyphChartsWorkbenchControls(terminal, { type: "target", value: "web" });
-    expect(resolveGlyphChartsWorkbenchControls(web)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32 });
+    expect(resolveGlyphChartsWorkbenchControls(web)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, cellAspect: 0.5859375 });
   });
 
   // Mutation: infer overrides by value inequality, or discard one control's explicit override on target change.
@@ -134,13 +134,13 @@ describe("ChartsWorkbench — explicit control overrides", () => {
   ] as const)("keeps an explicitly chosen default for $type", (action) => {
     const changed = reduceGlyphChartsWorkbenchControls({ target: "chat", overrides: {} }, action);
     const switched = reduceGlyphChartsWorkbenchControls(changed, { type: "target", value: "web" });
-    expect(resolveGlyphChartsWorkbenchControls(switched)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, [action.type]: action.value });
+    expect(resolveGlyphChartsWorkbenchControls(switched)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, cellAspect: 0.5859375, [action.type]: action.value });
   });
 
   // Mutation: reset clears only colour/charset and leaves dimension overrides behind.
   it("clears all four explicit overrides on reset", () => {
     const reset = reduceGlyphChartsWorkbenchControls({ target: "web", overrides: { charset: "ascii", color: "none", width: 20, height: 6 } }, { type: "reset" });
-    expect(resolveGlyphChartsWorkbenchControls(reset)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32 });
+    expect(resolveGlyphChartsWorkbenchControls(reset)).toEqual({ target: "web", charset: "braille", color: "css", width: 96, height: 32, cellAspect: 0.5859375 });
     expect(reset.overrides).toEqual({});
   });
 });
@@ -772,7 +772,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // Item 2 — same look/placement as GalleryWorkbench.tsx's own "Load
   // Random" button: picks a DIFFERENT dataset than the one currently
   // loaded, immediately (no Apply step).
-  it("the rail's ⚄ Random button loads a different dataset immediately", () => {
+  it("the rail's Random button loads a different dataset immediately", () => {
     const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
     act(() => {
       datasetSelect.value = "iris-flowers";

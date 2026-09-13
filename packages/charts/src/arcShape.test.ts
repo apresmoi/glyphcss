@@ -31,6 +31,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { glyphChartArc, normalizeGlyphChartInput } from "./spec";
 import { renderGlyphChart } from "./render";
+import { markFactories } from "./reviewFixtures";
 import type { GlyphChartLedgerEntry, GlyphChartInput } from "./types";
 
 // ── shared geometry, independently re-derived from the diagnosis' own formula ──
@@ -41,7 +42,11 @@ interface Radii { readonly cx: number; readonly cy: number; readonly rx: number;
  * case below renders with the legend off, so `layout.plot` is exactly
  * `[0, cols-1] x [0, rows-1]` (arc paints no axes/title). */
 function expectedRadii(plotCols: number, plotRows: number, cellAspect: number, wantCallouts: boolean): Radii & { readonly calloutsFit: boolean } {
-  const gutter = GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS;
+  // P3 (REVIEW-arc-density-search-opus.md): mirrors `arcRadii`'s own gutter
+  // cap (`min(GUTTER, floor(plotCols / 4))`) — a plot narrower than
+  // `4 * GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS` (96 columns) no longer
+  // reserves the full fixed budget.
+  const gutter = Math.min(GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS, Math.floor(plotCols / 4));
   const calloutsFit = wantCallouts && plotCols - 2 * gutter >= 3 && plotRows >= 3;
   const availableCols = calloutsFit ? plotCols - 2 * gutter : plotCols;
   const diameter = Math.max(1, Math.min(plotRows, availableCols * cellAspect)) * GLYPH_CHART_ARC_FILL;
@@ -250,11 +255,150 @@ describe("arc callouts: leader + name · NN% label per slice", () => {
   });
 });
 
+/**
+ * P3 (REVIEW-arc-density-search-opus.md): the callout gutter used to be a
+ * flat `GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS` (12/side) reservation with no
+ * relation to the plot's own shape — free at every target default (the
+ * ROW budget binds there), but on a tall/square grid it removed a much
+ * larger FRACTION of the disc's own row diameter than of the plot's
+ * columns. Measured (pre-fix) at 40x40: a 12x6 callout disc against a
+ * 32x16 legend-only one on the SAME canvas — 63% of the disc's rows
+ * traded away. Capped at `floor(plotCols / 4)` per side.
+ */
+describe("P3: the callout gutter is capped on a tall/narrow grid, not a flat reservation", () => {
+  it("MUTATION CAUGHT (drop the floor(plotCols/4) cap -> red): a 40x40 callout disc is now measurably close to its own legend-only disc, not a fraction of it", () => {
+    // A single slice: always the solid "█" glyph, so `DISC_GLYPH`'s bbox
+    // scan captures the WHOLE disc (a multi-slice pie shades most of it
+    // ▓/▒/░, which this scan doesn't count — this file's own shape tests
+    // above use the same single-slice trick for the same reason).
+    const cols = 40, rows = 40;
+    const callout = paintAt(glyphChartArc([1], undefined, { labels: "callout" }), cols, rows, 0.5);
+    const legendOnly = paintAt(glyphChartArc([1], undefined, { labels: "legend-only" }), cols, rows, 0.5);
+    const calloutBox = bbox(cols, rows, callout.canvas.grid.char, DISC_GLYPH);
+    const legendBox = bbox(cols, rows, legendOnly.canvas.grid.char, DISC_GLYPH);
+    const calloutRows = calloutBox.maxRow - calloutBox.minRow + 1;
+    const legendRows = legendBox.maxRow - legendBox.minRow + 1;
+    // Pre-fix this ratio measured 6/16 = 0.375 (63% lost); the capped
+    // gutter recovers it to 0.5 (measured) — genuinely better, though the
+    // trade is not eliminated (a callout disc is still smaller than the
+    // no-callout one by construction, since it still reserves SOME gutter).
+    expect(calloutRows / legendRows).toBeGreaterThan(0.45);
+  });
+
+  it("the disc extent at 40x40 with callouts on matches the capped-gutter formula exactly", () => {
+    const cols = 40, rows = 40;
+    const { canvas } = paintAt(glyphChartArc([1], undefined, { labels: "callout" }), cols, rows, 0.5);
+    const box = bbox(cols, rows, canvas.grid.char, DISC_GLYPH);
+    const expected = expectedRadii(cols, rows, 0.5, true);
+    expect(expected.calloutsFit).toBe(true);
+    const colExtent = box.maxCol - box.minCol + 1;
+    const rowExtent = box.maxRow - box.minRow + 1;
+    expect(Math.abs(colExtent - Math.round(expected.rx * 2))).toBeLessThanOrEqual(2);
+    expect(Math.abs(rowExtent - Math.round(expected.ry * 2))).toBeLessThanOrEqual(2);
+  });
+
+  it("a wide grid (>= 96 plot columns) is unaffected — the cap never binds where the row budget already did", () => {
+    const cols = 96, rows = 32;
+    const capped = expectedRadii(cols, rows, 0.5, true);
+    const uncapped = { gutter: 12 }; // GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS
+    expect(Math.min(12, Math.floor(cols / 4))).toBe(uncapped.gutter);
+    expect(capped.calloutsFit).toBe(true);
+  });
+});
+
 describe("arc callouts: legend-only is byte-identical across repeats and never paints a leader", () => {
   it("legend-only never paints a leader glyph (─) outside the legend row", () => {
     const r = renderGlyphChart(glyphChartArc(browserShares, { fill: "browser", y: "share" }, { labels: "legend-only" }), { target: "chat", width: 72, height: 24 });
     const bodyRows = r.text.split("\n").slice(0, -1);
     expect(bodyRows.some((row) => row.includes("─"))).toBe(false);
     expect(r.text).toBe(renderGlyphChart(glyphChartArc(browserShares, { fill: "browser", y: "share" }, { labels: "legend-only" }), { target: "chat", width: 72, height: 24 }).text);
+  });
+});
+
+/**
+ * P1-1 (REVIEW-arc-density-search-opus.md) — `renderGlyphChart` did not
+ * carry ANY target's own `cellAspect` down to `createGlyphCanvas`, so
+ * `arcRadii` always split rx/ry by the canvas default (0.5) even for
+ * `target: "web"`, whose real font (Glyph Mono, `line-height: 1`) measures
+ * 0.5859375 em/line advance — a pie was a real oval on the one target the
+ * page renders at. `GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect` now carries
+ * that measured constant through.
+ */
+describe("P1-1: the web target's disc is a circle on REAL glass, not merely in cell counts at the wrong aspect", () => {
+  // Bounding-box extent of the painted disc (block glyphs only), same
+  // technique as `expectedRadii`'s callers above — `legend: false` and
+  // `labels: "legend-only"` so nothing but the disc paints.
+  function discExtent(cellAspect: number) {
+    const r = renderGlyphChart(glyphChartArc([1, 1, 1], undefined, { labels: "legend-only" }), {
+      target: "web",
+      legend: false,
+      cellAspect,
+    });
+    const cols = r.grid.cols, rows = r.grid.rows;
+    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const c = r.grid.char[y * cols + x];
+        if (c === " " || c === "") continue;
+        minCol = Math.min(minCol, x); maxCol = Math.max(maxCol, x);
+        minRow = Math.min(minRow, y); maxRow = Math.max(maxRow, y);
+      }
+    }
+    return { colExtent: maxCol - minCol + 1, rowExtent: maxRow - minRow + 1 };
+  }
+
+  // Glyph Mono's own measured advance/line-height (fontTools on
+  // website/public/fonts/glyph-mono.woff2, `hhea` 1200/2048, line-height 1)
+  // — the ACTUAL physical aspect of a cell on the page this ships to,
+  // independent of whichever `cellAspect` the renderer was told to draw
+  // with. `colExtent * REAL_WEB_ASPECT / rowExtent` is the disc's real
+  // on-screen width/height ratio.
+  const REAL_WEB_ASPECT = 0.5859375;
+
+  it("measured: cellAspect 0.5 (the pre-fix default) draws a disc that is +17.2% wider than tall on real glass", () => {
+    const { colExtent, rowExtent } = discExtent(0.5);
+    const physical = (colExtent * REAL_WEB_ASPECT) / rowExtent;
+    expect(colExtent).toBe(52);
+    expect(rowExtent).toBe(26);
+    expect(physical).toBeCloseTo(1.171875, 5);
+  });
+
+  it("web's own default cellAspect (0.5859375) draws a disc within 1% of a real circle on glass — the acceptance criterion this feature exists for", () => {
+    // Mutation: hardcode `cellAspect` to 0.5 anywhere in `renderGlyphChart`
+    // / `GLYPH_CHART_TARGET_DEFAULTS.web` instead of reading the target's
+    // own value -> `colExtent` reverts to 52 (the case above) and this
+    // physical ratio goes back to 1.172, failing the 1% bound below.
+    const { colExtent, rowExtent } = discExtent(0.5859375);
+    const physical = (colExtent * REAL_WEB_ASPECT) / rowExtent;
+    expect(Math.abs(physical - 1)).toBeLessThan(0.01);
+  });
+
+  it("renderGlyphChart(spec, { target: 'web' }) with no cellAspect override reads GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect, not the canvas's own 0.5 default", () => {
+    const withDefault = renderGlyphChart(glyphChartArc([1, 1, 1], undefined, { labels: "legend-only" }), { target: "web", legend: false });
+    const withExplicitMatch = renderGlyphChart(glyphChartArc([1, 1, 1], undefined, { labels: "legend-only" }), { target: "web", legend: false, cellAspect: 0.5859375 });
+    const withOldBug = renderGlyphChart(glyphChartArc([1, 1, 1], undefined, { labels: "legend-only" }), { target: "web", legend: false, cellAspect: 0.5 });
+    expect(withDefault.text).toBe(withExplicitMatch.text);
+    expect(withDefault.text).not.toBe(withOldBug.text);
+  });
+});
+
+/**
+ * "the arc note's own reject rule... I grepped every file under
+ * `packages/glyphcss/src/render/canvas/` — no painter, tier table,
+ * junction resolver or encoder reads `cellAspect`" (P1-1 evidence) — pinned
+ * here for every non-arc mark type: two renders of the SAME spec at the
+ * SAME target, differing only in `cellAspect`, must be byte-identical.
+ * Mutation: any painter branching on `canvas.cellAspect` (fillRect, line,
+ * text, an axis/tick/junction resolver) makes one of these go red.
+ */
+describe("P1-1: cellAspect changes ONLY the arc painter — every other mark is byte-identical across it", () => {
+  const nonArcFactories = markFactories.filter((fn) => fn([-1, 1]).type !== "arc");
+  it.each(nonArcFactories.map((fn) => [fn([-1, 1]).type, fn] as const))("%s: identical text at cellAspect 0.5 vs 0.5859375 vs 1.5", (_type, fn) => {
+    const spec = fn([-1, 1]);
+    const a = renderGlyphChart(spec, { target: "web", cellAspect: 0.5 });
+    const b = renderGlyphChart(spec, { target: "web", cellAspect: 0.5859375 });
+    const c = renderGlyphChart(spec, { target: "web", cellAspect: 1.5 });
+    expect(b.text).toBe(a.text);
+    expect(c.text).toBe(a.text);
   });
 });

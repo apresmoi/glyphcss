@@ -28,4 +28,21 @@ describe("CHARTS_REMOTE_DATASET_INDEX", () => {
     const ids = CHARTS_REMOTE_DATASET_INDEX.map((h) => h.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  // P2-3 (REVIEW-arc-density-search-opus.md): three ids loaded fine and
+  // then silently charted nothing (every real column categorical/boolean —
+  // `recommendChart` has no numeric/date column to build from). Dropped
+  // rather than kept as a dead-end click.
+  it("does not curate an all-categorical dataset with no chartable column (mushroom/car/tic-tac-toe)", () => {
+    const ids = CHARTS_REMOTE_DATASET_INDEX.map((h) => h.id);
+    expect(ids).not.toContain("mstz/mushroom");
+    expect(ids).not.toContain("mstz/car");
+    expect(ids).not.toContain("mstz/tic_tac_toe");
+  });
+
+  // P3-13: the header/design-doc claim that `scikit-learn/iris` rounds out
+  // the list used to be false — it wasn't in the array at all.
+  it("curates scikit-learn/iris, as this file's own header claims", () => {
+    expect(CHARTS_REMOTE_DATASET_INDEX.map((h) => h.id)).toContain("scikit-learn/iris");
+  });
 });

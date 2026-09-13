@@ -297,3 +297,44 @@ describe("resolveGlyphCanvasJunctions: route conflict kinds", () => {
     );
   });
 });
+
+// P2-1 (REVIEW-arc-density-search-opus.md): `resolveJunctions()` had an
+// undocumented single-call precondition — a second call with no new
+// registration re-derived and re-PUSHED every already-reported conflict
+// into `report.routeConflicts` a second time, duplicating it, because
+// nothing cleared the accumulator between calls. Grid glyphs were already
+// fine (`grid.char[idx] = ...` is an overwrite), so only the report
+// doubled.
+describe("resolveGlyphCanvasJunctions is idempotent: a second call with no new registration produces an IDENTICAL report", () => {
+  it("MUTATION CAUGHT (drop the report.routeConflicts.length = 0 clear -> red): two resolveJunctions() calls give the same routeConflicts, not double", () => {
+    const canvas = createGlyphCanvas({ cols: 7, rows: 1, tier: "box" });
+    canvas.edge("p1", { from: "p1-a", to: "p1-b" });
+    canvas.edge("p2", { from: "p2-a", to: "p2-b" });
+    canvas.route("p1", pts([[1, 0], [2, 0], [3, 0], [4, 0], [5, 0]]));
+    canvas.route("p2", pts([[2, 0], [3, 0], [4, 0]]));
+    canvas.resolveJunctions();
+    const first = [...canvas.report.routeConflicts];
+    expect(first.length).toBeGreaterThan(0);
+    canvas.resolveJunctions();
+    const second = [...canvas.report.routeConflicts];
+    expect(second).toEqual(first);
+  });
+
+  it("MUTATION CAUGHT: the same holds for a genuine 3-edge \"multi\" conflict, resolved three times", () => {
+    const canvas = createGlyphCanvas({ cols: 5, rows: 5, tier: "box" });
+    canvas.edge("ew", { from: "ew-a", to: "ew-b" });
+    canvas.edge("ns", { from: "ns-a", to: "ns-b" });
+    canvas.edge("ne", { from: "ne-a", to: "ne-b" });
+    canvas.route("ew", pts([[1, 2], [2, 2], [3, 2]]));
+    canvas.route("ns", pts([[2, 1], [2, 2], [2, 3]]));
+    canvas.route("ne", pts([[2, 1], [2, 2], [3, 2]]));
+    canvas.resolveJunctions();
+    const once = [...canvas.report.routeConflicts];
+    canvas.resolveJunctions();
+    canvas.resolveJunctions();
+    const thrice = [...canvas.report.routeConflicts];
+    expect(thrice).toEqual(once);
+    // Grid glyphs are unaffected either way — the bug was report-only.
+    expect(canvas.grid.char[IDX(5, 2, 2)]).toBe(GLYPH_CANVAS_TIERS.box.hop.h);
+  });
+});

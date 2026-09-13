@@ -235,6 +235,13 @@ export interface GlyphChartRenderOptions {
   readonly width?: number;
   readonly height?: number;
   readonly detail?: GlyphChartDetail;
+  /**
+   * Overrides the target's own column-width / row-height ratio
+   * (`GLYPH_CHART_TARGET_DEFAULTS`'s `cellAspect`) fed to
+   * `createGlyphCanvas`. Only `arc`'s radius split reads it — see
+   * AGENTS.md's "Charts" "Arc shape and callouts" paragraph.
+   */
+  readonly cellAspect?: number;
   /** Whether/where layout shows the series legend; defaults to true (`"bottom"`). Overrides `spec.legend`. */
   readonly legend?: GlyphChartLegendOption;
   /** Read only for `NO_COLOR`/`FORCE_COLOR`, exactly like the canvas's own ANSI encoder — never `process.env` implicitly. */

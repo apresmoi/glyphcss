@@ -29,6 +29,13 @@ function fixturePath(relative: string): string {
   if (!testPath) throw new Error("no test path available to resolve fixture from");
   return join(dirname(testPath), relative);
 }
+// Every `arc`-mark entry's own `text` (goodSpecs indices 6, 11, 20, 21, 22)
+// was regenerated after the P1-1 fix (`GLYPH_CHART_TARGET_DEFAULTS.web.
+// cellAspect`, AGENTS.md's "Arc shape and callouts") — that fix changes the
+// web target's disc shape independently of `titleAt`, so the literal
+// pre-titleAt build's bytes for an arc chart are no longer what this build
+// produces even with `titleAt` absent. Every other (non-arc) entry is
+// untouched.
 const parentGoodSpecs: { i: number; text: string }[] = JSON.parse(readFileSync(fixturePath("fixtures/axisTitleParentGoodSpecs.json"), "utf8"));
 
 /**

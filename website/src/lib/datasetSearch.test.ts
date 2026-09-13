@@ -74,14 +74,42 @@ describe("searchDatasets", () => {
     await expect(searchDatasets("x", { fetchJson: async () => ({ not: "an array" }) })).resolves.toEqual([]);
   });
 
-  it("size_categories alone (no format:/modality: tag) still counts as tabular when it's a SMALL bucket", async () => {
+  // P2-2 (REVIEW-arc-density-search-opus.md): `size_categories` alone used
+  // to count as tabular evidence (a row-count bucket, which carries no
+  // signal about SHAPE) — this is what let an image dataset's 17th tag,
+  // `size_categories:10K<n<100K`, pass the filter on its own. It now never
+  // does, regardless of bucket size.
+  it("size_categories alone, no format:/modality: tag at all, is filtered out even at a small bucket", async () => {
     const hits = await searchDatasets("x", { fetchJson: async () => [hfEntry({ tags: ["size_categories:1K<n<10K"] })] });
-    expect(hits).toHaveLength(1);
+    expect(hits).toEqual([]);
   });
 
   it("a large size_categories bucket with no other tabular signal is filtered out", async () => {
     const hits = await searchDatasets("x", { fetchJson: async () => [hfEntry({ tags: ["size_categories:100M<n<1B"] })] });
     expect(hits).toEqual([]);
+  });
+
+  // P2-2: a `format:*` tag (the Hub's own auto-conversion tag, which rides
+  // on essentially every modern dataset regardless of modality) is only
+  // WEAK evidence — a co-occurring `modality:image|audio|video|text-only`
+  // tag overrides it. Real shapes captured live, query `"cats images"`
+  // (REVIEW-arc-density-search-opus.md's own evidence table): four pure
+  // image-folder datasets, 16 of 17 total hits passing the OLD filter.
+  it("rejects a real image-dataset tag set (format:parquet + modality:image) even though format: is present", async () => {
+    const hits = await searchDatasets("cats images", {
+      fetchJson: async () => [
+        hfEntry({ id: "ziyang06315/cats_images_dataset", tags: ["task_categories:image-to-image", "modality:image", "size_categories:10K<n<100K"] }),
+        hfEntry({ id: "Omriy123/Dogs_vs_Cats_ImgFolderDS", tags: ["format:parquet", "modality:image", "size_categories:10K<n<100K"] }),
+        hfEntry({ id: "Omriy123/Dogs_vs_Cats_2x2_DS", tags: ["format:parquet", "modality:image"] }),
+        hfEntry({ id: "Omriy123/Dogs_vs_Cats_3x3_DS", tags: ["format:parquet", "modality:image"] }),
+      ],
+    });
+    expect(hits).toEqual([]);
+  });
+
+  it("modality:tabular is STRONG evidence and is never overridden by a co-occurring format tag", async () => {
+    const hits = await searchDatasets("x", { fetchJson: async () => [hfEntry({ tags: ["modality:tabular", "format:parquet"] })] });
+    expect(hits).toHaveLength(1);
   });
 });
 

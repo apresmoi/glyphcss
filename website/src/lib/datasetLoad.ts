@@ -42,7 +42,7 @@ export interface DatasetLoadSource {
 
 export type DatasetLoadResult =
   | { readonly ok: true; readonly rows: readonly TabularRow[]; readonly columns: readonly string[]; readonly source: DatasetLoadSource; readonly truncated: boolean }
-  | { readonly ok: false; readonly kind: "gated" | "not-found" | "network" | "too-big" | "not-tabular" | "cors"; readonly error: string };
+  | { readonly ok: false; readonly kind: "gated" | "not-found" | "network" | "too-big" | "not-tabular"; readonly error: string };
 
 /** The transport seam — defaults to a real `fetch`; injected by tests, which must never touch the network. `status` and a capped, decoded `text` are what every caller here actually needs (never `.json()` directly — a fallback path must inspect the raw body before deciding how to parse it). */
 export type DatasetLoadFetch = (url: string, init?: { signal?: AbortSignal }) => Promise<{ readonly ok: boolean; readonly status: number; readonly headers: { get(name: string): string | null }; text(): Promise<string>; body?: ReadableStream<Uint8Array> | null }>;
@@ -125,11 +125,21 @@ async function loadRawFile(url: string, source: DatasetLoadSource, options: Data
   if (!res.ok) return { ok: false, kind: "network", error: `${filenameOf(url)} responded ${res.status}.` };
   const declaredLength = Number(res.headers.get("content-length") ?? "");
   // A CORS-blocked request never reaches here — the browser rejects it
-  // before `fetch` resolves at all (see `loadDatasetRows`'s own network
-  // catch, which is where a preflight/opaque-response failure actually
-  // surfaces).
+  // before `fetch` resolves at all (surfaces through the `network` catch
+  // above instead; there is no distinct `DatasetLoadResult` kind for it —
+  // P3-6, REVIEW-arc-density-search-opus.md — a consumer switching
+  // exhaustively over `kind` would otherwise write a branch that can never
+  // run).
+  //
+  // P3-9: this rejects at `maxBytes * 4`, not `maxBytes` — a file under
+  // that is instead streamed and TRUNCATED at `maxBytes` (`readTextCapped`
+  // below), which is the intended, working behaviour, not a failure. The
+  // message used to cite `maxBytes` (implying that was the threshold that
+  // rejected it), which was never the number this branch actually compared
+  // against. Named honestly instead: the file is too large to even load a
+  // useful truncated prefix of.
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes * 4) {
-    return { ok: false, kind: "too-big", error: `${filenameOf(url)} is ${Math.ceil(declaredLength / 1024)} KB — over the ${Math.ceil(maxBytes / 1024)} KB limit.` };
+    return { ok: false, kind: "too-big", error: `${filenameOf(url)} is ${Math.ceil(declaredLength / 1024)} KB — too large to load even truncated.` };
   }
   const { text, truncated } = await readTextCapped(res, maxBytes);
   const filename = filenameOf(url);
@@ -150,7 +160,18 @@ async function loadHfRows(id: string, split: HfSplit, source: DatasetLoadSource,
   const rows: TabularRow[] = [];
   let offset = 0;
   let totalKnown: number | undefined;
+  // P3-7 (REVIEW-arc-density-search-opus.md): the loop used to be bounded
+  // by USABLE rows (`rows.length < maxRows`), advancing `offset` by
+  // `pageRows.length` every page but only ever appending an entry whose
+  // `.row` is a real object — a response whose rows are all unusable
+  // (malformed, or a hostile server) left `rows.length` static forever,
+  // so the ONLY things that could end the loop were an empty page or
+  // `num_rows_total` — neither guaranteed on a malformed source. Bounded
+  // by PAGES fetched too, independent of how many rows each page yields.
+  const maxPages = Math.ceil(maxRows / HF_ROWS_PAGE_SIZE) + 1;
+  let pages = 0;
   while (rows.length < maxRows) {
+    if (++pages > maxPages) break;
     const length = Math.min(HF_ROWS_PAGE_SIZE, maxRows - rows.length);
     const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(id)}&config=${encodeURIComponent(split.config)}&split=${encodeURIComponent(split.split)}&offset=${offset}&length=${length}`;
     let res: Awaited<ReturnType<DatasetLoadFetch>>;
@@ -177,7 +198,8 @@ async function loadHfRows(id: string, split: HfSplit, source: DatasetLoadSource,
   }
   if (rows.length === 0) return null;
   const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  return { ok: true, rows: rows.slice(0, maxRows), columns, source, truncated: totalKnown !== undefined && totalKnown > rows.length };
+  const hitPageCap = pages > maxPages;
+  return { ok: true, rows: rows.slice(0, maxRows), columns, source, truncated: hitPageCap || (totalKnown !== undefined && totalKnown > rows.length) };
 }
 
 /** A datasets-server row's own field can be a nested object/array (an image reference, a list column) — outside `TabularRow`'s `TabularCell` union, so it is stringified rather than silently dropped: a reader can still see the column exists, and `dataProfile.ts` reads it as `text` rather than mis-typing it. */
@@ -188,6 +210,28 @@ function flattenHfRow(row: Record<string, unknown>): TabularRow {
       : value === undefined ? null : JSON.stringify(value);
   }
   return out;
+}
+
+/**
+ * P3-5 (REVIEW-arc-density-search-opus.md): the raw-file fallback used to
+ * take `siblings.find(name matches /\.(csv|tsv|json)$/i)` — the FIRST
+ * match in the Hub's own listing order, which is routinely `dataset_
+ * infos.json` or `config.json` (both common repo metadata that sorts
+ * ahead of the real data file) rather than an actual data file.
+ * `parseTabular` then either rejects it (`not-tabular`, reported as if the
+ * dataset had no readable file at all) or parses a nested metadata object
+ * into one nonsense row. Two fixes: a small metadata deny-list, and a
+ * preference for `.csv`/`.tsv` (unambiguous tabular data) over `.json`
+ * (which the Hub also uses for non-tabular repo config).
+ */
+const HF_SIBLING_DENY_RE = /^(dataset_infos\.json|config\.json|\.gitattributes|.*\.lock)$/i;
+function pickHfSiblingFilename(siblings: unknown): string | undefined {
+  if (!Array.isArray(siblings)) return undefined;
+  const names = siblings
+    .map((s) => (s && typeof s === "object" ? (s as Record<string, unknown>).rfilename : undefined))
+    .filter((name): name is string => typeof name === "string");
+  const candidates = names.filter((name) => /\.(csv|tsv|json)$/i.test(name) && !HF_SIBLING_DENY_RE.test(name));
+  return candidates.find((name) => /\.(csv|tsv)$/i.test(name)) ?? candidates[0];
 }
 
 async function loadHfDataset(id: string, options: DatasetLoadOptions): Promise<DatasetLoadResult> {
@@ -228,10 +272,7 @@ async function loadHfDataset(id: string, options: DatasetLoadOptions): Promise<D
   let metaBody: unknown;
   try { metaBody = JSON.parse(await metaRes.text()); } catch { return { ok: false, kind: "not-tabular", error: `"${id}" has no readable file listing.` }; }
   const siblings = metaBody && typeof metaBody === "object" ? (metaBody as Record<string, unknown>).siblings : undefined;
-  const filename = Array.isArray(siblings)
-    ? siblings.map((s) => (s && typeof s === "object" ? (s as Record<string, unknown>).rfilename : undefined))
-      .find((name): name is string => typeof name === "string" && /\.(csv|tsv|json)$/i.test(name))
-    : undefined;
+  const filename = pickHfSiblingFilename(siblings);
   if (!filename) return { ok: false, kind: "not-tabular", error: `"${id}" has no CSV/TSV/JSON file this page can read.` };
   return loadRawFile(`https://huggingface.co/datasets/${id}/resolve/main/${filename}`, source, options);
 }

@@ -370,7 +370,22 @@ function arcRadii(plot: GlyphChartPlotRect, cellAspect: number, wantCallouts: bo
   const plotCols = plot.x1 - plot.x0 + 1;
   const plotRows = plot.y1 - plot.y0 + 1;
   const aspect = cellAspect > 0 && Number.isFinite(cellAspect) ? cellAspect : 0.5;
-  const gutter = GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS;
+  // P3 (REVIEW-arc-density-search-opus.md): the FIXED 24-column gutter
+  // (12/side) is genuinely free at every target default (the row budget
+  // binds there, AGENTS.md's own claim) — but on a TALL or SQUARE grid
+  // (`plotRows` comparable to or larger than `plotCols`), removing a flat
+  // fraction of the COLUMNS removes a much larger fraction of the disc's
+  // own ROW diameter (`availableCols * aspect` is what actually bounds
+  // it): measured at 40x40, the unreserved gutter left a 12x6 smudge in
+  // the middle of a 40x40 canvas — 63% of the disc's rows traded for
+  // callout labels 13 characters long in a 12-column reservation. Capped
+  // per side at a quarter of the plot's own width, which is genuinely
+  // free at every measured target default (140/2=... — the cap only ever
+  // binds below `4 * GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS` = 96 plot
+  // columns, well under every target's own width) and keeps the property
+  // the fixed budget was FOR (independent of label text) while no longer
+  // trading the majority of the disc away on a narrow/tall grid.
+  const gutter = Math.min(GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS, Math.floor(plotCols / 4));
   const calloutsFit = wantCallouts && plotCols - 2 * gutter >= 3 && plotRows >= 3;
   const availableCols = calloutsFit ? plotCols - 2 * gutter : plotCols;
   const diameter = Math.max(1, Math.min(plotRows, availableCols * aspect)) * GLYPH_CHART_ARC_FILL;
