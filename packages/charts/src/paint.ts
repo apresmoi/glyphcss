@@ -303,7 +303,7 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
 function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number): void {
   const values = series.map((s) => s.rows.reduce((sum, r) => sum + numeric(r.y), 0));
   const total = values.reduce((a, b) => a + b, 0);
-  if (total === 0) { ledger.push(ledgerEmptyTotal()); return; }
+  if (total === 0) { ledger.push(ledgerEmptyTotal("pie")); return; }
   // `chartSeries` already dropped every nonpositive/zero-or-less arc row
   // before `series` ever reached this painter (`docs/design/charts.md`'s
   // documented rule: "Negative pie values contribute zero"), so the drop

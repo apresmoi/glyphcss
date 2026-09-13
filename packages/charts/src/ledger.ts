@@ -51,11 +51,16 @@ export function ledgerSeriesDodgeDegraded(opts: { readonly count: number; readon
 
 /**
  * Shared by `arc` (a pie whose slices are all zero) and `funnel` (a funnel
- * whose stages are all zero) — both mean "nothing to draw" the same way,
- * so both go through this one code rather than a mark-specific pair.
+ * whose stages are all zero) — both mean "nothing to draw" the same way, so
+ * both go through this one code, but each keeps its OWN wording: generalising
+ * the message to a mark-neutral "chart" silently changed what an existing
+ * `arc` caller's CLI/log output printed (round 2 N9) — `subject` is a required
+ * argument, not a shared default, so a future third mark can't reintroduce
+ * that by omission.
  */
-export function ledgerEmptyTotal(): GlyphChartLedgerEntry {
-  return entry("empty-total", "Every value in this chart is zero, so nothing is drawn.");
+export function ledgerEmptyTotal(subject: "pie" | "funnel"): GlyphChartLedgerEntry {
+  const consequence = subject === "pie" ? "no slices are drawn" : "nothing is drawn";
+  return entry("empty-total", `Every value in this ${subject} is zero, so ${consequence}.`, { subject });
 }
 
 export function ledgerSliceDropped(opts: { readonly dropped: number; readonly total: number }): GlyphChartLedgerEntry {
@@ -96,8 +101,12 @@ export function ledgerSankeyCrossingsMerged(opts: { readonly gapX0: number; read
   return entry("sankey-crossings-merged", `Merged ${opts.crossing} crossing flows onto ${opts.lanes} lane${plural} — the gap between columns is too narrow to give each its own.`, { ...opts });
 }
 
-export function ledgerSankeyColumnsFolded(opts: { readonly folded: number; readonly total: number }): GlyphChartLedgerEntry {
-  return entry("sankey-columns-folded", `Folded ${opts.folded} of ${opts.total} node columns to fit the chart width.`, { ...opts });
+export function ledgerSankeyColumnsFolded(opts: { readonly folded: number; readonly total: number; readonly droppedLinks?: readonly string[] }): GlyphChartLedgerEntry {
+  const dropped = opts.droppedLinks ?? [];
+  const suffix = dropped.length > 0
+    ? ` ${dropped.length} link${dropped.length === 1 ? "" : "s"} now share a column and aren't drawn: ${dropped.join(", ")}.`
+    : "";
+  return entry("sankey-columns-folded", `Folded ${opts.folded} of ${opts.total} node columns to fit the chart width.${suffix}`, { ...opts, droppedLinks: dropped });
 }
 
 /**

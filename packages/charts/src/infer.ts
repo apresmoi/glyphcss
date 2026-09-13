@@ -29,17 +29,32 @@ export type GlyphChartInferredScaleType = "time" | "band" | "linear";
 const ISO_DATE_ONLY_REGEX = new RegExp(ISO_DATE_PATTERN);
 
 export function inferGlyphChartScaleType(values: readonly unknown[]): GlyphChartInferredScaleType {
-  let sawString = false;
+  // Short-circuits on the FIRST value whose type settles the answer — kept
+  // exactly as before (a `number` still commits to "linear" immediately,
+  // a non-date `string` still commits to "band" immediately) because
+  // `scales.ts`'s `numericValuesUnplaceableOnBand` runs this over the
+  // CONCATENATION of every mark's own x values sharing an axis and relies
+  // on that first-type-wins order to tell "a numeric mark genuinely wants a
+  // continuous scale" (numeric-shorthand mark declared first) from "a
+  // numeric value can honestly sit on the other mark's band" (declared
+  // after a categorical mark) — changing that general rule is out of this
+  // fix's scope. The ONE case that must NOT reach the number branch is a
+  // run of calendar-ISO date strings seen so far with no number yet: those
+  // don't commit to anything (`sawDateStringOnly`, scanning continues) so
+  // a LATER plain number can still be caught as a genuine mix (round 2
+  // N10/N12: `["2024-01-01", 5]` used to short-circuit through the date
+  // string to "linear", and `Number("2024-01-01")` is NaN).
+  let sawDateStringOnly = false;
   for (const v of values) {
     if (v === null || v === undefined) continue;
-    if (v instanceof Date) return "time";
-    if (typeof v === "number") return "linear";
+    if (v instanceof Date) return "time"; // a real Date is a controlled, already-homogeneous source.
+    if (typeof v === "number") return sawDateStringOnly ? "band" : "linear";
     if (typeof v === "string") {
-      sawString = true;
       if (!ISO_DATE_ONLY_REGEX.test(v)) return "band"; // one non-date string settles it.
+      sawDateStringOnly = true; // a valid date string so far — keep scanning.
     }
   }
-  if (sawString) return "time"; // every string seen was a valid calendar ISO date.
+  if (sawDateStringOnly) return "time"; // every string seen was a valid calendar ISO date.
   // No usable value at all (every row null/undefined) — linear is the
   // least surprising fallback and matches an empty-domain guard downstream.
   return "linear";

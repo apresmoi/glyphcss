@@ -521,7 +521,13 @@ function buildMark(mark: ChartsWorkbenchMark): GlyphChartMark {
     const value = numeric && field === "index" ? data.map((_, i) => i) : numeric && field === "value" ? data : field;
     return [[key, value]];
   }));
-  return { type: mark.type, data, channels, ...(mark.transform !== "none" ? { transform: { kind: mark.transform } } : {}), options: mark.options };
+  // Sankey/funnel have no x/y scale for a transform to act on (`bad-options`
+  // at render time) — a mark switched to one of these TYPES while its own
+  // `transform` state still holds a value from a previous type (e.g. the
+  // "Stacked bar" preset) must not forward it, since the Transform select
+  // being disabled for these types doesn't clear stale state on its own.
+  const forwardsTransform = mark.type !== "sankey" && mark.type !== "funnel";
+  return { type: mark.type, data, channels, ...(forwardsTransform && mark.transform !== "none" ? { transform: { kind: mark.transform } } : {}), options: mark.options };
 }
 function scaleType(scale: ChartsWorkbenchScale): GlyphChartScaleOptions {
   return scale.type === "auto" ? {} : { type: scale.type };

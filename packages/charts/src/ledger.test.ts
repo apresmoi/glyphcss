@@ -22,7 +22,8 @@ const SAMPLES = [
   ledgerLegendDropped({ series: 3, cols: 40, rows: 10 }),
   ledgerSeriesDodgeDegraded({ count: 3, width: 2 }),
   ledgerSeriesColorConflict({ name: "B", kept: "#222222", rejected: "#aa1111" }),
-  ledgerEmptyTotal(),
+  ledgerEmptyTotal("pie"),
+  ledgerEmptyTotal("funnel"),
   ledgerSliceDropped({ dropped: 1, total: 3 }),
   ledgerSliceDropped({ dropped: 2, total: 2 }),
   ledgerDoubleDiagonalSolid({ col: 4, row: 6 }),
@@ -70,5 +71,15 @@ describe("chart ledger entries read like sentences, not internal logs", () => {
   it("parses the canvas's own free-text double-diagonal note into a structured entry", () => {
     const raw = 'line(): "double" style has no diagonal analogue and rendered solid starting at cell (4, 6).';
     expect(chartLedgerEntryFromCanvasMessage(raw)).toEqual(ledgerDoubleDiagonalSolid({ col: 4, row: 6 }));
+  });
+
+  it("N9: empty-total keeps arc's own pie message unchanged, and gives funnel its own distinct one — not a shared generic string", () => {
+    // Round 2 generalised "chart" for both marks and silently changed what
+    // an existing `arc` caller's CLI/log output printed. `code` stays
+    // shared (a caller matching on it is unaffected); the wording is now a
+    // required `subject` argument at each call site instead.
+    expect(ledgerEmptyTotal("pie").message).toBe("Every value in this pie is zero, so no slices are drawn.");
+    expect(ledgerEmptyTotal("funnel").message).toBe("Every value in this funnel is zero, so nothing is drawn.");
+    expect(ledgerEmptyTotal("pie").message).not.toBe(ledgerEmptyTotal("funnel").message);
   });
 });

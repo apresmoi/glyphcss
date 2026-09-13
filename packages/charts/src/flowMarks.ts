@@ -14,7 +14,7 @@
 
 import { sankey as d3Sankey } from "d3-sankey";
 import { format as d3format } from "d3-format";
-import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasTierName } from "glyphcss";
+import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasPoint, type GlyphCanvasTierName } from "glyphcss";
 import { accessorFor, identity, index, isNumericArray } from "./channels";
 import { abbreviateChartText, chartText } from "./labels";
 import {
@@ -33,6 +33,20 @@ function numeric(v: unknown): number {
 }
 
 // ── resolution ───────────────────────────────────────────────────────────
+
+/**
+ * A typo'd field name (`source: "nope"`) or a genuinely empty/non-scalar
+ * endpoint value all resolve to the SAME "not a usable node id" verdict:
+ * `undefined`/`null` (the accessor found nothing), `""` (a blank string is
+ * not a node name a reader can act on), and a plain object/`{}` (there is
+ * no reasonable `String()` of a record — round 2's `[object Object]` node,
+ * N8). An array is left alone (`String([1, 2]) === "1,2"` is at least a
+ * legible, if unusual, node id) and so are `0`/`false` (legitimate ids that
+ * happen to be falsy).
+ */
+function isMissingSankeyEndpoint(v: unknown): boolean {
+  return v === undefined || v === null || v === "" || (typeof v === "object" && !Array.isArray(v));
+}
 
 /**
  * Materialises `{ source, target, value }` into `GlyphChartMarkRow`s
@@ -55,16 +69,14 @@ export function resolveSankeyRows(mark: GlyphChartMark): GlyphChartMarkRow[] {
   const rows: GlyphChartMarkRow[] = mark.data.map((datum, i) => {
     const rawSource = sourceAcc?.(datum, i);
     const rawTarget = targetAcc?.(datum, i);
-    // `sankey-missing-channel`: a typo'd field name (`source: "nope"`) still
-    // has a defined ACCESSOR (the string itself), so the structural
-    // "channel present" check in `validate.ts` passes — the accessor just
-    // resolves every row to `undefined`, which used to get stringified into
-    // a literal node id `"undefined"` (a spurious node) and, when BOTH
-    // endpoints did it, a spurious self-loop that misreported as
+    // `sankey-missing-channel`: see `isMissingSankeyEndpoint` — this used to
+    // stringify a missing/blank/object endpoint into a literal node id
+    // (`"undefined"`, `"[object Object]"`, `""`), a spurious node, and when
+    // BOTH endpoints did it, a spurious self-loop that misreported as
     // `sankey-cycle` instead of naming the real mistake (P2-8).
-    if (rawSource === undefined || rawSource === null || rawTarget === undefined || rawTarget === null) {
+    if (isMissingSankeyEndpoint(rawSource) || isMissingSankeyEndpoint(rawTarget)) {
       throw Object.assign(
-        new TypeError(`glyphcss: sankey-missing-channel: row ${i}'s source/target channel resolved to no value — check the field name against the actual data keys.`),
+        new TypeError(`glyphcss: sankey-missing-channel: row ${i}'s source/target channel resolved to no usable value — check the field name against the actual data keys.`),
         { code: "sankey-missing-channel" as const },
       );
     }
@@ -195,34 +207,40 @@ function distributeByRate(weights: readonly number[], rowsPerUnit: number): numb
  * entries (least visible impact), never gated on whether the bump looked
  * affordable in advance — gating it that way was the bug: it left a
  * genuinely reclaimable tiny flow at 0 whenever the column was already
- * exactly full. Only when reclaiming from every entry taller than 1 still
- * isn't enough (a column with more real nodes than the plot has rows — N
- * nodes cannot all show in fewer than N rows) does anything stay at 0: the
- * SMALLEST bumped values are un-bumped last, so the biggest ones keep
- * their row. Returns the entries that end up at 0 so the caller can report
- * them rather than leave them silently absent.
+ * exactly full.
+ *
+ * The genuinely impossible case — more positive-value nodes in this column
+ * than the plot has rows, so not even a floor of 1 row each can seat them
+ * all — is decided BY VALUE, not by an artifact of `distributeByRate`'s own
+ * cumulative-rounding order (round 2's bug, N3): the `capacity` BIGGEST
+ * values are kept at exactly 1 row each (the only layout that fits — with
+ * more destinations than rows, no proportionality survives anyway) and the
+ * rest are dropped and reported. `distributeByRate`'s own per-column shares
+ * are irrelevant once this branch is entered; a column with room for
+ * everyone (the ordinary case) keeps the original reclaim-from-the-tallest
+ * behaviour, which always succeeds without dropping anyone (every entry
+ * bottoms out at 1, summing to at most `capacity`). Returns the entries
+ * that end up at 0 so the caller can report them.
  */
 function ensureMinimumHeights(heights: readonly number[], values: readonly number[], capacity: number): { readonly heights: number[]; readonly stillZero: readonly number[] } {
+  const positiveIdx = heights.map((_, i) => i).filter((i) => values[i]! > 0);
+  if (positiveIdx.length > capacity) {
+    const byValueDesc = [...positiveIdx].sort((a, b) => values[b]! - values[a]! || a - b);
+    const keep = new Set(byValueDesc.slice(0, Math.max(0, capacity)));
+    const result = heights.map((_, i) => (keep.has(i) ? 1 : 0));
+    return { heights: result, stillZero: byValueDesc.slice(Math.max(0, capacity)) };
+  }
   const result = [...heights];
-  const zeroIdx = result.map((h, i) => i).filter((i) => result[i] === 0 && values[i]! > 0).sort((a, b) => values[b]! - values[a]!);
-  for (const i of zeroIdx) result[i] = 1;
+  for (const i of positiveIdx) if (result[i] === 0) result[i] = 1;
   let total = result.reduce((a, b) => a + b, 0);
   while (total > capacity) {
     let maxIdx = -1;
     for (let i = 0; i < result.length; i++) if (result[i]! > 1 && (maxIdx === -1 || result[i]! > result[maxIdx]!)) maxIdx = i;
-    if (maxIdx === -1) break; // every entry already at its floor of 1 — nothing left to reclaim.
+    if (maxIdx === -1) break; // unreachable here (positiveIdx.length <= capacity guarantees this closes), kept as a guard.
     result[maxIdx] = result[maxIdx]! - 1;
     total -= 1;
   }
-  // The genuinely impossible remainder (reclaiming from every entry over 1
-  // row still isn't enough): un-bump the SMALLEST bumped values first
-  // (`zeroIdx` is sorted largest-first, so walk it from the end).
-  const stillZero: number[] = [];
-  for (let k = zeroIdx.length - 1; k >= 0 && total > capacity; k--) {
-    const i = zeroIdx[k]!;
-    if (result[i] === 1) { result[i] = 0; total -= 1; stillZero.push(i); }
-  }
-  return { heights: result, stillZero };
+  return { heights: result, stillZero: [] };
 }
 
 interface SankeyOutLink { readonly target: string; readonly value: number; readonly folded?: boolean }
@@ -383,10 +401,12 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // outside the rect; a link between two now-merged depths becomes a
   // same-column band and is silently skipped by the painter's own
   // `gapX1 < gapX0` guard — a real, reported degradation, not a crash.
+  const originalNumCols = numCols;
+  let foldedColumns = 0;
   if (numCols > 1 && numCols * GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + (numCols - 1) * GLYPH_CHART_SANKEY_MIN_GAP > plotWidth) {
     const maxColsFit = Math.max(1, Math.floor((plotWidth + GLYPH_CHART_SANKEY_MIN_GAP) / (GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + GLYPH_CHART_SANKEY_MIN_GAP)));
     if (maxColsFit < numCols) {
-      ledger.push(ledgerSankeyColumnsFolded({ folded: numCols - maxColsFit, total: numCols }));
+      foldedColumns = numCols - maxColsFit;
       numCols = maxColsFit;
       nodeWidth = GLYPH_CHART_SANKEY_MIN_NODE_WIDTH;
       gap = numCols > 1 ? Math.max(1, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
@@ -397,11 +417,20 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // plot rect: shed one column at a time until the total genuinely fits.
   while (numCols > 1 && numCols * nodeWidth + (numCols - 1) * gap > plotWidth) {
     numCols -= 1;
+    foldedColumns = originalNumCols - numCols;
     gap = numCols > 1 ? Math.max(1, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
   }
   const depthOf = (id: string): number => Math.min(nodeDepthById.get(id) ?? 0, numCols - 1);
   const colX0 = (col: number): number => plot.x0 + col * (nodeWidth + gap);
   const colX1 = (col: number): number => Math.min(plot.x1, colX0(col) + nodeWidth - 1);
+  // N11: name every LINK the fold actually silences (its two endpoints now
+  // clamp onto the same column, so the painter's own `gapX1 < gapX0` guard
+  // draws nothing for it), not just how many columns were merged — computed
+  // against the FINAL `depthOf`, after both fold passes above.
+  if (foldedColumns > 0) {
+    const droppedLinks = links.filter((l) => depthOf(l.source) === depthOf(l.target)).map((l) => `${l.source} → ${l.target}`);
+    ledger.push(ledgerSankeyColumnsFolded({ folded: foldedColumns, total: originalNumCols, droppedLinks }));
+  }
 
   // Row heights ∝ throughput (node.value) under ONE GLOBAL rows-per-unit
   // rate (P2-1) — sized to the TIGHTEST column (available capacity ÷ its
@@ -445,12 +474,21 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
 
   // Outgoing bands per source, folding to a FIXED POINT (P1-2) — see
   // `foldSankeyOutLinks`'s own doc for why a single re-run isn't enough.
+  // Stub rows are allocated in TARGET-COLUMN ORDER (sorted by the target
+  // node's own box row, `nodeBoxes` having already settled every column) —
+  // never the raw declaration order — so a band leaving low and a band
+  // leaving high land on the physically low/high rows that already point
+  // roughly at where their targets sit. This is what gives non-crossing
+  // bands DISJOINT cell sets by construction: two bands whose targets don't
+  // interleave never need to cross to reach them.
   const bands: SankeyBand[] = [];
   for (const g of groups) {
     const nodeId = g.name!;
     const box = nodeBoxes.get(nodeId);
     if (!box) continue;
-    const outLinks = g.rows.map((r) => ({ target: String(r.label), value: numeric(r.y) }));
+    const outLinks = [...g.rows]
+      .sort((a, b) => (nodeBoxes.get(String(a.label))?.y0 ?? 0) - (nodeBoxes.get(String(b.label))?.y0 ?? 0))
+      .map((r) => ({ target: String(r.label), value: numeric(r.y) }));
     const { finalLinks, heights, foldedFlows } = foldSankeyOutLinks(outLinks, box.height);
     if (foldedFlows.length > 0) {
       ledger.push(ledgerSankeyFoldedFlows({ source: nodeId, flows: foldedFlows.map((t) => `${nodeId} → ${t}`) }));
@@ -474,9 +512,12 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     list.push(b);
     byTarget.set(b.target, list);
   }
-  for (const [targetId, list] of byTarget) {
+  for (const [targetId, unsorted] of byTarget) {
     const box = nodeBoxes.get(targetId);
     if (!box) continue;
+    // Mirror the outgoing side: stub rows in SOURCE-column order, so bands
+    // entering low/high land near where their sources already are.
+    const list = [...unsorted].sort((a, b) => (nodeBoxes.get(a.source)?.y0 ?? 0) - (nodeBoxes.get(b.source)?.y0 ?? 0));
     const heights = distributeCumulative(list.map((b) => b.value), box.height);
     let cursor = box.y0;
     list.forEach((b, i) => {
@@ -525,9 +566,115 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
  * per-lane guarantee silently. A non-diagonal band (`sr0 === tr0 && sr1 ===
  * tr1`) needs no lane — it already fills the gap at one fixed row.
  */
-function assignSankeyLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<string, SankeyNodeBox>, ledger: GlyphChartLedgerEntry[]): Map<SankeyBand, number> {
-  interface Entry { readonly band: SankeyBand; readonly mid: number }
-  const groups = new Map<string, { readonly gapX0: number; readonly gapX1: number; readonly entries: Entry[] }>();
+/**
+ * Every group of node boxes sharing an x0, so a route can be tested against
+ * "every column between two others" without re-deriving column boundaries
+ * from `depthOf` (paint time has no access to it — only the settled boxes).
+ */
+function sankeyColumnsByX0(nodeBoxes: ReadonlyMap<string, SankeyNodeBox>): { readonly sortedX0: readonly number[]; readonly boxesAtX0: ReadonlyMap<number, readonly SankeyNodeBox[]> } {
+  const boxesAtX0 = new Map<number, SankeyNodeBox[]>();
+  for (const box of nodeBoxes.values()) {
+    const list = boxesAtX0.get(box.x0);
+    if (list) list.push(box); else boxesAtX0.set(box.x0, [box]);
+  }
+  return { sortedX0: [...boxesAtX0.keys()].sort((a, b) => a - b), boxesAtX0 };
+}
+
+/** Every node box in a column strictly between `srcBox`'s and `tgtBox`'s own columns — empty for adjacent columns. */
+function sankeyMidColumnBoxes(cols: ReturnType<typeof sankeyColumnsByX0>, srcBox: SankeyNodeBox, tgtBox: SankeyNodeBox): readonly SankeyNodeBox[] {
+  const srcIdx = cols.sortedX0.indexOf(srcBox.x0);
+  const tgtIdx = cols.sortedX0.indexOf(tgtBox.x0);
+  const mids: SankeyNodeBox[] = [];
+  for (let i = srcIdx + 1; i < tgtIdx; i++) mids.push(...(cols.boxesAtX0.get(cols.sortedX0[i]!) ?? []));
+  return mids;
+}
+
+/**
+ * A row that clears every node box in `midColumns` — the row a skip-level
+ * band's pass-through segment can safely cross those columns at without
+ * entering a box that isn't its own endpoint. Tries `preferred` first (so a
+ * band whose source and target rows already agree, or nearly do, bends as
+ * little as possible), then scans the plot for any clear row. `midColumns`
+ * empty (the ordinary adjacent-column case) needs no scan at all.
+ */
+function pickSankeyFreeRow(midColumns: readonly SankeyNodeBox[], plot: GlyphChartPlotRect, preferred: readonly number[]): number {
+  if (midColumns.length === 0) return preferred[0]!;
+  const occupied = new Set<number>();
+  for (const box of midColumns) for (let y = box.y0; y <= box.y1; y++) occupied.add(y);
+  for (const y of preferred) if (!occupied.has(y)) return y;
+  for (let y = plot.y0; y <= plot.y1; y++) if (!occupied.has(y)) return y;
+  // No row clears every mid-column box in this plot (one of them spans the
+  // full height) — there is no honest detour left to take. This is a
+  // residual limitation, not a silent one: the caller still runs the
+  // node-box assertion below, which is what would catch it in the sweeps
+  // this module is tested against.
+  return plot.y0;
+}
+
+function pushSankeyHorizontal(points: GlyphCanvasPoint[], y: number, fromX: number, toX: number): void {
+  const step = toX > fromX ? 1 : -1;
+  for (let x = fromX + step; step > 0 ? x <= toX : x >= toX; x += step) points.push({ x, y });
+}
+function pushSankeyVertical(points: GlyphCanvasPoint[], x: number, fromY: number, toY: number): void {
+  const step = toY > fromY ? 1 : -1;
+  for (let y = fromY + step; step > 0 ? y <= toY : y >= toY; y += step) points.push({ x, y });
+}
+
+/**
+ * ONE row's own cell polyline: source-stub -> lane column -> target-stub
+ * (AGENTS.md's "Charts" contract). `lane` sits in the FIRST gap (between
+ * the source's column and the next one, whether that next column is the
+ * target's own or an intermediate one); `freeRow` is where the vertical run
+ * lands before travelling straight across to the gap immediately before the
+ * target. For an adjacent-column band `freeRow === tgtRow` and this
+ * degenerates to the classic horizontal/vertical/horizontal path; for a
+ * skip-level band the long horizontal at `freeRow` is what crosses the
+ * intermediate column(s) without entering any of their boxes. Every
+ * consecutive pair is 4-adjacent, satisfying `canvas.route()`'s own
+ * contract directly — no diagonal step is ever produced.
+ */
+function buildSankeyBandRowRoute(srcBox: SankeyNodeBox, tgtBox: SankeyNodeBox, srcRow: number, tgtRow: number, lane: number, freeRow: number): readonly GlyphCanvasPoint[] {
+  const startX = srcBox.x1 + 1;
+  const endX = tgtBox.x0 - 1;
+  const points: GlyphCanvasPoint[] = [{ x: startX, y: srcRow }];
+  pushSankeyHorizontal(points, srcRow, startX, lane);
+  pushSankeyVertical(points, lane, srcRow, freeRow);
+  pushSankeyHorizontal(points, freeRow, lane, endX);
+  pushSankeyVertical(points, endX, freeRow, tgtRow);
+  return points;
+}
+
+/**
+ * A RIBBON'S start column for every BENT band (source and target rows
+ * disagree — a straight band needs no vertical run at all and is excluded)
+ * sharing a first gap: each band reserves `k = max(sourceHeight,
+ * targetHeight)` CONSECUTIVE columns, one per row, rather than one shared
+ * column for the whole band — the first cut of this shared exactly one
+ * vertical column across every row of a multi-row band, and a band's own
+ * k rows overlap EACH OTHER there just as often as two different bands'
+ * lanes used to (measured: the A/B->X/Y fan alone logged 190+ same-band
+ * `"parallel"`/`"multi"` route conflicts, because row i's vertical run
+ * [srcRow_i, freeRow_i] and row i+1's [srcRow_i+1, freeRow_i+1] genuinely
+ * share cells on one column). Giving each row its OWN column removes that
+ * self-overlap entirely — a band's k rows now sit side by side, reading as
+ * a genuine diagonal ribbon instead of a single pinched thread.
+ *
+ * Ribbon PLACEMENT is INTERVAL-GRAPH COLOURING generalised to a WIDTH per
+ * item (a "meeting rooms" packing): sort bands by their own vertical extent
+ * `[min(sr0,tr0), max(sr1,tr1)]`, assign the lowest SLOT whose occupant's
+ * extent has already ended, and size each slot to the widest ribbon ever
+ * placed in it. Two bands share a slot only when their extents never
+ * overlap (so their same-width-or-not ribbons can never actually touch);
+ * two OVERLAPPING bands always land in different slots, at different
+ * columns — what keeps `resolveJunctions()`'s `routeConflicts` empty for
+ * the routine case. A gap too narrow for the full packed width degrades by
+ * wrapping ribbon starts modulo the available width (a graceful compression
+ * that CAN reintroduce overlap — reported once as `sankey-crossings-merged`
+ * naming the packed width against what actually fit, same code as round 2).
+ */
+function assignSankeyLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<string, SankeyNodeBox>, cols: ReturnType<typeof sankeyColumnsByX0>, ledger: GlyphChartLedgerEntry[]): Map<SankeyBand, number> {
+  interface Item { readonly band: SankeyBand; readonly start: number; readonly end: number; readonly width: number; readonly gapX0: number; readonly gapX1: number }
+  const groups = new Map<string, Item[]>();
   for (const band of bands) {
     if (band.folded || !band.targetRowRange) continue;
     const srcBox = nodeBoxes.get(band.source);
@@ -536,91 +683,208 @@ function assignSankeyLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<
     const [sr0, sr1] = band.sourceRowRange;
     const [tr0, tr1] = band.targetRowRange;
     if (sr0 === tr0 && sr1 === tr1) continue; // straight through — no lane needed.
+    const mids = sankeyMidColumnBoxes(cols, srcBox, tgtBox);
+    const nextColX0 = mids.length > 0 ? mids[0]!.x0 : tgtBox.x0;
     const gapX0 = srcBox.x1 + 1;
-    const gapX1 = tgtBox.x0 - 1;
+    const gapX1 = nextColX0 - 1;
     if (gapX1 < gapX0) continue;
-    const mid = (Math.min(sr0, tr0) + Math.max(sr1, tr1)) / 2;
+    const width = Math.max(1, sr1 - sr0 + 1, tr1 - tr0 + 1); // this band's own k.
+    const item: Item = { band, start: Math.min(sr0, tr0), end: Math.max(sr1, tr1), width, gapX0, gapX1 };
     const key = `${gapX0}:${gapX1}`;
-    if (!groups.has(key)) groups.set(key, { gapX0, gapX1, entries: [] });
-    groups.get(key)!.entries.push({ band, mid });
+    const list = groups.get(key);
+    if (list) list.push(item); else groups.set(key, [item]);
   }
-  const laneByBand = new Map<SankeyBand, number>();
-  for (const { gapX0, gapX1, entries } of groups.values()) {
-    const gapWidth = gapX1 - gapX0 + 1;
-    const ordered = [...entries].sort((a, b) => a.mid - b.mid);
-    const laneCount = Math.min(ordered.length, Math.max(1, gapWidth));
-    if (laneCount < ordered.length) ledger.push(ledgerSankeyCrossingsMerged({ gapX0, gapX1, crossing: ordered.length, lanes: laneCount }));
-    ordered.forEach((entry, i) => {
-      const laneIndex = laneCount === 1 ? 0 : Math.round((i * (laneCount - 1)) / (ordered.length - 1));
-      const column = laneCount === 1 ? gapX0 + Math.floor(gapWidth / 2) : gapX0 + Math.round((laneIndex * (gapWidth - 1)) / (laneCount - 1));
-      laneByBand.set(entry.band, column);
-    });
+  const laneStartByBand = new Map<SankeyBand, number>();
+  for (const items of groups.values()) {
+    const { gapX0, gapX1 } = items[0]!;
+    const gapWidth = Math.max(1, gapX1 - gapX0 + 1);
+    const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
+    const slotEnd = new Map<number, number>(); // slot index -> its current occupant's end row.
+    const slotWidth = new Map<number, number>(); // slot index -> widest ribbon ever placed there.
+    const slotOf = new Map<Item, number>();
+    let slotCount = 0;
+    for (const item of sorted) {
+      let slot = 0;
+      while ((slotEnd.get(slot) ?? -Infinity) >= item.start) slot++;
+      slotEnd.set(slot, item.end);
+      slotWidth.set(slot, Math.max(slotWidth.get(slot) ?? 0, item.width));
+      slotOf.set(item, slot);
+      slotCount = Math.max(slotCount, slot + 1);
+    }
+    const slotStart: number[] = [];
+    let packedWidth = 0;
+    for (let s = 0; s < slotCount; s++) { slotStart.push(packedWidth); packedWidth += slotWidth.get(s) ?? 1; }
+    if (packedWidth > gapWidth) ledger.push(ledgerSankeyCrossingsMerged({ gapX0, gapX1, crossing: packedWidth, lanes: gapWidth }));
+    for (const item of sorted) {
+      const start = slotStart[slotOf.get(item)!]!;
+      const column = packedWidth > gapWidth ? gapX0 + (start % gapWidth) : gapX0 + start;
+      laneStartByBand.set(item.band, column);
+    }
   }
-  return laneByBand;
+  return laneStartByBand;
 }
 
+interface SankeyRoutedRow { readonly band: SankeyBand; readonly cells: readonly GlyphCanvasPoint[]; readonly glyph: string; readonly color: string | null }
+
 /**
- * Paints a `GlyphChartSankeyLayout` (bands first, so a node's own
- * border/label sits on top of a band that happens to touch its edge).
+ * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
+ * routing contract (AGENTS.md's "Charts" and "Cell canvas" sections) instead
+ * of hand-painted rectangles. A band of k rows is k PARALLEL routes, one per
+ * row (`k = max(sourceHeight, targetHeight)`, the shorter end's own last row
+ * absorbing the extra ones when the two ends disagree — a taper, which
+ * cumulative rounding makes the common case, not an edge case: measured
+ * across the flagship datasets, most bands' two ends differ by exactly one
+ * row). Every row is registered as its own edge (`canvas.edge`/`route`) with
+ * the band's real source/target node ids, so `resolveJunctions()` can tell a
+ * genuine crossing between two DIFFERENT bands from two rows of the SAME
+ * band converging on a shared stub. The junction pass itself is used only
+ * for its `report.routeConflicts` diagnostic (a non-empty one names a real
+ * layout bug — two overlapping same-axis routes sharing a lane, which the
+ * interval-coloured lane assignment above is what rules out); the actual
+ * fill is repainted afterward in REGISTRATION ORDER — the same tie-break
+ * `resolveGlyphCanvasJunctions` itself uses (no explicit priority is set),
+ * so a cell already claimed by an earlier-registered band is left alone and
+ * a later one draws nothing there, exactly mirroring "the winner keeps its
+ * own glyph; every other group draws nothing" — except the "glyph" here is
+ * the band's own shade colour, not the resolver's box-drawing junction
+ * glyph, which would turn a filled ribbon into a thin wire.
  */
-export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+/**
+ * The routing half of `paintSankeyLayout`, split out so a test can inspect
+ * exactly what each band's own row-lines are — including their SHARED lane
+ * placements — without re-deriving them (re-running lane assignment on a
+ * single isolated band gives it slot 0 every time, a DIFFERENT placement
+ * than it gets inside the real layout; comparing against that would not be
+ * comparing the same route at all). Registers every row on `canvas` (edge +
+ * route) as a side effect, exactly as `paintSankeyLayout` needs before
+ * calling `resolveJunctions()`; the caller decides how to paint from the
+ * returned list.
+ */
+export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): readonly SankeyRoutedRow[] {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
-  const laneByBand = assignSankeyLanes(bands, nodeBoxes, ledger);
-  // TWO PASSES, never one: a band's own LEG necessarily spans from the
-  // source's border most of the way across the gap (an L-shaped block, not
-  // a thin diagonal line — the canvas has no sub-cell diagonal at this
-  // thickness), so a leg travelling toward a FAR lane inevitably passes
-  // OVER a nearer band's lane column for however many rows the two row
-  // ranges overlap. Giving each band a distinct lane (P1-1) is therefore
-  // not sufficient on its own — it only stops two lanes sharing the SAME
-  // column; a leg crossing through a DIFFERENT band's lane is a second,
-  // independent way to erase it. Painting every band's legs/straight-fill
-  // FIRST and every band's own lane column SECOND (always on top) closes
-  // that: a lane can still be crossed by a leg (that IS a real visual
-  // crossing, the tier's own glyph at that one cell is fine), but it is
-  // never WIPED OUT along its own length by one.
+  const cols = sankeyColumnsByX0(nodeBoxes);
+  const laneStartByBand = assignSankeyLanes(bands, nodeBoxes, cols, ledger);
+
+  const routedRows: SankeyRoutedRow[] = [];
+  let order = 0;
   for (const band of bands) {
+    const srcBox = nodeBoxes.get(band.source);
+    if (!srcBox) continue;
     const glyph = seriesShade(canvas.tier, band.styleIndex);
     const color = resolveSeriesColor(band, colorEnabled);
-    const srcBox = nodeBoxes.get(band.source)!;
     const [sr0, sr1] = band.sourceRowRange;
     if (sr0 > sr1) continue;
+
     if (band.folded) {
       // No real target: a short stub reads as "flow leaves, not itemized".
+      // Still routed (a synthetic `(fold)` node id per source, unique from
+      // any real node) so it takes part in the same no-overwrite contract.
       const stubLen = Math.max(1, Math.min(3, gap - 1));
       const x0 = srcBox.x1 + 1;
       const x1 = Math.min(plot.x1, x0 + stubLen - 1);
-      fillGlyphRegion(canvas, x0, sr0, x1, sr1, glyph, color);
+      const foldNode = `${band.source}::(fold)`;
+      for (let row = sr0; row <= sr1; row++) {
+        const cells: GlyphCanvasPoint[] = [];
+        for (let x = x0; x <= x1; x++) cells.push({ x, y: row });
+        const edgeId = `${order}`;
+        canvas.edge(edgeId, { from: band.source, to: foldNode });
+        canvas.route(edgeId, cells);
+        routedRows.push({ band, cells, glyph, color });
+        order++;
+      }
       continue;
     }
+
     const tgtBox = nodeBoxes.get(band.target);
     if (!tgtBox || !band.targetRowRange) continue;
     const [tr0, tr1] = band.targetRowRange;
     if (tr0 > tr1) continue;
+    if (tgtBox.x0 - 1 < srcBox.x1 + 1) continue; // same/earlier column after a fold-column clamp — nothing to route.
+
+    const srcHeight = sr1 - sr0 + 1;
+    const tgtHeight = tr1 - tr0 + 1;
+    const straight = sr0 === tr0 && sr1 === tr1;
+    const mids = straight ? [] : sankeyMidColumnBoxes(cols, srcBox, tgtBox);
+    const nextColX0 = mids.length > 0 ? mids[0]!.x0 : tgtBox.x0;
     const gapX0 = srcBox.x1 + 1;
-    const gapX1 = tgtBox.x0 - 1;
-    if (gapX1 < gapX0) continue;
-    if (sr0 === tr0 && sr1 === tr1) {
-      fillGlyphRegion(canvas, gapX0, sr0, gapX1, sr1, glyph, color);
-      continue;
+    const firstGapX1 = nextColX0 - 1;
+    const laneStart = straight ? tgtBox.x0 - 1 : (laneStartByBand.get(band) ?? gapX0);
+    const k = Math.max(srcHeight, tgtHeight);
+    for (let i = 0; i < k; i++) {
+      const srcRow = sr0 + Math.min(i, srcHeight - 1);
+      const tgtRow = tr0 + Math.min(i, tgtHeight - 1);
+      // This row's OWN column within the band's ribbon — clamped to the
+      // gap's own right edge so an over-packed (compressed) ribbon still
+      // produces a valid, in-range route rather than walking past the
+      // next column's box.
+      const lane = straight ? laneStart : Math.min(firstGapX1, laneStart + i);
+      const freeRow = straight ? srcRow : pickSankeyFreeRow(mids, plot, [tgtRow, srcRow]);
+      const cells = buildSankeyBandRowRoute(srcBox, tgtBox, srcRow, tgtRow, lane, freeRow);
+      // Nothing may route through a node box that isn't its own endpoint:
+      // the lane and pre-target columns always sit in a GAP (never a node
+      // column, by construction), so only the FREE-ROW pass-through across
+      // intermediate columns could ever violate this — checking against
+      // just `mids` (rather than every node box) is provably sufficient.
+      for (const p of cells) {
+        for (const box of mids) {
+          if (p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) {
+            throw new Error(`glyphcss: sankey band "${band.source} -> ${band.target}" routed through node "${box.id}"'s own box at (${p.x}, ${p.y}) — no free row cleared it.`);
+          }
+        }
+      }
+      const edgeId = `${order}`;
+      canvas.edge(edgeId, { from: band.source, to: band.target });
+      canvas.route(edgeId, cells);
+      routedRows.push({ band, cells, glyph, color });
+      order++;
     }
-    // Horizontal legs ONLY here (source rows -> ..., ... -> target rows);
-    // the vertical lane column itself is pass 2, below.
-    const lane = laneByBand.get(band) ?? Math.floor((gapX0 + gapX1) / 2);
-    if (gapX0 <= lane - 1) fillGlyphRegion(canvas, gapX0, sr0, lane - 1, sr1, glyph, color);
-    if (lane + 1 <= gapX1) fillGlyphRegion(canvas, lane + 1, tr0, gapX1, tr1, glyph, color);
   }
-  for (const band of bands) {
-    if (band.folded || !band.targetRowRange) continue;
-    const [sr0, sr1] = band.sourceRowRange;
-    const [tr0, tr1] = band.targetRowRange;
-    if (sr0 > sr1 || tr0 > tr1 || (sr0 === tr0 && sr1 === tr1)) continue;
-    const lane = laneByBand.get(band);
-    if (lane === undefined) continue;
-    const glyph = seriesShade(canvas.tier, band.styleIndex);
-    const color = resolveSeriesColor(band, colorEnabled);
-    fillGlyphRegion(canvas, lane, Math.min(sr0, tr0), lane, Math.max(sr1, tr1), glyph, color);
+  return routedRows;
+}
+
+/**
+ * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
+ * routing contract — see `computeSankeyRoutedRows` for the routing itself.
+ */
+export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+  const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger);
+  const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
+
+  canvas.resolveJunctions();
+
+  // Repaint in the SAME registration order `resolveJunctions()` itself
+  // broke ties by: the first band/row to reach a cell keeps it, every later
+  // one draws nothing there — a real crossing costs the loser exactly the
+  // cells the two routes actually share, never its whole run.
+  //
+  // BORDER cells go FIRST, and unconditionally: a row's own first cell
+  // (adjacent to its source) and last cell (adjacent to its target) are
+  // structurally UNIQUE to that row — no other row of the same node can
+  // ever own them, since sourceRowRange/targetRowRange partition a node's
+  // box without overlap. What CAN reach that exact cell is a DIFFERENT
+  // band's own TRANSIT (its vertical run merely passing through, on its
+  // way to a lane further out — inevitable once two bands' ribbons sit on
+  // opposite sides of a shared border column). Claiming border cells first
+  // means a transit arriving later at that same cell is the one that finds
+  // it already owned and draws nothing there, never the other way round —
+  // the exact failure this ordering exists to close: a later ribbon's
+  // sweep toward its own lane erasing an earlier row's proof of reaching
+  // its own border.
+  const claimedBy = new Map<number, SankeyBand>();
+  const paint = (p: GlyphCanvasPoint, band: SankeyBand, glyph: string, color: string | null): void => {
+    const idx = p.y * canvas.cols + p.x;
+    const owner = claimedBy.get(idx);
+    if (owner !== undefined && owner !== band) return;
+    claimedBy.set(idx, band);
+    canvas.text(p.x, p.y, [glyph], { color });
+  };
+  for (const { band, cells, glyph, color } of routedRows) {
+    paint(cells[0]!, band, glyph, color);
+    paint(cells[cells.length - 1]!, band, glyph, color);
+  }
+  for (const { band, cells, glyph, color } of routedRows) {
+    for (const p of cells) paint(p, band, glyph, color);
   }
 
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
@@ -704,7 +968,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
   // rejects at resolve time (`resolveFunnelRows`); an ALL-ZERO funnel is
   // legitimate data (nothing converted) and draws nothing at all, exactly
   // like `arc`'s own `empty-total` — never a fabricated bar or percentage.
-  if (rawStages.every((s) => s.value === 0)) { ledger.push(ledgerEmptyTotal()); return; }
+  if (rawStages.every((s) => s.value === 0)) { ledger.push(ledgerEmptyTotal("funnel")); return; }
 
   for (let i = 1; i < rawStages.length; i++) {
     if (rawStages[i]!.value > rawStages[i - 1]!.value) {

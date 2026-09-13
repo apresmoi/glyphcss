@@ -42,6 +42,21 @@ describe("ChartsWorkbench state", () => {
     expect(state.marks).toHaveLength(2);
   });
 
+  it("N5/P3-5: switching a mark carrying a stale transform to sankey/funnel never forwards it (no bad-options crash)", () => {
+    // The "Stacked bar" preset's own mark still carries `transform: "stack"`
+    // in its editable state; switching its TYPE to sankey/funnel without
+    // touching the (now-disabled) Transform select used to forward it
+    // straight into `bad-options` at render time.
+    const stacked = presetState("stacked-bar");
+    for (const type of ["sankey", "funnel"] as const) {
+      const switched = reduceChartsWorkbenchState(stacked, { type: "update-mark", id: stacked.marks[0]!.id, patch: { type } });
+      expect(switched.marks[0]!.transform).toBe("stack"); // stale state survives — the BUILDER must still ignore it.
+      const built = buildChartsWorkbenchSpec(switched);
+      expect(built.marks[0]).not.toHaveProperty("transform");
+      expect(() => renderChartsWorkbenchSpec(switched)).not.toThrow();
+    }
+  });
+
   it("changes untouched target defaults while retaining explicit overrides, then resets them all", () => {
     let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "width", value: 72 } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "detail", value: "faithful" } });

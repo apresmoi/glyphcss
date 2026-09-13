@@ -255,7 +255,7 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
         </select></span>
       </label>)}
       <label className="voice-row charts-mark-row">
-        <span>Transform</span><span className="gx-select"><select aria-label={`Mark ${index + 1} transform`} value={mark.transform} disabled={mark.type === "rule"} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
+        <span>Transform</span><span className="gx-select"><select aria-label={`Mark ${index + 1} transform`} value={mark.transform} disabled={mark.type === "rule" || mark.type === "sankey" || mark.type === "funnel"} title={mark.type === "sankey" || mark.type === "funnel" ? "Sankey and funnel have no x/y scale to bin/stack/group against." : undefined} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
           {CHART_TRANSFORMS.map((transform) => <option key={transform}>{transform}</option>)}
         </select></span>
       </label>

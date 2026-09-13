@@ -33,4 +33,18 @@ describe("inferGlyphChartScaleType", () => {
   it("plain non-date strings still infer band, unaffected", () => {
     expect(inferGlyphChartScaleType(["Chrome", "Safari", "Firefox"])).toBe("band");
   });
+
+  it("a column mixing an ISO date string with a plain number never infers linear from the date's own short-circuit (round 2 N10/N12)", () => {
+    // The old code read the date string, kept scanning (a valid date
+    // string never short-circuits on its own), then hit the number and
+    // returned "linear" — `Number("2024-01-01")` is NaN, so the column
+    // silently got the wrong scale. A number seen AFTER a run of date
+    // strings can no longer slip through that gap; `numericValuesUnplaceableOnBand`
+    // (`scales.ts`) still needs a NUMBER's own short-circuit preserved when
+    // it's the type seen FIRST (its own cross-mark "which type came first"
+    // heuristic — unrelated to dates, out of this fix's scope), so that
+    // order is untouched.
+    expect(inferGlyphChartScaleType(["2024-01-01", 5])).toBe("band");
+    expect(inferGlyphChartScaleType([5, "2024-01-01"])).toBe("linear");
+  });
 });
