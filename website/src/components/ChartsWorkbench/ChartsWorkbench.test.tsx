@@ -726,25 +726,64 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
   });
 
-  // ── Rail reorg (AGENTS.md's "Charts" — "Data layer"): the dataset is
-  // this page's own "model", exactly as synth's rail is the voice/model
-  // picker — its `<select>` lives in the rail's own header action slot,
-  // the rest of `ChartsDataFolder` (info/pipeline/recommendation/custom
-  // controls) is a card in the rail body, and the Dock carries no "Data"
-  // folder at all.
-  it("the rail's header carries the dataset select + Random button, and the rail body shows the dataset card, with no Data folder left in the Dock", () => {
+  // ── Data overlay (AGENTS.md's "Charts" — "Data layer"): the search box,
+  // the stock dataset `<select>` and "Random" moved OFF the rail and onto
+  // the chart VIEWPORT as one overlay bar (`ChartsDataOverlay.tsx`),
+  // exactly the way `/maps` places its own place search over the map —
+  // the user's own words: "the dataset search should be above the chart
+  // like in the /maps view — also the pick-a-dataset and the random
+  // button." The rail keeps only the dataset CARD and the Marks section;
+  // the Dock still carries no "Data" folder.
+  it("the search, dataset select and Random button live in the viewport's own data overlay, not the rail, and the rail body shows the dataset card with no Data folder left in the Dock", () => {
     const rail = container.querySelector("#charts-data-panel")!;
+    const main = container.querySelector(".synth-main")!;
+    const overlay = main.querySelector(".charts-data-overlay")!;
+    expect(overlay).not.toBeNull();
+    expect(overlay.querySelector('input[role="combobox"]')).not.toBeNull();
+    expect(overlay.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
+    expect(overlay.querySelector('[aria-label="Load random dataset"]')).not.toBeNull();
+    // The rail's own header carries none of the three controls any more.
     const railHead = rail.querySelector(".synth-voices-head")!;
-    expect(railHead.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
-    expect(railHead.querySelector('[aria-label="Load random dataset"]')).not.toBeNull();
+    expect(railHead.querySelector('select[aria-label="Dataset"]')).toBeNull();
+    expect(railHead.querySelector('[aria-label="Load random dataset"]')).toBeNull();
+    expect(railHead.querySelector('input[role="combobox"]')).toBeNull();
+    // The rail's own body shows the dataset card, and no second copy of
+    // the select lives there either — exactly one `<select>` on the page.
     expect(rail.querySelector(".charts-data-folder")).not.toBeNull();
-    // The select itself is NOT duplicated inline in the body once it has a
-    // header slot to portal into.
-    expect(rail.querySelectorAll('select[aria-label="Dataset"]')).toHaveLength(1);
-    // The Dock (`#charts-controls-panel`) no longer owns a "Data" folder —
+    expect(container.querySelectorAll('select[aria-label="Dataset"]')).toHaveLength(1);
+    // The Dock (`#charts-controls-panel`) still owns no "Data" folder —
     // `ChartsDock.tsx` still owns "Output"/"Chart"/"Scales"/"Axes"/"Terminal".
     const dockFolderTitles = Array.from(container.querySelectorAll("#charts-controls-panel .lil-gui > .title")).map((n) => n.textContent);
     expect(dockFolderTitles).not.toContain("Data");
+  });
+
+  // Keyboard/a11y (owner packet item 4): search -> select -> Random is the
+  // natural DOM/tab order inside the overlay bar, and the search list's
+  // own dropdown is an ABSOLUTELY POSITIONED overlay (never a normal-flow
+  // sibling that would push the select/Random sideways when it opens).
+  it("the data overlay's tab order is search, then select, then Random, and the search list floats rather than reflowing the bar", async () => {
+    const overlay = container.querySelector(".charts-data-overlay")!;
+    const focusable = Array.from(overlay.querySelectorAll("input, select, button"));
+    expect(focusable[0]!.getAttribute("role")).toBe("combobox");
+    expect((focusable[1] as HTMLSelectElement).getAttribute("aria-label")).toBe("Dataset");
+    expect((focusable[2] as HTMLButtonElement).getAttribute("aria-label")).toBe("Load random dataset");
+    // Focusing alone opens the list — the curated suggestions render with
+    // no query typed and no network call (`ChartsDatasetSearchBox.tsx`'s
+    // own doc), so this needs no timer advance and touches no fetch stub.
+    const input = overlay.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    const list = overlay.querySelector(".instrument-search-list");
+    expect(list).not.toBeNull();
+    // The list is a child of the search box's own wrapper, a SIBLING of
+    // (never a wrapper around) the select/Random — so it never displaces
+    // them in the DOM, and `charts-workbench.css`'s own
+    // `.charts-dataset-search .instrument-search-list` rule is what keeps
+    // it floating over the render instead of growing the bar.
+    expect(list!.closest(".charts-dataset-search")).not.toBeNull();
+    expect(overlay.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
+    // Escape closes the list.
+    act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    expect(overlay.querySelector(".instrument-search-list")).toBeNull();
   });
 
   it("the rail also carries the Marks section, below the dataset card, with no add/remove control", () => {
@@ -778,31 +817,66 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // options.strokeWidth (AGENTS.md's "Charts" — "options.strokeWidth"): a
   // per-mark Stroke row, same shape as innerRadius/axis (`mark.options`,
   // forwarded straight into the built spec — no `applyChartStyle` in the
-  // loop). `@glyphcss/charts`' own `strokeWidth.test.ts` already proves a
-  // wider stroke changes rendered ink; this only needs to prove the click
-  // reaches the render.
-  // A DISABLED option's `aria-label` appends " — <reason>" after its own
-  // label (`IconToggle`'s own idiom — see the sankey/funnel test above,
-  // which matches the same way with `^=`), so an exact-equality `optionOf`
-  // lookup only works for an ENABLED button; a substring match works for both.
-  function strokeButton(width: "1" | "2" | "3"): HTMLButtonElement {
-    const group = container.querySelector('.charts-mark-row[data-row="strokeWidth"]')!;
-    return Array.from(group.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => (b.getAttribute("aria-label") ?? "").includes(`: ${width}`))!;
+  // loop). It's a `.voice-slider` (the Width/Height rows' own shape,
+  // reimplemented outside lil-gui since a mark card isn't a lil-gui
+  // folder), not an `IconToggle` — `@glyphcss/charts`' own
+  // `strokeWidth.test.ts` already proves a wider stroke changes rendered
+  // ink; this only needs to prove the drag reaches the render.
+  function strokeSliderRow(): HTMLElement {
+    return container.querySelector<HTMLElement>('.voice-slider[data-row="strokeWidth"]')!;
   }
-  it("the Stroke row is enabled for a line mark, and picking width 3 changes the rendered ink", () => {
+  function strokeSliderInput(): HTMLInputElement {
+    return strokeSliderRow().querySelector<HTMLInputElement>('input[type="range"]')!;
+  }
+  function setRangeValue(input: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  }
+  it("the Stroke row is enabled for a line mark, and dragging to 3 changes the rendered ink", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
-    expect(strokeButton("1").disabled).toBe(false);
+    expect(strokeSliderInput().disabled).toBe(false);
+    expect(strokeSliderInput().value).toBe("1");
     const before = container.querySelector("pre.glyph-output")!.textContent!;
-    act(() => strokeButton("3").click());
-    expect(strokeButton("3").getAttribute("aria-pressed")).toBe("true");
+    setRangeValue(strokeSliderInput(), "3");
+    expect(strokeSliderInput().value).toBe("3");
     const after = container.querySelector("pre.glyph-output")!.textContent!;
     expect(after).not.toBe(before);
   });
 
   it("the Stroke row dims with a reason on a mark type with no stroke (bar)", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
-    expect(strokeButton("1").disabled).toBe(true);
-    expect(strokeButton("1").title).toMatch(/Only line, area, and rule marks have a stroke\./);
+    expect(strokeSliderInput().disabled).toBe(true);
+    expect(strokeSliderRow().title).toMatch(/Only line, area, and rule marks have a stroke\./);
+    expect(strokeSliderRow().className).toContain("is-disabled");
+  });
+
+  // Arc "Labels" (AGENTS.md's "Charts" — "Arc shape and callouts"): the
+  // mark card's own IconToggle for `options.labels`, arc-only. "Off"
+  // (`legend-only`) drops the on-chart leader-line callout text (`name ·
+  // NN%`) while the legend row (unaffected either way) still names each
+  // slice.
+  function labelsToggle(): HTMLElement {
+    return container.querySelector<HTMLElement>('.charts-mark-row[data-row="labels"]')!;
+  }
+  it("hides the Labels row on a non-arc mark and shows it on arc", () => {
+    expect(container.querySelector('.charts-mark-row[data-row="labels"]')).toBeNull();
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Pie"]')!.click());
+    expect(activeMarkType()).toBe("arc");
+    expect(labelsToggle()).not.toBeNull();
+  });
+
+  it("switching arc Labels to Off removes the callout text from the render while the legend stays", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Pie"]')!.click());
+    const pre = () => container.querySelector("pre.glyph-output")!.textContent!;
+    // Callout is the library default (`options.labels` unset) — a slice's
+    // "name · NN%" leader-line label carries a "%" sign the legend's own
+    // swatch + name row never does.
+    expect(pre()).toContain("%");
+    const offButton = Array.from(labelsToggle().querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => optionOf(b.getAttribute("aria-label") ?? "") === "Off")!;
+    act(() => offButton.click());
+    expect(offButton.getAttribute("aria-pressed")).toBe("true");
+    expect(pre()).not.toContain("%");
+    expect(container.querySelector(".charts-error")).toBeNull();
   });
 
   // ── The dataset card's read-only table/JSON views (item 5) are real
@@ -1086,7 +1160,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     mount();
     expect(container.querySelector(".charts-error")).toBeNull();
     expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "Apply")).toBe(false);
-    const input = container.querySelector<HTMLInputElement>(".charts-dataset-search-input")!;
+    const input = container.querySelector<HTMLInputElement>(".instrument-search-input")!;
     act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -1094,7 +1168,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => { await settleDebounce(); });
-    const option = container.querySelector<HTMLButtonElement>(".charts-dataset-search-option");
+    const option = container.querySelector<HTMLButtonElement>(".instrument-search-option");
     expect(option).not.toBeNull();
     expect(option!.textContent).toContain("Stub Demo");
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
@@ -1115,7 +1189,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     // Drive the load directly via a pasted bare id (skips the live-search
     // half entirely — `parseDatasetHitFromQuery` recognizes it with no
     // network call, so this exercises exactly the LOAD failure path).
-    const input = container.querySelector<HTMLInputElement>(".charts-dataset-search-input")!;
+    const input = container.querySelector<HTMLInputElement>(".instrument-search-input")!;
     act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
     act(() => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;

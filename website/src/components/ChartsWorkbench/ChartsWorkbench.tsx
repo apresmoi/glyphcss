@@ -11,13 +11,14 @@ import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { loadDatasetRows } from "../../lib/datasetLoad";
 import { parseDatasetHitFromQuery, type DatasetHit } from "../../lib/datasetSearch";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
+import { ChartsDataOverlay } from "./ChartsDataOverlay";
 import { ChartsDataFolder } from "./ChartsDataFolder";
-import { ChartsDatasetSearchBox, pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
+import { pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
-  generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, remoteDatasetRecommendationCheck,
+  findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, remoteDatasetRecommendationCheck,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
@@ -111,12 +112,6 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
 function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }: { initialState: ChartsWorkbenchState; initialNotice?: string; initialRemoteRef?: string }) {
   const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
-  // Portal target for the dataset `<select>` — the rail's own header
-  // `action` slot, mirroring `InstrumentRail`'s synth precedent (Voices'
-  // header carries its own mode toggle + "+ Add" the same way). Null on the
-  // very first render (the ref hasn't committed yet); `ChartsDataFolder`
-  // renders the select inline for that one frame instead of dropping it.
-  const [dataSelectSlot, setDataSelectSlot] = useState<HTMLElement | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   // Dataset-level notices (a failed remote load, a truncated sample, an
   // unresolvable link falling back to a random dataset) live as a quiet
@@ -387,30 +382,36 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     dispatch({ type: "select-dataset", id: randomChartsDatasetId(currentId) });
   };
 
+  // The rail's own header (`InstrumentRail`'s mandatory `.synth-voices-head`
+  // chrome) reads the SELECTED dataset's own title rather than a static
+  // "Data" label — the user's own follow-up: "the rail's FIRST thing is
+  // what the selected dataset is about", with no extra header row spent on
+  // a generic label above the card. Falls back to "Data" with nothing
+  // loaded yet (a fresh `createChartsWorkbenchState()`, no dataset), and to
+  // the in-flight title while a remote load is running (the same title the
+  // dataset card's own spinner line shows).
+  const activeDatasetId = state.data.source?.kind === "dataset" ? state.data.source.id : undefined;
+  const railTitle = remoteLoadingTitle
+    ?? (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined)
+    ?? (state.data.source?.kind === "remote" ? state.data.source.title : undefined)
+    ?? "Data";
+
   return <InstrumentShell kind="synth" className="charts-shell">
     <InstrumentBody>
       {/* Data is this page's own "model" (AGENTS.md's "Charts" — "Data
-       *  layer"), exactly as synth's rail is the voice/model picker: the
-       *  header carries the dataset SEARCH box (`ChartsDatasetSearchBox`,
-       *  matching `MapsWorkbench/MapSearchBox.tsx`'s own look/behaviour —
-       *  a Hugging Face Hub lookup, never replacing the vendored picker)
-       *  above the stock dataset `<select>` + the "Random" button
-       *  (GalleryWorkbench.tsx's own "Load Random" idiom), the body shows
-       *  the dataset as a card (`ChartsDataFolder` — title, description,
-       *  source credit, a read-only "View data" disclosure), and a second
-       *  section below holds the mark this is a showcase of one chart at a
-       *  time, not a builder: picking a dataset REPLACES the chart
-       *  immediately (`select-dataset`/`select-remote-dataset`), with no
-       *  separate Apply step and no add/remove-mark controls. */}
-      <InstrumentRail id="charts-data-panel" title="Data" open={mobilePanel === "data"}
-        action={<span className="charts-rail-header-actions">
-          <ChartsDatasetSearchBox onSelect={(hit) => void loadRemoteDataset(hit)} />
-          <span className="charts-rail-header-actions-row">
-            <span className="charts-dataset-select-slot" ref={setDataSelectSlot} />
-            <button type="button" className="control-btn control-btn--primary charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={handleRandomDataset}>Random</button>
-          </span>
-        </span>}>
-        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} marks={state.marks}
+       *  layer"): the rail carries the dataset CARD (title, description,
+       *  source credit, a read-only "View data" disclosure) as its own
+       *  first thing, then the Marks section — no add/remove-mark
+       *  controls, this is a showcase of one chart at a time, not a
+       *  builder. The dataset SEARCH box, the stock `<select>` and
+       *  "Random" moved OFF this rail and onto the chart VIEWPORT as one
+       *  overlay bar (`ChartsDataOverlay`, below) — the same chrome-on-
+       *  the-render idiom `/maps` uses for its own place search. Picking a
+       *  dataset from either control REPLACES the chart immediately
+       *  (`select-dataset`/`select-remote-dataset`), no separate Apply
+       *  step. */}
+      <InstrumentRail id="charts-data-panel" title={railTitle} open={mobilePanel === "data"}>
+        <ChartsDataFolder data={state.data} marks={state.marks}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
           {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
@@ -435,6 +436,11 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
             </div>
           </div>
         </InstrumentViewport>
+        {/* Sibling of `<InstrumentViewport>`, exactly where `MapSearchBox`
+         *  sits on `/maps` — the same overlay idiom, three controls in one
+         *  bar instead of one. */}
+        <ChartsDataOverlay activeDatasetId={activeDatasetId} dispatch={dispatch}
+          onSelectRemote={(hit) => void loadRemoteDataset(hit)} onRandom={handleRandomDataset} />
         <div className="synth-export-bar">
           {exportActions}
           <button type="button" className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`} aria-controls="charts-export-panel" aria-expanded={codeOpen} onClick={() => { setMobilePanel(null); setCodeOpen((current) => !current); }}>Export</button>

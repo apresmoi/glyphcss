@@ -35,9 +35,9 @@ function mount(props: { search?: ReturnType<typeof vi.fn>; recent?: () => readon
   return { onSelect, search };
 }
 
-const input = () => container!.querySelector<HTMLInputElement>(".charts-dataset-search-input")!;
+const input = () => container!.querySelector<HTMLInputElement>(".instrument-search-input")!;
 const options = () => [...container!.querySelectorAll<HTMLElement>("[role='option']")];
-const optionNames = () => options().map((o) => o.querySelector(".charts-dataset-search-name")?.textContent ?? "");
+const optionNames = () => options().map((o) => o.querySelector(".instrument-search-name")?.textContent ?? "");
 
 function key(el: HTMLElement, k: string): void {
   act(() => { el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); });
@@ -74,7 +74,7 @@ describe("ChartsDatasetSearchBox — suggestions and Recent", () => {
     await act(async () => { input().focus(); input().dispatchEvent(new Event("focus", { bubbles: true })); });
     // "Wine quality" appears once (as Recent), not twice (Recent + Suggested).
     expect(optionNames()).toEqual(["Wine quality", "Titanic survival"]);
-    expect(container!.querySelector(".charts-dataset-search-group")?.textContent).toBe("Recent");
+    expect(container!.querySelector(".instrument-search-group")?.textContent).toBe("Recent");
   });
 });
 
@@ -106,7 +106,7 @@ describe("ChartsDatasetSearchBox — live search debounce", () => {
     await type("zzzznotreal");
     await act(async () => { await vi.advanceTimersByTimeAsync(CHARTS_DATASET_SEARCH_DEBOUNCE_MS + 10); });
     expect(options()).toHaveLength(0);
-    expect(container!.querySelector(".charts-dataset-search-note")?.textContent).toMatch(/no match/i);
+    expect(container!.querySelector(".instrument-search-note")?.textContent).toMatch(/no match/i);
   });
 });
 

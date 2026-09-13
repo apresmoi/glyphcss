@@ -1,11 +1,14 @@
 /**
- * `/charts`' dataset search box — the remote half of the Data folder
- * (AGENTS.md's "Charts" — "Data layer"), matching `MapsWorkbench/MapSearchBox.tsx`'s
- * own look, debounce, keyboard and result-list behaviour: a type-ahead
- * whose local list (curated suggestions, then "Recent") is instant and
- * whose remote list (Hugging Face Hub search, `lib/datasetSearch.ts`) is
- * debounced and abortable. Sits in the rail HEADER, above the stock
- * dataset `<select>` — see `ChartsWorkbench.tsx`'s own header layout doc.
+ * `/charts`' dataset search box — the remote half of the Data layer
+ * (AGENTS.md's "Charts" — "Data layer"), rendering through the SAME
+ * `instrument-search-*` field/list/option shape `MapsWorkbench/MapSearchBox.tsx`
+ * uses (`instrument-workbench.css`'s shared block): a type-ahead whose
+ * local list (curated suggestions, then "Recent") is instant and whose
+ * remote list (Hugging Face Hub search, `lib/datasetSearch.ts`) is
+ * debounced and abortable. Sits in the CHART VIEWPORT's own top-left
+ * overlay bar (`ChartsDataOverlay.tsx`), beside the stock dataset
+ * `<select>` and "Random" — the same chrome-on-the-render idiom `/maps`
+ * already uses for its own place search.
  *
  * Unlike the map's geocoder, there is no "local index" to build lazily —
  * the curated suggestions (`datasets/remoteIndex.ts`) are a static import,
@@ -144,12 +147,12 @@ export function ChartsDatasetSearchBox({ onSelect, search = searchDatasets, sugg
 
   return (
     <div className="charts-dataset-search" role="search">
-      <div className="charts-dataset-search-field">
-        <span className="charts-dataset-search-glyph" aria-hidden="true">{">"}</span>
+      <div className="instrument-search-field">
+        <span className="instrument-search-glyph" aria-hidden="true">{">"}</span>
         <input
           ref={inputRef}
           type="text"
-          className="charts-dataset-search-input"
+          className="instrument-search-input"
           role="combobox"
           aria-expanded={listOpen && results.length > 0}
           aria-controls={listId}
@@ -166,38 +169,38 @@ export function ChartsDatasetSearchBox({ onSelect, search = searchDatasets, sugg
           onBlur={() => { window.setTimeout(() => { if (live.current) setOpen(false); }, 0); }}
         />
         {query && (
-          <button type="button" className="charts-dataset-search-clear" title="Clear the search" aria-label="Clear the search"
+          <button type="button" className="instrument-search-clear" title="Clear the search" aria-label="Clear the search"
             onMouseDown={(e) => e.preventDefault()} onClick={() => { setQuery(""); setActive(-1); inputRef.current?.focus(); }}>×</button>
         )}
       </div>
       {listOpen && results.length > 0 && (
-        <ul className="charts-dataset-search-list" id={listId} role="listbox">
-          {!trimmed && recentHits.length > 0 && <li className="charts-dataset-search-group" role="presentation">Recent</li>}
+        <ul className="instrument-search-list" id={listId} role="listbox">
+          {!trimmed && recentHits.length > 0 && <li className="instrument-search-group" role="presentation">Recent</li>}
           {results.map((hit, i) => {
             const isFirstSuggestion = !trimmed && !parsed && i === recentHits.length;
             return <li key={`${hit.ref}-${i}`}>
-              {isFirstSuggestion && <p className="charts-dataset-search-group" role="presentation">Suggested</p>}
+              {isFirstSuggestion && <p className="instrument-search-group" role="presentation">Suggested</p>}
               <button
                 type="button"
                 id={`${listId}-${i}`}
                 role="option"
                 aria-selected={i === active}
-                className={`charts-dataset-search-option${i === active ? " is-active" : ""}`}
+                className={`instrument-search-option${i === active ? " is-active" : ""}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => choose(hit)}
               >
-                <span className="charts-dataset-search-name">{parsed && i === 0 ? `Load ${hit.title}` : hit.title}</span>
-                {hit.description && <span className="charts-dataset-search-context">{hit.description}</span>}
-                {typeof hit.downloads === "number" && <span className="charts-dataset-search-metric">{hit.downloads.toLocaleString()} downloads</span>}
+                <span className="instrument-search-name">{parsed && i === 0 ? `Load ${hit.title}` : hit.title}</span>
+                {hit.description && <span className="instrument-search-context">{hit.description}</span>}
+                {typeof hit.downloads === "number" && <span className="instrument-search-metric">{hit.downloads.toLocaleString()} downloads</span>}
               </button>
             </li>;
           })}
         </ul>
       )}
-      {listOpen && note && <p className="charts-dataset-search-note" role="status">{note}</p>}
+      {listOpen && note && <p className="instrument-search-note" role="status">{note}</p>}
       {open && trimmed.length > 0 && !parsed && (
-        <p className="charts-dataset-search-egress">
+        <p className="instrument-search-egress">
           Searched at <a href="https://huggingface.co/datasets" target="_blank" rel="noreferrer">huggingface.co</a> — what you type is sent there.
         </p>
       )}

@@ -1,8 +1,7 @@
-import { useMemo, useState, type Dispatch } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useState } from "react";
 import {
-  CHARTS_DATASETS, findChartsDataset, parseChartMarkData,
-  type ChartsDataset, type ChartsWorkbenchAction, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
+  findChartsDataset, parseChartMarkData,
+  type ChartsDataset, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 
 // Custom paste/upload (a "Custom…" dataset option, a pipeline step editor,
@@ -79,14 +78,16 @@ function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string;
 }
 
 /**
- * The dataset card in the left rail (AGENTS.md's "Charts" — "Data layer"):
- * a showcase, not a builder — picking a dataset from the `<select>` (or
- * the header's own SEARCH box, `ChartsDatasetSearchBox`) IMMEDIATELY
- * replaces the chart with a curated/recommended mapping
- * (`select-dataset`/`select-remote-dataset`, `chartsWorkbenchState.ts`),
- * no intermediate "Apply" step. The card itself shows the dataset's
- * title, description, source credit, and a closed "View data ▸"
- * disclosure over its own rows.
+ * The dataset card — the rail's own FIRST thing, above the Marks section
+ * (AGENTS.md's "Charts" — "Data layer"): a showcase, not a builder —
+ * picking a dataset from `ChartsDataOverlay.tsx`'s own `<select>` (or its
+ * search box) IMMEDIATELY replaces the chart with a curated/recommended
+ * mapping (`select-dataset`/`select-remote-dataset`,
+ * `chartsWorkbenchState.ts`), no intermediate "Apply" step. The card shows
+ * the dataset's title, description, source credit, and a closed "View
+ * data ▸" disclosure over its own rows — `ChartsWorkbench.tsx` reads this
+ * same title for the rail's OWN header (`InstrumentRail`'s `title` prop),
+ * so nothing here repeats it.
  *
  * This card is also where feedback that used to float over the render
  * area now lives (the user's own words: "it shouldn't be in the rendering
@@ -99,33 +100,15 @@ function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string;
  * from `notice` because it tracks live validity, not a past event, and
  * clears the instant the config is valid again rather than fading on a
  * timer.
- *
- * The `<select>` renders into `selectSlot` — the rail header's own `action`
- * slot (`ChartsWorkbench.tsx`, beside the "Random" button) — via a plain
- * `createPortal`; `selectSlot` omitted/`null` (this file's own direct-mount
- * tests) renders it inline instead.
  */
-export function ChartsDataFolder({ data, dispatch, selectSlot, marks, loadingTitle, notice, renderError }: {
-  readonly data: ChartsWorkbenchDataState; readonly dispatch: Dispatch<ChartsWorkbenchAction>; readonly selectSlot?: HTMLElement | null;
+export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError }: {
+  readonly data: ChartsWorkbenchDataState;
   readonly marks?: readonly ChartsWorkbenchMark[]; readonly loadingTitle?: string; readonly notice?: string; readonly renderError?: string;
 }) {
   const activeDataset = data.source?.kind === "dataset" ? findChartsDataset(data.source.id) : undefined;
   const remote = data.source?.kind === "remote" ? data.source : undefined;
 
-  const selectField = (
-    <span className="gx-select charts-dataset-select">
-      <select aria-label="Dataset" value={activeDataset?.id ?? ""} onChange={(e) => dispatch({ type: "select-dataset", id: e.target.value })}>
-        {!activeDataset && <option value="" disabled>— pick a dataset —</option>}
-        {CHARTS_DATASETS.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
-      </select>
-    </span>
-  );
-
   return <div className="charts-data-folder">
-    {selectSlot
-      ? createPortal(selectField, selectSlot)
-      : <label className="voice-row charts-mark-row"><span>Dataset</span>{selectField}</label>}
-
     {renderError && <p className="charts-readout charts-error" role="alert">{renderError}</p>}
     {notice && <p className="charts-readout" role="status">{notice}</p>}
 

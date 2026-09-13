@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode } from "react";
+import type { CSSProperties, Dispatch, ReactNode } from "react";
 import type { GlyphChartMarkType, GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import {
   CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields, chartMarkTypeFits,
@@ -6,7 +6,7 @@ import {
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
-import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
+import { EditableReadout, IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
 // Mark-type toggle (owner packet item 3's own idiom, extended to the mark
 // card: an icon per shape reads faster than a `<select>` of eleven names,
@@ -73,23 +73,47 @@ export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
 // "options.strokeWidth" paragraph): a per-mark override, same storage shape
 // as `innerRadius`/`axis` above (`mark.options`, forwarded verbatim by
 // `buildMark` — never `applyChartStyle`, which exists only for `color`'s own
-// cross-mark series resolution and has no reason to own this). Three icons,
-// one line of increasing weight each, `ToggleIcon`'s own shared size
-// untouched (the F6 review finding this file's own Type row comment cites).
-const STROKE_WIDTH_VALUES = [1, 2, 3] as const;
-const STROKE_WIDTH_TOGGLE = STROKE_WIDTH_VALUES.map((width) => ({
-  value: String(width),
-  icon: <ToggleIcon><line x1="2" y1="8" x2="14" y2="8" strokeWidth={1 + width} /></ToggleIcon>,
-  label: String(width),
-  desc: `${width}px stroke weight`,
-}));
+// cross-mark series resolution and has no reason to own this). A `.voice-
+// slider` (`instrument-workbench.css`) rather than three icon buttons — the
+// SAME lil-gui-style number row the Dock's Width/Height rows use, reached
+// for here through the plain (non-lil-gui) `voice-slider` markup the rest
+// of this card already uses (`voice-card`/`voice-row`, the SynthWorkbench
+// voice-card idiom), since a mark card is not itself a lil-gui folder.
+// Range 1..3 step 1, an ORDERED quantity a slider reads faster than three
+// same-shaped buttons for.
+const STROKE_WIDTH_MIN = 1;
+const STROKE_WIDTH_MAX = 3;
+function chartMarkStrokeSliderFill(value: number): CSSProperties {
+  return { ["--fill" as string]: `${((value - STROKE_WIDTH_MIN) / (STROKE_WIDTH_MAX - STROKE_WIDTH_MIN)) * 100}%` } as CSSProperties;
+}
 /** Only `line`, `area` (its own boundary) and `rule` marks paint a stroke
  *  (`packages/charts/src/paint.ts`'s own `resolveStrokeWidth` callers) — the
- *  row stays visible so a reader always sees it exists, but every option
- *  dims with a reason on any other mark type. */
+ *  row stays visible so a reader always sees it exists, but dims with a
+ *  reason on any other mark type. */
 function chartMarkHasStroke(type: ChartsWorkbenchMark["type"]): boolean {
   return type === "line" || type === "area" || type === "rule";
 }
+
+// Arc "Labels" (`options.labels`, `@glyphcss/charts` — AGENTS.md's "Charts"
+// own "Arc shape and callouts" paragraph): `"callout"` (the library
+// default) draws leader lines out to a `name · NN%` label beside the disc;
+// `"legend-only"` paints just the disc, leaving the legend row (unaffected
+// either way) to carry the names. Arc-only — hidden for every other mark
+// type, since no other mark reads this option.
+const ARC_LABELS_TOGGLE = [
+  {
+    value: "callout",
+    icon: <ToggleIcon><circle cx="6" cy="9" r="4" /><path d="M9.3 6.3 L13 3" /><line x1="13" y1="3" x2="14.5" y2="3" /></ToggleIcon>,
+    label: "Callout",
+    desc: "leader lines + name · percent beside the disc",
+  },
+  {
+    value: "legend-only",
+    icon: <ToggleIcon><circle cx="8" cy="6" r="4" /><rect x="4" y="12" width="8" height="1.6" fill="currentColor" stroke="none" /></ToggleIcon>,
+    label: "Off",
+    desc: "plain disc — the legend still names each slice",
+  },
+];
 
 /**
  * Per-mark/per-series colour swatches (packet item 2), next to the mark's
@@ -180,13 +204,23 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
           onChange={(type) => update({ type: type as ChartsWorkbenchMark["type"], options: {}, color: undefined })} />
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
-      <div className="voice-row charts-mark-row" data-row="strokeWidth">
-        <span>Stroke</span>
-        <IconToggle groupTitle={`Mark ${index + 1} stroke width`}
-          options={chartMarkHasStroke(mark.type) ? STROKE_WIDTH_TOGGLE : STROKE_WIDTH_TOGGLE.map((option) => ({ ...option, disabled: true, disabledReason: "Only line, area, and rule marks have a stroke." }))}
-          value={String(mark.options.strokeWidth ?? 1)}
-          onChange={(width) => update({ options: { ...mark.options, strokeWidth: Number(width) as 1 | 2 | 3 } })} />
-      </div>
+      {(() => {
+        const hasStroke = chartMarkHasStroke(mark.type);
+        const strokeWidth = mark.options.strokeWidth ?? 1;
+        const setStrokeWidth = (next: number) => update({ options: { ...mark.options, strokeWidth: next as 1 | 2 | 3 } });
+        return <label className={`voice-slider charts-mark-row${hasStroke ? "" : " is-disabled"}`} data-row="strokeWidth"
+          title={hasStroke ? "Stroke width in cells." : "Only line, area, and rule marks have a stroke."}>
+          <span>Stroke</span>
+          <span className="voice-slider-track">
+            <input type="range" min={STROKE_WIDTH_MIN} max={STROKE_WIDTH_MAX} step={1} disabled={!hasStroke}
+              value={strokeWidth} style={chartMarkStrokeSliderFill(strokeWidth)}
+              aria-label={`Mark ${index + 1} stroke width`}
+              onChange={(e) => setStrokeWidth(Number(e.target.value))} />
+          </span>
+          <EditableReadout value={strokeWidth} min={STROKE_WIDTH_MIN} max={STROKE_WIDTH_MAX} integer disabled={!hasStroke}
+            format={(v) => String(v)} onCommit={setStrokeWidth} />
+        </label>;
+      })()}
       {chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
         <span>{channel}</span><span className="gx-select"><select aria-label={`Mark ${index + 1} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>
@@ -203,6 +237,11 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
         <span>Shape</span><div className="gx-toggle" role="group" aria-label={`Mark ${index + 1} arc shape`}>
           {[{ label: "Pie", radius: 0 }, { label: "Donut", radius: 0.5 }].map(({ label, radius }) => <button key={label} type="button" className={`gx-toggle-btn gx-toggle-text${(mark.options.innerRadius ?? 0) === radius ? " is-active" : ""}`} aria-pressed={(mark.options.innerRadius ?? 0) === radius} onClick={() => update({ options: { ...mark.options, innerRadius: radius } })}>{label}</button>)}
         </div>
+      </div>}
+      {mark.type === "arc" && <div className="voice-row charts-mark-row" data-row="labels">
+        <span>Labels</span>
+        <IconToggle groupTitle={`Mark ${index + 1} labels`} options={ARC_LABELS_TOGGLE} value={mark.options.labels ?? "callout"}
+          onChange={(value) => update({ options: { ...mark.options, labels: value as "callout" | "legend-only" } })} />
       </div>}
       {mark.type === "rule" && <div className="voice-row charts-mark-row">
         <span>Axis</span><div className="gx-toggle" role="group" aria-label={`Mark ${index + 1} rule axis`}>

@@ -140,6 +140,15 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
       if (options.strokeWidth !== 1 && options.strokeWidth !== 2 && options.strokeWidth !== 3) return null;
       cleanOptions.strokeWidth = options.strokeWidth;
     }
+    // Append-only optional field (AGENTS.md's "Charts" — "Arc shape and
+    // callouts"): the arc mark card's own "Labels" toggle, mirroring
+    // `strokeWidth`'s own shape — optional, defaulted absent, so an old
+    // link with no `labels` key decodes exactly as before this row
+    // existed.
+    if (options.labels !== undefined) {
+      if (options.labels !== "callout" && options.labels !== "legend-only") return null;
+      cleanOptions.labels = options.labels;
+    }
     if (options.name !== undefined) {
       if (typeof options.name !== "string") return null;
       cleanOptions.name = options.name;

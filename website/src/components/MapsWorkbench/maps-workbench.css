@@ -575,11 +575,10 @@
    for the same reason `.dn-floating-controls` states it: these controls sit
    over a surface whose whole job is to capture the pointer.
 
-   Skin is the Dock's, matching the layer cards next door: a translucent
-   amber fill on the page's own near-black, an amber border that turns cyan
-   on focus, an orange marker glyph, 11px names at
-   rgba(255, 232, 184, 0.94) with the dim 0.70 for secondary text, and the
-   readout cyan (#38bdf8) for the one number a row carries. */
+   The field/list/option/group/egress/note shape itself is now
+   `instrument-workbench.css`'s shared `.instrument-search-*` block
+   (`/charts`' dataset search reuses it too) — this page keeps only the
+   OUTER positioning wrapper and its own result-kind colour modifiers. */
 .maps-search {
   position: absolute;
   top: var(--overlay-top, 12px);
@@ -591,122 +590,11 @@
   display: flex;
   flex-direction: column;
 }
-.maps-search-field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  background: rgba(5, 7, 12, 0.9);
-  border: 1px solid rgba(255, 232, 184, 0.28);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
-}
-.maps-search-field:focus-within {
-  border-color: rgba(56, 189, 248, 0.55);
-}
-/* The Dock's own orange marker (`.gx-select::after`'s caret colour), used
-   here as the prompt character — a magnifier glyph has no counterpart
-   anywhere else on this page, and the surface is a terminal. */
-.maps-search-glyph {
-  color: #f97316;
-  font-size: 11px;
-  line-height: 1;
-}
-.maps-search-input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: rgba(255, 232, 184, 0.94);
-  background: transparent;
-  border: none;
-  outline: none;
-  padding: 1px 0;
-}
-.maps-search-input::placeholder {
-  color: rgba(255, 232, 184, 0.38);
-}
-.maps-search-clear {
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0 2px;
-  color: rgba(255, 232, 184, 0.55);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-.maps-search-clear:hover {
-  color: rgba(255, 232, 184, 0.94);
-}
-.maps-search-list {
-  list-style: none;
-  margin: 2px 0 0;
-  padding: 0;
-  max-height: min(46vh, 320px);
-  overflow-y: auto;
-  background: rgba(5, 7, 12, 0.94);
-  border: 1px solid rgba(255, 232, 184, 0.22);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
-}
-/* Three columns for the three things that tell two same-named results apart:
-   the name, the country/continent it is in, and its own prominence. Same
-   left-to-right reading as a Dock row (name, widget, value), and the value
-   column is the Dock's cyan. */
-.maps-search-option {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  border-bottom: 1px solid rgba(255, 232, 184, 0.07);
-}
-.maps-search-option:last-child {
-  border-bottom: none;
-}
-.maps-search-option.is-active {
-  background: rgba(56, 189, 248, 0.14);
-}
-.maps-search-name,
-.maps-search-context,
-.maps-search-metric {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.maps-search-name {
-  color: rgba(255, 232, 184, 0.94);
-  letter-spacing: 0.02em;
-}
-.maps-search-context {
-  color: rgba(255, 232, 184, 0.55);
-}
-.maps-search-metric {
-  text-align: right;
-  font-size: 10px;
-}
 .maps-search-metric--place {
   color: #38bdf8;
 }
 .maps-search-metric--country {
   color: rgba(255, 232, 184, 0.45);
-}
-/* The seam between the two halves of the list, named. The reader must be able
-   to tell an instant, baked, offline row from one that came off the network a
-   moment ago — same register as a Dock folder heading, and a rule above it so
-   it reads as a divider rather than as a result. */
-.maps-search-group {
-  padding: 4px 8px 2px;
-  border-top: 1px solid rgba(255, 232, 184, 0.16);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(255, 232, 184, 0.45);
-}
-.maps-search-group:first-child {
-  border-top: none;
 }
 /* An OSM row's metric is a WORD (`tower`, `street`), not a number, so it does
    not take the readout cyan the population column has — that colour means
@@ -715,35 +603,6 @@
   color: rgba(255, 232, 184, 0.45);
   font-style: italic;
 }
-/* The egress disclosure and the OSM credit, in one line under the field.
-   Rendered from focus, before a single keystroke has left the machine, which
-   is the only time saying so is worth anything. Quieter than
-   `.maps-search-note` — it is standing text, not a status. */
-.maps-search-egress {
-  margin: 2px 0 0;
-  padding: 4px 8px;
-  font-size: 10px;
-  line-height: 1.45;
-  color: rgba(255, 232, 184, 0.42);
-  background: rgba(5, 7, 12, 0.94);
-  border: 1px solid rgba(255, 232, 184, 0.12);
-}
-.maps-search-egress a {
-  color: rgba(255, 232, 184, 0.68);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.maps-search-egress a:hover {
-  color: #38bdf8;
-}
-.maps-search-note {
-  margin: 2px 0 0;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: rgba(255, 232, 184, 0.55);
-  background: rgba(5, 7, 12, 0.94);
-  border: 1px solid rgba(255, 232, 184, 0.16);
-}
 
 @media (max-width: 760px) {
   /* Clear of the mobile tab bar's own chrome; still centred, still an
@@ -751,7 +610,7 @@
   .maps-search {
     width: calc(100% - 24px);
   }
-  .maps-search-list {
+  .maps-search .instrument-search-list {
     max-height: min(38vh, 240px);
   }
 }

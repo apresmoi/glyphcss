@@ -57,10 +57,14 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-grid--readonly .charts-grid-cell { cursor: default; }
 
 /* A chart has a fixed cell budget, so scroll its text instead of clipping it.
-   Leave the floating Dock's lane free; the shared shell still positions it. */
+   Leave the floating Dock's lane free; the shared shell still positions it.
+   Top padding clears `.charts-data-overlay` (12px inset + a ~32px control
+   row + a 12px gap) so the render never starts under the bar — one row of
+   controls at this width, so the same top inset as the mobile one below
+   would leave the bar's own bottom edge inside the render. */
 .charts-viewport.synth-viewport {
   box-sizing: border-box;
-  padding: 24px 400px 56px 24px;
+  padding: 64px 400px 56px 24px;
   overflow: auto;
 }
 .charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 100%; gap: 10px; }
@@ -198,65 +202,62 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
-/* Rail header actions — the dataset SEARCH box on its own row, above the
-   stock dataset select (portaled from `ChartsDataFolder.tsx`) + the
-   "Random" button (P3-5, REVIEW-showcase-opus.md: GalleryWorkbench.tsx's
-   own "Load Random" idiom, exact classes — `.control-btn.control-btn--primary`,
-   no page-specific size/padding override, no glyph outside the page's own
-   Glyph Mono subset), sized so a long dataset title never pushes the
-   "DATA" title out of the header row. */
-.charts-rail-header-actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; }
-.charts-rail-header-actions-row { display: flex; align-items: center; gap: 6px; }
-.charts-dataset-select-slot .gx-select,
-.charts-dataset-select-slot { display: block; width: 150px; }
-.charts-random-btn { flex: 0 0 auto; }
+/* Data overlay — the dataset SEARCH box, the stock dataset `<select>` and
+   "Random", moved OFF the rail and ONTO the chart viewport as one bar,
+   exactly the way `/maps` puts its own place search over the map
+   (`MapsWorkbench/MapSearchBox.tsx`'s own doc): a sibling of
+   `<InstrumentViewport>` inside `<InstrumentMain>`, `position: absolute`,
+   the same `--overlay-top`/`--overlay-left` insets. `ChartsDataOverlay.tsx`
+   is the component; the rail keeps only the dataset CARD (below) and the
+   Marks section.
+
+   ONE ROW at every width down to `760px` (`display: flex`, no wrap) —
+   the user's own words: "search, dataset select, Random side by side in a
+   single flex row, no second line". Below that the bar WRAPS: the search
+   field claims the first row on its own (`flex: 1 1 100%`), select and
+   Random share a second row — deliberate `flex-wrap`, not an incidental
+   overflow, so the two rows are always exactly those two groups and never
+   a mid-word wrap of one control. */
+.charts-data-overlay {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: var(--overlay-left, 12px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  pointer-events: auto;
+}
+.charts-data-overlay .charts-dataset-search { flex: 1 1 260px; min-width: 160px; }
+.charts-data-overlay-select { flex: 0 0 auto; }
+.charts-data-overlay-select .gx-select { display: block; min-width: 140px; }
+.charts-random-btn { flex: 0 0 auto; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .charts-data-overlay {
+    flex-wrap: wrap;
+    max-width: calc(100% - 24px);
+  }
+  .charts-data-overlay .charts-dataset-search { flex: 1 1 100%; }
+  .charts-data-overlay-select { flex: 1 1 auto; }
+}
+
 .charts-data-loading { font-style: italic; }
 
-/* Dataset search box — matches `MapsWorkbench/MapSearchBox.tsx`'s own
-   `.maps-search*` rules (same field/list/option/note/egress shape), sized
-   for the rail header instead of a floating map overlay: no
-   `position: absolute`, it sits in normal flow as the header's own top
-   row. */
-.charts-dataset-search { position: relative; width: 100%; }
-.charts-dataset-search-field {
-  display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255, 232, 184, 0.22);
-  background: #0b0d10; padding: 3px 6px;
+/* Dataset search box — the FIELD/LIST/OPTION shape is
+   `instrument-workbench.css`'s shared `.instrument-search-*` block (same
+   one `MapsWorkbench/MapSearchBox.tsx` renders through); this page keeps
+   only its own POSITIONING wrapper. Unlike `/maps`' `.maps-search` (the
+   sole content of its own absolutely-positioned overlay column, so its
+   list sits in ordinary flow right below the field), this search box is
+   one of THREE controls sharing one row — its list must float
+   (`position: absolute`) or opening it would grow `.charts-data-overlay`
+   downward over the render and shove the select/Random sideways. */
+.charts-dataset-search { position: relative; }
+.charts-dataset-search .instrument-search-list {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 20;
 }
-.charts-dataset-search-field:focus-within { border-color: #f97316; }
-.charts-dataset-search-glyph { color: rgba(255, 232, 184, 0.5); font-size: 11px; }
-.charts-dataset-search-input {
-  flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: inherit;
-  font: inherit; font-size: 11px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-}
-.charts-dataset-search-input::placeholder { color: rgba(255, 232, 184, 0.35); }
-.charts-dataset-search-clear {
-  flex: 0 0 auto; background: transparent; border: none; color: rgba(255, 232, 184, 0.6);
-  cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px;
-}
-.charts-dataset-search-clear:hover { color: rgba(255, 232, 184, 0.94); }
-.charts-dataset-search-list {
-  position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 2px 0 0;
-  padding: 0; list-style: none; max-height: 260px; overflow: auto;
-  background: #0b0d10; border: 1px solid rgba(255, 232, 184, 0.22);
-}
-.charts-dataset-search-option {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%;
-  padding: 5px 8px; background: transparent; border: none; border-bottom: 1px solid rgba(255, 232, 184, 0.1);
-  color: inherit; text-align: left; cursor: pointer; font: inherit; font-size: 11px;
-}
-.charts-dataset-search-option:last-child { border-bottom: none; }
-.charts-dataset-search-option.is-active { background: rgba(249, 115, 22, 0.1); }
-.charts-dataset-search-name { font-weight: 600; }
-.charts-dataset-search-context,
-.charts-dataset-search-metric { color: rgba(255, 232, 184, 0.55); font-size: 10px; }
-.charts-dataset-search-group {
-  padding: 3px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: rgba(255, 232, 184, 0.45); background: #0d1118;
-}
-.charts-dataset-search-note,
-.charts-dataset-search-egress { margin: 4px 2px 0; font-size: 10px; color: rgba(255, 232, 184, 0.55); }
-.charts-dataset-search-egress a { color: inherit; }
-.charts-dataset-search-egress a:hover { color: #f97316; }
 
 /* Marks section — the rail's SECOND section, below the dataset card: a
    showcase renders exactly the ONE mark `select-dataset` built (a preset
@@ -322,8 +323,19 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    than one, stacked below the Type row. */
 .charts-mark-colors { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 
+/* Mark card's own "Stroke" row (`ChartsMarkCard.tsx`) is a `.voice-slider`
+   (instrument-workbench.css) — a real slider for one ordered 1/2/3
+   quantity, matching the Width/Height rows' own look. Dimmed with a reason
+   (the row's own `title`) on a mark type with no stroke, same idiom as
+   `.charts-color-row.is-disabled` above. */
+.voice-slider.is-disabled { opacity: 0.45; }
+.voice-slider.is-disabled input[type="range"] { cursor: not-allowed; }
+
 @media (max-width: 760px) {
-  .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
+  /* The overlay bar wraps to TWO rows below this breakpoint (see
+     `.charts-data-overlay`'s own media query) — 12px inset + two ~32px
+     control rows + a 6px inter-row gap + a 12px clearance gap. */
+  .charts-viewport.synth-viewport { padding: 96px 12px var(--mobile-panel-bottom); }
 }
 
 /* Output/Chart folder icon-button rows (owner packet item 3) are SHARED

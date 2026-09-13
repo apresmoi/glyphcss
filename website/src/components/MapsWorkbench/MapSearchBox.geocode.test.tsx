@@ -168,7 +168,7 @@ describe("a landmark the baked pyramids cannot know about", () => {
     expect(groups()).toEqual(["OpenStreetMap"]);
     const list = container!.querySelector(".maps-search-list")!;
     const kids = [...list.children].map((c) => c.className);
-    expect(kids.indexOf("maps-search-group")).toBe(1);
+    expect(kids.findIndex((c) => c.split(" ").includes("maps-search-group"))).toBe(1);
     expect(options().slice(1).every((o) => o.querySelector(".maps-search-metric")!.className.includes("--osm"))).toBe(true);
   });
 });
