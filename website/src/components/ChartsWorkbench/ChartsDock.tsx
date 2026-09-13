@@ -11,8 +11,9 @@ import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset"
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
-  chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
-  chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
+  CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX, CHARTS_DENSITY_STEP,
+  chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
+  chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
@@ -210,6 +211,25 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   useSlider(output, "Width", { min: 12, max: 240, step: 1 }, controls.width, (value) => setControl({ type: "width", value }));
   useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
+  // Density (the user's own framing: "like in the 3D renderers we have the
+  // density sliders" — AGENTS.md's "Per-mesh detail layers", the same
+  // multiplier-on-cells-per-unit rule, applied to the chart's own render
+  // grid instead of a mesh). Web only: `terminal`/`chat` render at whatever
+  // cell size the CONSUMING renderer picks (a real terminal's font, a chat
+  // client's fenced-code-block font), which this page cannot resize, so the
+  // row dims with a reason there rather than doing nothing silently
+  // (`@glyphcss/maps`' `mapDirectionLocked` idiom, `MapsWorkbench/mapsKit.tsx`).
+  const densityLocked = chartsWorkbenchDensityLocked(controls.target);
+  const densityMax = useMemo(() => chartsDensitySliderMax(), []);
+  const densityCtrl = useSlider(output, "Density", { min: CHARTS_DENSITY_MIN, max: densityMax, step: CHARTS_DENSITY_STEP },
+    chartsWorkbenchDensity(state.controls), (value) => setControl({ type: "density", value }));
+  useEffect(() => {
+    if (!densityCtrl) return;
+    densityCtrl.setEnabled(!densityLocked);
+    densityCtrl.raw.domElement.title = densityLocked
+      ? "Fixed cell size on this target — density applies to web."
+      : `Renders more cells for the same on-screen size (like the 3D renderers' own density), down to a ${CHARTS_DENSITY_MIN_FONT_PX}px minimum cell — capped at ${densityMax}× for that floor.`;
+  }, [densityCtrl, densityLocked, densityMax]);
   const detailSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
 
   // Dataset selection now lives in the left rail (AGENTS.md's "Charts" —

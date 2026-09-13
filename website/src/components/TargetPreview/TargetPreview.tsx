@@ -1,4 +1,4 @@
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useMemo, type CSSProperties } from "react";
 import { ansiSpansToHtml, parseAnsiToSpans } from "./ansiToSpans";
 
 /**
@@ -37,10 +37,17 @@ export interface TargetPreviewProps {
   readonly ariaLabel?: string;
   readonly ariaDescription?: string;
   readonly className?: string;
+  /** Inline style for the `<pre>` itself — `/charts`' own density control
+   *  is the only consumer today (a `font-size` that shrinks the web `<pre>`
+   *  back down after it renders MORE cells for the same on-screen box, an
+   *  inline style beating `charts-workbench.css`'s own fixed `13px` rule on
+   *  specificity with no cascade change needed there). Omitted = byte-
+   *  identical to before this prop existed. */
+  readonly style?: CSSProperties;
 }
 
 export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(function TargetPreview(
-  { target, commandTitle, isHtml, text, html, ansi, ariaLabel, ariaDescription, className },
+  { target, commandTitle, isHtml, text, html, ansi, ariaLabel, ariaDescription, className, style },
   ref,
 ) {
   // `web`'s class stays the literal "glyph-output" — nothing else — so the
@@ -52,10 +59,10 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   const terminalHtml = useMemo(() => (target === "terminal" && ansi !== undefined ? ansiSpansToHtml(parseAnsiToSpans(ansi)) : undefined), [target, ansi]);
 
   const pre = terminalHtml !== undefined
-    ? <pre ref={ref} className={preClassName} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: terminalHtml }} />
+    ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: terminalHtml }} />
     : isHtml
-      ? <pre ref={ref} className={preClassName} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: html ?? text }} />
-      : <pre ref={ref} className={preClassName} aria-label={ariaLabel} aria-description={ariaDescription}>{text}</pre>;
+      ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: html ?? text }} />
+      : <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription}>{text}</pre>;
 
   if (target === "terminal") {
     return <div className="target-preview target-preview--terminal">

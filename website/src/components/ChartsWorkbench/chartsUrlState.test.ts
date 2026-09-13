@@ -71,6 +71,27 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // Density (append-only, appended after `v1` already existed): a link
+  // saved with an explicit density round-trips it exactly, and a link
+  // saved before this feature existed (no `density` key at all) decodes to
+  // exactly the same state it always did — `createChartsWorkbenchState()`'s
+  // own default `overrides: {}`, never a materialized `density: 1`.
+  it("round-trips an explicit density override, on a non-web target too", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "density", value: 2.75 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "terminal" } });
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toEqual(state);
+  });
+
+  it("decodes a pre-density link (no density key) to the default, unmaterialized overrides", async () => {
+    const state = createChartsWorkbenchState();
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.controls.overrides).not.toHaveProperty("density");
+    expect(decoded).toEqual(state);
+  });
+
   // Owner packet item 1/2/3 — legend/title placement additions. Append-only:
   // `validateChartsWorkbenchState` defaults these three to "bottom"/"center"/
   // "top" when absent (see the fixed historical link below, encoded before

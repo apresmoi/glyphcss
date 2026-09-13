@@ -68,6 +68,7 @@ export interface GlyphChartsWorkbenchControls {
     readonly width?: number;
     readonly height?: number;
     readonly detail?: GlyphChartDetail;
+    readonly density?: number;
   };
 }
 export type GlyphChartsWorkbenchControlAction =
@@ -76,6 +77,7 @@ export type GlyphChartsWorkbenchControlAction =
   | { type: "color"; value: GlyphChartColorMode }
   | { type: "width" | "height"; value: number }
   | { type: "detail"; value: GlyphChartDetail }
+  | { type: "density"; value: number }
   | { type: "reset" };
 
 /** Explicit choices survive target changes, even when equal to the old default. */
@@ -86,6 +88,51 @@ export function reduceGlyphChartsWorkbenchControls(state: GlyphChartsWorkbenchCo
 }
 export function resolveGlyphChartsWorkbenchControls(state: GlyphChartsWorkbenchControls) {
   return { target: state.target, ...GLYPH_CHART_TARGET_DEFAULTS[state.target], ...state.overrides };
+}
+
+// ── Density (mirrors glyphcss's own per-mesh `density` — AGENTS.md's "Per-
+// mesh detail layers": a multiplier on cells per unit, the `<pre>` scaled
+// by `font-size`/`line-height` so the on-screen box holds still while the
+// picture gains detail) ──────────────────────────────────────────────────
+//
+// Web only: a `terminal`/`chat` cell is a fixed size set by the CONSUMING
+// renderer (a real terminal's font, a chat client's fenced-code-block
+// font), which this page cannot resize — density has nothing to scale
+// there, so the EFFECTIVE value is always 1 outside `web` while the STATE
+// keeps whatever the reader dialed in on web, restored the moment they
+// switch back (the task's own framing).
+export const CHARTS_DEFAULT_DENSITY = 1;
+export const CHARTS_DENSITY_MIN = 1;
+export const CHARTS_DENSITY_MAX = 4;
+export const CHARTS_DENSITY_STEP = 0.25;
+/** The web `<pre>`'s fixed base `font-size` (`.charts-grid-scroll >
+ *  .glyph-output`, `charts-workbench.css`) — density divides this, never
+ *  the other way round. */
+export const CHARTS_DENSITY_BASE_FONT_PX = 13;
+/** Smallest a cell may read as — below this a glyph is no longer legible,
+ *  so the slider's own max is capped rather than letting a reader dial
+ *  past it. */
+export const CHARTS_DENSITY_MIN_FONT_PX = 4;
+
+/** Highest density `baseFontPx` can still render before a cell would drop
+ *  under `CHARTS_DENSITY_MIN_FONT_PX`, snapped down to the slider's own
+ *  step grid and never above `CHARTS_DENSITY_MAX`. */
+export function chartsDensitySliderMax(baseFontPx: number = CHARTS_DENSITY_BASE_FONT_PX): number {
+  const legible = Math.floor(baseFontPx / CHARTS_DENSITY_MIN_FONT_PX / CHARTS_DENSITY_STEP) * CHARTS_DENSITY_STEP;
+  return Math.max(CHARTS_DENSITY_MIN, Math.min(CHARTS_DENSITY_MAX, legible));
+}
+/** `true` when density has no effect at this target (mirrors `@glyphcss/maps`'
+ *  own `mapDirectionLocked` idiom — dim a control with the reason something
+ *  else, here the target's own fixed cell size, owns it). */
+export function chartsWorkbenchDensityLocked(target: GlyphChartTarget): boolean {
+  return target !== "web";
+}
+export function chartsWorkbenchDensity(controls: GlyphChartsWorkbenchControls): number {
+  return controls.overrides.density ?? CHARTS_DEFAULT_DENSITY;
+}
+/** The density that actually reaches the render grid — always 1 off `web`. */
+export function chartsWorkbenchEffectiveDensity(controls: GlyphChartsWorkbenchControls): number {
+  return chartsWorkbenchDensityLocked(controls.target) ? CHARTS_DEFAULT_DENSITY : chartsWorkbenchDensity(controls);
 }
 
 const SAMPLE = [3, 5, 2, 8, 6, 9, 4];
@@ -842,7 +889,19 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): Glyph
   // (`buildChartsWorkbenchSpec`, carrying the chosen placement), and a
   // render `options.legend` would OVERRIDE that placement object with a
   // plain boolean (`resolveGlyphChartLegendOption`'s documented precedence).
-  return { ...resolveGlyphChartsWorkbenchControls(state.controls), detail: state.controls.overrides.detail ?? "auto",
+  //
+  // `density` is stripped out of the spread rather than reaching
+  // `renderGlyphChart` — it is a WEBSITE-only render-grid multiplier, not a
+  // library render option, and this function's own return type
+  // (`GlyphChartRenderOptions`) has no such field. Width/Height in
+  // `resolved` stay the reader's LOGICAL size; only the values actually
+  // handed to the library are multiplied, at the SAME render pass the
+  // library already runs — glyphcss's own `density` never adds a pass
+  // either (AGENTS.md's "Per-mesh detail layers").
+  const { density: _density, ...resolved } = resolveGlyphChartsWorkbenchControls(state.controls);
+  const density = chartsWorkbenchEffectiveDensity(state.controls);
+  return { ...resolved, width: Math.round(resolved.width * density), height: Math.round(resolved.height * density),
+    detail: state.controls.overrides.detail ?? "auto",
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState) {
