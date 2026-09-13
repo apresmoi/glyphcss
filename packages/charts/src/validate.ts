@@ -7,7 +7,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
-  "sankey-bad-value",
+  "sankey-bad-value", "bad-axis-color", "bad-mark-color",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -30,6 +30,32 @@ function object(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 function channel(v: unknown): boolean { return typeof v === "string" || typeof v === "function" || Array.isArray(v); }
+
+// Mirrors `glyphcss`'s own cell-canvas contract exactly (`CANVAS_CANONICAL_HEX`
+// in `packages/glyphcss/src/render/canvas/canvas.ts`) — canonical lowercase
+// `#rrggbb`, so `"none"`, uppercase, `#rgb`, and `rgb(...)` all reject the
+// same way a painter's own colour argument would.
+const CANONICAL_HEX_COLOR = /^#[0-9a-f]{6}$/;
+function isCanonicalHexColor(v: unknown): v is string {
+  return typeof v === "string" && CANONICAL_HEX_COLOR.test(v);
+}
+
+/** `spec.axes?.color` and `spec.axes?.{x,y}?.color` (AGENTS.md's "Charts" "Colours"). */
+export function validateGlyphChartAxisColor(axes: GlyphChartSpec["axes"]): void {
+  for (const color of [axes?.color, axes?.x?.color, axes?.y?.color]) {
+    if (color !== undefined && !isCanonicalHexColor(color)) {
+      chartError("bad-axis-color", `axis color must be a canonical lowercase #rrggbb string, got ${JSON.stringify(color)}.`);
+    }
+  }
+}
+
+/** A mark's `options.color`: a single canonical hex, or a non-empty array of them. */
+function validateMarkColor(color: unknown): void {
+  const arr = typeof color === "string" ? [color] : color;
+  if (!Array.isArray(arr) || arr.length === 0 || arr.some((c) => !isCanonicalHexColor(c))) {
+    chartError("bad-mark-color", `options.color must be a canonical #rrggbb string, or a non-empty array of them, got ${JSON.stringify(color)}.`);
+  }
+}
 export function validateFiniteData(v: unknown): void {
   if (typeof v === "number" && !Number.isFinite(v)) chartError("non-finite-data", "Data and resolved channels must contain only finite numbers.");
   if (Array.isArray(v)) v.forEach(validateFiniteData);
@@ -63,9 +89,10 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   }
   if (mark.options !== undefined) {
     const o = mark.options;
-    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, and name are supported options; size/shape/curve are not supported.");
+    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, and color are supported options; size/shape/curve are not supported.");
     if (o.innerRadius !== undefined && (typeof o.innerRadius !== "number" || !Number.isFinite(o.innerRadius) || o.innerRadius < 0 || o.innerRadius >= 1)) chartError("invalid-inner-radius", "innerRadius must be in [0, 1).");
     if (o.axis !== undefined && o.axis !== "x" && o.axis !== "y") chartError("invalid-rule-axis", "axis must be x or y.");
+    if (o.color !== undefined) validateMarkColor(o.color);
   }
 }
 
@@ -116,6 +143,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
   if (spec.description !== undefined && typeof spec.description !== "string") chartError("bad-options", "description must be a string.");
   validateGlyphChartTitleOption(spec.title);
   validateGlyphChartLegendOption(spec.legend);
+  validateGlyphChartAxisColor(spec.axes);
   if (spec.scales !== undefined && !object(spec.scales)) chartError("bad-scale", "scales must be an object.");
   const scales = { ...spec.scales };
   for (const [axis, opts] of Object.entries(spec.scales ?? {})) {
@@ -166,6 +194,8 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
   "sankey-bad-value": "Supply source, target, and value channels, and make sure every resolved value is finite and greater than 0.",
+  "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
+  "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
 };
 
 /**

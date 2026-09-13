@@ -75,18 +75,22 @@ export interface GlyphChartSankeyChannels {
   readonly value: GlyphChartChannelValue;
   /** Same idiom as every other constructor's `options.name` — accepted here directly since a sankey has no other place for a caller-facing series label. */
   readonly name?: string;
+  /** Folds into `mark.options.color` like `name` does — per SOURCE NODE, in series order (AGENTS.md's "Charts" "Colours"). */
+  readonly color?: string | readonly string[];
 }
 
 /**
  * A sankey mark is non-cartesian, like `arc` — see `AGENTS.md`'s "Charts"
  * section. `{ source, target, value }` are channel names/accessors/arrays
- * exactly like every other channel; `name` folds into `mark.options.name`
- * like `glyphChartRule`'s own does, so a hand-authored JSON mark (which
- * sets `options.name` directly) and this constructor agree byte for byte.
+ * exactly like every other channel; `name`/`color` fold into
+ * `mark.options.{name,color}` like `glyphChartRule`'s own `name` does, so a
+ * hand-authored JSON mark (which sets `options` directly) and this
+ * constructor agree byte for byte.
  */
 export function glyphChartSankey(data: GlyphChartMark["data"], channels: GlyphChartSankeyChannels): GlyphChartMark {
-  const { source, target, value, name } = channels;
-  return mark("sankey", data, { source, target, value }, name !== undefined ? { name } : undefined);
+  const { source, target, value, name, color } = channels;
+  const options = name !== undefined || color !== undefined ? { ...(name !== undefined && { name }), ...(color !== undefined && { color }) } : undefined;
+  return mark("sankey", data, { source, target, value }, options);
 }
 
 export interface GlyphChartFunnelChannels {
@@ -95,6 +99,8 @@ export interface GlyphChartFunnelChannels {
   /** Omitted with a bare `number[]` `data`: the value defaults to the array element itself. */
   readonly value?: GlyphChartChannelValue;
   readonly name?: string;
+  /** Folds into `mark.options.color` like `name` does — per STAGE, in declared order (AGENTS.md's "Charts" "Colours"). */
+  readonly color?: string | readonly string[];
 }
 
 /**
@@ -103,8 +109,9 @@ export interface GlyphChartFunnelChannels {
  * `{ stage, value }` channels.
  */
 export function glyphChartFunnel(data: GlyphChartMark["data"], channels: GlyphChartFunnelChannels = {}): GlyphChartMark {
-  const { stage, value, name } = channels;
-  return mark("funnel", data, { stage, value }, name !== undefined ? { name } : undefined);
+  const { stage, value, name, color } = channels;
+  const options = name !== undefined || color !== undefined ? { ...(name !== undefined && { name }), ...(color !== undefined && { color }) } : undefined;
+  return mark("funnel", data, { stage, value }, options);
 }
 
 export interface GlyphChartPlotOptions {

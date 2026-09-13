@@ -26,24 +26,18 @@ import {
   type GlyphChartLegendLayout,
 } from "./layout";
 import { abbreviateChartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLegendOverlapsMarks, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerEmptyTotal, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { paintFunnelMark, paintSankeyMark } from "./flowMarks";
-import { areaLayers, chartSeries, SERIES_COLORS, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
+import { areaLayers, chartSeries, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
 import type { GlyphChartCharset, GlyphChartMarkRow, GlyphChartSpec } from "./types";
-
-const PALETTE = SERIES_COLORS;
 
 /** See `shadeFor`'s own doc (the "orchestration" section below). */
 const GLYPH_CHART_CELL_MIN_INK_SHADE = 0.15;
 
 export interface GlyphChartPaintOptions {
   readonly colorEnabled: boolean;
-}
-
-function paletteColor(i: number, enabled: boolean): string | null {
-  return enabled ? PALETTE[i % PALETTE.length]! : null;
 }
 
 function numeric(v: unknown): number {
@@ -255,8 +249,19 @@ const GLYPH_CHART_CELL_LOSS_COLOR = "#ef4444";
  * gain/loss ramp pair above — for every tier, including `ascii`/`box`,
  * since `fillRect` has no way to select between two glyph FAMILIES for one
  * shade value.
+ *
+ * `colorOverride` is the mark's own RAW `options.color` (never the generic
+ * per-series `color` field `chartSeries` resolves — a cell mark always
+ * produces exactly one series, so that field can carry only ONE override
+ * slot, where a diverging domain legitimately needs two: AGENTS.md's
+ * "Charts" "Colours" contract's `[losses, gains]`). A single string (or
+ * one-element array) applies to both signs; two or more elements are
+ * `[losses, gains]`; `undefined` keeps the existing gain/loss defaults.
  */
-function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number, signed: boolean, colorEnabled: boolean): void {
+function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number, signed: boolean, colorEnabled: boolean, colorOverride?: string | readonly string[]): void {
+  const overrideArr = colorOverride === undefined ? undefined : typeof colorOverride === "string" ? [colorOverride] : colorOverride;
+  const lossColor = overrideArr?.[0] ?? GLYPH_CHART_CELL_LOSS_COLOR;
+  const gainColor = overrideArr && overrideArr.length > 1 ? overrideArr[1]! : overrideArr?.[0] ?? GLYPH_CHART_CELL_GAIN_COLOR;
   const fallbackCols = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) * (scales.x.bandStep ?? 1 / Math.max(1, rows.length))));
   const fallbackRows = Math.max(1, Math.round((layout.plot.y1 - layout.plot.y0 + 1) * (scales.y.bandStep ?? 1 / Math.max(1, rows.length))));
   const subcellTier = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
@@ -277,7 +282,7 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     if (signed) {
       const negative = value < 0;
       const ramp = negative ? GLYPH_CHART_CELL_LOSS_RAMP[canvas.tier] : GLYPH_CHART_CELL_GAIN_RAMP[canvas.tier];
-      const cellColor = colorEnabled ? (negative ? GLYPH_CHART_CELL_LOSS_COLOR : GLYPH_CHART_CELL_GAIN_COLOR) : null;
+      const cellColor = colorEnabled ? (negative ? lossColor : gainColor) : null;
       const level = Number.isFinite(shade) ? Math.round(shade * (ramp.length - 1)) : ramp.length - 1;
       fillRegionShade(canvas, x0, y0, x1, y1, ramp[level]!, cellColor);
     } else if (subcellTier) {
@@ -321,7 +326,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
     const s = start;
     start += angle;
     const entry = series[i]!;
-    return { s, e: start, color: paletteColor(entry.styleIndex, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!) };
+    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!) };
   });
   for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
     for (let x = layout.plot.x0; x <= layout.plot.x1; x++) {
@@ -348,19 +353,25 @@ const { n: AXIS_N, e: AXIS_E, s: AXIS_S, w: AXIS_W } = GLYPH_CANVAS_DIRECTION_BI
  * over it. `┈`/`┊` (box-drawing quadruple dash) collapse to `.` on `ascii`,
  * matching every other structural axis glyph's own ascii fallback.
  */
-function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
+function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean): void {
   if (!layout.hasCartesianAxes) return;
   const ascii = canvas.tier === "ascii";
+  // Gridlines share the axis's own colour (AGENTS.md's "Charts" "Colours":
+  // "Gridlines use the same colour") — `null` when colour is off, exactly
+  // like every other structural glyph here, so text-only output is
+  // untouched by this option existing.
+  const xColor = colorEnabled ? layout.xAxisColor : null;
+  const yColor = colorEnabled ? layout.yAxisColor : null;
   if (layout.xGrid) {
     const glyph = ascii ? "." : "┊";
     for (const t of layout.xTicks) {
-      for (let y = layout.plot.y0; y <= layout.plot.y1; y++) canvas.text(t.cell, y, [glyph]);
+      for (let y = layout.plot.y0; y <= layout.plot.y1; y++) canvas.text(t.cell, y, [glyph], { color: xColor });
     }
   }
   if (layout.yGrid) {
     const glyph = ascii ? "." : "┈";
     for (const t of layout.yTicks) {
-      for (let x = layout.plot.x0; x <= layout.plot.x1; x++) canvas.text(x, t.cell, [glyph]);
+      for (let x = layout.plot.x0; x <= layout.plot.x1; x++) canvas.text(x, t.cell, [glyph], { color: yColor });
     }
   }
 }
@@ -380,11 +391,16 @@ function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
  * canvas" / "sub-cell data marks, whole-cell axes"), and `canvas.text()`
  * never rasterises sub-cell regardless of tier.
  */
-function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
+function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean): void {
   if (!layout.hasCartesianAxes) return;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
   const xTickCols = new Set(layout.xTicks.map((t) => t.cell));
+  // Both axes' line, tick marks, tick labels, and title (AGENTS.md's
+  // "Charts" "Colours") — `null` when colour is off, byte-identical to
+  // before `spec.axes.color` existed.
+  const xColor = colorEnabled ? layout.xAxisColor : null;
+  const yColor = colorEnabled ? layout.yAxisColor : null;
 
   // The y-axis spans the FULL plot height, top to bottom — never only up
   // to `xAxisLineRow` — because that row is no longer necessarily the
@@ -395,10 +411,10 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
   if (layout.yTickMarks) {
     for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
       const glyph = yTickRows.has(y) ? tier.junction[AXIS_N | AXIS_S | AXIS_W]! : tier.junction[AXIS_N | AXIS_S]!;
-      canvas.text(layout.yAxisCol, y, [glyph]);
+      canvas.text(layout.yAxisCol, y, [glyph], { color: yColor });
     }
   } else {
-    canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.plot.y1 }, { subcell: false });
+    canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.plot.y1 }, { subcell: false, color: yColor });
   }
 
   // Painted second, so it wins the shared corner cell — matches the
@@ -412,17 +428,17 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
     for (let x = layout.yAxisCol; x <= layout.plot.x1; x++) {
       const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E | (axisLineInterior ? AXIS_S : 0)]!
         : xTickCols.has(x) ? tier.junction[AXIS_N | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
-      canvas.text(x, layout.xAxisLineRow, [glyph]);
+      canvas.text(x, layout.xAxisLineRow, [glyph], { color: xColor });
     }
   } else {
-    canvas.line({ x: layout.yAxisCol, y: layout.xAxisLineRow }, { x: layout.plot.x1, y: layout.xAxisLineRow }, { subcell: false });
+    canvas.line({ x: layout.yAxisCol, y: layout.xAxisLineRow }, { x: layout.plot.x1, y: layout.xAxisLineRow }, { subcell: false, color: xColor });
   }
 
   for (const t of layout.xTicks) {
-    canvas.text(t.labelStart, layout.xAxisLabelRow, [t.label]);
+    canvas.text(t.labelStart, layout.xAxisLabelRow, [t.label], { color: xColor });
   }
   for (const t of layout.yTicks) {
-    canvas.text(t.labelStart, t.cell, [t.label]);
+    canvas.text(t.labelStart, t.cell, [t.label], { color: yColor });
   }
 
   // Titles (packet item 6): x centred under its own tick-label row, y on
@@ -431,10 +447,10 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
   if (layout.xAxisTitle) {
     const width = layout.plot.x1 - layout.plot.x0 + 1;
     const x = Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - layout.xAxisTitle.length) / 2));
-    canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle]);
+    canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor });
   }
   if (layout.yAxisTitle) {
-    canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle]);
+    canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle], { color: yColor });
   }
 }
 
@@ -674,7 +690,7 @@ export function paintGlyphChart(
   opts: GlyphChartPaintOptions,
   ledger: GlyphChartLedgerEntry[],
 ): void {
-  const series = chartSeries(marks);
+  const series = chartSeries(marks, ledger);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const cellSigned = lo < 0 && hi > 0;
@@ -715,7 +731,7 @@ export function paintGlyphChart(
     const raw = (v - lo) / (hi - lo);
     return GLYPH_CHART_CELL_MIN_INK_SHADE + (1 - GLYPH_CHART_CELL_MIN_INK_SHADE) * raw;
   };
-  paintGrid(canvas, layout);
+  paintGrid(canvas, layout, opts.colorEnabled);
   const dodgeDegraded = new Set<number>();
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
@@ -724,12 +740,26 @@ export function paintGlyphChart(
     else if (mark.type === "sankey") paintSankeyMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
     else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
     else for (let i = 0; i < groups.length; i++) {
-      const { rows, styleIndex } = groups[i]!;
-      const color = paletteColor(styleIndex, opts.colorEnabled);
+      const group = groups[i]!;
+      const { rows, styleIndex } = group;
+      const color = resolveSeriesColor(group, opts.colorEnabled);
       if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
-      if (mark.type === "cell") paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled);
+      if (mark.type === "cell") {
+        // `chartSeries` skips this mark's own `mark-color-unused` check
+        // (its own doc explains why: a cell mark is always ONE series, so
+        // it can't tell "one ink colour" from a diverging domain's
+        // legitimate two) — reported here instead, now that `cellSigned`
+        // (shared across every cell mark in the chart) is known.
+        const rawColor = mark.options?.color;
+        if (rawColor !== undefined) {
+          const arr = typeof rawColor === "string" ? [rawColor] : rawColor;
+          const usedSlots = cellSigned ? 2 : 1;
+          if (arr.length > usedSlots) ledger.push(ledgerMarkColorUnused({ markType: "cell", provided: arr.length, used: usedSlots }));
+        }
+        paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled, rawColor);
+      }
     }
   }
   // Axes paint BEFORE marks (PLAN.md Phase 1's original order, kept): a
@@ -743,9 +773,10 @@ export function paintGlyphChart(
   // ONE column a mark actually touches may show sub-cell ink on the axis
   // row under braille/blocks; `paintGrid`'s own faint gridlines still
   // paint first, so marks correctly sit on top of them either way.
-  paintAxes(canvas, layout);
-  for (const { mark, rows, ruleValues, styleIndex } of series) {
-    const color = paletteColor(styleIndex, opts.colorEnabled);
+  paintAxes(canvas, layout, opts.colorEnabled);
+  for (const entry of series) {
+    const { mark, rows, ruleValues, styleIndex } = entry;
+    const color = resolveSeriesColor(entry, opts.colorEnabled);
     const style = opts.colorEnabled ? "solid" : SERIES_STYLES[styleIndex % SERIES_STYLES.length]!;
     const guarded = guardedCanvas(canvas, mark.type);
     if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style);
@@ -830,8 +861,9 @@ export function paintGlyphChart(
   for (const label of placed) {
     if (label.id.startsWith("legend:")) {
       const i = Number(label.id.slice(7));
-      const color = paletteColor(i, opts.colorEnabled);
-      const entry = series.find((s) => s.name === layout.legend!.items[i]!.label);
+      const item = layout.legend!.items[i]!;
+      const color = opts.colorEnabled ? item.color ?? null : null;
+      const entry = series.find((s) => s.name === item.label);
       const swatchX = Math.max(0, label.x - 3);
       if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {

@@ -86,6 +86,11 @@ export function ledgerFunnelThinStage(opts: { readonly stage: string; readonly v
   return entry("funnel-thin-stage", `Stage "${opts.stage}" is too small to draw proportionally — drew a one-cell stub instead.`, { ...opts });
 }
 
+export function ledgerMarkColorUnused(opts: { readonly markType: string; readonly provided: number; readonly used: number }): GlyphChartLedgerEntry {
+  const plural = opts.used === 1 ? "is" : "are";
+  return entry("mark-color-unused", `This ${opts.markType} mark's color option lists ${opts.provided} colors but only ${opts.used} ${plural} used.`, { ...opts });
+}
+
 /**
  * The cell canvas (`glyphcss`) still reports its own "double style has no
  * diagonal analogue" note as a free-text string (`GlyphCanvasReport.ledger`

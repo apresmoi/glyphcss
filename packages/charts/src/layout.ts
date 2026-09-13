@@ -9,7 +9,7 @@
  */
 
 import { timeFormat } from "d3-time-format";
-import { chartSeries, SERIES_COLORS } from "./series";
+import { chartSeries, chartSeriesColors, SERIES_COLORS } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
 import { ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
@@ -44,6 +44,22 @@ export function resolveGlyphChartLegendOption(specLegend: GlyphChartLegendOption
   const explicit = chosen !== undefined;
   const source = chosen ?? true;
   return typeof source === "boolean" ? { show: source, placement: "bottom", explicit } : { show: true, placement: source.placement, explicit: true };
+}
+
+/**
+ * A mid grey, not the full-brightness foreground `paintAxes`/`paintGrid`
+ * used before `spec.axes.color`/`spec.axes.{x,y}.color` existed — data marks
+ * (the palette's own saturated colours) must read brighter than the frame
+ * around them, and painting the axis in the reader's own text colour made
+ * the two indistinguishable at a glance (AGENTS.md's "Charts" "Colours").
+ * Applies only when colour is enabled; text-only output never sets a colour
+ * on the axis at all, exactly as before this constant existed.
+ */
+export const GLYPH_CHART_AXIS_DEFAULT_COLOR = "#7a7f8a";
+
+/** `spec.axes.color`, overridden per axis by `spec.axes.{x,y}.color`, defaulting to `GLYPH_CHART_AXIS_DEFAULT_COLOR` — the colour `paintAxes`/`paintGrid` use whenever colour is enabled. */
+export function resolveGlyphChartAxisColor(axes: GlyphChartSpec["axes"], axis: "x" | "y"): string {
+  return axes?.[axis]?.color ?? axes?.color ?? GLYPH_CHART_AXIS_DEFAULT_COLOR;
 }
 
 export interface GlyphChartLayoutTick {
@@ -96,6 +112,9 @@ export interface GlyphChartLayout {
   readonly yTickMarks: boolean;
   readonly xGrid: boolean;
   readonly yGrid: boolean;
+  /** Resolved per `resolveGlyphChartAxisColor` — `paintAxes`/`paintGrid` apply this only when colour is enabled. */
+  readonly xAxisColor: string;
+  readonly yAxisColor: string;
   /** `null` when there's no title (explicit `""`, no string field, or no room). */
   readonly xAxisTitle: string | null;
   readonly yAxisTitle: string | null;
@@ -374,6 +393,8 @@ export function layoutGlyphChart(
   const yTickMarks = yAxisOpts?.tickMarks ?? true;
   const xGrid = xAxisOpts?.grid ?? false;
   const yGrid = yAxisOpts?.grid ?? false;
+  const xAxisColor = resolveGlyphChartAxisColor(spec.axes, "x");
+  const yAxisColor = resolveGlyphChartAxisColor(spec.axes, "y");
   // An auto title (derived from a mark's own field NAME, never an explicit
   // caller-supplied `axes.*.title`) costs a whole row it doesn't ask
   // permission for, and it repeats what the tick labels already say —
@@ -424,7 +445,12 @@ export function layoutGlyphChart(
   // (nothing named anything) omits the row entirely.
   const names = seriesNames(marks);
   let legend: GlyphChartLayout["legend"] = null;
-  const items = names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] }));
+  // A mark's own `options.color` override (`chartSeries`' own resolution,
+  // never re-derived here) repaints the legend swatch too — falls back to
+  // the shared palette by first-appearance order exactly as before this
+  // option existed.
+  const seriesColors = chartSeriesColors(marks);
+  const items = names.map((label, i) => ({ label, color: seriesColors.get(label) ?? SERIES_COLORS[i % SERIES_COLORS.length] }));
   const reserveBottomLegend = (): boolean => {
     const legendWide = cols >= 12 && rows - top - 3 > 2;
     if (legendWide) { legend = { placement: "bottom", row: bottom, items }; bottom -= 1; }
@@ -672,6 +698,8 @@ export function layoutGlyphChart(
     yTickMarks,
     xGrid,
     yGrid,
+    xAxisColor,
+    yAxisColor,
     xAxisTitle: xAxisTitleRow >= 0 ? xAxisTitleText! : null,
     yAxisTitle: yAxisTitleRow >= 0 ? yAxisTitleText! : null,
     xAxisTitleRow,

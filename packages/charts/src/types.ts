@@ -61,6 +61,15 @@ export interface GlyphChartMarkOptions {
   readonly axis?: "x" | "y";
   /** A caller-supplied series name, used by the legend and `meta.series`. */
   readonly name?: string;
+  /**
+   * A canonical `#rrggbb`, or an array assigned per series in series order
+   * (cycling if shorter; a longer array logs `mark-color-unused`) —
+   * overrides the palette colour AND the legend swatch for this mark's own
+   * series (AGENTS.md's "Charts" "Colours"). `arc`: per slice. `cell`: the
+   * ramp's ink colour, or `[losses, gains]` for a diverging domain.
+   * `sankey`: per source node. `funnel`: per stage.
+   */
+  readonly color?: string | readonly string[];
 }
 
 export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";
@@ -116,6 +125,8 @@ export interface GlyphChartAxisOptions {
   readonly tickMarks?: boolean;
   readonly title?: string;
   readonly grid?: boolean;
+  /** Canonical `#rrggbb`; overrides `spec.axes.color` for this one axis (line, tick marks, tick labels, title, and grid). */
+  readonly color?: string;
 }
 
 /**
@@ -147,6 +158,8 @@ export interface GlyphChartSpec {
     readonly y?: GlyphChartScaleOptions;
   };
   readonly axes?: {
+    /** Canonical `#rrggbb`; both axes' line, tick marks, tick labels, title, and grid — a mid grey (`GLYPH_CHART_AXIS_DEFAULT_COLOR`) when colour is on and neither this nor a per-axis `color` is set. */
+    readonly color?: string;
     readonly x?: GlyphChartAxisOptions;
     readonly y?: GlyphChartAxisOptions;
   };

@@ -19,7 +19,7 @@ import { accessorFor, identity, index, isNumericArray } from "./channels";
 import { abbreviateChartText, chartText } from "./labels";
 import { ledgerFunnelNotMonotone, ledgerFunnelThinStage, ledgerSankeyFoldedFlows, ledgerSankeyImbalance, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartPlotRect } from "./layout";
-import { SERIES_COLORS, seriesShade, type ChartSeries } from "./series";
+import { resolveSeriesColor, seriesShade, type ChartSeries } from "./series";
 import { chartError } from "./validate";
 import type { GlyphChartMark, GlyphChartMarkRow } from "./types";
 
@@ -153,6 +153,8 @@ interface SankeyBand {
   readonly target: string;
   readonly value: number;
   readonly styleIndex: number;
+  /** The source node's own `ChartSeries.color` — its mark's `options.color` override, per source node, or `null` for none. */
+  readonly color: string | null;
   readonly sourceRowRange: readonly [number, number];
   targetRowRange?: readonly [number, number];
   readonly folded: boolean;
@@ -273,7 +275,7 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
       const h = heights[i]!;
       const range: readonly [number, number] = [cursor, cursor + h - 1];
       cursor += h;
-      bands.push({ source: nodeId, target: l.target, value: l.value, styleIndex: g.styleIndex, sourceRowRange: range, folded: Boolean(l.folded) });
+      bands.push({ source: nodeId, target: l.target, value: l.value, styleIndex: g.styleIndex, color: g.color, sourceRowRange: range, folded: Boolean(l.folded) });
     });
   }
 
@@ -328,7 +330,7 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
   const { bands, gap } = layout;
   for (const band of bands) {
     const glyph = seriesShade(canvas.tier, band.styleIndex);
-    const color = colorEnabled ? SERIES_COLORS[band.styleIndex % SERIES_COLORS.length]! : null;
+    const color = resolveSeriesColor(band, colorEnabled);
     const srcBox = nodeBoxes.get(band.source)!;
     const [sr0, sr1] = band.sourceRowRange;
     if (sr0 > sr1) continue;
@@ -410,7 +412,7 @@ function formatFunnelValue(v: number): string {
  * moved).
  */
 export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
-  const stages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex }));
+  const stages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (stages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const plotHeight = plot.y1 - plot.y0 + 1;
@@ -444,7 +446,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     const midRow = Math.floor((rowStart + rowEnd) / 2);
 
     const glyph = seriesShade(canvas.tier, stage.styleIndex);
-    const color = colorEnabled ? SERIES_COLORS[stage.styleIndex % SERIES_COLORS.length]! : null;
+    const color = resolveSeriesColor(stage, colorEnabled);
     let barWidth = maxValue > 0 ? Math.round((stage.value / maxValue) * innerWidth) : 0;
     if (stage.value > 0 && barWidth < 1) {
       barWidth = 1;

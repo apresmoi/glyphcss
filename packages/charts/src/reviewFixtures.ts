@@ -70,4 +70,12 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   // Mutation: drop the `sankey` schema `allOf` clause, the runtime channel
   // check, or the rule's table/hint entry -> Ajv/runtime parity goes red.
   { id: "sankey-bad-value", spec: spec({ ...glyphChartSankey([{ source: "a", target: "b", value: 1 }], { source: "source", target: "target", value: "value" }), channels: { source: "source", target: "target" } }) },
+  // Mutation: drop the axis-colour check, its rule/hint entry, or the
+  // schema's `axes.color` clause -> Ajv/runtime parity goes red. "none" is
+  // deliberately not treated as a colour keyword here — it must fail the
+  // same canonical-hex check any other invalid string would.
+  { id: "bad-axis-color", spec: { marks: [glyphChartLine([1, 2])], axes: { color: "none" as never } } },
+  { id: "bad-axis-color", spec: { marks: [glyphChartLine([1, 2])], axes: { x: { color: "#ABCDEF" as never } } } },
+  { id: "bad-mark-color", spec: spec(glyphChartLine([1, 2], {}, { color: "blue" as never })) },
+  { id: "bad-mark-color", spec: spec(glyphChartBar([1, 2], {}, { color: [] as never })) },
 ];

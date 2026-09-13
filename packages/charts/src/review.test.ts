@@ -93,7 +93,10 @@ describe("exact Phase 1 review regressions", () => {
     expect(r.meta.series).toEqual(["A", "B"]);
     expect(r.text.split("\n").at(-1)).toMatch(/A.+B/);
     const coloured = picture(mark, 24, 10, true);
-    expect(new Set(coloured.canvas.grid.color!.filter(Boolean)).size).toBe(2);
+    // 2 series colours + the axis's own default muted colour
+    // (`GLYPH_CHART_AXIS_DEFAULT_COLOR`, AGENTS.md's "Charts" "Colours") —
+    // this chart has a cartesian axis, so all three are always on screen.
+    expect(new Set(coloured.canvas.grid.color!.filter(Boolean)).size).toBe(3);
   });
   it("3: monochrome line styles cycle and dot series have distinct glyphs", () => {
     // Mutation: ignore styleIndex or dot-series identity -> all four pictures have one style.

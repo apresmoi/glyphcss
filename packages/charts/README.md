@@ -451,6 +451,23 @@ value
 
 `y`'s title (`value`, defaulted from the channel field name) sits top-left above the axis — a rotated column of glyphs has no character-grid analogue — while `x`'s title (`month`) is centred under its own tick-label row. An auto title like these only shows with genuine room for it (`rows >= 20` for the x title, `cols >= 60` for the y title, hence the larger canvas above) and a field name longer than two characters; an EXPLICIT `axes.x.title`/`axes.y.title` (including `""` to suppress the default) always shows regardless of size. `tickMarks: false` on either axis reverts to a plain, undecorated rule. Index/integer data never shows a fractional tick (`0.5`, `1.5`, …), even where d3's own "nice" ladder for a small domain would otherwise reach for one.
 
+## Colours
+
+`spec.axes.color?: string` (a canonical `#rrggbb`) sets both axes' line, tick marks, tick labels, title, and grid; `spec.axes.{x,y}.color` overrides it per axis. With colour on and no colour set, axes default to a muted mid grey (`GLYPH_CHART_AXIS_DEFAULT_COLOR`, `"#7a7f8a"`) rather than the reader's own foreground colour, so a chart's data marks read brighter than its frame:
+
+```ts
+const spec = glyphChartPlot({ marks: [glyphChartLine([3, 5, 2, 8])], axes: { color: "#7a7f8a", x: { color: "#2563eb" } } });
+renderGlyphChart(spec, { target: "web" }).html;
+```
+
+Every mark's own `options.color?: string | string[]` overrides its palette colour, and its legend swatch follows: a single hex applies to every one of that mark's own series, or an array is assigned per series in series order (cycling if shorter — a longer array logs a `mark-color-unused` ledger entry naming how many went unused):
+
+```ts
+glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: ["#e11d48", "#0ea5e9"] });
+```
+
+`arc` colours per slice; `cell` takes a single ink colour, or `[losses, gains]` for a diverging (mixed-sign) domain; `sankey` colours per source node; `funnel` colours per stage. `renderGlyphChart(..., { color: "none" })` drops every one of these exactly as it always dropped the palette — a spec with no colour options at all renders byte-identically whether or not this feature exists.
+
 ## Scales, series and labels
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.

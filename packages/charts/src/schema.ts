@@ -15,6 +15,11 @@ export interface GlyphChartJsonSchema {
 }
 const CHANNEL_SCHEMA = { anyOf: [{ type: "string" }, { type: "array", items: { $ref: "#/$defs/value" } }] };
 const NUMERIC_DOMAIN = { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } };
+// Mirrors `validate.ts`'s own `CANONICAL_HEX_COLOR` exactly — Ajv parity
+// (`schema.test.ts`) compares this pattern's verdict against that regex.
+const HEX_COLOR_SCHEMA = { type: "string", pattern: "^#[0-9a-f]{6}$" };
+const MARK_COLOR_SCHEMA = { anyOf: [HEX_COLOR_SCHEMA, { type: "array", minItems: 1, items: HEX_COLOR_SCHEMA }] };
+const AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA } };
 const SCALE_SCHEMA = {
   type: "object",
   properties: { type: { enum: SCALE_TYPES }, nice: { type: "boolean" }, domain: { type: "array", minItems: 2, items: { anyOf: [{ type: "number" }, { type: "string" }] } } },
@@ -36,7 +41,7 @@ const MARK_SCHEMA = {
     },
     options: {
       type: "object", additionalProperties: false,
-      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" } },
+      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" }, color: MARK_COLOR_SCHEMA },
     },
   },
   allOf: [{
@@ -61,6 +66,11 @@ export function glyphChartJsonSchema(): GlyphChartJsonSchema {
     properties: {
       marks: { type: "array", minItems: 1, items: MARK_SCHEMA },
       scales: { type: "object", properties: { x: SCALE_SCHEMA, y: SCALE_SCHEMA }, additionalProperties: false },
+      // Only `color` is modelled (this rule's own scope) — `ticks`/
+      // `tickMarks`/`title`/`grid` have no runtime validation to mirror yet,
+      // so `additionalProperties` is left open rather than rejecting a
+      // legitimate axis option this schema doesn't know about.
+      axes: { type: "object", properties: { color: HEX_COLOR_SCHEMA, x: AXIS_SCHEMA, y: AXIS_SCHEMA } },
       title: {
         anyOf: [
           { type: "string" },
