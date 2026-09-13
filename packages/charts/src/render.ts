@@ -41,17 +41,26 @@ interface GlyphChartTargetDefaults {
 }
 
 /**
- * `chat`: 72x24, `box`, no colour — Slack/Discord fonts break braille and
- * junctions sometimes, and ANSI never survives a paste.
+ * `chat`: 72x24, `box`, no colour — REVERTED from braille: a chat client's
+ * fenced code block renders in whatever monospace font its own CSS picks
+ * (SF Mono, Menlo, Consolas, ...), a stack this package cannot control and
+ * none of which carries the braille block (U+2800-28FF), so a braille chart
+ * pasted into chat misaligns instead of merely losing junction glyphs. `box`
+ * degrades no data — it is `line`/`dot`/an area's whole-cell fallback tier,
+ * not a second rendering. ANSI also never survives a paste, hence `none`.
  * `terminal`: `braille` — `GLYPH_CANVAS_TIERS.braille` reuses `box`'s own
  * junction/arrow glyphs (`tiers.ts`) so routes and rule marks need no
  * second tier, but `line`/`dot`/an area's boundary rasterise at genuinely
  * finer, sub-cell (dot) resolution here than under `box` (`canvas.ts`'s
  * `paintSubcellLine`) — "braille" is a real resolution upgrade for those
- * marks, not merely a fill-only cosmetic swap.
+ * marks, not merely a fill-only cosmetic swap. A real terminal's font is the
+ * user's own choice, made once for the whole terminal, and terminal fonts
+ * overwhelmingly do carry the braille block (it is why `tmux`/`vim`
+ * status-line braille spinners work) — the opposite bet from `chat`'s.
  * `web`: `braille` for the same sub-cell resolution upgrade, with
- * `color: "css"` for the `html` exit — a web font can render the dot
- * patterns, unlike Slack/Discord's.
+ * `color: "css"` for the `html` exit — the website ships its own font
+ * (`Glyph Mono`, see AGENTS.md's "Charts" font-atlas paragraph) with full
+ * braille/box coverage, so nothing here depends on the visitor's system font.
  */
 export const GLYPH_CHART_TARGET_DEFAULTS: Readonly<Record<GlyphChartTarget, GlyphChartTargetDefaults>> = {
   chat: { width: 72, height: 24, charset: "box", color: "none" },
@@ -68,7 +77,7 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
 export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartResult {
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
 
-  const target: GlyphChartTarget = options.target ?? "chat";
+  const target: GlyphChartTarget = options.target ?? "web";
   const defaults = GLYPH_CHART_TARGET_DEFAULTS[target];
   const width = options.width ?? defaults.width;
   const height = options.height ?? defaults.height;

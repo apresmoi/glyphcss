@@ -119,3 +119,67 @@ describe("diagram workbench state and exports", () => {
     expect(glyphGraphFromMermaid(snippets.mermaid).direction).toBe("LR");
   });
 });
+
+describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", () => {
+  it("switching to the table tab derives nodes/edges from whichever source was authoritative", () => {
+    const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    const graph = buildGlyphDiagramsWorkbenchGraph(reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" }));
+    expect(state.nodes).toEqual(graph.nodes);
+    expect(state.edges).toEqual(graph.edges);
+  });
+
+  it("setNode edits id/label/kind and takes over authority (sourceKind: table)", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Renamed", kind: "agent" } });
+    expect(state.sourceKind).toBe("table");
+    expect(state.nodes[0]).toMatchObject({ label: "Renamed", kind: "agent" });
+    expect(buildGlyphDiagramsWorkbenchGraph(state).nodes[0]).toMatchObject({ label: "Renamed", kind: "agent" });
+  });
+
+  it("setNode preserves the shape field it doesn't expose", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify({ direction: "TB", nodes: [{ id: "a", label: "A", shape: "diamond" }], edges: [] }) });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "B" } });
+    expect(state.nodes[0]).toMatchObject({ id: "a", label: "B", shape: "diamond" });
+  });
+
+  it("addNode appends a node with a fresh, non-colliding id", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    const before = state.nodes.length;
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-node" });
+    expect(state.nodes).toHaveLength(before + 1);
+    expect(new Set(state.nodes.map((n) => n.id)).size).toBe(state.nodes.length);
+  });
+
+  it("removeNode drops exactly the targeted node", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    const target = state.nodes[0]!.id;
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-node", index: 0 });
+    expect(state.nodes.some((n) => n.id === target)).toBe(false);
+  });
+
+  it("setEdge edits from/to/label", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-edge", index: 0, patch: { label: "then" } });
+    expect(state.edges[0]!.label).toBe("then");
+  });
+
+  it("addEdge/removeEdge add and remove one edge", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    const before = state.edges.length;
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-edge" });
+    expect(state.edges).toHaveLength(before + 1);
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-edge", index: before });
+    expect(state.edges).toHaveLength(before);
+  });
+
+  it("a table edit round-trips through Mermaid and back to JSON, keeping the edit", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited label" } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "mermaid" });
+    expect(state.mermaid).toContain("Edited label");
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+    expect(JSON.parse(state.json).nodes[0].label).toBe("Edited label");
+  });
+});

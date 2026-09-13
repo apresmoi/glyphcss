@@ -92,11 +92,31 @@ export interface GlyphChartMarkRow {
   readonly index: number;
 }
 
+/**
+ * One axis's tick-mark/title/grid options (packet "renderers, legends, axes,
+ * table editor" item 6). `ticks` is a REQUESTED count, exactly like
+ * `scale.ticks(n)` itself — the layout still thins the result to whatever
+ * actually fits without collisions (never a raw override that could paint
+ * overlapping labels). `title` defaults to the axis channel's own field
+ * name when it's a plain string field (never an accessor/array, which has
+ * no name to show); explicit `title: ""` suppresses even that default.
+ */
+export interface GlyphChartAxisOptions {
+  readonly ticks?: number;
+  readonly tickMarks?: boolean;
+  readonly title?: string;
+  readonly grid?: boolean;
+}
+
 export interface GlyphChartSpec {
   readonly marks: readonly GlyphChartMark[];
   readonly scales?: {
     readonly x?: GlyphChartScaleOptions;
     readonly y?: GlyphChartScaleOptions;
+  };
+  readonly axes?: {
+    readonly x?: GlyphChartAxisOptions;
+    readonly y?: GlyphChartAxisOptions;
   };
   readonly title?: string;
   readonly description?: string;
@@ -115,6 +135,7 @@ export type GlyphChartColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | 
 export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
 
 export interface GlyphChartRenderOptions {
+  /** Default `"web"` — the bare `renderGlyphChart(x)` call renders for the web target. */
   readonly target?: GlyphChartTarget;
   readonly charset?: GlyphChartCharset;
   readonly color?: GlyphChartColorMode;

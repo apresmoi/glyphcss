@@ -38,7 +38,7 @@ A bare `number[]` infers `x = index, y = identity` — the same shorthand `Plot.
 
 ## Marks
 
-Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal), a `number` infers `linear`.
+Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal), a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends").
 
 ### `glyphChartLine`
 
@@ -238,11 +238,95 @@ renderGlyphChart(spec, { target: "chat", width: 50, height: 16 });
    0      0.5     1      1.5      2     2.5      3
 ```
 
+## Legends
+
+A named mark contributes its own legend entry, with its own swatch, exactly like a categorical series does — one is enough (an unnamed mark shows none):
+
+```ts
+const data = [3, 5, 2, 8, 6, 9, 4];
+const spec = glyphChartPlot({
+  marks: [
+    glyphChartLine(data, undefined, { name: "Revenue" }),
+    glyphChartLine(data.map((v) => v - 2), undefined, { name: "Visits" }),
+  ],
+});
+renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 44, height: 14 }).text;
+```
+```
+  │                                /\\      
+8 ┤                    ‾▔-       /// \\     
+  │                   /  -_‾-  /// /\\\\    
+6 ┤                  / \\   -_//  /   \\\   
+  │      /\\        / /  \\     / /   \ \\  
+  │    /// \\      /        \\  /      \\\\ 
+4 ┤ ///     \\\   / /         //         \\\
+  │//   - \\  \\ / /                     \  
+2 ┤  -‾ -   \\ \/                         \\
+  │__         \\ /                          
+0 ┤             /                           
+  └┴────────────┴─────────────┴────────────┴
+   0            2             4            6
+     ───Revenue            ── Visits        
+```
+
+Distinct swatches: a solid rule for the first series, a dashed one for the second — the same `SERIES_STYLES` cycle a categorical `fill`/`stroke` split already uses. Colour-enabled renders use distinct palette colours instead. `legend: false` hides the row without changing `meta.series`.
+
+## Axes
+
+`spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┴` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
+
+```ts
+renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", charset: "ascii", color: "none", width: 30, height: 10 }).text;
+```
+```
+8 +                         //
+  |                        // 
+6 +                       //  
+  |        -\\           //   
+  |     ---  \\\       //     
+4 +  --_       \\\    //      
+  |__            \\\ //       
+2 +                \//        
+  ++--------+-------+--------+
+   0        1       2        3
+```
+
+`ticks` requests a count (fed to d3's own `scale.ticks(n)`, still thinned to whatever fits without collisions); `title` defaults to the axis channel's own field name (suppressed by an explicit `title: ""`); `grid` adds faint `┈`/`┊` gridlines (`.` on ascii) at tick positions:
+
+```ts
+const data = [{ month: "Jan", value: 3 }, { month: "Feb", value: 5 }, { month: "Mar", value: 2 }, { month: "Apr", value: 8 }, { month: "May", value: 6 }];
+const spec = glyphChartPlot({
+  marks: [glyphChartLine(data, { x: "month", y: "value" }, { name: "Revenue" })],
+  axes: { y: { ticks: 4, grid: true } },
+});
+renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 44, height: 16 }).text;
+```
+```
+value                                       
+8 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈‾-┈┈┈┈┈┈┈┈┈┈┈
+  │                           //-_‾-        
+  │                          //    -_▔-     
+6 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈//┈┈┈┈┈┈┈┈-_┈┈┈┈
+  │                        //               
+  │           -\\          /                
+  │        -‾_- \\        //                
+4 ┤┈┈┈┈┈-▔_-┈┈┈┈┈\\\┈┈┈┈┈//┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  │    _-          \\\  //                  
+  │                  \\//                   
+2 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\/┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  └────┴───────┴───────┴───────┴───────┴────
+      Jan     Feb     Mar     Apr     May   
+                     month                  
+                ───Revenue                  
+```
+
+`y`'s title (`value`, defaulted from the channel field name) sits top-left above the axis — a rotated column of glyphs has no character-grid analogue — while `x`'s title (`month`) is centred under its own tick-label row. `tickMarks: false` on either axis reverts to a plain, undecorated rule. Index/integer data never shows a fractional tick (`0.5`, `1.5`, …), even where d3's own "nice" ladder for a small domain would otherwise reach for one.
+
 ## Scales, series and labels
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.
 
-Categorical `fill` or `stroke` splits line, area and dot rows into separate series. Each appears in `meta.series` and the legend. Colour uses distinct series colours; monochrome cycles solid/dashed/dotted/double strokes and distinct dot glyphs (ASCII `o x + *`). Area boundaries carry the line style. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
+Categorical `fill` or `stroke` splits line, area and dot rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours; monochrome cycles solid/dashed/dotted/double strokes and distinct dot glyphs (ASCII `o x + *`). Area boundaries carry the line style. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
 
 All strings pass through the canvas's text fold. ASCII output is 7-bit, including `-`, a three-cell `...`, accented titles and text marks. Axis labels use the same slot-aware abbreviation policy as other labels: SI first, then elision, with ledger entries. Crowded category labels thin every kth tick; numeric/time collisions also thin. Labels never rely on canvas clipping.
 
@@ -266,9 +350,11 @@ renderGlyphChart(spec, {
 
 | `target` | Default size | Default charset | Default colour |
 |---|---|---|---|
-| `chat` | 72×24 | `box` | `none` — Slack/Discord fonts sometimes break braille/junctions, and ANSI never survives a paste |
-| `terminal` | 80×24 | `braille` | `truecolor`, downgraded by `NO_COLOR`/`FORCE_COLOR` |
-| `web` | 96×32 | `braille` | `css` — populates `result.html` |
+| `chat` | 72×24 | `box` | `none` — reverted from braille: a chat client's fenced code block renders in whatever monospace stack its own CSS picks, never one this package controls, and none of those stacks (SF Mono, Menlo, Consolas, ...) carries the braille block, so a braille chart pasted into chat misaligns; ANSI also never survives a paste |
+| `terminal` | 80×24 | `braille` | `truecolor`, downgraded by `NO_COLOR`/`FORCE_COLOR` — a real terminal's font is a one-time user choice and terminal fonts overwhelmingly do carry braille |
+| `web` | 96×32 | `braille` | `css` — populates `result.html`; the website ships its own braille/box-complete font, so nothing here depends on the visitor's system font |
+
+The bare `renderGlyphChart(x)` (no `options`) defaults to `target: "web"`.
 
 `braille` reuses `box`'s own junction/arrow glyphs (Phase 0's tier tables) for routes and rule marks, but `line`/`dot`/an area's boundary rasterise at genuinely finer, SUB-CELL (dot) resolution under `braille`/`blocks` than under `box` — a line-only chart does NOT render byte-identically across the two. **Axes stay whole-cell** (`│`/`─`) under every charset, even `braille`/`blocks` — only DATA marks (line, an area's boundary, dot) go sub-cell; a chart's axis frame and `glyphChartRule` reference lines are structure, not data, and `canvas.line`'s explicit `subcell: false` option is what keeps them legible box-drawing instead of a wobbly dot approximation. `result.text` is the ENCODED string for the call's own `color` — raw for `"none"`, ANSI SGR for the three ANSI depths — so a `terminal` render's `text` already contains escape codes unless you override `color: "none"`.
 

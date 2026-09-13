@@ -8,7 +8,7 @@
  * own "tiers are tables, painters are dumb" discipline one level up.
  */
 
-import { GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle } from "glyphcss";
+import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle } from "glyphcss";
 import {
   bandColRange,
   bandRowRange,
@@ -241,19 +241,91 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
 
 // ── axes ─────────────────────────────────────────────────────────────────
 
+const { n: AXIS_N, e: AXIS_E, s: AXIS_S, w: AXIS_W } = GLYPH_CANVAS_DIRECTION_BITS;
+
+/**
+ * Faint gridlines at tick positions (packet item 6, default OFF). Painted
+ * FIRST — before any fill/line/dot mark and before `paintAxes` itself — so
+ * a gridline sits strictly BEHIND the data it's there to help read, never
+ * over it. `┈`/`┊` (box-drawing quadruple dash) collapse to `.` on `ascii`,
+ * matching every other structural axis glyph's own ascii fallback.
+ */
+function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
+  if (!layout.hasCartesianAxes) return;
+  const ascii = canvas.tier === "ascii";
+  if (layout.xGrid) {
+    const glyph = ascii ? "." : "┊";
+    for (const t of layout.xTicks) {
+      for (let y = layout.plot.y0; y <= layout.plot.y1; y++) canvas.text(t.cell, y, [glyph]);
+    }
+  }
+  if (layout.yGrid) {
+    const glyph = ascii ? "." : "┈";
+    for (const t of layout.yTicks) {
+      for (let x = layout.plot.x0; x <= layout.plot.x1; x++) canvas.text(x, t.cell, [glyph]);
+    }
+  }
+}
+
+/**
+ * Default ON (packet item 6): `┤`/`┴` tick marks where a tick actually
+ * lands, `│`/`─` elsewhere, `└` at the corner — every one of those glyphs
+ * is already the box tier's own JUNCTION table (`┤` = up+down+left,
+ * `┴` = up+left+right, `└` = up+right), so this reuses that table exactly
+ * rather than inventing a parallel one; `ascii`'s junction table already
+ * collapses every multi-stem entry to `+`, which is what gives the ascii
+ * tier its own tick glyph for free. `tickMarks: false` on either axis
+ * reverts that axis to the OLD plain `canvas.line()` sweep, byte-identical
+ * to this feature not existing. Axes stay WHOLE-CELL box-drawing (`│ ─`)
+ * even under `braille`/`blocks`, where DATA marks rasterise at sub-cell
+ * (dot) resolution — an axis is structure, not data (AGENTS.md's "Cell
+ * canvas" / "sub-cell data marks, whole-cell axes"), and `canvas.text()`
+ * never rasterises sub-cell regardless of tier.
+ */
 function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
   if (!layout.hasCartesianAxes) return;
-  // Axes stay WHOLE-CELL box-drawing (`│ ─`) even under `braille`/`blocks`,
-  // where DATA marks rasterise at sub-cell (dot) resolution — an axis is
-  // structure, not data, and reads as a rule either way (AGENTS.md's "Cell
-  // canvas" / "sub-cell data marks, whole-cell axes").
-  canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.xAxisLineRow }, { subcell: false });
-  canvas.line({ x: layout.yAxisCol, y: layout.xAxisLineRow }, { x: layout.plot.x1, y: layout.xAxisLineRow }, { subcell: false });
+  const tier = GLYPH_CANVAS_TIERS[canvas.tier];
+  const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
+  const xTickCols = new Set(layout.xTicks.map((t) => t.cell));
+
+  if (layout.yTickMarks) {
+    for (let y = layout.plot.y0; y <= layout.xAxisLineRow; y++) {
+      const glyph = yTickRows.has(y) ? tier.junction[AXIS_N | AXIS_S | AXIS_W]! : tier.junction[AXIS_N | AXIS_S]!;
+      canvas.text(layout.yAxisCol, y, [glyph]);
+    }
+  } else {
+    canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.xAxisLineRow }, { subcell: false });
+  }
+
+  // Painted second, so it wins the shared corner cell — matches the
+  // pre-existing two-`canvas.line()`-call order this replaces.
+  if (layout.xTickMarks) {
+    for (let x = layout.yAxisCol; x <= layout.plot.x1; x++) {
+      const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E]!
+        : xTickCols.has(x) ? tier.junction[AXIS_N | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
+      canvas.text(x, layout.xAxisLineRow, [glyph]);
+    }
+  } else {
+    canvas.line({ x: layout.yAxisCol, y: layout.xAxisLineRow }, { x: layout.plot.x1, y: layout.xAxisLineRow }, { subcell: false });
+  }
+
   for (const t of layout.xTicks) {
     canvas.text(t.labelStart, layout.xAxisLabelRow, [t.label]);
   }
   for (const t of layout.yTicks) {
     canvas.text(t.labelStart, t.cell, [t.label]);
+  }
+
+  // Titles (packet item 6): x centred under its own tick-label row, y on
+  // the top-left above the axis — a rotated column of text has no
+  // character-grid analogue, so unlike x it never shares a row.
+  if (layout.xAxisTitle) {
+    const width = layout.plot.x1 - layout.plot.x0 + 1;
+    const x = Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - layout.xAxisTitle.length) / 2));
+    canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle]);
+  }
+  if (layout.yAxisTitle) {
+    canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle]);
   }
 }
 
@@ -502,6 +574,7 @@ export function paintGlyphChart(
     const raw = (v - lo) / (hi - lo);
     return GLYPH_CHART_CELL_MIN_INK_SHADE + (1 - GLYPH_CHART_CELL_MIN_INK_SHADE) * raw;
   };
+  paintGrid(canvas, layout);
   const dodgeDegraded = new Set<number>();
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);

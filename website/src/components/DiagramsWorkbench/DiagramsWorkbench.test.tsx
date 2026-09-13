@@ -166,6 +166,36 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(container.querySelector("[role='alert']")!.textContent).toMatch(/JSON/);
   });
 
+  // Packet item 7 — a nodes table (id, label, kind) and an edges table
+  // (from, to, label), beside the Mermaid/JSON tabs.
+  it("the Table tab shows nodes/edges tables and an edit reaches the live render and the other tabs", async () => {
+    await act(async () => button("Table").click());
+    await settlePreview();
+    expect(container.querySelector('table[aria-label="Nodes"]')).not.toBeNull();
+    expect(container.querySelector('table[aria-label="Edges"]')).not.toBeNull();
+    const firstLabelInput = container.querySelector<HTMLInputElement>('table[aria-label="Nodes"] tbody tr:first-child input[aria-label$="label"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(firstLabelInput, "Renamed node");
+      firstLabelInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await settlePreview();
+    expect(preview().textContent).toContain("Renamed node");
+    await act(async () => button("Mermaid").click());
+    await settlePreview();
+    expect(container.querySelector("textarea")!.value).toContain("Renamed node");
+  });
+
+  it("Table tab: + node / + edge grow both tables live", async () => {
+    await act(async () => button("Table").click());
+    await settlePreview();
+    const nodeRowsBefore = container.querySelectorAll('table[aria-label="Nodes"] tbody tr').length;
+    await act(async () => button("+ node").click());
+    expect(container.querySelectorAll('table[aria-label="Nodes"] tbody tr').length).toBe(nodeRowsBefore + 1);
+    const edgeRowsBefore = container.querySelectorAll('table[aria-label="Edges"] tbody tr').length;
+    await act(async () => button("+ edge").click());
+    expect(container.querySelectorAll('table[aria-label="Edges"] tbody tr').length).toBe(edgeRowsBefore + 1);
+  });
+
   it("uses real Layout and Diagram controls in the current TS/Mermaid/JSON exports", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await select("Direction", "RL");

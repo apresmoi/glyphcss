@@ -600,7 +600,10 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           if (tierTable.subcell) {
             const mask = subMaskForShade(shade);
             sub[idx] = mask;
-            grid.char[idx] = tierTable.subGlyph!(mask);
+            // `fillSubGlyph` (when the tier has one — braille only, packet
+            // "Braille-tier fills") takes a FILL, never `subGlyph`, which
+            // stays reserved for `line()`/dots (`paintSubcellLine`, above).
+            grid.char[idx] = (tierTable.fillSubGlyph ?? tierTable.subGlyph)!(mask);
           } else {
             const ramp = tierTable.shadeRamp;
             const level = Math.round(shade * (ramp.length - 1));

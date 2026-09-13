@@ -107,6 +107,21 @@ export interface GlyphCanvasTier {
    * name either.
    */
   readonly subGlyph?: (mask: number) => string;
+  /**
+   * Present only when `subcell` is `true`: overrides `subGlyph` for
+   * `fillRect` SPECIFICALLY (never `line()`/dots, which always consult
+   * `subGlyph` itself) — `undefined` means "same as `subGlyph`" (`blocks`,
+   * where the two are already identical). `braille` is the one tier where
+   * they diverge: a filled bar/area/heatmap cell reads as a solid block
+   * (`█`, with `blocks`' own quadrant glyphs for partial coverage) rather
+   * than a braille dot pattern (`⣿`), because a fill is DENSITY, not a
+   * curve — and reusing `blocks`' own table (not a parallel one) is what
+   * keeps a braille chart's bars/areas pixel-identical to a `blocks` chart's,
+   * while `line()`'s actual curves stay genuine braille dots so a line chart
+   * still reads at braille's real sub-cell resolution. See "Braille-tier
+   * fills" in `docs/design/charts.md`.
+   */
+  readonly fillSubGlyph?: (mask: number) => string;
 }
 
 export type GlyphCanvasTierName = "ascii" | "box" | "blocks" | "braille";
@@ -239,19 +254,27 @@ const BOX_SHADE_RAMP = " ░▒▓█".split("");
 // set on all four tiers. Omitting it there would desync the tier-parity
 // gate (which walks own-enumerable keys at every depth) for a key that is
 // genuinely part of the table's shape, not merely absent from two of it.
+// Shared by `blocks`' own `subGlyph` and `braille`'s `fillSubGlyph` — see
+// both fields' doc comments on `GlyphCanvasTier`.
+const quadrantSubGlyph = (mask: number): string => GLYPH_CANVAS_QUADRANT_GLYPHS[quadrantMaskFromSub(mask)]!;
+
 export const GLYPH_CANVAS_TIERS: Readonly<Record<GlyphCanvasTierName, GlyphCanvasTier>> = Object.freeze({
-  ascii: { ...ASCII_LINE_GLYPHS, shadeRamp: ASCII_SHADE_RAMP, subcell: false, subGlyph: undefined },
-  box: { ...BOX_LINE_GLYPHS, shadeRamp: BOX_SHADE_RAMP, subcell: false, subGlyph: undefined },
+  ascii: { ...ASCII_LINE_GLYPHS, shadeRamp: ASCII_SHADE_RAMP, subcell: false, subGlyph: undefined, fillSubGlyph: undefined },
+  box: { ...BOX_LINE_GLYPHS, shadeRamp: BOX_SHADE_RAMP, subcell: false, subGlyph: undefined, fillSubGlyph: undefined },
   blocks: {
     ...BOX_LINE_GLYPHS,
     shadeRamp: WIREFRAME_PALETTES.blocks!.solid,
     subcell: true,
-    subGlyph: (mask) => GLYPH_CANVAS_QUADRANT_GLYPHS[quadrantMaskFromSub(mask)]!,
+    subGlyph: quadrantSubGlyph,
+    fillSubGlyph: undefined,
   },
   braille: {
     ...BOX_LINE_GLYPHS,
     shadeRamp: WIREFRAME_PALETTES.braille!.solid,
     subcell: true,
     subGlyph: (mask) => String.fromCodePoint(0x2800 + mask),
+    // fillRect only (packet "Braille-tier fills") — line()/dots keep real
+    // braille dots via `subGlyph` above.
+    fillSubGlyph: quadrantSubGlyph,
   },
 });

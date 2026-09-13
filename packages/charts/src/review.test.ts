@@ -45,14 +45,14 @@ describe("exact Phase 1 review regressions", () => {
   });
   it("2: log [1,10,100] at 24x8 paints three equally spaced dot rows", () => {
     // Mutation: force log to scaleLinear -> 1 and 10 occupy the same row.
-    const r = renderGlyphChart({ marks: [glyphChartDot([1, 10, 100])], scales: { y: { type: "log" } } }, { width: 24, height: 8 });
+    const r = renderGlyphChart({ marks: [glyphChartDot([1, 10, 100])], scales: { y: { type: "log" } } }, { target: "chat", width: 24, height: 8 });
     const rows = r.text.split("\n").flatMap((s, i) => s.includes("●") ? [i] : []);
     expect(rows).toHaveLength(3);
     expect(Math.abs((rows[1]! - rows[0]!) - (rows[2]! - rows[1]!))).toBeLessThanOrEqual(1);
   });
   it("2: sqrt [0,1,4] paints three equally spaced dot rows", () => {
     // Mutation: force sqrt to linear -> the middle dot sits at a quarter of the height.
-    const r = renderGlyphChart({ marks: [glyphChartDot([0, 1, 4])], scales: { y: { type: "sqrt" } } }, { width: 24, height: 12 });
+    const r = renderGlyphChart({ marks: [glyphChartDot([0, 1, 4])], scales: { y: { type: "sqrt" } } }, { target: "chat", width: 24, height: 12 });
     const rows = r.text.split("\n").flatMap((s, i) => s.includes("●") ? [i] : []);
     expect(rows).toHaveLength(3);
     expect(Math.abs((rows[1]! - rows[0]!) - (rows[2]! - rows[1]!))).toBeLessThanOrEqual(1);
@@ -92,7 +92,7 @@ describe("exact Phase 1 review regressions", () => {
   it("3: monochrome line styles cycle and dot series have distinct glyphs", () => {
     // Mutation: ignore styleIndex or dot-series identity -> all four pictures have one style.
     const rows = [1, 3, 5, 7].flatMap((y, i) => [0, 1].map((x) => ({ x, y, s: String(i) })));
-    const r = renderGlyphChart(glyphChartLine(rows, { x: "x", y: "y", fill: "s" }), { width: 40, height: 14 });
+    const r = renderGlyphChart(glyphChartLine(rows, { x: "x", y: "y", fill: "s" }), { target: "chat", width: 40, height: 14 });
     expect(r.text).toContain("──"); expect(r.text).toContain("── ──"); expect(r.text).toContain("·"); expect(r.text).toContain("══");
     const dots = picture(glyphChartDot(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }), 24, 10);
     expect(dots.atValue(0, 1)).toBe("●"); expect(dots.atValue(0, 8)).toBe("×");
@@ -198,7 +198,7 @@ describe("exact Phase 1 review regressions", () => {
 
   it("3: area series boundaries retain their monochrome styles", () => {
     // Mutation: leave area styles unused -> both boundaries remain solid fill.
-    const r = renderGlyphChart(glyphChartArea(categoricalSeriesData, { x: "x", y: "y", fill: "s" }), { width: 40, height: 14 });
+    const r = renderGlyphChart(glyphChartArea(categoricalSeriesData, { x: "x", y: "y", fill: "s" }), { target: "chat", width: 40, height: 14 });
     expect(r.meta.series).toEqual(["A", "B"]);
     expect(r.text).toContain("A"); expect(r.text).toContain("B");
     expect(r.text.split("\n").slice(0, -3).join("\n")).toMatch(/[-_‾▔]/);
@@ -273,7 +273,11 @@ describe("exact Phase 1 review regressions", () => {
   });
   it("7: exact long band labels at 20x6 are abbreviated in slots, never clipped", () => {
     // Mutation: pass raw labels directly to canvas -> clipped middles, no abbreviation ledger.
-    const r = renderGlyphChart(longBands, { width: 20, height: 6 });
+    // `axes.x.title: ""` suppresses the new default axis title (packet item
+    // 6 — `longBands`' own explicit `x: "x"` channel is a string field, so
+    // it would otherwise claim the bottom row this test reads as the tick
+    // label row).
+    const r = renderGlyphChart({ marks: [longBands], axes: { x: { title: "" } } }, { width: 20, height: 6 });
     expect(r.text.split("\n").at(-1)).toMatch(/abc.*….*sec.*…/);
     expect(r.report.ledger.filter((entry) => entry.code === "label-abbreviated")).toHaveLength(2);
   });
@@ -283,7 +287,10 @@ describe("exact Phase 1 review regressions", () => {
     // label" -> the first tick loses its date (bare "12 PM") and/or a later
     // tick repeats it verbatim.
     const points = Array.from({ length: 5 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
-    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 30, height: 10 });
+    // `axes.x.title: ""` suppresses the new default axis title (packet item
+    // 6 — the explicit `x: "x"` string-field channel would otherwise claim
+    // this bottom row instead of the tick labels this test reads).
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } }, axes: { x: { title: "" } } }, { width: 30, height: 10 });
     const axisRow = r.text.split("\n").at(-1)!;
     const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
     expect(new Set(labels).size).toBe(labels.length); // no repeated label text.
@@ -294,7 +301,7 @@ describe("exact Phase 1 review regressions", () => {
 
   it("final-gate: a 4-day/12-hour time axis shows a dated first tick and no duplicate label text anywhere on the axis", () => {
     const points = Array.from({ length: 7 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
-    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 52, height: 10 });
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } }, axes: { x: { title: "" } } }, { width: 52, height: 10 });
     const axisRow = r.text.split("\n").at(-1)!;
     const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
     expect(new Set(labels).size).toBe(labels.length);
@@ -308,7 +315,8 @@ describe("exact Phase 1 review regressions", () => {
     // occurrences, so an only-immediately-previous check no longer sees the
     // first one and the second "06 PM" survives as a non-adjacent repeat.
     const points = Array.from({ length: 5 }, (_, i) => ({ x: new Date(Date.UTC(2026, 0, 1, 12 * i)).toISOString(), y: i }));
-    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } } }, { width: 70, height: 10 });
+    // axes.x.title: "" — see the two tests above for why (packet item 6's new default title).
+    const r = renderGlyphChart({ marks: [glyphChartLine(points, { x: "x", y: "y" })], scales: { x: { type: "time" } }, axes: { x: { title: "" } } }, { width: 70, height: 10 });
     const axisRow = r.text.split("\n").at(-1)!;
     const labels = axisRow.trim().split(/\s{2,}/).filter(Boolean);
     expect(new Set(labels).size).toBe(labels.length);
@@ -317,7 +325,10 @@ describe("exact Phase 1 review regressions", () => {
 
   it("7: two-hour time axis at 40x8 has distinct complete multi-scale labels", () => {
     // Mutation: fixed %b %d formatter -> repeated Jan 01 and clipped last label.
-    const spec: GlyphChartSpec = { marks: [hourlyLine], scales: { x: { type: "time" } } };
+    // axes.x.title: "" — hourlyLine's explicit `x: "x"` string channel would
+    // otherwise claim the row this test reads as the tick label row (packet
+    // item 6's new default title).
+    const spec: GlyphChartSpec = { marks: [hourlyLine], scales: { x: { type: "time" } }, axes: { x: { title: "" } } };
     const p = picture(spec, 40, 8);
     expect(new Set(p.layout.xTicks.map((t) => t.label)).size).toBe(p.layout.xTicks.length);
     expect(p.layout.xTicks.length).toBeGreaterThan(1);
@@ -364,7 +375,13 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     // Mutation: drop the `opts.subcell ?? tierTable.subcell` fallback in
     // glyphcss's canvas.ts `line()` (always consult the tier) -> red, the
     // y-axis column fills with braille dot codepoints instead of "│".
-    const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9, 4, 7, 3, 5]), { target: "chat", charset: "braille", width: 44, height: 12 });
+    // `tickMarks: false` isolates this test's own concern (sub-cell braille
+    // dots vs whole-cell axis glyphs) from packet item 6's tick-mark glyphs,
+    // which are covered by their own dedicated tests (`axes.test.ts`).
+    const r = renderGlyphChart(
+      { marks: [glyphChartLine([3, 5, 2, 8, 6, 9, 4, 7, 3, 5])], axes: { x: { tickMarks: false }, y: { tickMarks: false } } },
+      { target: "chat", charset: "braille", width: 44, height: 12 },
+    );
     const rows = r.text.split("\n");
     const axisLine = rows.find((row) => row.includes("─"))!;
     expect(axisLine).toBeDefined();

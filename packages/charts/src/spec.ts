@@ -65,12 +65,13 @@ export function glyphChartRule(values: readonly number[], options: { readonly ax
 export interface GlyphChartPlotOptions {
   readonly marks: readonly GlyphChartMark[];
   readonly scales?: GlyphChartSpec["scales"];
+  readonly axes?: GlyphChartSpec["axes"];
   readonly title?: string;
   readonly description?: string;
 }
 
 export function glyphChartPlot(opts: GlyphChartPlotOptions): GlyphChartSpec {
-  return { marks: opts.marks, scales: opts.scales, title: opts.title, description: opts.description };
+  return { marks: opts.marks, scales: opts.scales, axes: opts.axes, title: opts.title, description: opts.description };
 }
 
 function isMark(v: unknown): v is GlyphChartMark {

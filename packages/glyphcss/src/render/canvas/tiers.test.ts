@@ -234,14 +234,50 @@ describe("blocks/braille fills are SUB-DERIVED, not shade-ramp (mutation: shade 
     expect(blocks.grid.char[0]).not.toBe(GLYPH_CANVAS_TIERS.blocks.shadeRamp[Math.round(0.5 * (GLYPH_CANVAS_TIERS.blocks.shadeRamp.length - 1))]);
   });
 
-  it("a half-filled (shade: 0.5) cell renders EXACTLY the top-four-dot braille pattern", () => {
+  it("a half-filled (shade: 0.5) cell renders the top-half BLOCK, not a braille dot pattern (packet: braille-tier fills)", () => {
+    // `fillRect` on `braille` now reuses `blocks`' own quadrant table
+    // (`fillSubGlyph`, `tiers.ts`) — a fill is density, not a curve, and a
+    // solid bar/area column should read identically under `blocks` and
+    // `braille`. `line()`/dots are untested here on purpose: they keep
+    // real braille dots via `subGlyph`, covered exhaustively by
+    // `subcell.test.ts`.
     const braille = createGlyphCanvas({ cols: 1, rows: 1, tier: "braille" });
     braille.fillRect(0, 0, 0, 0, { fill: { shade: 0.5 }, color: "#ffffff" });
-    // Bits {0,1,3,4} = left/right columns, rows 0-1 = the cell's top four
-    // dots, exactly what "half-filled" should mean for an 8-dot glyph.
+    expect(braille.grid.char[0]).toBe("▀");
     const topFourDots = String.fromCodePoint(0x2800 + (1 | 2 | 8 | 16));
-    expect(braille.grid.char[0]).toBe(topFourDots);
-    expect(braille.grid.char[0]).not.toBe(GLYPH_CANVAS_TIERS.braille.shadeRamp[Math.round(0.5 * (GLYPH_CANVAS_TIERS.braille.shadeRamp.length - 1))]);
+    expect(braille.grid.char[0]).not.toBe(topFourDots);
+  });
+
+  it("a fully-filled (shade: 1) braille cell renders the full block '█', never '⣿'", () => {
+    // Gate: a braille bar/area render must contain '█' and never '⣿'
+    // (packet item 5's own acceptance test).
+    const braille = createGlyphCanvas({ cols: 1, rows: 1, tier: "braille" });
+    braille.fillRect(0, 0, 0, 0, { fill: "solid", color: "#ffffff" });
+    expect(braille.grid.char[0]).toBe("█");
+    expect(braille.grid.char[0]).not.toBe("⣿");
+  });
+
+  it("braille's fillRect and blocks' fillRect agree on every shade level (same underlying table)", () => {
+    for (let i = 0; i <= 8; i++) {
+      const shade = i / 8;
+      const blocks = createGlyphCanvas({ cols: 1, rows: 1, tier: "blocks" });
+      blocks.fillRect(0, 0, 0, 0, { fill: { shade }, color: "#ffffff" });
+      const braille = createGlyphCanvas({ cols: 1, rows: 1, tier: "braille" });
+      braille.fillRect(0, 0, 0, 0, { fill: { shade }, color: "#ffffff" });
+      expect(braille.grid.char[0]).toBe(blocks.grid.char[0]);
+    }
+  });
+
+  it("braille's line() still paints real braille dot patterns — fillRect's table change doesn't leak into line()", () => {
+    const braille = createGlyphCanvas({ cols: 3, rows: 1, tier: "braille" });
+    braille.line({ x: 0, y: 0 }, { x: 2, y: 0 }, { color: "#ffffff" });
+    const painted = braille.grid.char.filter((glyph) => glyph !== " ");
+    expect(painted.length).toBeGreaterThan(0);
+    for (const glyph of painted) {
+      const code = glyph.codePointAt(0)!;
+      expect(code).toBeGreaterThanOrEqual(0x2800);
+      expect(code).toBeLessThanOrEqual(0x28ff);
+    }
   });
 
   it("blocks reaches full saturation only near the top of the shade range, not at the midpoint", () => {

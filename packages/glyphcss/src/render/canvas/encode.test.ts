@@ -131,20 +131,16 @@ describe("fillRect validates fill.shade (mutation: drop the clamp/validation -> 
     // Round-1 fixed this for `ascii` alone; `box`'s own shade ramp still
     // painted a visible light-shade glyph at shade 0 (no leading blank
     // entry), so switching a zero-valued heatmap cell from ascii to box
-    // added ink that was not there. blocks/braille derive their fill from
-    // `sub` occupancy (mask 0 at shade 0), which was already blank on both,
-    // but nothing gated that fact either.
+    // added ink that was not there. blocks derive their fill from `sub`
+    // occupancy (mask 0 at shade 0 -> quadrant index 0 -> " "), which was
+    // already blank; braille's `fillRect` now reuses that SAME quadrant
+    // table (packet "Braille-tier fills" — `line()`/dots keep braille's own
+    // dot patterns, `fillRect` doesn't), so mask 0 is a literal space there
+    // too, not U+2800.
     for (const tier of ["ascii", "box", "blocks", "braille"] as const) {
       const canvas = createGlyphCanvas({ cols: 1, rows: 1, tier });
       canvas.fillRect(0, 0, 0, 0, { fill: { shade: 0 }, color: "#ffffff" });
-      const glyph = canvas.grid.char[0]!;
-      if (tier === "braille") {
-        // Braille's own "blank" is U+2800 (the empty braille pattern) — the
-        // tier's own definition of zero coverage, not a literal space.
-        expect(glyph).toBe(String.fromCodePoint(0x2800));
-      } else {
-        expect(glyph).toBe(" ");
-      }
+      expect(canvas.grid.char[0]).toBe(" ");
     }
   });
 });

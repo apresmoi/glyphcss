@@ -2,6 +2,7 @@ import {
   GLYPH_DIAGRAM_TARGET_DEFAULTS, glyphGraphFromJson, glyphGraphFromMermaid,
   type GlyphDiagramCharset, type GlyphDiagramColorMode, type GlyphDiagramDetail,
   type GlyphDiagramRenderOptions, type GlyphDiagramTarget, type GlyphGraph,
+  type GlyphGraphEdge, type GlyphGraphNode,
 } from "@glyphcss/diagrams";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
 import diamond from "../../../../packages/diagrams/fixtures/diamond.mmd?raw";
@@ -55,10 +56,17 @@ export function resolveGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkbe
 }
 
 export interface GlyphDiagramsWorkbenchState {
-  readonly editor: "mermaid" | "json";
-  readonly sourceKind: "mermaid" | "json";
+  readonly editor: "mermaid" | "json" | "table";
+  readonly sourceKind: "mermaid" | "json" | "table";
   readonly mermaid: string;
   readonly json: string;
+  /** The "table" source (packet item 7) — a nodes table (id, label, kind)
+   * and an edges table (from, to, label), beside the Mermaid/JSON tabs.
+   * `group`/`shape` on a node and `id`/`style`/`priority` on an edge are
+   * preserved verbatim (not editable here) so switching INTO the table and
+   * back out never silently drops them. */
+  readonly nodes: readonly GlyphGraphNode[];
+  readonly edges: readonly GlyphGraphEdge[];
   readonly controls: GlyphDiagramsWorkbenchControls;
   readonly layout: { readonly direction?: GlyphGraph["direction"]; readonly engine: "dagre"; readonly nodesep: number; readonly ranksep: number };
   readonly diagram: { readonly title: string; readonly detail: GlyphDiagramDetail };
@@ -71,44 +79,75 @@ export type GlyphDiagramsWorkbenchAction =
   | { type: "set-control"; control: GlyphDiagramsWorkbenchControlAction }
   | { type: "set-layout"; patch: Partial<GlyphDiagramsWorkbenchState["layout"]> }
   | { type: "set-diagram"; patch: Partial<GlyphDiagramsWorkbenchState["diagram"]> }
-  | { type: "set-terminal"; flag: "NO_COLOR" | "FORCE_COLOR"; value: boolean };
+  | { type: "set-terminal"; flag: "NO_COLOR" | "FORCE_COLOR"; value: boolean }
+  // Table editor (packet item 7).
+  | { type: "set-node"; index: number; patch: Partial<Pick<GlyphGraphNode, "id" | "label" | "kind">> }
+  | { type: "add-node" }
+  | { type: "remove-node"; index: number }
+  | { type: "set-edge"; index: number; patch: Partial<Pick<GlyphGraphEdge, "from" | "to" | "label">> }
+  | { type: "add-edge" }
+  | { type: "remove-edge"; index: number };
+
+function nextGlyphDiagramNodeId(existing: readonly GlyphGraphNode[]): string {
+  let i = existing.length + 1;
+  const ids = new Set(existing.map((n) => n.id));
+  while (ids.has(`node${i}`)) i++;
+  return `node${i}`;
+}
 
 export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState {
+  const initialGraph = glyphGraphFromMermaid(langgraph);
   return {
-    editor: "mermaid", sourceKind: "mermaid", mermaid: langgraph, json: JSON.stringify(glyphGraphFromMermaid(langgraph), null, 2),
+    editor: "mermaid", sourceKind: "mermaid", mermaid: langgraph, json: JSON.stringify(initialGraph, null, 2),
+    nodes: initialGraph.nodes, edges: initialGraph.edges,
     controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
   };
 }
 export function buildGlyphDiagramsWorkbenchGraph(state: GlyphDiagramsWorkbenchState): GlyphGraph {
-  const graph = state.sourceKind === "mermaid" ? glyphGraphFromMermaid(state.mermaid) : glyphGraphFromJson(JSON.parse(state.json));
+  const graph = state.sourceKind === "mermaid" ? glyphGraphFromMermaid(state.mermaid)
+    : state.sourceKind === "json" ? glyphGraphFromJson(JSON.parse(state.json))
+    : { nodes: state.nodes, edges: state.edges, direction: state.layout.direction ?? "TB" };
   return state.layout.direction ? { ...graph, direction: state.layout.direction } : graph;
 }
 
 export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchState, action: GlyphDiagramsWorkbenchAction): GlyphDiagramsWorkbenchState {
   switch (action.type) {
     case "set-editor": {
-      if (action.editor === "json" && state.editor === "mermaid") {
-        try { return { ...state, editor: "json", json: JSON.stringify(buildGlyphDiagramsWorkbenchGraph(state), null, 2) }; }
-        catch { return { ...state, editor: "json", sourceKind: "json" }; }
+      // Switching tabs REFRESHES the newly-shown representation's text from
+      // whichever source is currently authoritative (`sourceKind`) — it
+      // never steals authority itself, only an actual edit does (below),
+      // which is what lets JSON-only metadata (`kind`, `priority`, ...)
+      // survive a round trip through the Mermaid tab it has no vocabulary
+      // for, right up until the reader edits Mermaid directly.
+      if (action.editor === state.editor) return state;
+      try {
+        const graph = buildGlyphDiagramsWorkbenchGraph(state);
+        if (action.editor === "json") return { ...state, editor: "json", json: JSON.stringify(graph, null, 2) };
+        if (action.editor === "mermaid") return { ...state, editor: "mermaid", mermaid: glyphDiagramsWorkbenchMermaid(graph) };
+        return { ...state, editor: "table", nodes: graph.nodes, edges: graph.edges };
+      } catch {
+        return { ...state, editor: action.editor, sourceKind: action.editor };
       }
-      if (action.editor === "mermaid" && state.editor === "json") {
-        try { return { ...state, editor: "mermaid", mermaid: glyphDiagramsWorkbenchMermaid(buildGlyphDiagramsWorkbenchGraph(state)) }; }
-        catch { return { ...state, editor: "mermaid", sourceKind: "mermaid" }; }
-      }
-      return { ...state, editor: action.editor };
     }
     case "edit-source": return { ...state, sourceKind: state.editor, [state.editor]: action.value };
     case "apply-preset": {
       const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((item) => item.id === action.id);
       if (!preset) return state;
-      return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(glyphGraphFromMermaid(preset.source), null, 2),
+      const graph = glyphGraphFromMermaid(preset.source);
+      return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(graph, null, 2), nodes: graph.nodes, edges: graph.edges,
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label } };
     }
     case "set-control": return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };
     case "set-layout": return { ...state, layout: { ...state.layout, ...action.patch } };
     case "set-diagram": return { ...state, diagram: { ...state.diagram, ...action.patch } };
     case "set-terminal": return { ...state, terminal: { ...state.terminal, [action.flag]: action.value } };
+    case "set-node": return { ...state, sourceKind: "table", nodes: state.nodes.map((n, i) => i === action.index ? { ...n, ...action.patch } : n) };
+    case "add-node": return { ...state, sourceKind: "table", nodes: [...state.nodes, { id: nextGlyphDiagramNodeId(state.nodes), label: "New node" }] };
+    case "remove-node": return { ...state, sourceKind: "table", nodes: state.nodes.filter((_, i) => i !== action.index) };
+    case "set-edge": return { ...state, sourceKind: "table", edges: state.edges.map((e, i) => i === action.index ? { ...e, ...action.patch } : e) };
+    case "add-edge": return { ...state, sourceKind: "table", edges: [...state.edges, { from: state.nodes[0]?.id ?? "", to: state.nodes[1]?.id ?? state.nodes[0]?.id ?? "" }] };
+    case "remove-edge": return { ...state, sourceKind: "table", edges: state.edges.filter((_, i) => i !== action.index) };
   }
 }
 export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState): GlyphDiagramRenderOptions {

@@ -79,6 +79,24 @@ describe("ChartsWorkbench state", () => {
     expect(buildChartsWorkbenchSpec(state).scales?.x).toEqual({ type: "band", domain: ["Feb", "Mar", "Apr"] });
   });
 
+  it("axes: 0 ticks / empty title build to 'auto' (omitted), a real count/title is passed through", () => {
+    const auto = buildChartsWorkbenchSpec(initial());
+    expect(auto.axes?.x).toEqual({ tickMarks: true, grid: false });
+    const state = reduceChartsWorkbenchState(
+      reduceChartsWorkbenchState(initial(), { type: "set-axis", axis: "x", patch: { ticks: 4, title: "Month", grid: true } }),
+      { type: "set-axis", axis: "y", patch: { tickMarks: false } },
+    );
+    const built = buildChartsWorkbenchSpec(state);
+    expect(built.axes?.x).toEqual({ ticks: 4, tickMarks: true, title: "Month", grid: true });
+    expect(built.axes?.y).toEqual({ tickMarks: false, grid: false });
+  });
+
+  it("applying a preset resets the axes controls to auto", () => {
+    const withAxis = reduceChartsWorkbenchState(initial(), { type: "set-axis", axis: "x", patch: { ticks: 5, title: "custom" } });
+    const reset = reduceChartsWorkbenchState(withAxis, { type: "apply-preset", id: "bar" });
+    expect(reset.axes.x).toEqual({ ticks: 0, tickMarks: true, title: "", grid: false });
+  });
+
   it("uses real log and time domains through the pure domain helper", () => {
     expect(glyphChartScaleDomains({ marks: [{ type: "line", data: [10, 10], channels: {} }], scales: { y: { type: "log" } } }).y.domain).toEqual([1, 100]);
     const time = glyphChartScaleDomains({ marks: [{ type: "line", data: [{ t: "2026-01-01", v: 1 }, { t: "2026-02-01", v: 3 }], channels: { x: "t", y: "v" } }], scales: { x: { type: "time" } } });

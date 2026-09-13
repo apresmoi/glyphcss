@@ -38,6 +38,16 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useText(scales, "Y max", state.scales.y.max, (max) => dispatch({ type: "set-scale", axis: "y", patch: { max } }));
   useReadonlyText(scales, "Domain", "Blank = inferred");
 
+  const axes = useFolder(gui, "Axes", { open: false });
+  useSlider(axes, "X ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.x.ticks, (ticks) => dispatch({ type: "set-axis", axis: "x", patch: { ticks } }));
+  useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
+  useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
+  useText(axes, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
+  useSlider(axes, "Y ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.y.ticks, (ticks) => dispatch({ type: "set-axis", axis: "y", patch: { ticks } }));
+  useToggle(axes, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
+  useToggle(axes, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
+  useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
+
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
   useToggle(terminal, "FORCE_COLOR", state.terminal.FORCE_COLOR, (value) => dispatch({ type: "set-terminal", flag: "FORCE_COLOR", value }));

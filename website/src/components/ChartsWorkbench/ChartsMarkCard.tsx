@@ -1,11 +1,53 @@
-import type { Dispatch } from "react";
+import { useState, type Dispatch } from "react";
 import {
-  CHART_CHANNELS, CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields,
+  CHART_CHANNELS, CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields, chartMarkTable, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 
+const DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label: "JSON" }] as const;
+
+/**
+ * Packet item 7's table editor — the PRIMARY data view (default tab), one
+ * `<input>` per cell dispatching straight to the reducer's own `setCell`/
+ * `addRow`/`removeRow`/`addColumn`/`removeColumn`/`renameColumn` actions
+ * (`chartsWorkbenchState.ts`), so the table and the JSON textarea below are
+ * exactly one piece of state (`mark.dataText`) viewed two ways.
+ */
+function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark; index: number; dispatch: Dispatch<ChartsWorkbenchAction> }) {
+  const table = chartMarkTable(mark);
+  if (!table.ok) return <p className="charts-error" role="alert">Invalid JSON — fix it in the JSON tab.</p>;
+  return <div className="charts-table-wrap">
+    <table className="charts-table">
+      <thead>
+        <tr>
+          {table.columns.map((column) => <th key={column}>
+            <input className="charts-table-header" value={column} aria-label={`Rename column ${column}`}
+              onChange={(event) => dispatch({ type: "rename-column", id: mark.id, column, next: event.target.value })} />
+            <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
+              onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
+          </th>)}
+          <th><button type="button" className="charts-table-add" title="Add column" aria-label="Add column"
+            onClick={() => dispatch({ type: "add-column", id: mark.id, column: nextChartTableColumnName(table.columns) })}>+</button></th>
+        </tr>
+      </thead>
+      <tbody>
+        {table.rows.map((row, r) => <tr key={r}>
+          {table.columns.map((column) => <td key={column}>
+            <input value={String(row[column] ?? "")} aria-label={`Mark ${index + 1} row ${r + 1} ${column}`}
+              onChange={(event) => dispatch({ type: "set-cell", id: mark.id, row: r, column, value: event.target.value })} />
+          </td>)}
+          <td><button type="button" className="charts-table-remove" title={`Remove row ${r + 1}`} aria-label={`Remove row ${r + 1}`}
+            onClick={() => dispatch({ type: "remove-row", id: mark.id, row: r })}>×</button></td>
+        </tr>)}
+      </tbody>
+    </table>
+    <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>
+  </div>;
+}
+
 export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenchMark; index: number; dispatch: Dispatch<ChartsWorkbenchAction> }) {
   const fields = chartMarkFields(mark);
+  const [dataView, setDataView] = useState<typeof DATA_VIEWS[number]["id"]>("table");
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
   return <div className="voice-card charts-mark-card">
     <div className="voice-controls">
@@ -21,10 +63,21 @@ export function ChartsMarkCard({ mark, index, dispatch }: { mark: ChartsWorkbenc
         </select></span>
       </label>
       <div className="voice-head">
-        <label htmlFor={`charts-data-${mark.id}`} className="charts-mark-label">Data · JSON</label>
+        <label className="charts-mark-label" id={`charts-data-label-${mark.id}`}>Data</label>
         <button type="button" className="gw-code-panel__action" title={`Fill sample ${mark.type} data and channels`} onClick={() => dispatch({ type: "sample-mark", id: mark.id })}>sample</button>
       </div>
-      <textarea id={`charts-data-${mark.id}`} className="charts-mark-data" aria-label={`Mark ${index + 1} data`} value={mark.dataText} onChange={(event) => update({ dataText: event.target.value })} spellCheck={false} />
+      <div className="gx-toggle charts-data-tabs" role="tablist" aria-labelledby={`charts-data-label-${mark.id}`}>
+        {DATA_VIEWS.map((view) => <button type="button" key={view.id} role="tab" id={`charts-data-${view.id}-tab-${mark.id}`}
+          aria-selected={dataView === view.id} aria-controls={`charts-data-${view.id}-${mark.id}`}
+          className={`gx-toggle-btn gx-toggle-text${dataView === view.id ? " is-active" : ""}`}
+          onClick={() => setDataView(view.id)}>{view.label}</button>)}
+      </div>
+      <div role="tabpanel" id={`charts-data-table-${mark.id}`} aria-labelledby={`charts-data-table-tab-${mark.id}`} hidden={dataView !== "table"}>
+        <ChartsMarkTable mark={mark} index={index} dispatch={dispatch} />
+      </div>
+      <div role="tabpanel" id={`charts-data-json-${mark.id}`} aria-labelledby={`charts-data-json-tab-${mark.id}`} hidden={dataView !== "json"}>
+        <textarea id={`charts-data-${mark.id}`} className="charts-mark-data" aria-label={`Mark ${index + 1} data JSON`} value={mark.dataText} onChange={(event) => update({ dataText: event.target.value })} spellCheck={false} />
+      </div>
       {CHART_CHANNELS.map((channel) => <label className="voice-row charts-mark-row" key={channel}>
         <span>{channel}</span><span className="gx-select"><select aria-label={`Mark ${index + 1} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>

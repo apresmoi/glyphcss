@@ -1,17 +1,59 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
 import { renderGlyphDiagram } from "@glyphcss/diagrams";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
-import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 import { renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
 
 type MobilePanel = "source" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TS" }, { id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const;
+
+/**
+ * Table editor (packet item 7) — a nodes table (id, label, kind) and an
+ * edges table (from, to, label), beside the Mermaid/JSON tabs. Every
+ * `<input>` dispatches straight to the reducer's own `setNode`/`addNode`/
+ * `removeNode`/`setEdge`/`addEdge`/`removeEdge` actions
+ * (`diagramsWorkbenchState.ts`), so this is one more VIEW of the same
+ * `state.nodes`/`state.edges`, not a parallel copy.
+ */
+function DiagramsGraphTable({ state, dispatch }: { state: GlyphDiagramsWorkbenchState; dispatch: Dispatch<GlyphDiagramsWorkbenchAction> }) {
+  return <div className="diagrams-table-group">
+    <div className="diagrams-table-wrap">
+      <table className="diagrams-table" aria-label="Nodes">
+        <thead><tr><th>id</th><th>label</th><th>kind</th><th /></tr></thead>
+        <tbody>
+          {state.nodes.map((node, i) => <tr key={i}>
+            <td><input value={node.id} aria-label={`Node ${i + 1} id`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { id: event.target.value } })} /></td>
+            <td><input value={node.label} aria-label={`Node ${i + 1} label`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { label: event.target.value } })} /></td>
+            <td><input value={node.kind ?? ""} aria-label={`Node ${i + 1} kind`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { kind: event.target.value || undefined } })} /></td>
+            <td><button type="button" className="diagrams-table-remove" title={`Remove node ${i + 1}`} aria-label={`Remove node ${i + 1}`} onClick={() => dispatch({ type: "remove-node", index: i })}>×</button></td>
+          </tr>)}
+        </tbody>
+      </table>
+      <button type="button" className="gw-code-panel__action" onClick={() => dispatch({ type: "add-node" })}>+ node</button>
+    </div>
+    <div className="diagrams-table-wrap">
+      <table className="diagrams-table" aria-label="Edges">
+        <thead><tr><th>from</th><th>to</th><th>label</th><th /></tr></thead>
+        <tbody>
+          {state.edges.map((edge, i) => <tr key={i}>
+            <td><input value={edge.from} aria-label={`Edge ${i + 1} from`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { from: event.target.value } })} /></td>
+            <td><input value={edge.to} aria-label={`Edge ${i + 1} to`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { to: event.target.value } })} /></td>
+            <td><input value={edge.label ?? ""} aria-label={`Edge ${i + 1} label`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { label: event.target.value || undefined } })} /></td>
+            <td><button type="button" className="diagrams-table-remove" title={`Remove edge ${i + 1}`} aria-label={`Remove edge ${i + 1}`} onClick={() => dispatch({ type: "remove-edge", index: i })}>×</button></td>
+          </tr>)}
+        </tbody>
+      </table>
+      <button type="button" className="gw-code-panel__action" onClick={() => dispatch({ type: "add-edge" })}>+ edge</button>
+    </div>
+  </div>;
+}
 
 export default function GlyphDiagramsWorkbench({ initialState }: { initialState?: GlyphDiagramsWorkbenchState } = {}) {
   const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState, (initial) => initial ?? createGlyphDiagramsWorkbenchState());
@@ -76,12 +118,14 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
         <div className="voice-card diagrams-source-card">
           <div className="voice-controls">
             <div className="gx-toggle" role="tablist" aria-label="Graph source format">
-              {(["mermaid", "json"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : "nodes/edges JSON"}</button>)}
+              {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
             </div>
             <div role="tabpanel" id={`diagrams-${state.editor}-editor`} aria-labelledby={`diagrams-${state.editor}-tab`}>
-              <textarea className="diagrams-source" aria-label={state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON"} value={state[state.editor]} onChange={(event) => dispatch({ type: "edit-source", value: event.target.value })} spellCheck={false} />
+              {state.editor === "table"
+                ? <DiagramsGraphTable state={state} dispatch={dispatch} />
+                : <textarea className="diagrams-source" aria-label={state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON"} value={state[state.editor]} onChange={(event) => dispatch({ type: "edit-source", value: event.target.value })} spellCheck={false} />}
             </div>
-            <p className="diagrams-readout">{state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : "Edit nodes, edges, groups and direction. TS and JSON exports preserve every graph field."}</p>
+            <p className="diagrams-readout">{state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : state.editor === "json" ? "Edit nodes, edges, groups and direction. TS and JSON exports preserve every graph field." : "Edit nodes and edges directly. Group/shape/style/priority fields carry over untouched from whichever source was authoritative before."}</p>
           </div>
         </div>
       </InstrumentRail>
@@ -89,12 +133,14 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
         <InstrumentViewport className="diagrams-viewport">
           <div className="diagrams-preview" aria-busy={rendered === null}>
             <div className="diagrams-grid-scroll">
-              <pre ref={preRef} className="glyph-output" aria-label={state.diagram.title || "Diagram preview"} aria-description={rendered?.ok ? rendered.meta.description ?? undefined : undefined}
-                {...(rendered?.ok && rendered.isHtml ? { dangerouslySetInnerHTML: { __html: rendered.display } } : { children: rendered?.ok ? rendered.text : "" })} />
+              <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
+                isHtml={Boolean(rendered?.ok && rendered.isHtml)} text={rendered?.ok ? rendered.text : ""}
+                html={rendered?.ok && rendered.isHtml ? rendered.display : undefined} ansi={rendered?.ok ? rendered.ansi : undefined}
+                ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={rendered?.ok ? rendered.meta.description ?? undefined : undefined} />
             </div>
             {!rendered && <p className="diagrams-readout" role="status">Laying out diagram…</p>}
             {rendered && !rendered.ok && <p className="diagrams-error" role="alert">{rendered.error}</p>}
-            {rendered?.ok && rendered.ansi !== undefined && <p className="diagrams-readout" role="status">Preview shows plain text. ANSI escapes are included only with Copy ANSI.</p>}
+            {rendered?.ok && rendered.ansi !== undefined && <p className="diagrams-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
             {feedback && <p className="diagrams-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

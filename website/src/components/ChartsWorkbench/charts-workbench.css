@@ -22,6 +22,26 @@
 }
 .charts-mark-data:focus-visible { outline: 1px solid #38bdf8; }
 
+/* Table editor (packet item 7) — the PRIMARY data view; the JSON textarea
+   above is the secondary tab, same `mark.dataText` underneath both. */
+.charts-data-tabs { margin: 4px 0; }
+.charts-table-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
+.charts-table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.charts-table th, .charts-table td { border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; white-space: nowrap; }
+.charts-table th { background: #0d1118; }
+.charts-table input {
+  width: 100%; min-width: 48px; box-sizing: border-box; background: transparent; color: inherit;
+  border: none; font: inherit; padding: 2px 4px;
+}
+.charts-table input:focus-visible { outline: 1px solid #38bdf8; }
+.charts-table-header { font-weight: 700; }
+.charts-table-remove, .charts-table-add {
+  background: transparent; color: rgba(255, 232, 184, 0.65); border: 1px solid rgba(255, 232, 184, 0.22);
+  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0;
+}
+.charts-table-remove:hover, .charts-table-add:hover { color: #fda4af; border-color: #fda4af; }
+.charts-table-add-row { margin-top: 4px; }
+
 /* A chart has a fixed cell budget, so scroll its text instead of clipping it.
    Leave the floating Dock's lane free; the shared shell still positions it. */
 .charts-viewport.synth-viewport {
@@ -31,6 +51,10 @@
 }
 .charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 100%; gap: 10px; }
 .charts-grid-scroll { overflow: auto; flex: 0 0 auto; }
+/* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
+   as a direct-child selector so nothing about its byte-identical render
+   changes; `terminal`/`chat` reach their own `.glyph-output` through the
+   dedicated rules below instead of this one. */
 .charts-grid-scroll > .glyph-output {
   display: block;
   width: max-content;
@@ -45,6 +69,69 @@
 .charts-readout, .charts-error { margin: 0; font-size: 10px; line-height: 1.4; }
 .charts-readout { color: rgba(255, 232, 184, 0.65); }
 .charts-error { color: #fda4af; }
+
+/* Target preview frames (packet item 3): terminal-window chrome / chat bubble. */
+.charts-grid-scroll .target-preview--terminal,
+.charts-grid-scroll .target-preview--chat { margin: 0 auto; text-align: left; }
+
+.target-preview--terminal {
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.target-preview__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2b2b2b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview__dots { display: flex; gap: 6px; flex: 0 0 auto; }
+.target-preview__dots span { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.target-preview__dots span:nth-child(1) { background: #ff5f56; }
+.target-preview__dots span:nth-child(2) { background: #ffbd2e; }
+.target-preview__dots span:nth-child(3) { background: #27c93f; }
+.target-preview__title {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.target-preview__terminal-body { padding: 12px; background: #000; }
+.target-preview__terminal-body .glyph-output { background: #000; color: #e5e5e5; margin: 0; }
+
+.target-preview--chat { display: flex; justify-content: flex-start; padding: 4px; }
+.target-preview__bubble {
+  max-width: 100%;
+  background: #f7f7f8;
+  color: #1a1a1a;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+.target-preview__fence {
+  margin-top: 6px;
+  border-radius: 6px;
+  overflow: auto;
+  background: #0d0d0d;
+}
+/* Deliberately the browser/chat-client monospace stack, NOT "Glyph Mono" —
+   the whole point of this frame is to show what a real chat client's own
+   font does to the output (see AGENTS.md's "Charts" font paragraph). */
+.target-preview__fence .glyph-output {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  background: #0d0d0d;
+  color: #e5e5e5;
+  margin: 0;
+  padding: 10px 12px;
+}
 
 /* Static 24x8 character previews occupy the same square as PresetTile scenes. */
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }

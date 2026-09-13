@@ -7,6 +7,7 @@ import {
   InstrumentShell, InstrumentTray, InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, type ChartsWorkbenchState } from "./chartsWorkbenchState";
@@ -76,11 +77,13 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
         <InstrumentViewport className="charts-viewport">
           <div className="charts-preview">
             <div className="charts-grid-scroll">
-              <pre ref={preRef} className="glyph-output" aria-label={state.chart.title || "Chart preview"} aria-description={state.chart.description || undefined}
-                {...(rendered.ok && rendered.isHtml ? { dangerouslySetInnerHTML: { __html: rendered.display } } : { children: rendered.ok ? rendered.text : "" })} />
+              <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss chart …"
+                isHtml={rendered.ok && rendered.isHtml} text={rendered.ok ? rendered.text : ""}
+                html={rendered.ok && rendered.isHtml ? rendered.display : undefined} ansi={rendered.ok ? rendered.ansi : undefined}
+                ariaLabel={state.chart.title || "Chart preview"} ariaDescription={state.chart.description || undefined} />
             </div>
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
-            {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview shows plain text. ANSI escapes are included only with Copy ANSI.</p>}
+            {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

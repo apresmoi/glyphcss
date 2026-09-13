@@ -220,9 +220,11 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   });
 
   // Mutation: inject result.text with SGR into <pre>, or remove the ANSI explanation.
-  it("shows plain terminal text with the copy explanation, never SGR bytes", () => {
+  it("shows a decoded-colour terminal frame with the copy explanation, never raw SGR bytes", () => {
     select("target", "terminal");
+    expect(container.querySelector(".target-preview--terminal")).not.toBeNull();
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
+    expect(container.querySelector("pre span[style]")).not.toBeNull();
     expect(container.querySelector('[role="status"]')!.textContent).toContain("ANSI escapes are included only with Copy ANSI");
     expect(button("Copy ANSI")).toBeDefined();
   });
@@ -281,6 +283,38 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     act(() => button("sample").click());
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+  });
+
+  // Packet item 7 — the table is the PRIMARY (default) data view; editing a
+  // cell there must reach the same `dataText` the JSON tab shows.
+  it("the table editor is the default data view and edits a cell live", () => {
+    const tableTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "Table") as HTMLButtonElement;
+    expect(tableTab.getAttribute("aria-selected")).toBe("true");
+    const before = container.querySelector(".synth-viewport pre")!.textContent;
+    const valueInput = container.querySelector<HTMLInputElement>('.charts-table tbody tr:first-child td input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(valueInput, "42");
+      valueInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector(".synth-viewport pre")!.textContent).not.toBe(before);
+    const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
+    act(() => jsonTab.click());
+    expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toBe(42);
+  });
+
+  it("add row / add column / remove row / remove column all reach the same state as the JSON tab", () => {
+    act(() => button("+ Add mark").click());
+    const dotCard = container.querySelectorAll(".voice-card")[1]!;
+    const rowsBefore = dotCard.querySelectorAll(".charts-table tbody tr").length;
+    act(() => dotCard.querySelector<HTMLButtonElement>(".charts-table-add-row")!.click());
+    expect(dotCard.querySelectorAll(".charts-table tbody tr").length).toBe(rowsBefore + 1);
+    act(() => dotCard.querySelector<HTMLButtonElement>('.charts-table-remove[title^="Remove row"]')!.click());
+    expect(dotCard.querySelectorAll(".charts-table tbody tr").length).toBe(rowsBefore);
+    const columnsBefore = dotCard.querySelectorAll(".charts-table thead th").length;
+    act(() => dotCard.querySelector<HTMLButtonElement>(".charts-table-add")!.click());
+    expect(dotCard.querySelectorAll(".charts-table thead th").length).toBe(columnsBefore + 1);
+    act(() => dotCard.querySelector<HTMLButtonElement>('.charts-table-remove[title^="Remove column"]')!.click());
+    expect(dotCard.querySelectorAll(".charts-table thead th").length).toBe(columnsBefore);
   });
 
   it("adds and removes real rail cards", () => {

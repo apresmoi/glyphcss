@@ -10,13 +10,13 @@ describe("renderGlyphChart — shorthand snapshot", () => {
   it("renders [3,5,2,8] at 20x8 to a fixed snapshot", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", width: 20, height: 8 });
     expect(r.text).toMatchInlineSnapshot(`
-      "8 │                /
+      "8 ┤                /
         │               / 
-      6 │    -\\\\       /  
+      6 ┤    -\\\\       /  
         │ -▔_- \\\\\\    /   
         │_-      \\\\\\ /    
-      2 │          \\/     
-        ──────────────────
+      2 ┤          \\/     
+        └┴──────────┴─────
          0          2     "
     `);
   });
@@ -204,6 +204,16 @@ describe("renderGlyphChart — web target", () => {
     expect(r.html).toBeDefined();
     expect(r.html).toContain("&lt;b&gt;&amp;x");
     expect(r.html).not.toContain("<b>&x<");
+  });
+
+  // Gate: bare `renderGlyphChart(x)` with no options at all renders for the
+  // web target (mutation: default falls back to "chat" -> this goes red,
+  // since a chat-target render has no html exit at all).
+  it("defaults the bare call (no options object) to the web target", () => {
+    const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]));
+    expect(r.html).toBeDefined();
+    expect(r.grid.cols).toBe(96);
+    expect(r.grid.rows).toBe(32);
   });
 });
 

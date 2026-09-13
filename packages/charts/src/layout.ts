@@ -48,6 +48,17 @@ export interface GlyphChartLayout {
   readonly xAxisLineRow: number;
   readonly xAxisLabelRow: number;
   readonly yAxisCol: number;
+  /** Packet item 6 — axis tick marks/titles/grid, resolved with their defaults. */
+  readonly xTickMarks: boolean;
+  readonly yTickMarks: boolean;
+  readonly xGrid: boolean;
+  readonly yGrid: boolean;
+  /** `null` when there's no title (explicit `""`, no string field, or no room). */
+  readonly xAxisTitle: string | null;
+  readonly yAxisTitle: string | null;
+  readonly xAxisTitleRow: number;
+  /** Top-left, above the y-axis — see `GlyphChartAxisOptions.title`'s doc. */
+  readonly yAxisTitleRow: number;
   readonly legend: { readonly row: number; readonly items: readonly GlyphChartLegendItem[] } | null;
   /** `false` for an arc/text-only spec — see `layoutGlyphChart`'s own comment. `paintAxes` reads this to skip drawing an axis nobody needs. */
   readonly hasCartesianAxes: boolean;
@@ -198,6 +209,46 @@ export function seriesNames(marks: readonly GlyphChartResolvedMark[]): string[] 
   return [...new Set(chartSeries(marks).flatMap((s) => s.name === undefined ? [] : [s.name]))];
 }
 
+/** An axis's default title (packet item 6): the first mark's own channel
+ * field NAME, only when it's a plain string (an accessor/literal-array
+ * channel has no name to show). */
+function defaultAxisFieldName(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): string | undefined {
+  for (const { mark } of marks) {
+    const value = mark.channels[axis];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
+/** Whether every numeric value this axis actually plots is an integer —
+ * gates the "index/integer data never shows a 0.5 tick" rule below. `false`
+ * (no filtering) when the axis carries no numeric data at all, so a purely
+ * categorical/time axis is untouched. */
+function isIntegerAxisData(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): boolean {
+  let sawNumber = false;
+  for (const { rows } of marks) {
+    for (const row of rows) {
+      const v = row[axis];
+      if (typeof v !== "number") continue;
+      sawNumber = true;
+      if (!Number.isInteger(v)) return false;
+    }
+  }
+  return sawNumber;
+}
+
+/** Drop fractional ticks (0.5, 1.5, ...) once the underlying data are all
+ * integers — d3's own "nice" ladder for a small domain like [0,3] reaches
+ * for half-steps well before it runs out of room, which reads as real data
+ * to an INDEX or integer-count axis (never a genuine intermediate value).
+ * Never returns an empty result: if filtering would drop every tick, the
+ * original set survives untouched rather than leaving the axis blank. */
+function integerOnlyTicks(ticks: readonly GlyphChartTick[], integerData: boolean): readonly GlyphChartTick[] {
+  if (!integerData) return ticks;
+  const filtered = ticks.filter((t) => typeof t.value !== "number" || Number.isInteger(t.value));
+  return filtered.length > 0 ? filtered : ticks;
+}
+
 export function layoutGlyphChart(
   spec: GlyphChartSpec,
   marks: readonly GlyphChartResolvedMark[],
@@ -212,6 +263,23 @@ export function layoutGlyphChart(
   let top = 0;
   let bottom = rows - 1;
 
+  // A spec made only of `arc`/`text` marks has no cartesian x/y axis to
+  // show at all (a pie chart's own radius fills the whole rect) — skipping
+  // the gutter and axis rows for that case, rather than drawing empty
+  // ticks against a meaningless default [0,1] domain, is what keeps a
+  // donut chart from wasting a third of a small viewport on an axis nobody
+  // reads. Computed early (packet item 6 needs it to gate axis titles too).
+  const cartesian = marks.some(({ mark }) => mark.type !== "arc" && mark.type !== "text");
+
+  const xAxisOpts = spec.axes?.x;
+  const yAxisOpts = spec.axes?.y;
+  const xTickMarks = xAxisOpts?.tickMarks ?? true;
+  const yTickMarks = yAxisOpts?.tickMarks ?? true;
+  const xGrid = xAxisOpts?.grid ?? false;
+  const yGrid = yAxisOpts?.grid ?? false;
+  const xAxisTitleText = cartesian ? (xAxisOpts?.title !== undefined ? xAxisOpts.title : defaultAxisFieldName(marks, "x")) : undefined;
+  const yAxisTitleText = cartesian ? (yAxisOpts?.title !== undefined ? yAxisOpts.title : defaultAxisFieldName(marks, "y")) : undefined;
+
   let titleRow: number | null = null;
   if (spec.title && detail !== "simplified" && rows > 4) {
     titleRow = top;
@@ -220,31 +288,45 @@ export function layoutGlyphChart(
     ledger.push(ledgerTitleDropped({ cols, rows }));
   }
 
+  // y-axis title: "top-left, above the axis" — rotating a column of text
+  // isn't representable on a character grid, so unlike the x title this
+  // never shares a row with anything else.
+  let yAxisTitleRow = -1;
+  if (yAxisTitleText && detail !== "simplified" && rows - top > 3) {
+    yAxisTitleRow = top;
+    top += 1;
+  }
+
+  // >= 1, not > 1: a single NAMED mark (packet item 4 — every mark
+  // constructor takes `name?`) contributes its own legend entry with a
+  // swatch exactly like a categorical series does; only ZERO named series
+  // (nothing named anything) omits the row entirely.
   const names = seriesNames(marks);
   let legend: GlyphChartLayout["legend"] = null;
-  const legendWide = names.length > 1 && cols >= 12 && rows - top - 3 > 2;
+  const legendWide = names.length > 0 && cols >= 12 && rows - top - 3 > 2;
   if (showLegend && legendWide && detail !== "simplified") {
     legend = { row: bottom, items: names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] })) };
     bottom -= 1;
-  } else if (showLegend && names.length > 1) {
+  } else if (showLegend && names.length > 0) {
     ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
   }
 
-  // A spec made only of `arc`/`text` marks has no cartesian x/y axis to
-  // show at all (a pie chart's own radius fills the whole rect) — skipping
-  // the gutter and axis rows for that case, rather than drawing empty
-  // ticks against a meaningless default [0,1] domain, is what keeps a
-  // donut chart from wasting a third of a small viewport on an axis nobody
-  // reads.
-  const cartesian = marks.some(({ mark }) => mark.type !== "arc" && mark.type !== "text");
-
   let xAxisLabelRow = -1;
   let xAxisLineRow = -1;
+  let xAxisTitleRow = -1;
   let yAxisCol = 0;
   let xTicks: GlyphChartLayoutTick[] = [];
   let yTicks: GlyphChartLayoutTick[] = [];
 
   if (cartesian && rows - top >= 3 && cols >= 4) {
+    // x-axis title, when present, is the BOTTOM-most row (drawn "under the
+    // x axis", i.e. below its own tick labels) — reserved before the label
+    // row so both survive together or the title alone drops first on a
+    // short chart.
+    if (xAxisTitleText && detail !== "simplified" && rows - top >= 4) {
+      xAxisTitleRow = bottom;
+      bottom -= 1;
+    }
     xAxisLabelRow = bottom;
     bottom -= 1;
     xAxisLineRow = bottom;
@@ -257,8 +339,11 @@ export function layoutGlyphChart(
     // asking d3 for more than that just gets greedily thinned back down to
     // an arbitrary, unevenly-spaced subset (review finding 5) rather than
     // d3's own evenly-spaced "nice" answer for a count that already fits.
-    const yRowBudget = Math.max(2, Math.min(8, Math.floor((bottom - top + 1) / 2) + 1));
-    let yTicksRaw: GlyphChartTick[] = scales.y.ticks(yRowBudget);
+    // `axes.y.ticks` (packet item 6) overrides this budget outright — a
+    // caller-requested count, not a fitting heuristic; `axisTicks`'s own
+    // collision/stride thinning still applies underneath it.
+    const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottom - top + 1) / 2) + 1));
+    let yTicksRaw: GlyphChartTick[] = integerOnlyTicks(scales.y.ticks(yRowBudget), scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
     const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
     // The zero baseline is the one tick a bar/rect/area chart must always
     // label, whether or not d3's own "nice" set happened to include it.
@@ -304,11 +389,17 @@ export function layoutGlyphChart(
     // larger) accounts for genuinely wide ones (e.g. "Jan 01" on a time
     // axis) instead of relying on `axisTicks`'s collision thinning to claw
     // back the overshoot.
-    const xTickCountProvisional = Math.max(2, Math.floor(plotWidth / 6));
+    // `axes.x.ticks` (packet item 6) is a requested count, not a fitting
+    // heuristic — it skips the measured-width auto-shrink below entirely,
+    // exactly like the y budget above.
+    const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / 6));
     const provisionalXTicks = scales.x.ticks(xTickCountProvisional);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
-    const xTickCount = Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
-    const xTicksRaw = xTickCount >= xTickCountProvisional ? provisionalXTicks : scales.x.ticks(xTickCount);
+    const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
+    const xTicksRaw = integerOnlyTicks(
+      xTickCount >= xTickCountProvisional ? provisionalXTicks : scales.x.ticks(xTickCount),
+      scales.x.type !== "band" && scales.x.type !== "time" && isIntegerAxisData(marks, "x"),
+    );
 
     const xPriority = new Set<unknown>(
       scales.x.type === "log" ? xTicksRaw.filter((t) => isDecadeTick(t.value)).map((t) => t.value)
@@ -344,6 +435,14 @@ export function layoutGlyphChart(
     yAxisCol,
     legend,
     hasCartesianAxes: xAxisLineRow >= 0,
+    xTickMarks,
+    yTickMarks,
+    xGrid,
+    yGrid,
+    xAxisTitle: xAxisTitleRow >= 0 ? xAxisTitleText! : null,
+    yAxisTitle: yAxisTitleRow >= 0 ? yAxisTitleText! : null,
+    xAxisTitleRow,
+    yAxisTitleRow,
   };
 }
 
