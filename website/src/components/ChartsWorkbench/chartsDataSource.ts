@@ -1,9 +1,11 @@
 // Pure glue between the vendored/custom data sources (`datasets/`,
 // `../../lib/tabularParse.ts`), the transform pipeline
 // (`../../lib/dataPipeline.ts`), the profiler/recommender
-// (`../../lib/dataProfile.ts`), and `chartsWorkbenchState.ts`'s mark shape.
-// No DOM — `ChartsDock.tsx` is the thin component that reads a file/textarea
-// and calls into this. See AGENTS.md's "Charts" ("Data layer").
+// (`../../lib/dataProfile.ts`), the information-ranked candidate
+// enumeration (`../../lib/chartCandidates.ts`), and `chartsWorkbenchState.ts`'s
+// mark shape. No DOM — `ChartsDock.tsx` is the thin component that reads a
+// file/textarea and calls into this. See AGENTS.md's "Charts" ("Data layer").
+import { buildChartCandidates, pickChartCandidate, type ChartCandidate, type ChartCandidatePickOptions } from "../../lib/chartCandidates";
 import { runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows, recommendChart, type ChartRecommendation, type DataProfile } from "../../lib/dataProfile";
 import { parseTabular, type TabularRow } from "../../lib/tabularParse";
@@ -245,4 +247,24 @@ export function buildDatasetMark(id: number, mark: ChartsWorkbenchMark["type"], 
 export function xChannelIsDate(profile: DataProfile, x: string | undefined): boolean {
   if (!x) return false;
   return profile.columns.find((c) => c.name === x)?.type === "date";
+}
+
+/** The page's own seam onto `chartCandidates.ts`'s full, scored
+ *  enumeration — `"best"` for a load/select (the top-ranked candidate,
+ *  what `topChartsRecommendation`'s general-profiler branch already
+ *  reduces to via `recommendChart`'s own top pick), `"weighted-random"`
+ *  for the rail's Random button on a REMOTE dataset (no curated mapping to
+ *  fall back on, so Random should rotate between genuinely informative
+ *  views of the SAME data rather than reloading a different dataset
+ *  entirely — `pickChartCandidate`'s own doc explains the sampling). A
+ *  STOCK dataset's Random still picks a different vendored dataset
+ *  (`randomChartsDatasetId`); this is the remote-dataset counterpart. Pure
+ *  — the caller is responsible for turning the result into a mark
+ *  (`buildDatasetMark`, mirroring `topChartsRecommendation`'s own shape:
+ *  `mark`/`channels`/`pipeline`). `null` is a type-level accommodation for
+ *  an empty candidate list only — `buildChartCandidates` always returns at
+ *  least its own last-resort fallback, even for an empty profile, so this
+ *  never actually returns `null` in practice. */
+export function chartsCandidatePick(profile: DataProfile, options: ChartCandidatePickOptions): ChartCandidate | null {
+  return pickChartCandidate(buildChartCandidates(profile), options);
 }
