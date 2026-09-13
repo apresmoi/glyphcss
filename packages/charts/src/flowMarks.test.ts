@@ -2257,6 +2257,19 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
     }
     return out;
   }
+  /** Every routed cell lying inside a node box that is neither of its own band's endpoints. */
+  function crossedForeignBoxes(layout: GlyphChartSankeyLayout, routedRows: ReturnType<typeof computeSankeyRoutedRows>): string[] {
+    const out: string[] = [];
+    for (const row of routedRows) {
+      for (const p of row.cells) {
+        for (const n of layout.nodes) {
+          if (n.id === row.band.source || n.id === row.band.target) continue;
+          if (p.x >= n.x0 && p.x <= n.x1 && p.y >= n.y0 && p.y <= n.y1) out.push(`${row.band.source} -> ${row.band.target} at ${p.x},${p.y} inside ${n.id}`);
+        }
+      }
+    }
+    return out.slice(0, 5);
+  }
   /** A layered DAG with skip-level links — `randomSankeySpec` is bipartite, so it never has one. */
   function randomLayeredSankeySpec(seed: number): GlyphChartSpec {
     const rand = mulberry32(seed + 7919);
@@ -2296,6 +2309,7 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
 
   it("P1: over a seeded sweep of layered DAGs with skip-level links, bands share a vertical edge only in a render with a merged gap", () => {
     let skipLevelRenders = 0;
+    let unionFullRenders = 0;
     for (let seed = 0; seed < 80; seed++) {
       for (const [w, h] of [[96, 32], [160, 32], [240, 40]] as const) {
         const spec = randomLayeredSankeySpec(seed);
@@ -2305,23 +2319,33 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
         if (!layout) continue;
         const columnOf = new Map(layout.nodes.map((n) => [n.id, n.x0]));
         const columns = [...new Set(columnOf.values())].sort((a, b) => a - b);
-        // Intermediate columns whose boxes together leave no row clear are
-        // the documented no-detour residual (the router's own node-box
-        // assertion throws); that is not what this sweep measures.
-        let routedRows: ReturnType<typeof computeSankeyRoutedRows>;
-        try {
-          routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: w, rows: h, tier: "box" }), plot, layout, false, ledger);
-        } catch (err) {
-          if (String(err).includes("no free row cleared it")) continue;
-          throw err;
+        // Codex round-2: every render routes, including the ones whose
+        // intermediate columns leave no row clear of all of them at once
+        // (the router used to throw on those, and this sweep skipped them).
+        // The foreign-box check is independent of the router's own
+        // assertion, which only ever saw skip-level bands with unequal ends:
+        // a band with EQUAL source/target rows ran straight through the boxes
+        // between them, silently (46 of 480 renders at 71736d61; seed 27 at
+        // 96x32 is the first).
+        const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: w, rows: h, tier: "box" }), plot, layout, false, ledger);
+        for (const b of layout.bands) {
+          if (b.folded) continue;
+          const between = layout.nodes.filter((n) => n.x0 > columnOf.get(b.source)! && n.x0 < columnOf.get(b.target)!);
+          const used = new Set<number>();
+          for (const n of between) for (let y = n.y0; y <= n.y1; y++) used.add(y);
+          if (between.length > 0 && used.size === h) { unionFullRenders++; break; }
         }
+        expect(crossedForeignBoxes(layout, routedRows), `seed ${seed} at ${w}x${h}`).toEqual([]);
         if (ledger.some((e) => e.code === "sankey-crossings-merged" || e.code === "sankey-columns-folded")) continue;
         if (layout.bands.some((b) => !b.folded && columns.indexOf(columnOf.get(b.target)!) - columns.indexOf(columnOf.get(b.source)!) > 1)) skipLevelRenders++;
         expect(sharedVerticalEdges(verticalEdgesByBand(routedRows)), `seed ${seed} at ${w}x${h}`).toEqual([]);
       }
     }
-    // Non-vacuity: the sweep must actually route skip-level bands unmerged.
+    // Non-vacuity: the sweep must actually route skip-level bands unmerged,
+    // and must include the no-single-clear-row case (measured: 4 renders,
+    // seed 32 at all three sizes and seed 38 at 240x40).
     expect(skipLevelRenders).toBeGreaterThan(50);
+    expect(unionFullRenders).toBeGreaterThan(0);
   });
 
   // Pass-through choice: among the clear windows below Electricity
@@ -2390,5 +2414,75 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
     }
     expect(throughLaterRibbons, "non-vacuity: the band's interior must actually run through later ribbons").toBeGreaterThan(10);
     expect(stolen).toEqual([]);
+  });
+
+  // Codex round-2: a skip-level band whose intermediate columns leave no row
+  // clear of ALL of them at once used to be handed the plot's top row — by
+  // construction inside one of those boxes — and the router's node-box
+  // assertion threw, failing the whole render (8 of 480 renders in a layered
+  // sweep, 4 distinct layouts). Two cases reach that state and they need
+  // different answers.
+  const sankeyOf = (data: readonly { from: string; to: string; v: number }[]): GlyphChartSpec => ({ marks: [glyphChartSankey(data, { source: "from", target: "to", value: "v" })] });
+  // Every intermediate column has clear rows, just not the same ones:
+  // {C, X} clears rows 10-11, {E} clears rows 20-31. A route exists.
+  const noSharedClearRow = sankeyOf([{ from: "A", to: "C", v: 1 }, { from: "A", to: "D", v: 1 }, { from: "B", to: "X", v: 1 }, { from: "X", to: "E", v: 2 }, { from: "E", to: "D", v: 1 }]);
+  // C (and E) fill their column top to bottom. No route exists.
+  const filledColumn = sankeyOf([{ from: "A", to: "D", v: 2 }, { from: "B", to: "C", v: 1 }, { from: "C", to: "E", v: 5 }, { from: "E", to: "D", v: 1 }]);
+
+  it("round-2: no row clears every intermediate column at once — the band jogs between columns on rows clear in each, and the render never throws", () => {
+    for (const charset of ["box", "ascii", "braille", "blocks"] as const) {
+      const r = renderGlyphChart(noSharedClearRow, { target: "web", charset });
+      expect(r.report.ledger.some((e) => e.code === "sankey-band-unroutable"), `a route exists on ${charset}`).toBe(false);
+    }
+    const plot = PLOT(96, 32);
+    const layout = layoutSankeyGraph(sankeyGroups(noSharedClearRow), plot, "box", [])!;
+    const box = (id: string) => layout.nodes.find((n) => n.id === id)!;
+    const [a, c, x, e, d] = ["A", "C", "X", "E", "D"].map(box);
+    // The premise: C and X share one intermediate column and E is the next;
+    // the only rows {C, X} leaves clear lie inside E, so no single row clears
+    // both columns, while each column alone still has clear rows.
+    expect(c!.x0).toBe(x!.x0);
+    expect(e!.x0).toBeGreaterThan(c!.x1);
+    expect([c!.y0, x!.y1]).toEqual([plot.y0, plot.y1]);
+    expect(x!.y0 - c!.y1).toBeGreaterThan(1);
+    expect(e!.y0).toBeLessThanOrEqual(c!.y1 + 1);
+    expect(e!.y1).toBeGreaterThanOrEqual(x!.y0 - 1);
+    expect(e!.y1).toBeLessThan(plot.y1);
+    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: "box" }), plot, layout, false, []);
+    expect(crossedForeignBoxes(layout, routedRows)).toEqual([]);
+    const rows = routedRows.filter((r) => r.band.source === "A" && r.band.target === "D");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.cells[0]!.x).toBe(a!.x1 + 1);
+      expect(row.cells[row.cells.length - 1]!.x).toBe(d!.x0 - 1);
+      expect(row.cells.some((p) => p.x >= c!.x0 && p.x <= c!.x1 && p.y > c!.y1 && p.y < x!.y0), "crosses {C, X} in its clear rows").toBe(true);
+      expect(row.cells.some((p) => p.x >= e!.x0 && p.x <= e!.x1 && p.y > e!.y1), "crosses {E} below E").toBe(true);
+    }
+  });
+
+  it("round-2: an intermediate column filled top to bottom leaves no route — the band is drawn as two stubs and named in the ledger, never an exception", () => {
+    for (const charset of ["box", "ascii", "braille", "blocks"] as const) {
+      const r = renderGlyphChart(filledColumn, { target: "web", charset, width: 40, height: 20 });
+      const entry = r.report.ledger.find((e) => e.code === "sankey-band-unroutable");
+      expect(entry?.detail, `named on ${charset}`).toEqual({ source: "A", target: "D", blockingNodes: ["C"] });
+    }
+    const plot = PLOT(40, 20);
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const layout = layoutSankeyGraph(sankeyGroups(filledColumn), plot, "box", ledger)!;
+    const c = layout.nodes.find((n) => n.id === "C")!;
+    expect([c.y0, c.y1], "the premise: C fills its column").toEqual([plot.y0, plot.y1]);
+    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 40, rows: 20, tier: "box" }), plot, layout, false, ledger);
+    expect(crossedForeignBoxes(layout, routedRows)).toEqual([]);
+    const band = layout.bands.find((b) => b.source === "A" && b.target === "D")!;
+    const a = layout.nodes.find((n) => n.id === "A")!;
+    const d = layout.nodes.find((n) => n.id === "D")!;
+    const rows = routedRows.filter((r) => r.band === band);
+    const leaving = rows.filter((r) => r.cells[0]!.x === a.x1 + 1);
+    const arriving = rows.filter((r) => r.cells[r.cells.length - 1]!.x === d.x0 - 1);
+    // One straight stub row per band row at each end, and nothing else.
+    expect(leaving.map((r) => r.cells[0]!.y)).toEqual(Array.from({ length: band.sourceRowRange[1] - band.sourceRowRange[0] + 1 }, (_, i) => band.sourceRowRange[0] + i));
+    expect(arriving.map((r) => r.cells[0]!.y)).toEqual(Array.from({ length: band.targetRowRange![1] - band.targetRowRange![0] + 1 }, (_, i) => band.targetRowRange![0] + i));
+    expect(leaving.length + arriving.length).toBe(rows.length);
+    for (const r of rows) expect(new Set(r.cells.map((p) => p.y)).size).toBe(1);
   });
 });

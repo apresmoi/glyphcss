@@ -7,6 +7,7 @@ import {
   ledgerLabelDropped,
   ledgerLegendDropped,
   ledgerSeriesColorConflict,
+  ledgerSankeyBandUnroutable,
   ledgerSeriesDodgeDegraded,
   ledgerSliceDropped,
   ledgerTickDuplicateDropped,
@@ -40,6 +41,7 @@ const SAMPLES = [
   // apply to the message with quoted spans removed, never to the raw
   // string.
   ledgerLabelDropped({ role: "data label", text: "p95: latency", reason: "no room" }),
+  ledgerSankeyBandUnroutable({ source: "Coal", target: "Losses", blockingNodes: ["Grid", "Storage"] }),
 ];
 
 /** Quoted user text is exempt from the sentence-shape checks below — see

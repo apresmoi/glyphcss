@@ -128,6 +128,20 @@ export function ledgerSankeyBandBroken(opts: { readonly source: string; readonly
   return entry("sankey-band-broken", `The "${opts.source} → ${opts.target}" band's own run is broken by a crossing band for ${opts.cells} cell${plural}.`, { ...opts });
 }
 
+/**
+ * A skip-level band with NO route at all: some column it must cross is
+ * filled top to bottom by node boxes, so every row of that column belongs to
+ * a node that isn't the band's own endpoint. Drawing it through one of those
+ * boxes would read as flow passing THROUGH that node — a false statement
+ * about the data — so the band is drawn as two stubs instead, one leaving
+ * its source and one arriving at its target, and named here. `blockingNodes`
+ * are the nodes filling the column.
+ */
+export function ledgerSankeyBandUnroutable(opts: { readonly source: string; readonly target: string; readonly blockingNodes: readonly string[] }): GlyphChartLedgerEntry {
+  const names = opts.blockingNodes.map((n) => `"${n}"`).join(", ");
+  return entry("sankey-band-unroutable", `The "${opts.source} → ${opts.target}" band has no row clear of ${names} to cross by, so it is drawn as a stub leaving "${opts.source}" and a stub arriving at "${opts.target}".`, { ...opts });
+}
+
 export function ledgerFunnelNotMonotone(opts: { readonly stage: string; readonly value: number; readonly previousStage: string; readonly previousValue: number }): GlyphChartLedgerEntry {
   return entry("funnel-not-monotone", `Stage "${opts.stage}" (${opts.value}) is larger than "${opts.previousStage}" (${opts.previousValue}) above it.`, { ...opts });
 }
