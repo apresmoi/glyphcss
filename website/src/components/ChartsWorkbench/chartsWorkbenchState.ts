@@ -20,7 +20,7 @@ import {
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
-import { findChartsDataset } from "./datasets";
+import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
 export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, remoteDatasetRecommendationCheck, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
@@ -175,6 +175,15 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
   { id: "multi-line", label: "Multi-series line", spec: glyphChartPlot({ marks: [glyphChartLine(SERIES, { x: "month", y: "value", fill: "region" })], title: "Multi-series line" }) },
   { id: "bar", label: "Bar", spec: glyphChartPlot({ marks: [glyphChartBar(BARS, { x: "month", y: "value" }, { name: "Sales" })], title: "Bar" }) },
   { id: "stacked-bar", label: "Stacked bar", spec: glyphChartPlot({ marks: [{ ...glyphChartBar(STACKED, { x: "month", y: "value", fill: "region" }), transform: { kind: "stack" } }], title: "Stacked bar" }) },
+  // Real data, the vendored `energy-consumption-by-source` rows: three of
+  // its four layers are under two rows tall at a terminal size, the case a
+  // stacked area has to survive. The description carries its CC BY credit,
+  // since a preset clears the rail's dataset card.
+  { id: "stacked-area", label: "Stacked area", spec: glyphChartPlot({
+    marks: [{ ...glyphChartArea(energyConsumptionBySourceDataset.rows, { x: "year", y: "twh", fill: "source" }), transform: { kind: "stack" } }],
+    title: "Stacked area",
+    description: `${energyConsumptionBySourceDataset.title} (TWh). Source: ${energyConsumptionBySourceDataset.source.name}, ${energyConsumptionBySourceDataset.source.licence}.`,
+  }) },
   { id: "dot", label: "Dot", spec: glyphChartPlot({ marks: [glyphChartDot(SAMPLE, undefined, { name: "Visits" })], title: "Dot" }) },
   { id: "area", label: "Area", spec: glyphChartPlot({ marks: [glyphChartArea(SAMPLE, undefined, { name: "Traffic" })], title: "Area" }) },
   { id: "pie", label: "Pie", spec: glyphChartPlot({ marks: [sampleChartMark("arc")], title: "Pie" }) },

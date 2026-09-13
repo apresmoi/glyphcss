@@ -747,51 +747,63 @@ function sankeyBandPaintsSmooth(band: SankeyBand, srcBox: SankeyNodeBox | undefi
 }
 
 /**
- * `k` DISTINCT rows that each clear every node box in `midColumns` — the
- * rows a skip-level band's own `k` pass-through legs can safely cross those
- * columns at, one row per leg, without entering a box that isn't its own
- * endpoint (DIAGNOSIS-sankey-column-jump.md RC1: the single-row predecessor
- * of this function handed every one of a band's `k` rows the SAME row,
- * which is what collapsed a 4-row band's pass-through to one cell thick for
- * the entire width of the gap it crossed). Prefers a CONTIGUOUS window of
- * `k` clear rows closest to `preferredCenter` (the band's own row-range
- * midpoint) — contiguous so the band still reads as one solid ribbon rather
- * than `k` disconnected threads — and falls back to the `k` clear rows
- * nearest that centre, in row order, when no contiguous window of that
- * width exists. Reuses rows cyclically (a residual, documented collapse —
- * never a throw) when fewer than `k` rows clear every mid box at all;
- * `midColumns` empty never reaches this (an adjacent band's own free row is
- * just `tgtRow`, computed directly by the caller with no scan).
+ * Every candidate set of `k` DISTINCT rows that each clear every node box in
+ * `midColumns` — the rows a skip-level band's own `k` pass-through legs can
+ * safely cross those columns at, one row per leg, without entering a box
+ * that isn't its own endpoint (DIAGNOSIS-sankey-column-jump.md RC1: the
+ * single-row predecessor handed every one of a band's `k` rows the SAME
+ * row, which collapsed a 4-row band's pass-through to one cell thick for the
+ * entire width of the gap it crossed). The candidates are every CONTIGUOUS
+ * window of `k` clear rows — contiguous so the band still reads as one solid
+ * ribbon rather than `k` disconnected threads — ordered by distance from
+ * `preferredCenter` (the band's own row-range midpoint), ties topmost first.
+ * With no contiguous window of that width the single candidate is the `k`
+ * clear rows nearest that centre, in row order; with fewer than `k` clear
+ * rows it reuses them cyclically (a residual, documented collapse — never a
+ * throw); with none at all it is the top row (the caller's node-box
+ * assertion is what would catch that). `midColumns` empty never reaches
+ * this (an adjacent band's own free row is just `tgtRow`).
  */
-function pickSankeyFreeRowBand(midColumns: readonly SankeyNodeBox[], plot: GlyphChartPlotRect, k: number, preferredCenter: number): readonly number[] {
+function sankeyFreeRowCandidates(midColumns: readonly SankeyNodeBox[], plot: GlyphChartPlotRect, k: number, preferredCenter: number): readonly (readonly number[])[] {
   const occupied = new Set<number>();
   for (const box of midColumns) for (let y = box.y0; y <= box.y1; y++) occupied.add(y);
   const clear: number[] = [];
   for (let y = plot.y0; y <= plot.y1; y++) if (!occupied.has(y)) clear.push(y);
-  if (clear.length === 0) {
-    // No row clears every mid-column box in this plot (one of them spans
-    // the full height) — there is no honest detour left to take. This is a
-    // residual limitation, not a silent one: the caller still runs the
-    // node-box assertion below, which is what would catch it in the sweeps
-    // this module is tested against.
-    return Array.from({ length: k }, () => plot.y0);
-  }
-  if (clear.length < k) return Array.from({ length: k }, (_, i) => clear[i % clear.length]!);
-  let best: readonly number[] | null = null;
-  let bestDist = Infinity;
+  if (clear.length === 0) return [Array.from({ length: k }, () => plot.y0)];
+  if (clear.length < k) return [Array.from({ length: k }, (_, i) => clear[i % clear.length]!)];
+  const windows: { readonly rows: readonly number[]; readonly dist: number }[] = [];
   for (let start = 0; start + k <= clear.length; start++) {
     let contiguous = true;
     for (let j = 1; j < k; j++) if (clear[start + j]! !== clear[start]! + j) { contiguous = false; break; }
     if (!contiguous) continue;
-    const windowCenter = (clear[start]! + clear[start + k - 1]!) / 2;
-    const dist = Math.abs(windowCenter - preferredCenter);
-    if (dist < bestDist) { bestDist = dist; best = clear.slice(start, start + k); }
+    windows.push({ rows: clear.slice(start, start + k), dist: Math.abs((clear[start]! + clear[start + k - 1]!) / 2 - preferredCenter) });
   }
-  if (best) return best;
-  // No contiguous window of width k clears every mid box — the k clear rows
-  // nearest the band's own centre, restored to row order so the route still
-  // walks monotonically rather than zig-zagging.
-  return [...clear].sort((a, b) => Math.abs(a - preferredCenter) - Math.abs(b - preferredCenter)).slice(0, k).sort((a, b) => a - b);
+  // `sort` is stable, so equal distances keep the topmost window first — the
+  // same tie-break the distance-only chooser always had.
+  if (windows.length > 0) return windows.sort((a, b) => a.dist - b.dist).map((w) => w.rows);
+  return [[...clear].sort((a, b) => Math.abs(a - preferredCenter) - Math.abs(b - preferredCenter)).slice(0, k).sort((a, b) => a - b)];
+}
+
+/**
+ * The pass-through rows a skip-level band actually takes: among
+ * `sankeyFreeRowCandidates`, the one whose route CROSSES the fewest cells
+ * already occupied by some other band (`crossedCells`), distance from the
+ * band's own centre only as the tie-break. Minimising distance alone was
+ * measured to pick a window that runs straight along another ribbon when a
+ * clear one sat a few rows further off (the energy dataset at braille 96x32,
+ * DIAGNOSIS-sankey-column-jump.md's reported chart). No intermediate node
+ * box term is needed: every candidate row already clears every such box by
+ * construction, and the lane/final-lane legs sit in gaps.
+ */
+function pickSankeyFreeRowBand(candidates: readonly (readonly number[])[], crossedCells: (rows: readonly number[]) => number): readonly number[] {
+  let best = candidates[0]!;
+  if (candidates.length === 1) return best;
+  let bestScore = crossedCells(best);
+  for (let c = 1; c < candidates.length && bestScore > 0; c++) {
+    const score = crossedCells(candidates[c]!);
+    if (score < bestScore) { bestScore = score; best = candidates[c]!; }
+  }
+  return best;
 }
 
 function pushSankeyHorizontal(points: GlyphCanvasPoint[], y: number, fromX: number, toX: number): void {
@@ -948,8 +960,18 @@ function packSankeyLaneItems(items: readonly SankeyLaneItem[], ledger: GlyphChar
  * genuinely overlapping demands into different slots, or gracefully degrade
  * together (one `sankey-crossings-merged` per gap) when the gap truly can't
  * fit both.
+ *
+ * Each item reserves the vertical extent its leg ACTUALLY descends through,
+ * not the band's endpoint rows: an adjacent band's one vertical run spans
+ * `[min(sr0,tr0), max(sr1,tr1)]`, but a skip-level band's first-gap run goes
+ * from its source rows to its own pass-through rows (`freeRowsByBand`) and
+ * its final-gap run from those pass-through rows to its target rows. The
+ * endpoint-only extent let two skip-level bands whose source and target rows
+ * never overlap share final-lane columns while their real descents (both
+ * starting from pass-through rows below every intermediate box) overlapped
+ * along 29 vertical edges — codex round-1 P1, `N1->N5`/`N2->N5` at 240x32.
  */
-function assignSankeyGapLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<string, SankeyNodeBox>, cols: ReturnType<typeof sankeyColumnsByX0>, ledger: GlyphChartLedgerEntry[]): { readonly laneStartByBand: ReadonlyMap<SankeyBand, number>; readonly finalLaneStartByBand: ReadonlyMap<SankeyBand, number> } {
+function assignSankeyGapLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<string, SankeyNodeBox>, cols: ReturnType<typeof sankeyColumnsByX0>, freeRowsByBand: ReadonlyMap<SankeyBand, readonly number[]>, ledger: GlyphChartLedgerEntry[]): { readonly laneStartByBand: ReadonlyMap<SankeyBand, number>; readonly finalLaneStartByBand: ReadonlyMap<SankeyBand, number> } {
   const items: SankeyLaneItem[] = [];
   for (const band of bands) {
     if (band.folded || !band.targetRowRange) continue;
@@ -961,16 +983,23 @@ function assignSankeyGapLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyM
     if (sr0 === tr0 && sr1 === tr1) continue; // straight through — no lane needed.
     const mids = sankeyMidColumnBoxes(cols, srcBox, tgtBox);
     const width = Math.max(1, sr1 - sr0 + 1, tr1 - tr0 + 1); // this band's own k.
-    const start = Math.min(sr0, tr0);
-    const end = Math.max(sr1, tr1);
+    const freeRows = mids.length > 0 ? freeRowsByBand.get(band) : undefined;
+    const freeMin = freeRows ? Math.min(...freeRows) : Infinity;
+    const freeMax = freeRows ? Math.max(...freeRows) : -Infinity;
     const nextColX0 = mids.length > 0 ? mids[0]!.x0 : tgtBox.x0;
     const firstGapX0 = srcBox.x1 + 1;
     const firstGapX1 = nextColX0 - 1;
-    if (firstGapX1 >= firstGapX0) items.push({ band, kind: "lane", start, end, width, gapX0: firstGapX0, gapX1: firstGapX1 });
+    if (firstGapX1 >= firstGapX0) {
+      const start = freeRows ? Math.min(sr0, freeMin) : Math.min(sr0, tr0);
+      const end = freeRows ? Math.max(sr1, freeMax) : Math.max(sr1, tr1);
+      items.push({ band, kind: "lane", start, end, width, gapX0: firstGapX0, gapX1: firstGapX1 });
+    }
     if (mids.length > 0) {
       const lastMid = mids[mids.length - 1]!;
       const finalGapX0 = lastMid.x1 + 1;
       const finalGapX1 = tgtBox.x0 - 1;
+      const start = freeRows ? Math.min(tr0, freeMin) : Math.min(sr0, tr0);
+      const end = freeRows ? Math.max(tr1, freeMax) : Math.max(sr1, tr1);
       if (finalGapX1 >= finalGapX0) items.push({ band, kind: "finalLane", start, end, width, gapX0: finalGapX0, gapX1: finalGapX1 });
     }
   }
@@ -1036,7 +1065,88 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
   const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
-  const { laneStartByBand, finalLaneStartByBand } = assignSankeyGapLanes(bands, nodeBoxes, cols, ledger);
+
+  // Every routable band's own geometry, in registration order — computed
+  // once, ahead of lane packing, because a skip-level band's pass-through
+  // rows now feed BOTH the packing (the real vertical extent of its legs)
+  // and the crossing score that picks those rows.
+  const plans: SankeyRoutePlan[] = [];
+  const foldedStubs: { readonly band: SankeyBand; readonly x0: number; readonly x1: number }[] = [];
+  for (const band of bands) {
+    const srcBox = nodeBoxes.get(band.source);
+    if (!srcBox) continue;
+    const [sr0, sr1] = band.sourceRowRange;
+    if (sr0 > sr1) continue;
+    if (band.folded) {
+      const stubLen = Math.max(1, Math.min(GLYPH_CHART_SANKEY_FOLD_STUB_MAX * textScale, gap - 1));
+      const x0 = srcBox.x1 + 1;
+      foldedStubs.push({ band, x0, x1: Math.min(plot.x1, x0 + stubLen - 1) });
+      continue;
+    }
+    const tgtBox = nodeBoxes.get(band.target);
+    if (!tgtBox || !band.targetRowRange) continue;
+    const [tr0, tr1] = band.targetRowRange;
+    if (tr0 > tr1) continue;
+    if (tgtBox.x0 - 1 < srcBox.x1 + 1) continue; // same/earlier column after a fold-column clamp — nothing to route.
+    const straight = sr0 === tr0 && sr1 === tr1;
+    const mids = straight ? [] : sankeyMidColumnBoxes(cols, srcBox, tgtBox);
+    const k = Math.max(sr1 - sr0 + 1, tr1 - tr0 + 1);
+    const skipLevel = !straight && mids.length > 0;
+    const preferredCenter = (Math.min(sr0, tr0) + Math.max(sr1, tr1)) / 2;
+    plans.push({
+      band, srcBox, tgtBox, straight, mids, k, skipLevel,
+      smooth: sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable),
+      candidates: skipLevel ? sankeyFreeRowCandidates(mids, plot, k, preferredCenter) : null,
+    });
+  }
+
+  const freeRowsByBand = new Map<SankeyBand, readonly number[]>();
+  for (const plan of plans) if (plan.candidates) freeRowsByBand.set(plan.band, plan.candidates[0]!);
+
+  // Crossing-aware pass-through choice (codex round-1 improvement): score
+  // every candidate window against the footprints every OTHER band already
+  // claims — lanes from a provisional packing with the distance-best rows,
+  // since the real packing depends on the rows being chosen — then re-pack
+  // with the chosen rows below. Greedy, in registration order; a band's own
+  // footprint is lifted out of the occupancy before its candidates are
+  // scored and put back with the winner. Only runs when some skip-level
+  // band actually has a choice, so every chart without one packs once, as
+  // before.
+  if (plans.some((p) => p.candidates && p.candidates.length > 1)) {
+    const provisional = assignSankeyGapLanes(bands, nodeBoxes, cols, freeRowsByBand, []);
+    const occupancy = new Map<number, number>();
+    const addCells = (cells: ReadonlySet<number>, delta: number): void => {
+      for (const idx of cells) occupancy.set(idx, (occupancy.get(idx) ?? 0) + delta);
+    };
+    for (const stub of foldedStubs) {
+      const cells = new Set<number>();
+      for (let y = stub.band.sourceRowRange[0]; y <= stub.band.sourceRowRange[1]; y++) for (let x = stub.x0; x <= stub.x1; x++) cells.add(y * canvas.cols + x);
+      addCells(cells, 1);
+    }
+    const footprintOf = (plan: SankeyRoutePlan, freeRows: readonly number[] | undefined): ReadonlySet<number> =>
+      sankeyPlanFootprint(plan, provisional, freeRows, canvas.cols, canvas.rows);
+    const current = new Map<SankeyRoutePlan, ReadonlySet<number>>();
+    for (const plan of plans) {
+      const cells = footprintOf(plan, freeRowsByBand.get(plan.band));
+      current.set(plan, cells);
+      addCells(cells, 1);
+    }
+    for (const plan of plans) {
+      if (!plan.candidates || plan.candidates.length < 2) continue;
+      addCells(current.get(plan)!, -1);
+      const scored = new Map<readonly number[], ReadonlySet<number>>();
+      const chosen = pickSankeyFreeRowBand(plan.candidates, (rows) => {
+        const cells = footprintOf(plan, rows);
+        scored.set(rows, cells);
+        let crossed = 0;
+        for (const idx of cells) if ((occupancy.get(idx) ?? 0) > 0) crossed++;
+        return crossed;
+      });
+      freeRowsByBand.set(plan.band, chosen);
+      addCells(scored.get(chosen)!, 1);
+    }
+  }
+  const lanes = assignSankeyGapLanes(bands, nodeBoxes, cols, freeRowsByBand, ledger);
 
   // A sankey's shade identity is per SOURCE node (AGENTS.md's "Charts" —
   // "a sankey groups by SOURCE node") — `band.styleIndex` is the cross-mark
@@ -1044,27 +1154,22 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
   // mark's own source count, matching `seriesShade`'s own ASCII
   // compact-vs-extended threshold.
   const sourceCount = new Set(bands.map((b) => b.styleIndex)).size;
+  const planByBand = new Map(plans.map((p) => [p.band, p]));
+  const stubByBand = new Map(foldedStubs.map((s) => [s.band, s]));
   const routedRows: SankeyRoutedRow[] = [];
   let order = 0;
   for (const band of bands) {
-    const srcBox = nodeBoxes.get(band.source);
-    if (!srcBox) continue;
     const glyph = seriesShade(canvas.tier, band.styleIndex, sourceCount);
     const color = resolveSeriesColor(band, colorEnabled);
-    const [sr0, sr1] = band.sourceRowRange;
-    if (sr0 > sr1) continue;
-
-    if (band.folded) {
+    const stub = stubByBand.get(band);
+    if (stub) {
       // No real target: a short stub reads as "flow leaves, not itemized".
       // Still routed (a synthetic `(fold)` node id per source, unique from
       // any real node) so it takes part in the same no-overwrite contract.
-      const stubLen = Math.max(1, Math.min(GLYPH_CHART_SANKEY_FOLD_STUB_MAX * textScale, gap - 1));
-      const x0 = srcBox.x1 + 1;
-      const x1 = Math.min(plot.x1, x0 + stubLen - 1);
       const foldNode = `${band.source}::(fold)`;
-      for (let row = sr0; row <= sr1; row++) {
+      for (let row = band.sourceRowRange[0]; row <= band.sourceRowRange[1]; row++) {
         const cells: GlyphCanvasPoint[] = [];
-        for (let x = x0; x <= x1; x++) cells.push({ x, y: row });
+        for (let x = stub.x0; x <= stub.x1; x++) cells.push({ x, y: row });
         const edgeId = `${edgeIdPrefix}${order}`;
         canvas.edge(edgeId, { from: band.source, to: foldNode });
         canvas.route(edgeId, cells);
@@ -1073,75 +1178,34 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
       }
       continue;
     }
-
-    const tgtBox = nodeBoxes.get(band.target);
-    if (!tgtBox || !band.targetRowRange) continue;
-    const [tr0, tr1] = band.targetRowRange;
-    if (tr0 > tr1) continue;
-    if (tgtBox.x0 - 1 < srcBox.x1 + 1) continue; // same/earlier column after a fold-column clamp — nothing to route.
-
-    const srcHeight = sr1 - sr0 + 1;
-    const tgtHeight = tr1 - tr0 + 1;
-    const straight = sr0 === tr0 && sr1 === tr1;
-    const mids = straight ? [] : sankeyMidColumnBoxes(cols, srcBox, tgtBox);
-    const nextColX0 = mids.length > 0 ? mids[0]!.x0 : tgtBox.x0;
-    const gapX0 = srcBox.x1 + 1;
-    const firstGapX1 = nextColX0 - 1;
-    const laneStart = straight ? tgtBox.x0 - 1 : (laneStartByBand.get(band) ?? gapX0);
-    const k = Math.max(srcHeight, tgtHeight);
-    // A skip-level band (one or more intermediate columns) gets its OWN
-    // final-gap lane, `k` DISTINCT free pass-through rows and a dedicated
-    // final column per row (`finalLaneStart`/`freeRows` below); an adjacent
-    // bent band reuses `lane` itself as `finalLane` and `tgtRow` as its own
-    // free row — see `buildSankeyBandRowRoute`'s own doc for why those two
-    // degenerate cases collapse the extra legs to zero length.
-    const skipLevel = !straight && mids.length > 0;
-    const lastMid = skipLevel ? mids[mids.length - 1]! : undefined;
-    const finalGapX0 = skipLevel ? lastMid!.x1 + 1 : gapX0;
-    const finalGapX1 = tgtBox.x0 - 1;
-    const finalLaneStart = skipLevel ? (finalLaneStartByBand.get(band) ?? finalGapX0) : laneStart;
-    const preferredCenter = (Math.min(sr0, tr0) + Math.max(sr1, tr1)) / 2;
-    const freeRows = skipLevel ? pickSankeyFreeRowBand(mids, plot, k, preferredCenter) : null;
-    // `paintSankeyRoutedRows` paints this exact band through
-    // `paintSankeyRibbonSmooth` instead of this row's own lane/free-row
-    // cells whenever `sankeyBandPaintsSmooth` agrees — and when it does,
-    // this row's cells are never registered with the canvas's junction
-    // system below (codex P1-5 / fable P1-1): registering them anyway let
-    // `canvas.resolveJunctions()` paint box-drawing glyphs into a footprint
-    // the smooth painter's own per-dot-column sweep then never revisits,
-    // leaving stray residue (`┌──────`) outside the painted ribbon. The
-    // row is still computed and still pushed to `routedRows` — the caller
-    // reads `rows[0]!.glyph`/`.color` off it to hand the smooth painter its
-    // own shade — only the canvas registration is skipped.
-    const smooth = sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable);
-    for (let i = 0; i < k; i++) {
-      const srcRow = sr0 + Math.min(i, srcHeight - 1);
-      const tgtRow = tr0 + Math.min(i, tgtHeight - 1);
-      // This row's OWN column within the band's ribbon — clamped to the
-      // gap's own right edge so an over-packed (compressed) ribbon still
-      // produces a valid, in-range route rather than walking past the
-      // next column's box.
-      const lane = straight ? laneStart : Math.min(firstGapX1, laneStart + i);
-      const freeRow = straight ? srcRow : (skipLevel ? freeRows![i]! : tgtRow);
-      // The band's own final-leg column — spread across `k` rows in its
-      // final gap exactly like `lane` spreads across its first, clamped to
-      // that gap's own right edge (the target's immediate border column)
-      // for the same reason `lane` is.
-      const finalLane = skipLevel ? Math.min(finalGapX1, finalLaneStart + i) : lane;
-      const cells = buildSankeyBandRowRoute(srcBox, tgtBox, srcRow, tgtRow, lane, freeRow, finalLane);
+    const plan = planByBand.get(band);
+    if (!plan) continue;
+    const freeRows = freeRowsByBand.get(band);
+    // `paintSankeyRoutedRows` paints a `plan.smooth` band through
+    // `paintSankeyRibbonSmooth` instead of these rows' own lane/free-row
+    // cells — and for such a band the rows are never registered with the
+    // canvas's junction system below (codex P1-5 / fable P1-1): registering
+    // them anyway let `canvas.resolveJunctions()` paint box-drawing glyphs
+    // into a footprint the smooth painter's own per-dot-column sweep then
+    // never revisits, leaving stray residue (`┌──────`) outside the painted
+    // ribbon. The rows are still computed and pushed to `routedRows` — the
+    // caller reads `rows[0]!.glyph`/`.color` off them to hand the smooth
+    // painter its own shade — only the canvas registration is skipped.
+    for (let i = 0; i < plan.k; i++) {
+      const cells = sankeyPlanRowCells(plan, i, lanes, freeRows);
       // Nothing may route through a node box that isn't its own endpoint:
       // the lane and pre-target columns always sit in a GAP (never a node
       // column, by construction), so only the FREE-ROW pass-through across
       // intermediate columns could ever violate this — checking against
       // just `mids` (rather than every node box) is provably sufficient.
       for (const p of cells) {
-        for (const box of mids) {
+        for (const box of plan.mids) {
           if (p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) {
             throw new Error(`glyphcss: sankey band "${band.source} -> ${band.target}" routed through node "${box.id}"'s own box at (${p.x}, ${p.y}) — no free row cleared it.`);
           }
         }
       }
-      if (!smooth) {
+      if (!plan.smooth) {
         const edgeId = `${edgeIdPrefix}${order}`;
         canvas.edge(edgeId, { from: band.source, to: band.target });
         canvas.route(edgeId, cells);
@@ -1151,6 +1215,74 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
     }
   }
   return routedRows;
+}
+
+interface SankeyRoutePlan {
+  readonly band: SankeyBand;
+  readonly srcBox: SankeyNodeBox;
+  readonly tgtBox: SankeyNodeBox;
+  readonly straight: boolean;
+  readonly mids: readonly SankeyNodeBox[];
+  readonly k: number;
+  readonly skipLevel: boolean;
+  readonly smooth: boolean;
+  readonly candidates: readonly (readonly number[])[] | null;
+}
+
+type SankeyGapLanes = ReturnType<typeof assignSankeyGapLanes>;
+
+/**
+ * Row `i`'s own cell polyline for a routed (non-folded) band. A skip-level
+ * band (one or more intermediate columns) gets its OWN final-gap lane, `k`
+ * DISTINCT pass-through rows and a dedicated final column per row; an
+ * adjacent bent band reuses `lane` itself as `finalLane` and `tgtRow` as its
+ * own free row — see `buildSankeyBandRowRoute`'s own doc for why those two
+ * degenerate cases collapse the extra legs to zero length.
+ */
+function sankeyPlanRowCells(plan: SankeyRoutePlan, i: number, lanes: SankeyGapLanes, freeRows: readonly number[] | undefined): readonly GlyphCanvasPoint[] {
+  const { band, srcBox, tgtBox, straight, mids, skipLevel } = plan;
+  const [sr0, sr1] = band.sourceRowRange;
+  const [tr0, tr1] = band.targetRowRange!;
+  const srcRow = sr0 + Math.min(i, sr1 - sr0);
+  const tgtRow = tr0 + Math.min(i, tr1 - tr0);
+  const gapX0 = srcBox.x1 + 1;
+  const firstGapX1 = (mids.length > 0 ? mids[0]!.x0 : tgtBox.x0) - 1;
+  const laneStart = straight ? tgtBox.x0 - 1 : (lanes.laneStartByBand.get(band) ?? gapX0);
+  // This row's OWN column within the band's ribbon — clamped to the gap's
+  // own right edge so an over-packed (compressed) ribbon still produces a
+  // valid, in-range route rather than walking past the next column's box.
+  const lane = straight ? laneStart : Math.min(firstGapX1, laneStart + i);
+  const freeRow = straight ? srcRow : (skipLevel ? freeRows![i]! : tgtRow);
+  // The band's own final-leg column — spread across `k` rows in its final
+  // gap exactly like `lane` spreads across its first, clamped to that gap's
+  // own right edge (the target's immediate border column) for the same
+  // reason `lane` is.
+  const finalLane = skipLevel
+    ? Math.min(tgtBox.x0 - 1, (lanes.finalLaneStartByBand.get(band) ?? mids[mids.length - 1]!.x1 + 1) + i)
+    : lane;
+  return buildSankeyBandRowRoute(srcBox, tgtBox, srcRow, tgtRow, lane, freeRow, finalLane);
+}
+
+/**
+ * The cells a band will occupy, as canvas cell indices — its routed rows'
+ * union, or for a smooth-painted band the per-column row envelope
+ * `paintSankeyRibbonSmooth` sweeps. Used only to SCORE pass-through
+ * candidates, so an envelope row the smooth painter's texture leaves blank
+ * still counts: a leg through it would still cross the ribbon visually.
+ */
+function sankeyPlanFootprint(plan: SankeyRoutePlan, lanes: SankeyGapLanes, freeRows: readonly number[] | undefined, canvasCols: number, canvasRows: number): ReadonlySet<number> {
+  const cells = new Set<number>();
+  if (plan.smooth) {
+    const xSrcCell = plan.srcBox.x1 + 1;
+    const xTgtCell = plan.tgtBox.x0 - 1;
+    for (let x = xSrcCell; x <= xTgtCell; x++) {
+      const [rowMin, rowMax] = sankeyRibbonColumnRows(plan.band, xSrcCell, xTgtCell, x, canvasRows);
+      for (let y = rowMin; y <= rowMax; y++) cells.add(y * canvasCols + x);
+    }
+    return cells;
+  }
+  for (let i = 0; i < plan.k; i++) for (const p of sankeyPlanRowCells(plan, i, lanes, freeRows)) cells.add(p.y * canvasCols + p.x);
+  return cells;
 }
 
 // ── ribbon rendering (visual shape of a painted band) ───────────────────────
@@ -1197,6 +1329,41 @@ function sankeySmoothstep(u: number): number {
 function sankeyRibbonEdgeAt(dotX: number, dotX0: number, dotX1: number, y0: number, y1: number): number {
   if (dotX1 <= dotX0) return y1;
   return y0 + (y1 - y0) * sankeySmoothstep((dotX - dotX0) / (dotX1 - dotX0));
+}
+
+/**
+ * A smooth ribbon's own continuous `[top, bottom]` dot rows at each of cell
+ * column `x`'s two dot columns. A border CELL's own two dot columns must show
+ * the EXACT SAME pair — one of them (`dotX === dotX0` at the source, or
+ * `dotX1` at the target) is already exact by construction, but the OTHER
+ * sits one dot short of it, which `sankeyRibbonEdgeAt` interpolates at `u`
+ * fractionally short of 0/1. Left un-forced, that near-but-not-exact half can
+ * round OUTSIDE this band's own [sr0,sr1]/[tr0,tr1] and cross into a
+ * NEIGHBOURING band's own (contiguous, no-gap) row range at the very column
+ * every band's border-touch conservation is measured at — forcing both halves
+ * to the SAME exact pair closes that off entirely rather than narrowing it.
+ */
+function sankeyRibbonColumnEdges(band: SankeyBand, xSrcCell: number, xTgtCell: number, x: number): [number, number][] {
+  const [sr0, sr1] = band.sourceRowRange;
+  const [tr0, tr1] = band.targetRowRange!;
+  const srcTopDot = sr0 * 4, srcBotDot = sr1 * 4 + 3;
+  const tgtTopDot = tr0 * 4, tgtBotDot = tr1 * 4 + 3;
+  if (x === xSrcCell) return [[srcTopDot, srcBotDot], [srcTopDot, srcBotDot]];
+  if (x === xTgtCell) return [[tgtTopDot, tgtBotDot], [tgtTopDot, tgtBotDot]];
+  const dotX0 = xSrcCell * 2;
+  const dotX1 = xTgtCell * 2 + 1;
+  return [0, 1].map((localCol) => {
+    const dotX = x * 2 + localCol;
+    return [sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcTopDot, tgtTopDot), sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcBotDot, tgtBotDot)];
+  }) as [number, number][];
+}
+
+/** The cell rows `paintSankeyRibbonSmooth` sweeps at cell column `x`. */
+function sankeyRibbonColumnRows(band: SankeyBand, xSrcCell: number, xTgtCell: number, x: number, rows: number): [number, number] {
+  const edges = sankeyRibbonColumnEdges(band, xSrcCell, xTgtCell, x);
+  const topMin = Math.min(edges[0]![0], edges[1]![0]);
+  const botMax = Math.max(edges[0]![1], edges[1]![1]);
+  return [Math.max(0, Math.floor(topMin / 4)), Math.min(rows - 1, Math.floor(botMax / 4))];
 }
 
 // Sub-cell dot-bit groups for each visual quadrant — see `GlyphCanvas.sub`'s
@@ -1322,41 +1489,17 @@ function paintSankeyRibbonSmooth(
   phase: "border" | "interior" | "both" = "both",
 ): void {
   const subGlyph = GLYPH_CANVAS_TIERS[tierName].subGlyph!;
-  const [sr0, sr1] = band.sourceRowRange;
-  const [tr0, tr1] = band.targetRowRange!;
   const xSrcCell = srcBox.x1 + 1;
   const xTgtCell = tgtBox.x0 - 1;
   if (xTgtCell < xSrcCell) return;
-  const dotX0 = xSrcCell * 2;
-  const dotX1 = xTgtCell * 2 + 1;
-  const srcTopDot = sr0 * 4, srcBotDot = sr1 * 4 + 3;
-  const tgtTopDot = tr0 * 4, tgtBotDot = tr1 * 4 + 3;
   const maxDotRow = rows * 4 - 1;
 
   for (let x = xSrcCell; x <= xTgtCell; x++) {
     const isBorderCol = x === xSrcCell || x === xTgtCell;
     if (phase === "border" && !isBorderCol) continue;
     if (phase === "interior" && isBorderCol) continue;
-    // A border CELL's own two dot columns must show the EXACT SAME
-    // [top, bottom] pair — one of them (`dotX === dotX0` at the source, or
-    // `dotX1` at the target) is already exact by construction, but the
-    // OTHER sits one dot short of it (`dotX0 + 1`/`dotX1 - 1`), which
-    // `sankeyRibbonEdgeAt` interpolates at `u` fractionally short of 0/1.
-    // Left un-forced, that near-but-not-exact half can round OUTSIDE this
-    // band's own [sr0,sr1]/[tr0,tr1] and cross into a NEIGHBOURING band's
-    // own (contiguous, no-gap) row range at the very column every band's
-    // border-touch conservation is measured at — forcing both halves to the
-    // SAME exact pair closes that off entirely rather than narrowing it.
-    const edgesByLocalCol: [number, number][] = isBorderCol
-      ? (x === xSrcCell ? [[srcTopDot, srcBotDot], [srcTopDot, srcBotDot]] : [[tgtTopDot, tgtBotDot], [tgtTopDot, tgtBotDot]])
-      : ([0, 1].map((localCol) => {
-          const dotX = x * 2 + localCol;
-          return [sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcTopDot, tgtTopDot), sankeyRibbonEdgeAt(dotX, dotX0, dotX1, srcBotDot, tgtBotDot)];
-        }) as [number, number][]);
-    const topMin = Math.min(edgesByLocalCol[0]![0], edgesByLocalCol[1]![0]);
-    const botMax = Math.max(edgesByLocalCol[0]![1], edgesByLocalCol[1]![1]);
-    const rowMin = Math.max(0, Math.floor(topMin / 4));
-    const rowMax = Math.min(rows - 1, Math.floor(botMax / 4));
+    const edgesByLocalCol = sankeyRibbonColumnEdges(band, xSrcCell, xTgtCell, x);
+    const [rowMin, rowMax] = sankeyRibbonColumnRows(band, xSrcCell, xTgtCell, x, rows);
     for (let r = rowMin; r <= rowMax; r++) {
       let mask = 0;
       for (let localCol = 0; localCol < 2; localCol++) {

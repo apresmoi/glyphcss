@@ -59,8 +59,23 @@
  *    `axisTitleParentGoodSpecs.json`) have that one key's own value
  *    re-derived from the current build; every other key is untouched.
  *
- * A NEW divergence found outside these eight is a real regression, not a
- * ninth exception to wave through — add it here, with its own dedicated
+ * 9. (`paint.ts`'s `paintAreaMark`, CHARTS-RESEARCH
+ *    `DIAGNOSIS-stacked-area.md` S3) An area's outer silhouette gains a
+ *    sub-cell edge on `blocks`/`braille`: the cell just outside the band
+ *    (centre uncovered, part covered) carries the tier's partial fill
+ *    glyph (`▗ ▄ ▘ ▀`) instead of staying blank, so a sloped top moves in
+ *    half cells rather than whole-cell plateaus. It is the same painter and
+ *    the same staircase for a single area as for a stack, so both changed.
+ *    Affects `goodSpecs[1]` (`area([-1,1])`) on `blocks`/`braille` ONLY —
+ *    `ascii`/`box` have no sub-cell fill, `stackedArea` (index 13) lands on
+ *    whole cells, and every other entry has no area mark.
+ *    `strokeWidthParentFixtures.json`/`textScaleParentFixtures.json` keys
+ *    `1:blocks`/`1:braille` and `axisTitleParentGoodSpecs.json`'s `i: 1`
+ *    (web = braille) were re-derived from the current build; every other
+ *    key is untouched.
+ *
+ * A NEW divergence found outside these nine is a real regression, not a
+ * tenth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";

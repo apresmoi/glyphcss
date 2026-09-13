@@ -12,7 +12,7 @@ The fixed order is validation and channel materialization → transforms → one
 
 ### Byte-identity: the exception list ("claim A")
 
-Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. As of this batch it lists seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyBandPaintsSmooth`; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
+Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. It now lists nine — #8 sankey visual air and #9 an area's sub-cell silhouette (Round 23) came later; the batch that wrote this paragraph listed seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyBandPaintsSmooth`; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
 
 ## Quantities, domains and stack bounds
 
@@ -239,6 +239,8 @@ A second re-review (`CHARTS-RESEARCH/REVIEW-flow-marks-opus-round2.md`) measured
 **Border cells are claimed with ABSOLUTE priority, independent of lane placement.** This is the fix for the specific reader-facing failure (a band touching neither of its own borders): a row's first cell (adjacent to its source) and last cell (adjacent to its target) are structurally UNIQUE to that row (row ranges partition a node's box without overlap), so no OTHER row can ever legitimately own them — what CAN reach one is a DIFFERENT band's transit merely passing through on its way to a farther lane (unavoidable once two bands' ribbons sit on opposite sides of one shared border column). `paintSankeyLayout` claims every row's own two border cells, across ALL rows, BEFORE painting any interior cell — so a later-registered transit arriving at an already-claimed border cell finds it occupied and draws nothing there, never the other way round. This is independent of, and more robust than, lane uniqueness: it is what keeps gate (a) below green even under the interval-colouring's own "shared lane column" mutation (measured — see below).
 
 **Skip-level bands (target two-plus columns past source) route their pass-through at a PROVEN-FREE row**, never through an intermediate node's own box (`pickSankeyFreeRow` + an internal assertion in `paintSankeyLayout` that throws naming the offending node if a route ever lands inside a foreign box). This is what makes `Natural Gas -> Industrial` (passing behind `Electricity Generation`'s own column) fully connected instead of losing its whole lane under EG's box, which round 1 and 2 both left as a known defect (the round-7 paragraph's own "legitimately loses ONE cell... painted last by design" turned out to lose 15-27 cells and all its connectivity once measured). If no row clears every intermediate box (one of them spans the full plot height), it falls back to the top row — a documented, rare residual, not a silent one: the internal assertion is what would catch it if it ever fired on a real dataset, and it did not across the fan, the energy dataset, or 200 random DAGs.
+
+**Skip-level lane extents and pass-through choice (codex review of the column-jump fix, round 1).** Two follow-ups to giving every row of a skip-level band its own pass-through row and final-lane column. (1) Lane packing reserved each item's ENDPOINT rows `[min(sr0,tr0), max(sr1,tr1)]`, but a skip-level band's legs descend from its pass-through rows, which sit below every intermediate box and outside that range. Two such bands with disjoint endpoints therefore shared final-lane columns while their real descents overlapped: on the review's 6-node repro at 240×32/box, `N1->N5` and `N2->N5` both took columns 216-219 and shared 29 vertical edges in a 43-column gap. Each item now reserves its leg's real extent (first gap: source rows ∪ pass-through rows; final gap: pass-through rows ∪ target rows), and adjacent bands keep the old extent exactly. A seeded 240-render layered-DAG sweep now finds no shared vertical edge between bands outside a gap reported as merged. The honest cost: larger extents need more slots, so `sankey-crossings-merged` fires on 72 of 480 sweep renders instead of 64. (2) The pass-through window was the clear one NEAREST the band's centre, which on the reported chart (energy dataset, title row, braille 96×32) runs straight along the Nuclear/Renewables/Losses ribbons. It is now the clear window whose route crosses the fewest cells other bands occupy, with distance breaking ties. Occupancy is the other bands' routed cells, or a smooth ribbon's per-column row envelope, against lanes from a provisional packing; the real packing then re-runs with the chosen rows. Forcing each of the 7 windows on that chart measured 145/135/130/127/125/123/119 lost cells, and the score ranks them in exactly that order. Net lost cells: braille 127 → 119, box 165 → 151 (box's nearest window was already the fewest-crossings one), repro 2,997 → 2,574, and 312,874 → 222,266 over the sweep. P1 alone made two of those worse (braille 145, repro 3,105); the chooser is what recovers them. Cost: routing averages 1.3 ms instead of 0.26 ms, 2.9 ms on the repro, next to a ~30 ms whole render. Residual: where a band's lane sits within a first gap also moves lost cells (forcing `Natural Gas -> Industrial`'s lane from column 16 to 23 on braille gives 112 instead of 119). That column comes from interval packing, which does not minimise crossings, and this round left it unchanged.
 
 **What the redesign proves, and what it does not.**
 
@@ -819,3 +821,79 @@ The band-thickness column (data-PROPORTIONAL, row height ∝ throughput) already
 **Gates**: `pnpm --filter @glyphcss/charts test` (1176 tests, up from 1162 on the merged `feat/diagrams` baseline — 8 new sankey/funnel geometry tests in `flowMarks.test.ts`, 6 new axis-tick tests in `layout.test.ts`), `pnpm --filter @glyphcss/charts build`, `pnpm --filter @glyphcss/website test` (1987, unchanged — no website file touched by this packet). Mutation checks performed by hand (reverting one scaling factor at a time, confirming red, restoring): `nodeWidthCap`'s `* textScale` reverted freezes the measured node width at 16 for every density (test expects exact doubling/tripling — red); the funnel `labelGutter`'s `14 * textScale` reverted keeps the gutter frozen at its density-1 value (test expects it to more than double by density 3 — red); `xTickCountProvisional`'s `6 * textScale` reverted changes the kept tick set on 2 of 5 presets at density 2 (the bar preset's band labels and the yearly date axis both diverge — red).
 
 **The energy sankey, web/braille, density 2 (192×64 render, `renderGlyphChart(spec, { target: "web", width: 192, height: 64, textScale: 2, color: "none" })`)** — pasted in full in this session's own report; `report.ledger` carries `sankey-band-broken` (the skip-level Natural Gas→Industrial band's own run broken 114 cells by a crossing band — real cell contention, unrelated to this fix) and `label-abbreviated` ("Electricity Generation" → "Electricity Gen…" in the legend), both pre-existing, unaffected by this packet.
+
+## Round 23: stacked areas (CHARTS-RESEARCH `DIAGNOSIS-stacked-area.md`)
+
+The library already stacked an area (`area` + `transform: { kind: "stack" }`), but on the vendored `energy-consumption-by-source` dataset only the bottom band read as a band. Three root causes, all in `paint.ts`'s area painter:
+
+1. **S1 — the colour-off boundary line erased the band it bounds.** It was drawn along each layer's `y1`, i.e. on the band's own TOP row, after the fill. A layer under ~2 rows tall has its top row as its whole band.
+2. **S2 — the fill interpolated between whole-row-ROUNDED data points.** `scaleToRow` rounded each vertex, the column loop interpolated those integers and rounded again: the stack's top sat up to 0.82 rows off (centre sampling alone is bounded by 0.5) and 10-24 cells per band went to the neighbouring band.
+3. **S3 — every tier filled whole cells.** At braille 96x32 the stack's top rises 14 rows over 90 columns, which a whole-cell fill can only draw as 14 plateaus (longest 16 columns): the web page's reported staircase.
+
+`double-diagonal-solid` (logged 8 times at 80x24) was a side effect of S1: the fourth series' boundary takes `SERIES_STYLES[3] = "double"`, which has no diagonal form. It stays expected for an unstacked 4-series line or area chart.
+
+### Measured (share of each band's cells carrying its own `seriesShade` glyph)
+
+Band cells are defined independently of the painter (exact interpolated edges, centre inside `(top - 0.5, base - 0.5]`).
+
+| tier, size, colour off | Nuclear before | Renewables before | Traditional biomass before | every band after |
+|---|---|---|---|---|
+| box 80x24 | 16% | 33% | 15% | 100% |
+| ascii 80x24 | 23% | 33% | 60% | 100% |
+| blocks 80x24 | 2% | 12% | 13% | 100% |
+| braille 80x24 | 2% | 7% | 13% | 100% |
+| box 96x32 | 16% | 46% | 41% | 100% |
+| braille 96x32 | 1% | 22% | 37% | 100% |
+
+With colour on (no boundary drawn, so S2 alone) the same bands were 76-97% before and are 100% after.
+
+### Decisions
+
+- **No boundary line on a stacked layer.** Stacking partitions each column exactly, so every boundary is already the change from one band's glyph (or colour) to the next; there is no overlap for a line to disambiguate, which is the only reason an UNSTACKED area draws one. A boundary "only where the band is tall enough" was rejected: the same series' edge would switch vocabulary along its own length. `strokeWidth` is therefore inert on a stacked area.
+- **Exact rows, snapped columns.** A vertex keeps `scaleToCol`'s column (where a line or dot mark puts the same point) and its EXACT row; each column is centre-sampled against every segment through it. Sampling columns at their exact centre instead was built first and broke `chartsDatasetDateAxis.test.ts`'s `us-unemployment` snapshot: monthly data is denser than the plot, a one-month spike (April 2020) falls between two column centres, and centre sampling erased it. Every segment through a column contributes, so a one-sample spike still reaches its own column, exactly as the rounded painter always drew. `stackedArea.test.ts` pins it with a spike placed between centres.
+- **Sub-cell edge on the OUTER silhouette only.** On `braille`/`blocks`, a cell whose centre no layer covers but part of which one does takes `fillSubGlyph(mask)` (the blocks quadrant table, sampled at quadrant centres) in the colour of the layer covering most of it. That cell belongs to no band, so it costs no band an identity cell. At braille 96x32 the silhouette goes from whole-cell steps to 28 half-cell steps over 29 levels (longest flat run 9 cells, where a flat run is real data, not quantisation).
+- **Internal boundaries stay whole-cell glyph transitions** — the honest limit. A glyph cannot change mid-cell; a quadrant in every internal boundary cell would keep only the cells wholly inside a band at 2x4 dot resolution: braille 96x32 Nuclear 33%, Renewables 17%, Traditional biomass 55%. That breaks the region-mark rule for exactly the thin bands at issue. With S2 fixed they are the exact centre-sampled partition, never more than half a cell from the true boundary.
+- **An unstacked area gets the same fill fix** (same painter, same S2/S3). Its sub-cell silhouette is skipped when its colour-off boundary line is drawn (a named series), so its edge is drawn once. This is `reviewFixtures.ts` exception #9: `goodSpecs[1]` (`area([-1,1])`) on `blocks`/`braille` gained the silhouette; `stackedArea` (index 13) lands on whole rows and is byte-identical, as is every line chart.
+
+### Mutation checks (`stackedArea.test.ts`)
+
+| mutation | reddens |
+|---|---|
+| draw the boundary line on stacked layers again (S1) | 8 colour-off ownership tests, the `double-diagonal-solid` test, 4 thin-band tests, 2 silhouette-step tests |
+| round each vertex's row before interpolating (S2) | 16 ownership tests (colour on and off), 4 thin-band tests |
+| paint no silhouette (S3) | 2 silhouette-step tests, the unstacked-silhouette test |
+| let the silhouette overwrite a centre-covered cell | 8 blocks/braille ownership tests, 2 thin-band tests |
+| gate the silhouette on `stacked` alone | the unstacked-silhouette test |
+| always draw the silhouette | the named-area "edge drawn once" test |
+| keep only the last segment through a column | the dense-data spike test |
+
+### Renders, energy dataset, `color: "none"`
+
+Box 80x24, after:
+
+```
+160k ┤                                                       ╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚
+     │                                               ╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚░░░░░
+     │                                         ╱╱╱╱╱╱╱╱▚▚▚▚▚▚░░░░░░░░░░░░░░█████
+     │                                    ╱╱╱╱╱╱▚▚▚▚░░░░░░░░████████████████████
+120k ┤                               ╱╱╱╱╱╱╱▚▚░░░░░█████████████████████████████
+     │                      ╱╱╱╱╱╱╱╱╱╱╱╱▚░░░░███████████████████████████████████
+     │             ╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚░░░░░░███████████████████████████████████████
+     │    ╱╱╱╱╱╱╱╱╱╱▚▚░░░░░░░░░░░███████████████████████████████████████████████
+ 80k ┤╱╱╱╱╱▚▚▚▚░░░░█████████████████████████████████████████████████████████████
+```
+
+Braille 96x32, after (the quadrant caps are the sub-cell silhouette):
+
+```
+160k ┤                                                                            ▄▄▄▄▄▄╱╱╱╱╱▚▚▚
+     │                                                                 ▗▄╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚
+     │                                                           ▄╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚░░░
+     │                                                     ▗▄╱╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚▚░░░░░██
+     │                                                 ▄╱╱╱╱╱╱╱╱╱▚▚▚▚▚▚▚░░░░░░░░░░░░░░░░░░██████
+     │                                             ▄╱╱╱╱╱╱╱╱▚▚▚▚▚░░░░░░░░░██████████████████████
+     │                                        ▗▄╱╱╱╱╱╱╱╱▚▚▚░░░░░░░██████████████████████████████
+120k ┤                                  ▄▄╱╱╱╱╱╱╱╱╱▚▚▚░░░░░░████████████████████████████████████
+```
+
+The /charts tray gains a "Stacked area" preset built from this dataset's own rows, its description carrying the CC BY credit (a preset clears the rail's dataset card).
