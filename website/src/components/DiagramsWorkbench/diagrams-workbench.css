@@ -109,6 +109,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Chrome notes (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C2/C3/C4) —
+   identical rules to charts-workbench.css's own; see that file's doc. */
+.target-preview--terminal .target-preview__note {
+  padding: 6px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #2b2b2b;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview--chat .target-preview__note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(26, 26, 26, 0.55);
+  margin-bottom: 6px;
+}
 .target-preview__terminal-body { padding: 12px; background: #000; }
 /* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
    `<pre>` is not a `.diagrams-grid-scroll > .glyph-output`, so without its

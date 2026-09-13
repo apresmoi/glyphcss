@@ -187,7 +187,11 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={() => void copy("text")}>
       {copyTextState === "copied" ? "Copied" : copyTextState === "error" ? "Copy failed" : "Copy as text"}
     </button>
-    {rendered?.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+    {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3,
+     *  mirrored from `ChartsWorkbench.tsx`'s own export bar): a chat paste
+     *  shows SGR escapes as literal `\x1b[38;2;…m` text, so Copy as text
+     *  (above) is the honest export there. */}
+    {rendered?.ok && rendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
@@ -232,6 +236,7 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
               <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
                 isHtml={Boolean(displayResult?.isHtml)} text={displayResult?.text ?? ""}
                 html={displayResult?.isHtml ? displayResult.display : undefined} ansi={displayResult?.ansi}
+                charsetDowngraded={displayResult?.charsetDowngraded}
                 ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={displayResult?.meta.description ?? undefined} />
             </div>
           </div>

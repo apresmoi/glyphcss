@@ -151,6 +151,26 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Chrome notes (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C2/C3/C4) —
+   advisory text about the FRAME's own faithfulness (a downgrade it made,
+   or colour it dropped), never a readout of the render itself: it sits
+   in the chrome, between the titlebar/bubble and the `<pre>`, same rule
+   as the terminal titlebar's own command text already living there — the
+   viewport still holds only the render. */
+.target-preview--terminal .target-preview__note {
+  padding: 6px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #2b2b2b;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview--chat .target-preview__note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(26, 26, 26, 0.55);
+  margin-bottom: 6px;
+}
 .target-preview__terminal-body { padding: 12px; background: #000; }
 /* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
    `<pre>` sits inside `.target-preview__terminal-body`, never a direct

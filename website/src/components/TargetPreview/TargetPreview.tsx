@@ -9,21 +9,39 @@ import { ansiSpansToHtml, parseAnsiToSpans } from "./ansiToSpans";
  * that exact node — `website/src/lib/glyphSvgExport.ts`) keep working
  * unchanged regardless of which frame wraps it.
  *
- * - `web`: the `<pre>` as it always rendered — Glyph Mono, CSS colour
- *   (`isHtml`/`html`), no chrome. Byte-identical to before this component
- *   existed.
+ * - `web`: the `<pre>` as it always rendered — Glyph Mono, no chrome.
+ *   Colour renders through whichever exit the library actually produced
+ *   for the request: CSS spans (`isHtml`/`html`) for `color: "css"`, or —
+ *   CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C1 — the SAME `ansiToSpans`
+ *   decode `terminal` already used for `ansi16`/`ansi256`/`truecolor`. A
+ *   browser has no ANSI decoder of its own; before this fix `web` simply
+ *   never looked at `ansi` at all, so an ANSI colour mode rendered as plain
+ *   text with Copy ANSI still on offer. `color: "none"`/`"css"` render
+ *   byte-identically to before this component existed.
  * - `terminal`: a terminal-window frame (dark chrome + title bar showing
  *   the command a real CLI call would use) around the SGR string decoded
- *   into `<span>`s by `ansiToSpans` — a browser has no ANSI decoder of its
- *   own, so without this the preview would either show raw escape bytes or
- *   silently drop colour.
+ *   into `<span>`s by `ansiToSpans`. `color: "css"` has no SGR to decode
+ *   (C2) — the library still produces `html` (CHARTS-RESEARCH: "the `html`
+ *   exit is produced for every target"), so the frame renders that (same
+ *   RGB `truecolor` would use) rather than falling back to plain text, with
+ *   a chrome note saying a real terminal needs ANSI, not CSS.
  * - `chat`: an assistant-style chat bubble around a Markdown-looking fenced
  *   code block, deliberately set in a ChatGPT-like font stack
  *   (`ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
  *   "Liberation Mono", monospace`) INSTEAD of Glyph Mono — the whole point
  *   of this frame is to show what a real chat client's own font would do
- *   to the output, which is also why `chat`'s default charset is `box`,
- *   never `braille` (AGENTS.md's "Charts"/"Diagrams" target tables).
+ *   to the output. **Colour never reaches this frame, regardless of what
+ *   it is handed** (C3): a fenced code block in a real chat client carries
+ *   no colour, and an EXPLICIT charset/colour override can outlive a
+ *   target switch (AGENTS.md: "the page tracks explicit overrides per
+ *   control"), so `ansi`/`html` can arrive here even though `chat`'s own
+ *   defaults are `box`/`none` — this frame enforces the faithful downgrade
+ *   itself rather than trusting the caller never to hand it colour, and
+ *   says so in its own chrome when it actually dropped something.
+ *   `charsetDowngraded` (below) is the one thing this frame cannot detect
+ *   from `text` alone — a `braille` request already rendered as `box` by
+ *   the caller (C4) looks identical to a `box` request — so the caller
+ *   reports it explicitly.
  */
 export interface TargetPreviewProps {
   readonly target: "chat" | "terminal" | "web";
@@ -34,6 +52,12 @@ export interface TargetPreviewProps {
   readonly html?: string;
   /** SGR-escaped text, when the render actually produced one (colour enabled, not suppressed by NO_COLOR). */
   readonly ansi?: string;
+  /** True when the caller substituted `box` for a requested `braille`
+   *  charset because `target` is `chat` (CHARTS-RESEARCH C4 — chat's own
+   *  fenced-code font carries no braille glyphs). Surfaces a chrome note;
+   *  changes no rendering decision here, since the substitution already
+   *  happened in `text`/`html` before either reached this component. */
+  readonly charsetDowngraded?: boolean;
   readonly ariaLabel?: string;
   readonly ariaDescription?: string;
   readonly className?: string;
@@ -47,7 +71,7 @@ export interface TargetPreviewProps {
 }
 
 export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(function TargetPreview(
-  { target, commandTitle, isHtml, text, html, ansi, ariaLabel, ariaDescription, className, style },
+  { target, commandTitle, isHtml, text, html, ansi, charsetDowngraded, ariaLabel, ariaDescription, className, style },
   ref,
 ) {
   // `web`'s class stays the literal "glyph-output" — nothing else — so the
@@ -56,13 +80,34 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   const preClassName = target === "web"
     ? ["glyph-output", className].filter(Boolean).join(" ")
     : ["glyph-output", "target-preview__pre", `target-preview__pre--${target}`, className].filter(Boolean).join(" ");
-  const terminalHtml = useMemo(() => (target === "terminal" && ansi !== undefined ? ansiSpansToHtml(parseAnsiToSpans(ansi)) : undefined), [target, ansi]);
+
+  // `chat` never shows colour (see this file's own doc, "C3") — checked
+  // ahead of everything else so neither branch below has to re-derive it.
+  const colorForChat = target === "chat" && (ansi !== undefined || (isHtml && html !== undefined));
+  const useAnsi = target !== "chat" && ansi !== undefined;
+  const useHtml = target !== "chat" && !useAnsi && isHtml && html !== undefined;
+  // `ansi === undefined` is what tells `color: "css"` apart from an actual
+  // ANSI mode here — the only other source of `useHtml` on `terminal`.
+  const terminalCssNote = target === "terminal" && useHtml && ansi === undefined;
+
+  const terminalHtml = useMemo(() => (useAnsi ? ansiSpansToHtml(parseAnsiToSpans(ansi!)) : undefined), [useAnsi, ansi]);
 
   const pre = terminalHtml !== undefined
     ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: terminalHtml }} />
-    : isHtml
+    : useHtml
       ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: html ?? text }} />
       : <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription}>{text}</pre>;
+
+  // Chrome notes — never in the render area itself (the viewport holds
+  // only the render, AGENTS.md's "Charts"/"Diagrams" — "feedback lives on
+  // the buttons and in the rail"; a `TargetPreview` frame's OWN chrome,
+  // the title bar / bubble header, is not that render area, same as the
+  // terminal frame's command title already living there).
+  const notes: string[] = [];
+  if (colorForChat) notes.push("Chat clients drop colour — this is what a paste shows.");
+  if (target === "chat" && charsetDowngraded) notes.push("Chat fonts lack braille glyphs — showing the box tier.");
+  if (terminalCssNote) notes.push("A real terminal gets ANSI, not CSS — pick an ANSI colour mode for a working Copy ANSI export.");
+  const note = notes.length > 0 ? <div className="target-preview__note">{notes.join(" ")}</div> : null;
 
   if (target === "terminal") {
     return <div className="target-preview target-preview--terminal">
@@ -70,12 +115,14 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
         <span className="target-preview__dots" aria-hidden="true"><span /><span /><span /></span>
         <span className="target-preview__title">{commandTitle}</span>
       </div>
+      {note}
       <div className="target-preview__terminal-body">{pre}</div>
     </div>;
   }
   if (target === "chat") {
     return <div className="target-preview target-preview--chat">
       <div className="target-preview__bubble">
+        {note}
         <div className="target-preview__fence">{pre}</div>
       </div>
     </div>;
@@ -83,6 +130,7 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   // `web` stays exactly what both pages already rendered — no chrome, no
   // extra wrapper — so the existing `.charts-grid-scroll > .glyph-output` /
   // `.diagrams-grid-scroll > .glyph-output` direct-child CSS (and every
-  // byte of the pre-existing web-target render) is untouched.
+  // byte of the pre-existing web-target render for `color: "none"`/`"css"`)
+  // is untouched.
   return pre;
 });
