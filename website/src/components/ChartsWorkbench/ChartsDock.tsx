@@ -2,19 +2,22 @@ import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GUI } from "lil-gui";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
-import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
+import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle, type DockOptionController } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
-import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
+import { RangeCategorySelect, RangeSlider, RangeUnavailable, rangeSliderStep } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_REGION_FILLS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
   CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX, CHARTS_DENSITY_STEP,
-  chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
+  CHARTS_NO_SCALE_REASON, CHARTS_TIME_UNIT_MS, chartsDensitySliderMax, chartsDomainNumberDisplay, chartsIsoDateStamp, chartsNumberToScaleBound, chartsScaleBoundToNumber,
+  chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsTimeBoundSnap, chartsTimeDisplayPrecision, chartsTimePrecisionOf,
+  chartsWorkbenchAxisTimePrecision, chartsWorkbenchScaleTypeFits,
   chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchHasCartesianMark, chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
-  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
+  resolveGlyphChartsWorkbenchControls, type ChartsScaleTypeFitTable, type ChartsTimePrecision, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain,
+  type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
 import { chartsWorkbenchActualTicks, chartsWorkbenchRegionFillStatus, type ChartsWorkbenchRegionFillStatus, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
@@ -124,116 +127,124 @@ function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, act
 }
 
 /**
- * Dual-handle domain control (packet item 3) for one axis's Scales row —
- * a `RangeSlider` over the data extent for a numeric/time scale, or the
- * ORIGINAL plain min/max text pair for `band` (a category name isn't a
- * slider position) or when inference failed entirely (bad mark JSON —
- * `inferred` is `undefined`). `scale.min`/`.max` stay the same strings
- * `buildScale` already reads; this control only translates them to and
- * from the slider's numeric domain.
+ * The Type select's own fit idiom (the mark card's Type toggle, `/maps`'
+ * `mapDirectionLocked`): a scale type this axis's data can't carry is a
+ * DISABLED option whose label carries the short reason and whose title
+ * carries the full one (`chartsWorkbenchScaleTypeFits`). lil-gui builds the
+ * `<option>`s itself and reads the choice by `selectedIndex` into its own
+ * value list, drawing the closed display from its own name list — so
+ * relabelling an option here changes only what the open list shows, never
+ * the value lil-gui commits or displays. Options are in `CHART_SCALE_TYPES`
+ * order because `useOption` built them from that same list.
+ */
+function useScaleTypeFit(ctrl: DockOptionController<string> | null, fits: ChartsScaleTypeFitTable): void {
+  useEffect(() => {
+    const row = ctrl?.raw.domElement;
+    const select = row?.querySelector("select");
+    if (!row || !select) return;
+    const unavailable: string[] = [];
+    CHART_SCALE_TYPES.forEach((type, index) => {
+      const option = select.options[index];
+      if (!option) return;
+      const fit = fits[type];
+      option.disabled = !fit.fits;
+      option.textContent = fit.fits ? type : `${type} — ${fit.short}`;
+      option.title = fit.fits ? "" : fit.reason;
+      if (!fit.fits) unavailable.push(`${type}: ${fit.reason}`);
+    });
+    row.title = unavailable.length ? `Not available for this data — ${unavailable.join(" ")}` : "";
+  }, [ctrl, fits]);
+}
+
+/**
+ * One axis's Scales domain control — always ONE lil-gui-shaped row: `.name`
+ * "X domain" with its `[reset]`, then `.widget` (CHARTS-RESEARCH
+ * `DIAGNOSIS-scale-rows-mark-card.md`). Its widget is:
+ *
+ * - numeric or time: a `RangeSlider` over the data extent;
+ * - band: two compact category selects (`RangeCategorySelect`);
+ * - nothing usable: `RangeUnavailable`, the short reason in the widget and
+ *   the full one on its title, and no inputs at all. The Type select already
+ *   disables a type the data can't carry (`unfit`), so only a legacy `?c=`
+ *   link, bad mark data, or a chart with no x/y scale ever lands here.
+ *
+ * `scale.min`/`.max` stay the same strings `buildScale` reads; this control
+ * only translates them to and from the slider's numeric domain.
  *
  * Slider BOUNDS come from `chartsScaleSliderBounds` (P1: never a flat pad
  * that can hand a bar/area/rect y-domain or a log domain an illegal
  * position — REVIEW-dock-colours-sliders-opus.md), widened past their own
- * padded range to include any already-typed override (P2-1: the two
- * number fields may exceed the visible bounds, and the slider re-derives
- * around them on the next render). `inferred.disabledReason` (a log scale
- * whose real data can't produce a legal domain) renders the slider
- * `disabled` with that reason instead of falling back to the plain text
- * pair, showing the LINEAR reading of the same data rather than a
- * fabricated placeholder.
+ * padded range to include any already-typed override (P2-1: the two number
+ * fields may exceed the visible bounds, and the slider re-derives around
+ * them on the next render). A time axis additionally snaps its bounds OUT to
+ * one calendar unit — the coarser of its data's and its span's
+ * (`chartsTimeDisplayPrecision`) — and steps by it, so every thumb position
+ * is a whole year (month, day) and the fields read "1980", not "1980-01-01"
+ * cut to "198".
  */
-/** Dock-fix bundle item 4 — a spec built entirely of `arc`/`sankey`/`funnel`
- *  marks has no x/y scale for ANY axis to control (AGENTS.md's "Charts":
- *  non-cartesian, excluded from `layoutGlyphChart`'s own cartesian gutter),
- *  but `glyphChartScaleDomains` still hands back some `{ type: "linear",
- *  domain: [0, 1] }` placeholder for the axis regardless (`numericDomain([])`
- *  has no "there is no scale" answer to give). Reading that placeholder as
- *  a real, draggable domain rendered a fully live `RangeSlider` whose every
- *  drag/typed commit landed in `state.scales` and reached `spec.scales` —
- *  and the render was BYTE-IDENTICAL either way, since nothing downstream
- *  of a sankey/funnel/arc spec ever reads `scales.x`/`scales.y`
- *  (DIAGNOSIS-scale-domain.md P3-4). Disabled with the reason instead, the
- *  same "disabled with its reason" idiom every other locked Dock control in
- *  this codebase uses (`@glyphcss/maps`' `mapDirectionLocked`) — never a
- *  slider a reader can still move with no render to show for it. */
-export const CHARTS_NO_SCALE_REASON = "This chart type has no x/y scale.";
-
-// Exported for direct unit coverage (dock-fix bundle items 4/5) — mounting
-// the full `ChartsDock` needs a live lil-gui `GUI` plus every OTHER folder's
-// own state; this control's own disabled/band/numeric branches are pure
-// enough to drive with plain props.
-export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCartesianScale, dispatch }: {
+export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCartesianScale, unfit, timePrecision = "day", dispatch }: {
   axis: "x" | "y";
   scale: ChartsWorkbenchScale;
   inferred: ChartsWorkbenchAxisDomain | undefined;
   zeroAnchored: boolean;
   hasCartesianScale: boolean;
+  /** This axis's CURRENT type ruled out by `chartsWorkbenchScaleTypeFits`. */
+  unfit?: { readonly short: string; readonly reason: string };
+  /** The calendar unit every date on this axis sits on (`chartsWorkbenchAxisTimePrecision`). */
+  timePrecision?: ChartsTimePrecision;
   dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
-  const AXIS = axis.toUpperCase();
-  if (!hasCartesianScale) {
-    return <RangeSlider label={`${AXIS} domain`} min={0} max={1} value={null} disabled disabledReason={CHARTS_NO_SCALE_REASON} onChange={() => {}} />;
-  }
+  const label = `${axis.toUpperCase()} domain`;
+  if (!hasCartesianScale) return <RangeUnavailable label={label} short="no x/y scale" reason={CHARTS_NO_SCALE_REASON} />;
+  if (unfit) return <RangeUnavailable label={label} short={unfit.short} reason={unfit.reason} />;
   const resolvedType = scale.type === "auto" ? inferred?.type : scale.type;
-  // Dock-fix bundle item 5 — a `band` axis with a real, resolved category
-  // list gets two `<select>`s naming those categories in DATA ORDER (never
-  // free text): `buildScale`'s own band branch (`chartsWorkbenchState.ts`)
-  // throws `Band bounds must name at least two categories in data order`
-  // on anything else — a typed number, a near-miss spelling, a reversed
-  // pair — which used to reach the reader as a hard render error with the
-  // viewport stuck on the last good chart (DIAGNOSIS-scale-domain.md P3-5).
-  // A `<select>` can only ever commit one of its own `<option>`s, so that
-  // whole failure class is now unreachable from this control. `ordinal`/
-  // `undefined`/a too-short domain (inference failed entirely — bad mark
-  // JSON, an unresolved channel) keeps the ORIGINAL plain text pair below,
-  // since there is no category list to populate a `<select>` from.
-  if (inferred && resolvedType === "band" && inferred.domain.length >= 2) {
-    const categories = inferred.domain.map(String);
-    const first = categories[0]!;
-    const last = categories.at(-1)!;
-    const minValue = scale.min.trim() && categories.includes(scale.min) ? scale.min : "";
-    const maxValue = scale.max.trim() && categories.includes(scale.max) ? scale.max : "";
-    return <>
-      <label className="voice-row charts-mark-row"><span>{AXIS} min</span>
-        <select className="charts-pipeline-input" aria-label={`${AXIS} scale minimum category`} value={minValue}
-          onChange={(e) => dispatch({ type: "set-scale", axis, patch: { min: e.target.value } })}>
-          <option value="">{`Auto (${first})`}</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select></label>
-      <label className="voice-row charts-mark-row"><span>{AXIS} max</span>
-        <select className="charts-pipeline-input" aria-label={`${AXIS} scale maximum category`} value={maxValue}
-          onChange={(e) => dispatch({ type: "set-scale", axis, patch: { max: e.target.value } })}>
-          <option value="">{`Auto (${last})`}</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select></label>
-    </>;
+  if (!inferred || resolvedType === undefined) {
+    return <RangeUnavailable label={label} short="unreadable" reason="This axis's data can't be read as a scale." />;
   }
-  if (!inferred || resolvedType === "band" || resolvedType === "ordinal" || resolvedType === undefined || inferred.domain.length < 2) {
-    return <>
-      <label className="voice-row charts-mark-row"><span>{AXIS} min</span>
-        <input className="charts-pipeline-input" aria-label={`${AXIS} scale minimum`} value={scale.min} onChange={(e) => dispatch({ type: "set-scale", axis, patch: { min: e.target.value } })} /></label>
-      <label className="voice-row charts-mark-row"><span>{AXIS} max</span>
-        <input className="charts-pipeline-input" aria-label={`${AXIS} scale maximum`} value={scale.max} onChange={(e) => dispatch({ type: "set-scale", axis, patch: { max: e.target.value } })} /></label>
-    </>;
+  if (inferred.domain.length < 2) {
+    return <RangeUnavailable label={label} short="one value" reason="A single value has nothing to narrow." />;
+  }
+  if (resolvedType === "band") {
+    // `buildScale`'s band branch throws on any bound that isn't a category
+    // in data order, or on a pair that doesn't name at least two of them
+    // (DIAGNOSIS-scale-domain.md P3-5). A `<select>` can only commit one of
+    // its own options, and `RangeCategorySelect` disables every option that
+    // would cross the other end — so neither failure is reachable from here.
+    const categories = inferred.domain.map(String);
+    const stamps = categories.map(chartsIsoDateStamp);
+    const dates = stamps.every((stamp): stamp is number => stamp !== null) ? stamps : null;
+    const datePrecision = dates ? chartsTimePrecisionOf(dates) : undefined;
+    const display = dates && datePrecision
+      ? (category: string) => chartsTimeBoundDisplay(dates[categories.indexOf(category)]!, datePrecision)
+      : undefined;
+    return <RangeCategorySelect label={label} categories={categories} display={display}
+      value={[scale.min.trim() || null, scale.max.trim() || null]}
+      onSelect={(end, category) => dispatch({ type: "set-scale", axis, patch: end === "lo" ? { min: category } : { max: category } })}
+      onReset={() => dispatch({ type: "set-scale", axis, patch: { min: "", max: "" } })} />;
   }
   const type = resolvedType as "linear" | "log" | "sqrt" | "time";
-  const disabled = inferred.disabledReason !== undefined;
   const toNumber = (v: number | string | Date) => v instanceof Date ? v.getTime() : Number(v);
   const domainMin = toNumber(inferred.domain[0]!);
   const domainMax = toNumber(inferred.domain.at(-1)!);
-  // A `disabledReason` reading is already the LINEAR fallback (the axis's
-  // own declared log type failed) — zero-anchoring is a claim about the
-  // REAL scale that would render, which this one, by construction, never
-  // will.
-  const bounds = chartsScaleSliderBounds(disabled ? "linear" : type, domainMin, domainMax, !disabled && zeroAnchored);
+  const bounds = chartsScaleSliderBounds(type, domainMin, domainMax, zeroAnchored);
   const explicitLo = scale.min.trim() ? chartsScaleBoundToNumber(type, scale.min) : null;
   const explicitHi = scale.max.trim() ? chartsScaleBoundToNumber(type, scale.max) : null;
-  const min = explicitLo !== null ? Math.min(bounds.min, explicitLo) : bounds.min;
-  const max = explicitHi !== null ? Math.max(bounds.max, explicitHi) : bounds.max;
-  const value: readonly [number | null, number | null] | null = scale.min.trim() || scale.max.trim() ? [explicitLo, explicitHi] : null;
-  const format = (n: number) => type === "time" ? chartsTimeBoundDisplay(n) : String(Math.round(n * 1000) / 1000);
+  let min = explicitLo !== null ? Math.min(bounds.min, explicitLo) : bounds.min;
+  let max = explicitHi !== null ? Math.max(bounds.max, explicitHi) : bounds.max;
+  // A time row shows, steps and snaps at ONE unit (`chartsTimeDisplayPrecision`),
+  // so a thumb can never sit between two values its fields can show.
+  const shown = type === "time" ? chartsTimeDisplayPrecision(timePrecision, domainMax - domainMin) : undefined;
+  const unit = shown && shown !== "time" ? CHARTS_TIME_UNIT_MS[shown] : undefined;
+  if (shown && unit !== undefined) {
+    min = chartsTimeBoundSnap(min, shown, "floor");
+    max = chartsTimeBoundSnap(max, shown, "ceil");
+  }
+  const step = unit ?? rangeSliderStep(min, max);
+  const format = (n: number) => shown ? chartsTimeBoundDisplay(n, shown) : chartsDomainNumberDisplay(n, step);
+  const describe = type === "time" ? (n: number) => chartsTimeBoundDisplay(n, timePrecision) : undefined;
   const parse = (raw: string) => type === "time" ? chartsTimeBoundFromDisplay(raw) : (Number.isFinite(Number(raw)) ? Number(raw) : null);
+  const snap = shown && unit !== undefined ? (n: number) => chartsTimeBoundSnap(n, shown) : undefined;
+  const value: readonly [number | null, number | null] | null = scale.min.trim() || scale.max.trim() ? [explicitLo, explicitHi] : null;
   // NEW-1/NEW-4 (REVIEW-dock-colours-sliders-opus-round2.md): a TYPED value
   // that would need `loFloor`/`loCeiling`/`hiFloor` to clamp it is refused
   // outright, with this reason shown inline, rather than silently
@@ -242,13 +253,12 @@ export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCar
   // `hiFloor`) are the only two ways this control ever caps a thumb, so one
   // reason string per axis covers both (they're mutually exclusive — see
   // `chartsScaleSliderBounds`).
-  const capReason = !disabled && type === "log" ? "A log domain must have one sign and exclude zero."
-    : !disabled && zeroAnchored ? "A bar, area, or rect chart's Y domain must include zero."
+  const capReason = type === "log" ? "A log domain must have one sign and exclude zero."
+    : zeroAnchored ? "A bar, area, or rect chart's Y domain must include zero."
     : undefined;
-  return <RangeSlider label={`${axis.toUpperCase()} domain`} min={min} max={max} domain={[domainMin, domainMax]}
+  return <RangeSlider label={label} min={min} max={max} step={step} domain={[domainMin, domainMax]}
     loFloor={bounds.loFloor} loCeiling={bounds.loCeiling} hiFloor={bounds.hiFloor} capReason={capReason}
-    disabled={disabled} disabledReason={inferred.disabledReason}
-    value={value} format={format} parse={parse}
+    value={value} format={format} parse={parse} describe={describe} snap={snap}
     onChange={(next) => dispatch({
       type: "set-scale", axis,
       patch: next === null ? { min: "", max: "" } : {
@@ -335,21 +345,30 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   const regionFillToggle = useMemo(() => chartsRegionFillToggle(regionFillStatus), [regionFillStatus]);
 
   const scales = useFolder(gui, "Scales", { open: true });
-  useOption(scales, "X type", options(CHART_SCALE_TYPES), state.scales.x.type, (type) => dispatch({ type: "set-scale", axis: "x", patch: { type } }));
+  const xTypeCtrl = useOption(scales, "X type", options(CHART_SCALE_TYPES), state.scales.x.type, (type) => dispatch({ type: "set-scale", axis: "x", patch: { type } }));
   const xDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
-  useOption(scales, "Y type", options(CHART_SCALE_TYPES), state.scales.y.type, (type) => dispatch({ type: "set-scale", axis: "y", patch: { type } }));
+  const yTypeCtrl = useOption(scales, "Y type", options(CHART_SCALE_TYPES), state.scales.y.type, (type) => dispatch({ type: "set-scale", axis: "y", patch: { type } }));
   const yDomainSlot = useDockSlot(scales, { position: "bottom", className: "charts-scale-domain-slot" });
   // Recomputed off the raw mark data (never the current min/max override —
   // see `chartsWorkbenchInferredDomains`'s own doc), so a `RangeSlider`'s
   // own draggable bounds don't shrink every time a reader narrows the
-  // selection. Each axis degrades to the original plain min/max text
-  // inputs (`ScaleDomainControl` below) independently — a failing Y no
-  // longer takes X's own, otherwise-valid, control down with it. No
-  // separate "Blank = inferred" readout: the `RangeSlider`'s own `auto`
-  // toggle IS that state now, and the two number fields are never blank.
+  // selection. Each axis resolves independently — a failing Y never takes
+  // X's own, otherwise-valid, control down with it.
   const inferredDomains = useMemo(() => chartsWorkbenchInferredDomains(state), [state]);
   const zeroAnchoredY = useMemo(() => chartsWorkbenchHasZeroAnchoredMark(state), [state]);
   const hasCartesianScale = useMemo(() => chartsWorkbenchHasCartesianMark(state), [state]);
+  // Both read only the marks (twelve domain resolutions, and one pass over
+  // the mark data), so a Scales/Axes/Output edit never recomputes them.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const scaleTypeFits = useMemo(() => chartsWorkbenchScaleTypeFits(state), [state.marks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const timePrecision = useMemo(() => ({ x: chartsWorkbenchAxisTimePrecision(state, "x"), y: chartsWorkbenchAxisTimePrecision(state, "y") }), [state.marks]);
+  useScaleTypeFit(xTypeCtrl, scaleTypeFits.x);
+  useScaleTypeFit(yTypeCtrl, scaleTypeFits.y);
+  const unfitOf = (axis: "x" | "y") => {
+    const fit = scaleTypeFits[axis][state.scales[axis].type];
+    return fit.fits ? undefined : fit;
+  };
 
   const axes = useFolder(gui, "Axes", { open: false });
   // Axis colour (packet item 1; dock-fix bundle item 7) — MOVED here from
@@ -452,11 +471,13 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
       axisColorSlot,
     )}
     {xDomainSlot && createPortal(
-      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains.x} zeroAnchored={false} hasCartesianScale={hasCartesianScale} dispatch={dispatch} />,
+      <ScaleDomainControl axis="x" scale={state.scales.x} inferred={inferredDomains.x} zeroAnchored={false} hasCartesianScale={hasCartesianScale}
+        unfit={unfitOf("x")} timePrecision={timePrecision.x} dispatch={dispatch} />,
       xDomainSlot,
     )}
     {yDomainSlot && createPortal(
-      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} hasCartesianScale={hasCartesianScale} dispatch={dispatch} />,
+      <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} hasCartesianScale={hasCartesianScale}
+        unfit={unfitOf("y")} timePrecision={timePrecision.y} dispatch={dispatch} />,
       yDomainSlot,
     )}
     {xTitleAtSlot && createPortal(

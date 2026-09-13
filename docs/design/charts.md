@@ -1099,3 +1099,190 @@ On the energy sankey, the braille dot glyphs (1,008 cells before) are gone. The 
 - **Lines and dots over a two-colour cell** keep its `bg`. A mark crossing a solid band shows over that band's colour in a straddling cell and over the page background in a `█` cell, since `canvas.line` has no `bg` option.
 - **Unstacked areas have no floor.** A band hidden behind a later series is legitimately hidden.
 - **Distinctness is still exact colour equality** after quantisation.
+
+## Round 25: one Scales row per domain, and the rail's chart controls without a card (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`)
+
+The reader asked about three things:
+
+- `X type: time` gave "two weird labels + two inputs".
+- `band` gave "two dropdowns … not well aligned".
+- A "MARK 1" card sat in the rail although the page never builds a second mark.
+
+The domain complaints share one root cause. Only the numeric/time branch of
+`ScaleDomainControl` was a lil-gui row. The band and fallback branches reused
+the mark card's `voice-row` markup, which has no `.name` or `.widget` cells.
+The Type select offered every type on every axis, so a reader could land in
+the fallback branch just by choosing a type.
+
+### Measured before (Playwright, 1440x900, the Dock's real theme)
+
+The widget column starts at x=1231 and is 185.9px wide (169.9px of content
+inside the theme's forced 8px padding).
+
+- **Band:** its selects started at x=1151, 80px left of that column. They were
+  270px wide and ended at 1421, 4px past every other row.
+- **Time:** the 27px end fields showed "1980-01-01" as "198".
+- **Numbers:** the same 27px cut "175604.63" and "389.19" to three characters.
+- **Whole matrix:** 16 datasets × X/Y × six types is 192 cells:
+
+  | cells | what rendered |
+  |---|---|
+  | 24 | the free-text pair |
+  | 16 | a live slider over a fabricated `[0, 1]` with an empty chart (`linear`/`sqrt` over dates) |
+  | 8 | a slider whose render threw `GLYPH_CHART_INTERNAL_COORD` (`linear`/`sqrt` over categories) |
+  | 18 | a disabled slider over the log axis's linear reading |
+  | 36 | a disabled slider showing a fabricated 0/1 (no-scale charts) |
+
+### The Type select offers only what the data can carry
+
+`chartsWorkbenchScaleTypeFits` asks the library two questions, because either
+one alone gives wrong answers:
+
+1. **What kind of values does the axis hold?** The axis's own `auto` reading
+   answers it: numbers, dates or categories. `linear`/`sqrt`/`log` need
+   numbers. Over dates or categories the library does not reject them: it
+   resolves `[0, 1]` and draws nothing, or throws only at paint. A "does it
+   throw" test would therefore call them fine.
+2. **Does the domain resolve with that type?** That catches `log-domain`,
+   `bad-time-domain` and `bad-scale`. It is also what lets `time` fit a bar
+   whose ISO dates `auto` reads as band.
+
+`auto` always fits. On a chart with no x/y scale every other type is
+disabled.
+
+`useScaleTypeFit` disables each unfit `<option>`, appends its short reason to
+the option text ("time — needs dates"), and puts the full reason on the
+option's and row's titles. This is safe because lil-gui reads the choice by
+`selectedIndex` and draws the closed display from its own name list, so the
+relabel changes only the open list. The cost is twelve domain resolutions per
+marks change and no render.
+
+Gates:
+
+- `chartsWorkbenchState.test.tsx` freezes the unfit set for every
+  dataset × axis from the matrix above.
+- The same file renders every fitting type through the library and requires
+  none to throw.
+
+### Every domain control is ONE row
+
+- **`RangeRowName`:** the `.name` cell with its `[reset]`. It is shared by
+  three siblings, so they can never drift apart.
+- **`RangeSlider`:** numeric and time domains.
+- **`RangeCategorySelect`:** band domains. Two compact selects share the
+  `.widget`; each is `flex: 1 1 0; min-width: 0`, so a long category truncates
+  inside its own box. Every option is a real category, shown as the data's own
+  first/last while an end is auto. Options that would put the minimum at or
+  after the maximum are disabled, so `buildScale`'s "at least two categories"
+  throw can't be reached. ISO-date categories are labelled at their own
+  precision ("1980").
+- **`RangeUnavailable`:** used when there's nothing to control. The short
+  reason sits in the widget and the full one on the title. It has a disabled
+  `[reset]` and no inputs. It covers:
+  - a chart with no x/y scale (whose fake 0/1 is gone);
+  - bad mark data;
+  - a legacy `?c=` link naming a type the Type select now disables.
+
+  The free-text pair and the log axis's linear stand-in
+  (`ChartsWorkbenchAxisDomain.disabledReason`) are deleted; nothing asks for
+  either any more.
+
+### Time and number fields that read
+
+**Time precision.** `chartsWorkbenchAxisTimePrecision` reads the coarsest
+calendar unit every date on the axis sits on (year, month, day, or finer).
+`chartsTimeDisplayPrecision` takes the coarser of that and the span's own
+unit:
+
+| span | unit |
+|---|---|
+| ≥ 3 years | year |
+| ≥ 62 days | month |
+| ≥ 2 days | day |
+
+That is the unit the axis's own ticks run at, so a yearly axis reads
+"1980"–"2024". co2's 15 years of monthly data reads "2011"–"2026", and
+treasury's 264 days of daily data reads "2025-04"–"2025-12".
+
+**Step, bounds and snap.** The row shows, steps and snaps thumbs at that one
+unit. Its bounds are snapped out to the unit, so the native step grid starts
+on a boundary and a thumb can never sit between two values its fields can
+show. A coarser unit's boundaries are also finer-unit boundaries, so a snapped
+thumb always lands on a real data position.
+
+**Typed values.** They are never snapped. `1990`, `1990-06` and any ISO date
+commit exactly. `chartsTimeBoundFromDisplay` refuses `2024-02-31` instead of
+rolling it over, and reads a zoneless time as UTC. Each field's title carries
+the full-precision date.
+
+**Numbers** show at the slider step's precision (`chartsDomainNumberDisplay`:
+"175604.63" becomes "175605").
+
+**Field width.** Each end field is sized in `ch` to the longest string the row
+will show (both bounds and both ends), plus 8px, because the Dock theme forces
+`padding: 1px 3px !important` on number inputs.
+
+**The track.** It carries `flex-basis: 0`. With lil-gui's `width: 100%` as its
+basis, flex-shrink squeezed the fields back under their text: "1980" came out
+21.8px wide on the first attempt. Its floor drops from 60px to 44px. The 60px
+dated from when the row also held an `auto` button, and two 7-character
+`YYYY-MM` fields need about 52px each. 44px is still well clear of lil-gui's
+24px, which the floor exists to beat.
+
+### Measured after
+
+| state | row |
+|---|---|
+| energy, X time | "1980"/"2024" in 34.5px fields, track 84.9px |
+| energy, Y | "175605" in 47.7px, track 58.4px |
+| treasury, X | "2025-04"/"2025-12" in 54.3px, track 45.2px |
+| energy, X band | two 85.6px selects inside 1231–1417 |
+| olympics, X time (legacy) | one disabled row, "needs dates" |
+
+No end field is truncated in any of the seven states.
+
+### The rail's chart controls
+
+`ChartsMarkCard` drops `voice-card`, which carried the border, the `#04060b`
+box and 9px of padding, and drops its "Mark 1" heading. The Type toggle,
+swatches, stroke and channel rows now sit straight in the rail under the
+dataset card, below the rail's own section divider (`.charts-marks-section`).
+
+Accessible names read "Chart type: line", "Chart x", and so on. Only a tray
+preset with two marks ("Line + rule") gets a "Mark N" heading per mark, "Mark
+N" names, and the same divider between the marks.
+
+The Stroke row's label column widened to the channel rows' 70px, so "Stroke"
+no longer runs into its track's `[` bracket.
+
+### Mutation checks
+
+| mutation | tests it reddened |
+|---|---|
+| M1 fit: drop the value-kind check (linear/sqrt/log over dates/categories) | 13: city-monthly-temperatures: disables exactly the types its data can't carry; co2-mauna-loa: disables exactly the types its data can't carry; each reason names its cause, and a chart with no x/y scale disables every type but auto; energy-consumption-by-source: disables exactly the types its data can't carry; every type the table calls fitting renders through the library without throwing; gdp-growth-2020-crisis: disables exactly the types its data can't carry; global-temperature: disables exactly the types its data can't carry; olympics-2024-medals-by-type: disables exactly the types its data can't carry; olympics-2024-medals: disables exactly the types its data can't carry; renewable-electricity-share: disables exactly the types its data can't carry; treasury-yield-10y: disables exactly the types its data can't carry; us-unemployment: disables exactly the types its data can't carry; world-population-by-country: disables exactly the types its data can't carry |
+| M2 fit: drop the domain-resolution probe | 16: a failing Y (sign-crossing log) domain doesn't blank X's own, otherwise-valid inference; city-monthly-temperatures: disables exactly the types its data can't carry; co2-mauna-loa: disables exactly the types its data can't carry; each reason names its cause, and a chart with no x/y scale disables every type but auto; energy-consumption-by-source: disables exactly the types its data can't carry; every type the table calls fitting renders through the library without throwing; gdp-growth-2020-crisis: disables exactly the types its data can't carry; gdp-life-expectancy-2007: disables exactly the types its data can't carry; global-temperature: disables exactly the types its data can't carry; iris-flowers: disables exactly the types its data can't carry; olympics-2024-medals-by-type: disables exactly the types its data can't carry; olympics-2024-medals: disables exactly the types its data can't carry; renewable-electricity-share: disables exactly the types its data can't carry; treasury-yield-10y: disables exactly the types its data can't carry; us-unemployment: disables exactly the types its data can't carry; world-population-by-country: disables exactly the types its data can't carry |
+| M3 Type select: never disable an option | 1: Scales Type select: every type the data can't carry is disabled with its reason; the rest stay selectable |
+| M4 domain row: ignore the unfit reason (legacy link) | 2: a legacy link naming a scale type the data can't carry renders a disabled X domain row with the reason, never text inputs; renders the disabled row with the fit table's reason, never free-text inputs |
+| M5 band: stop disabling options that cross the other end | 1: disables every option that would put the minimum at or after the maximum |
+| M6 band: selects leave the .widget cell | 3: a band X domain is ONE row: the name cell, then two category selects in its own widget; is ONE row: the X domain name cell, then two category selects sharing its widget; is one .name + .widget row whose two selects split the widget and may shrink below their text |
+| M7 band CSS: drop the selects' min-width: 0 | 1: is one .name + .widget row whose two selects split the widget and may shrink below their text |
+| M8 time: show every end as a full date again | 4: a daily axis spanning months shows YYYY-MM, with the full date on each field's title; a monthly axis spanning years shows years — the unit its ticks run at — with the month on each title; a yearly time X domain shows the years, not a date cut to three characters; shows a yearly domain as years, with fields sized for four characters |
+| M9 slider: thumbs no longer snap | 2: a thumb drag lands on the data's own unit, and the slider steps one unit from a unit-aligned bound; snaps a THUMB-driven value through `snap`, but commits a typed value exactly as typed |
+| M10 slider: end fields no longer content-sized | 3: shows a yearly domain as years, with fields sized for four characters; sizes both end fields to the longest string the row will show — both bounds and both ends, in ch; wins width/layout properties against lil-gui's own element rules (real theme + real component CSS) |
+| M11 time: display ignores the span (co2 back to 2011-09) | 2: a monthly axis spanning years shows years — the unit its ticks run at — with the month on each title; shows, steps and snaps at the coarser of the data's unit and the span's |
+| M12 no-scale chart: drop the disabled row | 1: renders ONE disabled row carrying the reason — no inputs, no selects, no fabricated 0/1 |
+| M13 mark card: the card box comes back | 3: gives each mark a 'Mark N' heading, 'Mark N' names, and the rail's divider between them; renders no heading and no card box: no border, no background, no padding of its own; the rail's chart controls sit straight in the rail: no 'Mark 1' heading, no card box, 'Chart …' names |
+| M14 mark card: the heading shows for a lone mark | 2: renders no heading and no card box: no border, no background, no padding of its own; the rail's chart controls sit straight in the rail: no 'Mark 1' heading, no card box, 'Chart …' names |
+| M15 mark card: names say 'Mark 1' again | 8: Data folder: choosing a dataset immediately replaces the chart with its recommended mapping and a real time x-scale; Data folder: choosing a stacked-area dataset (energy-consumption-by-source) carries its curated transform to the mark and renders with no ledger reject; Data folder: sankey/funnel mark-type buttons are disabled on a line dataset and enabled on their own flow datasets; Random picking a curated Hugging Face dataset stubs the network and renders that dataset's top-ranked chart; Type toggle: a type the dataset can't draw is disabled with its reason and a click does nothing; an enabled one re-binds the chart; names its controls after the chart, not a mark number; renders a preset selected by its button; the rail's chart controls sit straight in the rail: no 'Mark 1' heading, no card box, 'Chart …' names |
+| M16 separator: drop the rail divider between two marks | 1: gives each mark a 'Mark N' heading, 'Mark N' names, and the rail's divider between them |
+
+### Residuals
+
+- **A daily axis shorter than 62 days** shows `YYYY-MM-DD`. Ten characters
+  twice don't fit beside a 44px track at the Dock's width, so the fields
+  shrink and truncate inside their own boxes; the row still stays inside the
+  panel. No vendored dataset has such an axis.
+- **`band` over numbers stays offered.** For example, iris's 35 distinct
+  lengths come out in data order. It renders and is legal, just rarely useful.
+- **A disabled `<option>`'s `title` only shows as a tooltip in some
+  browsers.** The short reason is in the option's own text for that reason.

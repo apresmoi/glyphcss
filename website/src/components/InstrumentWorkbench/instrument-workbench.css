@@ -1279,7 +1279,7 @@
    track itself, which is the exact shape of P2) — leaves the track's own
    content width ~62px, comfortably over the 60px floor `RangeSlider.test.ts`
    pins and well clear of lil-gui's own 24px `min-width`. */
-.range-slider { display: flex; align-items: center; padding: 0 6px; margin: 5px 0; }
+.range-row { display: flex; align-items: center; padding: 0 6px; margin: 5px 0; }
 .range-slider-label {
   min-width: 45%; flex-shrink: 0; padding-right: 5px;
   font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; line-height: 24px;
@@ -1306,13 +1306,23 @@
 /* Number fields — the exact `.voice-slider-readout` treatment (border-bottom
    dotted, transparent background, right-aligned cyan text, no native
    spinner chrome) rather than the old boxed `#0d1118` field, since this IS
-   a lil-gui number field now, not a standalone input. 27px (not the
-   original 40px) is the layout-budget trade documented above — the field
-   still shows a short number/date in full and scrolls its own text for a
-   longer one, exactly like any fixed-width text input, which is a strictly
-   better failure than the track it used to steal the width from. */
+   a lil-gui number field now, not a standalone input. Sized to the longest
+   string the row will show (`--range-slider-number-ch`, set by
+   `RangeSlider.tsx`) in `ch` of this monospace font, plus 8px: the Dock
+   theme forces `padding: 1px 3px !important` on every number input, and
+   the fixed 27px this replaced showed "1980-01-01" as "198" (CHARTS-RESEARCH
+   `DIAGNOSIS-scale-rows-mark-card.md`). The TRACK carries `flex-basis: 0`
+   (below) so it only takes what the fields leave: with lil-gui's own
+   `width: 100%` as its basis it made flex-shrink squeeze the fields back
+   under their text. The track's floor is 44px, not the 60px it was when
+   the row also carried an `auto` button: at the Dock's 170px widget two
+   seven-character `YYYY-MM` fields leave the track ~46px, and 44px stays
+   well clear of lil-gui's own 24px `min-width` that the floor exists to
+   beat. The fields may still shrink to `3ch` when a string genuinely does
+   not fit beside that floor, so an overlong value truncates inside its own
+   box instead of pushing the row past the panel. */
 .lil-gui .controller.number.hasSlider.range-slider .range-slider-number {
-  box-sizing: border-box; flex: 0 0 auto; width: 27px; min-width: 0; height: auto;
+  box-sizing: border-box; flex: 0 1 auto; width: calc(var(--range-slider-number-ch, 4) * 1ch + 8px); min-width: 3ch; height: auto;
   font: inherit; font-size: 11px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   color: #38bdf8; text-align: right; padding: 1px 2px; margin: 0;
   background: transparent; border: none; border-bottom: 1px dotted rgba(255, 232, 184, 0.18); border-radius: 0;
@@ -1336,7 +1346,7 @@
    pseudo-elements below, which sit outside the track's own border box by
    design (`left`/`right: -8px`). */
 .lil-gui .controller.number.hasSlider.range-slider .range-slider-track {
-  position: relative; flex: 1 1 auto; min-width: 60px; height: 10px; margin-inline: 8px;
+  position: relative; flex: 1 1 0; min-width: 44px; height: 10px; margin-inline: 8px;
   border: 1px solid rgba(255, 232, 184, 0.28); background: rgba(255, 232, 184, 0.04); border-radius: 0;
   cursor: ew-resize; overflow: visible; padding-right: 0;
 }
@@ -1409,3 +1419,33 @@
    no interruption (AGENTS.md's own rule for this control), it just no
    longer does so silently. */
 .range-slider-error { margin: 0; font-size: 10px; line-height: 1.4; color: #fda4af; }
+
+/* The two sibling domain rows (`RangeSlider.tsx`): a band scale's
+   `[min] – [max]` selects and the "nothing to control" row. Both reuse the
+   slider row's `.name` cell and sit in the SAME `.widget` column as every
+   lil-gui row — two full-width card rows 80px left of that column, and
+   270px wide past the panel edge, were the defect (CHARTS-RESEARCH
+   `DIAGNOSIS-scale-rows-mark-card.md`). Each select is `flex: 1 1 0;
+   min-width: 0`: the pair splits the widget evenly and a long category
+   truncates inside its own box instead of widening the row. Styled as the
+   Dock's own option `.display` (bordered, 11px monospace, orange chevron),
+   but as a VISIBLE native select, so it is written under the row's own
+   hook chain the way the slider's fields are. */
+.range-select-widget,
+.range-unavailable-widget { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; min-height: 24px; }
+.lil-gui .controller.range-select .range-select-input {
+  box-sizing: border-box; flex: 1 1 0; min-width: 0; width: auto; height: auto; margin: 0;
+  font: inherit; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace; font-size: 11px; line-height: 1.4;
+  color: rgba(255, 232, 184, 0.94); background-color: rgba(255, 232, 184, 0.03); color-scheme: dark;
+  border: 1px solid rgba(255, 232, 184, 0.28); border-radius: 0; padding: 2px 14px 2px 5px;
+  -webkit-appearance: none; appearance: none; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Ctext x='0' y='9' font-size='10' fill='%23f97316'%3E%E2%96%BE%3C/text%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 3px center;
+}
+.lil-gui .controller.range-select .range-select-input:hover { border-color: rgba(255, 232, 184, 0.45); }
+.lil-gui .controller.range-select .range-select-input:focus-visible { outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-color: rgba(56, 189, 248, 0.55); }
+.range-select-dash { flex: 0 0 auto; font-size: 11px; color: rgba(255, 232, 184, 0.45); }
+.range-unavailable-reason {
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 10px; letter-spacing: 0.02em; color: rgba(255, 232, 184, 0.45);
+}

@@ -637,36 +637,29 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
   return { ...spec, scales: { x: buildScale(state.scales.x, inferred?.x), y: buildScale(state.scales.y, inferred?.y) } };
 }
 
-export type ChartsWorkbenchAxisDomain = (ReturnType<typeof glyphChartScaleDomains>["x"]) & {
-  /**
-   * Set only when this axis's OWN declared scale type (`"log"`) couldn't
-   * produce a legal domain from the data (a sign-crossing or zero-touching
-   * range — `@glyphcss/charts`' own `log-domain` rule), but reading the
-   * SAME data as `"linear"` succeeds. `type`/`domain` above are then that
-   * linear reading — never a fabricated placeholder — so a disabled
-   * control still shows real bounds; the caller (`ScaleDomainControl`)
-   * renders its `RangeSlider` `disabled` with this as the reason, rather
-   * than silently reverting to the plain min/max text pair.
-   */
-  readonly disabledReason?: string;
-};
+export type ChartsWorkbenchAxisDomain = ReturnType<typeof glyphChartScaleDomains>["x"];
+
+type ChartsAxisDomainProbe =
+  | { readonly ok: true; readonly domain: ChartsWorkbenchAxisDomain }
+  | { readonly ok: false; readonly code?: string };
 
 /**
- * The OTHER axis is ALWAYS resolved as `"auto"` here, regardless of its own
- * declared scale type — `glyphChartScaleDomains` builds both scales in one
- * call, so a failing OTHER axis (a sign-crossing log domain, say) would
- * otherwise take this one down with it too. `typeOverride` forces THIS
- * axis's own type to `"auto"` as well, for the log-disabled-reason fallback
- * probe below (reading the same data as linear once the real log reading
- * has already failed).
+ * One axis's resolved domain with THIS axis read as `type` and the OTHER axis
+ * always as `"auto"` — `glyphChartScaleDomains` builds both scales in one
+ * call, so a failing other axis (a sign-crossing log domain, say) would
+ * otherwise take this one down with it. A failure keeps the library's own
+ * rule code (`log-domain`, `bad-time-domain`, `bad-scale`) so a caller can
+ * say why.
  */
-function computeAxisDomain(state: ChartsWorkbenchState, axis: "x" | "y", typeOverride?: "auto"): ReturnType<typeof glyphChartScaleDomains>["x"] | undefined {
+function probeAxisDomain(state: ChartsWorkbenchState, axis: "x" | "y", type: ChartsWorkbenchScale["type"]): ChartsAxisDomainProbe {
   try {
     const scaleOpts = { x: {}, y: {} } as { x: GlyphChartScaleOptions; y: GlyphChartScaleOptions };
-    scaleOpts[axis] = typeOverride === "auto" ? {} : scaleType(state.scales[axis]);
+    scaleOpts[axis] = scaleType({ ...state.scales[axis], type });
     const spec = glyphChartPlot({ marks: state.marks.map(buildMark), scales: scaleOpts });
-    return glyphChartScaleDomains(spec)[axis];
-  } catch { return undefined; }
+    return { ok: true, domain: glyphChartScaleDomains(spec)[axis] };
+  } catch (error) {
+    return { ok: false, code: (error as { code?: string }).code };
+  }
 }
 
 /**
@@ -674,30 +667,78 @@ function computeAxisDomain(state: ChartsWorkbenchState, axis: "x" | "y", typeOve
  * has already typed — what a `RangeSlider`'s own bounds (padded/legality-
  * narrowed by the caller, `chartsScaleSliderBounds`) must be computed from,
  * since bounds computed from the CURRENT selection would shrink every time
- * a reader narrows it. Reuses the exact same `scaleType`/`buildMark`/
- * `glyphChartScaleDomains` pipeline `buildChartsWorkbenchSpec` already runs
- * for its own "blank bound" inference, just with no domain override fed
- * back in.
- *
- * Each axis is computed and can fail INDEPENDENTLY — a sign-crossing log
- * Y domain used to blank BOTH axes' controls (one shared try/catch around
- * the whole `{x,y}` pair), so a perfectly valid X domain lost its slider
- * too whenever Y's own scale choice made the data illegal. An axis whose
- * own declared type fails but reads fine as `"linear"` gets that reading
- * back tagged `disabledReason` (see `ChartsWorkbenchAxisDomain`) instead of
- * `undefined`, so its control can show real numbers while staying
- * disabled; anything else invalid (bad mark JSON, an unresolved channel)
- * still degrades to `undefined` — the caller's plain min/max text pair.
+ * a reader narrows it. Each axis resolves INDEPENDENTLY (`probeAxisDomain`),
+ * so a failing Y never blanks X's own control. An axis whose declared type
+ * can't resolve is `undefined`; the Dock only gets there from a legacy link,
+ * because `chartsWorkbenchScaleTypeFits` disables such a type in the select.
  */
 export function chartsWorkbenchInferredDomains(state: ChartsWorkbenchState): Readonly<Record<"x" | "y", ChartsWorkbenchAxisDomain | undefined>> {
   const axis = (a: "x" | "y"): ChartsWorkbenchAxisDomain | undefined => {
-    const typed = computeAxisDomain(state, a);
-    if (typed) return typed;
-    if (state.scales[a].type !== "log") return undefined;
-    const linear = computeAxisDomain(state, a, "auto");
-    return linear ? { ...linear, disabledReason: "A log domain must have one sign and exclude zero." } : undefined;
+    const probe = probeAxisDomain(state, a, state.scales[a].type);
+    return probe.ok ? probe.domain : undefined;
   };
   return { x: axis("x"), y: axis("y") };
+}
+
+/** Why both Scales rows are dead on a chart built only of `arc`/`sankey`/
+ *  `funnel` marks (`chartsWorkbenchHasCartesianMark`): nothing downstream of
+ *  such a spec ever reads `scales.x`/`scales.y`, so a live control there
+ *  would move nothing (DIAGNOSIS-scale-domain.md P3-4). */
+export const CHARTS_NO_SCALE_REASON = "This chart type has no x/y scale.";
+
+export type ChartsScaleTypeFit =
+  | { readonly fits: true }
+  | { readonly fits: false; readonly short: string; readonly reason: string };
+export type ChartsScaleTypeFitTable = Readonly<Record<ChartsWorkbenchScale["type"], ChartsScaleTypeFit>>;
+
+const CHARTS_SCALE_TYPE_FITS: ChartsScaleTypeFit = { fits: true };
+const CHARTS_NUMERIC_SCALE_TYPES: ReadonlySet<ChartsWorkbenchScale["type"]> = new Set(["linear", "log", "sqrt"]);
+
+/**
+ * Which scale types each axis's data can carry. The Dock's Type select
+ * disables every other type with `short` in the option label and `reason` on
+ * its title, the same fit idiom as the mark card's Type toggle
+ * (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`). The library is the
+ * ground truth, asked two ways, because either alone lies:
+ *
+ * - `linear`/`sqrt`/`log` need NUMBERS, and over dates or categories the
+ *   library does not reject them: it resolves a fabricated `[0, 1]` and draws
+ *   an empty chart (dates) or throws only at paint (categories). So the
+ *   axis's own `auto` reading decides the value kind first.
+ * - The candidate type must then RESOLVE, which is what catches `log-domain`,
+ *   `bad-time-domain` and `bad-scale` — and what lets `time` fit a bar whose
+ *   ISO dates `auto` reads as band.
+ *
+ * `auto` always fits. Twelve domain resolutions (two axes × six types), no
+ * render; the Dock recomputes it only when the marks change.
+ */
+export function chartsWorkbenchScaleTypeFits(state: ChartsWorkbenchState): Readonly<Record<"x" | "y", ChartsScaleTypeFitTable>> {
+  const cartesian = chartsWorkbenchHasCartesianMark(state);
+  const zeroAnchored = chartsWorkbenchHasZeroAnchoredMark(state);
+  const table = (axis: "x" | "y"): ChartsScaleTypeFitTable => {
+    const auto = cartesian ? probeAxisDomain(state, axis, "auto") : undefined;
+    const fit = (type: ChartsWorkbenchScale["type"]): ChartsScaleTypeFit => {
+      if (type === "auto") return CHARTS_SCALE_TYPE_FITS;
+      if (!cartesian) return { fits: false, short: "no x/y scale", reason: CHARTS_NO_SCALE_REASON };
+      if (!auto?.ok) return { fits: false, short: "unreadable", reason: "This axis's data can't be read as a scale." };
+      if (CHARTS_NUMERIC_SCALE_TYPES.has(type) && auto.domain.type !== "linear") {
+        const holds = auto.domain.type === "time" ? "dates" : "categories";
+        return { fits: false, short: "needs numbers", reason: `A ${type} scale needs number values; this axis holds ${holds}.` };
+      }
+      const probe = probeAxisDomain(state, axis, type);
+      if (probe.ok) return CHARTS_SCALE_TYPE_FITS;
+      if (probe.code === "log-domain") {
+        return axis === "y" && zeroAnchored
+          ? { fits: false, short: "can't show 0", reason: "A log scale can't include zero, and a bar, area or rect value axis always does." }
+          : { fits: false, short: "needs one sign", reason: "A log scale needs values of one sign, with no zero." };
+      }
+      if (probe.code === "bad-scale") return { fits: false, short: "must be numeric", reason: "A bar, area or rect value axis must be numeric." };
+      if (probe.code === "bad-time-domain") return { fits: false, short: "needs dates", reason: "A time scale needs date values (YYYY-MM-DD)." };
+      return { fits: false, short: "unavailable", reason: `This data can't be drawn on a ${type} scale.` };
+    };
+    return Object.fromEntries(CHART_SCALE_TYPES.map((type) => [type, fit(type)])) as Record<ChartsWorkbenchScale["type"], ChartsScaleTypeFit>;
+  };
+  return { x: table("x"), y: table("y") };
 }
 
 export interface ChartsScaleSliderBounds {
@@ -846,26 +887,143 @@ export function chartsNumberToScaleBound(type: "linear" | "log" | "sqrt" | "time
 }
 
 /**
- * `RangeSlider`'s DISPLAY pair for a `"time"` domain end — never
+ * The coarsest calendar unit every date on an axis sits on: every value on
+ * Jan 1 is `"year"`, every value on the 1st is `"month"`, every value at UTC
+ * midnight is `"day"`, anything finer is `"time"`. The Scales row shows and
+ * snaps a time domain at this unit (CHARTS-RESEARCH
+ * `DIAGNOSIS-scale-rows-mark-card.md`): a yearly axis reads "1980"–"2024",
+ * not a date cut to "198".
+ */
+export type ChartsTimePrecision = "year" | "month" | "day" | "time";
+
+export function chartsTimePrecisionOf(stamps: readonly number[]): ChartsTimePrecision {
+  if (stamps.length === 0) return "day";
+  let precision: ChartsTimePrecision = "year";
+  for (const stamp of stamps) {
+    const date = new Date(stamp);
+    if (date.getUTCHours() || date.getUTCMinutes() || date.getUTCSeconds() || date.getUTCMilliseconds()) return "time";
+    if (date.getUTCDate() !== 1) precision = "day";
+    else if (precision === "year" && date.getUTCMonth() !== 0) precision = "month";
+  }
+  return precision;
+}
+
+const CHARTS_ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+/** A strict ISO date (the shape `@glyphcss/charts` reads as `time`), as a
+ *  UTC timestamp; `null` for anything else — never `new Date("5.1")`, which
+ *  V8 happily reads as a date. */
+export function chartsIsoDateStamp(raw: string): number | null {
+  return CHARTS_ISO_DATE.test(raw.trim()) ? chartsTimeBoundFromDisplay(raw) : null;
+}
+
+/** The precision of every date the cartesian marks put on `axis`, read off
+ *  the same mark data `buildMark` hands the library. */
+export function chartsWorkbenchAxisTimePrecision(state: ChartsWorkbenchState, axis: "x" | "y"): ChartsTimePrecision {
+  const stamps: number[] = [];
+  for (const mark of state.marks) {
+    const field = (mark.channels as Readonly<Record<string, string | undefined>>)[axis];
+    if (!field || CHARTS_NON_CARTESIAN_MARK_TYPES.has(mark.type)) continue;
+    let rows: GlyphChartMark["data"];
+    try { rows = parseChartMarkData(mark); } catch { continue; }
+    for (const row of rows) {
+      if (typeof row === "number") continue;
+      const raw = (row as Readonly<Record<string, unknown>>)[field];
+      const stamp = raw instanceof Date ? raw.getTime() : typeof raw === "string" ? chartsIsoDateStamp(raw) : null;
+      if (stamp !== null && Number.isFinite(stamp)) stamps.push(stamp);
+    }
+  }
+  return chartsTimePrecisionOf(stamps);
+}
+
+/** Average length of each calendar unit — the time slider's native step, so
+ *  one arrow press moves one unit and `chartsTimeBoundSnap` lands it exactly. */
+export const CHARTS_TIME_UNIT_MS: Readonly<Record<Exclude<ChartsTimePrecision, "time">, number>> = {
+  year: 31_556_952_000, // 365.2425 days
+  month: 2_629_746_000, // a twelfth of that
+  day: 86_400_000,
+};
+
+function chartsUtcDay(year: number, month: number, day: number): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+/** Pulls a timestamp onto `precision`'s own grid (Jan 1, the 1st, midnight):
+ *  `"round"` for a thumb, `"floor"`/`"ceil"` for the slider's outer bounds so
+ *  the native step grid starts on a unit boundary. `"time"` is untouched. */
+export function chartsTimeBoundSnap(value: number, precision: ChartsTimePrecision, mode: "round" | "floor" | "ceil" = "round"): number {
+  if (precision === "time") return value;
+  const date = new Date(value);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const lo = precision === "year" ? chartsUtcDay(year, 0, 1) : precision === "month" ? chartsUtcDay(year, month, 1) : chartsUtcDay(year, month, day);
+  if (lo === value) return value;
+  const hi = precision === "year" ? chartsUtcDay(year + 1, 0, 1) : precision === "month" ? chartsUtcDay(year, month + 1, 1) : chartsUtcDay(year, month, day + 1);
+  if (mode === "floor") return lo;
+  if (mode === "ceil") return hi;
+  return value - lo < hi - value ? lo : hi;
+}
+
+const CHARTS_TIME_PRECISION_ORDER: readonly ChartsTimePrecision[] = ["time", "day", "month", "year"];
+/** The unit a time domain's row SHOWS, STEPS and SNAPS a thumb at: the
+ *  coarser of the data's own unit and the span's — the unit the axis's own
+ *  ticks run at ("every tick is a year" reads `1980`–`2024`). A span of three
+ *  years or more is `"year"`, two months or more `"month"`, two days or more
+ *  `"day"`. A coarser unit's boundaries are all finer-unit boundaries too, so
+ *  a snapped thumb always lands on a real data position; the full date rides
+ *  on each field's title, and a typed date still commits exactly. Month is
+ *  the widest string a two-field row at the Dock's width can show without
+ *  starving the track (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`). */
+export function chartsTimeDisplayPrecision(precision: ChartsTimePrecision, spanMs: number): ChartsTimePrecision {
+  const byspan: ChartsTimePrecision = spanMs >= 3 * CHARTS_TIME_UNIT_MS.year ? "year"
+    : spanMs >= 62 * CHARTS_TIME_UNIT_MS.day ? "month"
+    : spanMs >= 2 * CHARTS_TIME_UNIT_MS.day ? "day"
+    : "time";
+  return CHARTS_TIME_PRECISION_ORDER[Math.max(CHARTS_TIME_PRECISION_ORDER.indexOf(precision), CHARTS_TIME_PRECISION_ORDER.indexOf(byspan))]!;
+}
+
+/**
+ * `RangeSlider`'s DISPLAY string for a `"time"` domain end — never
  * `toLocaleDateString()`/`new Date(raw)`, which are not inverses of each
  * other and are locale-dependent (P2-2, REVIEW-dock-colours-sliders-opus.md:
  * `de-DE "15.6.2024"` and `en-GB "15/06/2024"` both parsed back as `Invalid
  * Date`, and `en-US "6/15/2024"` parsed back a day off by the reader's own
- * UTC offset). `chartsTimeBoundDisplay` formats to a plain UTC
- * `YYYY-MM-DD`; `chartsTimeBoundFromDisplay` parses that same shape (or a
- * full ISO string) back to UTC midnight — an exact round trip for any
- * value that was itself UTC midnight (every domain end this control ever
- * produces, since it's the only writer of `set-scale`'s time strings).
+ * UTC offset). A plain UTC ISO prefix at `precision` (`YYYY`, `YYYY-MM`,
+ * `YYYY-MM-DD`, `YYYY-MM-DDTHH:mm`); `chartsTimeBoundFromDisplay` reads every
+ * one of those shapes back, so a typed `1990` commits Jan 1 1990 exactly.
  */
-export function chartsTimeBoundDisplay(value: number): string {
-  return new Date(value).toISOString().slice(0, 10);
+export function chartsTimeBoundDisplay(value: number, precision: ChartsTimePrecision = "day"): string {
+  const iso = new Date(value).toISOString();
+  return iso.slice(0, precision === "year" ? 4 : precision === "month" ? 7 : precision === "day" ? 10 : 16);
 }
 export function chartsTimeBoundFromDisplay(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const iso = /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? `${trimmed}T00:00:00.000Z` : trimmed;
-  const t = new Date(iso).getTime();
+  const calendar = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(trimmed);
+  if (calendar) {
+    const year = Number(calendar[1]);
+    const month = calendar[2] ? Number(calendar[2]) - 1 : 0;
+    const day = calendar[3] ? Number(calendar[3]) : 1;
+    const stamp = chartsUtcDay(year, month, day);
+    const date = new Date(stamp);
+    // `setUTCFullYear` rolls 2024-02-31 over into March; refuse it instead.
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day ? stamp : null;
+  }
+  // A zoneless date-time is LOCAL to `new Date`; every bound here is UTC.
+  const zoned = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed) ? `${trimmed}Z` : trimmed;
+  const t = new Date(zoned).getTime();
   return Number.isFinite(t) ? t : null;
+}
+
+/** A numeric domain end shown at the slider step's own precision (`step`
+ *  2000 → no decimals, 0.5 → one) — "175604.63" in a field sized for six
+ *  characters was "175". Display only: a typed value commits as typed. */
+export function chartsDomainNumberDisplay(value: number, step: number): string {
+  const decimals = step > 0 && Number.isFinite(step) ? Math.min(6, Math.max(0, Math.ceil(-Math.log10(step)))) : 3;
+  return String(Number(value.toFixed(decimals)));
 }
 export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): GlyphChartRenderOptions {
   // `legend` is NOT set here — it already rides in the built spec

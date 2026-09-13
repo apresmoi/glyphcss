@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import "./instrument-workbench.css";
 
 /** A "nice" step (1/2/5 x a power of ten) sized so ~100 steps span the range —
@@ -23,10 +23,8 @@ export interface RangeSliderProps {
   min: number;
   max: number;
   /** The actual current/inferred domain, unpadded — what an emptied end
-   *  reverts to (its own per-end "no override" fallback) and what the
-   *  `auto` button materialises when going from auto TO explicit, so that
-   *  one click never changes the render (AGENTS.md's own rule for this
-   *  control). Defaults to `[min, max]` when omitted. */
+   *  reverts to (its own per-end "no override" fallback). Defaults to
+   *  `[min, max]` when omitted. */
   domain?: readonly [number, number];
   /** Current selection: `null` = fully auto (both ends inferred); otherwise
    *  a pair where either end may itself be `null` — "this end is inferred,
@@ -58,13 +56,7 @@ export interface RangeSliderProps {
   loFloor?: number;
   /** The HIGH thumb's OWN reachable floor (never lower, whatever `min`
    *  allows) — a bar/area/rect y-domain pins this to `0` so no thumb
-   *  position can ever push the domain's maximum below zero. Also narrows
-   *  the high thumb's own native `min` HTML attribute (mirroring
-   *  `loCeiling`'s effect on the low thumb's `max`), which is exactly why
-   *  a log scale uses the mark-agnostic `loFloor` above instead of this —
-   *  a log domain's floor is many orders of magnitude below `min`, and
-   *  narrowing the native attribute that far would visibly detach the
-   *  thumb from `.range-slider-fill`. */
+   *  position can ever push the domain's maximum below zero. */
   hiFloor?: number;
   /** Defaults to `rangeSliderStep(min, max)`. */
   step?: number;
@@ -72,12 +64,19 @@ export interface RangeSliderProps {
   format?: (value: number) => string;
   /** Parses a typed end-input string back to a raw numeric value; `null` rejects the edit and reverts the draft. */
   parse?: (raw: string) => number | null;
+  /** The value at its full precision, for the end fields' `title` and the
+   *  thumbs' `aria-valuetext`, when `format` shows it coarser (a daily time
+   *  axis displayed by month). Defaults to `format`. */
+  describe?: (value: number) => string;
+  /** Pulls a THUMB-driven value (drag, arrow, Shift+arrow) onto the data's
+   *  own grid before it is committed — a yearly time axis lands on Jan 1. A
+   *  TYPED value is never snapped: the reader typed exactly what they meant. */
+  snap?: (value: number) => number;
   label?: string;
   /** Disables every control in the slider (both thumbs, both number
-   *  fields, and the auto toggle) — e.g. a log scale whose data can't
-   *  produce a legal domain at all. `disabledReason` is surfaced as the
-   *  control's own `title`/`aria-label` suffix, the same "disabled with a
-   *  reason" idiom `@glyphcss/maps`' `mapDirectionLocked` uses. */
+   *  fields, and the reset). `disabledReason` is surfaced as the control's
+   *  own `title`/`aria-label` suffix, the same "disabled with a reason"
+   *  idiom `@glyphcss/maps`' `mapDirectionLocked` uses. */
   disabled?: boolean;
   disabledReason?: string;
   /** Shown as a structured inline message (`role="alert"`, NEW-1/NEW-4)
@@ -103,22 +102,45 @@ function pct(v: number, min: number, max: number): number {
 }
 
 /**
+ * The `.name` cell every domain row shares — the label plus a tiny
+ * `[reset]` back to the data's own domain (`/maps`' Tilt/Bearing idiom,
+ * the shared `.instrument-row-reset`), disabled when there is nothing to
+ * undo. One component for all three rows (`RangeSlider`,
+ * `RangeCategorySelect`, `RangeUnavailable`) so they can never drift apart.
+ */
+function RangeRowName({ label, resettable, disabled, title, onReset }: {
+  label: string; resettable: boolean; disabled?: boolean; title?: string; onReset: () => void;
+}) {
+  return <div className="name range-slider-label">{label}
+    <button type="button" className="range-slider-reset instrument-row-reset" disabled={disabled || !resettable}
+      title={title ?? (resettable ? "Reset to the data's own domain" : "Already fitted to the data")}
+      aria-label={`${label} reset${title ? ` — ${title}` : ""}`}
+      onClick={onReset}>[reset]</button></div>;
+}
+
+/**
  * A two-thumb range slider for a scale's domain min/max (Chart folder's
  * Scales rows) — one ROW, styled to be indistinguishable from a lil-gui
  * number controller's own row (the Output folder's Width/Height sliders):
  * `.name` label column (carrying a tiny `[reset]` back to the auto domain,
  * `/maps`' own Tilt/Bearing idiom), then in the `.widget` column left to right
- * `[min] [slider] [max]` — the min
- * number field, the bracketed `[ ─█──── ]` bar (bare track background
- * outside the selection, ONE cyan gradient fill band between the two
- * thumbs' own positions, no third visual element), and the max number
- * field. Pixel values are copied from `.dn-floating-controls .lil-gui
- * .controller.number` in `gallery-workbench.css` (the Dock's real
+ * `[min] [slider] [max]` — the min number field, the bracketed `[ ─█──── ]`
+ * bar (bare track background outside the selection, ONE cyan gradient fill
+ * band between the two thumbs' own positions, no third visual element), and
+ * the max number field. Pixel values are copied from `.dn-floating-controls
+ * .lil-gui .controller.number` in `gallery-workbench.css` (the Dock's real
  * lil-gui theme) into this component's own rules in
  * `instrument-workbench.css`, the same "measured, not cascaded" mirror
  * `.voice-slider` already uses for the single-handle case — this component
  * imports that stylesheet directly so its look does not depend on whatever
  * else a consuming workbench happens to import.
+ *
+ * The two end fields are sized to the longest string they will show (both
+ * bounds and both ends, in `ch` of their own monospace font): a fixed 27px
+ * showed "1980-01-01" as "198" and "175604.63" as "175" (CHARTS-RESEARCH
+ * `DIAGNOSIS-scale-rows-mark-card.md`). They may still shrink before the
+ * track does, so an overlong string truncates rather than pushing the row
+ * off the panel.
  *
  * Built from TWO overlapping native `<input type="range">` elements
  * sharing one track (`.range-slider-track` gives each input
@@ -133,27 +155,24 @@ function pct(v: number, min: number, max: number): number {
  * the fill band's own left/right edges (`border-left`/`border-right` +
  * matching glow), the same cap style the single-handle `.voice-slider`
  * already draws at its one fill edge, doubled onto both ends of the band.
- * Numeric text inputs at both ends mirror the mark table's own
- * uncommitted-draft-string pattern (`ChartsMarkCard.tsx`) — a half-typed
- * value never fights the slider's live position.
+ * Numeric text inputs at both ends keep an uncommitted draft string, so a
+ * half-typed value never fights the slider's live position.
  *
  * `loCeiling`/`loFloor`/`hiFloor` cap what value EVER reaches `onChange` —
  * enforced on every path via `commit`'s own clamp, since a native range
- * input has no notion of ANOTHER input's cap. `loCeiling`/`hiFloor`
- * additionally narrow their OWN thumb's native `min`/`max` HTML attribute
- * (drag can't even ASK for an out-of-range value); `loFloor` does NOT
- * touch either thumb's native attribute, and applies to BOTH ends' commits
- * — see its own doc for why. A TYPED value that would need any of these to clamp it is instead
- * REFUSED with `capReason` (or, with no `capReason` supplied, falls back
- * to the same silent clamp `commit` already applies) — never bypassable by
- * typing past the visible bound, which is exactly how a bar/area/rect
- * y-domain slider used to be able to exclude zero from the committed
- * domain, and a log scale's own min field to reach zero or negative and
- * blank the chart (NEW-1, REVIEW-dock-colours-sliders-opus-round2.md).
- * `min`/`max` (the outer padded bounds) are enforced only for the THUMBS
- * (the native input's own range) — a typed number may freely exceed them,
- * and the caller is expected to widen `min`/`max` on its next render to
- * include it (P2-1).
+ * input has no notion of ANOTHER input's cap. Both thumbs keep the full
+ * outer `min`/`max` as their native attributes, so both thumbs and the fill
+ * read one coordinate system. A TYPED value that would need any cap to
+ * clamp it is instead REFUSED with `capReason` (or, with no `capReason`
+ * supplied, falls back to the same silent clamp `commit` already applies) —
+ * never bypassable by typing past the visible bound, which is exactly how a
+ * bar/area/rect y-domain slider used to be able to exclude zero from the
+ * committed domain, and a log scale's own min field to reach zero or
+ * negative and blank the chart (NEW-1, REVIEW-dock-colours-sliders-opus-
+ * round2.md). `min`/`max` (the outer padded bounds) are enforced only for
+ * the THUMBS (the native input's own range) — a typed number may freely
+ * exceed them, and the caller is expected to widen `min`/`max` on its next
+ * render to include it (P2-1).
  *
  * Every commit writes ONLY the end it came from — the sibling end's own
  * `value` entry (`null` when it was auto) rides through UNTOUCHED, so a
@@ -164,7 +183,7 @@ function pct(v: number, min: number, max: number): number {
  * back to auto at once, and is disabled while the domain is already auto.
  */
 export function RangeSlider({
-  min, max, domain, value, onChange, loCeiling, loFloor, hiFloor, step, format = String, parse, label, disabled, disabledReason, capReason,
+  min, max, domain, value, onChange, loCeiling, loFloor, hiFloor, step, format = String, parse, describe, snap, label, disabled, disabledReason, capReason,
 }: RangeSliderProps) {
   const resolvedStep = step ?? rangeSliderStep(min, max);
   const [domainLo, domainHi] = domain ?? [min, max];
@@ -243,6 +262,7 @@ export function RangeSlider({
     }
     onChange(which === "lo" ? [next, otherRaw] : [otherRaw, next]);
   };
+  const thumb = (n: number) => snap ? snap(n) : n;
   const violatesCap = (which: "lo" | "hi", n: number): boolean => {
     // both ends — see `loFloor`'s own doc for the sign split.
     if (loFloor !== undefined && (loFloor >= 0 ? n < loFloor : n > loFloor)) return true;
@@ -270,25 +290,24 @@ export function RangeSlider({
     e.preventDefault();
     const dir = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : -1;
     const delta = dir * resolvedStep * 10;
-    commit(which, (which === "lo" ? lo : hi) + delta);
+    commit(which, thumb((which === "lo" ? lo : hi) + delta));
   };
 
   const title = disabled && disabledReason ? disabledReason : undefined;
+  const full = describe ?? format;
   const loPct = pct(lo, min, max);
   const hiPct = pct(hi, min, max);
+  const numberCh = Math.min(10, Math.max(2, ...[min, max, lo, hi].map((v) => format(v).length)));
+  const style = { ["--range-slider-number-ch" as string]: String(numberCh) } as CSSProperties;
   // Same outer hooks a real lil-gui number row carries (`.controller`,
   // `.number`, `.hasSlider` — this control always has one) so it reads as
   // one family with the Width/Height rows above it in the same folder;
-  // `.range-slider`/`.is-disabled` are this component's own, kept for the
-  // existing test suite's selectors.
-  return <div className={`controller number hasSlider range-slider${disabled ? " disabled is-disabled" : ""}`} title={title}>
-    {label && <div className="name range-slider-label">{label}
-      <button type="button" className="range-slider-reset instrument-row-reset" disabled={disabled || value === null}
-        title={title ?? (value === null ? "Already fitted to the data" : "Reset to the data's own domain")}
-        aria-label={`${label} reset${title ? ` — ${title}` : ""}`}
-        onClick={() => onChange(null)}>[reset]</button></div>}
+  // `.range-row`/`.range-slider`/`.is-disabled` are this component's own.
+  return <div className={`controller number hasSlider range-row range-slider${disabled ? " disabled is-disabled" : ""}`} title={title} style={style}>
+    {label && <RangeRowName label={label} resettable={value !== null} disabled={disabled} title={title} onReset={() => onChange(null)} />}
     <div className="widget range-slider-widget">
-      <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} minimum`} disabled={disabled} title={title}
+      <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} minimum`} disabled={disabled}
+        title={title ?? (describe ? describe(lo) : undefined)}
         value={loDraft ?? format(lo)}
         onChange={(e) => { setLoDraft(e.target.value); if (capError === "lo") setCapError(null); }}
         onBlur={(e) => commitText(e.target.value, "lo")}
@@ -296,20 +315,80 @@ export function RangeSlider({
       <div className="slider range-slider-track" onPointerDown={onTrackPointerPosition} onPointerMove={onTrackPointerPosition}>
         <div className="fill range-slider-fill" style={{ left: `${loPct}%`, width: `${hiPct - loPct}%` }} />
         <input type="range" className={`range-slider-range range-slider-range--lo${frontThumb === "lo" ? " is-front" : ""}`} min={min} max={max} step={resolvedStep} disabled={disabled}
-          value={lo} aria-label={`${label ?? "Range"} minimum handle`} aria-valuetext={format(lo)} title={title}
-          onChange={(e) => commit("lo", Number(e.target.value))}
+          value={lo} aria-label={`${label ?? "Range"} minimum handle`} aria-valuetext={full(lo)} title={title}
+          onChange={(e) => commit("lo", thumb(Number(e.target.value)))}
           onKeyDown={(e) => onThumbKeyDown(e, "lo")} />
         <input type="range" className={`range-slider-range range-slider-range--hi${frontThumb === "hi" ? " is-front" : ""}`} min={min} max={max} step={resolvedStep} disabled={disabled}
-          value={hi} aria-label={`${label ?? "Range"} maximum handle`} aria-valuetext={format(hi)} title={title}
-          onChange={(e) => commit("hi", Number(e.target.value))}
+          value={hi} aria-label={`${label ?? "Range"} maximum handle`} aria-valuetext={full(hi)} title={title}
+          onChange={(e) => commit("hi", thumb(Number(e.target.value)))}
           onKeyDown={(e) => onThumbKeyDown(e, "hi")} />
       </div>
-      <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} maximum`} disabled={disabled} title={title}
+      <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} maximum`} disabled={disabled}
+        title={title ?? (describe ? describe(hi) : undefined)}
         value={hiDraft ?? format(hi)}
         onChange={(e) => { setHiDraft(e.target.value); if (capError === "hi") setCapError(null); }}
         onBlur={(e) => commitText(e.target.value, "hi")}
         onKeyDown={onEndKeyDown} />
     </div>
     {capError && capReason && <p className="range-slider-error" role="alert">{capReason}</p>}
+  </div>;
+}
+
+export interface RangeCategorySelectProps {
+  label: string;
+  /** In data order — the only values either select can ever commit. */
+  categories: readonly string[];
+  /** The current ends; `null` = that end follows the data (first/last category). */
+  value: readonly [string | null, string | null];
+  onSelect: (end: "lo" | "hi", category: string) => void;
+  onReset: () => void;
+  /** An option's label (an ISO-date category shown as its year, say); the
+   *  value committed is always the category itself. */
+  display?: (category: string) => string;
+}
+
+/**
+ * A band scale's domain row: the same `.name` cell as `RangeSlider`, then
+ * two compact selects `[min] – [max]` sharing the `.widget` column, so a
+ * band axis is ONE Dock row on the same grid as every other row instead of
+ * two full-width card rows that started 80px left of the widget column and
+ * ran past the panel (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`).
+ * Both selects always show a REAL category (the data's own first/last while
+ * an end is auto), and every option that would put the minimum at or after
+ * the maximum is disabled, so no pick can name fewer than two categories.
+ */
+export function RangeCategorySelect({ label, categories, value, onSelect, onReset, display = String }: RangeCategorySelectProps) {
+  const [rawLo, rawHi] = value;
+  const loIndex = rawLo !== null && categories.includes(rawLo) ? categories.indexOf(rawLo) : 0;
+  const hiIndex = rawHi !== null && categories.includes(rawHi) ? categories.indexOf(rawHi) : categories.length - 1;
+  const lo = categories[loIndex]!;
+  const hi = categories[hiIndex]!;
+  return <div className="controller range-row range-select">
+    <RangeRowName label={label} resettable={rawLo !== null || rawHi !== null} onReset={onReset} />
+    <div className="widget range-select-widget">
+      <select className="range-select-input" aria-label={`${label} minimum`} value={lo} title={display(lo)}
+        onChange={(e) => onSelect("lo", e.target.value)}>
+        {categories.map((c, i) => <option key={c} value={c} disabled={i >= hiIndex}>{display(c)}</option>)}
+      </select>
+      <span className="range-select-dash" aria-hidden="true">–</span>
+      <select className="range-select-input" aria-label={`${label} maximum`} value={hi} title={display(hi)}
+        onChange={(e) => onSelect("hi", e.target.value)}>
+        {categories.map((c, i) => <option key={c} value={c} disabled={i <= loIndex}>{display(c)}</option>)}
+      </select>
+    </div>
+  </div>;
+}
+
+/**
+ * A domain row with nothing to control: the same `.name` cell (its `[reset]`
+ * disabled), then the SHORT reason in the widget and the full one on the
+ * row's title — never a slider over a fabricated domain, never free-text
+ * fields. `/charts` reaches it only from a chart with no x/y scale, bad
+ * mark data, or a legacy link naming a scale type the data can't carry.
+ */
+export function RangeUnavailable({ label, short, reason }: { label: string; short: string; reason: string }) {
+  return <div className="controller range-row range-unavailable disabled is-disabled" title={reason}>
+    <RangeRowName label={label} resettable={false} disabled title={reason} onReset={() => {}} />
+    <div className="widget range-unavailable-widget"><span className="range-unavailable-reason" aria-label={reason}>{short}</span></div>
   </div>;
 }

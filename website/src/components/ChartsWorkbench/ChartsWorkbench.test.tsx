@@ -53,6 +53,7 @@ import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./
 import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
 import { readRecentRemoteDatasets } from "./ChartsDatasetSearchBox";
 import * as urlStateModule from "../../lib/urlState";
+import { CHART_SCALE_TYPES as SCALE_TYPE_ORDER } from "./chartsWorkbenchState";
 
 // ── Data overlay test helpers (AGENTS.md's "Charts" — "Data layer") — the
 // old `<select>` these tests used to drive directly is gone
@@ -657,7 +658,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   it("renders a preset selected by its button", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
     expect(activeMarkType()).toBe("bar");
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 x"]')!.value).toBe("month");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Chart x"]')!.value).toBe("month");
     expect(container.querySelector("pre")!.textContent).toContain("Bar");
   });
 
@@ -689,8 +690,8 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector(".charts-data-info")!.textContent).toContain("NASA GISS");
     expect(container.querySelectorAll(".charts-mark-card")).toHaveLength(1);
     expect(activeMarkType()).toBe("line");
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 x"]')!.value).toBe("year");
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 y"]')!.value).toBe("anomaly_c");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Chart x"]')!.value).toBe("year");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Chart y"]')!.value).toBe("anomaly_c");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Global temperature anomaly");
     // The x scale's "auto" default would infer `band` for a plain ISO
     // string column (see this file's header comment) — `select-dataset`
@@ -714,7 +715,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   it("Data folder: choosing a stacked-area dataset (energy-consumption-by-source) carries its curated transform to the mark and renders with no ledger reject", () => {
     selectChartsDataset(container, "energy-consumption-by-source");
     expect(activeMarkType()).toBe("area");
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 transform"]')!.value).toBe("stack");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Chart transform"]')!.value).toBe("stack");
     expect(container.querySelector(".charts-error")).toBeNull();
     const pre = container.querySelector(".synth-viewport pre")!;
     expect(pre.textContent).toContain("World primary energy consumption by source");
@@ -730,19 +731,19 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   it("Data folder: sankey/funnel mark-type buttons are disabled on a line dataset and enabled on their own flow datasets", () => {
     const select = (id: string) => selectChartsDataset(container, id);
     select("global-temperature");
-    const sankeyBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: sankey"]')!;
-    const funnelBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!;
+    const sankeyBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Chart type: sankey"]')!;
+    const funnelBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Chart type: funnel"]')!;
     expect(sankeyBtn.disabled).toBe(true);
     expect(funnelBtn.disabled).toBe(true);
     expect(sankeyBtn.title).toBe(CHARTS_MARK_TYPE_RULES.sankey.needs);
 
     select("energy-flow-sankey");
     expect(activeMarkType()).toBe("sankey");
-    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: sankey"]')!.disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Chart type: sankey"]')!.disabled).toBe(false);
 
     select("ecommerce-conversion-funnel");
     expect(activeMarkType()).toBe("funnel");
-    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!.disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label^="Chart type: funnel"]')!.disabled).toBe(false);
   });
 
   // Every type the data can't draw is disabled, carries its reason on title
@@ -750,12 +751,12 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // enabled one re-binds the chart (`chartsMarkTypeFit.ts`).
   it("Type toggle: a type the dataset can't draw is disabled with its reason and a click does nothing; an enabled one re-binds the chart", () => {
     selectChartsDataset(container, "global-temperature");
-    const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Mark 1 type: ${type}"]`)!;
+    const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Chart type: ${type}"]`)!;
     const enabled = CHART_MARK_TYPES.filter((type) => !typeButton(type).disabled);
     expect(enabled).toEqual(["line", "area", "dot"]);
     const bar = typeButton("bar");
     expect(bar.title).toBe(CHARTS_MARK_TYPE_RULES.bar.needs);
-    expect(bar.getAttribute("aria-label")).toBe(`Mark 1 type: bar — ${CHARTS_MARK_TYPE_RULES.bar.needs}`);
+    expect(bar.getAttribute("aria-label")).toBe(`Chart type: bar — ${CHARTS_MARK_TYPE_RULES.bar.needs}`);
     const before = container.querySelector(".synth-viewport pre")!.textContent;
     act(() => bar.click());
     expect(activeMarkType()).toBe("line");
@@ -775,6 +776,68 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(ruleButton.classList.contains("is-active")).toBe(true);
     expect(ruleButton.disabled).toBe(false);
     expect(container.querySelector<HTMLButtonElement>('[aria-label^="Mark 2 type: arc"]')!.disabled).toBe(true);
+  });
+
+  // CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`: a scale type the
+  // data can't carry is a DISABLED option in the Dock's own Type select,
+  // with its reason — not an option that lands on free-text fields, an
+  // empty chart, or a paint-time throw.
+  it("Scales Type select: every type the data can't carry is disabled with its reason; the rest stay selectable", () => {
+    selectChartsDataset(container, "olympics-2024-medals");
+    const options = (row: string) => Array.from(controller(row).querySelectorAll("option"));
+    const enabled = (row: string) => options(row).filter((o) => !o.disabled).map((o) => SCALE_TYPE_ORDER[o.index]);
+    expect(enabled("X type")).toEqual(["auto", "band"]);
+    const xTime = options("X type")[SCALE_TYPE_ORDER.indexOf("time")]!;
+    expect(xTime.textContent).toBe("time — needs dates");
+    expect(xTime.title).toBe("A time scale needs date values (YYYY-MM-DD).");
+    expect(enabled("Y type")).toEqual(["auto", "linear", "sqrt"]);
+    expect(options("Y type")[SCALE_TYPE_ORDER.indexOf("log")]!.title).toBe("A log scale can't include zero, and a bar, area or rect value axis always does.");
+  });
+
+  it("a legacy link naming a scale type the data can't carry renders a disabled X domain row with the reason, never text inputs", () => {
+    const olympics = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "olympics-2024-medals" });
+    const legacy = reduceChartsWorkbenchState(olympics, { type: "set-scale", axis: "x", patch: { type: "time" } });
+    act(() => root.render(<ChartsWorkbench key="legacy-time" initialState={legacy} />));
+    const xSlot = container.querySelectorAll(".charts-scale-domain-slot")[0]!;
+    expect(xSlot.querySelectorAll(".controller")).toHaveLength(1);
+    const row = xSlot.querySelector(".range-unavailable")!;
+    expect(row.getAttribute("title")).toBe("A time scale needs date values (YYYY-MM-DD).");
+    expect(row.querySelector(".range-unavailable-reason")!.textContent).toBe("needs dates");
+    expect(xSlot.querySelectorAll("input, select")).toHaveLength(0);
+  });
+
+  it("a band X domain is ONE row: the name cell, then two category selects in its own widget", () => {
+    selectChartsDataset(container, "energy-consumption-by-source");
+    const xType = controller("X type").querySelector("select")!;
+    act(() => {
+      xType.selectedIndex = SCALE_TYPE_ORDER.indexOf("band");
+      xType.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const xSlot = container.querySelectorAll(".charts-scale-domain-slot")[0]!;
+    const rows = xSlot.querySelectorAll(".controller");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.querySelector(".name")!.firstChild!.textContent).toBe("X domain");
+    const selects = rows[0]!.querySelectorAll<HTMLSelectElement>(".widget > select");
+    expect(selects).toHaveLength(2);
+    expect(Array.from(selects, (s) => s.selectedOptions[0]!.textContent)).toEqual(["1980", "2024"]);
+    expect(xSlot.querySelectorAll("input")).toHaveLength(0);
+  });
+
+  it("a yearly time X domain shows the years, not a date cut to three characters", () => {
+    selectChartsDataset(container, "energy-consumption-by-source");
+    const xSlot = container.querySelectorAll(".charts-scale-domain-slot")[0]!;
+    expect(xSlot.querySelector<HTMLInputElement>('[aria-label="X domain minimum"]')!.value).toBe("1980");
+    expect(xSlot.querySelector<HTMLInputElement>('[aria-label="X domain maximum"]')!.value).toBe("2024");
+  });
+
+  it("the rail's chart controls sit straight in the rail: no 'Mark 1' heading, no card box, 'Chart …' names", () => {
+    selectChartsDataset(container, "global-temperature");
+    const rail = container.querySelector("#charts-data-panel")!;
+    const card = rail.querySelector(".charts-mark-card")!;
+    expect(card.classList.contains("voice-card")).toBe(false);
+    expect(card.querySelector(".voice-title")).toBeNull();
+    expect(rail.textContent).not.toMatch(/Mark\s*1/);
+    expect(card.querySelector('[aria-label^="Chart type: line"]')).not.toBeNull();
   });
 
   it("choosing a different dataset replaces the chart again, with no accumulation", () => {
@@ -1669,9 +1732,9 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     }));
     const top = buildChartCandidates(profileRows(rows)).find(chartsCandidateBindable)!;
     const activeType = container.querySelector('.charts-mark-row[data-row="type"] .gx-toggle-btn.is-active')!.getAttribute("aria-label")!;
-    expect(activeType).toBe(`Mark 1 type: ${top.mark}`);
+    expect(activeType).toBe(`Chart type: ${top.mark}`);
     for (const [channel, field] of Object.entries(top.channels)) {
-      expect(container.querySelector<HTMLSelectElement>(`[aria-label="Mark 1 ${channel}"]`)!.value).toBe(field);
+      expect(container.querySelector<HTMLSelectElement>(`[aria-label="Chart ${channel}"]`)!.value).toBe(field);
     }
   }, 10_000);
 

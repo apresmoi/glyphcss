@@ -14,6 +14,11 @@ import {
   chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets,
   reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
+import {
+  CHART_SCALE_TYPES, CHARTS_NO_SCALE_REASON, CHARTS_TIME_UNIT_MS, chartsDomainNumberDisplay, chartsIsoDateStamp, chartsTimeBoundSnap,
+  chartsTimeDisplayPrecision, chartsTimePrecisionOf, chartsWorkbenchAxisTimePrecision, chartsWorkbenchScaleTypeFits,
+} from "./chartsWorkbenchState";
+import { renderGlyphChart } from "@glyphcss/charts";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { renderChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 
@@ -460,10 +465,11 @@ describe("chartsWorkbenchInferredDomains / scale bound conversion", () => {
     const inferred = chartsWorkbenchInferredDomains(withLogY);
     expect(inferred.x).toBeDefined();
     expect(inferred.x!.domain).toEqual(chartsWorkbenchInferredDomains(state).x!.domain);
-    expect(inferred.y!.disabledReason).toBe("A log domain must have one sign and exclude zero.");
-    // Tagged with the LINEAR reading, not a fabricated placeholder — real
-    // numbers a disabled control can still show.
-    expect(inferred.y!.domain).toEqual([-3, 5]);
+    // The log reading itself can't resolve, and the Type select never offers
+    // it for this data (the fit table says why), so there is no linear
+    // stand-in for a disabled control to show any more.
+    expect(inferred.y).toBeUndefined();
+    expect(chartsWorkbenchScaleTypeFits(withLogY).y.log).toEqual({ fits: false, short: "needs one sign", reason: "A log scale needs values of one sign, with no zero." });
   });
 
   it("round-trips a linear bound and a time bound through number<->string", () => {
@@ -723,5 +729,121 @@ describe("reduceChartsWorkbenchState — set-data-source size cap (N2)", () => {
     const start = createChartsWorkbenchState();
     const next = reduceChartsWorkbenchState(start, { type: "set-data-source", source: { kind: "custom", raw: "", omitted: true, filename: "huge.csv" } });
     expect(next.data.source).toEqual({ kind: "custom", raw: "", omitted: true, filename: "huge.csv" });
+  });
+});
+
+// CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`: which scale types each
+// axis's data can carry, frozen from the diagnosis' own 192-cell matrix, plus
+// the library itself as ground truth (every fitting type really renders).
+describe("chartsWorkbenchScaleTypeFits", () => {
+  const DATE_X = ["linear", "log", "sqrt"];
+  const CATEGORY = ["linear", "log", "sqrt", "time"];
+  const ZERO_Y = ["log", "time", "band"];
+  const NO_SCALE = ["linear", "log", "sqrt", "time", "band"];
+  const EXPECTED_UNFIT: Record<string, { x: string[]; y: string[] }> = {
+    "global-temperature": { x: DATE_X, y: ["log", "time"] },
+    "co2-mauna-loa": { x: DATE_X, y: ["time"] },
+    "us-unemployment": { x: DATE_X, y: ["time"] },
+    "world-population-by-country": { x: DATE_X, y: ["time"] },
+    "renewable-electricity-share": { x: DATE_X, y: ZERO_Y },
+    "treasury-yield-10y": { x: DATE_X, y: ["time"] },
+    "olympics-2024-medals": { x: CATEGORY, y: ZERO_Y },
+    "iris-flowers": { x: ["time"], y: ["time"] },
+    "energy-flow-sankey": { x: NO_SCALE, y: NO_SCALE },
+    "ecommerce-conversion-funnel": { x: NO_SCALE, y: NO_SCALE },
+    "global-electricity-mix": { x: NO_SCALE, y: NO_SCALE },
+    "city-monthly-temperatures": { x: CATEGORY, y: CATEGORY },
+    "gdp-life-expectancy-2007": { x: ["time"], y: ["time"] },
+    "energy-consumption-by-source": { x: DATE_X, y: ZERO_Y },
+    "gdp-growth-2020-crisis": { x: CATEGORY, y: ZERO_Y },
+    "olympics-2024-medals-by-type": { x: CATEGORY, y: ZERO_Y },
+  };
+  const pick = (id: string) => reduceChartsWorkbenchState(initial(), { type: "select-dataset", id });
+
+  it("covers every vendored dataset", () => {
+    expect(Object.keys(EXPECTED_UNFIT).sort()).toEqual(CHARTS_DATASETS.map((dataset) => dataset.id).sort());
+  });
+
+  it.each(Object.entries(EXPECTED_UNFIT))("%s: disables exactly the types its data can't carry", (id, expected) => {
+    const fits = chartsWorkbenchScaleTypeFits(pick(id));
+    for (const axis of ["x", "y"] as const) {
+      expect(CHART_SCALE_TYPES.filter((type) => !fits[axis][type].fits), `${id} ${axis}`).toEqual(expected[axis]);
+    }
+  });
+
+  it("every type the table calls fitting renders through the library without throwing", () => {
+    for (const dataset of CHARTS_DATASETS) {
+      const base = pick(dataset.id);
+      const fits = chartsWorkbenchScaleTypeFits(base);
+      for (const axis of ["x", "y"] as const) {
+        for (const type of CHART_SCALE_TYPES) {
+          if (!fits[axis][type].fits) continue;
+          const state = reduceChartsWorkbenchState(base, { type: "set-scale", axis, patch: { type } });
+          expect(() => renderGlyphChart(buildChartsWorkbenchSpec(state), { target: "web", width: 60, height: 20, color: "none" }), `${dataset.id} ${axis}=${type}`).not.toThrow();
+        }
+      }
+    }
+  }, 30_000); // 16 datasets x 2 axes x up to 6 types of real renders
+
+  it("each reason names its cause, and a chart with no x/y scale disables every type but auto", () => {
+    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.time).toEqual({ fits: false, short: "needs dates", reason: "A time scale needs date values (YYYY-MM-DD)." });
+    expect(chartsWorkbenchScaleTypeFits(pick("energy-consumption-by-source")).x.linear).toEqual({ fits: false, short: "needs numbers", reason: "A linear scale needs number values; this axis holds dates." });
+    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.sqrt).toEqual({ fits: false, short: "needs numbers", reason: "A sqrt scale needs number values; this axis holds categories." });
+    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).y.band).toEqual({ fits: false, short: "must be numeric", reason: "A bar, area or rect value axis must be numeric." });
+    const sankey = chartsWorkbenchScaleTypeFits(pick("energy-flow-sankey"));
+    expect(sankey.x.auto.fits).toBe(true);
+    expect(sankey.x.band).toEqual({ fits: false, short: "no x/y scale", reason: CHARTS_NO_SCALE_REASON });
+  });
+});
+
+describe("time domain precision, display, parse and snap", () => {
+  const utc = (year: number, month = 1, day = 1) => Date.UTC(year, month - 1, day);
+
+  it("reads the coarsest calendar unit every date sits on, off the marks' own data", () => {
+    expect(chartsTimePrecisionOf([utc(1980), utc(2024)])).toBe("year");
+    expect(chartsTimePrecisionOf([utc(2011, 9), utc(2012)])).toBe("month");
+    expect(chartsTimePrecisionOf([utc(2025, 4, 11), utc(2025, 5)])).toBe("day");
+    expect(chartsTimePrecisionOf([utc(2025) + 3_600_000])).toBe("time");
+    const pick = (id: string) => reduceChartsWorkbenchState(initial(), { type: "select-dataset", id });
+    expect(chartsWorkbenchAxisTimePrecision(pick("energy-consumption-by-source"), "x")).toBe("year");
+    expect(chartsWorkbenchAxisTimePrecision(pick("co2-mauna-loa"), "x")).toBe("month");
+    expect(chartsWorkbenchAxisTimePrecision(pick("treasury-yield-10y"), "x")).toBe("day");
+  });
+
+  it("displays at a precision and parses every displayed shape back exactly", () => {
+    expect(chartsTimeBoundDisplay(utc(1980), "year")).toBe("1980");
+    expect(chartsTimeBoundDisplay(utc(2011, 9), "month")).toBe("2011-09");
+    expect(chartsTimeBoundDisplay(utc(2025, 4, 11))).toBe("2025-04-11");
+    expect(chartsTimeBoundFromDisplay("1990")).toBe(utc(1990));
+    expect(chartsTimeBoundFromDisplay("2011-09")).toBe(utc(2011, 9));
+    expect(chartsTimeBoundFromDisplay("2024-02-31")).toBeNull();
+    expect(chartsTimeBoundFromDisplay("2024-06-15T12:30")).toBe(Date.UTC(2024, 5, 15, 12, 30));
+    // Strict: a numeric category is never mistaken for a date.
+    expect(chartsIsoDateStamp("5.1")).toBeNull();
+    expect(chartsIsoDateStamp("1980-01-01")).toBe(utc(1980));
+  });
+
+  it("snaps to the unit — round for a thumb, floor/ceil for the slider's bounds", () => {
+    expect(chartsTimeBoundSnap(utc(1990, 5), "year")).toBe(utc(1990));
+    expect(chartsTimeBoundSnap(utc(1990, 8), "year")).toBe(utc(1991));
+    expect(chartsTimeBoundSnap(utc(1990, 8), "year", "floor")).toBe(utc(1990));
+    expect(chartsTimeBoundSnap(utc(1990, 2), "year", "ceil")).toBe(utc(1991));
+    expect(chartsTimeBoundSnap(utc(1990, 12, 20), "month")).toBe(utc(1991));
+    expect(chartsTimeBoundSnap(utc(1990) + 1, "time")).toBe(utc(1990) + 1);
+  });
+
+  it("shows, steps and snaps at the coarser of the data's unit and the span's", () => {
+    expect(chartsTimeDisplayPrecision("month", 15 * CHARTS_TIME_UNIT_MS.year)).toBe("year"); // co2: every tick a year
+    expect(chartsTimeDisplayPrecision("month", 20 * CHARTS_TIME_UNIT_MS.month)).toBe("month");
+    expect(chartsTimeDisplayPrecision("day", 264 * CHARTS_TIME_UNIT_MS.day)).toBe("month"); // treasury
+    expect(chartsTimeDisplayPrecision("day", 20 * CHARTS_TIME_UNIT_MS.day)).toBe("day");
+    expect(chartsTimeDisplayPrecision("time", 6 * 3_600_000)).toBe("time");
+    expect(chartsTimeDisplayPrecision("year", 1)).toBe("year"); // never finer than the data
+  });
+
+  it("shows a numeric end at the slider step's precision", () => {
+    expect(chartsDomainNumberDisplay(175604.63, 2000)).toBe("175605");
+    expect(chartsDomainNumberDisplay(389.19, 0.5)).toBe("389.2");
+    expect(chartsDomainNumberDisplay(3.97, 0.005)).toBe("3.97");
   });
 });

@@ -519,7 +519,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
         <ChartsDataFolder data={state.data} marks={state.marks} omittedNote={omittedNote}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
-          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         </div>
       </InstrumentRail>
       <InstrumentMain>

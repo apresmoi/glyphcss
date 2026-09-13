@@ -32,7 +32,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import GUI from "lil-gui";
-import { RangeSlider } from "./RangeSlider";
+import { RangeCategorySelect, RangeSlider } from "./RangeSlider";
 import { useFolderTitleReset } from "./useFolderTitleReset";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -111,19 +111,21 @@ describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
     expect(getComputedStyle(reset).width).toBe("auto");
     // `.lil-gui .controller.number.hasSlider input { width: var(--slider-
     // input-width); min-width: var(--slider-input-min-width) }` (27%, 45px)
-    // is what grew each number field past the panel edge — our own 27px
-    // must win instead.
-    expect(getComputedStyle(numbers[0]!).width).toBe("27px");
-    expect(getComputedStyle(numbers[1]!).width).toBe("27px");
+    // is what grew each number field past the panel edge — our own
+    // content-sized width must win instead ("-2"/"12" are two characters).
+    expect(getComputedStyle(numbers[0]!).width).toBe("calc(2 * 1ch + 8px)");
+    expect(getComputedStyle(numbers[1]!).width).toBe("calc(2 * 1ch + 8px)");
     // `.lil-gui .controller.number .slider { overflow: hidden; height:
     // var(--widget-height) }` matches the track too (it carries a bare
     // `slider` class for exactly this "read as a real slider row" reason) —
-    // our own `overflow: visible`/`height: 10px`/`min-width: 60px` must win
+    // our own `overflow: visible`/`height: 10px`/`min-width: 44px` must win
     // so the bracket glyphs aren't clipped and the track never floors out
-    // at lil-gui's own 24px minimum (P2).
+    // at lil-gui's own 24px minimum (P2). 44px, not the earlier 60px: the
+    // row lost its `auto` button, and two `YYYY-MM` fields need the room
+    // (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`).
     expect(getComputedStyle(track).overflow).toBe("visible");
     expect(getComputedStyle(track).height).toBe("10px");
-    expect(getComputedStyle(track).minWidth).toBe("60px");
+    expect(getComputedStyle(track).minWidth).toBe("44px");
   });
 
   // P1 mutation check — drop exactly the scoping prefix the fix adds
@@ -198,5 +200,49 @@ describe("Folder-title-bar reset button inside a real .lil-gui panel (item 8)", 
     loadCss(LIL_GUI_CSS, mutatedCss);
     const { button } = mountReset();
     expect(getComputedStyle(button).width).toBe("100%");
+  });
+});
+
+// CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`: a band axis's domain
+// used to be two stacked card rows whose 270px selects started 80px left of
+// the widget column and ran past the panel. It is one lil-gui row now; what
+// keeps both selects inside the widget is each being a zero-basis flex item
+// that may shrink below its own text (`min-width: 0`).
+describe("RangeCategorySelect inside a real .lil-gui panel", () => {
+  function mountSelect(): HTMLElement {
+    guiHost = document.createElement("div");
+    document.body.appendChild(guiHost);
+    gui = new GUI({ container: guiHost });
+    const folder = gui.addFolder("Scales");
+    container = document.createElement("div");
+    folder.$children.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(<RangeCategorySelect label="X domain" categories={["Coal", "Natural gas liquids", "Hydro", "Solar"]}
+        value={[null, null]} onSelect={() => {}} onReset={() => {}} />);
+    });
+    return container;
+  }
+
+  it("is one .name + .widget row whose two selects split the widget and may shrink below their text", () => {
+    loadCss(LIL_GUI_CSS, INSTRUMENT_CSS);
+    const host = mountSelect();
+    const rows = host.querySelectorAll(".controller");
+    expect(rows).toHaveLength(1);
+    const [name, widget] = Array.from(rows[0]!.children);
+    expect(name!.classList.contains("name")).toBe(true);
+    expect(widget!.classList.contains("widget")).toBe(true);
+    expect(getComputedStyle(widget!).display).toBe("flex");
+    expect(parseFloat(getComputedStyle(widget!).minWidth)).toBe(0);
+    const selects = widget!.querySelectorAll("select");
+    expect(selects).toHaveLength(2);
+    for (const select of selects) {
+      const cs = getComputedStyle(select);
+      expect(cs.flexGrow).toBe("1");
+      expect(cs.flexShrink).toBe("1");
+      expect(parseFloat(cs.flexBasis)).toBe(0);
+      expect(parseFloat(cs.minWidth)).toBe(0);
+      expect(cs.width).toBe("auto");
+    }
   });
 });

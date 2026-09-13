@@ -448,6 +448,36 @@ describe("RangeSlider", () => {
   });
 });
 
+describe("RangeSlider — snap, describe, field width (DIAGNOSIS-scale-rows-mark-card.md)", () => {
+  it("snaps a THUMB-driven value through `snap`, but commits a typed value exactly as typed", () => {
+    const onChange = vi.fn();
+    function Controlled() {
+      const [value, setValue] = useState<readonly [number | null, number | null] | null>(null);
+      return <RangeSlider min={0} max={100} step={1} value={value} snap={(v) => Math.round(v / 10) * 10}
+        onChange={(next) => { onChange(next); setValue(next); }} label="Domain" />;
+    }
+    const host = render(<Controlled />);
+    act(() => setRangeValue(ranges(host).lo, 13));
+    expect(onChange).toHaveBeenLastCalledWith([10, null]);
+    const { lo } = numbers(host);
+    act(() => { lo.focus(); lo.value = "13"; lo.dispatchEvent(new Event("input", { bubbles: true })); lo.blur(); });
+    expect(onChange).toHaveBeenLastCalledWith([13, null]);
+  });
+
+  it("`describe` supplies the end fields' title and the thumbs' aria-valuetext when `format` shows less", () => {
+    const host = render(<Harness min={0} max={100} initial={[25, 75]} label="Domain"
+      format={(v) => String(Math.round(v / 10))} describe={(v) => `exactly ${v}`} />);
+    expect(numbers(host).lo.value).toBe("3");
+    expect(numbers(host).lo.title).toBe("exactly 25");
+    expect(ranges(host).hi.getAttribute("aria-valuetext")).toBe("exactly 75");
+  });
+
+  it("sizes both end fields to the longest string the row will show — both bounds and both ends, in ch", () => {
+    const host = render(<Harness min={-1000} max={100000} initial={null} label="Domain" />);
+    expect((host.querySelector(".range-slider") as HTMLElement).style.getPropertyValue("--range-slider-number-ch")).toBe("6");
+  });
+});
+
 describe("rangeSliderStep", () => {
   it("picks a 1/2/5-times-a-power-of-ten step sized for roughly 100 steps across the span", () => {
     expect(rangeSliderStep(0, 100)).toBe(1);

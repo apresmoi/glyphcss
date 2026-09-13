@@ -78,8 +78,8 @@ export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
 // slider` (`instrument-workbench.css`) rather than three icon buttons — the
 // SAME lil-gui-style number row the Dock's Width/Height rows use, reached
 // for here through the plain (non-lil-gui) `voice-slider` markup the rest
-// of this card already uses (`voice-card`/`voice-row`, the SynthWorkbench
-// voice-card idiom), since a mark card is not itself a lil-gui folder.
+// of these rows already use (`voice-row`, the SynthWorkbench idiom), since
+// the rail is not a lil-gui folder.
 // Range 1..3 step 1, an ORDERED quantity a slider reads faster than three
 // same-shaped buttons for.
 const STROKE_WIDTH_MIN = 1;
@@ -177,9 +177,19 @@ function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch 
   </div>;
 }
 
-export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, dispatch }: {
-  mark: ChartsWorkbenchMark; index: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
+/**
+ * The rail's chart controls — Type toggle, colour swatch(es), stroke,
+ * channels — drawn straight into the rail under the dataset card, with no
+ * card box and no header (CHARTS-RESEARCH `DIAGNOSIS-scale-rows-mark-card.md`):
+ * the showcase builds exactly one mark, so "Mark 1" named nothing a reader
+ * could tell apart. Only a tray preset that builds two marks ("Line + rule")
+ * gets a "Mark N" heading per mark and "Mark N" accessible names; a lone
+ * mark's names read "Chart type: line", "Chart x", …
+ */
+export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dispatch }: {
+  mark: ChartsWorkbenchMark; index: number; markCount: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
+  const name = markCount > 1 ? `Mark ${index + 1}` : "Chart";
   const fields = chartMarkFields(mark);
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
   // A type the data can't draw is disabled with its reason
@@ -191,13 +201,13 @@ export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, d
     const fit = typeFits[option.value as GlyphChartMarkType];
     return fit.fits || option.value === mark.type ? option : { ...option, disabled: true, disabledReason: fit.reason };
   });
-  return <div className="voice-card charts-mark-card">
+  return <div className="charts-mark-card">
     <div className="voice-controls">
-      <div className="voice-head">
-        <span className="voice-title">Mark {index + 1}</span>
-      </div>
+      {markCount > 1 && <div className="voice-head">
+        <span className="voice-title">{name}</span>
+      </div>}
       <div className="voice-row charts-mark-row" data-row="type">
-        <IconToggle groupTitle={`Mark ${index + 1} type`} options={typeOptions} value={mark.type}
+        <IconToggle groupTitle={`${name} type`} options={typeOptions} value={mark.type}
           onChange={(type) => dispatch({ type: "set-mark-type", id: mark.id, markType: type as GlyphChartMarkType })} />
       </div>
       <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
@@ -211,7 +221,7 @@ export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, d
           <span className="voice-slider-track">
             <input type="range" min={STROKE_WIDTH_MIN} max={STROKE_WIDTH_MAX} step={1} disabled={!hasStroke}
               value={strokeWidth} style={chartMarkStrokeSliderFill(strokeWidth)}
-              aria-label={`Mark ${index + 1} stroke width`}
+              aria-label={`${name} stroke width`}
               onChange={(e) => setStrokeWidth(Number(e.target.value))} />
           </span>
           <EditableReadout value={strokeWidth} min={STROKE_WIDTH_MIN} max={STROKE_WIDTH_MAX} integer disabled={!hasStroke}
@@ -219,29 +229,29 @@ export function ChartsMarkCard({ mark, index, typeFits, series, colorDisabled, d
         </label>;
       })()}
       {chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
-        <span>{channel}</span><span className="gx-select"><select aria-label={`Mark ${index + 1} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
+        <span>{channel}</span><span className="gx-select"><select aria-label={`${name} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>
           {mark.channels[channel] && !fields.includes(mark.channels[channel]!) && <option value={mark.channels[channel]}>{mark.channels[channel]} (missing)</option>}
           {fields.map((field) => <option key={field}>{field}</option>)}
         </select></span>
       </label>)}
       <label className="voice-row charts-mark-row">
-        <span>Transform</span><span className="gx-select"><select aria-label={`Mark ${index + 1} transform`} value={mark.transform} disabled={mark.type === "rule" || mark.type === "sankey" || mark.type === "funnel"} title={mark.type === "sankey" || mark.type === "funnel" ? "Sankey and funnel have no x/y scale to bin/stack/group against." : undefined} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
+        <span>Transform</span><span className="gx-select"><select aria-label={`${name} transform`} value={mark.transform} disabled={mark.type === "rule" || mark.type === "sankey" || mark.type === "funnel"} title={mark.type === "sankey" || mark.type === "funnel" ? "Sankey and funnel have no x/y scale to bin/stack/group against." : undefined} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
           {CHART_TRANSFORMS.map((transform) => <option key={transform}>{transform}</option>)}
         </select></span>
       </label>
       {mark.type === "arc" && <div className="voice-row charts-mark-row">
-        <span>Shape</span><div className="gx-toggle" role="group" aria-label={`Mark ${index + 1} arc shape`}>
+        <span>Shape</span><div className="gx-toggle" role="group" aria-label={`${name} arc shape`}>
           {[{ label: "Pie", radius: 0 }, { label: "Donut", radius: 0.5 }].map(({ label, radius }) => <button key={label} type="button" className={`gx-toggle-btn gx-toggle-text${(mark.options.innerRadius ?? 0) === radius ? " is-active" : ""}`} aria-pressed={(mark.options.innerRadius ?? 0) === radius} onClick={() => update({ options: { ...mark.options, innerRadius: radius } })}>{label}</button>)}
         </div>
       </div>}
       {mark.type === "arc" && <div className="voice-row charts-mark-row" data-row="labels">
         <span>Labels</span>
-        <IconToggle groupTitle={`Mark ${index + 1} labels`} options={ARC_LABELS_TOGGLE} value={mark.options.labels ?? "callout"}
+        <IconToggle groupTitle={`${name} labels`} options={ARC_LABELS_TOGGLE} value={mark.options.labels ?? "callout"}
           onChange={(value) => update({ options: { ...mark.options, labels: value as "callout" | "legend-only" } })} />
       </div>}
       {mark.type === "rule" && <div className="voice-row charts-mark-row">
-        <span>Axis</span><div className="gx-toggle" role="group" aria-label={`Mark ${index + 1} rule axis`}>
+        <span>Axis</span><div className="gx-toggle" role="group" aria-label={`${name} rule axis`}>
           {(["x", "y"] as const).map((axis) => <button key={axis} type="button" className={`gx-toggle-btn gx-toggle-text${(mark.options.axis ?? "y") === axis ? " is-active" : ""}`} aria-pressed={(mark.options.axis ?? "y") === axis} onClick={() => update({ options: { axis } })}>{axis}</button>)}
         </div>
       </div>}
