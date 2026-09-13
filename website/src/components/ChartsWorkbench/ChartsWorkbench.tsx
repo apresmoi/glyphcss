@@ -7,10 +7,12 @@ import {
   InstrumentShell, InstrumentTray, InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { readUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, type ChartsWorkbenchState } from "./chartsWorkbenchState";
+import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState } from "./chartsUrlState";
 import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
@@ -18,11 +20,47 @@ import "./charts-workbench.css";
 type MobilePanel = "marks" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
 
+/**
+ * Gates the FIRST render on the `?c=` URL param (AGENTS.md's "## Charts" —
+ * "URL state") so a shared link never flashes the default chart before its
+ * own state lands. Decoding a `?c=` param is inherently async (deflate —
+ * see jsonUrlState.ts's doc), so this can't be a plain `useReducer` lazy
+ * initializer the way `initialState` (tests, `renderToStaticMarkup`) is —
+ * but the by-far-common case (no param at all) needs no async gate: the
+ * default state IS correct immediately, so only a page actually carrying a
+ * `?c=` link ever renders the brief `null` gap below.
+ *
+ * `initialState` (used by chartsWorkbenchState.test.tsx's
+ * `renderToStaticMarkup` and ChartsWorkbench.test.tsx's synchronous mount)
+ * bypasses the URL entirely, exactly as before this feature existed.
+ */
 export default function ChartsWorkbench({ initialState }: { initialState?: ChartsWorkbenchState } = {}) {
-  const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState, (initial) => initial ?? createChartsWorkbenchState());
+  const [resolved, setResolved] = useState<ChartsWorkbenchState | null>(() => {
+    if (initialState) return initialState;
+    return readUrlParam(CHARTS_URL_PARAM) ? null : createChartsWorkbenchState();
+  });
+  useEffect(() => {
+    if (initialState || resolved) return;
+    let cancelled = false;
+    void decodeChartsUrlState(readUrlParam(CHARTS_URL_PARAM)).then((decoded) => {
+      if (!cancelled) setResolved(decoded ?? createChartsWorkbenchState());
+    });
+    return () => { cancelled = true; };
+    // Only ever runs once: `resolved` starts non-null (no gate needed) or
+    // this effect's own setResolved call makes it non-null on next render,
+    // and the guard above then short-circuits for good.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!resolved) return null;
+  return <ChartsWorkbenchInner initialState={resolved} />;
+}
+
+function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchState }) {
+  const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
@@ -30,6 +68,11 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
     try { return generateChartsWorkbenchSnippets(state); }
     catch { return null; }
   }, [state]);
+  // One writer for the component's lifetime — see chartsUrlState.ts's doc
+  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
+  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes }) => setUrlSizeBytes(sizeBytes))).current;
+  useEffect(() => { urlWriter(state); }, [state, urlWriter]);
+  const urlTooLong = urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -52,6 +95,10 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
     try { await navigator.clipboard.writeText(value); setFeedback(encoding === "ascii" ? "Copied ASCII" : "Copied ANSI"); }
     catch { setFeedback("Copy failed — select the chart to copy it manually."); }
   };
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(window.location.href); setFeedback("Copied link"); }
+    catch { setFeedback("Copy failed — copy the address bar manually."); }
+  };
   const download = () => {
     try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-chart.svg") ? "Downloaded SVG" : "Download failed"); }
     catch { setFeedback("Download failed"); }
@@ -59,6 +106,7 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
   const exportActions = <>
     <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={() => void copy("ascii")}>Copy ASCII</button>
     {rendered.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>Copy ANSI</button>}
+    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>Copy link</button>
     <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={download}>Download SVG</button>
   </>;
   const togglePanel = (panel: MobilePanel) => {
@@ -84,6 +132,7 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
             </div>
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
             {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
+            {urlTooLong && <p className="charts-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

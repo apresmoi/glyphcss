@@ -4,9 +4,11 @@ import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
+import { readUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { DIAGRAMS_URL_PARAM, DIAGRAMS_URL_SIZE_WARN_BYTES, createDiagramsUrlWriter, decodeDiagramsUrlState } from "./diagramsUrlState";
 import { renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
@@ -55,13 +57,42 @@ function DiagramsGraphTable({ state, dispatch }: { state: GlyphDiagramsWorkbench
   </div>;
 }
 
+/**
+ * Gates the FIRST render on the `?d=` URL param (AGENTS.md's "## Diagrams"
+ * — "URL state"), same split as ChartsWorkbench.tsx's own gate: the common
+ * no-param case resolves the default state synchronously (no gate at all),
+ * and only a page actually carrying a `?d=` link waits — briefly, and
+ * without ever showing the default graph first — for the async decode
+ * (deflate is inherently async; see jsonUrlState.ts's doc) to settle.
+ * `initialState` (DiagramsWorkbench.test.tsx's synchronous mount) bypasses
+ * the URL entirely, exactly as before this feature existed.
+ */
 export default function GlyphDiagramsWorkbench({ initialState }: { initialState?: GlyphDiagramsWorkbenchState } = {}) {
-  const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState, (initial) => initial ?? createGlyphDiagramsWorkbenchState());
+  const [resolved, setResolved] = useState<GlyphDiagramsWorkbenchState | null>(() => {
+    if (initialState) return initialState;
+    return readUrlParam(DIAGRAMS_URL_PARAM) ? null : createGlyphDiagramsWorkbenchState();
+  });
+  useEffect(() => {
+    if (initialState || resolved) return;
+    let cancelled = false;
+    void decodeDiagramsUrlState(readUrlParam(DIAGRAMS_URL_PARAM)).then((decoded) => {
+      if (!cancelled) setResolved(decoded ?? createGlyphDiagramsWorkbenchState());
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!resolved) return null;
+  return <GlyphDiagramsWorkbenchInner initialState={resolved} />;
+}
+
+function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiagramsWorkbenchState }) {
+  const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; result: GlyphDiagramsWorkbenchRender } | null>(null);
   const [thumbnails, setThumbnails] = useState<readonly string[]>([]);
+  const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   // State identity prevents an old result from becoming copyable during a new layout.
   const rendered = completed?.state === state ? completed.result : null;
@@ -69,6 +100,11 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
     try { return generateGlyphDiagramsWorkbenchSnippets(state); }
     catch { return null; }
   }, [state]);
+  // One writer for the component's lifetime — see diagramsUrlState.ts's doc
+  // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
+  const urlWriter = useRef(createDiagramsUrlWriter(({ sizeBytes }) => setUrlSizeBytes(sizeBytes))).current;
+  useEffect(() => { urlWriter(state); }, [state, urlWriter]);
+  const urlTooLong = urlSizeBytes > DIAGRAMS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     let current = true;
@@ -102,6 +138,10 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
     try { await navigator.clipboard.writeText(value); setFeedback(encoding === "text" ? "Copied text" : "Copied ANSI"); }
     catch { setFeedback("Copy failed — select the diagram to copy it manually."); }
   };
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(window.location.href); setFeedback("Copied link"); }
+    catch { setFeedback("Copy failed — copy the address bar manually."); }
+  };
   const download = () => {
     try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-diagram.svg") ? "Downloaded SVG" : "Download failed"); }
     catch { setFeedback("Download failed"); }
@@ -109,6 +149,7 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
   const exportActions = <>
     <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={() => void copy("text")}>Copy as text</button>
     {rendered?.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>Copy ANSI</button>}
+    <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>Copy link</button>
     <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={download}>Download SVG</button>
   </>;
 
@@ -141,6 +182,7 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
             {!rendered && <p className="diagrams-readout" role="status">Laying out diagram…</p>}
             {rendered && !rendered.ok && <p className="diagrams-error" role="alert">{rendered.error}</p>}
             {rendered?.ok && rendered.ansi !== undefined && <p className="diagrams-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
+            {urlTooLong && <p className="diagrams-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
             {feedback && <p className="diagrams-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>
