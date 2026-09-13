@@ -201,31 +201,6 @@ export function topChartsRecommendation(dataset: ChartsDataset | undefined, prof
   return top ? { mark: top.mark, channels: top.channels, reason: top.reason, pipeline: top.pipeline, transform: forwardableTransformKind(top.transform) } : null;
 }
 
-/**
- * P2-3 (REVIEW-arc-density-search-opus.md): a remote dataset can LOAD fine
- * and still have no usable recommendation at all — every column reads as
- * `category`/`boolean` (a real shape: `mstz/mushroom`'s own columns are
- * `cap_shape, cap_surface, …, odor`, every one a string), so
- * `topChartsRecommendation`'s channel-less answer, applied through
- * `buildRecommendedMarkUpdate`'s A1 guard, is a correct silent no-op at
- * the REDUCER layer — but "silent" there used to also mean "silent to the
- * reader": `select-remote-dataset` still recorded the dataset as loaded
- * and Recent while the chart, card, credit and title kept describing
- * whatever was on screen before, with nothing telling the reader why.
- * Checked BEFORE dispatch (not by inspecting `select-remote-dataset`'s own
- * no-op, which a reducer can't report back through `dispatch`) so the
- * caller can skip BOTH the dispatch and `pushRecentRemoteDataset` — a
- * dataset that can't be charted has no business in the "recently loaded"
- * list either.
- */
-export function remoteDatasetRecommendationCheck(rows: readonly TabularRow[]): { readonly ok: true } | { readonly ok: false; readonly columns: readonly string[] } {
-  const profiled = profileChartsData(rows);
-  const top = topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
-  const usable = top !== null && Object.values(top.channels).some((value) => value !== undefined);
-  if (usable) return { ok: true };
-  return { ok: false, columns: profiled.profile.columns.map((c) => `${c.name} (${c.type})`) };
-}
-
 /** Builds ONE editable mark (this package's own shape, `dataText` included)
  *  from resolved rows + a chosen mark type/channel mapping — what "Apply"
  *  in the Data folder commits into `state.marks` (replacing them, exactly

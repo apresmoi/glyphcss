@@ -3,6 +3,7 @@ import {
   findChartsDataset, parseChartMarkData,
   type ChartsDataset, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
+import { chartsRemoteRows } from "./chartsMarkTypeFit";
 
 // Custom paste/upload (a "Custom…" dataset option, a pipeline step editor,
 // and a profiler-ranked recommendation + Apply button) lived here before
@@ -20,8 +21,7 @@ const DATASET_DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label
 /** A generic read-only table/JSON pair over plain rows — shared by the
  *  vendored-dataset view (`ChartsDatasetDataView`, below) and the remote
  *  one (`ChartsRemoteDatasetDataView`), which has no static `ChartsDataset`
- *  object to read rows/columns off and instead parses them from the
- *  chart's own current mark. */
+ *  object to read rows/columns off. */
 function ChartsDataTable({ title, columns, rows }: { readonly title: string; readonly columns: readonly string[]; readonly rows: readonly Readonly<Record<string, unknown>>[] }) {
   const [view, setView] = useState<typeof DATASET_DATA_VIEWS[number]["id"]>("table");
   const gridStyle = { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(6ch, 1fr))` };
@@ -59,11 +59,13 @@ function ChartsDatasetDataView({ dataset }: { readonly dataset: ChartsDataset })
 
 /** The same read-only disclosure for a REMOTE dataset (glyphcss
  *  dataset-search feature) — there is no static `ChartsDataset` object to
- *  read rows/columns off, so this parses them straight from the chart's
- *  own current mark (`select-remote-dataset` builds that mark's `dataText`
- *  directly from the loaded rows, so the two are always the same data). */
-function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string; readonly marks: readonly ChartsWorkbenchMark[] }) {
+ *  read rows/columns off. The rows as loaded (`chartsRemoteRows`) when this
+ *  session loaded them; otherwise the chart's own mark, which may be a
+ *  reshaped or cleaned copy. */
+function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly title: string; readonly sourceRef: string; readonly marks: readonly ChartsWorkbenchMark[] }) {
   const { columns, rows } = useMemo(() => {
+    const loaded = chartsRemoteRows(sourceRef);
+    if (loaded) return { columns: [...new Set(loaded.flatMap((row) => Object.keys(row)))], rows: loaded };
     const mark = marks[0];
     if (!mark) return { columns: [], rows: [] };
     try {
@@ -72,7 +74,7 @@ function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string;
       const objectRows = data.filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null);
       return { columns: [...new Set(objectRows.flatMap((row) => Object.keys(row)))], rows: objectRows };
     } catch { return { columns: [], rows: [] }; }
-  }, [marks]);
+  }, [sourceRef, marks]);
   if (rows.length === 0) return null;
   return <ChartsDataTable title={title} columns={columns} rows={rows} />;
 }
@@ -101,9 +103,12 @@ function ChartsRemoteDatasetDataView({ title, marks }: { readonly title: string;
  * clears the instant the config is valid again rather than fading on a
  * timer.
  */
-export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError }: {
+export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError, omittedNote }: {
   readonly data: ChartsWorkbenchDataState;
   readonly marks?: readonly ChartsWorkbenchMark[]; readonly loadingTitle?: string; readonly notice?: string; readonly renderError?: string;
+  /** Rows the current chart leaves out (`chartsMarkTypeFit.ts`'s
+   *  `chartsOmittedRowsNote`) — shown for as long as the chart does. */
+  readonly omittedNote?: string;
 }) {
   const activeDataset = data.source?.kind === "dataset" ? findChartsDataset(data.source.id) : undefined;
   const remote = data.source?.kind === "remote" ? data.source : undefined;
@@ -111,6 +116,7 @@ export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderErro
   return <div className="charts-data-folder">
     {renderError && <p className="charts-readout charts-error" role="alert">{renderError}</p>}
     {notice && <p className="charts-readout" role="status">{notice}</p>}
+    {omittedNote && <p className="charts-readout" data-note="omitted-rows">{omittedNote}</p>}
 
     {loadingTitle && <p className="charts-readout charts-data-loading" role="status">
       {loadingTitle} <span className="charts-data-loading-spinner" aria-hidden="true">⟳</span>
@@ -127,7 +133,7 @@ export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderErro
       <p className="charts-data-title">{remote.title}</p>
       <p className="charts-readout">{remote.description}</p>
       <p className="charts-readout"><a href={remote.source.url} target="_blank" rel="noreferrer">{remote.source.name}</a>{remote.source.licence ? ` — ${remote.source.licence}` : ""}</p>
-      <ChartsRemoteDatasetDataView title={remote.title} marks={marks ?? []} />
+      <ChartsRemoteDatasetDataView title={remote.title} sourceRef={remote.ref} marks={marks ?? []} />
     </div>}
   </div>;
 }

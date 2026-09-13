@@ -144,6 +144,20 @@ function profileColumn(name: string, values: readonly TabularCell[]): ColumnProf
   return { name, type: isCategory ? "category" : "text", nullCount, distinctCount, cardinality };
 }
 
+/** Whether one cell holds a value of its column's profiled TYPE. The
+ *  profiler types a column from its non-null values alone, so a date column
+ *  may still hold nulls and a category column may mix numbers with strings;
+ *  the charts renderer rejects both (`bad-time-domain`, `mixed-x-scale`,
+ *  `sankey-missing-channel`). `/charts` drops the rows this refuses before a
+ *  mark is built (`chartsMarkTypeFit.ts`'s `chartsBuildBoundMark`). */
+export function profiledCellUsable(col: ColumnProfile, v: TabularCell): boolean {
+  if (isNullish(v)) return false;
+  if (col.type === "date") return looksLikeDate(v);
+  if (col.type === "number" || col.type === "integer") return typeof v === "number" && Number.isFinite(v);
+  if (col.type === "boolean") return typeof v === "boolean";
+  return true;
+}
+
 export function profileRows(rows: readonly TabularRow[]): DataProfile {
   if (rows.length === 0) return { rowCount: 0, columns: [] };
   const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];

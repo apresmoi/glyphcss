@@ -448,12 +448,19 @@ describe("mark-type fit: misfires the diagnosis measured", () => {
     expect(ofMark(crossTab, "sankey")).toHaveLength(0);
   });
 
-  it("sankey needs a positive value on every link: one null flow makes the library reject the whole chart", () => {
+  it("sankey refuses a nonpositive flow, and skips a MISSING one (the page drops that row before building the mark and says so)", () => {
     const flows: TabularRow[] = [
       { from: "Coal", to: "Power", tj: 40 }, { from: "Gas", to: "Power", tj: 60 }, { from: "Power", to: "Homes", tj: null }, { from: "Power", to: "Industry", tj: 30 },
     ];
-    expect(ofMark(flows, "sankey")).toHaveLength(0);
+    expect(ofMark(flows, "sankey").length).toBeGreaterThan(0);
+    expect(ofMark(flows.map((r) => ({ ...r, tj: r.tj ?? -5 })), "sankey")).toHaveLength(0);
     expect(ofMark(flows.map((r) => ({ ...r, tj: r.tj ?? 5 })), "sankey").length).toBeGreaterThan(0);
+  });
+
+  it("a pie needs a whole to slice: an all-zero share column offers no arc (the library would draw an empty disc)", () => {
+    const shares: TabularRow[] = [{ source: "Coal", twh: 0 }, { source: "Gas", twh: 0 }, { source: "Wind", twh: 0 }];
+    expect(ofMark(shares, "arc")).toHaveLength(0);
+    expect(ofMark(shares.map((r, i) => ({ ...r, twh: [5, 12, 7][i]! })), "arc").length).toBeGreaterThan(0);
   });
 
   it("sankey is not offered for a complete grid (every source x every target), which is a contingency table", () => {

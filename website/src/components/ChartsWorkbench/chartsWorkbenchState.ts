@@ -10,20 +10,20 @@ import {
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
   type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
-import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
-import { profileRows } from "../../lib/dataProfile";
+import type { PipelineStep } from "../../lib/dataPipeline";
 import type { TabularRow } from "../../lib/tabularParse";
 import {
-  buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, profileChartsData,
-  resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
+  CHARTS_CUSTOM_MAX_BYTES, profileChartsData,
+  resolveChartsDataRows, topChartsRecommendation,
   type ChartsDataSource, type ChartsTopRecommendation,
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
 import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
-export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, remoteDatasetRecommendationCheck, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
+export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
+export { remoteDatasetRecommendationCheck } from "./chartsMarkTypeFit";
 export { CHARTS_DATASETS, findChartsDataset, randomChartsDatasetId } from "./datasets";
 export type { ChartsDataset } from "./datasets";
 export { randomChartsDatasetPick } from "./chartsRandomDataset";
@@ -401,21 +401,14 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const base = chartsMarkTypeBase(state.data, mark);
       const fit = chartsMarkTypeFitTable(base)[action.markType];
       if (!fit.fits || base.rows === null) return state;
-      let next: ChartsWorkbenchMark;
-      let isDate = false;
-      if (base.rows.every((row) => typeof row === "number")) {
-        next = { ...mark, type: action.markType, channels: fit.binding.channels, transform: fit.binding.transform, options: {}, color: undefined };
-      } else {
-        const built = buildRecommendedMarkUpdate(mark.id, base.rows as readonly TabularRow[], { mark: action.markType, reason: "", ...fit.binding });
-        if (!built) return state;
-        next = built.mark;
-        isDate = built.isDate;
-      }
+      // The exact build the fit probe rendered (`chartsBuildBoundMark`).
+      const built = chartsBuildBoundMark(mark.id, action.markType, base.rows, fit.binding);
+      if (!built) return state;
       // Same scale reset `select-dataset` makes: a typed domain or an
       // explicit time scale belongs to the previous binding's columns.
       return {
-        ...state, marks: state.marks.map((m) => m.id === mark.id ? next : m),
-        scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
+        ...state, marks: state.marks.map((m) => m.id === mark.id ? built.mark : m),
+        scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
       };
     }
     case "sample-mark": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? editableMark(sampleChartMark(mark.type), mark.id) : mark) };
@@ -531,17 +524,20 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       };
     }
     case "select-remote-dataset": {
-      const profiled = profileChartsData(action.rows);
+      // Later type switches re-derive from these rows, not from this
+      // mark's reshaped and cleaned copy (`chartsRememberRemoteRows`). A
+      // memo of what the action carries, so a repeated call is harmless.
+      chartsRememberRemoteRows(action.ref, action.rows);
       // A remote dataset carries no curated `recommended` field (only the
-      // vendored `datasets/` entries do), so the ranker's own top bindable
-      // candidate is the mapping — for the search box, a `?c=` re-fetch and
-      // Random alike. Random used to sample within 85% of the top score;
-      // the pool was mostly mirror images of the top pick (x/y swapped, a
-      // sankey reversed) or visibly weaker views
+      // vendored `datasets/` entries do), so the mapping is the ranker's
+      // best candidate the fit table proved renders — for the search box,
+      // a `?c=` re-fetch and Random alike. Random used to sample within
+      // 85% of the top score; the pool was mostly mirror images of the top
+      // pick (x/y swapped, a sankey reversed) or visibly weaker views
       // (`docs/design/charts.md`'s "Mark-type fit"), and Random already
       // varies by picking a different dataset every press.
-      const top = topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
-      const built = buildRecommendedMarkUpdate(state.nextMarkId, action.rows, top);
+      const best = chartsBestFit(chartsMarkTypeFitTable({ rows: action.rows }));
+      const built = best && chartsBuildBoundMark(state.nextMarkId, best.type, action.rows, best.binding);
       if (!built) return state;
       return {
         ...state, marks: [built.mark], nextMarkId: state.nextMarkId + 1,
@@ -555,29 +551,16 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
 }
 
 /**
- * Shared by `select-dataset` and `select-remote-dataset`: apply a
- * recommendation's own reshape pipeline (N4), normalize a date x column
- * (the profiler recognizes date SHAPES — `dataProfile.ts`'s
- * `ISO_DATE`/`SLASH_DATE` — the library's own `scales.ts` time domain does
- * not, so a bare `YYYY-MM` or a slash date profiles as `date` but fails
- * `ISO_DATE_PATTERN` with `bad-time-domain` unless normalized BEFORE the
- * mark is built, through the SAME `normaliseDateColumn` the `parseDate`
- * step uses), and build the one resulting mark. `null` when there is no
- * usable recommendation at all (a channel-less top pick, or none).
+ * `select-dataset`'s curated (or fallback) recommendation, built through the
+ * one build path every mark-installing action shares
+ * (`chartsMarkTypeFit.ts`'s `chartsBuildBoundMark`: reshape, drop unusable
+ * rows, normalise a date x — the library's time domain accepts only ISO
+ * dates, while the profiler also reads `YYYY-MM` and slash dates as dates).
+ * `null` when there is no usable recommendation.
  */
-function buildRecommendedMarkUpdate(nextMarkId: number, rows: readonly TabularRow[], top: ChartsTopRecommendation | null): { readonly mark: ChartsWorkbenchMark; readonly isDate: boolean } | null {
-  if (!top || Object.values(top.channels).every((value) => value === undefined)) return null;
-  let out = rows;
-  if (top.pipeline && top.pipeline.length > 0) {
-    const reshaped = runPipeline(out, top.pipeline);
-    if (reshaped.ok) out = reshaped.rows;
-  }
-  const isDate = xChannelIsDate(profileRows(out), top.channels.x);
-  const dateColumn = isDate ? top.channels.x : undefined;
-  const markRows = dateColumn
-    ? out.map((row) => ({ ...row, [dateColumn]: normaliseDateColumn(Object.hasOwn(row, dateColumn) ? row[dateColumn] ?? null : null) }))
-    : out;
-  return { mark: buildDatasetMark(nextMarkId, top.mark, markRows, top.channels, top.transform), isDate };
+function buildRecommendedMarkUpdate(nextMarkId: number, rows: readonly TabularRow[], top: ChartsTopRecommendation | null) {
+  if (!top) return null;
+  return chartsBuildBoundMark(nextMarkId, top.mark, rows, { channels: top.channels, transform: top.transform ?? "none", pipeline: top.pipeline });
 }
 
 export function parseChartMarkData(mark: ChartsWorkbenchMark): GlyphChartMark["data"] {

@@ -161,6 +161,11 @@ export interface ChartCandidate {
   readonly terms: ChartCandidateTerms;
   readonly transform?: ChartCandidateTransform;
   readonly pipeline?: readonly PipelineStep[];
+  /** The last-resort fallback: the table's only chartable content is
+   *  `channels.y` in row order, and its x is the row INDEX, which no
+   *  column holds. `chartsMarkTypeFit.ts` draws it the way the tray draws a
+   *  bare number list, so the built mark really carries that index. */
+  readonly rowOrder?: true;
 }
 
 /** Composite weights — documented in `docs/design/charts.md`. `prior` is
@@ -911,8 +916,10 @@ export const CHART_CANDIDATE_BAR_AXIS_MAX = 60;
  *  sex"). An edge list has all three of:
  *  - every (source, target) pair at most once — a repeated pair is a
  *    cross-tab aggregated on the fly (200 passengers, 4 pairs);
- *  - a finite positive value on every edge row — the library rejects the
- *    first null or nonpositive flow outright (`sankey-bad-value`);
+ *  - no nonpositive value on an edge row — the library rejects the first
+ *    nonpositive flow outright (`sankey-bad-value`). A MISSING value (or
+ *    endpoint) is skipped instead: the page drops that row before building
+ *    the mark and says so (`chartsMarkTypeFit.ts`' round 2);
  *  - NOT every source paired with every target — a complete grid is a
  *    contingency table (10 countries x 3 medals, 30 rows), which `cell`
  *    and a stacked `bar` read honestly and a sankey only tangles. */
@@ -923,7 +930,8 @@ function sankeyEdgeList(sample: readonly TabularRow[], source: string, target: s
     const s = cellToString(row[source] ?? null), t = cellToString(row[target] ?? null);
     if (s === undefined || t === undefined) continue;
     const v = row[value];
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return false;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    if (v <= 0) return false;
     const key = JSON.stringify([s, t]);
     if (pairs.has(key)) return false;
     pairs.add(key); sources.add(s); targets.add(t);
@@ -1069,7 +1077,9 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
     // aggregate and keeps the plain mapping. `groupEligible` (the >500-row
     // rule) can ALSO trigger grouping on a non-repeating category — a
     // real per-row category charted whole is still crowded past 500 bars.
-    const hasDuplicateKeys = cat.distinctCount < rowCount;
+    // Rows with no category are left out of the chart by the page's build
+    // (`chartsMarkTypeFit.ts`' round 2), so they repeat no key.
+    const hasDuplicateKeys = cat.distinctCount < rowCount - cat.nullCount;
     for (const y of effectiveNumbers) {
       if (!hasDuplicateKeys) {
         const { terms, score } = scoreBar(cat.name, y.name, undefined, input);
@@ -1094,7 +1104,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
       // tallest shows. The page can't bind the MEAN that would honestly
       // collapse them (`chartsCandidateBindable`), so only a category with
       // one row per value melts (`docs/design/charts.md`'s "Mark-type fit").
-      if (cat.distinctCount < rowCount) continue;
+      if (cat.distinctCount < rowCount - cat.nullCount) continue;
       const { terms, score } = scoreBarMelt(cat.name, effectiveNumbers.map((m) => m.name), { ...input, pipeline });
       out.push({
         mark: "bar", channels: { x: cat.name, y: "value", fill: "measure" }, pipeline,
@@ -1127,9 +1137,11 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
     // unlabelled aggregation exactly like the ambiguous bar case above.
     // One row per category is a real "whole" to slice; several is an
     // unstated "whole of WHAT" for the reader.
-    if (cat.distinctCount < rowCount) continue;
+    if (cat.distinctCount < rowCount - cat.nullCount) continue;
     for (const y of effectiveNumbers) {
-      if (typeof y.min !== "number" || y.min < 0) continue;
+      // Every value zero is no whole to slice: the library draws an empty
+      // disc and logs `empty-total`, which is a blank chart, not a pie.
+      if (typeof y.min !== "number" || y.min < 0 || typeof y.max !== "number" || y.max <= 0) continue;
       const { terms, score } = scoreArc(cat.name, y.name, input);
       out.push({ mark: "arc", channels: { y: y.name, fill: cat.name }, reason: `${cat.name} shares of ${y.name} (${cat.distinctCount} categories)`, score, terms });
     }
@@ -1199,7 +1211,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
   // ── last-resort fallbacks (never an empty list for a non-empty profile) ──
   if (out.length === 0 && effectiveNumbers.length >= 1) {
     out.push({
-      mark: "line", channels: { y: effectiveNumbers[0]!.name }, reason: `${effectiveNumbers[0]!.name} by row order`, score: 0.1,
+      mark: "line", channels: { y: effectiveNumbers[0]!.name }, rowOrder: true, reason: `${effectiveNumbers[0]!.name} by row order`, score: 0.1,
       terms: { entropy: 0.1, structure: 0, coverage: 1, legibility: 1, prior: 0 },
     });
   }

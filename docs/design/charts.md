@@ -525,7 +525,7 @@ The user's report: "if the data cannot display a specific chart, the chart shoul
 
 Only 33 of 176 picks drew a real chart. Typical meaningless ones: a 146-slice pie of a date column, a funnel of `energy-flow-sankey` keyed by row index, a line through Fisher's iris in row order, text marks with no label, rule marks over records.
 
-**The rule.** One table, `CHARTS_MARK_TYPE_RULES` (name, plain-English `needs`, `ranked`, `series`); nothing else in the page branches on a type's name. A type FITS iff `buildChartCandidates` offers at least one candidate of that type the page can BIND (a `group` whose reduce is `mean` can't be, since the page's bare `group` sums). Picking it binds that type's TOP candidate's channels, transform and reshape pipeline, re-derived from the dataset's own rows (`chartsMarkTypeBase`), with `select-dataset`'s scale reset. Two exceptions, both data: a vendored dataset's curated type always fits and re-binds the curated mapping (transform included, so stacked area/bar survive a round trip); a bare numeric tray series fits `line`/`area`/`bar`/`dot` over its index. The current type is never disabled; the reducer refuses an unfit type.
+**The rule.** One table, `CHARTS_MARK_TYPE_RULES` (name, plain-English `needs`, `ranked`, `series`, `requires`, `probe`); nothing else in the page branches on a type's name. A type FITS iff some candidate of it binds and renders: the vendored dataset's curated mapping first (transform included, so stacked area/bar survive a round trip), then `buildChartCandidates`' candidates of that type in rank order (a `group` whose reduce is `mean` can't be bound, since the page's bare `group` sums). "Binds and renders" is round 2's rule, below. Picking the type installs that exact built mark, re-derived from the dataset's own rows (`chartsMarkTypeBase`), with `select-dataset`'s scale reset. A bare number series fits `line`/`area`/`bar`/`dot` over its index. The current type is never disabled; the reducer refuses an unfit type.
 
 **Judgement calls** (each classified meaningless in the diagnosis, and disabled):
 
@@ -549,11 +549,55 @@ Added so a fitting type has a candidate: a time scatter (`dot` over a date, legi
 
 **After.** 41 of 176 vendored cells enabled, 135 disabled. Every enabled cell renders its binding and every disabled cell was diagnosed throwing, blank or meaningless (0 exceptions, gated per cell). No cell that rendered meaningfully before is disabled. By type: line 7, area 7, bar 10, dot 10, arc 2, cell 3, sankey 1, funnel 1, rect/text/rule 0. On five offline remote shapes (titanic, wine, data_jobs, seeds, gapminder), 9 of 55 are enabled.
 
-**Random on a remote dataset** now takes the top bindable candidate. The 85%-of-top weighted-random pool held 1 to 26 candidates, mostly the top pick's own mirror images (x/y swapped, sankey reversed) or its fill variants, and Random already varies by landing on a different dataset every press. `pickChartCandidate`, `chartsCandidatePick` and `candidateToTopRecommendation` were deleted with it.
+**Random on a remote dataset** now takes the best-ranked candidate that fits (`chartsBestFit`). The 85%-of-top weighted-random pool held 1 to 26 candidates, mostly the top pick's own mirror images (x/y swapped, sankey reversed) or its fill variants, and Random already varies by landing on a different dataset every press. `pickChartCandidate`, `chartsCandidatePick` and `candidateToTopRecommendation` were deleted with it.
 
-**Speed.** `profileRows` + `buildChartCandidates`, warm median over 30 runs: 0.01 to 0.9 ms on the vendored datasets (iris the slowest), 0.15 to 2.1 ms on the 200-row remote shapes (wine), about 9 ms on a 3,000-row table at the sample cap. Cold first runs spike to 5 to 10 ms. The fit table is memoised per base (`FIT_CACHE_LIMIT` 8), so a type switch or a re-render after the first costs a map lookup.
+**Residuals.** Where the best view is a mean per category (titanic's fare by sex), bar stays disabled until the page can bind `reduce`. `olympics-2024-medals-by-type`'s curated bar and heatmap tie at 0.916, and only stable sort order puts the bar first. The synthetic remote shapes are noise, so their structure terms carry no real signal.
 
-**Residuals.** A remote dataset keeps no pre-reshape rows, so its fit reads the mark's own (possibly melted) data. Where the best view is a mean per category (titanic's fare by sex), bar stays disabled until the page can bind `reduce`. `olympics-2024-medals-by-type`'s curated bar and heatmap tie at 0.916, and only stable sort order puts the bar first. The synthetic remote shapes are noise, so their structure terms carry no real signal.
+#### Round 2: an enabled type must render
+
+The user's requirement is "if the data cannot display a specific chart, the chart should be disabled in the selector", so an ENABLED type must always render. A cross-vendor review (codex, then opus) ran the first cut and broke it; every finding below was reproduced before it was fixed.
+
+| Finding | Repro | Cause |
+|---|---|---|
+| Incomplete bindings counted as fits | `[{value:2},{value:4},{value:3}]` enabled Line and opened a remote dataset on it, and both threw `missing-xy-channels`, at 1 and 3,000 rows. Text-only records enabled a channel-less Bar whose click did nothing | fit checked only the transform, so the ranker's last-resort fallbacks (a line with no x, a bar with no channels) counted |
+| Values the renderer rejects | dates `["2024-01-01", null, "2024-01-03"]` enabled Line/Area/Bar/Dot, all `bad-time-domain`; a category `[1, "B", 2]` enabled Bar, `mixed-x-scale`; three DAG edges and one null-source edge enabled Sankey (and opened on it), `sankey-missing-channel` | the profiler types a column by its non-null values and eligibility skips nulls, while the renderer rejects the first null date or endpoint and reads a numeric x from the first number |
+| A remote dataset fit its own reshape | the olympics rows loaded as a remote dataset enabled bar and heatmap, the same rows vendored bar and dot; every switch built on the melt | a remote source kept no rows, so the base was the mark's (melted) data |
+| A blank pie counted as a fit | an all-zero share column enabled Pie, which draws an empty disc with `empty-total` | arc eligibility checked only `min >= 0` |
+
+**The root decision: both a clean build and a render probe, in that order.**
+
+1. **Clean the data in the one build path.** `chartsBuildBoundMark` is now the only way a mark is installed (`set-mark-type`, `select-dataset`, `select-remote-dataset`) and the only thing the fit probe renders. It drops every row whose charted cells don't hold their column's profiled type (`profiledCellUsable`: null or empty, a non-date in a date column, a non-number in a number column), reads a category column mixing numbers and strings as strings, and normalises a date x. This goes first because a probe alone would disable a chart that one dropped null makes valid, which the requirement forbids: codex's date, category and sankey repros are all real charts minus one row. Dropping rows changes what renders, so the rail says so while the chart shows that binding: "1 of 3 rows has no usable d and isn't drawn." (`chartsOmittedRowsNote`). The ranker's own eligibility now agrees with the build: a sankey skips a link with a missing flow (a nonpositive one still refuses it), and "one row per category" counts only rows that have a category.
+2. **Then probe the built mark.** A candidate counts only if its mark passes `chartsBuiltMarkRenders`, so an enabled type renders by construction rather than because eligibility happened to mirror the renderer. A cartesian mark's refusals are all made by the library's validation and scale resolution, so the probe runs `glyphChartScaleDomains` on the page's own spec and paints nothing. `arc`, `sankey` and `funnel` refuse while laying out (`sankey-missing-channel`, `sankey-cycle`, `empty-total`), so they render at 32x12 ASCII with no colour; `empty-total` counts as a refusal. Painting was measured and rejected for the cartesian marks: a 3,000-row stacked-shape area costs 87 ms to paint even at 32x12. A type tries up to three BUILT candidates in rank order before it is called unfit.
+3. **Required channels.** Each rule names what a binding must bind to a real column (`requires`: x and y for line/area/bar/dot, y for arc, x, y and fill for cell, source/target/value for sankey, stage/value for funnel). The probe would refuse these too; checking first skips a wasted build.
+4. **An index x is carried, not implied.** The ranker marks its last-resort fallback `rowOrder` ("the table's only chartable content is this one measure"). The fit layer builds it the way the tray builds a number list: the mark's data is that column's finite values and its channels are `index`/`value`, which `buildMark` turns into literal arrays. Such a table fits line, area, bar and dot, like a tray series.
+5. **A remote dataset's rows as loaded.** `select-remote-dataset` records them per `ref` in a session memo (`chartsRememberRemoteRows`, last 8 refs); the `?c=` link still carries none, and a decode re-fetches. The fit, every type switch and the dataset card's "View data" read them. A remote dataset opens on the best-ranked fitting candidate across all types (`chartsBestFit`), and `remoteDatasetRecommendationCheck` (moved into the fit module) refuses one where nothing fits.
+6. **Arc needs a positive total** in the ranker (`max > 0`), and the probe would refuse it anyway.
+
+The memo keys a stable rows array (a vendored or remote dataset's own) by identity AND curated mapping, because the same rows with and without a curated mapping fit differently; a mark's own text by that text. A cache miss, probes included, warm median over 15 runs: 0.04 to 1.7 ms per vendored dataset (cold first call 0.1 to 13 ms, the sankey dataset the slowest), and about 32 ms for a 3,000-row four-column table, of which the ranker alone is about 17 ms. A hit costs 0.1 µs.
+
+**Mutation checks.** Each was applied, the three test files run, and the source restored; all 15 reddened.
+
+| Mutation | Red tests |
+|---|---|
+| probe always passes | both probe-test cases |
+| probe ignores `empty-total` | probe test: a blank candidate is passed over |
+| build keeps unusable rows | 5: codex's date and sankey repros, hostile "nulls in a date column" and "nulls in every column", the note-coverage case |
+| no string coercion of a mixed category | codex's mixed-category repro |
+| no required-channel check | probe test: the build refuses an unbound or unknown channel |
+| row-order fallback bound without an index | the three single-numeric-column cases (1, 3 and 3,000 rows) |
+| remote rows as loaded ignored | 4: opus P2-1, codex's date and sankey repros, the note-coverage case |
+| memo ignores the curated mapping | opus P2-1 and the P3-3 memo test |
+| memo ignores the mark text | the P3-3 memo test |
+| no scale reset on a type switch | the P3-3 scale-reset test |
+| omitted rows never reported | 3: codex's date and sankey repros, the note-coverage case |
+| remote opens on the old top recommendation | 5: the three single-numeric-column cases, hostile "a single numeric column" and "3,000 rows of one measure" |
+| arc offered on an all-zero column | `chartCandidates.test.ts`' all-zero pie |
+| sankey refuses a missing flow again | `chartCandidates.test.ts`' sankey flow test |
+| null category rows counted as repeated keys | the P3-3 memo test (its null-category pie) |
+
+**Gates.** The 16-dataset matrix is unchanged and green, and no curated type is disabled. A hostile remote-data suite (nulls in every column type, mixed columns, one row, one column, text only, numbers only, 3,000 rows, null sankey endpoints and flows, duplicate edges, booleans, all-zero shares, empty strings) renders every ENABLED type at the page's own settings (web 96x32 braille, CSS colour), checks the current type is never stranded, and checks the reducer selects a remote dataset exactly when `remoteDatasetRecommendationCheck` passes.
+
+**Residuals.** The probe paints no cartesian mark, so a paint-time library throw (`GLYPH_CHART_INTERNAL_COORD`) would not disable a type; the hostile suite renders every enabled type at full size to catch one. A bar of all-zero values stays enabled: it renders axes and no bars, which is a true picture of zeros rather than a refusal. A remote dataset evicted from the 8-ref memo falls back to the mark's own data until it is re-fetched.
 
 ## Round 18: monochrome shade-family fill (pie/region-mark contrast)
 

@@ -16,7 +16,7 @@ import { ChartsDataFolder } from "./ChartsDataFolder";
 import { pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
-import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { chartsMarkOmittedRows, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsOmittedRowsNote } from "./chartsMarkTypeFit";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
   dataSourceKey, findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, randomChartsDatasetPick,
@@ -189,6 +189,11 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     try { return glyphChartSeriesPreview(buildStyledChartsWorkbenchSpec(state), { color: colorDisabled ? "none" : undefined }); }
     catch { return []; }
   }, [state, colorDisabled]);
+  // Memoised per base inside the fit module; the note says which rows the
+  // chart leaves out while the mark is still its type's binding.
+  const markTypeFits = state.marks.map((mark) => chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark)));
+  const omittedRows = state.marks.length > 0 ? chartsMarkOmittedRows(markTypeFits[0]!, state.marks[0]!) : null;
+  const omittedNote = omittedRows ? chartsOmittedRowsNote(omittedRows) : undefined;
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
   const snippets = useMemo(() => {
     try { return generateChartsWorkbenchSnippets(state); }
@@ -511,10 +516,10 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
        *  (`select-dataset`/`select-remote-dataset`), no separate Apply
        *  step. */}
       <InstrumentRail id="charts-data-panel" title={railTitle} open={mobilePanel === "data"}>
-        <ChartsDataFolder data={state.data} marks={state.marks}
+        <ChartsDataFolder data={state.data} marks={state.marks} omittedNote={omittedNote}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
-          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} typeFits={chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark))} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
         </div>
       </InstrumentRail>
       <InstrumentMain>
