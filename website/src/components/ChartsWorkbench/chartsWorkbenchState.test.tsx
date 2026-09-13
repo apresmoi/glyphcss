@@ -303,11 +303,17 @@ describe("ChartsWorkbench colour controls — state", () => {
     expect(untouched.marks).toBe(clean.marks);
     expect(untouched.style).toBe(clean.style);
     expect(untouched.scales).toBe(clean.scales);
+    expect(untouched.axes).toBe(clean.axes);
 
     let dirty = reduceChartsWorkbenchState(clean, { type: "set-axis-color", which: "shared", color: "#ff0000" });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-mark-color", id: dirty.marks[0]!.id, color: "#00ff00" });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-scale", axis: "y", patch: { min: "1", max: "9" } });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis-title-at", axis: "x", value: "end" });
+    // Ticks (Dock item "Ticks rows") are the OTHER Axes-folder setting this
+    // reset reaches across folders for (REVIEW-dock-addenda-opus.md P3-3) —
+    // `tickMarks`/`grid`/`title` are untouched, only the count.
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis", axis: "x", patch: { ticks: 12, grid: true } });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis", axis: "y", patch: { ticks: 8 } });
     const reset = reduceChartsWorkbenchState(dirty, { type: "reset-chart-style" });
     expect(reset.style).toEqual({
       axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR },
@@ -315,6 +321,10 @@ describe("ChartsWorkbench colour controls — state", () => {
     });
     expect(reset.marks[0]!.color).toBeUndefined();
     expect(reset.scales).toEqual({ x: { type: "auto", min: "", max: "" }, y: { type: "auto", min: "", max: "" } });
+    expect(reset.axes.x.ticks).toBe(0);
+    expect(reset.axes.y.ticks).toBe(0);
+    // Only the tick COUNT resets — grid stays exactly as the reader left it.
+    expect(reset.axes.x.grid).toBe(true);
     // Never touches output settings.
     expect(reset.controls).toBe(dirty.controls);
   });

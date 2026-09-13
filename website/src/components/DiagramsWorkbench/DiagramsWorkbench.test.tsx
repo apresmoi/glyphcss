@@ -85,8 +85,12 @@ describe("DiagramsWorkbench mounted integration", () => {
     }
     await settlePreview();
   }
+  // REVIEW-dock-addenda-opus.md P3-5 — the Output reset now lives on the
+  // folder's own title bar (`InstrumentWorkbench/useFolderTitleReset`,
+  // shared with `/charts`), superseding the old `.dock-folder-header-reset`
+  // row.
   function resetOutputButton(): HTMLButtonElement {
-    return container.querySelector<HTMLButtonElement>(".dock-folder-header-reset")!;
+    return container.querySelector<HTMLButtonElement>(".dock-folder-title-reset-button")!;
   }
   async function edit(value: string, settle = true) {
     await act(async () => {

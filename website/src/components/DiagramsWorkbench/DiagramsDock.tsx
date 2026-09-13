@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
+import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import { buildGlyphDiagramsWorkbenchGraph, resolveGlyphDiagramsWorkbenchControls, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 
 const options = <T extends string,>(values: readonly T[]): Record<T, T> => Object.fromEntries(values.map((value) => [value, value])) as Record<T, T>;
@@ -23,9 +24,12 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   const controls = resolveGlyphDiagramsWorkbenchControls(state.controls);
   const setControl = (control: GlyphDiagramsWorkbenchControlAction) => dispatch({ type: "set-control", control });
   const output = useFolder(gui, "Output", { open: true });
-  // Folder-header reset, mirroring ChartsDock.tsx's own — requested first so
-  // `useDockSlot`'s "top" insertion lands it above every row added after it.
-  const outputHeaderSlot = useDockSlot(output, { position: "top", className: "dock-folder-header-slot" });
+  // Folder-title-bar reset (REVIEW-dock-addenda-opus.md P3-5) — the SAME
+  // idiom `ChartsDock.tsx`'s Output/Chart folders use, on the folder's own
+  // native title line; see `InstrumentWorkbench/useFolderTitleReset`'s own
+  // doc. Supersedes the older `useDockSlot({ position: "top" })` header row
+  // this page used to carry independently.
+  useFolderTitleReset(output, "Reset target, charset, color, width, and height to this target's defaults", () => setControl({ type: "reset" }));
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -49,14 +53,6 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
   return <>
-    {outputHeaderSlot && createPortal(
-      <div className="dock-folder-header">
-        <span>OUTPUT</span>
-        <span className="dock-folder-header-rule" />
-        <button type="button" className="dock-folder-header-reset" title="Reset target, charset, color, width, and height to this target's defaults" onClick={() => setControl({ type: "reset" })}>reset</button>
-      </div>,
-      outputHeaderSlot,
-    )}
     {targetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Target</span>

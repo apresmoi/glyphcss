@@ -800,18 +800,31 @@
 .dock-toggle-row .gx-toggle { flex: 1 1 auto; gap: 0; }
 .dock-toggle-row + .dock-toggle-row .gx-toggle-btn { padding: 3px 0; }
 
-/* Folder-header reset ("OUTPUT ======== [reset]", owner packet item 3) — a
-   `useDockSlot({ position: "top" })` row standing in for lil-gui's own
-   non-extensible folder title bar; replaces a separate "Reset to target
-   defaults" button row. */
-.dock-folder-header { display: flex; align-items: center; gap: 6px; padding: 4px var(--padding, 6px) 6px; }
-.dock-folder-header > span:first-child { font-size: 11px; letter-spacing: 0.22px; color: rgba(255, 232, 184, 0.7); }
-.dock-folder-header-rule { flex: 1 1 auto; border-top: 1px dashed rgba(255, 232, 184, 0.25); }
-.dock-folder-header-reset {
-  flex: 0 0 auto; background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
+/* Folder-title-bar reset ("OUTPUT ═══════ [reset]", REVIEW-dock-addenda-
+   opus.md P3-5) — ONE idiom shared by `/charts` (Output + Chart folders)
+   and `/diagrams` (Output folder), `InstrumentWorkbench/useFolderTitleReset`.
+   "═══" is the same `.title::after` rule every nested Dock folder already
+   draws (`gallery-workbench.css`'s `.dn-floating-controls .lil-gui .lil-gui
+   > .title::after`); this only reserves room in `.title`'s own padding for
+   the `[reset]` button and positions that button, mounted as a plain DOM
+   SIBLING of `.title` (lil-gui's title is a native `<button>`, so nesting
+   one inside it is invalid). The extra class selector below matches
+   gallery's own `.title` rule's specificity plus one, so the `!important`
+   padding override actually wins the cascade. Supersedes the older
+   `useDockSlot({ position: "top" })` header row both pages used to carry
+   independently (`.dock-folder-header*`, deleted with this comment — no
+   remaining caller). */
+.dock-folder-title-reset { position: relative; }
+.dn-floating-controls .lil-gui .lil-gui.dock-folder-title-reset > .title {
+  padding-right: 52px !important;
+}
+.dock-folder-title-reset-button {
+  position: absolute; top: 0; right: 6px; height: var(--title-height, 24px);
+  display: flex; align-items: center;
+  background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
   font-size: 10px; letter-spacing: 0.22px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
 }
-.dock-folder-header-reset:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
+.dock-folder-title-reset-button:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
 
 /* Ramp picker density bars — portaled below the "Ramp" dropdown in the
    Output folder (`useDockSlot(out, { position: "bottom" })` in

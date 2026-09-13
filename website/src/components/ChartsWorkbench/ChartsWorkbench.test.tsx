@@ -23,6 +23,7 @@ import { act } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GUI } from "lil-gui";
 import ChartsWorkbench from "./ChartsWorkbench";
 import { ChartsDataFolder } from "./ChartsDataFolder";
 import { CHART_MARK_TYPE_TOGGLE } from "./ChartsMarkCard";
@@ -198,14 +199,15 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   function outputSize() {
     return ["Width", "Height"].map((name) => controller(name).querySelector("input")!.value);
   }
-  // Folder-title-bar reset (owner packet item 3) — `ChartsDock.tsx`'s
-  // `useFolderTitleReset` mounts one `.charts-folder-reset-button` per
-  // folder (Output, Chart) as a DOM sibling of that folder's own native
-  // `.title`; `startsWith` on the button's own `title` (the exact tooltip
-  // text `useFolderTitleReset` was given) picks the right one the same way
-  // the old `.dock-folder-header-reset` set was disambiguated.
+  // Folder-title-bar reset (REVIEW-dock-addenda-opus.md P3-5) —
+  // `InstrumentWorkbench/useFolderTitleReset` mounts one
+  // `.dock-folder-title-reset-button` per folder (Output, Chart) as a DOM
+  // sibling of that folder's own native `.title`, shared with `/diagrams`;
+  // `startsWith` on the button's own `title` (the exact tooltip text
+  // `useFolderTitleReset` was given) picks the right one the same way the
+  // old `.dock-folder-header-reset` set was disambiguated.
   function folderResetButton(titleStartsWith: string): HTMLButtonElement {
-    return Array.from(container.querySelectorAll<HTMLButtonElement>(".charts-folder-reset-button")).find((btn) => btn.title.startsWith(titleStartsWith))!;
+    return Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-title-reset-button")).find((btn) => btn.title.startsWith(titleStartsWith))!;
   }
   function resetOutputButton(): HTMLButtonElement {
     return folderResetButton("Reset target, charset, color");
@@ -297,32 +299,64 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(rows[rows.length - 1]).toContain("Line");
   });
 
-  // Owner packet item 1 — the ticks row replaces the old flat "0 = auto"
-  // slider with one row combining an `[x]`/`[ ]` auto checkbox and a
-  // plain single-thumb slider (`ChartsDock.tsx`'s `TicksRow`): unchecking
-  // auto writes an explicit tick count that reaches the built spec (and
-  // the live render), and re-checking auto drops `axes.x.ticks` entirely.
+  // REVIEW-dock-addenda-opus.md P2-1/P2-3 — the ticks row is built from the
+  // SAME real lil-gui `useToggle`/`useSlider` primitives Width/Height use
+  // (`ChartsDock.tsx`'s `useTicksControl`), not a bespoke `RangeSlider`-
+  // classed row: a real `.controller.boolean` row named "X ticks: auto"
+  // and a real `.controller.number.hasSlider` row named "X ticks", found
+  // through the SAME `controller()` helper every other lil-gui row in this
+  // file already uses. Unchecking auto writes an explicit tick count that
+  // reaches the built spec (and the live render); re-checking auto drops
+  // `axes.x.ticks` entirely.
   it("the X ticks row: unchecking auto writes an explicit count that reaches the render; auto removes it", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
-    const row = controller("X ticks");
-    const autoCheckbox = row.querySelector<HTMLInputElement>(".charts-ticks-auto")!;
-    const slider = row.querySelector<HTMLInputElement>(".range-slider-range")!;
+    const autoCheckbox = controller("X ticks: auto").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    const numberInput = controller("X ticks").querySelector<HTMLInputElement>(".widget input")!;
     expect(autoCheckbox.checked).toBe(true);
-    expect(slider.disabled).toBe(true);
+    expect(numberInput.disabled).toBe(true);
     act(() => autoCheckbox.click());
     expect(autoCheckbox.checked).toBe(false);
-    expect(slider.disabled).toBe(false);
+    expect(numberInput.disabled).toBe(false);
     const before = container.querySelector("pre.glyph-output")!.textContent!;
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
     act(() => {
-      setter.call(slider, "3");
-      slider.dispatchEvent(new Event("input", { bubbles: true }));
+      setter.call(numberInput, "3");
+      numberInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const after = container.querySelector("pre.glyph-output")!.textContent!;
     expect(after).not.toBe(before);
     act(() => button("Export").click());
     expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"ticks": 3');
     act(() => autoCheckbox.click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).not.toContain('"ticks"');
+  });
+
+  // REVIEW-dock-addenda-opus.md P2-1 — the defect the old bespoke row had:
+  // its number field was a React-controlled `<input value={shown}>` that
+  // rewrote itself to the already-clamped PREVIOUS digit on every
+  // keystroke, so "1" then "2" committed 22, not 12, and every count in
+  // 10..19 was unreachable by typing. A real lil-gui `NumberController`
+  // only rewrites its own input's text on `updateDisplay()`, gated on
+  // `!this._inputFocused` — never while the field is focused — so nothing
+  // fights a value typed keystroke-by-keystroke. Clearing the field goes
+  // back to "auto", never `Number("") === 0`.
+  it("the X ticks number field: typing two digits commits their real value, and clearing goes back to auto", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const autoCheckbox = controller("X ticks: auto").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    act(() => autoCheckbox.click());
+    const numberInput = controller("X ticks").querySelector<HTMLInputElement>(".widget input")!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(numberInput, "1"); numberInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => { setter.call(numberInput, "12"); numberInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => numberInput.dispatchEvent(new Event("blur")));
+    act(() => button("Export").click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"ticks": 12');
+    act(() => {
+      setter.call(numberInput, "");
+      numberInput.dispatchEvent(new Event("input", { bubbles: true }));
+      numberInput.dispatchEvent(new Event("blur"));
+    });
+    expect(autoCheckbox.checked).toBe(true);
     expect(container.querySelector("#charts-export-panel code")!.textContent).not.toContain('"ticks"');
   });
 
@@ -436,28 +470,60 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(swatch.value).toBe("#ff0000");
     act(() => resetOutputButton().click());
     expect(swatch.value).toBe("#ff0000");
-    const chartResetButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".charts-folder-reset-button"));
+    const chartResetButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-title-reset-button"));
     expect(chartResetButtons).toHaveLength(2);
     const chartReset = folderResetButton("Reset axis colour");
     act(() => chartReset.click());
     expect(swatch.value).not.toBe("#ff0000");
   });
 
-  // Owner packet item 3 — the reset control is a plain DOM sibling of the
-  // folder's own native `.title` (lil-gui's title is a `<button>`, so
-  // nesting a control inside it is invalid), so a click on it must not
-  // ALSO toggle the folder open/closed, and the control itself must sit
-  // inside the folder's root element but outside `.title`.
-  it("the folder-title-bar reset sits inside the folder but outside .title, and clicking it never toggles the folder", () => {
+  // REVIEW-dock-addenda-opus.md P3-1/P3-2 — the reset control is a plain
+  // DOM sibling of the folder's own native `.title` (lil-gui's title is a
+  // `<button>`, so nesting a control inside it is invalid), inserted right
+  // after `.title` (P3-1: still the FIRST focus stop after the title, not
+  // the last one in the folder — appending it after `.children` used to
+  // put it 19 tab stops past the title). A click on it must not ALSO
+  // toggle the folder open/closed: the `.closed` CSS class is not a
+  // reliable synchronous signal for this (lil-gui's open/close is
+  // ANIMATED — `.title`'s own click handler calls `openAnimated`, which
+  // defers the `.closed` class toggle to a `requestAnimationFrame` +
+  // transition-end callback, so it never lands synchronously in a test and
+  // the old assertion here could never have gone red). Spying on lil-gui's
+  // OWN `open`/`close`/`openAnimated` methods is the real synchronous
+  // signal: every path that actually toggles a folder goes through one of
+  // them, and a `stopPropagation`-less, nested-in-`.title` reset (the
+  // mutation this test must catch) would call `openAnimated` via the
+  // bubbled click.
+  it("the folder-title-bar reset sits inside the folder right after .title, and clicking it never toggles the folder — open or closed", () => {
     const outputReset = resetOutputButton();
-    const outputFolder = outputReset.closest(".lil-gui.charts-folder-reset")!;
+    const outputFolder = outputReset.closest(".lil-gui.dock-folder-title-reset")!;
     expect(outputFolder).not.toBeNull();
     expect(outputFolder.contains(outputReset)).toBe(true);
     const title = outputFolder.querySelector(":scope > .title")!;
     expect(title.contains(outputReset)).toBe(false);
-    const wasClosed = outputFolder.classList.contains("closed");
+    // P3-1: the reset is the tab stop right after the title, not the last
+    // child in the folder (`.title`, `[reset]`, THEN `.children`).
+    expect(Array.from(outputFolder.children).indexOf(outputReset)).toBe(Array.from(outputFolder.children).indexOf(title) + 1);
+
+    const openAnimatedSpy = vi.spyOn(GUI.prototype, "openAnimated");
+    const openSpy = vi.spyOn(GUI.prototype, "open");
+    const closeSpy = vi.spyOn(GUI.prototype, "close");
+    // Case 1: the folder starts open (this page's own default) — reset
+    // must not close it.
     act(() => outputReset.click());
-    expect(outputFolder.classList.contains("closed")).toBe(wasClosed);
+    expect(openAnimatedSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(closeSpy).not.toHaveBeenCalled();
+    // Case 2: close the folder through the ONE real interaction lil-gui
+    // exposes for it — clicking its own title — then reset must not
+    // reopen it.
+    act(() => (title as HTMLButtonElement).click());
+    expect(openAnimatedSpy).toHaveBeenCalledTimes(1); // sanity: the title itself still works
+    openAnimatedSpy.mockClear();
+    act(() => outputReset.click());
+    expect(openAnimatedSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(closeSpy).not.toHaveBeenCalled();
   });
 
   // P3-6 (REVIEW-dock-colours-sliders-opus.md): under `Color: none` the

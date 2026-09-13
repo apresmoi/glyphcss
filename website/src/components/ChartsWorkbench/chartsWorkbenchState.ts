@@ -332,7 +332,15 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const scales = hasDomain
         ? { x: { ...state.scales.x, min: "", max: "" }, y: { ...state.scales.y, min: "", max: "" } }
         : state.scales;
-      return { ...state, marks, style, scales };
+      // Tick counts (Dock item "Ticks rows") are the other Axes-folder
+      // setting this reset reaches across folders for — same fold-the-
+      // scope-honestly call as `axisTitlePlacement` above, so the tooltip
+      // that names both stays true (REVIEW-dock-addenda-opus.md P3-3).
+      const hasTicks = state.axes.x.ticks !== 0 || state.axes.y.ticks !== 0;
+      const axes = hasTicks
+        ? { x: { ...state.axes.x, ticks: 0 }, y: { ...state.axes.y, ticks: 0 } }
+        : state.axes;
+      return { ...state, marks, style, scales, axes };
     }
     case "set-axis-color-mode": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, mode: action.mode } } };
     case "set-axis-color": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, [action.which]: action.color } } };

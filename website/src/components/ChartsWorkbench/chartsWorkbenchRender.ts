@@ -1,6 +1,6 @@
 import {
   renderGlyphChart,
-  type GlyphChartInput, type GlyphChartLedgerEntry, type GlyphChartMeta, type GlyphChartRenderOptions,
+  type GlyphChartCharset, type GlyphChartInput, type GlyphChartMeta, type GlyphChartRenderOptions,
   type GlyphChartReport, type GlyphChartSpec, type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import { buildChartsWorkbenchSpec, chartsWorkbenchRenderOptions, type ChartsWorkbenchState } from "./chartsWorkbenchState";
@@ -101,16 +101,124 @@ export type ChartsWorkbenchRender =
   | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta; report: GlyphChartReport }
   | { ok: false; error: string; code?: string };
 
+// ── Ticks row seed (Dock item "Ticks rows") ──────────────────────────────
+//
+// Unchecking "auto" needs the axis's ACTUAL rendered tick count so the
+// click that turns auto off changes no cell (REVIEW-dock-addenda-opus.md
+// P2-2) — AGENTS.md's own rule for this page's other `auto` toggles ("…so
+// one click never changes the render"). Neither `GlyphChartMeta` nor
+// `GlyphChartReport` carries a tick count directly; the only place one is
+// EVER reported is a `ticks-thinned` ledger entry's `shown` field, logged
+// only when the auto/requested count didn't fit and had to be collision-
+// thinned — most charts never hit that (the page's own default preset at
+// its own default size doesn't). So the PRIMARY source is the rendered
+// TEXT itself.
+//
+// Counting the tick GLYPHS (`┴`/`┤`) was the first cut and is wrong: the
+// axis LINES themselves cross at a corner cell — `AGENTS.md`'s "the x-axis
+// LINE ROW is the y=0 row whenever 0 is in the y domain" means that row's
+// own y-tick position is almost always ALSO where the x-axis's rule
+// crosses it, and that ONE cell can only carry one glyph (the T-junction
+// `├`/`└`, never `┤`) — so a glyph count silently drops exactly the tick
+// that coincides with the other axis's line, on both axes, in the single
+// most common case (a zero-anchored y domain, an index x domain starting
+// at 0). Measured: on the page's own default preset, that undercounts by
+// one on each axis, and feeding the undercounted number back as an
+// EXPLICIT `ticks` request asks d3 for a different "nice" ladder entirely
+// (its choice of values is not a subsequence of a larger request's ladder)
+// — the render visibly changes, exactly the defect this exists to close.
+// LABEL text has no such collision — a tick's number is real, separate
+// text wherever the tick is — so this counts labels instead.
+
+/** `box`/`blocks`/`braille` share one junction table for axis lines
+ *  (AGENTS.md's "Axes" — tick marks are "reused directly from the box
+ *  tier's own JUNCTION table"); only `ascii`'s own table collapses every
+ *  multi-stem entry to `+`, so it needs its own glyph family — used here
+ *  only to FIND the axis row/column, never to read a tick off it. */
+const BOX_AXIS_FAMILY = {
+  horizFamily: new Set(["─", "┴", "└", "┘", "┬", "┼", "├"]),
+  vertFamily: new Set(["│", "┤", "└", "┌", "┼", "├", "┬"]),
+} as const;
+const ASCII_AXIS_FAMILY = {
+  horizFamily: new Set(["-", "+"]),
+  vertFamily: new Set(["|", "+"]),
+} as const;
+
 /**
- * The tick-slider row's own seed value (Dock item "Ticks rows") — the
- * axis's ACTUAL rendered tick count is otherwise unobservable from outside
- * `@glyphcss/charts`; the one place it is ever reported back is a
- * `ticks-thinned` ledger entry's `shown` field (AGENTS.md's "Charts" —
- * "Axes"), logged only when the auto/requested count didn't fit and had to
- * be collision-thinned. No entry for that axis means nothing was thinned —
- * `undefined` here, and the caller falls back to a flat `6`.
+ * Counts tick LABELS on the rendered chart's OWN x-axis row and y-axis
+ * column. Pure — takes the joined `<pre>` text `renderChartsWorkbenchState`
+ * already returns, not a chart/library import. The axis row/column is
+ * found as "whichever row/column carries the most rule-family glyphs" (the
+ * x-axis row is almost entirely `─`/`-` but for its ticks and one corner;
+ * the y-axis column almost entirely `│`/`|`), which fails safe —
+ * `undefined` — on a grid with no discernible axis line at all, rather
+ * than guessing.
+ *
+ * A Y-tick is any row whose own y-axis-column cell is part of the axis
+ * line's glyph family AND carries non-blank text to its left (the
+ * right-aligned number `AGENTS.md`'s "Axes" describes) — this reads the
+ * x-line row's own label (usually "0") exactly like every other tick row,
+ * with no special case, because the glyph-family gate is what excludes an
+ * axis TITLE row sitting above the plot (which has no axis-line glyph at
+ * that column at all) rather than an exclusion keyed on row identity. An
+ * X-tick is a whitespace-separated token on the row directly below the
+ * x-axis line (where `AGENTS.md`'s tick-label row always lands) — reading
+ * text rather than a glyph is also what makes `tickMarks: false` (the
+ * axis drawn as a plain rule, no per-cell tick glyph at all) NOT a blind
+ * spot here: the labels are unaffected by that option
+ * (`tickMarks: false … byte-identical [to] the feature not existing`,
+ * same doc).
  */
-export function chartsWorkbenchActualTicks(ledger: readonly GlyphChartLedgerEntry[], axis: "x" | "y"): number | undefined {
+export function chartsWorkbenchRenderedTickCounts(text: string, charset: GlyphChartCharset): { x: number; y: number } | undefined {
+  const lines = text.split("\n");
+  const rows = lines.length;
+  const cols = lines[0]?.length ?? 0;
+  if (rows === 0 || cols === 0) return undefined;
+  const family = charset === "ascii" ? ASCII_AXIS_FAMILY : BOX_AXIS_FAMILY;
+
+  let xRow = -1, xRowCount = 0;
+  for (let r = 0; r < rows; r++) {
+    const line = lines[r]!;
+    if (line.length !== cols) continue;
+    let count = 0;
+    for (let c = 0; c < cols; c++) if (family.horizFamily.has(line[c]!)) count++;
+    if (count > xRowCount) { xRowCount = count; xRow = r; }
+  }
+  let yCol = -1, yColCount = 0;
+  for (let c = 0; c < cols; c++) {
+    let count = 0;
+    for (let r = 0; r < rows; r++) {
+      const line = lines[r]!;
+      if (line.length === cols && family.vertFamily.has(line[c]!)) count++;
+    }
+    if (count > yColCount) { yColCount = count; yCol = c; }
+  }
+  if (xRow === -1 || yCol === -1) return undefined;
+
+  let y = 0;
+  for (let r = 0; r < rows; r++) {
+    const line = lines[r]!;
+    if (line.length !== cols) continue;
+    if (family.vertFamily.has(line[yCol]!) && line.slice(0, yCol).trim() !== "") y++;
+  }
+  const labelRow = xRow + 1 < rows ? lines[xRow + 1] : undefined;
+  const x = labelRow ? labelRow.split(/\s+/).filter((token) => token !== "").length : 0;
+  return { x, y };
+}
+
+/**
+ * The ticks row's own seed value. Tries the rendered text first
+ * (`chartsWorkbenchRenderedTickCounts`), then the `ticks-thinned` ledger
+ * entry (right when it fires, and the only source left once a degenerate
+ * grid has no discernible axis line to read labels off), and is
+ * `undefined` — never a guessed flat number — when neither has an answer.
+ */
+export function chartsWorkbenchActualTicks(rendered: ChartsWorkbenchRender, axis: "x" | "y", charset: GlyphChartCharset): number | undefined {
+  if (rendered.ok) {
+    const counted = chartsWorkbenchRenderedTickCounts(rendered.text, charset)?.[axis];
+    if (counted !== undefined && counted > 0) return counted;
+  }
+  const ledger = rendered.ok ? rendered.report.ledger : [];
   const entry = ledger.find((e) => e.code === "ticks-thinned" && e.detail?.axis === axis);
   const shown = entry?.detail?.shown;
   return typeof shown === "number" && Number.isFinite(shown) ? shown : undefined;
