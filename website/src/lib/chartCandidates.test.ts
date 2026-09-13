@@ -157,10 +157,21 @@ describe("mutation checks", () => {
 // still supplies), only the mark/channel SHAPE.
 interface GroundTruthCase {
   readonly dataset: ChartsDataset;
-  /** `null` when the curated mapping is expected OUTSIDE the top 3 — a
-   *  documented, deliberate disagreement (see the comment at its use
-   *  site), never a silent gap. */
-  readonly maxRank: number | null;
+  /** Present for the 14 datasets the STATED criterion covers (`docs/design/
+   *  charts.md`'s "Ground truth" — "14 of 16 rank in the top 3"): the
+   *  curated mapping must land at or above this 0-indexed rank. */
+  readonly maxRank?: number;
+  /**
+   * CHARTS-RESEARCH `REVIEW-batch4-codex.md` P2-10 / `-fable.md` F-P3-2:
+   * the two NAMED exceptions used to accept ANY rank under 6 — a loose
+   * bound that would silently absorb a further regression (say, rank 4
+   * sliding to rank 9) with no failing test. Each now pins its OWN real,
+   * currently-measured rank exactly, so a scorer change that moves either
+   * one is caught precisely rather than passing through a wide net; the
+   * "14 of 16 top-3, two named exceptions" summary above these two entries
+   * stays what's actually true, not a rounded-up claim.
+   */
+  readonly exactRank?: number;
 }
 
 function channelsMatch(a: Record<string, string | undefined>, b: Record<string, string | undefined>): boolean {
@@ -187,21 +198,25 @@ const GROUND_TRUTH: readonly GroundTruthCase[] = [
   // that's a RANKING, not a "gold is the interesting measure" claim. With
   // silver/bronze sitting right there and correlated with gold across
   // countries, the multi-measure melt (every medal, per country) and a
-  // gold-vs-silver scatter are both honestly MORE informative than "gold
-  // alone" for this exact table (and the maintainers' own reasoning
-  // agrees — `olympics2024MedalsByType.ts`'s header comment: "the wide-
-  // format sibling dataset only ever charts gold alone", which is why
-  // that second, fuller dataset exists at all). Curation is deliberately
-  // narrow here for editorial reasons (a single clean bar for the front
-  // page); the scorer is not wrong to prefer showing all three medals.
-  { dataset: olympics2024MedalsDataset, maxRank: null },
+  // gold-vs-silver/gold-vs-bronze scatter are both honestly MORE
+  // informative than "gold alone" for this exact table (and the
+  // maintainers' own reasoning agrees — `olympics2024MedalsByType.ts`'s
+  // header comment: "the wide-format sibling dataset only ever charts
+  // gold alone", which is why that second, fuller dataset exists at all).
+  // Curation is deliberately narrow here for editorial reasons (a single
+  // clean bar for the front page); the scorer is not wrong to prefer
+  // showing all three medals. Rank 5 (was 4 before the `isIdLikeColumn`
+  // fix, `docs/design/charts.md`'s "isIdLikeColumn" section — `bronze`'s
+  // ten all-distinct values are a real measure, not an identifier, and
+  // correctly counting it only strengthens this same disagreement).
+  { dataset: olympics2024MedalsDataset, exactRank: 5 },
   // Real Fisher iris: petal_length x petal_width correlates MORE strongly
   // (r ~ 0.96) than the curated sepal_length x petal_length (r ~ 0.87) —
   // both are genuinely strong, cross-part relationships; the curated pick
   // is the more commonly cited pairing but not the statistically
   // stronger one on this exact data, so it lands 4th, not top 3. A
   // defensible information disagreement, not a scorer defect.
-  { dataset: irisFlowersDataset, maxRank: null },
+  { dataset: irisFlowersDataset, exactRank: 3 },
   { dataset: energyFlowSankeyDataset, maxRank: 0 },
   { dataset: ecommerceConversionFunnelDataset, maxRank: 0 },
   { dataset: globalElectricityMixDataset, maxRank: 0 },
@@ -213,23 +228,34 @@ const GROUND_TRUTH: readonly GroundTruthCase[] = [
 ];
 
 describe("ground truth: curated recommendation vs. the general enumeration", () => {
-  it.each(GROUND_TRUTH.map((c) => ({ id: c.dataset.id, ...c })))("$id", ({ dataset, maxRank }) => {
+  it.each(GROUND_TRUTH.map((c) => ({ id: c.dataset.id, ...c })))("$id", ({ dataset, maxRank, exactRank }) => {
     const rank = rankOfCurated(dataset);
-    if (maxRank === null) {
-      // Documented disagreement — assert it stays a NEAR miss (still
-      // found, still respectably ranked), not a regression into "not
-      // found at all" or "buried".
-      expect(rank).toBeGreaterThanOrEqual(0);
-      expect(rank).toBeLessThan(6);
+    if (exactRank !== undefined) {
+      // Pinned exactly — see `GroundTruthCase.exactRank`'s own doc: a
+      // loose "still found somewhere" bound would silently absorb a
+      // further regression instead of catching it.
+      expect(rank).toBe(exactRank);
       return;
     }
     expect(rank).toBeGreaterThanOrEqual(0);
-    expect(rank).toBeLessThanOrEqual(Math.max(maxRank, 2));
+    expect(rank).toBeLessThanOrEqual(Math.max(maxRank!, 2));
   });
 
   it("at least 10 of the 16 curated mappings rank #1", () => {
     const top1 = GROUND_TRUTH.filter((c) => rankOfCurated(c.dataset) === 0).length;
     expect(top1).toBeGreaterThanOrEqual(10);
+  });
+
+  // codex P2-10 / fable F-P3-2: the STATED criterion (`docs/design/
+  // charts.md`'s "Ground truth" — "14 of 16 rank in the top 3") is a
+  // real, checkable claim, not prose — this is what verifies it directly
+  // rather than trusting the per-dataset cases above to add up to it.
+  it("14 of the 16 curated mappings rank in the top 3 — the other 2 are the named exceptions above", () => {
+    const top3 = GROUND_TRUTH.filter((c) => rankOfCurated(c.dataset) <= 2).length;
+    expect(top3).toBe(14);
+    const namedExceptions = GROUND_TRUTH.filter((c) => c.exactRank !== undefined);
+    expect(namedExceptions).toHaveLength(2);
+    for (const c of namedExceptions) expect(rankOfCurated(c.dataset)).toBeGreaterThan(2);
   });
 
   it("every curated mapping is at least FOUND in the enumeration (never absent)", () => {
@@ -344,5 +370,60 @@ describe("review cases", () => {
       expect(c.channels.fill).not.toBe("id");
       expect(c.channels.x).not.toBe("id");
     }
+  });
+
+  // codex P1-8 (`REVIEW-batch4-codex.md`): `{id, name}` rows — every
+  // numeric column IS an identifier, so `effectiveNumbers` must stay
+  // empty rather than falling back to the excluded list. No candidate may
+  // chart `id` as a measure; the enumerator's own last-resort tail must
+  // be what fires (`docs/design/charts.md`'s "isIdLikeColumn" section).
+  it("a table whose only numeric column is an id produces zero measure-based candidates (P1-8)", () => {
+    const rows: TabularRow[] = [{ id: 1, name: "A" }, { id: 2, name: "B" }, { id: 3, name: "C" }, { id: 4, name: "D" }];
+    const candidates = buildChartCandidates(profileRows(rows));
+    for (const c of candidates) {
+      expect(c.channels.y).not.toBe("id");
+      expect(c.channels.value).not.toBe("id");
+      expect(c.channels.fill).not.toBe("id");
+    }
+    // The last-resort "no obvious numeric or date column" bar, and
+    // nothing else — an `id` measure never sneaks back in as a fallback.
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.mark).toBe("bar");
+    expect(candidates[0]!.channels).toEqual({});
+  });
+
+  // fable F-P1-4: an ordinary all-distinct INTEGER year column (never an
+  // identifier by name or by the 0..n-1/1..n row-number shape) must still
+  // be usable as an ordered x — the old blanket "every value distinct ⇒
+  // id" rule excluded it, leaving no candidate charted over year at all.
+  it("a 25-row table with a distinct integer year column offers a real line/area over year, not zero ordered-x candidates (F-P1-4)", () => {
+    const rows: TabularRow[] = Array.from({ length: 25 }, (_, i) => ({
+      year: 2000 + i,
+      gdp: 500 + i * 23 + ((i * 7) % 11),
+      debt: 200 + i * 9 + ((i * 5) % 13),
+    }));
+    const candidates = buildChartCandidates(profileRows(rows));
+    // Under the old blanket "every value distinct ⇒ id" rule, `year` was
+    // excluded from `monotonicNumeric` (`isIdLikeColumn`'s own gate on
+    // `orderedX`) and NO candidate ever charted anything over it — the
+    // reported repro's own "the only candidate is line {y: co2} over the
+    // row index ... no candidate over year at all". A correlated
+    // gdp-vs-debt scatter is free to legitimately outscore it (both were
+    // built as near-linear in `i`, so their own correlation is real, not
+    // a defect) — the claim under test is that year-as-x now EXISTS as a
+    // real candidate, not that it wins.
+    // `year` is now also a legitimate distinct-integer MEASURE in its own
+    // right (not just an ordered x), so it can pair into a `dot` scatter
+    // too (e.g. `year` vs `gdp`) — a genuine additional candidate, not a
+    // defect. The claim under test is narrower: at least one real
+    // line/area over year now exists.
+    const lineOverYear = candidates.filter((c) => c.channels.x === "year" && (c.mark === "line" || c.mark === "area"));
+    expect(lineOverYear.length).toBeGreaterThan(0);
+    for (const c of lineOverYear) expect(["gdp", "debt"]).toContain(c.channels.y);
+    // `gdp`/`debt` must both still be usable as real measures too — a
+    // distinct integer MEASURE (not just the ordered x) must not be
+    // excluded either.
+    expect(candidates.some((c) => c.channels.y === "gdp" || c.channels.value === "gdp")).toBe(true);
+    expect(candidates.some((c) => c.channels.y === "debt" || c.channels.value === "debt")).toBe(true);
   });
 });

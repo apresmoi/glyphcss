@@ -126,4 +126,36 @@ describe("ChartsWorkbench — target × charset × colour matrix (CHARTS-RESEARC
       }
     });
   }
+
+  // P1-3 (CHARTS-RESEARCH `REVIEW-batch4-codex.md`/`-fable.md` P1-5): the
+  // 120-cell matrix above runs at density 1, where a non-`css` colour mode
+  // never carried `.glyph-text` scaled-text markup at all — invisible
+  // there since no cell is scaled at `textScale === 1`. Sweeping `web` at
+  // density 2 across every colour mode is what actually exercises the fix
+  // (`chartsWorkbenchRender.ts`'s web-target rebuild).
+  describe("web × density 2 × colour — Density's own textScale survives every colour mode", () => {
+    function densityInput(): HTMLInputElement {
+      return Array.from(container.querySelectorAll("#charts-controls-panel .controller"))
+        .find((node) => node.querySelector(".name")?.textContent === "Density")!
+        .querySelector<HTMLInputElement>("input")!;
+    }
+    function setDensity(value: string): void {
+      const input = densityInput();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      act(() => { setter.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    }
+
+    for (const color of CHART_COLORS) {
+      it(`web / density 2 / ${color} keeps scaled text markup in every cell`, () => {
+        pickToggle("Target", "web");
+        pickToggle("Color", color);
+        setDensity("2");
+
+        const frame = container.querySelector(".charts-grid-scroll")!;
+        const pre = frame.querySelector("pre.glyph-output")!;
+        expect(pre.innerHTML, `color=${color}`).toContain("glyph-text");
+        expect(pre.innerHTML, `color=${color}`).toContain("font-size:2em");
+      });
+    }
+  });
 });

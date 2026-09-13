@@ -398,6 +398,36 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("#charts-export-panel code")!.textContent).not.toContain('"ticks"');
   });
 
+  // agy P3-1 (`REVIEW-batch4-agy.md`): an INVALID (non-empty, non-numeric)
+  // draft left in the field on blur — never submitted with Enter — must
+  // revert to the last VALID committed count, not stay stuck showing the
+  // invalid text. lil-gui's own `NumberController.onInput` never commits
+  // a `NaN` parse (`isNaN(value)) return;`, so the internal value stays
+  // whatever was last committed, and its own blur handler calls
+  // `updateDisplay()` once `_inputFocused` goes false — restoring the
+  // displayed text to that same committed value with no page-level code
+  // needed for the non-empty case (only the EMPTY case needs this page's
+  // own `emptied` tracking, since lil-gui has no "go back to auto"
+  // concept of its own — the other test above).
+  it("the X ticks number field: an invalid (non-numeric) draft left on blur reverts to the last valid count", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const autoCheckbox = controller("X ticks: auto").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    act(() => autoCheckbox.click());
+    const numberInput = controller("X ticks").querySelector<HTMLInputElement>(".widget input")!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    // Commit a real value first.
+    act(() => { setter.call(numberInput, "12"); numberInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => numberInput.dispatchEvent(new Event("blur")));
+    act(() => button("Export").click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"ticks": 12');
+    // Now leave an invalid, non-empty draft and blur WITHOUT Enter.
+    act(() => { setter.call(numberInput, "abc"); numberInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    act(() => numberInput.dispatchEvent(new Event("blur")));
+    expect(numberInput.value).toBe("12");
+    expect(autoCheckbox.checked).toBe(false);
+    expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"ticks": 12');
+  });
+
   // Dock item "Axis Title + Title at" — the X/Y axis Title-at rows reach
   // the real render; specifically, "Title at: end" moves the rendered
   // x-title text to a later column than the library's own "center"
@@ -1230,6 +1260,45 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     void before; // (documents intent: a different dataset than "none selected" — the exact id is randomized, not asserted)
   }, 10_000);
 
+  // codex P2-13 (`REVIEW-batch4-codex.md`): a response body that fails to
+  // READ (an HTTP 200 that then drops mid-transfer) used to escape both
+  // `loadDatasetRows` and `ChartsWorkbench.tsx`'s own catch as a silent
+  // no-op — no notice, no fallback, the loading spinner just vanishing.
+  // Mounted repro, mirroring the 404 case above exactly but injecting a
+  // body-read rejection instead of a bad status — a pasted raw-file URL
+  // (`kind: "url"`) rather than a bare HF id, so this actually reaches
+  // `loadRawFile`'s OWN body read (`readTextCapped`) rather than the
+  // Hugging Face splits/meta calls, which were already individually
+  // try/caught before this fix.
+  it("a body-read failure after HTTP 200 shows the same load-failure notice and fallback as a network error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true, status: 200, headers: { get: () => null },
+      text: async () => { throw new TypeError("network read failed"); },
+    })));
+    mount();
+    const rawFileUrl = "https://raw.githubusercontent.com/o/r/main/d.csv";
+    const input = container.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, rawFileUrl);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    const start = Date.now();
+    const hasLoadFailureFeedback = () => Array.from(container.querySelectorAll(".charts-readout")).some((el) => el.textContent?.includes("Couldn't load"));
+    while (!hasLoadFailureFeedback()) {
+      if (Date.now() - start > 5000) throw new Error("timed out waiting for the load-failure fallback");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    expect(CHARTS_DATASETS.map((d) => d.id)).toContain(container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value);
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    // No stuck spinner — the loading readout is gone, not merely
+    // superseded by a later one.
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+  }, 10_000);
+
   it("a ?c= link naming a remote dataset re-fetches on decode (rows are never in the link) and renders the fresh chart", async () => {
     stubFetch();
     const linkState = {
@@ -1271,6 +1340,83 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     act(() => {});
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     expect(container.querySelector(".charts-error")).toBeNull();
+  }, 10_000);
+
+  // P1-4 (CHARTS-RESEARCH `REVIEW-batch4-codex.md`): the existing
+  // generation guard (this describe block's own doc, above — P2-5) only
+  // ever protected a remote load against a LATER remote load. Picking a
+  // STOCK dataset while an earlier remote fetch is still in flight left
+  // that guard untouched, so the stale remote result landed on TOP of the
+  // reader's stock pick once it finally resolved.
+  it("selecting a stock dataset while a remote load is in flight keeps the stock pick when the remote response later resolves", async () => {
+    let resolveRows: ((response: Response) => void) | undefined;
+    const rowsPromise = new Promise<Response>((resolve) => { resolveRows = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.startsWith("https://datasets-server.huggingface.co/splits?")) {
+        return new Response(JSON.stringify({ splits: [{ config: "default", split: "train" }] }), { status: 200 });
+      }
+      if (url.startsWith("https://datasets-server.huggingface.co/rows?")) {
+        return rowsPromise; // deferred — this test resolves it explicitly, below
+      }
+      throw new Error(`unstubbed url in test: ${url}`);
+    }));
+    mount();
+    // Pasted bare id: `parseDatasetHitFromQuery` recognizes it with no
+    // search-endpoint call, so only `/splits` + the deferred `/rows` are
+    // in flight once this fires (mirrors the "failing remote load" test's
+    // own paste-and-Enter path, above).
+    const input = container.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, STUB_ID);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    // The remote load is now in flight (`/rows` deferred) — wait for the
+    // rail's own loading readout (`.charts-data-loading`,
+    // `ChartsDataFolder.tsx`) so the stock pick below genuinely lands
+    // WHILE it's outstanding, not before `loadRemoteDataset` even started.
+    const loadingStart = Date.now();
+    while (!container.querySelector(".charts-data-loading")?.textContent?.includes(STUB_ID)) {
+      if (Date.now() - loadingStart > 3000) throw new Error("timed out waiting for the remote load's loading title");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+
+    // Pick a stock dataset via the overlay's own `<select>` — the SAME
+    // control `ChartsDataOverlay.tsx` renders, dispatching `select-dataset`
+    // directly (never through `loadRemoteDataset`).
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      select.value = "iris-flowers";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(select.value).toBe("iris-flowers");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Iris");
+
+    // Now let the STALE remote response resolve.
+    resolveRows!(new Response(JSON.stringify({
+      features: [{ name: "x" }, { name: "y" }],
+      rows: [{ row_idx: 0, row: { x: 1, y: 2 } }, { row_idx: 1, row: { x: 3, y: 4 } }],
+      num_rows_total: 2,
+    }), { status: 200 }));
+    // Give the resolved promise's microtask/state-update chain a real beat
+    // to run (the same `setTimeout` polling idiom every other test in this
+    // block uses) — if the defect were still present this is exactly the
+    // window in which the remote dispatch would land on top of the stock
+    // pick.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    act(() => {});
+
+    expect(select.value).toBe("iris-flowers");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Iris");
+    // The stale remote dispatch never landed — `select` is still `"dataset"`
+    // sourced (never `"remote"`), so no `.charts-data-loading` readout
+    // exists and the dataset title is still the stock one, not the stub.
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+    expect(container.querySelector(".charts-data-title")?.textContent).not.toBe(STUB_ID);
   }, 10_000);
 });
 

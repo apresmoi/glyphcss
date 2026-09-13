@@ -45,7 +45,7 @@ export type DatasetLoadResult =
   | { readonly ok: false; readonly kind: "gated" | "not-found" | "network" | "too-big" | "not-tabular"; readonly error: string };
 
 /** The transport seam — defaults to a real `fetch`; injected by tests, which must never touch the network. `status` and a capped, decoded `text` are what every caller here actually needs (never `.json()` directly — a fallback path must inspect the raw body before deciding how to parse it). */
-export type DatasetLoadFetch = (url: string, init?: { signal?: AbortSignal }) => Promise<{ readonly ok: boolean; readonly status: number; readonly headers: { get(name: string): string | null }; text(): Promise<string>; body?: ReadableStream<Uint8Array> | null }>;
+export type DatasetLoadFetch = (url: string, init?: { signal?: AbortSignal; redirect?: "follow" }) => Promise<{ readonly ok: boolean; readonly status: number; readonly headers: { get(name: string): string | null }; text(): Promise<string>; body?: ReadableStream<Uint8Array> | null }>;
 
 export interface DatasetLoadOptions {
   readonly fetch?: DatasetLoadFetch;
@@ -54,7 +54,17 @@ export interface DatasetLoadOptions {
   readonly maxBytes?: number;
 }
 
-function isAbort(error: unknown): boolean {
+// agy P3-3 (`REVIEW-batch4-agy.md`): every real `fetch` call below passes
+// `redirect: "follow"` EXPLICITLY — a browser's own default, so this is a
+// no-op there, but the Node test harness `datasetLoad.test.ts` runs
+// against (and any other non-browser `fetch` implementation this module
+// might someday run under) is not guaranteed to share that default.
+
+/** Exported so `ChartsWorkbench.tsx`'s own catch (codex P2-13) can tell a
+ *  cancelled/superseded load apart from any OTHER throw that escapes this
+ *  module, rather than assuming every throw is an abort — the one shared
+ *  definition, not a second copy drifting from this one. */
+export function isAbort(error: unknown): boolean {
   return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
@@ -115,7 +125,7 @@ async function loadRawFile(url: string, source: DatasetLoadSource, options: Data
   const maxRows = options.maxRows ?? DATASET_LOAD_DEFAULT_MAX_ROWS;
   let res: Awaited<ReturnType<DatasetLoadFetch>>;
   try {
-    res = await load(url, { signal: options.signal });
+    res = await load(url, { signal: options.signal, redirect: "follow" });
   } catch (error) {
     if (isAbort(error)) throw error;
     return { ok: false, kind: "network", error: `Could not reach ${url}.` };
@@ -141,7 +151,24 @@ async function loadRawFile(url: string, source: DatasetLoadSource, options: Data
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes * 4) {
     return { ok: false, kind: "too-big", error: `${filenameOf(url)} is ${Math.ceil(declaredLength / 1024)} KB — too large to load even truncated.` };
   }
-  const { text, truncated } = await readTextCapped(res, maxBytes);
+  // codex P2-13 (`REVIEW-batch4-codex.md`): an HTTP-200 response can still
+  // fail while its BODY streams (a dropped connection mid-transfer) —
+  // `readTextCapped`'s `reader.read()`/`res.text()` calls had no guard at
+  // all, so that rejection escaped `loadRawFile`, then `loadDatasetRows`,
+  // as an uncaught throw. `ChartsWorkbench.tsx`'s own catch assumed every
+  // throw from `loadDatasetRows` meant "cancelled" (a superseded/aborted
+  // load) and silently cleared the loading state with no notice and no
+  // fallback — the READER never learned the load failed at all. Reported
+  // here as the SAME structured `network` failure a request that never
+  // even connected gets, so every body-read failure reaches the page as
+  // a `DatasetLoadResult`, never a throw.
+  let text: string, truncated: boolean;
+  try {
+    ({ text, truncated } = await readTextCapped(res, maxBytes));
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    return { ok: false, kind: "network", error: `${filenameOf(url)}'s body could not be read.` };
+  }
   const filename = filenameOf(url);
   const parsed = parseTabular(truncated ? dropTrailingPartialLine(text, filename) : text, { filename });
   if (!parsed.ok) return { ok: false, kind: truncated ? "too-big" : "not-tabular", error: truncated ? `${filename} is too large and could not be parsed from a truncated copy.` : parsed.error };
@@ -176,7 +203,7 @@ async function loadHfRows(id: string, split: HfSplit, source: DatasetLoadSource,
     const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(id)}&config=${encodeURIComponent(split.config)}&split=${encodeURIComponent(split.split)}&offset=${offset}&length=${length}`;
     let res: Awaited<ReturnType<DatasetLoadFetch>>;
     try {
-      res = await load(url, { signal: options.signal });
+      res = await load(url, { signal: options.signal, redirect: "follow" });
     } catch (error) {
       if (isAbort(error)) throw error;
       return rows.length > 0 ? { ok: true, rows, columns: [...new Set(rows.flatMap((r) => Object.keys(r)))], source, truncated: true } : null;
@@ -239,7 +266,7 @@ async function loadHfDataset(id: string, options: DatasetLoadOptions): Promise<D
   const source: DatasetLoadSource = { name: `Hugging Face — ${id}`, url: `https://huggingface.co/datasets/${id}` };
   let splitsRes: Awaited<ReturnType<DatasetLoadFetch>>;
   try {
-    splitsRes = await load(`https://datasets-server.huggingface.co/splits?dataset=${encodeURIComponent(id)}`, { signal: options.signal });
+    splitsRes = await load(`https://datasets-server.huggingface.co/splits?dataset=${encodeURIComponent(id)}`, { signal: options.signal, redirect: "follow" });
   } catch (error) {
     if (isAbort(error)) throw error;
     return { ok: false, kind: "network", error: "Could not reach Hugging Face." };
@@ -261,7 +288,7 @@ async function loadHfDataset(id: string, options: DatasetLoadOptions): Promise<D
   // back to the Hub's own file listing.
   let metaRes: Awaited<ReturnType<DatasetLoadFetch>>;
   try {
-    metaRes = await load(`https://huggingface.co/api/datasets/${encodeURIComponent(id)}`, { signal: options.signal });
+    metaRes = await load(`https://huggingface.co/api/datasets/${encodeURIComponent(id)}`, { signal: options.signal, redirect: "follow" });
   } catch (error) {
     if (isAbort(error)) throw error;
     return { ok: false, kind: "network", error: "Could not reach Hugging Face." };

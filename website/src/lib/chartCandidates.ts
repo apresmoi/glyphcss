@@ -59,12 +59,26 @@ export function barAxisColumns(columns: readonly ColumnProfile[], rowCount: numb
 const ID_LIKE_NAME_RE = /^(id|_id|index|idx|key|uuid|row|n|no\.?|number)$/i;
 const ID_LIKE_SUFFIX_RE = /_id$|Id$/;
 
-/** True when every value the column has is one integer 0..n-1 or 1..n, or
- *  the column is otherwise unique per non-null row. */
+/** True when the column's NAME reads as a row identifier/ordinal, or every
+ *  value it has is one integer 0..n-1 or 1..n (a real index/row-number
+ *  sequence) — never mere `cardinality: "unique"` on its own.
+ *
+ * CHARTS-RESEARCH `REVIEW-batch4-fable.md` F-P1-4: a plain "every value is
+ * distinct" rule (the previous `col.cardinality === "unique"` early
+ * return) also caught an ordinary all-distinct-year column (30 rows,
+ * 1990..2019) or a genuinely distinct integer MEASURE (population beside a
+ * tied `medals` count) — neither is an identifier, and excluding them left
+ * no ordered-x candidate for the year table at all (the vendored 16
+ * datasets dodge this because their years are ISO strings, not integers —
+ * `global-temperature`'s `year: "1880-01-01"`). Distinctness alone says
+ * nothing about IDENTITY; only the column's own NAME, or the specific
+ * 0..n-1/1..n row-number SHAPE, does. Mutation M9 (`REVIEW-batch4-fable.md`)
+ * deleted the old rule and left all 33 `chartCandidates` tests green — this
+ * rule now has its own repro (`chartCandidates.test.ts`'s "F-P1-4" block).
+ */
 export function isIdLikeColumn(col: ColumnProfile, rowCount: number): boolean {
   if (ID_LIKE_NAME_RE.test(col.name) || ID_LIKE_SUFFIX_RE.test(col.name)) return true;
   if (col.type !== "integer") return false;
-  if (col.cardinality === "unique") return true;
   const nonNullCount = rowCount - col.nullCount;
   if (nonNullCount > 1 && typeof col.min === "number" && typeof col.max === "number" && col.distinctCount === nonNullCount) {
     if (col.min === 0 && col.max === nonNullCount - 1) return true;
@@ -799,7 +813,18 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
   const numbers = numericColumns(columns);
   const categories = categoryColumns(columns);
   const measureNumbers = numbers.filter((c) => !isIdLikeColumn(c, rowCount));
-  const effectiveNumbers = measureNumbers.length > 0 ? measureNumbers : numbers;
+  // codex P1-8 (`REVIEW-batch4-codex.md`): the old fallback
+  // (`measureNumbers.length > 0 ? measureNumbers : numbers`) reintroduced
+  // every excluded identifier the instant they were the table's ONLY
+  // numeric columns — an `{id, name}` table's top candidate was a pie of
+  // `id`. When every numeric column is an identifier there is no measure
+  // at all; `effectiveNumbers` stays empty, every candidate loop below
+  // that iterates it contributes nothing, and the "no obvious numeric or
+  // date column found" last-resort fallback (this function's own tail)
+  // fires instead — `remoteDatasetRecommendationCheck` then reports
+  // `{ ok: false }` and the dataset is never dispatched or recorded as
+  // Recent (`ChartsWorkbench.tsx`'s own pre-dispatch usability check).
+  const effectiveNumbers = measureNumbers;
   const monotonicNumeric = numbers.filter((c) => !isIdLikeColumn(c, rowCount) && c.monotonic && c.monotonic !== "none");
   const orderedX = [...dates, ...monotonicNumeric];
   const groupEligible = rowCount > CHART_CANDIDATE_GROUP_ROW_THRESHOLD;

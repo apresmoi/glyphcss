@@ -8,7 +8,7 @@ import {
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
-import { loadDatasetRows } from "../../lib/datasetLoad";
+import { isAbort, loadDatasetRows } from "../../lib/datasetLoad";
 import { parseDatasetHitFromQuery, type DatasetHit } from "../../lib/datasetSearch";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDataOverlay } from "./ChartsDataOverlay";
@@ -150,6 +150,23 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // fighting the CSS rule that already says so.
   const density = chartsWorkbenchEffectiveDensity(state.controls);
   const densityStyle = density !== 1 ? { fontSize: `calc(${CHARTS_DENSITY_BASE_FONT_PX}px / ${density})`, lineHeight: 1 } : undefined;
+  // Copy ASCII/Copy ANSI must read the LOGICAL (density 1) render, not the
+  // dense one (CHARTS-RESEARCH `REVIEW-batch4-fable.md` F-P1-5): the
+  // plain-text/ANSI exits ignore `textScale` by contract (AGENTS.md's
+  // "Charts" "Density" — "The plain-text/ANSI exits … ignore textScale
+  // entirely"), so a dense grid's own `text`/`ansi` shows a scaled
+  // label's origin glyph plus its now-real filler blanks verbatim —
+  // `N a t i o n a l` instead of `National`. Density's own on-screen box
+  // holds still while the picture sharpens (this file's own `densityStyle`
+  // doc), so what a reader is LOOKING at is not what Copy should hand
+  // them; a second density-1 render (skipped entirely at density 1, the
+  // overwhelming default) recovers the readable text.
+  const logicalRendered = useMemo(
+    () => (density === 1 ? rendered : renderChartsWorkbenchState({
+      ...state, controls: { ...state.controls, overrides: { ...state.controls.overrides, density: 1 } },
+    })),
+    [state, density, rendered],
+  );
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
   // REVIEW-dock-colours-sliders-opus.md) — computed on the SAME styled
   // spec the real render uses, so a swatch always shows the colour that
@@ -237,6 +254,30 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const remoteLoadController = useRef<AbortController | null>(null);
   const remoteLoadSeq = useRef(0);
   useEffect(() => () => remoteLoadController.current?.abort(), []);
+  // P1-4 (CHARTS-RESEARCH `REVIEW-batch4-codex.md`): the generation guard
+  // above only ever protected a remote load against a LATER remote load —
+  // picking a STOCK dataset (the overlay's own `<select>`, or "Random")
+  // while a remote fetch is still in flight left `remoteLoadSeq`
+  // untouched, so the stock pick landed and then the STALE remote result
+  // resolved on top of it, silently replacing what the reader just chose.
+  // Both stock-pick paths call this before their own `select-dataset`
+  // dispatch, so any in-flight remote load's `seq !== remoteLoadSeq.current`
+  // check (inside `loadRemoteDataset`, below) discards it on arrival —
+  // the same generation mechanism a second remote pick already used,
+  // just armed from one more place.
+  const cancelInFlightRemoteLoad = useCallback(() => {
+    remoteLoadController.current?.abort();
+    remoteLoadController.current = null;
+    remoteLoadSeq.current += 1;
+    // The superseded load's own `if (seq !== remoteLoadSeq.current) return;`
+    // early-return (inside `loadRemoteDataset`, below) skips its
+    // `setRemoteLoadingTitle(undefined)` call too — by design, since a
+    // NEWER remote load already overwrites the title with its own before
+    // that matters. A stock pick sets no such replacement, so without this
+    // the rail's "Loading stub/demo ⟳" readout would stay stuck on screen
+    // showing a fetch nothing is still waiting on.
+    setRemoteLoadingTitle(undefined);
+  }, []);
   const loadRemoteDataset = useCallback(async (hit: DatasetHit) => {
     remoteLoadController.current?.abort();
     const controller = new AbortController();
@@ -246,12 +287,25 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     let result: Awaited<ReturnType<typeof loadDatasetRows>>;
     try {
       result = await loadDatasetRows(hit, { signal: controller.signal });
-    } catch {
+    } catch (error) {
+      if (seq !== remoteLoadSeq.current) return; // superseded while in flight — nothing to report
+      setRemoteLoadingTitle(undefined);
       // An aborted load (superseded by a later pick, or the component
       // unmounting) rejects rather than resolving `{ ok: false }` — a
       // newer load (or nothing) already owns the UI, so there's nothing
       // to report and nothing to touch.
-      if (seq === remoteLoadSeq.current) setRemoteLoadingTitle(undefined);
+      if (isAbort(error)) return;
+      // codex P2-13 (`REVIEW-batch4-codex.md`): every OTHER throw used to
+      // be treated the same as an abort — a body-read failure after a
+      // real HTTP 200 (`datasetLoad.ts`'s own P2-13 fix converts that one
+      // specific case to a structured result, but this branch stays
+      // honest about the general case: nothing guarantees every future
+      // failure mode inside the loader is caught there too) silently
+      // cleared the loading state with no notice and no fallback — the
+      // SAME feedback a structured `!result.ok` failure gets, below.
+      skipNextNoticeClear.current = true;
+      dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
+      setDatasetNotice(`Couldn't load "${hit.title}": ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
     if (seq !== remoteLoadSeq.current) return; // superseded while in flight
@@ -313,8 +367,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const [copyLinkState, setCopyLinkState] = useState<"idle" | "copied" | "error" | "toolarge">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloaded" | "error">("idle");
   const copy = async (encoding: "ascii" | "ansi") => {
-    if (!rendered.ok) return;
-    const value = encoding === "ascii" ? rendered.text : rendered.ansi;
+    if (!logicalRendered.ok) return;
+    const value = encoding === "ascii" ? logicalRendered.text : logicalRendered.ansi;
     if (value === undefined) return;
     const setState = encoding === "ascii" ? setCopyAsciiState : setCopyAnsiState;
     try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
@@ -355,15 +409,17 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={() => void copy("ascii")}>
+    <button type="button" className="gw-code-panel__action" disabled={!logicalRendered.ok} onClick={() => void copy("ascii")}>
       {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
     </button>
     {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3):
      *  a chat paste shows SGR escapes as literal `\x1b[38;2;…m` text, so
      *  offering this export on a target that can never consume it is a
      *  trap, not a convenience — Copy ASCII (above) is the honest export
-     *  there. */}
-    {rendered.ok && rendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+     *  there. Gated on `logicalRendered` (not `rendered`) since that is
+     *  what `copy("ansi")` actually reads — colour mode, not density,
+     *  decides whether ANSI text exists, so the two agree in practice. */}
+    {logicalRendered.ok && logicalRendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
@@ -383,9 +439,19 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // `handleRandomPreset`/`randomPreset` idiom (`randomChartsDatasetId`'s
   // own `excludeId`).
   const handleRandomDataset = () => {
+    cancelInFlightRemoteLoad(); // P1-4 — see this ref's own doc, above
     const currentId = state.data.source?.kind === "dataset" ? state.data.source.id : undefined;
     dispatch({ type: "select-dataset", id: randomChartsDatasetId(currentId) });
   };
+  // P1-4: the overlay's own `<select>` dispatches `select-dataset` DIRECTLY
+  // (it has no `loadRemoteDataset` of its own to route through), so this
+  // wrapper is what gives that pick the same in-flight-remote cancellation
+  // `handleRandomDataset` gets — every other action type passes straight
+  // through, unmodified.
+  const overlayDispatch = useCallback<typeof dispatch>((action) => {
+    if (action.type === "select-dataset") cancelInFlightRemoteLoad();
+    dispatch(action);
+  }, [cancelInFlightRemoteLoad]);
 
   // The rail's own header (`InstrumentRail`'s mandatory `.synth-voices-head`
   // chrome) reads the SELECTED dataset's own title rather than a static
@@ -445,7 +511,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
         {/* Sibling of `<InstrumentViewport>`, exactly where `MapSearchBox`
          *  sits on `/maps` — the same overlay idiom, three controls in one
          *  bar instead of one. */}
-        <ChartsDataOverlay activeDatasetId={activeDatasetId} dispatch={dispatch}
+        <ChartsDataOverlay activeDatasetId={activeDatasetId} dispatch={overlayDispatch}
           onSelectRemote={(hit) => void loadRemoteDataset(hit)} onRandom={handleRandomDataset} />
         <div className="synth-export-bar">
           {exportActions}

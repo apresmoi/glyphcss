@@ -10,14 +10,20 @@ import { ansiSpansToHtml, parseAnsiToSpans } from "./ansiToSpans";
  * unchanged regardless of which frame wraps it.
  *
  * - `web`: the `<pre>` as it always rendered — Glyph Mono, no chrome.
- *   Colour renders through whichever exit the library actually produced
- *   for the request: CSS spans (`isHtml`/`html`) for `color: "css"`, or —
- *   CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C1 — the SAME `ansiToSpans`
- *   decode `terminal` already used for `ansi16`/`ansi256`/`truecolor`. A
- *   browser has no ANSI decoder of its own; before this fix `web` simply
- *   never looked at `ansi` at all, so an ANSI colour mode rendered as plain
- *   text with Copy ANSI still on offer. `color: "none"`/`"css"` render
- *   byte-identically to before this component existed.
+ *   `isHtml`/`html` wins whenever present (CHARTS-RESEARCH
+ *   `REVIEW-batch4-codex.md` P1-3): at Density's own `textScale > 1`,
+ *   `chartsWorkbenchRender.ts` now rebuilds `html` for EVERY colour mode
+ *   (stripped for `none`, requantized to the ANSI palette for
+ *   `ansi16`/`ansi256`, used as-is for `truecolor`/`css`) purely to carry
+ *   the `.glyph-text` scaled-text markup an ANSI/plain decode has no way
+ *   to express, so text keeps its size under Density regardless of colour
+ *   mode. At `textScale === 1` (density 1, the library's own default) a
+ *   non-`css` render carries no `html` at all, same as before, and falls
+ *   through to the ANSI decode below — CHARTS-RESEARCH
+ *   `DIAGNOSIS-target-matrix.md` C1: the SAME `ansiToSpans` decode
+ *   `terminal` already used for `ansi16`/`ansi256`/`truecolor` (a browser
+ *   has no ANSI decoder of its own). `color: "none"`/`"css"` at density 1
+ *   render byte-identically to before either fix existed.
  * - `terminal`: a terminal-window frame (dark chrome + title bar showing
  *   the command a real CLI call would use) around the SGR string decoded
  *   into `<span>`s by `ansiToSpans`. `color: "css"` has no SGR to decode
@@ -84,8 +90,18 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   // `chat` never shows colour (see this file's own doc, "C3") — checked
   // ahead of everything else so neither branch below has to re-derive it.
   const colorForChat = target === "chat" && (ansi !== undefined || (isHtml && html !== undefined));
-  const useAnsi = target !== "chat" && ansi !== undefined;
-  const useHtml = target !== "chat" && !useAnsi && isHtml && html !== undefined;
+  // `html` wins over `ansi` when both are present — the ONE case that
+  // happens in is `web` under Density's own text-scale fix
+  // (`chartsWorkbenchRender.ts`'s P1-3 fix, CHARTS-RESEARCH
+  // `REVIEW-batch4-codex.md`/`-fable.md`): a web render at `textScale > 1`
+  // under an ANSI colour mode carries BOTH the true `ansi` SGR text (for
+  // Copy ANSI) AND an `html` rebuilt from a `color: "css"` render purely
+  // to recover the `.glyph-text` scaled markup an ANSI decode has no way
+  // to express. Every OTHER call site keeps the two mutually exclusive
+  // (`ansi` is only ever set alongside `html` by this one path), so the
+  // swap changes nothing for `terminal` or for `web` at density 1.
+  const useHtml = target !== "chat" && isHtml && html !== undefined;
+  const useAnsi = target !== "chat" && !useHtml && ansi !== undefined;
   // `ansi === undefined` is what tells `color: "css"` apart from an actual
   // ANSI mode here — the only other source of `useHtml` on `terminal`.
   const terminalCssNote = target === "terminal" && useHtml && ansi === undefined;

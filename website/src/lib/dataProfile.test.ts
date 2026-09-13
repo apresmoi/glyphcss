@@ -96,9 +96,16 @@ describe("recommendChart", () => {
   });
 
   it("recommends cell (heatmap) for category x category x numeric", () => {
+    // Values deliberately NOT the exact `1..n` sequence a 4-row sample of
+    // 1,2,3,4 would coincidentally form — `isIdLikeColumn` (CHARTS-RESEARCH
+    // `REVIEW-batch4-fable.md` F-P1-4) correctly treats a genuine 1..n
+    // row-number shape as an identifier, and a 4-distinct-value column
+    // that happens to BE 1,2,3,4 is indistinguishable from one at this
+    // sample size — realistic, non-sequential measurements avoid that
+    // coincidence without weakening what this test is actually checking.
     const rows: TabularRow[] = [
-      { day: "Mon", hour: "AM", value: 1 }, { day: "Mon", hour: "PM", value: 2 },
-      { day: "Tue", hour: "AM", value: 3 }, { day: "Tue", hour: "PM", value: 4 },
+      { day: "Mon", hour: "AM", value: 5 }, { day: "Mon", hour: "PM", value: 12 },
+      { day: "Tue", hour: "AM", value: 8 }, { day: "Tue", hour: "PM", value: 20 },
     ];
     const recs = recommendChart(profileRows(rows));
     expect(recs.some((r) => r.mark === "cell")).toBe(true);
@@ -120,7 +127,14 @@ describe("recommendChart", () => {
   // recommender's own last-resort "by row order" line/bar fallback is what a
   // reader actually gets, matching AGENTS.md's `renderGlyphChart` shorthand.
   it("recommends a 'by row order' line for a bare numeric-array shape (single 'value' column)", () => {
-    const rows: TabularRow[] = [{ value: 1 }, { value: 2 }, { value: 3 }];
+    // `10, 25, 7` rather than `1, 2, 3` — a 3-row sample of exactly
+    // `1, 2, 3` is byte-identical to a genuine 1..n row-number column at
+    // this size, and `isIdLikeColumn` (CHARTS-RESEARCH `REVIEW-batch4-
+    // fable.md` F-P1-4) correctly excludes that shape as an identifier —
+    // realistic, non-sequential values keep this test's real claim (a
+    // lone numeric column still charts by row order) independent of that
+    // coincidence.
+    const rows: TabularRow[] = [{ value: 10 }, { value: 25 }, { value: 7 }];
     const [top] = recommendChart(profileRows(rows));
     expect(top!.mark).toBe("line");
     expect(top!.channels).toEqual({ y: "value" });

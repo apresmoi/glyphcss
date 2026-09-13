@@ -260,6 +260,48 @@ describe("loadDatasetRows — raw URL (pasted GitHub/HF-resolve link)", () => {
     if (!result.ok) expect(result.kind).toBe("not-found");
   });
 
+  // codex P2-13 (`REVIEW-batch4-codex.md`): an HTTP-200 response whose BODY
+  // read then rejects (a dropped connection mid-transfer) used to escape
+  // `loadRawFile` as an uncaught throw — `readTextCapped`'s own
+  // `res.text()`/`reader.read()` calls had no guard. `loadDatasetRows`
+  // must resolve to a structured `{ ok: false, kind: "network" }` here,
+  // never reject.
+  it("kind: network when the body read rejects after a 200 (never a throw)", async () => {
+    const fetchImpl: DatasetLoadFetch = async () => ({
+      ok: true, status: 200, headers: { get: () => null },
+      text: async () => { throw new TypeError("network read failed"); },
+    });
+    await expect(loadDatasetRows(urlHit, { fetch: fetchImpl })).resolves.toEqual(
+      expect.objectContaining({ ok: false, kind: "network" }),
+    );
+  });
+
+  // Same failure, this time through the STREAMING path (`readTextCapped`'s
+  // `reader.read()`) — a real dropped connection mid-stream, not just a
+  // rejected `.text()`.
+  it("kind: network when a streamed body's reader rejects mid-read", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(new TypeError("stream aborted")); },
+    });
+    const fetchImpl: DatasetLoadFetch = async () => ({
+      ok: true, status: 200, headers: { get: () => null }, text: async () => "unused", body,
+    });
+    const result = await loadDatasetRows(urlHit, { fetch: fetchImpl });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.kind).toBe("network");
+  });
+
+  // agy P3-3 (`REVIEW-batch4-agy.md`): every real fetch call passes
+  // `redirect: "follow"` explicitly rather than relying on the runtime's
+  // own default.
+  it("passes redirect: \"follow\" on every fetch call", async () => {
+    const inits: (RequestInit | undefined)[] = [];
+    const fetchImpl: DatasetLoadFetch = async (_url, init) => { inits.push(init); return res(200, "x\n1\n"); };
+    await loadDatasetRows(urlHit, { fetch: fetchImpl });
+    expect(inits.length).toBeGreaterThan(0);
+    for (const init of inits) expect(init?.redirect).toBe("follow");
+  });
+
   it("kind: gated on a 401/403", async () => {
     const fetchImpl: DatasetLoadFetch = async () => res(403, "");
     const result = await loadDatasetRows(urlHit, { fetch: fetchImpl });
