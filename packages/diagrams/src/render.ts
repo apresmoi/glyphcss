@@ -4,7 +4,7 @@ import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from
 import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions } from "./pipeline";
 import { routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import { paintGlyphDiagram } from "./paint";
-import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR } from "./degrade";
+import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph, glyphDiagramCompactionFloor } from "./degrade";
 import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
@@ -67,41 +67,61 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const overflowOrRoutingAttempt = (current: GlyphDiagramAttempt, stage: "degrade" | "split"): GlyphDiagramLedgerEntry[] =>
     current.fits
       ? current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage }))
-      : [ledgerLayoutOverflow({ stage, width: current.layout.width, height: current.layout.height, requestedWidth: opts.width, requestedHeight: opts.height })];
+      : [ledgerLayoutOverflow({ stage, layoutWidth: current.layout.width, layoutHeight: current.layout.height, requestedWidth: opts.width, requestedHeight: opts.height })];
   let current = await attempt(graph);
   if (opts.detail === "simplified" || !current.okay) {
-    ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
-    // RC2: a compaction rung before any semantic degradation. Neither
-    // candidate touches the graph's content, so it applies in every detail
-    // mode including "faithful". Tried in order — a smaller margin first
-    // (free: it only removes the engine's own leading whitespace), then the
-    // smallest nodesep/ranksep the port-lane reservation still tolerates
-    // (`GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR`) — and kept only if it actually
-    // fits; a candidate that doesn't help is discarded rather than left
-    // partially applied.
+    // REVIEW-diagrams-fanout-opus.md P2-1/P2-2: a compaction rung before any
+    // semantic degradation. Neither candidate touches the graph's content,
+    // so it applies in every detail mode including "faithful".
+    // `glyphDiagramCompactionFloor` derives, per graph, the smallest
+    // nodesep/ranksep its own widest fan-in/out still needs (N+1 — see
+    // degrade.ts's doc comment); every integer spacing from the caller's
+    // own value down to that floor is tried in order (never skipped
+    // straight to the floor, and no longer gated on the caller's spacing
+    // exceeding a flat constant — a floor at or below the library default
+    // must still be reachable). The first candidate that both fits AND
+    // routes every edge wins outright; a candidate that merely fits is kept
+    // only as a fallback in case none is fully routable, so a narrower
+    // candidate further down the list is never skipped for a wider one that
+    // fits but leaves edges stranded.
     if (!current.fits) {
-      const nodesep = opts.nodesep ?? 4, ranksep = opts.ranksep ?? 4;
+      const preferredNodesep = opts.nodesep ?? 4, preferredRanksep = opts.ranksep ?? 4;
+      const floor = glyphDiagramCompactionFloor(graph);
       const candidates: Array<typeof spacing> = [{ margin: 0 }];
-      if (nodesep > GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR || ranksep > GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR) {
-        candidates.push({ margin: 0, nodesep: Math.min(nodesep, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR), ranksep: Math.min(ranksep, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR) });
+      for (let sep = Math.min(preferredNodesep, preferredRanksep) - 1; sep >= floor; sep--) {
+        candidates.push({ margin: 0, nodesep: Math.min(preferredNodesep, sep), ranksep: Math.min(preferredRanksep, sep) });
       }
+      let fallback: { readonly spacing: typeof spacing; readonly attempt: GlyphDiagramAttempt } | undefined;
+      let engaged = false;
       for (const candidate of candidates) {
         spacing = candidate;
         const compacted = await attempt(graph);
-        if (compacted.fits) { current = compacted; ledger.push(ledgerBudgetStage("compaction")); break; }
+        if (compacted.fits && compacted.routing.unroutable.length === 0) { current = compacted; engaged = true; fallback = undefined; break; }
+        if (compacted.fits && !fallback) fallback = { spacing: candidate, attempt: compacted };
         spacing = {};
       }
+      if (!engaged && fallback) { current = fallback.attempt; spacing = fallback.spacing; engaged = true; }
+      if (engaged) ledger.push(ledgerBudgetStage("compaction"));
     }
+    // P2-3: pushed AFTER compaction (never before) and only when the
+    // diagram still doesn't fit, or genuinely can't route once it does —
+    // compaction can turn either into a non-issue, and a stale
+    // `layout-overflow` next to a `budget-compaction` entry that rescued
+    // the exact same render told the CLI's reader "needs simplifying"
+    // about a diagram it had just finished rendering whole.
+    ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
     if (opts.detail !== "faithful") {
-      ledger.push(ledgerBudgetStage("decoration"));
-      graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
-      if (!current.okay) {
-        const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;
-        ledger.push(ledgerBudgetStage("duplicates"), ...merged.ledger); current = await attempt(graph);
-      }
-      if (!current.okay) {
-        const collapsed = glyphDiagramCollapseLeaves(graph); graph = collapsed.graph;
-        ledger.push(ledgerBudgetStage("leaf-clusters"), ...collapsed.ledger); current = await attempt(graph);
+      if (opts.detail === "simplified" || !current.okay) {
+        ledger.push(ledgerBudgetStage("decoration"));
+        graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
+        if (!current.okay) {
+          const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;
+          ledger.push(ledgerBudgetStage("duplicates"), ...merged.ledger); current = await attempt(graph);
+        }
+        if (!current.okay) {
+          const collapsed = glyphDiagramCollapseLeaves(graph); graph = collapsed.graph;
+          ledger.push(ledgerBudgetStage("leaf-clusters"), ...collapsed.ledger); current = await attempt(graph);
+        }
       }
     } else ledger.push(ledgerDetailFaithful());
   }
@@ -114,7 +134,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const pages = attempts.map(({ layout, routing, fits }, index) => {
     if (!fits) {
       // A too-small viewport cannot legally show a partial box or a dangling clipped transit.
-      ledger.push(ledgerSplitPanelDropped({ panel: index + 1, width: opts.width, height: opts.height, nodes: layout.nodes.map((n) => n.id) }));
+      ledger.push(ledgerSplitPanelDropped({ panel: index + 1, requestedWidth: opts.width, requestedHeight: opts.height, nodes: layout.nodes.map((n) => n.id) }));
       layout.edges.forEach((e) => { unroutable.add(e.id); ledger.push(ledgerUnroutable({ edgeId: e.id, reason: "it's too large for the viewport" })); });
       layout = { ...layout, nodes: [], edges: [], groups: [], ports: [] }; routing = { routes: [], unroutable: [], ledger: [] };
     }

@@ -7,6 +7,11 @@ import { glyphGraphFromMermaid } from "./mermaid";
 import { GLYPH_CANVAS_TIERS, GLYPH_CANVAS_QUADRANT_GLYPHS } from "glyphcss";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
+// 80x32 exercises the plain-fit path with generous headroom — every one of
+// these five fixtures renders with an EMPTY ledger there (no degrade-ladder
+// rung ever engages), so this loop is the baseline layout/paint check with
+// no compaction/decoration in the picture at all. It stays distinct from
+// the loop below.
 for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (const charset of ["box", "ascii"] as const) {
   it(`${name} ${charset} matches its checked-in cell snapshot`, async () => {
     const options = { target: "chat" as const, width: 80, height: 32, charset };
@@ -15,6 +20,25 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (co
     expect(result.routes).toHaveLength(result.meta.edges.length);
     await expect(result.text).toMatchFileSnapshot(resolve(__dirname, `../fixtures/expected/${name}.${charset}.txt`));
     expect((await renderGlyphDiagram(fixture(name), options)).text).toBe(result.text);
+    if (charset === "ascii") expect(result.text).toMatch(/^[\x20-\x7e\n]*$/);
+  });
+}
+// REVIEW-diagrams-fanout-opus.md P3-4: no CHECKED-IN snapshot rendered at
+// chat's own real default (72x24, `GLYPH_DIAGRAM_TARGET_DEFAULTS.chat`) —
+// exactly the size at which the compaction rung engages for `diamond`
+// (P1-1's regression) and could engage for any fixture the target defaults
+// change under. No `width`/`height` override, so a change to
+// `GLYPH_DIAGRAM_TARGET_DEFAULTS.chat` moves this loop with it.
+for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (const charset of ["box", "ascii"] as const) {
+  it(`${name} ${charset} matches its checked-in cell snapshot at chat's real default size`, async () => {
+    const options = { target: "chat" as const, charset };
+    const result = await renderGlyphDiagram(fixture(name), options);
+    expect(result.pages).toHaveLength(1); expect(result.report.unroutable).toEqual([]);
+    expect(result.routes).toHaveLength(result.meta.edges.length);
+    // Mutation (P1-1): restore the unconditional decoration rung ->
+    // `diamond` loses its two edge labels here and this count changes.
+    expect(result.labels.length).toBe(name === "diamond" ? 2 : name === "cycle" || name === "subgraph" ? 1 : 0);
+    await expect(result.text).toMatchFileSnapshot(resolve(__dirname, `../fixtures/expected/${name}.${charset}.chat72x24.txt`));
     if (charset === "ascii") expect(result.text).toMatch(/^[\x20-\x7e\n]*$/);
   });
 }
@@ -185,6 +209,11 @@ describe("RC1-RC4: LR fan-out/fan-in at the real chat size", () => {
     // `split` (no rung can shrink a fan's HEIGHT except leaf-clusters, which
     // deletes the fan) and renders as 7 panels instead of 1.
     expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
+    // P2-3: a diagram compaction rescues must never still report
+    // `layout-overflow` (the honest pre-compaction report retracted once
+    // compaction makes it fit). Mutation: push `overflowOrRoutingAttempt`
+    // BEFORE the compaction rung -> this goes red.
+    expect(result.report.ledger.some((entry) => entry.code === "layout-overflow")).toBe(false);
   });
 
   it("reports a size overflow as layout-overflow, never a misreported routing-attempt, even when it still reaches split", async () => {
@@ -198,6 +227,91 @@ describe("RC1-RC4: LR fan-out/fan-in at the real chat size", () => {
     // never from an A* failure inside a layout that fit.
     expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
     const overflow = result.report.ledger.find((entry) => entry.code === "layout-overflow")!;
+    // P3-3: `layout-overflow`'s own laid-out size and `split-panel-dropped`'s
+    // requested size used to share the bare `width`/`height` keys for two
+    // different meanings. Both entries now use `requestedWidth`/
+    // `requestedHeight` for the SAME concept (the size actually asked for),
+    // and `layout-overflow` names its own addition `layoutWidth`/
+    // `layoutHeight` instead of the collision-prone bare pair.
     expect(overflow.detail).toMatchObject({ requestedWidth: 10, requestedHeight: 6 });
+    expect(overflow.detail).toHaveProperty("layoutWidth");
+    expect(overflow.detail).toHaveProperty("layoutHeight");
+    expect(overflow.detail).not.toHaveProperty("width");
+    expect(overflow.detail).not.toHaveProperty("height");
+    const dropped = result.report.ledger.find((entry) => entry.code === "split-panel-dropped")!;
+    expect(dropped.detail).toMatchObject({ requestedWidth: 10, requestedHeight: 6 });
+    expect(dropped.detail).not.toHaveProperty("width");
+    expect(dropped.detail).not.toHaveProperty("height");
+  });
+});
+
+// REVIEW-diagrams-fanout-opus.md: the compaction rung's own rescue was
+// immediately undone by an unconditional decoration rung (P1-1), its
+// spacing floor was a degree-3 measurement generalized to a universal
+// constant that is unreachable at the library's own defaults (P2-1/P2-2),
+// and its pre-compaction `layout-overflow` entry was never retracted when
+// compaction went on to succeed (P2-3, gated above in "RC1-RC4").
+describe("P1-1/P2-1/P2-2: compaction keeps content, and its floor scales with the graph", () => {
+  it("P1-1: a compaction rescue keeps every label — diamond at chat's real 72x24 renders identically to faithful (2 labels, no budget-decoration)", async () => {
+    const auto = await renderGlyphDiagram(fixture("diamond"), { target: "chat" });
+    const faithful = await renderGlyphDiagram(fixture("diamond"), { target: "chat", detail: "faithful" });
+    expect(auto.pages).toHaveLength(1);
+    expect(auto.report.ledger.some((entry) => entry.code === "budget-compaction")).toBe(true);
+    // Mutation: restore the unconditional decoration rung (run it whenever
+    // `opts.detail !== "faithful"`, regardless of `current.okay`) -> both
+    // labels ("yes"/"no") are dropped and this count goes to 0.
+    expect(auto.report.ledger.every((entry) => entry.code !== "budget-decoration")).toBe(true);
+    expect(auto.labels).toHaveLength(2);
+    expect(auto.labels).toHaveLength(faithful.labels.length);
+  });
+
+  it("P1-1: `simplified` still drops decoration even once compaction alone would have fit", async () => {
+    const result = await renderGlyphDiagram(fixture("diamond"), { target: "chat", detail: "simplified" });
+    expect(result.pages).toHaveLength(1);
+    // Mutation: gate decoration on `!current.okay` alone (drop the
+    // `opts.detail === "simplified"` disjunct) -> a diagram compaction
+    // alone already rescues keeps its labels under `simplified` too,
+    // breaking the mode's own contract.
+    expect(result.report.ledger.some((entry) => entry.code === "budget-decoration")).toBe(true);
+    expect(result.labels).toHaveLength(0);
+  });
+
+  it("P2-1/P2-2: a degree-4 fan at 44x20 with nodesep/ranksep 6 reaches the intermediate sep-5 candidate the old constant-jump list skipped, one panel, all 8 edges routed", async () => {
+    // REVIEW-diagrams-fanout-opus.md P2-1: `O -> {4 kids} -> M`, the exact
+    // construction the review measured. The old floor (a flat 4) jumped
+    // straight past the one spacing that actually works (5) to one that
+    // routes 0 of 8; this graph's own floor is now derived as
+    // `glyphDiagramCompactionFloor` = maxDegree(4) + 1 = 5, so the
+    // step-down search's LAST candidate is exactly the one that fits and
+    // routes.
+    const nodes = [{ id: "O", label: "O" }, ...Array.from({ length: 4 }, (_, i) => ({ id: `K${i}`, label: `K${i}` })), { id: "M", label: "M" }];
+    const edges = [...Array.from({ length: 4 }, (_, i) => ({ from: "O", to: `K${i}` })), ...Array.from({ length: 4 }, (_, i) => ({ from: `K${i}`, to: "M" }))];
+    const graph = { direction: "TB" as const, nodes, edges };
+    const result = await renderGlyphDiagram(graph, { width: 44, height: 20, nodesep: 6, ranksep: 6, detail: "faithful" });
+    // Mutation: revert to the old constant `GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR
+    // = 4` with no step-down search -> the single candidate at sep 4 routes
+    // 0/8 and this falls through to split (8 panels).
+    expect(result.pages).toHaveLength(1);
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.routes).toHaveLength(8);
+    expect(result.report.ledger.some((entry) => entry.code === "budget-compaction")).toBe(true);
+  });
+
+  it("P2-2: the floor is reachable at the library's own default spacing (4/4), rescuing subgraph.mmd read as TB at chat's real 72x24", async () => {
+    // REVIEW-diagrams-fanout-opus.md P2-2: at the default nodesep/ranksep
+    // (4), the old `> GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR` guard was `4 > 4`
+    // = false, so the second compaction candidate never ran for ANY default
+    // render — this fixture split into 3 panels (1 of 3 edges) instead of
+    // rendering whole. Its own floor here is 3 (max degree 1, clamped to
+    // the validated minimum), one below the default, so the step-down
+    // search must reach it.
+    const result = await renderGlyphDiagram(fixture("subgraph"), { target: "chat", direction: "TB" });
+    // Mutation: keep the `nodesep > FLOOR || ranksep > FLOOR` guard around
+    // the step-down loop -> `4 > 4` is false, no candidate below margin-0
+    // is ever tried, and this renders as 3 panels with 1 of 3 edges routed.
+    expect(result.pages).toHaveLength(1);
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.routes).toHaveLength(3);
+    expect(result.report.ledger.some((entry) => entry.code === "budget-compaction")).toBe(true);
   });
 });

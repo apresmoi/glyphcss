@@ -4,18 +4,37 @@ import { ledgerDuplicateEdgeMerged, ledgerLeafClusterCollapsed, type GlyphDiagra
 export const GLYPH_DIAGRAM_BUDGET = Object.freeze({ nodes: 9, edges: 12 });
 export const GLYPH_DIAGRAM_DEGRADE_STAGES = ["compaction", "decoration", "duplicates", "leaf-clusters", "split"] as const;
 /**
- * RC2 (DIAGNOSIS-diagrams-fanout.md): the smallest `nodesep`/`ranksep` the
- * compaction rung will fall back to, in the same cell units as those
- * options. Below it, a fan's two escape lanes (`route.ts`'s `otherLanes`:
- * each port's escape cell plus one more cell further out) fill the ENTIRE
- * rank gap between two node borders, leaving no free row/column for another
- * edge's transverse jog — measured directly: `ranksep: 3` left `S->M` and
- * `T->M` unroutable on the reported fan-in, while `4` (this floor, and the
- * validated minimum plus one) routed it cleanly. `nodesep`/`ranksep` still
- * validate at `>= 3` (a caller may ask for it explicitly), but the
- * compaction rung itself never reaches for less than this.
+ * REVIEW-diagrams-fanout-opus.md P2-1: a flat `4` was a degree-3 measurement
+ * ("`ranksep: 3` fills the whole rank gap for a 3-way fan") stated as a
+ * universal property; it goes to 0/8 on a degree-4 fan and stays 0/6 to
+ * 6/6 climbing degree 6 (`six-port.mmd` needs `7`). The largest single-side
+ * port count `N` anywhere in the graph is what the port-lane reservation
+ * (`pipeline.ts`'s `min = 2 * connections.length + 1`) and `route.ts`'s
+ * escape-lane clearance (`otherLanes`: each port protects its escape cell
+ * plus one more, each with a Manhattan-1 halo) actually crowd the rank gap
+ * with — measured directly through the real layout+route pipeline
+ * (`O -> {N kids} -> M`, `six-port.mmd`'s single fan-out): degree 3 needs
+ * `4`, degree 4 needs `5`, degree 6 needs `7` — `N + 1` fits every measured
+ * point and is the per-graph floor `renderGlyphDiagram`'s compaction rung
+ * steps down toward (never past the validated `>= 3` minimum). It is a
+ * LOWER BOUND for the step-down search, not a promise that spacing at the
+ * floor itself routes every fan — the search (render.ts) tries every
+ * spacing from the caller's own value down to this floor and accepts the
+ * first that both fits AND routes; a graph whose floor undershoots what its
+ * own geometry needs still finds its answer partway down, or falls through
+ * to the next degrade rung same as before this existed.
  */
-export const GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR = 4;
+export function glyphDiagramCompactionFloor(graph: GlyphGraph): number {
+  const degree = new Map<string, { out: number; in: number }>();
+  for (const node of graph.nodes) degree.set(node.id, { out: 0, in: 0 });
+  for (const edge of graph.edges) {
+    const from = degree.get(edge.from); if (from) from.out++;
+    const to = degree.get(edge.to); if (to) to.in++;
+  }
+  let maxDegree = 0;
+  for (const { out, in: inbound } of degree.values()) maxDegree = Math.max(maxDegree, out, inbound);
+  return Math.max(3, maxDegree + 1);
+}
 export function glyphDiagramWithinBudget(graph: GlyphGraph): boolean { return graph.nodes.length <= GLYPH_DIAGRAM_BUDGET.nodes && graph.edges.length <= GLYPH_DIAGRAM_BUDGET.edges; }
 export function glyphDiagramDropDecoration(graph: GlyphGraph): GlyphGraph {
   return { ...graph, nodes: graph.nodes.map(({ shape: _shape, ...node }) => node), edges: graph.edges.map(({ label: _label, ...edge }) => ({ ...edge, style: edge.style === "undirected" ? "undirected" : "solid" })), groups: graph.groups?.map(({ label: _label, ...group }) => group) };

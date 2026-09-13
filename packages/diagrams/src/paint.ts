@@ -16,15 +16,34 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   for (const route of routing.routes) { canvas.edge(route.edge.id, route.edge); canvas.route(route.edge.id, route.cells); }
   canvas.resolveJunctions();
   // Style only exclusive straight cells, preserving the resolver's corner and crossing verdicts.
-  for (const route of routing.routes) route.cells.forEach((p, i) => {
-    const prev = route.cells[i - 1], next = route.cells[i + 1];
-    if (count.get(`${p.x},${p.y}`) !== 1) return;
-    const axis = prev && next ? prev.x === next.x ? "v" : prev.y === next.y ? "h" : undefined : undefined;
-    let glyph = canvas.grid.char[p.y * canvas.cols + p.x]!;
-    if (axis && route.edge.style === "dotted") glyph = i % 2 ? " " : tier.dot;
-    if (axis && route.edge.style === "thick") glyph = tier.double[axis];
-    canvas.text(p.x, p.y, [glyph], { color });
-  });
+  // REVIEW-diagrams-fanout-opus.md P3-1: the dotted phase used to key off the
+  // cell's raw index in `route.cells`, which also counts every CORNER cell
+  // (undrawable — no straight `axis`) that the run happens to pass through.
+  // A short, corner-heavy route could land its two eligible cells on
+  // consecutive odd indices and paint zero dots (`cycle.mmd`'s "retry" edge:
+  // both eligible cells fell on odd indices and painted two blanks, no dot,
+  // over its whole six-cell run). `dotPhase` instead counts only the cells
+  // this loop actually draws, so the alternation is dot-blank-dot-blank
+  // along the run regardless of how many corners sit between them. The
+  // route's two ENDPOINTS are drawable too — the escape cell touching the
+  // node border, and the final cell touching the target arrowhead — each
+  // has only one neighbour, so `axis` is now derived from whichever single
+  // neighbour exists there instead of requiring both.
+  for (const route of routing.routes) {
+    let dotPhase = 0;
+    route.cells.forEach((p, i) => {
+      const prev = route.cells[i - 1], next = route.cells[i + 1];
+      if (count.get(`${p.x},${p.y}`) !== 1) return;
+      const axis = prev && next ? (prev.x === next.x ? "v" : prev.y === next.y ? "h" : undefined)
+        : prev ? (prev.x === p.x ? "v" : "h")
+        : next ? (next.x === p.x ? "v" : "h")
+        : undefined;
+      let glyph = canvas.grid.char[p.y * canvas.cols + p.x]!;
+      if (axis && route.edge.style === "dotted") { glyph = dotPhase % 2 ? " " : tier.dot; dotPhase++; }
+      if (axis && route.edge.style === "thick") glyph = tier.double[axis];
+      canvas.text(p.x, p.y, [glyph], { color });
+    });
+  }
   const candidates: GlyphDiagramLabelCandidate[] = [];
   for (const group of layout.groups) {
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
@@ -74,7 +93,19 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y, route: route.cells, maxWidth: Math.min(24, canvas.cols), priority: route.edge.priority });
   }
   if (options.title) candidates.push({ id: "title", text: options.title, x: Math.floor(canvas.cols / 2), y: 0, priority: Infinity });
-  const labels = glyphDiagramLabelLayout(candidates, { charset, viewport: { cols: canvas.cols, rows: canvas.rows }, obstacles });
+  // REVIEW-diagrams-fanout-opus.md P3-1: `glyphDiagramLabelLayout` only
+  // rejects literal overlap, so a label candidate immediately touching a
+  // node's own border (distance 0, not overlap) was never excluded —
+  // `cycle.mmd`'s short "retry" edge landed its label flush against the
+  // Check box (`└───────┘retry`) while every longer route's own label
+  // happened to land far enough from a node border by the geometry alone.
+  // A label must still be free to sit exactly one cell from its OWN route
+  // (that's the whole placement rule, `label.route`'s distance-1 check
+  // above), so only NODE rects get the one-cell pad here, never the route
+  // point-obstacles a label is required to touch.
+  const labelObstacles: GlyphDiagramRect[] = [...layout.nodes.map((n) => ({ x0: n.x0 - 1, y0: n.y0 - 1, x1: n.x1 + 1, y1: n.y1 + 1 })),
+    ...routing.routes.flatMap((route) => route.cells.map((p) => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })))];
+  const labels = glyphDiagramLabelLayout(candidates, { charset, viewport: { cols: canvas.cols, rows: canvas.rows }, obstacles: labelObstacles });
   labels.placed.forEach((label) => canvas.text(label.x, label.y, [label.text], { color: accent }));
   ledger.push(...labels.ledger);
   // A node owns its interior label slot; external labels see the entire node as an obstacle.

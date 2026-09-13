@@ -31,15 +31,15 @@ const SAMPLES = [
   ledgerRouteConflict({ kind: "multi", col: 5, row: 6, edgeIds: ["e1", "e2", "e3"] }),
   ledgerRoutingAttempt({ edgeId: "e1", stage: "degrade" }),
   ledgerRoutingAttempt({ edgeId: "e1", stage: "split" }),
-  ledgerLayoutOverflow({ stage: "degrade", width: 80, height: 45, requestedWidth: 72, requestedHeight: 24 }),
-  ledgerLayoutOverflow({ stage: "split", width: 80, height: 45, requestedWidth: 72, requestedHeight: 24 }),
+  ledgerLayoutOverflow({ stage: "degrade", layoutWidth: 80, layoutHeight: 45, requestedWidth: 72, requestedHeight: 24 }),
+  ledgerLayoutOverflow({ stage: "split", layoutWidth: 80, layoutHeight: 45, requestedWidth: 72, requestedHeight: 24 }),
   ledgerBudgetStage("compaction"),
   ledgerBudgetStage("decoration"),
   ledgerBudgetStage("duplicates"),
   ledgerBudgetStage("leaf-clusters"),
   ledgerBudgetStage("split"),
   ledgerDetailFaithful(),
-  ledgerSplitPanelDropped({ panel: 2, width: 60, height: 20, nodes: ["a", "b"] }),
+  ledgerSplitPanelDropped({ panel: 2, requestedWidth: 60, requestedHeight: 20, nodes: ["a", "b"] }),
   ledgerUnroutable({ edgeId: "e1", reason: "no path was found from \"a\" to \"b\"" }),
   ledgerDoubleDiagonalSolid({ col: 4, row: 6 }),
 ];
@@ -57,7 +57,7 @@ describe("diagram ledger entries read like sentences, not internal logs", () => 
   it("the five budget-ladder stage markers are distinguishable from a per-panel drop", () => {
     const stageCodes = ["compaction", "decoration", "duplicates", "leaf-clusters", "split"].map((s) => ledgerBudgetStage(s as never).code);
     for (const code of stageCodes) expect(code.startsWith("budget-")).toBe(true);
-    expect(ledgerSplitPanelDropped({ panel: 1, width: 10, height: 10, nodes: [] }).code.startsWith("budget-")).toBe(false);
+    expect(ledgerSplitPanelDropped({ panel: 1, requestedWidth: 10, requestedHeight: 10, nodes: [] }).code.startsWith("budget-")).toBe(false);
   });
   it("parses the canvas's own free-text double-diagonal note into a structured entry", () => {
     const raw = 'line(): "double" style has no diagonal analogue and rendered solid starting at cell (4, 6).';

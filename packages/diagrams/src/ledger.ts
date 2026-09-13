@@ -69,14 +69,30 @@ export function ledgerRoutingAttempt(opts: { readonly edgeId: string; readonly s
  * for that case; `routing-attempt` is reserved for a genuine A* failure
  * inside a layout that already fits.
  */
-export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"; readonly width: number; readonly height: number; readonly requestedWidth: number; readonly requestedHeight: number }): GlyphDiagramLedgerEntry {
+// REVIEW-diagrams-fanout-opus.md P3-3: this entry's laid-out size used to
+// share the plain `width`/`height` keys with `ledgerSplitPanelDropped`'s
+// own `detail`, which means the REQUESTED viewport there — an agent
+// reading `detail` uniformly got opposite meanings from the same two keys
+// depending which entry it landed on. `layoutWidth`/`layoutHeight` names
+// what THIS entry adds (the size the engine actually produced);
+// `requestedWidth`/`requestedHeight` is the vocabulary both this entry and
+// `split-panel-dropped` now share for the size the caller actually asked
+// for, so the same key means the same thing everywhere in the ledger.
+export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"; readonly layoutWidth: number; readonly layoutHeight: number; readonly requestedWidth: number; readonly requestedHeight: number }): GlyphDiagramLedgerEntry {
   const message = opts.stage === "degrade"
-    ? `The layout is ${opts.width}x${opts.height}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and needs simplifying.`
-    : `The layout is ${opts.width}x${opts.height}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and will be split into panels.`;
+    ? `The layout is ${opts.layoutWidth}x${opts.layoutHeight}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and needs simplifying.`
+    : `The layout is ${opts.layoutWidth}x${opts.layoutHeight}, too large for the requested ${opts.requestedWidth}x${opts.requestedHeight}, and will be split into panels.`;
   return entry("layout-overflow", message, { ...opts });
 }
 
-const BUDGET_STAGE_MESSAGE: Readonly<Record<"compaction" | "decoration" | "duplicates" | "leaf-clusters" | "split", string>> = {
+// `GlyphDiagramDegradeStage` derives from `degrade.ts`'s own
+// `GLYPH_DIAGRAM_DEGRADE_STAGES` (the ladder's real order — see
+// render.ts) rather than repeating the literal union here, so the two
+// can never drift apart; a type-only import keeps this from becoming a
+// runtime circular dependency (degrade.ts already imports from this file).
+import type { GLYPH_DIAGRAM_DEGRADE_STAGES } from "./degrade";
+export type GlyphDiagramDegradeStage = (typeof GLYPH_DIAGRAM_DEGRADE_STAGES)[number];
+const BUDGET_STAGE_MESSAGE: Readonly<Record<GlyphDiagramDegradeStage, string>> = {
   compaction: "Tightened the layout's margins and spacing to fit the diagram's size limit, before changing anything it draws.",
   decoration: "Dropped optional shapes, group captions, edge labels and line styling to fit the diagram's size limit; the originals are kept in the diagram's metadata.",
   duplicates: "Merged duplicate parallel connections to fit the diagram's size limit.",
@@ -84,7 +100,7 @@ const BUDGET_STAGE_MESSAGE: Readonly<Record<"compaction" | "decoration" | "dupli
   split: "Split the diagram into multiple panels to fit the size limit; boundary nodes repeat across panels so every connection stays visible.",
 };
 
-export function ledgerBudgetStage(stage: "compaction" | "decoration" | "duplicates" | "leaf-clusters" | "split"): GlyphDiagramLedgerEntry {
+export function ledgerBudgetStage(stage: GlyphDiagramDegradeStage): GlyphDiagramLedgerEntry {
   return entry(`budget-${stage}`, BUDGET_STAGE_MESSAGE[stage]);
 }
 
@@ -92,8 +108,8 @@ export function ledgerDetailFaithful(): GlyphDiagramLedgerEntry {
   return entry("detail-faithful", "Kept every shape, label and duplicate connection as drawn — splitting into panels was the only change allowed to fit the diagram.");
 }
 
-export function ledgerSplitPanelDropped(opts: { readonly panel: number; readonly width: number; readonly height: number; readonly nodes: readonly string[] }): GlyphDiagramLedgerEntry {
-  return entry("split-panel-dropped", `Panel ${opts.panel} didn't fit in ${opts.width}×${opts.height} and was left out; its nodes are kept in the diagram's metadata.`, { ...opts });
+export function ledgerSplitPanelDropped(opts: { readonly panel: number; readonly requestedWidth: number; readonly requestedHeight: number; readonly nodes: readonly string[] }): GlyphDiagramLedgerEntry {
+  return entry("split-panel-dropped", `Panel ${opts.panel} didn't fit in ${opts.requestedWidth}×${opts.requestedHeight} and was left out; its nodes are kept in the diagram's metadata.`, { ...opts });
 }
 
 export function ledgerUnroutable(opts: { readonly edgeId: string; readonly reason: string }): GlyphDiagramLedgerEntry {
