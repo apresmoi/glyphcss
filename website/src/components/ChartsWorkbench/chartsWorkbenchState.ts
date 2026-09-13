@@ -12,12 +12,16 @@ import {
 } from "@glyphcss/charts";
 import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
-import { buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
+import {
+  buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
+  type ChartsDataSource,
+} from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
+import { findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
 export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
-export { CHARTS_DATASETS, findChartsDataset } from "./datasets";
+export { CHARTS_DATASETS, findChartsDataset, randomChartsDatasetId } from "./datasets";
 export type { ChartsDataset } from "./datasets";
 
 export const CHART_TARGETS = ["chat", "terminal", "web"] as const;
@@ -236,18 +240,19 @@ export type ChartsWorkbenchAction =
   | { type: "add-column"; id: number; column: string }
   | { type: "remove-column"; id: number; column: string }
   | { type: "rename-column"; id: number; column: string; next: string }
-  // Data folder (AGENTS.md's "Charts" — "Data layer"): picking a dataset or
-  // custom source, editing the pipeline, and committing ("Apply") a mark
-  // type + channel mapping built from the resolved rows are three separate
-  // actions because Apply needs the OTHER two already reduced (a portal
-  // component reads `state.data` to compute what Apply's own button offers).
+  // Data folder (AGENTS.md's "Charts" — "Data layer"): `set-data-source`/
+  // `set-pipeline` stay for backward-compat decode of a link built before
+  // this feature (a "Custom…" paste, or a hand-edited pipeline) and for
+  // direct reducer use — the rail's live dataset `<select>` no longer
+  // dispatches either. **`select-dataset` is the page's ONE entry point**:
+  // pick a stock dataset by id and the chart updates immediately from its
+  // own curated `recommended` mapping (mark type + channels, plus the
+  // `pipeline` reshape a multi-numeric recommendation carries, N4) — no
+  // separate "Apply" step. Mirrors the OLD `set-data-source` + `apply-data`
+  // pair exactly, just as one action with no in-between state to inspect.
   | { type: "set-data-source"; source: ChartsDataSource | null }
   | { type: "set-pipeline"; pipeline: readonly PipelineStep[] }
-  // `pipeline` (N4) is an EXTRA reshape a recommendation carries when its
-  // own `channels` name a column only that reshape produces (the
-  // multi-numeric long-format rewrite) — applied on top of
-  // `state.data.pipeline`'s own already-resolved output, never in place of it.
-  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels; pipeline?: readonly PipelineStep[] }
+  | { type: "select-dataset"; id: string }
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
@@ -391,47 +396,53 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       return { ...state, data: { source: action.source, pipeline: samePipeline ? state.data.pipeline : [] } };
     }
     case "set-pipeline": return { ...state, data: { ...state.data, pipeline: action.pipeline } };
-    case "apply-data": {
-      if (!state.data.source) return state;
-      // A1: a channel-less recommendation (`dataProfile.ts`'s own
-      // "No obvious numeric or date column found" fallback) is an honest
-      // answer, not a chart — committing it replaced whatever the reader
-      // already had with a 0-ink mark. The Data folder's own Apply button
-      // is disabled for this case; this is the reducer-level backstop.
-      if (Object.values(action.channels).every((value) => value === undefined)) return state;
-      const resolved = resolveChartsDataRows(state.data.source, state.data.pipeline);
+    case "select-dataset": {
+      const dataset = findChartsDataset(action.id);
+      if (!dataset) return state;
+      const source: ChartsDataSource = { kind: "dataset", id: action.id };
+      const resolved = resolveChartsDataRows(source, []);
       if (!resolved.ok) return state;
+      const profiled = profileChartsData(resolved.rows);
+      // Always the dataset's own curated mapping (never the profiler's
+      // ranking — AGENTS.md's "Charts" "Data layer"): with no pipeline for
+      // a user to have changed columns out from under it, the curated
+      // channels resolve every time for a real vendored dataset, so this
+      // never falls back in practice — but stays the one shared code path
+      // so a dataset that somehow doesn't resolve degrades the same way
+      // Apply always did, rather than crashing.
+      const top = topChartsRecommendation(resolved.dataset, profiled.profile, profiled.recommendations);
+      // A1: a channel-less recommendation is an honest "nothing to plot"
+      // answer, not a chart — never replace the reader's current chart with
+      // a 0-ink one.
+      if (!top || Object.values(top.channels).every((value) => value === undefined)) return state;
       // N4: a recommendation's own EXTRA reshape (a long-format
       // `pivotLonger`, when `channels` names a melted column the source
-      // rows don't have yet) runs on top of the already-resolved rows —
-      // never in place of `state.data.pipeline`, which stays the reader's
-      // own editable steps.
+      // rows don't have yet) runs on top of the resolved rows.
       let rows = resolved.rows;
-      if (action.pipeline && action.pipeline.length > 0) {
-        const reshaped = runPipeline(rows, action.pipeline);
-        if (!reshaped.ok) return state;
-        rows = reshaped.rows;
+      if (top.pipeline && top.pipeline.length > 0) {
+        const reshaped = runPipeline(rows, top.pipeline);
+        if (reshaped.ok) rows = reshaped.rows;
       }
-      const isDate = xChannelIsDate(profileRows(rows), action.channels.x);
+      const isDate = xChannelIsDate(profileRows(rows), top.channels.x);
       // The profiler recognizes date SHAPES (`dataProfile.ts`'s
       // `ISO_DATE`/`SLASH_DATE`) the library's own `scales.ts` time domain
       // does not — a bare `YYYY-MM` or a slash date profiles as `date` but
-      // fails the renderer's `ISO_DATE_PATTERN` with `bad-time-domain`, so
-      // Apply recommended a chart it could not itself render. Normalize the
-      // x column to the calendar date the renderer accepts BEFORE building
-      // the mark, through the SAME `normaliseDateColumn` the `parseDate`
-      // step uses, so the mark's own `dataText` and the `time` scale this
-      // action installs never disagree about what the column contains.
-      const dateColumn = isDate ? action.channels.x : undefined;
+      // fails the renderer's `ISO_DATE_PATTERN` with `bad-time-domain`.
+      // Normalize the x column to the calendar date the renderer accepts
+      // BEFORE building the mark, through the SAME `normaliseDateColumn`
+      // the `parseDate` step uses, so the mark's own `dataText` and the
+      // `time` scale this action installs never disagree.
+      const dateColumn = isDate ? top.channels.x : undefined;
       const markRows = dateColumn
         ? rows.map((row) => ({ ...row, [dateColumn]: normaliseDateColumn(Object.hasOwn(row, dateColumn) ? row[dateColumn] ?? null : null) }))
         : rows;
-      const mark = buildDatasetMark(state.nextMarkId, action.mark, markRows, action.channels);
+      const mark = buildDatasetMark(state.nextMarkId, top.mark, markRows, top.channels);
       return {
         ...state, marks: [mark], nextMarkId: state.nextMarkId + 1,
+        data: { source, pipeline: [] },
         scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
         axes: { x: autoAxis(), y: autoAxis() },
-        chart: resolved.dataset ? { ...state.chart, title: resolved.dataset.title, description: resolved.dataset.description } : state.chart,
+        chart: { ...state.chart, title: dataset.title, description: dataset.description },
       };
     }
   }

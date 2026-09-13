@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, createChartsWorkbenchState, reduceChartsWorkbenchState,
+  CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
+import { buildDatasetMark, resolveChartsDataRows } from "./chartsDataSource";
 import {
-  CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState,
-  encodeChartsUrlStateInfo,
+  CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateForEncode, createChartsUrlWriter, decodeChartsUrlState,
+  encodeChartsUrlState, encodeChartsUrlStateInfo,
 } from "./chartsUrlState";
 
 const presetState = (id: string): ChartsWorkbenchState =>
@@ -101,17 +102,65 @@ describe("chartsUrlState — round trip", () => {
   // today's default `{ source: null, pipeline: [] }` (proven by the fixed
   // historical link below, encoded before this field existed), so this
   // test's own job is round-tripping a source/pipeline a reader DID set.
-  it("round-trips a dataset source with pipeline steps", async () => {
+  // `select-dataset` always resolves with an EMPTY pipeline (no pipeline
+  // editor left to have set one beforehand), but `set-pipeline` still works
+  // as its own reducer action — a `?c=` link can still carry one (a
+  // hand-built link, or a future caller of the action directly), and this
+  // pins that it round-trips unchanged alongside a dataset-derived mark.
+  it("round-trips a dataset source with pipeline steps set after selection", async () => {
     let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id: "world-population-by-country" } });
+    state = reduceChartsWorkbenchState(state, { type: "select-dataset", id: "world-population-by-country" });
     state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [
       { kind: "filter", column: "country", operator: "==", value: "Germany" },
       { kind: "sort", column: "year", direction: "desc" },
       { kind: "limit", count: 10 },
     ] });
-    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: "line", channels: { x: "year", y: "population" } });
     const raw = await encodeChartsUrlState(state);
     expect(await decodeChartsUrlState(raw)).toEqual(state);
+  });
+
+  // AGENTS.md's "## Charts" — "URL state": "the mark's DATA is never in the
+  // link for a stock dataset (it's re-derived from the id on decode)".
+  it("round-trips every vendored dataset, carrying dataset + mark and no dataText", async () => {
+    for (const dataset of CHARTS_DATASETS) {
+      const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: dataset.id });
+      const raw = await encodeChartsUrlState(state);
+      expect(await decodeChartsUrlState(raw)).toEqual(state);
+    }
+  });
+
+  it("chartsUrlStateForEncode blanks a stock-dataset mark's dataText to the omission sentinel", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "world-population-by-country" });
+    const forEncode = chartsUrlStateForEncode(state);
+    expect(forEncode.data.source).toEqual(state.data.source);
+    expect(forEncode.marks[0]!.dataText).toBe("[]");
+    // The mark's real content never changes in the reader's own state —
+    // only the copy handed to the encoder.
+    expect(state.marks[0]!.dataText).not.toBe("[]");
+  });
+
+  it("decoding re-derives a blanked stock-dataset mark's dataText from the dataset id + its own x channel", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "world-population-by-country" });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.marks[0]!.dataText).toBe(state.marks[0]!.dataText);
+  });
+
+  // A mark whose data genuinely diverges from a fresh derivation — a
+  // channel changed after selection so the derivation used at encode time
+  // no longer matches, or a hand-built/"legacy" link carrying real data
+  // alongside a `"dataset"` source (every link written before this feature
+  // existed did exactly this, unconditionally) — is real, undiscoverable
+  // data and is never blanked or otherwise touched by either direction.
+  it("a mark whose data diverges from the fresh derivation (legacy-shaped or hand-edited) decodes with that exact data untouched", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "world-population-by-country" });
+    const divergentData = JSON.stringify([{ country: "Nowhere", year: "2020-01-01", population: 1 }], null, 2);
+    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { dataText: divergentData } });
+    expect(chartsUrlStateForEncode(state).marks[0]!.dataText).toBe(divergentData);
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.marks[0]!.dataText).toBe(divergentData);
   });
 
   it("round-trips a custom pasted source with a select/flatten/derive pipeline", async () => {
@@ -314,10 +363,19 @@ describe("chartsUrlState — round trip", () => {
 // page contradicted itself: the Data folder said "paste it again" while
 // the chart rendered fine from the still-present `dataText`.
 describe("chartsUrlState — Apply'd custom data omission (P1-6)", () => {
+  // `apply-data` is gone (item 1: `select-dataset` replaced it for stock
+  // datasets only — a custom source has no curated mapping to apply
+  // immediately from). This still needs the exact SHAPE Apply used to
+  // build for a custom source, so it's built directly here from the same
+  // pure pieces (`resolveChartsDataRows` + `buildDatasetMark`) rather than
+  // through a reducer action.
   const bigCsvState = () => {
     const raw = `a,b\n${Array.from({ length: 2000 }, (_, i) => `${i},${i}`).join("\n")}`;
     const withSource = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-data-source", source: { kind: "custom", raw } });
-    return reduceChartsWorkbenchState(withSource, { type: "apply-data", mark: "line", channels: { x: "a", y: "b" } });
+    const resolved = resolveChartsDataRows(withSource.data.source!, withSource.data.pipeline);
+    if (!resolved.ok) throw new Error(resolved.error);
+    const mark = buildDatasetMark(withSource.nextMarkId, "line", resolved.rows, { x: "a", y: "b" });
+    return { ...withSource, marks: [mark], nextMarkId: withSource.nextMarkId + 1 };
   };
 
   // Mutation check: reverting `encodeChartsUrlStateInfo` to drop only

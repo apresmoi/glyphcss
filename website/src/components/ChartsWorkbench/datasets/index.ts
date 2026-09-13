@@ -30,3 +30,17 @@ export const CHARTS_DATASETS: readonly ChartsDataset[] = [
 export function findChartsDataset(id: string): ChartsDataset | undefined {
   return CHARTS_DATASETS.find((d) => d.id === id);
 }
+
+/** `/charts`' own version of GalleryWorkbench.tsx's `randomPreset()` — a
+ *  plain `Math.random()` pick over the vendored list, used both for the
+ *  no-`?c=`-param mount and the rail's "Random" button. `excludeId` (the
+ *  currently-loaded dataset, when there is one) is left out of the pool so
+ *  the button always picks something DIFFERENT, falling back to the full
+ *  list only if excluding it would leave nothing to pick from (it never
+ *  does, at 8 vendored datasets, but this mirrors `randomPreset`'s own
+ *  `?? PRESETS[0]` safety net rather than assuming the count). */
+export function randomChartsDatasetId(excludeId?: string): string {
+  const pool = excludeId ? CHARTS_DATASETS.filter((d) => d.id !== excludeId) : CHARTS_DATASETS;
+  const candidates = pool.length > 0 ? pool : CHARTS_DATASETS;
+  return (candidates[Math.floor(Math.random() * candidates.length)] ?? CHARTS_DATASETS[0]!).id;
+}

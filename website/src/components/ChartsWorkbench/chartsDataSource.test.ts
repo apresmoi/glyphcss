@@ -69,34 +69,34 @@ describe("buildDatasetMark", () => {
   });
 });
 
-// ── F1/P1-1 — Apply uses each STOCK dataset's own curated `recommended`
-// mapping, never the general profiler's top pick ─────────────────────────
+// ── F1/P1-1 — `select-dataset` uses each STOCK dataset's own curated
+// `recommended` mapping, never the general profiler's top pick ───────────
 //
-// Before this fix, `ChartsDataFolder.tsx`'s Apply button always committed
+// Before this fix, the Data folder's old Apply button always committed
 // `profiled.recommendations[0]` — the profiler's own ranking — even for a
 // dataset that ships a curated `recommended` field naming a DIFFERENT
 // mapping. `topChartsRecommendation` is the fix: it reads the dataset's own
-// field when one exists. These two datasets are the review's own repro
-// (`world-population-by-country`: profiler picks an unfilled line;
-// `iris-flowers`: profiler picks a pie of summed sepal lengths) — both are
-// tested end to end as the actual chart SPEC Apply produces, mirroring
-// exactly what `ChartsDataFolder.tsx` now does (`topChartsRecommendation`
-// -> `apply-data` -> `buildChartsWorkbenchSpec`).
+// field when one exists, and `select-dataset` (AGENTS.md's "Charts" — "Data
+// layer") is now the ONE action that resolves it and commits a mark — no
+// separate Apply step, no pipeline to inject beforehand (the rail has no
+// pipeline editor any more). These two datasets are the original review's
+// own repro (`world-population-by-country`: profiler picks an unfilled
+// line; `iris-flowers`: profiler picks a pie of summed sepal lengths) —
+// both are tested end to end as the actual chart SPEC `select-dataset`
+// produces.
 describe("topChartsRecommendation (F1/P1-1)", () => {
-  function applyDataset(id: string) {
-    let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id } });
-    const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
+  function selectDataset(id: string) {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id });
+    const resolved = resolveChartsDataRows({ kind: "dataset", id }, []);
     if (!resolved.ok) throw new Error(resolved.error);
     const { profile, recommendations } = profileChartsData(resolved.rows);
     const top = topChartsRecommendation(resolved.dataset, profile, recommendations);
     if (!top) throw new Error("expected a top recommendation");
-    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels, pipeline: top.pipeline });
     return { top, spec: buildChartsWorkbenchSpec(state) };
   }
 
-  it("world-population-by-country: Apply produces a line filled by country, reading the dataset's curated mapping directly", () => {
-    const { top, spec } = applyDataset("world-population-by-country");
+  it("world-population-by-country: select-dataset produces a line filled by country, reading the dataset's curated mapping directly", () => {
+    const { top, spec } = selectDataset("world-population-by-country");
     expect(top).toEqual({
       mark: "line", channels: { x: "year", y: "population", fill: "country", label: undefined },
       reason: expect.stringContaining("Population"),
@@ -104,8 +104,8 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
     expect(spec.marks[0]).toMatchObject({ type: "line", channels: { fill: "country" } });
   });
 
-  it("iris-flowers: Apply produces a species-coloured scatter (dot), never a pie of summed sepal lengths", () => {
-    const { top, spec } = applyDataset("iris-flowers");
+  it("iris-flowers: select-dataset produces a species-coloured scatter (dot), never a pie of summed sepal lengths", () => {
+    const { top, spec } = selectDataset("iris-flowers");
     expect(top).toEqual({
       mark: "dot", channels: { x: "sepal_length_cm", y: "petal_length_cm", fill: "species", label: undefined },
       reason: expect.stringContaining("Iris"),
@@ -128,23 +128,20 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
     expect(topChartsRecommendation(undefined, { rowCount: 0, columns: [] }, [])).toBeNull();
   });
 
-  // N1 — a column-changing pipeline step (here: pivotWider) can rename or
-  // drop the very columns a dataset's curated `recommended` field names.
-  // Applying it anyway used to render an empty chart (no marks painted, an
-  // empty ledger, no error) — the curated mapping is now validated against
-  // the pipelined OUTPUT columns and falls back to the profiler's own top
-  // pick, with a `fallbackNotice` explaining why. `pivotWider(country,
-  // population)` turns each country into its own numeric column (year stays
-  // a date column), which is the general case: the curated `population`/
-  // `country` channels are gone, but the reshaped table still has usable
-  // date+numeric channels, so the fallback recommendation is a REAL chart —
-  // unlike A1's own repro below, which deliberately picks a reshape that
-  // leaves nothing to plot.
+  // N1/A1's own reducer-level guards (falling back with a `fallbackNotice`
+  // when a pipeline step drops a curated column, and no-op'ing on a
+  // genuinely channel-less recommendation) are no longer reachable through
+  // `select-dataset` — it always resolves with an EMPTY pipeline (the rail
+  // has no pipeline editor to have changed columns with), so a real
+  // vendored dataset's curated mapping always resolves. `topChartsRecommendation`
+  // itself still carries both guards (it's a pure function, unchanged) and
+  // stays covered directly, pipeline injection included — this is the same
+  // fallback logic `select-dataset` shares, just exercised at the layer that
+  // can still reach it.
   it("falls back to the profiler's own top pick, with a fallbackNotice, when a pipeline step drops a curated column (N1)", () => {
-    let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id: "world-population-by-country" } });
-    state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [{ kind: "pivotWider", keyColumn: "country", valueColumn: "population" }] });
-    const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
+    const resolved = resolveChartsDataRows({ kind: "dataset", id: "world-population-by-country" }, [
+      { kind: "pivotWider", keyColumn: "country", valueColumn: "population" },
+    ]);
     if (!resolved.ok) throw new Error(resolved.error);
     expect(resolved.rows[0] ? Object.keys(resolved.rows[0]) : []).not.toContain("population");
     expect(resolved.rows[0] ? Object.keys(resolved.rows[0]) : []).not.toContain("country");
@@ -159,36 +156,22 @@ describe("topChartsRecommendation (F1/P1-1)", () => {
     // found the reshaped table's own date + numeric columns.
     expect(Object.values(top.channels).some((value) => value !== undefined)).toBe(true);
     expect(top.channels.x).toBe("year");
-    // Applying it must actually render marks with real channels, not an
-    // empty chart — `spec.marks.length > 0` alone doesn't discriminate this
-    // (the state already has a mark before Apply), so this checks the
-    // applied mark's OWN channels instead.
-    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels, pipeline: top.pipeline });
-    const spec = buildChartsWorkbenchSpec(state);
-    expect(spec.marks.length).toBeGreaterThan(0);
-    expect(spec.marks[0]!.channels.x).toBe("year");
   });
 
   // A1 (N1 residue) — the review's own repro of a fallback that finds
   // NOTHING to plot: `pivotLonger(idColumns:["year"])` melts every OTHER
   // column (country names and the population numbers alike) into one mixed
   // `value` column, so the profiler honestly answers `bar {channels: {}}`
-  // ("No obvious numeric or date column found"). Committing that used to
-  // paint a real mark with 0 ink; `apply-data` now no-ops on a genuinely
-  // channel-less recommendation, so the reader's previous chart survives.
-  it("a genuinely channel-less fallback leaves the previous marks untouched on apply (A1)", () => {
-    let state = createChartsWorkbenchState();
-    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id: "world-population-by-country" } });
-    state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [{ kind: "pivotLonger", idColumns: ["year"] }] });
-    const resolved = resolveChartsDataRows(state.data.source!, state.data.pipeline);
+  // ("No obvious numeric or date column found").
+  it("a genuinely channel-less recommendation carries no channels at all (A1)", () => {
+    const resolved = resolveChartsDataRows({ kind: "dataset", id: "world-population-by-country" }, [
+      { kind: "pivotLonger", idColumns: ["year"] },
+    ]);
     if (!resolved.ok) throw new Error(resolved.error);
     const { profile, recommendations } = profileChartsData(resolved.rows);
     const top = topChartsRecommendation(resolved.dataset, profile, recommendations);
     if (!top) throw new Error("expected a fallback recommendation");
     expect(top.channels).toEqual({});
     expect(top.reason).toMatch(/no obvious numeric or date column/i);
-    const beforeMarks = state.marks;
-    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: top.mark, channels: top.channels, pipeline: top.pipeline });
-    expect(state.marks).toBe(beforeMarks); // unchanged reference — apply-data returned the SAME state
   });
 });

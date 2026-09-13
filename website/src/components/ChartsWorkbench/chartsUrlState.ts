@@ -21,8 +21,9 @@ import {
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { resolveChartsDataRows } from "./chartsDataSource";
-import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
+import { resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
+import { FILTER_OPERATORS, normaliseDateColumn, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
+import { profileRows } from "../../lib/dataProfile";
 import { createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 import { writeUrlParam } from "../../lib/urlState";
 
@@ -348,6 +349,83 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
 
 const chartsUrlEnvelope = createJsonUrlEnvelope<ChartsWorkbenchState>(VERSION, validateChartsWorkbenchState);
 
+// ── Stock-dataset mark data omission (AGENTS.md's "## Charts" — "URL
+// state": "the mark's DATA is never in the link for a stock dataset") ─────
+//
+// `select-dataset` (`chartsWorkbenchState.ts`) builds a mark's `dataText`
+// straight from the vendored dataset's own rows, so writing it into `?c=`
+// duplicates data this package already ships — a ~200-row dataset can be
+// tens of KB before compression, entirely avoidable since any reader who
+// opens the link has the same vendored rows locally. `chartsDatasetDerivedDataText`
+// re-runs the exact same derivation `select-dataset` used (dataset id + the
+// mark's OWN x channel, for the date-normalize decision — see its doc); a
+// mark whose `dataText` matches it byte for byte is safe to blank, because
+// decode reconstructs the identical string from the same inputs.
+
+/** `null` when the dataset id doesn't resolve (never true for a real
+ *  vendored id, but this is also called from decode on a value the URL
+ *  handed us) — the caller then treats the mark's `dataText` as real,
+ *  undiscoverable data rather than gambling on a blank. */
+function chartsDatasetDerivedDataText(datasetId: string, xChannel: string | undefined): string | null {
+  const resolved = resolveChartsDataRows({ kind: "dataset", id: datasetId }, []);
+  if (!resolved.ok) return null;
+  const isDate = xChannel !== undefined && xChannelIsDate(profileRows(resolved.rows), xChannel);
+  const rows = isDate
+    ? resolved.rows.map((row) => ({ ...row, [xChannel]: normaliseDateColumn(Object.hasOwn(row, xChannel) ? row[xChannel] ?? null : null) }))
+    : resolved.rows;
+  return JSON.stringify(rows, null, 2);
+}
+
+/**
+ * Exported for its own direct test: the state actually handed to the JSON
+ * envelope for encoding. `state.data.source.kind === "dataset"` blanks
+ * every mark whose `dataText` matches `chartsDatasetDerivedDataText` for
+ * that mark's own x channel to `"[]"`; a mark that diverges (a channel
+ * changed after selection so the derivation no longer matches, or a
+ * hand-built/historical link with genuinely different data) is real data
+ * with no other copy and rides in full — never guessed at, never dropped
+ * silently. A non-`"dataset"` source (`null`, or the backward-compat
+ * `"custom"` shape) returns `state` untouched; `encodeChartsUrlStateInfo`'s
+ * own oversized-custom-payload drop runs after this and is unaffected.
+ */
+export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWorkbenchState {
+  const source = state.data.source;
+  if (source?.kind !== "dataset") return state;
+  let changed = false;
+  const marks = state.marks.map((mark) => {
+    const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
+    if (derived === null || derived !== mark.dataText) return mark;
+    changed = true;
+    return { ...mark, dataText: "[]" };
+  });
+  return changed ? { ...state, marks } : state;
+}
+
+/**
+ * The inverse, run on every decode: a mark whose `dataText` is EXACTLY the
+ * omission sentinel `"[]"` under a `"dataset"` source is re-derived fresh
+ * from the dataset id + that mark's own x channel — the same derivation
+ * `chartsUrlStateForEncode` compared against, so this is exact. A link
+ * encoded before this feature existed always wrote a mark's real data in
+ * full (never `"[]"` for a non-empty dataset), so it never matches this
+ * sentinel and decodes with that real content completely untouched — a
+ * "legacy" link renders exactly as it always did, with no re-derivation
+ * involved at all.
+ */
+function chartsUrlStateRehydrated(state: ChartsWorkbenchState): ChartsWorkbenchState {
+  const source = state.data.source;
+  if (source?.kind !== "dataset") return state;
+  let changed = false;
+  const marks = state.marks.map((mark) => {
+    if (mark.dataText !== "[]") return mark;
+    const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
+    if (derived === null) return mark;
+    changed = true;
+    return { ...mark, dataText: derived };
+  });
+  return changed ? { ...state, marks } : state;
+}
+
 export interface ChartsUrlEncodeResult {
   readonly raw: string;
   readonly sizeBytes: number;
@@ -410,7 +488,12 @@ export interface ChartsUrlEncodeResult {
  *  and `tooLarge: true` — writing an oversized link anyway is exactly the
  *  414-on-reload risk this whole mechanism exists to avoid (F8's repro). */
 export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Promise<ChartsUrlEncodeResult> {
-  const full = await chartsUrlEnvelope.encode(state);
+  // Stock-dataset marks never carry their own data (see this file's own
+  // "Stock-dataset mark data omission" doc, above) — done BEFORE the
+  // envelope ever sees `state`, so it applies unconditionally, not only
+  // once the link is already over the size-warn threshold the custom-drop
+  // branch below is gated on.
+  const full = await chartsUrlEnvelope.encode(chartsUrlStateForEncode(state));
   const fullSize = new TextEncoder().encode(full).length;
   const source = state.data.source;
   if (fullSize <= CHARTS_URL_SIZE_WARN_BYTES || source?.kind !== "custom" || source.omitted) {
@@ -437,8 +520,9 @@ export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Pro
 export async function encodeChartsUrlState(state: ChartsWorkbenchState): Promise<string> {
   return (await encodeChartsUrlStateInfo(state)).raw;
 }
-export function decodeChartsUrlState(raw: string | null | undefined): Promise<ChartsWorkbenchState | null> {
-  return chartsUrlEnvelope.decode(raw);
+export async function decodeChartsUrlState(raw: string | null | undefined): Promise<ChartsWorkbenchState | null> {
+  const decoded = await chartsUrlEnvelope.decode(raw);
+  return decoded ? chartsUrlStateRehydrated(decoded) : null;
 }
 
 /** One writer per mounted page (see ChartsWorkbench.tsx) — 150ms debounced,

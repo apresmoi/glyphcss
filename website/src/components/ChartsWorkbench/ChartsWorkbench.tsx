@@ -12,7 +12,7 @@ import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDataFolder } from "./ChartsDataFolder";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
-import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
+import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
@@ -20,6 +20,22 @@ import "./charts-workbench.css";
 
 type MobilePanel = "data" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
+
+/**
+ * `/charts` is a SHOWCASE, not a builder (the user's own framing) — mirrors
+ * `/gallery`'s own `resolveInitialPreset`/`randomPreset`: with no `?c=`
+ * link to restore, the page always opens on a random vendored dataset's own
+ * curated chart, rather than the empty/default preset a builder would
+ * start from. `createChartsWorkbenchState()` (no dataset) stays exactly
+ * what it always was — the historical-link regression pin
+ * (`chartsUrlState.test.ts`) and every test that wants a fixed, dataset-free
+ * starting point still get it — this is the ONE new entry point that layers
+ * a real dataset selection on top via the same `select-dataset` reducer
+ * action the rail's own dropdown and "⚄ Random" button dispatch.
+ */
+function createRandomChartsWorkbenchState(): ChartsWorkbenchState {
+  return reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: randomChartsDatasetId() });
+}
 
 /**
  * Gates the FIRST render on the `?c=` URL param (AGENTS.md's "## Charts" —
@@ -38,13 +54,13 @@ const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", la
 export default function ChartsWorkbench({ initialState }: { initialState?: ChartsWorkbenchState } = {}) {
   const [resolved, setResolved] = useState<ChartsWorkbenchState | null>(() => {
     if (initialState) return initialState;
-    return readUrlParam(CHARTS_URL_PARAM) ? null : createChartsWorkbenchState();
+    return readUrlParam(CHARTS_URL_PARAM) ? null : createRandomChartsWorkbenchState();
   });
   useEffect(() => {
     if (initialState || resolved) return;
     let cancelled = false;
     void decodeChartsUrlState(readUrlParam(CHARTS_URL_PARAM)).then((decoded) => {
-      if (!cancelled) setResolved(decoded ?? createChartsWorkbenchState());
+      if (!cancelled) setResolved(decoded ?? createRandomChartsWorkbenchState());
     });
     return () => { cancelled = true; };
     // Only ever runs once: `resolved` starts non-null (no gate needed) or
@@ -68,20 +84,6 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   const [codeOpen, setCodeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
-  // N3: the PRE-drop size of a custom payload the LAST encode omitted from
-  // the link (KB, rounded up) — `null` whenever nothing was dropped. Kept
-  // separate from `urlSizeBytes` (the size of the link actually written,
-  // which SHRINKS once the payload is dropped) precisely because the two
-  // used to be conflated: the old "link is N KB" notice read the
-  // already-shrunk size, so it never fired for the one case — a big custom
-  // paste — that most needed telling the sharer their data didn't make it.
-  const [omittedCustomKB, setOmittedCustomKB] = useState<number | null>(null);
-  // Set when even dropping every serialized copy of the custom payload
-  // (`encodeChartsUrlStateInfo`'s own doc) left the envelope over
-  // `CHARTS_URL_SIZE_WARN_BYTES` — the link was never written (`raw` was
-  // `""`), so this replaces the "isn't included" notice with a stronger
-  // one naming the still-oversized size, rather than showing both.
-  const [tooLargeKB, setTooLargeKB] = useState<number | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
@@ -112,16 +114,11 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   }, [state]);
   // One writer for the component's lifetime — see chartsUrlState.ts's doc
   // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
-  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes, omittedCustomBytes, tooLarge }) => {
+  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes }) => {
     setUrlSizeBytes(sizeBytes);
-    setOmittedCustomKB(!tooLarge && omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
-    setTooLargeKB(tooLarge ? Math.ceil(sizeBytes / 1024) : null);
   })).current;
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
-  // `tooLargeKB` gets its OWN, stronger notice below — no link was written
-  // at all in that case (raw was `""`), so the ordinary "link is N KB"
-  // readout (which describes a link that WAS written) would be misleading.
-  const urlTooLong = tooLargeKB === null && urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
+  const urlTooLong = urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -156,10 +153,13 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // address bar is brought current in the same click.
   const copyLink = async () => {
     try {
-      const { raw, sizeBytes, omittedCustomBytes, tooLarge } = await encodeChartsUrlStateInfo(state);
+      const { raw, sizeBytes, tooLarge } = await encodeChartsUrlStateInfo(state);
       setUrlSizeBytes(sizeBytes);
-      setOmittedCustomKB(!tooLarge && omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
-      setTooLargeKB(tooLarge ? Math.ceil(sizeBytes / 1024) : null);
+      // `tooLarge` (an oversized "Custom…" payload) is unreachable through
+      // this page's own UI now — there's no way left to install a custom
+      // source — but the reducer/URL layer still accepts one from a
+      // hand-built or legacy link, so this stays a real safety net rather
+      // than an assumption this branch can't fire.
       if (tooLarge) { setFeedback(`Link too large to share (${Math.ceil(sizeBytes / 1024)} KB).`); return; }
       writeUrlParam(CHARTS_URL_PARAM, raw || null);
       const params = new URLSearchParams(window.location.search);
@@ -185,30 +185,35 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
     setMobilePanel((current) => current === panel ? null : panel);
   };
 
+  // Item 2 (owner prompt): a different dataset than the one currently
+  // loaded, every click — mirrors GalleryWorkbench.tsx's own
+  // `handleRandomPreset`/`randomPreset` idiom (`randomChartsDatasetId`'s
+  // own `excludeId`).
+  const handleRandomDataset = () => {
+    const currentId = state.data.source?.kind === "dataset" ? state.data.source.id : undefined;
+    dispatch({ type: "select-dataset", id: randomChartsDatasetId(currentId) });
+  };
+
   return <InstrumentShell kind="synth" className="charts-shell">
     <InstrumentBody>
       {/* Data is this page's own "model" (AGENTS.md's "Charts" — "Data
        *  layer"), exactly as synth's rail is the voice/model picker: the
-       *  header action carries the dataset picker, the body shows it as a
-       *  card (`ChartsDataFolder` — info, pipeline, recommendation, and the
-       *  custom paste/upload controls when "Custom…" is chosen), and a
-       *  second section below holds the marks — synth's own structure has
-       *  its repeatable, addable/removable units (voices) live in the
-       *  rail and its scene-wide render settings in the Dock; a mark is
-       *  that unit here (its own type/channels/style, freely added or
-       *  removed) while target/charset/color/axes/scales are scene-wide
-       *  and stay in the Dock, so marks stay in the rail rather than
-       *  moving to the Dock's Chart folder. */}
+       *  header action carries the dataset picker + the "⚄ Random" button
+       *  (GalleryWorkbench.tsx's own "Load Random" idiom), the body shows
+       *  the dataset as a card (`ChartsDataFolder` — title, description,
+       *  source credit, a read-only "View data" disclosure), and a second
+       *  section below holds the mark this is a showcase of one chart at a
+       *  time, not a builder: picking a dataset REPLACES the chart
+       *  immediately (`select-dataset`), with no separate Apply step and
+       *  no add/remove-mark controls. */}
       <InstrumentRail id="charts-data-panel" title="Data" open={mobilePanel === "data"}
-        action={<span className="charts-dataset-select-slot" ref={setDataSelectSlot} />}>
+        action={<span className="charts-rail-header-actions">
+          <span className="charts-dataset-select-slot" ref={setDataSelectSlot} />
+          <button type="button" className="control-btn charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={handleRandomDataset}>⚄ Random</button>
+        </span>}>
         <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} />
         <div className="charts-marks-section">
-          <div className="charts-marks-head">
-            <span>Marks</span>
-            <button type="button" className="voice-add" onClick={() => dispatch({ type: "add-mark" })}>+ Add mark</button>
-          </div>
           {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
-          {state.marks.length === 0 && <p className="synth-empty">No marks — add one to start.</p>}
         </div>
       </InstrumentRail>
       <InstrumentMain>
@@ -223,18 +228,6 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
             {rendered.ok && rendered.ansi !== undefined && <p className="charts-readout" role="status">Preview decodes the terminal colours for display. ANSI escapes are included only with Copy ANSI.</p>}
             {urlTooLong && <p className="charts-readout" role="status">Link is {Math.ceil(urlSizeBytes / 1024)} KB.</p>}
-            {/* N3: the sharer's own signal that their custom data did NOT
-             *  make it into the link they're about to copy/have copied —
-             *  sized from the payload BEFORE it was dropped, so a big
-             *  paste that shrinks the encoded link back under
-             *  CHARTS_URL_SIZE_WARN_BYTES still gets told. */}
-            {omittedCustomKB !== null && <p className="charts-readout" role="status">Custom data ({omittedCustomKB} KB) isn't included in this link.</p>}
-            {/* Dropping every copy of the custom payload (`encodeChartsUrlStateInfo`'s
-             *  own doc) still left the envelope over the cap — no link was
-             *  written, so this replaces the "isn't included" notice above
-             *  rather than showing alongside it (`omittedCustomKB` is `null`
-             *  whenever this is set). */}
-            {tooLargeKB !== null && <p className="charts-error" role="alert">Link too large to share ({tooLargeKB} KB).</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

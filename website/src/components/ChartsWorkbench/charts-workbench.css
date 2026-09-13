@@ -22,26 +22,20 @@
 }
 .charts-mark-data:focus-visible { outline: 1px solid #38bdf8; }
 
-/* Table editor (packet item 1 rebuild) — the PRIMARY data view; the JSON
-   textarea above is the secondary tab, same `mark.dataText` underneath
-   both. A real CSS-GRID table (`ChartsMarkCard.tsx`'s own doc): one grid,
-   `grid-template-columns: repeat(N, minmax(6ch, 1fr)) 2ch` (the trailing
-   2ch track is the per-row remove column), header row then each data row
-   in DOM order, a full-width footer row for +row/+column. Every cell sits
-   at its own exact grid coordinate, so a row's `×` can never drift out of
-   alignment with its own row the way the previous `<table>` markup let it
-   when a column's content width disagreed with its header's. */
-/* View data disclosure (closed by default, native `<details>` — no state,
-   nothing persisted to the URL). `list-style: none` + the marker-hiding
-   rules below replace the browser's own twisty; the summary already spells
-   out "▸" in its own text. */
+/* Dataset card's read-only "View data" disclosure (`ChartsDataFolder.tsx`)
+   — a showcase, not a builder: no inputs, no add/remove, just the vendored
+   dataset's own rows as a scrollable CSS-GRID table or a `readOnly` JSON
+   textarea. Closed by default (native `<details>` — no state, nothing
+   persisted to the URL); `list-style: none` + the marker-hiding rules below
+   replace the browser's own twisty, since the summary already spells out
+   "▸" in its own text. */
 .charts-mark-data-details { margin-top: 4px; }
 .charts-mark-data-summary {
   list-style: none; cursor: pointer; font-size: 11px; color: rgba(255, 232, 184, 0.65); padding: 2px 0;
 }
 .charts-mark-data-summary::-webkit-details-marker { display: none; }
 .charts-mark-data-summary:hover { color: rgba(255, 232, 184, 0.9); }
-/* F7: the "▸" is real text (`.charts-mark-data-marker`), not a generated
+/* The "▸" is real text (`.charts-mark-data-marker`), not a generated
    marker, so it never turns to reflect open/closed state on its own —
    rotate it a quarter turn once the `<details>` is open. */
 .charts-mark-data-marker { display: inline-block; transition: transform 0.1s ease; }
@@ -50,25 +44,11 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-grid-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
 .charts-grid { display: grid; font-size: 11px; }
 .charts-grid-header, .charts-grid-cell {
-  display: flex; align-items: center; gap: 2px; border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; min-width: 0;
+  display: flex; align-items: center; gap: 2px; border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px 4px; min-width: 0;
 }
-.charts-grid-header { background: #0d1118; }
-.charts-grid-header--spacer { background: #0d1118; }
-.charts-grid-cell--remove { justify-content: center; }
-.charts-grid input {
-  width: 100%; min-width: 0; box-sizing: border-box; background: transparent; color: inherit;
-  border: none; font: inherit; padding: 2px 4px;
-}
-.charts-grid input:focus-visible { outline: 1px solid #38bdf8; }
-/* Numeric cells right-align (packet item 1). */
-.charts-grid-cell.is-numeric input { text-align: right; }
-.charts-table-header { font-weight: 700; }
-.charts-table-remove, .charts-table-add, .charts-table-add-row {
-  background: transparent; color: rgba(255, 232, 184, 0.65); border: 1px solid rgba(255, 232, 184, 0.22);
-  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0; flex: 0 0 auto;
-}
-.charts-table-remove:hover, .charts-table-add:hover, .charts-table-add-row:hover { color: #fda4af; border-color: #fda4af; }
-.charts-grid-footer { grid-column: 1 / -1; display: flex; gap: 6px; padding: 4px 2px; }
+.charts-grid-header { background: #0d1118; font-weight: 700; }
+/* Numeric cells right-align. */
+.charts-grid-cell.is-numeric { justify-content: flex-end; text-align: right; }
 
 /* A chart has a fixed cell budget, so scroll its text instead of clipping it.
    Leave the floating Dock's lane free; the shared shell still positions it. */
@@ -190,46 +170,33 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
-/* Dataset select — portaled into the rail header's own action slot
-   (`ChartsWorkbench.tsx`), sized so a long dataset title never pushes the
-   "DATA" title out of the header row. */
+/* Rail header actions — the dataset select (portaled from
+   `ChartsDataFolder.tsx`) plus the "⚄ Random" button
+   (GalleryWorkbench.tsx's own "Load Random" idiom), sized so a long
+   dataset title never pushes the "DATA" title out of the header row. */
+.charts-rail-header-actions { display: flex; align-items: center; gap: 6px; }
 .charts-dataset-select-slot .gx-select,
-.charts-dataset-select-slot { display: block; width: 190px; }
+.charts-dataset-select-slot { display: block; width: 150px; }
+.charts-random-btn { flex: 0 0 auto; padding: 4px 6px; font-size: 11px; }
 
-/* Marks section — the rail's SECOND section, below the dataset card: the
-   rail is this page's model picker (AGENTS.md's "Charts" — "Data layer"),
-   and a mark is its own repeatable, addable/removable unit, exactly like a
-   synth voice, so it stays in the rail rather than the Dock. Same header
-   idiom as `.synth-voices-head` (uppercase, accent colour) but a plain
-   `border-top` rather than that class's own border/padding, since this
-   header sits INSIDE the rail's already-padded scroll body instead of
-   pinned above it. */
+/* Marks section — the rail's SECOND section, below the dataset card: a
+   showcase renders exactly the ONE mark `select-dataset` built (a preset
+   from the tray below can still leave more than one; either way there is
+   no add/remove control here any more). */
 .charts-marks-section { display: flex; flex-direction: column; gap: 9px; padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
-.charts-marks-head {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(56, 189, 248, 0.95);
-}
 
-/* Data folder (packet items 2/3) — dataset picker, custom upload, pipeline
-   row editor, recommendation readout. Plain flow inside the rail body. */
+/* Data folder — dataset picker + read-only info card. Plain flow inside
+   the rail body. */
 .charts-data-folder { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
 .charts-data-info { display: flex; flex-direction: column; gap: 2px; }
+.charts-data-title { margin: 0; font-size: 12px; font-weight: 700; color: rgba(255, 232, 184, 0.9); }
 .charts-data-info a { color: #38bdf8; }
-.charts-data-custom { display: flex; flex-direction: column; gap: 4px; }
-.charts-data-recommend { display: flex; flex-direction: column; gap: 4px; }
-.charts-data-runnerups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.charts-data-runnerup {
-  width: 100%; text-align: left; background: transparent; color: rgba(255, 232, 184, 0.65);
-  border: 1px solid rgba(255, 232, 184, 0.14); cursor: pointer; padding: 2px 6px; font-size: 10px; border-radius: 0;
-}
-.charts-data-runnerup:hover { color: #fda4af; border-color: #fda4af; }
-.charts-pipeline { display: flex; flex-direction: column; gap: 4px; }
-.charts-pipeline-step { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.charts-pipeline-select, .charts-pipeline-input {
+/* `ChartsDock.tsx`'s scale min/max fields reuse this rule directly — kept
+   even though the pipeline row editor that introduced it is gone. */
+.charts-pipeline-input {
   font: inherit; font-size: 11px; background: #0d1118; color: inherit; border: 1px solid rgba(255, 232, 184, 0.22); padding: 2px 4px;
+  flex: 1 1 8ch; min-width: 8ch;
 }
-.charts-pipeline-input { flex: 1 1 8ch; min-width: 8ch; }
-.charts-pipeline-step-actions { display: flex; gap: 2px; margin-left: auto; }
 
 /* Colour swatches (axis colour in the Chart folder, per-series colour on
    each mark card) — `ChartsColorSwatch.tsx`. Same bracketed

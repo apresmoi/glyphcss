@@ -6,10 +6,10 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, buildChartsWorkbenchSpec,
+  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, buildChartsWorkbenchSpec,
   chartMarkFields, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
   chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchInferredDomains,
-  chartsWorkbenchRenderOptions, createChartsWorkbenchState, generateChartsWorkbenchSnippets,
+  chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets,
   reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
@@ -511,57 +511,76 @@ describe("chartsScaleSliderBounds", () => {
   });
 });
 
-// P1-5 (batch-3 review): Apply installed an explicit `scales.x.type:
-// "time"` whenever the profiler classified the x column as `date`
-// (`xChannelIsDate`) — but the profiler recognizes SHAPES (slash dates,
-// bare `YYYY-MM`) the renderer's own `ISO_DATE_PATTERN` doesn't, so the
-// recommended chart rejected with `bad-time-domain` the moment it tried to
-// render. `apply-data` now normalizes the mark's own x column through
-// `normaliseDateColumn` BEFORE installing the time scale, so the two never
-// disagree about what the column contains.
-describe("apply-data — date normalization (P1-5)", () => {
-  const applyCustom = (raw: string, x: string, y: string) => {
-    const withSource = reduceChartsWorkbenchState(createChartsWorkbenchState(), {
-      type: "set-data-source", source: { kind: "custom", raw },
-    });
-    return reduceChartsWorkbenchState(withSource, { type: "apply-data", mark: "line", channels: { x, y } });
-  };
-
-  it("normalizes a slash-date (MM/DD/YYYY) x column to ISO before installing the time scale, so the recommended chart renders", () => {
-    const state = applyCustom("date,value\n1/2/2024,10\n1/3/2024,20", "date", "value");
+// P1-5 (batch-3 review), carried forward to `select-dataset`: the reducer
+// installs an explicit `scales.x.type: "time"` whenever the resolved x
+// channel profiles as `date` (`xChannelIsDate`), normalizing the mark's own
+// x column through `normaliseDateColumn` BEFORE installing the scale so the
+// two never disagree about what the column contains — `bad-time-domain`
+// otherwise. The original P1-5 repro (a slash-date/bare-`YYYY-MM` CUSTOM
+// paste) is no longer reachable at all — "Custom…" and Apply are gone
+// (AGENTS.md's "Charts" — "Data layer"), and every vendored dataset's own
+// date column is already canonical ISO (`normaliseDateColumn` is then a
+// no-op) — so this pins the reachable half: a real dataset's date x-channel
+// still installs the time scale and still renders.
+describe("select-dataset — date x-channel installs a time scale (P1-5)", () => {
+  it("co2-mauna-loa (monthly ISO dates): installs scales.x.type: 'time' and renders", () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "co2-mauna-loa" });
     expect(state.scales.x.type).toBe("time");
-    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
-      { date: "2024-01-02", value: 10 },
-      { date: "2024-01-03", value: 20 },
-    ]);
+    expect(state.marks[0]!.channels.x).toBe("month");
     const rendered = renderChartsWorkbenchState(state);
     expect(rendered.ok, !rendered.ok ? rendered.error : "").toBe(true);
   });
 
-  it("normalizes a bare YYYY-MM x column to the first of the month before installing the time scale, so the recommended chart renders", () => {
-    const state = applyCustom("month,value\n2024-01,10\n2024-02,20", "month", "value");
-    expect(state.scales.x.type).toBe("time");
-    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
-      { month: "2024-01-01", value: 10 },
-      { month: "2024-02-01", value: 20 },
-    ]);
-    const rendered = renderChartsWorkbenchState(state);
-    expect(rendered.ok, !rendered.ok ? rendered.error : "").toBe(true);
-  });
-
-  // Mutation check: skipping the normalization (building the mark from the
-  // raw, un-normalized `rows` — i.e. reverting to the pre-fix
-  // `buildDatasetMark(..., rows, ...)`) reproduces the reported defect
-  // exactly: the scale installs `time` but the mark's own data still
-  // carries the slash-form string, and rendering rejects with
-  // `bad-time-domain`.
-  it("a non-date x column is left untouched and installs no time scale", () => {
-    const state = applyCustom("category,value\nA,10\nB,20", "category", "value");
+  it("a non-date x channel (iris-flowers, numeric x) installs no time scale", () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
     expect(state.scales.x.type).toBe("auto");
-    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
-      { category: "A", value: 10 },
-      { category: "B", value: 20 },
-    ]);
+  });
+});
+
+// `select-dataset` — item 1's ONE reducer action replacing the old
+// `set-data-source` + `apply-data` pair: picking a dataset immediately
+// replaces the chart with that dataset's own curated `recommended` mapping,
+// no separate Apply step (AGENTS.md's "Charts" — "Data layer").
+describe("select-dataset", () => {
+  it("installs the dataset's curated mark/channels, sets data.source, and resets scales/axes to auto", () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-axis", axis: "x", patch: { ticks: 6 } });
+    state = reduceChartsWorkbenchState(state, { type: "select-dataset", id: "olympics-2024-medals" });
+    expect(state.data.source).toEqual({ kind: "dataset", id: "olympics-2024-medals" });
+    expect(state.data.pipeline).toEqual([]);
+    expect(state.marks).toHaveLength(1);
+    expect(state.marks[0]!.type).not.toBe("");
+    expect(state.axes.x.ticks).toBe(0); // reset, not carried over from the previous dataset/preset
+    const rendered = renderChartsWorkbenchState(state);
+    expect(rendered.ok, !rendered.ok ? rendered.error : "").toBe(true);
+  });
+
+  it("sets the chart title/description to the dataset's own", () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
+    expect(state.chart.title).toBe(findChartsDataset("iris-flowers")!.title);
+    expect(state.chart.description).toBe(findChartsDataset("iris-flowers")!.description);
+  });
+
+  it("switching datasets replaces the mark entirely (never accumulates)", () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
+    state = reduceChartsWorkbenchState(state, { type: "select-dataset", id: "olympics-2024-medals" });
+    expect(state.marks).toHaveLength(1);
+    expect(state.data.source).toEqual({ kind: "dataset", id: "olympics-2024-medals" });
+  });
+
+  it("an unknown dataset id is a no-op", () => {
+    const start = createChartsWorkbenchState();
+    const next = reduceChartsWorkbenchState(start, { type: "select-dataset", id: "not-a-real-dataset" });
+    expect(next).toBe(start);
+  });
+
+  it("every vendored dataset resolves to a real, renderable chart", () => {
+    for (const dataset of CHARTS_DATASETS) {
+      const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: dataset.id });
+      expect(state.marks.length, dataset.id).toBeGreaterThan(0);
+      const rendered = renderChartsWorkbenchState(state);
+      expect(rendered.ok, `${dataset.id}: ${!rendered.ok ? rendered.error : ""}`).toBe(true);
+    }
   });
 });
 
