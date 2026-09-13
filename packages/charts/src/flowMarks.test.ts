@@ -750,7 +750,9 @@ describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, b
     // used to manufacture most of these conflicts (every one of a tall
     // band's own rows converging on the SAME single cell as every other
     // band crossing that cell). Genuine crossings remain — see gate (d).
-    expect(r.report.routeConflicts.length).toBe(36);
+    // 36 -> 27: lane packing now reserves a skip-level leg's real descent
+    // (pass-through rows included), not its endpoint rows (codex round-1 P1).
+    expect(r.report.routeConflicts.length).toBe(27);
   });
 });
 
@@ -2227,5 +2229,166 @@ describe("batch-4 review: smooth ribbon junction residue, crossing refusals, and
     const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
     const r = renderGlyphChart(spec, { target: "chat", width: 72, height: 24 });
     expect(r.report.ledger.some((e) => e.code === "sankey-band-broken")).toBe(false);
+  });
+});
+
+describe("codex round-1 review of the skip-level fix: lane extents, pass-through choice, paint order", () => {
+  /** Distinct VERTICAL unit edges each band's own routed rows walk, keyed by band. */
+  function verticalEdgesByBand(routedRows: ReturnType<typeof computeSankeyRoutedRows>): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    for (const row of routedRows) {
+      const key = `${row.band.source} -> ${row.band.target}`;
+      const edges = out.get(key) ?? new Set<string>();
+      for (let i = 1; i < row.cells.length; i++) {
+        const a = row.cells[i - 1]!, b = row.cells[i]!;
+        if (a.x === b.x) edges.add(`${a.x},${Math.min(a.y, b.y)}`);
+      }
+      out.set(key, edges);
+    }
+    return out;
+  }
+  function sharedVerticalEdges(byBand: Map<string, Set<string>>): { readonly pair: string; readonly shared: number }[] {
+    const keys = [...byBand.keys()];
+    const out: { pair: string; shared: number }[] = [];
+    for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
+      let shared = 0;
+      for (const e of byBand.get(keys[i]!)!) if (byBand.get(keys[j]!)!.has(e)) shared++;
+      if (shared > 0) out.push({ pair: `${keys[i]} & ${keys[j]}`, shared });
+    }
+    return out;
+  }
+  /** A layered DAG with skip-level links — `randomSankeySpec` is bipartite, so it never has one. */
+  function randomLayeredSankeySpec(seed: number): GlyphChartSpec {
+    const rand = mulberry32(seed + 7919);
+    const layers = 3 + Math.floor(rand() * 3);
+    const perLayer = Array.from({ length: layers }, () => 1 + Math.floor(rand() * 3));
+    const rows: { from: string; to: string; v: number }[] = [];
+    for (let l = 0; l < layers - 1; l++) for (let a = 0; a < perLayer[l]!; a++) {
+      rows.push({ from: `L${l}N${a}`, to: `L${l + 1}N${Math.floor(rand() * perLayer[l + 1]!)}`, v: 5 + Math.round(rand() * 40) });
+      for (let m = l + 2; m < layers; m++) if (rand() < 0.5) rows.push({ from: `L${l}N${a}`, to: `L${m}N${Math.floor(rand() * perLayer[m]!)}`, v: 5 + Math.round(rand() * 40) });
+    }
+    const dedup = new Map(rows.map((r) => [`${r.from}->${r.to}`, r]));
+    return { marks: [glyphChartSankey([...dedup.values()], { source: "from", target: "to", value: "v" })] };
+  }
+  /** The plot rect `renderGlyphChart` itself hands the sankey painter. */
+  function renderPlot(spec: GlyphChartSpec, charset: "box" | "braille", w: number, h: number): GlyphChartPlotRect {
+    const marks = resolveGlyphChartSpec(spec);
+    return layoutGlyphChart(spec, marks, resolveGlyphChartScales(marks, spec.scales), w, h, "auto", [], charset, resolveGlyphChartLegendOption(spec.legend, false), 1).plot;
+  }
+
+  // P1: a lane item reserved only a band's SOURCE/TARGET rows, but a
+  // skip-level band's legs actually descend from its pass-through rows —
+  // below every intermediate box — so two such bands with disjoint endpoints
+  // were packed onto the same final-lane columns and overlapped for most of
+  // their descent. Executed repro from the review: N1->N5 and N2->N5 both
+  // on columns 216-219, sharing 29 vertical edges, in a 43-column gap.
+  const reviewEdges = [[0, 1, 39], [1, 2, 15], [2, 3, 28], [3, 4, 21], [4, 5, 39], [0, 3, 36], [0, 4, 14], [0, 5, 23], [1, 5, 12], [2, 4, 29], [2, 5, 14]] as const;
+  const reviewSpec: GlyphChartSpec = { marks: [glyphChartSankey(reviewEdges.map(([s, t, v]) => ({ from: `N${s}`, to: `N${t}`, amount: v })), { source: "from", target: "to", value: "amount" })] };
+
+  it("P1: the review's own repro — no two bands share a vertical edge at 240x32 on box, with no gap reported as merged", () => {
+    const plot = PLOT(240, 32);
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const layout = layoutSankeyGraph(sankeyGroups(reviewSpec), plot, "box", ledger)!;
+    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 240, rows: 32, tier: "box" }), plot, layout, false, ledger);
+    expect(ledger.some((e) => e.code === "sankey-crossings-merged"), "the repro's gaps are wide enough that no degrade is licensed").toBe(false);
+    expect(sharedVerticalEdges(verticalEdgesByBand(routedRows))).toEqual([]);
+  });
+
+  it("P1: over a seeded sweep of layered DAGs with skip-level links, bands share a vertical edge only in a render with a merged gap", () => {
+    let skipLevelRenders = 0;
+    for (let seed = 0; seed < 80; seed++) {
+      for (const [w, h] of [[96, 32], [160, 32], [240, 40]] as const) {
+        const spec = randomLayeredSankeySpec(seed);
+        const plot = PLOT(w, h);
+        const ledger: GlyphChartLedgerEntry[] = [];
+        const layout = layoutSankeyGraph(sankeyGroups(spec), plot, "box", ledger);
+        if (!layout) continue;
+        const columnOf = new Map(layout.nodes.map((n) => [n.id, n.x0]));
+        const columns = [...new Set(columnOf.values())].sort((a, b) => a - b);
+        // Intermediate columns whose boxes together leave no row clear are
+        // the documented no-detour residual (the router's own node-box
+        // assertion throws); that is not what this sweep measures.
+        let routedRows: ReturnType<typeof computeSankeyRoutedRows>;
+        try {
+          routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: w, rows: h, tier: "box" }), plot, layout, false, ledger);
+        } catch (err) {
+          if (String(err).includes("no free row cleared it")) continue;
+          throw err;
+        }
+        if (ledger.some((e) => e.code === "sankey-crossings-merged" || e.code === "sankey-columns-folded")) continue;
+        if (layout.bands.some((b) => !b.folded && columns.indexOf(columnOf.get(b.target)!) - columns.indexOf(columnOf.get(b.source)!) > 1)) skipLevelRenders++;
+        expect(sharedVerticalEdges(verticalEdgesByBand(routedRows)), `seed ${seed} at ${w}x${h}`).toEqual([]);
+      }
+    }
+    // Non-vacuity: the sweep must actually route skip-level bands unmerged.
+    expect(skipLevelRenders).toBeGreaterThan(50);
+  });
+
+  // Pass-through choice: among the clear windows below Electricity
+  // Generation's box, the distance-nearest one (rows 22-25) runs along the
+  // Nuclear/Renewables/Losses ribbons. Measured on the reported chart
+  // (title row, braille 96x32, legend off) by forcing each of the 7 windows:
+  // lost cells 145/135/130/127/125/123/119 for rows 22-25 .. 28-31, and the
+  // crossing score ranks them in exactly that order (HEAD before this round
+  // lost 127). On box the nearest window is already the fewest-crossings
+  // one (151; HEAD 165).
+  const reportedChart: GlyphChartSpec = { ...energySpec, title: "National energy flow (illustrative)" };
+  function passThroughRows(charset: "box" | "braille"): readonly number[] {
+    const plot = renderPlot(reportedChart, charset, 96, 32);
+    const layout = layoutSankeyGraph(sankeyGroups(reportedChart), plot, charset, [])!;
+    const rows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: charset }), plot, layout, false, []);
+    const eg = layout.nodes.find((n) => n.id === "Electricity Generation")!;
+    return rows.filter((row) => row.band.source === "Natural Gas" && row.band.target === "Industrial").map((row) => row.cells.find((p) => p.x >= eg.x0 && p.x <= eg.x1)!.y);
+  }
+  const lostCells = (charset: "box" | "braille"): number => renderGlyphChart(reportedChart, { target: "web", charset, color: "none", width: 96, height: 32, legend: false })
+    .report.ledger.filter((e) => e.code === "sankey-band-broken").reduce((n, e) => n + (e.detail as { cells: number }).cells, 0);
+
+  it("pass-through rows are chosen by fewest crossed cells, not by distance, on the reported chart", () => {
+    expect(passThroughRows("braille")).toEqual([28, 29, 30, 31]);
+    expect(lostCells("braille")).toBe(119);
+    expect(passThroughRows("box")).toEqual([22, 23, 24, 25]);
+    expect(lostCells("box")).toBe(151);
+  });
+
+  // P2 (RC2's two-phase paint order had no defending test): with borders
+  // painted first, interiors must still resolve by REGISTRATION order across
+  // smooth and fallback bands alike. On braille the skip-level
+  // Natural Gas -> Industrial is the only fallback band and is registered
+  // third; the ribbons it crosses (Nuclear, Renewables, Electricity
+  // Generation's outflows) are smooth and registered later. Painting smooth
+  // interiors first — the pre-RC2 order — hands those later ribbons every
+  // interior crossing cell (the review measured 0 -> 127 lost cells).
+  it("P2: an earlier-registered fallback band keeps every interior crossing cell against later-registered smooth ribbons", () => {
+    const plot = PLOT(96, 32);
+    const layout = layoutSankeyGraph(sankeyGroups(energySpec), plot, "braille", [])!;
+    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" }), plot, layout, true, []);
+    const canvas = createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" });
+    paintSankeyLayout(canvas, plot, layout, true, []);
+
+    const band = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial")!;
+    const boxes = new Map(layout.nodes.map((n) => [n.id, n]));
+    const later = layout.bands.slice(layout.bands.indexOf(band) + 1).filter((b) => !b.folded && b.targetRowRange);
+    const laterColors = new Set(later.map((b) => resolveSeriesColor(b, true)));
+    expect(laterColors.has(resolveSeriesColor(band, true)), "the later bands must be told apart from it by colour").toBe(false);
+    // A later band's own BORDER cell is legitimately its own (phase 1).
+    const laterBorders = new Set<number>();
+    for (const b of later) {
+      const srcX = boxes.get(b.source)!.x1 + 1, tgtX = boxes.get(b.target)!.x0 - 1;
+      for (let y = b.sourceRowRange[0]; y <= b.sourceRowRange[1]; y++) laterBorders.add(y * 96 + srcX);
+      for (let y = b.targetRowRange![0]; y <= b.targetRowRange![1]; y++) laterBorders.add(y * 96 + tgtX);
+    }
+    let throughLaterRibbons = 0;
+    const stolen: string[] = [];
+    for (const row of routedRows.filter((r) => r.band === band)) {
+      for (let i = 1; i < row.cells.length - 1; i++) {
+        const { x, y } = row.cells[i]!;
+        const idx = y * 96 + x;
+        if (laterBorders.has(idx)) continue;
+        if (canvas.grid.color[idx] !== null && laterColors.has(canvas.grid.color[idx] as string)) stolen.push(`${x},${y}`);
+        if (later.some((b) => x > boxes.get(b.source)!.x1 + 1 && x < boxes.get(b.target)!.x0 - 1 && y >= Math.min(b.sourceRowRange[0], b.targetRowRange![0]) && y <= Math.max(b.sourceRowRange[1], b.targetRowRange![1]))) throughLaterRibbons++;
+      }
+    }
+    expect(throughLaterRibbons, "non-vacuity: the band's interior must actually run through later ribbons").toBeGreaterThan(10);
+    expect(stolen).toEqual([]);
   });
 });
