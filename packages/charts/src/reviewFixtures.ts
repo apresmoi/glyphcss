@@ -86,4 +86,15 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "bad-axis-color", spec: { marks: [glyphChartLine([1, 2])], axes: { x: { color: "#ABCDEF" as never } } } },
   { id: "bad-mark-color", spec: spec(glyphChartLine([1, 2], {}, { color: "blue" as never })) },
   { id: "bad-mark-color", spec: spec(glyphChartBar([1, 2], {}, { color: [] as never })) },
+  // Mutation: drop the funnel schema `allOf` clause (the literal `number[]`
+  // shorthand's own `minimum: 0`), the runtime negative-value check in
+  // `resolveFunnelRows`, or the rule's table/hint entry -> Ajv/runtime
+  // parity goes red. A negative value behind an ACCESSOR/field channel is
+  // NOT independently Ajv-checkable (the same asymmetry `sankey-bad-value`
+  // documents) — the shorthand array is the one shape schema CAN see.
+  { id: "funnel-bad-value", spec: spec(glyphChartFunnel([-5, 10])) },
+  // `bad-options`: a transform on a flow mark, which has no x/y scale for
+  // one to act on (P3-5) — structurally rejected by schema too (the
+  // sankey/funnel `not: { required: ["transform"] }` clause).
+  { id: "bad-options", spec: spec({ ...glyphChartSankey([{ from: "A", to: "B", amount: 1 }], { source: "from", target: "to", value: "amount" }), transform: { kind: "stack" } }) },
 ];

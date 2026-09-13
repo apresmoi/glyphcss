@@ -38,7 +38,7 @@ A bare `number[]` infers `x = index, y = identity` — the same shorthand `Plot.
 
 ## Marks
 
-Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal), a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends"). Two more constructors are non-cartesian, like `arc`: `glyphChartSankey(data, { source, target, value, name? })` and `glyphChartFunnel(data, { stage?, value?, name? })`.
+Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal) — unless every string in the channel is itself a calendar-valid ISO date, which infers `time` instead — a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends"). Two more constructors are non-cartesian, like `arc`: `glyphChartSankey(data, { source, target, value, name? })` and `glyphChartFunnel(data, { stage?, value?, name? })`.
 
 ### `glyphChartLine`
 
@@ -205,7 +205,7 @@ Like `bar`, but drawn as a plain 1-cell-wide column at each `x`/`y` pair rather 
 
 ### `glyphChartSankey`
 
-Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`), row height ∝ throughput, and a flow's band is ∝ value at BOTH ends — every row split (a column's node heights, a node's outgoing bands, a node's incoming bands) uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly. A flow whose share would round to zero rows folds into a single `(other)` band for that source (`sankey-folded-flows`); a non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive/non-finite value or a missing channel rejects with `sankey-bad-value`; a cycle rejects with `sankey-cycle`. Legend: one entry per source node.
+Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`); row height is ∝ throughput under ONE global rows-per-unit scale (never independently normalised per column, which could draw a larger value thinner than a smaller one elsewhere), and a flow's band is ∝ value at BOTH ends — every row split uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly, and folding a too-small flow into a single `(other)` band iterates to a fixed point (`sankey-folded-flows`). Two bands crossing the same gap each get their own vertical lane, so a crossing reads as two bands passing rather than one erasing the other (`sankey-crossings-merged` when a gap is too narrow for every lane). A non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive value or a missing channel rejects with `sankey-bad-value` (a non-finite value in the data itself rejects earlier and generically with `non-finite-data`); a typo'd channel name rejects with `sankey-missing-channel` rather than a misleading cycle error; a genuine cycle rejects with `sankey-cycle`. Legend: one entry per source node.
 
 ```ts
 const data = [
@@ -223,21 +223,21 @@ renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "
 │        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
 │        │██████████│        │▒▒▒▒▒▒▒▒▒▒│ Homes  │
 └────────┘██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
-              ▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
-┌────────┐▓▓▓▓▓▓▓▓▓▓│ Power  │▒▒▒▒▒▒▒▒▒▒│        │
+               ▓▓▓▓▓│ Power  │▒▒▒▒▒▒▒▒▒▒│        │
+┌────────┐▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
 │        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
 │        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒└────────┘
-│  Gas   │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒               
+│  Gas   │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒              
 │        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒┌────────┐
 │        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│Industry│
-│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
-└────────┘▓▓▓▓▓▓▓▓▓▓└────────┘▒▒▒▒▒▒▒▒▒▒└────────┘
-   █  Coal          ▓  Gas         ▒  Power       
+│        │▓▓▓▓▓▓▓▓▓▓└────────┘▒▒▒▒▒▒▒▒▒▒│        │
+└────────┘▓▓▓▓▓▓                   ▒▒▒▒▒└────────┘
+   █  Coal          ▓  Gas         ▒  Power
 ```
 
 ### `glyphChartFunnel`
 
-Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index). Every stage gets an EQUAL row band; only the bar's WIDTH is proportional to value/max, centred between a label column (stage name, right-aligned) and a `value · NN%` readout on the right — never an equal-step trapezoid. A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a proportional width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
+Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index) — every row is its own stage even when two share a label. Every stage gets an EQUAL row band; only the bar's WIDTH is proportional to value/max, centred between a label column (stage name, right-aligned) and a `value · NN%` readout on the right — never an equal-step trapezoid. More stages than the plot has rows folds the tail into one "other (k more)" stage rather than dropping it silently (`funnel-folded-stages`). A negative value rejects with `funnel-bad-value`; an all-zero funnel draws nothing (`empty-total`); a nonpositive first-stage value omits every percentage rather than printing a fabricated `0%` (`funnel-bad-reference`). A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a proportional width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
 
 ```ts
 const data = [
@@ -251,15 +251,15 @@ renderGlyphChart(glyphChartFunnel(data, { stage: "stage", value: "count" }), { t
 ```
 ```
              ████████████████████████████████████               
-       Visits████████████████████████████████████  10k · 100%   
+       Visits████████████████████████████████████  10,000 · 100%
              ████████████████████████████████████               
                                                                 
                         ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
-Product Views           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓             4k · 40%     
+Product Views           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓             4,000 · 40%  
                         ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
                                                                 
                              ▒▒▒▒                               
-  Add to Cart                ▒▒▒▒                  1k · 10%     
+  Add to Cart                ▒▒▒▒                  1,000 · 10%  
                              ▒▒▒▒                               
                                                                 
                                ░                                

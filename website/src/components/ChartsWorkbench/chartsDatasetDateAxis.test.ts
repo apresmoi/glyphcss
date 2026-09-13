@@ -3,13 +3,17 @@
 // a real d3 multi-scale time axis (never a raw ISO/epoch string truncated
 // to fit). See the finding recorded in AGENTS.md/docs/design/charts.md: a
 // date COLUMN is a plain ISO STRING (JSON has no `Date`), and
-// `inferGlyphChartScaleType` (Plot's own rule) infers a bare string as
-// `band`, not `time` — so the x scale here is EXPLICITLY `{ type: "time" }`,
-// exactly what `chartsWorkbenchState.ts`'s dataset-apply flow now sets
-// whenever the profiled x column is `type: "date"` (`dataProfile.ts`).
-// Without that explicit type, this same render prints truncated raw ISO
-// text ("2010-…", "201…") instead of "2011"/"April" — reproduced and killed
-// off in the second describe block below.
+// `inferGlyphChartScaleType` used to infer a bare string as `band`
+// regardless of its content, so `chartsWorkbenchState.ts`'s dataset-apply
+// flow set an EXPLICIT `scales.x.type: "time"` whenever the profiled x
+// column was `type: "date"` (`dataProfile.ts`) as a workaround. The
+// inference itself is now fixed at the library level (`@glyphcss/charts`'
+// own "ONE extra library item"): a column whose every string value is a
+// calendar-valid ISO date infers `time` with no explicit type needed, so
+// the CLI/JSON path gets the same real date ticks the page always did.
+// This file's own cases below all still pass the explicit type (so they
+// stay byte-identical whichever layer is doing the inferring), and the
+// final describe block pins the FIXED behaviour rather than the old defect.
 import { describe, expect, it } from "vitest";
 import { glyphChartArea, glyphChartLine, glyphChartPlot, renderGlyphChart, type GlyphChartSpec } from "@glyphcss/charts";
 import { findChartsDataset } from "./datasets";
@@ -82,18 +86,27 @@ describe("96-col renders (eyeball snapshots)", () => {
   }
 });
 
-// ── The finding, reproduced and pinned ─────────────────────────────────
-describe("a date column left on the default (auto) x scale is NOT a time axis", () => {
-  it("infers 'band' for ISO-string x values, printing truncated raw text instead of d3 date labels", () => {
+// ── The finding, now fixed at the library level ─────────────────────────
+describe("a date column left on the default (auto) x scale IS now a time axis", () => {
+  it("infers 'time' for ISO-string x values with no explicit scales.x.type, printing real d3 date labels", () => {
     const dataset = findChartsDataset("global-temperature")!;
-    // No explicit `scales.x.type` — reproduces what an un-fixed dataset-
-    // apply flow would have produced (see this file's header comment).
+    // No explicit `scales.x.type` — this is exactly what an un-fixed
+    // dataset-apply flow (skipping `chartsDataSource.ts`'s `xChannelIsDate`
+    // workaround) would produce; `inferGlyphChartScaleType` now reads the
+    // column's own ISO-date-shaped strings as `time` on its own.
     const spec = glyphChartPlot({ marks: [glyphChartLine(dataset.rows, { x: "year", y: "anomaly_c" })], title: "t", axes: { x: { title: "" } } });
     const result = renderGlyphChart(spec, { target: "chat", width: 96, height: 24 });
     const labels = labelsOf(xAxisLabelRow(result.text));
-    // At least one surviving label is still a raw/truncated ISO fragment —
-    // the defect this file's real cases (which DO pass `scales.x.type:
-    // "time"`) are required to avoid.
-    expect(labels.some(looksLikeRawDate)).toBe(true);
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) expect(looksLikeRawDate(label)).toBe(false);
+  });
+
+  it("renders byte-identically to the same spec with the explicit scales.x.type: 'time' override", () => {
+    const dataset = findChartsDataset("global-temperature")!;
+    const auto = glyphChartPlot({ marks: [glyphChartLine(dataset.rows, { x: "year", y: "anomaly_c" })], title: "t", axes: { x: { title: "" } } });
+    const explicit = { ...auto, scales: { x: { type: "time" as const } } };
+    expect(renderGlyphChart(auto, { target: "chat", width: 96, height: 24 }).text).toBe(
+      renderGlyphChart(explicit, { target: "chat", width: 96, height: 24 }).text,
+    );
   });
 });

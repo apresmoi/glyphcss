@@ -7,7 +7,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
-  "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-mark-color",
+  "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-mark-color", "funnel-bad-value",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -96,7 +96,21 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   if (mark.type === "sankey" && (mark.channels.source === undefined || mark.channels.target === undefined || mark.channels.value === undefined)) {
     chartError("sankey-bad-value", "Sankey data needs source, target, and value channels.");
   }
+  // Structural half of `funnel-bad-value` — schema-expressible ONLY for the
+  // funnel's own literal `number[]` shorthand (mirroring `sankey-bad-value`'s
+  // split): a value behind an accessor/field-named `value` channel has no
+  // sign schema can see, so that half runs once channels resolve
+  // (`flowMarks.ts`'s `resolveFunnelRows`, under this same code).
+  if (mark.type === "funnel" && mark.data.every((v) => typeof v === "number") && mark.data.some((v) => (v as number) < 0)) {
+    chartError("funnel-bad-value", "Funnel values must be finite and not negative (zero is allowed).");
+  }
   if (mark.transform !== undefined) {
+    // Neither flow mark has an x/y scale for a transform to bin/stack/group
+    // against (AGENTS.md's "Charts": both are laid out from their own
+    // graph/row structure, never a scale) — silently ignoring `transform`
+    // here used to render as if it weren't there at all (P3-5); reject
+    // instead, exactly like an unsupported `options` key.
+    if (mark.type === "sankey" || mark.type === "funnel") chartError("bad-options", `A ${mark.type} mark does not support transform — it has no x/y scale to bin/stack/group against.`);
     const t = mark.transform;
     if (!object(t) || !TRANSFORM_KINDS.includes(t.kind)) chartError("unknown-transform", "Use a known transform kind.");
     if (t.n !== undefined && (!Number.isInteger(t.n) || t.n <= 0)) chartError("invalid-transform-n", "transform.n must be a positive integer.");
@@ -211,6 +225,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
   "sankey-bad-value": "Supply source, target, and value channels, and make sure every resolved value is finite and greater than 0.",
+  "funnel-bad-value": "Make sure every resolved funnel value is finite and not negative (zero is allowed).",
   "bad-axes": "Make axes (and axes.x/axes.y, if present) a plain object, or omit it entirely.",
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
@@ -234,6 +249,7 @@ const RUNTIME_REPAIR_HINTS: Readonly<Record<string, string>> = {
   "mixed-x-scale": "Set an explicit scales.x.type, or make every mark's x channel resolve to the same value type (or one that fits the same band domain).",
   "GLYPH_CHART_INTERNAL_COORD": "Check the named mark's x/y channels resolve to values already in-domain (a band scale needs a matching category; a continuous scale needs a finite number).",
   "sankey-cycle": "Remove the cyclic source -> target link — a sankey's node columns are a DAG's depth order and have no honest position for a cycle.",
+  "sankey-missing-channel": "Check the source/target channel's field name against the actual data keys — a typo resolves every row to the same missing value instead of a real node.",
 };
 
 export function glyphChartRepairHint(id: string): string | undefined {

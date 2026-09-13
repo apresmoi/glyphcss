@@ -6,14 +6,15 @@
 /**
  * A simplified national energy balance — sources feed one transformation
  * stage (electricity generation, with its own conversion losses), which
- * together with a direct industrial gas draw feeds four end-use sectors.
- * Illustrative figures shaped like the structure published in national
- * energy Sankey diagrams (e.g. the UK's BEIS/DESNZ "Energy Flow Chart" and
- * the IEA's World Energy Balances Sankeys) — not the actual reported
- * quantities. In (Coal 200 + Natural Gas 450 + Nuclear 150 + Renewables
- * 100 = 900) equals out (Residential 220 + Commercial 200 + Industrial
- * 280 + Transportation 0... see below) plus generation Losses, so every
- * node conserves exactly.
+ * together with a direct industrial gas draw feeds THREE end-use sectors
+ * (Residential, Commercial, Industrial). Illustrative figures shaped like
+ * the structure published in national energy Sankey diagrams (e.g. the
+ * UK's BEIS/DESNZ "Energy Flow Chart" and the IEA's World Energy Balances
+ * Sankeys) — not the actual reported quantities. In (Coal 200 + Natural
+ * Gas 450 + Nuclear 150 + Renewables 100 = 900) equals out (Residential
+ * 220 + Commercial 200 + Industrial 280, the latter split 150 direct from
+ * Natural Gas and 130 via Electricity Generation) plus 200 of generation
+ * Losses — 900 either way — so every node conserves exactly.
  */
 export const ENERGY_FLOW_SANKEY_DATA: readonly { readonly from: string; readonly to: string; readonly amount: number }[] = [
   { from: "Coal", to: "Electricity Generation", amount: 200 },

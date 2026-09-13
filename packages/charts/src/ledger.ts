@@ -49,8 +49,13 @@ export function ledgerSeriesDodgeDegraded(opts: { readonly count: number; readon
   return entry("series-dodge-degraded", `There isn't room for ${opts.count} series side by side in a ${opts.width}-cell band, so they overlap.`, { ...opts });
 }
 
+/**
+ * Shared by `arc` (a pie whose slices are all zero) and `funnel` (a funnel
+ * whose stages are all zero) — both mean "nothing to draw" the same way,
+ * so both go through this one code rather than a mark-specific pair.
+ */
 export function ledgerEmptyTotal(): GlyphChartLedgerEntry {
-  return entry("empty-total", "Every value in this pie is zero, so no slices are drawn.");
+  return entry("empty-total", "Every value in this chart is zero, so nothing is drawn.");
 }
 
 export function ledgerSliceDropped(opts: { readonly dropped: number; readonly total: number }): GlyphChartLedgerEntry {
@@ -84,6 +89,35 @@ export function ledgerFunnelNotMonotone(opts: { readonly stage: string; readonly
 
 export function ledgerFunnelThinStage(opts: { readonly stage: string; readonly value: number }): GlyphChartLedgerEntry {
   return entry("funnel-thin-stage", `Stage "${opts.stage}" is too small to draw proportionally — drew a one-cell stub instead.`, { ...opts });
+}
+
+export function ledgerSankeyCrossingsMerged(opts: { readonly gapX0: number; readonly gapX1: number; readonly crossing: number; readonly lanes: number }): GlyphChartLedgerEntry {
+  const plural = opts.lanes === 1 ? "" : "s";
+  return entry("sankey-crossings-merged", `Merged ${opts.crossing} crossing flows onto ${opts.lanes} lane${plural} — the gap between columns is too narrow to give each its own.`, { ...opts });
+}
+
+export function ledgerSankeyColumnsFolded(opts: { readonly folded: number; readonly total: number }): GlyphChartLedgerEntry {
+  return entry("sankey-columns-folded", `Folded ${opts.folded} of ${opts.total} node columns to fit the chart width.`, { ...opts });
+}
+
+/**
+ * The genuinely impossible case: more real (positive-value) nodes in one
+ * column than the plot has rows, so not even the "bump every 0-row node to
+ * 1" floor (P2-3) can seat them all. The biggest values keep their row;
+ * these are the smallest ones that lost the tie-break.
+ */
+export function ledgerSankeyNodesDropped(opts: { readonly nodes: readonly string[] }): GlyphChartLedgerEntry {
+  const plural = opts.nodes.length === 1 ? "" : "s";
+  return entry("sankey-nodes-dropped", `${opts.nodes.length} node${plural} had no room left in their own column and aren't drawn — ${opts.nodes.join(", ")}.`, { ...opts });
+}
+
+export function ledgerFunnelFoldedStages(opts: { readonly stages: readonly string[] }): GlyphChartLedgerEntry {
+  const plural = opts.stages.length === 1 ? "" : "s";
+  return entry("funnel-folded-stages", `Folded ${opts.stages.length} stage${plural} into one "other" row to fit the chart height — ${opts.stages.join(", ")}.`, { ...opts });
+}
+
+export function ledgerFunnelBadReference(opts: { readonly value: number }): GlyphChartLedgerEntry {
+  return entry("funnel-bad-reference", `The first stage's value (${opts.value}) isn't positive, so percentages are omitted.`, { ...opts });
 }
 
 export function ledgerMarkColorUnused(opts: { readonly markType: string; readonly provided: number; readonly used: number }): GlyphChartLedgerEntry {

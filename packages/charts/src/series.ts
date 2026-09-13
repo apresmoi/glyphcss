@@ -72,10 +72,15 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     // section) — a sankey groups by SOURCE node (`row.x`, one legend entry
     // per source), a funnel groups by STAGE (`row.x`, one entry per stage,
     // in the given order since a `Map`'s insertion order is first-appearance
-    // order and every row's `row.x` is normally distinct).
-    const canGroup = ["line", "area", "bar", "dot", "rect", "arc", "sankey", "funnel"].includes(mark.type);
-    const channel = canGroup && mark.type !== "sankey" && mark.type !== "funnel" ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
+    // order). `canGroup` never includes them: the `channel` lookup right
+    // below is unconditionally excluded for both types anyway (the ternary's
+    // own `mark.type !== "sankey" && mark.type !== "funnel"` clause), so
+    // adding them here was dead — verified by mutation (a prior review found
+    // deleting them from a since-removed 3-way inclusion changed no test).
+    const canGroup = ["line", "area", "bar", "dot", "rect", "arc"].includes(mark.type);
+    const channel = canGroup ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
     const groups = new Map<string | undefined, GlyphChartMarkRow[]>();
+    const displayNameByGroupKey = new Map<string | undefined, string | undefined>();
     for (const row of rows) {
       // Nonpositive arc values occupy no angle and need no swatch; an all-zero pie stays empty.
       if (mark.type === "arc" && !(typeof row.y === "number" && Number.isFinite(row.y) && row.y > 0)) continue;
@@ -83,12 +88,21 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
         : mark.type === "sankey" || mark.type === "funnel" ? String(row.x)
         : channel ? String(row[channel])
         : mark.options?.name;
-      if (!groups.has(name)) groups.set(name, []);
-      groups.get(name)!.push(row);
+      // A funnel keys each STAGE by its own row, never by name (P2-4): two
+      // stages that happen to share a label (two "Retry" steps, or a
+      // repeated category) are still two rows, and grouping by name alone
+      // silently merged the second into the first's group, where only
+      // `g.rows[0]` is ever painted — dropping it with no ledger entry. The
+      // DISPLAYED name/legend/colour identity is still `name`, tracked
+      // separately in `displayNameByGroupKey`.
+      const groupKey = mark.type === "funnel" ? String(row.index) : name;
+      if (!groups.has(groupKey)) { groups.set(groupKey, []); displayNameByGroupKey.set(groupKey, name); }
+      groups.get(groupKey)!.push(row);
     }
-    if (!groups.size && !["arc", "sankey", "funnel"].includes(mark.type)) groups.set(mark.options?.name, []);
+    if (!groups.size && !["arc", "sankey", "funnel"].includes(mark.type)) { groups.set(mark.options?.name, []); displayNameByGroupKey.set(mark.options?.name, mark.options?.name); }
     let sliceIndex = 0;
-    for (const [name, seriesRows] of groups) {
+    for (const [groupKey, seriesRows] of groups) {
+      const name = displayNameByGroupKey.get(groupKey);
       if (name !== undefined && !named.has(name)) named.set(name, named.size);
       const shadeIndex = sliceIndex > 0 && sliceIndex === groups.size - 1 && sliceIndex % SERIES_STYLES.length === 0 ? sliceIndex + 1 : sliceIndex;
       const color = resolveMarkColorAt(mark.options?.color, sliceIndex);

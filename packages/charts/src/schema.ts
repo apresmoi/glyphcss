@@ -56,6 +56,20 @@ const MARK_SCHEMA = {
     // `sankey-bad-value` (see `validate.ts`'s own doc at that check).
     if: { properties: { type: { const: "sankey" } }, required: ["type"] },
     then: { properties: { channels: { required: ["source", "target", "value"] } } },
+  }, {
+    // Neither flow mark has an x/y scale for `transform` to act on
+    // (`validate.ts`'s own doc at this same check) — structurally
+    // checkable regardless of the transform's own shape, unlike the
+    // resolved-value half of `sankey-bad-value`/`funnel-bad-value`.
+    if: { properties: { type: { enum: ["sankey", "funnel"] } }, required: ["type"] },
+    then: { not: { required: ["transform"] } },
+  }, {
+    // The funnel's own bare `number[]` shorthand IS a literal value list, so
+    // "finite and not negative" is schema-expressible for exactly that shape
+    // — unlike an accessor/field-named `value` channel, whose resolved sign
+    // schema cannot see (the same asymmetry `sankey-bad-value` documents).
+    if: { properties: { type: { const: "funnel" }, data: { items: { type: "number" } } }, required: ["type", "data"] },
+    then: { properties: { data: { items: { type: "number", minimum: 0 } } } },
   }],
 };
 
