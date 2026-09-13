@@ -14,7 +14,7 @@
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
-  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS,
+  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHARTS_CUSTOM_MAX_BYTES,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
   type GlyphChartsWorkbenchControls,
@@ -157,6 +157,20 @@ function validateDataSource(value: unknown): ChartsDataSource | null {
     // P2-5, appended after `v1` already existed: absent on every link saved
     // before the cap existed, so an old link decodes exactly as before.
     if (value.omitted !== undefined) { if (value.omitted !== true) return null; source.omitted = true; }
+    // A3 (round 3): the reducer's `set-data-source` cap (N2) guards every
+    // DISPATCH, but a decoded `?c=` payload is fed straight to
+    // `ChartsWorkbenchInner` as `initialState` and never goes through the
+    // reducer at all — an ordinary paste/dropdown can't produce an
+    // over-cap custom `raw` here (the reducer already refuses it before it
+    // could be encoded), but a hand-built link can carry one directly. It
+    // decodes to the SAME `omitted` marker a genuinely dropped payload
+    // uses (`resolveChartsDataRows` already turns that into the "paste it
+    // again" error this readout shows), rather than installing the full
+    // payload with no size check at all.
+    if (!source.omitted && new TextEncoder().encode(source.raw).length > CHARTS_CUSTOM_MAX_BYTES) {
+      source.raw = "";
+      source.omitted = true;
+    }
     return source;
   }
   return null;

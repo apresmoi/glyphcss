@@ -142,11 +142,13 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
   const onSelectDataset = (value: string) => {
     if (value === "") { dispatch({ type: "set-data-source", source: null }); return; }
     if (value === CUSTOM_OPTION) {
-      // N2: mirror the paste/upload handler's own size check here too — the
-      // reducer (`set-data-source`) is the actual enforcement backstop that
-      // makes a bypass impossible, but showing the SAME refusal on this
-      // path keeps the UI honest about why re-selecting "Custom…" after a
-      // refused paste doesn't bring that paste back.
+      // N2/A2: mirror the paste/upload handler's own size check here too —
+      // the reducer (`set-data-source`) is the actual enforcement backstop
+      // that makes a bypass impossible, and the header-level readout above
+      // (not this panel, which stays unmounted on this path since `isCustom`
+      // never flips true) is what shows the SAME refusal, so re-selecting
+      // "Custom…" after a refused paste is never silent about why that
+      // paste didn't come back.
       const sizeError = customSizeErrorFor(new TextEncoder().encode(customText).length);
       setCustomSizeError(sizeError);
       if (sizeError) return;
@@ -202,6 +204,11 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
     return profiled.recommendations.filter((rec) => !sameAsTop(rec)).slice(0, 3);
   }, [profiled, top]);
 
+  // A1 (N1 residue): a recommendation with no channel names at all
+  // (`dataProfile.ts`'s fallback `{ mark: "bar", channels: {} }`) is an
+  // honest "nothing to plot" answer, not something Apply should commit.
+  const hasChannels = top ? Object.values(top.channels).some((value) => value !== undefined) : false;
+
   // N4: `pipeline` is the recommendation's own EXTRA reshape (present only
   // for the multi-numeric long-format rewrite) — threaded through so
   // `apply-data` runs it on top of the already-resolved rows before
@@ -221,6 +228,15 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
       </span>
     </label>
 
+    {/* A2: rendered here, OUTSIDE the `isCustom`-gated panel below, because
+     *  the dropdown path (re-selecting "Custom…" while the current source
+     *  is a stock dataset or none) refuses WITHOUT the source ever becoming
+     *  custom — `isCustom` stays false, so a copy of this message nested
+     *  inside that panel can never render for that path. The paste/upload
+     *  handlers set the same state and are already custom when they fire,
+     *  so one readout here covers both. */}
+    {customSizeError && <p className="charts-error" role="alert">{customSizeError}</p>}
+
     {activeDataset && <div className="charts-data-info">
       <p className="charts-readout">{activeDataset.description}</p>
       <p className="charts-readout"><a href={activeDataset.source.url} target="_blank" rel="noreferrer">{activeDataset.source.name}</a> — {activeDataset.source.licence}</p>
@@ -231,7 +247,6 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
       {customHint.filename && <p className="charts-readout">{customHint.filename}</p>}
       <textarea className="charts-mark-data" aria-label="Paste CSV/TSV/JSON" placeholder="Paste CSV, TSV, or JSON…"
         value={customText} onChange={(e) => applyCustomText(e.target.value, customHint)} spellCheck={false} />
-      {customSizeError && <p className="charts-error" role="alert">{customSizeError}</p>}
     </div>}
 
     {data.source && <>
@@ -251,7 +266,17 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
        *  EMPTY) recommendation. */}
       {top.fallbackNotice && <p className="charts-readout" role="status">{top.fallbackNotice}</p>}
       <p className="charts-readout">Recommended: <strong>{top.mark}</strong> — {top.reason}</p>
-      <button type="button" className="gw-code-panel__action" onClick={() => apply(top.mark, top.channels, top.pipeline)}>Apply</button>
+      {/* A1 (N1 residue): a channel-less recommendation (`channels: {}`,
+       *  `dataProfile.ts`'s own "No obvious numeric or date column found"
+       *  bar) is an honest ANSWER, not a chart to draw — Apply committing
+       *  it painted a mark with 0 ink and no on-screen sign anything went
+       *  wrong beyond the reason text already above. Disabling Apply here
+       *  (rather than letting `apply-data` build an empty mark) means the
+       *  reader's PREVIOUS chart, if any, stays on screen instead of being
+       *  replaced with a blank one. */}
+      <button type="button" className="gw-code-panel__action" disabled={!hasChannels}
+        title={hasChannels ? undefined : "No chart channels to apply — the reason above explains why."}
+        onClick={() => apply(top.mark, top.channels, top.pipeline)}>Apply</button>
       {runnerUps.length > 0 && <ul className="charts-data-runnerups">
         {runnerUps.map((rec, i) => <li key={i}>
           <button type="button" className="charts-data-runnerup" onClick={() => apply(rec.mark, rec.channels, rec.pipeline)}>{rec.mark}: {rec.reason}</button>

@@ -112,18 +112,49 @@ describe("parseTabular", () => {
     expect(result.rows).toEqual([{ a: 1, a_2: 2, a_3: 3 }]);
   });
 
-  // N9b: RFC4180 (and d3-dsv, and PapaParse) treat a quoted field's content
-  // as literal — the one place the format lets an author SAY the padding
-  // is data. `coerceCell`'s trim (F6/P2-3, above) must not reach inside
-  // quotes. Mutation check: reverting `coerceCell` to trim/coerce
-  // unconditionally (dropping the `quoted` parameter) makes this go red
-  // (`" x "` comes back trimmed to `"x"`, and a quoted `"3"` would coerce
-  // to the number 3 instead of staying the literal string "3").
-  it("keeps a quoted field's padding and type exactly as written, never trimmed or coerced", () => {
+  // N9b: RFC4180 (and d3-dsv, and PapaParse) treat a quoted field's
+  // whitespace as literal — the one place the format lets an author SAY
+  // the padding is data. `coerceCell`'s trim (F6/P2-3, above) must not
+  // reach inside quotes. R1 (round 3): quoting must NOT also suppress type
+  // coercion — a quoted numeric cell (a QUOTE_ALL export's routine shape)
+  // still coerces to a number exactly like an unquoted one; only a value
+  // that doesn't parse as a bool/number keeps its literal padding.
+  // Mutation check: reverting `coerceCell` to trim/coerce unconditionally
+  // (dropping the `quoted` parameter) makes this go red (`" x "` comes
+  // back trimmed to `"x"`).
+  it("keeps a quoted field's padding exactly as written but still type-coerces it", () => {
     const result = parseTabular('a,b,c\n" x ",2,"3"');
     expect(result.ok).toBe(true);
     if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
-    expect(result.rows).toEqual([{ a: " x ", b: 2, c: "3" }]);
+    expect(result.rows).toEqual([{ a: " x ", b: 2, c: 3 }]);
+  });
+
+  // R1 (round 3, P1): a QUOTE_ALL export (every field quoted, including
+  // numerics) must profile identically to the same data unquoted — the
+  // parent commit did this; round 2's N9b fix broke it by returning every
+  // quoted field verbatim regardless of type. Mutation check: reverting
+  // `coerceCell` to `if (quoted) return raw;` makes this go red (`sales`
+  // comes back as the string `"100"` instead of the number `100`).
+  it("coerces a quoted numeric cell exactly like an unquoted one (QUOTE_ALL export)", () => {
+    const result = parseTabular('"region","sales"\n"North","100"\n"South","80"');
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ region: "North", sales: 100 }, { region: "South", sales: 80 }]);
+  });
+
+  // R1 (round 3, P1): the same holds when only ONE cell in an otherwise
+  // plain numeric column happens to be quoted (a common CSV-writer quirk
+  // when a value contains a comma elsewhere in the export) — it must not
+  // flip that one cell, or the column's inferred type, to category.
+  it("doesn't flip a numeric column to category when only one of its cells is quoted", () => {
+    const result = parseTabular('region,sales\nNorth,100\n"South",80\nEast,120');
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([
+      { region: "North", sales: 100 },
+      { region: "South", sales: 80 },
+      { region: "East", sales: 120 },
+    ]);
   });
 
   // P2-6: a bare JSON array of scalars is the ONE shape `renderGlyphChart`

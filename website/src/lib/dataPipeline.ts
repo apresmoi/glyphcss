@@ -208,16 +208,33 @@ export class PipelineFormatError extends Error {}
  *  `new RegExp` itself, with the raw "Duplicate capture group name" host
  *  message shown verbatim to the reader — a token is now rejected the
  *  SECOND time it's used, as the same structured `PipelineFormatError`
- *  every other bad format here produces. */
+ *  every other bad format here produces.
+ *
+ *  R2 (round 3): a run of `[YyMmDd]+` can legitimately contain MULTIPLE
+ *  adjacent tokens with no separator (`YYYYMMDD`, the ISO basic format —
+ *  a routine export shape) — validating the run by requiring it to equal
+ *  ONE whole token rejected every such format even though the tokenizing
+ *  loop below has always walked adjacent tokens correctly. A run is now
+ *  validated the same way it is compiled: tokenized greedily
+ *  (`YYYY`/`MM`/`DD`) from its own start, so a run is accepted exactly
+ *  when it fully decomposes into recognized tokens with nothing left
+ *  over — a genuinely bad run still names the first unrecognized
+ *  substring within it. */
 export function compileDateFormat(format: string): RegExp {
   const badTokenRun = /[YyMmDd]+/g;
   let run: RegExpExecArray | null;
   let matchedToken = false;
   while ((run = badTokenRun.exec(format))) {
-    if (!DATE_FORMAT_TOKENS.some((t) => t.token === run![0])) {
-      throw new PipelineFormatError(`Unrecognized date format token "${run[0]}" — use YYYY, MM, or DD.`);
+    const text = run[0];
+    let j = 0;
+    while (j < text.length) {
+      const found = DATE_FORMAT_TOKENS.find((t) => text.startsWith(t.token, j));
+      if (!found) {
+        throw new PipelineFormatError(`Unrecognized date format token "${text.slice(j)}" — use YYYY, MM, or DD.`);
+      }
+      j += found.token.length;
+      matchedToken = true;
     }
-    matchedToken = true;
   }
   if (!matchedToken) {
     throw new PipelineFormatError(`Date format "${format}" has no YYYY, MM, or DD token.`);

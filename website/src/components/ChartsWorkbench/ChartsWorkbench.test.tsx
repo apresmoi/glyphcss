@@ -754,12 +754,19 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
   // just the freshly-typed fragment — a real browser's `onChange` always
   // reports the field's whole current value, and that value now STARTS
   // from the real content instead of an incorrectly-empty box.
+  //
+  // A1: the dataset needs a NUMERIC column ("age") — two all-string columns
+  // (the original "name,city" shape) profile with no numeric or date column
+  // at all, which is a genuinely channel-less recommendation (A1's own
+  // fix disables Apply for exactly that case, so clicking it would leave
+  // the PREVIOUS (unrelated, numeric-only) preset marks in place instead of
+  // this dataset's 3 rows — not what this test is about).
   it("typing after mount extends the seeded content instead of replacing the whole dataset", () => {
-    const raw = "name,city\nBob,Paris\nAnn,Lyon";
+    const raw = "name,age\nBob,30\nAnn,25";
     let state = createChartsWorkbenchState();
     state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw, filename: "people.csv" } });
     mount(state);
-    setValue(pasteBox(), `${raw}\nSam,Berlin`);
+    setValue(pasteBox(), `${raw}\nSam,40`);
     act(() => pasteBox().dispatchEvent(new Event("blur", { bubbles: true })));
     expect(container.querySelector(".charts-data-recommend")).not.toBeNull();
     // Three rows survive (the two original plus the appended one) — a
@@ -784,7 +791,7 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     });
     const huge = `a,b\n${"1,2\n".repeat(70_000)}`; // well over 256 KB
     setValue(pasteBox(), huge);
-    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+    expect(container.querySelector(".charts-data-folder .charts-error")?.textContent).toMatch(/must be under 256 KB/);
     expect(container.querySelector(".charts-data-recommend")).toBeNull();
   });
 
@@ -793,10 +800,16 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
   // "Custom…" again re-dispatched that SAME refused text with no size
   // check on that path — installing the full 70,000-row payload (and
   // rendering a chart from it) while the stale "must be under 256 KB"
-  // message was still on screen. Mutation check: reverting the reducer's
-  // own `set-data-source` size guard (dispatching whatever `customText`
-  // holds unconditionally) makes this go red — the recommend block
-  // reappears and the source resolves to all 70,000 rows.
+  // message was still on screen. Mutation check (A2 correction): this
+  // outcome is DOUBLY defended — `onSelectDataset`'s own size check never
+  // dispatches when refused, AND the reducer's separate `set-data-source`
+  // guard independently no-ops an oversized dispatch that reaches it —
+  // so reverting EITHER guard alone leaves this test green; only removing
+  // BOTH reddens it. The pure-state reducer guarantee has its own
+  // dedicated single-guard test (`chartsWorkbenchState.test.tsx`'s
+  // "set-data-source size cap (N2)"); the component-level guard's own
+  // single-guard mutation check is the next test below, which depends on
+  // the REFUSAL MESSAGE the reducer path never produces.
   it("a paste refused over the size cap cannot come back via a dataset-then-Custom… round trip (N2)", () => {
     mount(createChartsWorkbenchState());
     const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
@@ -807,7 +820,7 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     selectValue("__custom__");
     const huge = `a,b\n${"1,2\n".repeat(70_000)}`; // well over 256 KB
     setValue(pasteBox(), huge);
-    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+    expect(container.querySelector(".charts-data-folder .charts-error")?.textContent).toMatch(/must be under 256 KB/);
     expect(container.querySelector(".charts-data-recommend")).toBeNull();
 
     // Pick a real dataset, then "Custom…" again — the round trip the
@@ -823,6 +836,31 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     // custom text.
     expect(datasetSelect.value).toBe("global-temperature");
     expect(container.querySelector(".charts-data-recommend")?.textContent).toMatch(/Global temperature/);
+  });
+
+  // A2 — the round-2 fix above stopped the oversized payload from coming
+  // back, but the refusal message it sets was rendered ONLY inside the
+  // `isCustom`-gated panel, which never mounts on this exact path (the
+  // source stays the stock dataset, so `isCustom` is false) — so the
+  // reader saw the dropdown silently snap back with no explanation at all.
+  // Mutation check: reverting the readout to live only inside
+  // `.charts-data-custom` makes this go red (the message exists in state
+  // but nothing on screen shows it).
+  it("shows the size-cap refusal message for a dropdown-triggered refusal, not just a paste/upload one", () => {
+    mount(createChartsWorkbenchState());
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    const selectValue = (value: string) => act(() => {
+      datasetSelect.value = value;
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    selectValue("__custom__");
+    const huge = `a,b\n${"1,2\n".repeat(70_000)}`; // well over 256 KB
+    setValue(pasteBox(), huge);
+    selectValue("global-temperature");
+    selectValue("__custom__"); // refused: customText still holds the huge paste
+
+    expect(datasetSelect.value).toBe("global-temperature");
+    expect(container.querySelector(".charts-error")?.textContent).toMatch(/must be under 256 KB/);
   });
 
   // P2-5 — same cap on a file upload, refused BEFORE `FileReader` ever
@@ -842,7 +880,7 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(readAsText).not.toHaveBeenCalled();
-    expect(container.querySelector(".charts-data-custom .charts-error")?.textContent).toMatch(/must be under 256 KB/);
+    expect(container.querySelector(".charts-data-folder .charts-error")?.textContent).toMatch(/must be under 256 KB/);
   });
 
   // P2-5's other half, at the UI level: a decoded "omitted" custom source

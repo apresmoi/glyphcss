@@ -6,7 +6,7 @@ import type { ChartsDataset } from "./types";
 export const renewableElectricityShareDataset: ChartsDataset = {
   id: "renewable-electricity-share",
   title: "World renewable electricity share",
-  description: "Share of world electricity generated from renewable sources (hydro, wind, solar, and other renewables), 1985-2025 — the source's own published range (Ember/Energy Institute data begins in the mid-1980s) — a steady climb that has accelerated since 2015.",
+  description: "Share of world electricity generated from renewable sources (hydro, wind, solar, and other renewables), 1985-2025 — the source's own published range (Ember/Energy Institute data begins in the mid-1980s) — it dips from 1985 to 1989 before recovering, then climbs steadily, accelerating since 2015.",
   source: {
     "name": "Our World in Data / Ember, Share of electricity from renewables",
     "url": "https://ourworldindata.org/grapher/share-electricity-renewables",

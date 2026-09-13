@@ -357,6 +357,12 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-pipeline": return { ...state, data: { ...state.data, pipeline: action.pipeline } };
     case "apply-data": {
       if (!state.data.source) return state;
+      // A1: a channel-less recommendation (`dataProfile.ts`'s own
+      // "No obvious numeric or date column found" fallback) is an honest
+      // answer, not a chart — committing it replaced whatever the reader
+      // already had with a 0-ink mark. The Data folder's own Apply button
+      // is disabled for this case; this is the reducer-level backstop.
+      if (Object.values(action.channels).every((value) => value === undefined)) return state;
       const resolved = resolveChartsDataRows(state.data.source, state.data.pipeline);
       if (!resolved.ok) return state;
       // N4: a recommendation's own EXTRA reshape (a long-format

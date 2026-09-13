@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  CHART_PRESETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
+  CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, createChartsWorkbenchState, reduceChartsWorkbenchState,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
-import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
+import {
+  CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState,
+} from "./chartsUrlState";
 
 const presetState = (id: string): ChartsWorkbenchState =>
   reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "apply-preset", id });
@@ -231,6 +233,28 @@ describe("chartsUrlState — round trip", () => {
     const mutatedVersion = `v9${raw.slice(2)}`;
     expect(await decodeChartsUrlState(mutatedVersion)).toBeNull();
   });
+
+  // A3: the reducer's `set-data-source` cap (N2) guards every DISPATCH, but
+  // a decoded `?c=` payload is fed straight to `ChartsWorkbenchInner` as
+  // `initialState` and never goes through the reducer — so a HAND-BUILT
+  // link (never a paste/dropdown, both of which the reducer already
+  // refuses before they could be encoded) could carry an over-cap custom
+  // `raw` straight through decode. The repeated character deflates hard
+  // enough that the ENCODED link stays far under `CHARTS_URL_SIZE_WARN_BYTES`
+  // (N3's own drop never engages), which is exactly why this needed its own
+  // guard in `validateDataSource` rather than relying on N3's size drop.
+  // Mutation check: removing the size check added to `validateDataSource`
+  // makes this go red — the decoded source comes back with the full
+  // over-cap `raw` string instead of the `omitted` marker.
+  it("caps a decoded custom source at the same size a paste/dropdown could never bypass (A3)", async () => {
+    const raw = "x".repeat(CHARTS_CUSTOM_MAX_BYTES + 100);
+    const base = createChartsWorkbenchState();
+    const state: ChartsWorkbenchState = { ...base, data: { source: { kind: "custom", raw, filename: "huge.csv" }, pipeline: [] } };
+    const link = await encodeChartsUrlState(state);
+    expect(new TextEncoder().encode(link).length).toBeLessThan(CHARTS_URL_SIZE_WARN_BYTES);
+    const decoded = await decodeChartsUrlState(link);
+    expect(decoded?.data.source).toEqual({ kind: "custom", raw: "", filename: "huge.csv", omitted: true });
+  });
 });
 
 describe("chartsUrlState — fixed historical link (regression pin)", () => {
@@ -261,5 +285,113 @@ describe("chartsUrlState — fixed historical link (regression pin)", () => {
 describe("chartsUrlState — param name", () => {
   it("uses 'c' as the query param key", () => {
     expect(CHARTS_URL_PARAM).toBe("c");
+  });
+});
+
+// A4: `createChartsUrlWriter` is a hand-copied fork of `jsonUrlState.ts`'s
+// `createDebouncedJsonUrlWriter` — needed for its own encode-then-maybe-
+// re-encode drop step (N3), which the generic writer's single
+// `envelope.encode(state)` call has no hook for — but it had no test of its
+// own; `jsonUrlState.test.ts`'s five writer tests exercised only the
+// original it was copied from. Mirrored onto the real function here so a
+// future edit to either can't silently diverge unnoticed.
+function makeFakeWindow(startUrl: string) {
+  const url = new URL(startUrl);
+  const win = {
+    location: {
+      get search() { return url.search; },
+      get pathname() { return url.pathname; },
+      get hash() { return url.hash; },
+    },
+    history: {
+      state: null as unknown,
+      replaceState(state: unknown, _title: string, next: string) {
+        win.history.state = state;
+        const resolved = new URL(next, url.origin);
+        url.pathname = resolved.pathname;
+        url.search = resolved.search;
+        url.hash = resolved.hash;
+      },
+    },
+  };
+  return win;
+}
+// Real timers (see jsonUrlState.test.ts's own note): a fake-timer version of
+// these flakes on the assertions that wait for the real async deflate encode.
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const SETTLE_MS = 150 + 200;
+
+describe("createChartsUrlWriter", () => {
+  let win: ReturnType<typeof makeFakeWindow>;
+  beforeEach(() => {
+    win = makeFakeWindow("http://localhost/charts");
+    (globalThis as { window?: unknown }).window = win;
+  });
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it("coalesces a burst of state changes into exactly one write, 150ms after the last one", async () => {
+    const writer = createChartsUrlWriter();
+    const base = createChartsWorkbenchState();
+    writer({ ...base, chart: { ...base.chart, title: "one" } });
+    await sleep(50);
+    writer({ ...base, chart: { ...base.chart, title: "two" } });
+    await sleep(50);
+    writer({ ...base, chart: { ...base.chart, title: "three" } });
+    expect(win.location.search).toBe(""); // still nothing written — every call so far re-armed the timer
+    await sleep(SETTLE_MS);
+    const raw = new URLSearchParams(win.location.search).get("c");
+    expect(raw).not.toBeNull();
+    expect((await decodeChartsUrlState(raw))?.chart.title).toBe("three");
+  });
+
+  it("uses history.replaceState, never pushState — the URL changes with no navigation entry created", async () => {
+    let pushCount = 0;
+    (win.history as { pushState?: () => void }).pushState = () => { pushCount++; };
+    const writer = createChartsUrlWriter();
+    writer(createChartsWorkbenchState());
+    await sleep(SETTLE_MS);
+    expect(pushCount).toBe(0);
+    expect(new URLSearchParams(win.location.search).get("c")).not.toBeNull();
+  });
+
+  it("skips the write (no replaceState call) when the encoded value hasn't changed", async () => {
+    const writer = createChartsUrlWriter();
+    const state = createChartsWorkbenchState();
+    writer(state);
+    await sleep(SETTLE_MS);
+    const before = win.location.search;
+    let replaceCalls = 0;
+    const originalReplace = win.history.replaceState.bind(win.history);
+    win.history.replaceState = (...args: Parameters<typeof originalReplace>) => { replaceCalls++; return originalReplace(...args); };
+    writer({ ...state }); // structurally identical -> same encoded string
+    await sleep(SETTLE_MS);
+    expect(replaceCalls).toBe(0);
+    expect(win.location.search).toBe(before);
+  });
+
+  it("reports the encoded size via onEncoded even when the write itself is skipped", async () => {
+    const sizes: number[] = [];
+    const writer = createChartsUrlWriter(({ sizeBytes }) => sizes.push(sizeBytes));
+    const state = createChartsWorkbenchState();
+    writer(state);
+    await sleep(SETTLE_MS);
+    writer({ ...state });
+    await sleep(SETTLE_MS);
+    expect(sizes).toHaveLength(2);
+    expect(sizes[0]).toBeGreaterThan(0);
+    expect(sizes[1]).toBe(sizes[0]);
+  });
+
+  it("discards a stale encode that resolves after a newer state was already scheduled", async () => {
+    const writer = createChartsUrlWriter();
+    const base = createChartsWorkbenchState();
+    writer({ ...base, chart: { ...base.chart, title: "first" } });
+    await sleep(SETTLE_MS);
+    writer({ ...base, chart: { ...base.chart, title: "final" } });
+    await sleep(SETTLE_MS);
+    const raw = new URLSearchParams(win.location.search).get("c");
+    expect((await decodeChartsUrlState(raw))?.chart.title).toBe("final");
   });
 });

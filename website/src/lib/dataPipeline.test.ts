@@ -209,6 +209,41 @@ describe("runPipeline — filter/sort/limit/parseDate", () => {
     expect(result.rows[0]!.d).toBe(new Date(Date.UTC(2020, 0, 2)).toISOString());
   });
 
+  // R2 (round 3): the bad-token scan matches a whole RUN of `[YyMmDd]+`,
+  // and requiring the whole run to equal exactly one token rejected every
+  // format with adjacent tokens and no separator — `YYYYMMDD` is the ISO
+  // basic date format and a routine export shape. Mutation check:
+  // reverting the scan to whole-run equality makes every case here throw
+  // "Unrecognized date format token" instead of parsing.
+  it("compiles and parses adjacent date-format tokens with no separator (YYYYMMDD and friends)", () => {
+    const ymd = runPipeline([{ d: "20240102" }], [{ kind: "parseDate", column: "d", format: "YYYYMMDD" }]);
+    if (!ymd.ok) throw new Error(ymd.error);
+    expect(ymd.rows[0]!.d).toBe(new Date(Date.UTC(2024, 0, 2)).toISOString());
+
+    const ym = runPipeline([{ d: "202401" }], [{ kind: "parseDate", column: "d", format: "YYYYMM" }]);
+    if (!ym.ok) throw new Error(ym.error);
+    expect(ym.rows[0]!.d).toBe(new Date(Date.UTC(2024, 0, 1)).toISOString());
+
+    const mdy = runPipeline([{ d: "01022024" }], [{ kind: "parseDate", column: "d", format: "MMDDYYYY" }]);
+    if (!mdy.ok) throw new Error(mdy.error);
+    expect(mdy.rows[0]!.d).toBe(new Date(Date.UTC(2024, 0, 2)).toISOString());
+
+    const dmy = runPipeline([{ d: "02012024" }], [{ kind: "parseDate", column: "d", format: "DDMMYYYY" }]);
+    if (!dmy.ok) throw new Error(dmy.error);
+    expect(dmy.rows[0]!.d).toBe(new Date(Date.UTC(2024, 0, 2)).toISOString());
+  });
+
+  // R2 residue: the fix must not loosen the round-2 rejections — a
+  // lowercase run, a no-token format, a duplicated token and a genuinely
+  // unrecognized run must all still reject (re-asserted here alongside the
+  // fix so the two never drift apart again).
+  it("still rejects the round-2 bad-format cases after the adjacent-token fix", () => {
+    expect(() => compileDateFormat("yyyy-mm-dd")).toThrow(PipelineFormatError);
+    expect(() => compileDateFormat("abc")).toThrow(PipelineFormatError);
+    expect(() => compileDateFormat("YYYY-YYYY")).toThrow(PipelineFormatError);
+    expect(() => compileDateFormat("YYYMMDD")).toThrow(PipelineFormatError);
+  });
+
   it("rejects an unrecognized date-format token as a structured pipeline error naming the step", () => {
     const result = runPipeline([{ d: "2020-01-01" }], [{ kind: "parseDate", column: "d", format: "YYY-MM-DD" }]);
     expect(result.ok).toBe(false);

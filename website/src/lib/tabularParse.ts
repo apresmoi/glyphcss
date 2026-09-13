@@ -32,23 +32,29 @@ export interface ParseTabularHint {
  *  plain-string case (P2-3) split the ubiquitous `"a, b"` CSV shape into
  *  two categories (`" Paris"` and `"Paris"`) purely from that inconsistency.
  *
- *  N9b: a QUOTED field is the one exception — RFC4180 (and d3-dsv, and
- *  PapaParse) treat a quoted field's content as literal, which is the one
- *  place the format lets an author SAY the padding is data (`" x "` inside
- *  quotes means the two spaces are part of the value); trimming or
- *  type-coercing it the same way an unquoted field is would silently
- *  overrule that. A quoted field is returned exactly as written. */
+ *  N9b: a QUOTED field's PADDING is the one exception — RFC4180 (and
+ *  d3-dsv, and PapaParse) treat a quoted field's whitespace as literal,
+ *  which is the one place the format lets an author SAY the padding is
+ *  data (`" x "` inside quotes means the two spaces are part of the
+ *  value); trimming it the same way an unquoted field is would silently
+ *  overrule that. R1 (round 3): quoting gates the TRIM only, never the
+ *  TYPE — none of the three cited authorities drop coercion for a quoted
+ *  cell (d3-dsv returns strings for everything regardless of quoting, and
+ *  PapaParse's `dynamicTyping` coerces a quoted `"42"` to `42`), so a
+ *  QUOTE_ALL export's numeric column must still profile as numeric. A
+ *  quoted field that doesn't parse as a bool/number is returned exactly
+ *  as written, padding and all; one that does is coerced from its
+ *  trimmed form same as an unquoted cell. */
 function coerceCell(raw: string, quoted: boolean): TabularCell {
-  if (quoted) return raw;
   const trimmed = raw.trim();
-  if (trimmed === "") return "";
+  if (!quoted && trimmed === "") return "";
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
   if (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(trimmed) && trimmed !== "-" && trimmed !== "+") {
     const n = Number(trimmed);
     if (Number.isFinite(n)) return n;
   }
-  return trimmed;
+  return quoted ? raw : trimmed;
 }
 
 /** A duplicate header used to silently drop the earlier column
