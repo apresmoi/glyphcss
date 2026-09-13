@@ -6,9 +6,11 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, buildChartsWorkbenchSpec,
-  chartMarkFields, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
-  chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchInferredDomains,
+  CHART_AXIS_COLOR_MODES, CHART_MARK_TYPES, CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS,
+  CHARTS_DEFAULT_DENSITY, CHARTS_DENSITY_MAX, CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX,
+  buildChartsWorkbenchSpec, chartMarkFields, chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds,
+  chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchEffectiveDensity,
+  chartsWorkbenchInferredDomains,
   chartsWorkbenchRenderOptions, createChartsWorkbenchState, findChartsDataset, generateChartsWorkbenchSnippets,
   reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
@@ -66,6 +68,78 @@ describe("ChartsWorkbench state", () => {
     expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "braille" });
     expect(reset.controls.overrides).toEqual({});
     expect(reset.marks).toBe(state.marks);
+  });
+
+  // Density (the user's own framing — "like in the 3D renderers we have
+  // the density sliders", AGENTS.md's "Per-mesh detail layers"): a
+  // website-only render-grid multiplier, WEB only, that the state keeps
+  // regardless of target so switching back to `web` restores it.
+  describe("density", () => {
+    it("defaults to 1 and is web-only — locked (and effectively 1) on chat/terminal", () => {
+      const state = initial();
+      expect(chartsWorkbenchDensity(state.controls)).toBe(CHARTS_DEFAULT_DENSITY);
+      expect(chartsWorkbenchEffectiveDensity(state.controls)).toBe(1);
+      expect(chartsWorkbenchDensityLocked("web")).toBe(false);
+      expect(chartsWorkbenchDensityLocked("terminal")).toBe(true);
+      expect(chartsWorkbenchDensityLocked("chat")).toBe(true);
+    });
+
+    it("set-control density rides in resolveGlyphChartsWorkbenchControls and survives a target switch", () => {
+      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 2.5 } });
+      expect(resolveGlyphChartsWorkbenchControls(state.controls).density).toBe(2.5);
+      expect(chartsWorkbenchEffectiveDensity(state.controls)).toBe(2.5);
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "terminal" } });
+      // The STATE keeps the dialed-in value even off web (task's own
+      // framing: "switching back restores it") — only the EFFECTIVE value
+      // (what actually reaches the render grid) drops to 1.
+      expect(chartsWorkbenchDensity(state.controls)).toBe(2.5);
+      expect(chartsWorkbenchEffectiveDensity(state.controls)).toBe(1);
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+      expect(chartsWorkbenchEffectiveDensity(state.controls)).toBe(2.5);
+    });
+
+    it("reset-target clears the density override back to the default", () => {
+      const dirty = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 3 } });
+      const reset = reduceChartsWorkbenchState(dirty, { type: "reset-target" });
+      expect(reset.controls.overrides.density).toBeUndefined();
+      expect(chartsWorkbenchDensity(reset.controls)).toBe(CHARTS_DEFAULT_DENSITY);
+    });
+
+    it("chartsWorkbenchRenderOptions scales width/height by density on web, and never off web", () => {
+      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 2 } });
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 40 } });
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 10 } });
+      const webOptions = chartsWorkbenchRenderOptions(state);
+      expect(webOptions.width).toBe(80);
+      expect(webOptions.height).toBe(20);
+      // `density` is a website-only concept, never forwarded to the library's own options.
+      expect(webOptions).not.toHaveProperty("density");
+      // Explicit width/height/density overrides all survive a target
+      // switch (`reduceGlyphChartsWorkbenchControls`'s own rule) — only the
+      // EFFECTIVE density drops to 1 off web, so the same 40x10 override
+      // renders unscaled on terminal and chat.
+      const terminalState = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "terminal" } });
+      const terminalOptions = chartsWorkbenchRenderOptions(terminalState);
+      expect(terminalOptions.width).toBe(40);
+      expect(terminalOptions.height).toBe(10);
+      const chatState = reduceChartsWorkbenchState(terminalState, { type: "set-control", control: { type: "target", value: "chat" } });
+      const chatOptions = chartsWorkbenchRenderOptions(chatState);
+      expect(chatOptions.width).toBe(40);
+      expect(chatOptions.height).toBe(10);
+    });
+
+    it("a fractional round (round(width×d)) rounds to the nearest cell rather than truncating or throwing", () => {
+      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 1.25 } });
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 41 } });
+      // 41 * 1.25 = 51.25 -> rounds to 51
+      expect(chartsWorkbenchRenderOptions(state).width).toBe(51);
+    });
+
+    it("chartsDensitySliderMax caps at the legible floor, snapped to the step grid, never above CHARTS_DENSITY_MAX", () => {
+      expect(chartsDensitySliderMax(13)).toBeCloseTo(13 / CHARTS_DENSITY_MIN_FONT_PX, 5); // 3.25 — already on the 0.25 grid
+      expect(chartsDensitySliderMax(1000)).toBe(CHARTS_DENSITY_MAX); // never past the nominal ceiling
+      expect(chartsDensitySliderMax(CHARTS_DENSITY_MIN_FONT_PX)).toBe(CHARTS_DENSITY_MIN); // no legible room at all — floor, not below it
+    });
   });
 
   it("retains invalid JSON drafts and renders an error until repaired", () => {

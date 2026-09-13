@@ -734,6 +734,68 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
       expect(datasetSelect.value).not.toBe("");
     }
   });
+
+  // ── Density (the user's own framing: "like in the 3D renderers we have
+  // the density sliders" — AGENTS.md's "Per-mesh detail layers"). Real
+  // lil-gui `useSlider`, same NumberController the Width/Height rows use
+  // (one `<input type="text">`, no native `<input type="range">` —
+  // `NumberController._initInput`), set the SAME way the ticks number
+  // field already is (`setter.call` + a bubbled "input" event).
+  const setInputValue = (input: HTMLInputElement, value: string) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  };
+  function densityInput(): HTMLInputElement {
+    return controller("Density").querySelector<HTMLInputElement>("input")!;
+  }
+
+  it("the Density row sits right after Height, defaults to 1, and doubles the render grid at 2 while halving the pre's own font-size", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const names = Array.from(container.querySelectorAll("#charts-controls-panel .controller .name")).map((n) => n.textContent);
+    const widthAt = names.indexOf("Width");
+    expect(names.slice(widthAt, widthAt + 3)).toEqual(["Width", "Height", "Density"]);
+    expect(densityInput().value).toBe("1");
+    const pre = () => container.querySelector<HTMLPreElement>("pre.glyph-output")!;
+    // No inline font-size at density 1 — byte-identical to before this control existed.
+    expect(pre().style.fontSize).toBe("");
+    const before = pre().textContent!.split("\n");
+    expect(before).toHaveLength(32); // web's own default height
+    expect(before[0]).toHaveLength(96); // web's own default width
+    setInputValue(densityInput(), "2");
+    const after = pre().textContent!.split("\n");
+    expect(after).toHaveLength(64);
+    expect(after[0]).toHaveLength(192);
+    expect(pre().style.fontSize).toBe("calc(13px / 2)");
+    expect(pre().style.lineHeight).toBe("1");
+  });
+
+  it("Density is disabled with a reason on terminal and chat, and the render renders at density 1 there even with a dialed-in value", () => {
+    setInputValue(densityInput(), "2");
+    expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(64);
+    for (const target of ["terminal", "chat"] as const) {
+      pickToggle("Target", target);
+      expect(densityInput().disabled).toBe(true);
+      expect(controller("Density").classList.contains("disabled")).toBe(true);
+      expect((controller("Density") as HTMLElement).title).toMatch(/Fixed cell size on this target/);
+      const targetDefaults = target === "terminal" ? { rows: 24, cols: 80 } : { rows: 24, cols: 72 };
+      const lines = container.querySelector("pre")!.textContent!.split("\n");
+      expect(lines).toHaveLength(targetDefaults.rows);
+      expect(lines[0]).toHaveLength(targetDefaults.cols);
+    }
+    pickToggle("Target", "web");
+    expect(densityInput().disabled).toBe(false);
+    expect(densityInput().value).toBe("2"); // the dialed-in value survived the round trip through terminal/chat
+    expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(64);
+  });
+
+  it("the Output reset restores density to 1, with the render back at its unscaled grid", () => {
+    setInputValue(densityInput(), "3");
+    expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(96);
+    act(() => resetOutputButton().click());
+    expect(densityInput().value).toBe("1");
+    expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(32);
+    expect(container.querySelector<HTMLPreElement>("pre.glyph-output")!.style.fontSize).toBe("");
+  });
 });
 
 // ── /charts is a SHOWCASE, not a builder (items 2/3, AGENTS.md's "Charts" —

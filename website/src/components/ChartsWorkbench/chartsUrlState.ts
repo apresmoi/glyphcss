@@ -148,6 +148,14 @@ function validateControls(value: unknown): GlyphChartsWorkbenchControls | null {
     if (!oneOf(overrides.detail, CHART_DETAILS)) return null;
     clean.detail = overrides.detail;
   }
+  // Density (append-only, appended after `v1` already existed) — absent on
+  // every link saved before this feature existed, decoding to
+  // `chartsWorkbenchDensity`'s own `CHARTS_DEFAULT_DENSITY` default exactly
+  // like a `width`/`height` never typed decodes to the target's own default.
+  if (overrides.density !== undefined) {
+    if (typeof overrides.density !== "number" || !Number.isFinite(overrides.density)) return null;
+    clean.density = overrides.density;
+  }
   return { target, overrides: clean };
 }
 

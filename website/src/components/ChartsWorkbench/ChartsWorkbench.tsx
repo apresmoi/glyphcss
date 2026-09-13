@@ -12,7 +12,11 @@ import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDataFolder } from "./ChartsDataFolder";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
-import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
+import {
+  CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
+  generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls,
+  type ChartsWorkbenchState,
+} from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
@@ -86,6 +90,17 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
+  // Density (task's own framing: "the same shapes with more character
+  // density") — web only, mirrors glyphcss's own per-mesh `density`
+  // (AGENTS.md's "Per-mesh detail layers"): the RENDER grid grows by the
+  // multiplier (`chartsWorkbenchRenderOptions`, `chartsWorkbenchState.ts`)
+  // while this `font-size` shrinks by the same factor, so the `<pre>`'s
+  // on-screen box holds still — only its picture sharpens. `undefined` at
+  // density 1 (the overwhelming default) keeps the `<pre>` byte-identical
+  // to before this control existed, never an inline `font-size: 13px`
+  // fighting the CSS rule that already says so.
+  const density = chartsWorkbenchEffectiveDensity(state.controls);
+  const densityStyle = density !== 1 ? { fontSize: `calc(${CHARTS_DENSITY_BASE_FONT_PX}px / ${density})`, lineHeight: 1 } : undefined;
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
   // REVIEW-dock-colours-sliders-opus.md) — computed on the SAME styled
   // spec the real render uses, so a swatch always shows the colour that
@@ -223,6 +238,7 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
               <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss chart …"
                 isHtml={rendered.ok && rendered.isHtml} text={rendered.ok ? rendered.text : ""}
                 html={rendered.ok && rendered.isHtml ? rendered.display : undefined} ansi={rendered.ok ? rendered.ansi : undefined}
+                style={densityStyle}
                 ariaLabel={state.chart.title || "Chart preview"} ariaDescription={state.chart.description || undefined} />
             </div>
             {!rendered.ok && <p className="charts-error" role="alert">{rendered.error}</p>}
