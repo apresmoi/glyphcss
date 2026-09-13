@@ -132,6 +132,26 @@ export interface GlyphChartMarkRow {
 }
 
 /**
+ * A tick's own label formatter (AGENTS.md's "Charts" "Axes") — a named
+ * preset (`"si"`, or `{ preset: "currency", symbol: "$" }` for one that
+ * takes parameters; see `GLYPH_CHART_TICK_FORMAT_PRESETS` in
+ * `tickFormat.ts`, the ONE table `renderGlyphChartJson`/the CLI/the JSON
+ * schema all derive from), or a callback `(value, index, ticks) => string`
+ * called per tick with the tick's raw scale value, its index, and the full
+ * tick array — a TS/JS-only escape hatch with no JSON representation
+ * (`renderGlyphChartJson` and the schema reject a function-shaped value with
+ * `bad-tick-format`). `"auto"` (or omitting `format` entirely) is today's
+ * behaviour — d3's own multi-scale time format / the existing SI-or-plain
+ * numeric ladder / the band category string — byte-identical.
+ */
+export type GlyphChartTickFormatCallback = (value: number | Date | string, index: number, ticks: readonly unknown[]) => string;
+export interface GlyphChartTickFormatPreset {
+  readonly preset: string;
+  readonly [param: string]: unknown;
+}
+export type GlyphChartTickFormat = string | GlyphChartTickFormatPreset | GlyphChartTickFormatCallback;
+
+/**
  * One axis's tick-mark/title/grid options (packet "renderers, legends, axes,
  * table editor" item 6). `ticks` is a REQUESTED count, exactly like
  * `scale.ticks(n)` itself — the layout still thins the result to whatever
@@ -147,6 +167,8 @@ export interface GlyphChartAxisOptions {
   readonly grid?: boolean;
   /** Canonical `#rrggbb`; overrides `spec.axes.color` for this one axis (line, tick marks, tick labels, title, and grid). */
   readonly color?: string;
+  /** See `GlyphChartTickFormat`'s own doc. Applies to axis ticks only — never an arc's own callout percentage or a funnel's value·percent label. */
+  readonly format?: GlyphChartTickFormat;
 }
 
 /**

@@ -463,6 +463,40 @@ renderGlyphChart(spec, {
 
 When both titles land at the bottom, the y title shares the x title's row if it fits to the LEFT of it; otherwise it claims a second row and `report.ledger` gets an `axis-title-stacked` entry. Applies to an explicit title and the automatic field-name default alike — the room-gating rules above are unchanged. Each axis has its own vocabulary (`axes.x.titleAt` never accepts `"top"`/`"bottom"`, and vice versa); an out-of-vocabulary value rejects with `bad-axis-title-at`.
 
+### Tick formatters
+
+`axes.x.format`/`axes.y.format` overrides a tick's own label — a named PRESET (the only shape `renderGlyphChartJson`/the CLI/the JSON schema accept), or, TS/JS callers only, a callback `(value, index, ticks) => string` called per tick with its raw scale value, its own index, and the full tick array:
+
+```ts
+const spec = glyphChartPlot({
+  marks: [glyphChartBar([12000, 45000, 98000])],
+  axes: { y: { format: { preset: "currency", symbol: "$" } } },
+});
+renderGlyphChart(spec, { target: "chat", color: "none" }).text;
+```
+
+Every preset lives in one exported table, `GLYPH_CHART_TICK_FORMAT_PRESETS`:
+
+| Preset | Example | Params |
+|---|---|---|
+| `"auto"` (default, or omit `format`) | today's ladder | — |
+| `"number"` | `1,234,567` | — |
+| `"si"` | `1.2k`, `3.4M` | — |
+| `"compact"` | `1.2K`, `3.4M`, `1.2B` | — |
+| `"integer"` | `1235` | — |
+| `"percent"` | `42%` (value `0..1`) | `of?: number` — `{ of: 100 }` for a `0..100` axis |
+| `"currency"` | `$1,234.00` | `symbol?: string` (default `"$"`), `decimals?: number` (default `2`) |
+| `"decimals"` | `3.1416` | `places: number` (required) |
+| `"scientific"` | `1.23e+4` | — |
+| `"date"` | `2024-01-05` | — |
+| `"year"` | `2024` | — |
+| `"month"` | `Jan 2024` | — |
+| `"day"` | `12 Jan` | — |
+| `"time"` | `14:05` | — |
+| `"template"` | `42 °C` | `pattern: string` (required) — `{value}` is the auto-formatted value |
+
+A bare string is sugar for `{ preset: "<name>" }`; `"auto"` (and an absent `format`) is a no-op, so a default chart is byte-identical to one built before `format` existed. A formatted numeric label that overflows its cell budget still follows the existing abbreviate-or-drop policy: a preset's own SI fallback runs first where it has one (`number`, `integer`, `currency`); otherwise the label drops, never truncates into a shorter-but-wrong number (`"1,234.00"` never becomes `"1,2"`). A callback's return value is opaque text the library can't parse back into a number, so it's always treated as a category label — elided with `…` rather than dropped. Applies to axis ticks only, never an arc's own callout percentage or a funnel's value·percent label.
+
 ## Colours
 
 `spec.axes.color?: string` (a canonical `#rrggbb`) sets both axes' line, tick marks, tick labels, title, and grid; `spec.axes.{x,y}.color` overrides it per axis. With colour on and no colour set, axes default to a muted mid grey (`GLYPH_CHART_AXIS_DEFAULT_COLOR`, `"#7a7f8a"`) rather than the reader's own foreground colour, so a chart's data marks read brighter than its frame:

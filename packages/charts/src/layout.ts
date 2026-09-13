@@ -12,6 +12,7 @@ import { timeFormat } from "d3-time-format";
 import { chartSeries, chartSeriesColors } from "./series";
 import { abbreviateChartText, chartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
+import { resolveGlyphChartTickFormat, type GlyphChartResolvedTickFormat } from "./tickFormat";
 import {
   ledgerAxisTitleStacked, ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped,
   ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry,
@@ -23,6 +24,21 @@ import type {
   GlyphChartSpec, GlyphChartTitleAlign, GlyphChartTitleOption, GlyphChartTitlePosition,
   GlyphChartXAxisTitleAt, GlyphChartYAxisTitleAt,
 } from "./types";
+
+/**
+ * Maps every raw tick's `label` through a resolved `axes.{x,y}.format`
+ * (`undefined` — absent/`"auto"` — is a no-op, returning `ticks` UNCHANGED
+ * rather than a fresh array, so the byte-identity guarantee costs nothing
+ * to verify: no formatter means this function never runs at all). The
+ * `ticks` array the callback receives is the values BEFORE any of this
+ * axis's own stride/collision thinning — the full candidate ladder a caller
+ * composing an index-relative label (`"#3 of 8"`) would want to see.
+ */
+function formatAxisTicks(ticks: readonly GlyphChartTick[], fmt: GlyphChartResolvedTickFormat | undefined): readonly GlyphChartTick[] {
+  if (!fmt) return ticks;
+  const values = ticks.map((t) => t.value);
+  return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) }));
+}
 
 /** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
 export interface GlyphChartResolvedTitle {
@@ -169,6 +185,7 @@ function axisTicks(
   priorityValues: ReadonlySet<unknown> = new Set(),
   requestedCount = Infinity,
   timeAxis = false,
+  format?: GlyphChartResolvedTickFormat,
 ): GlyphChartLayoutTick[] {
   let sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
   // The leftmost tick is the reader's only anchor for what date the WHOLE
@@ -179,9 +196,12 @@ function axisTicks(
   // in afterward, which would leave its `labelStart`/collision decisions
   // computed for the shorter original string and paint the longer one
   // overlapping whatever now sits to its right (review finding 8: "the
-  // first label still omits its date").
+  // first label still omits its date"). Skipped entirely under a custom
+  // `format` — every tick, first included, already carries whatever that
+  // formatter produced, and overwriting it here would silently discard the
+  // caller's own choice for exactly the one tick most likely to anchor it.
   let priorityValuesEffective = priorityValues;
-  if (timeAxis && sorted.length > 0) {
+  if (timeAxis && !format && sorted.length > 0) {
     const first = sorted[0]!;
     priorityValuesEffective = new Set([...priorityValues, first.value]);
     if (!isDateBoundaryTick(first.value)) sorted = [{ ...first, label: FULL_TIME_LABEL(first.value as Date) }, ...sorted.slice(1)];
@@ -241,9 +261,29 @@ function axisTicks(
     // `band` (the scale's own type, not a re-derivation from `t.value`'s
     // runtime type) decides this — a synthetic/mocked tick source could
     // hand a band axis numeric-typed `value`s with non-numeric `label`s, and
-    // only the SCALE knows which vocabulary its own labels belong to.
-    const numeric = !band && typeof t.value === "number";
-    const label = glyphChartLabelLayout([{ id: `${axis}:${String(t.value)}`, x: axis === "x" ? t.cell : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell, text: t.label, maxWidth: slot, numeric, role: `${axis}-axis label` }], { obstacles: [], viewport: { cols, rows }, charset });
+    // only the SCALE knows which vocabulary its own labels belong to. A
+    // CALLBACK format's output is opaque text the library cannot parse back
+    // into a number (AGENTS.md's "Charts" "Axes"), so it is always treated
+    // as a category label (elided with `…`) regardless of the scale's own
+    // numeric-ness — a PRESET keeps the scale's numeric hint, since a
+    // preset's own `siFallback` (when it has one) exists exactly to serve
+    // this drop-vs-abbreviate policy.
+    const numeric = !band && !format?.isCallback && typeof t.value === "number";
+    const label = glyphChartLabelLayout([{
+      id: `${axis}:${String(t.value)}`, x: axis === "x" ? t.cell : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell,
+      text: t.label, maxWidth: slot, numeric, role: `${axis}-axis label`,
+      // Only for a candidate ALREADY treated as numeric AND under a
+      // CUSTOM format — a band/callback tick stays on the category-style
+      // ellipsis path (`abbreviateChartText` gates on `numeric` first)
+      // regardless of whether `t.value` happens to be a number underneath,
+      // and the default (no `format`) path must never pass `rawValue` at
+      // all: `abbreviateChartText` treats its PRESENCE as "this text came
+      // from a preset, so only ITS OWN `siFallback` may rescue it" — passing
+      // it unconditionally would silently swap the default path's own
+      // generic SI-of-the-parsed-text fallback for an immediate drop.
+      rawValue: numeric && format ? (t.value as number) : undefined,
+      siFallback: numeric ? format?.siFallback : undefined,
+    }], { obstacles: [], viewport: { cols, rows }, charset });
     ledger.push(...label.ledger);
     const placed = label.placed[0];
     if (!placed) continue;
@@ -395,6 +435,12 @@ export function layoutGlyphChart(
 
   const xAxisOpts = spec.axes?.x;
   const yAxisOpts = spec.axes?.y;
+  // `undefined` for absent/`"auto"` — `formatAxisTicks` is then a no-op and
+  // every label below is the scale's own default, byte-identical to before
+  // `axes.{x,y}.format` existed (already validated by `validateGlyphChartSpec`;
+  // re-resolving here is cheap and keeps this the ONE place that interprets it).
+  const xTickFormat = resolveGlyphChartTickFormat(xAxisOpts?.format);
+  const yTickFormat = resolveGlyphChartTickFormat(yAxisOpts?.format);
   const xTickMarks = xAxisOpts?.tickMarks ?? true;
   const yTickMarks = yAxisOpts?.tickMarks ?? true;
   const xGrid = xAxisOpts?.grid ?? false;
@@ -560,11 +606,15 @@ export function layoutGlyphChart(
       const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
         ? scales.y.ticks(yRowBudget)
         : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, 2);
-      let yTicksRaw: readonly GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
+      let yTicksRaw: readonly GlyphChartTick[] = formatAxisTicks(
+        integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y")),
+        yTickFormat,
+      );
       // The zero baseline is the one tick a bar/rect/area chart must always
       // label, whether or not d3's own "nice" set happened to include it.
       if (yZeroAnchored && !yTicksRaw.some((t) => t.value === 0)) {
-        yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: scales.y.format(0) }];
+        const zeroLabel = yTickFormat ? yTickFormat.apply(0, yTicksRaw.length, [...yTicksRaw.map((t) => t.value), 0]) : scales.y.format(0);
+        yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: zeroLabel }];
       }
       const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
       return { yRowBudget, yTicksRaw, yLabelWidth, yAxisCol: yLabelWidth + 1 };
@@ -714,11 +764,11 @@ export function layoutGlyphChart(
     // heuristic — it skips the measured-width auto-shrink below entirely,
     // exactly like the y budget above.
     const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / 6));
-    const provisionalXTicks = scales.x.ticks(xTickCountProvisional);
+    const provisionalXTicks = formatAxisTicks(scales.x.ticks(xTickCountProvisional), xTickFormat);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
     const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
     let xTicksRaw = integerOnlyTicks(
-      xTickCount >= xTickCountProvisional ? provisionalXTicks : scales.x.ticks(xTickCount),
+      xTickCount >= xTickCountProvisional ? provisionalXTicks : formatAxisTicks(scales.x.ticks(xTickCount), xTickFormat),
       scales.x.type !== "band" && scales.x.type !== "time" && isIntegerAxisData(marks, "x"),
     );
 
@@ -755,8 +805,8 @@ export function layoutGlyphChart(
       : scales.y.type === "time" ? yTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
       : [],
     );
-    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time");
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time");
+    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat);
+    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat);
   }
 
   const plot: GlyphChartPlotRect = {
