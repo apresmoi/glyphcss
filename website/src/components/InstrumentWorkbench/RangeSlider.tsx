@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
+import "./instrument-workbench.css";
 
 /** A "nice" step (1/2/5 x a power of ten) sized so ~100 steps span the range —
  *  the same rounding family d3's own `scale.ticks` uses for tick spacing. */
@@ -100,15 +101,35 @@ function pct(v: number, min: number, max: number): number {
 
 /**
  * A two-thumb range slider for a scale's domain min/max (Chart folder's
- * Scales rows). Built from TWO overlapping native `<input type="range">`
- * elements sharing one track (`range-slider-track` in
- * `instrument-workbench.css` gives each input `pointer-events: none` except
- * its own thumb) rather than a from-scratch pointer/keyboard implementation
- * — this is what gives pointer drag, arrow-key stepping, and Home/End their
- * OWN browser-native behaviour for free; only the Shift-is-10x-step
- * modifier (native ranges have no such concept) and the never-cross clamp
- * (native ranges have no notion of a sibling thumb) are this component's
- * own code. Numeric text inputs at both ends mirror the mark table's own
+ * Scales rows) — one ROW, styled to be indistinguishable from a lil-gui
+ * number controller's own row (the Output folder's Width/Height sliders):
+ * `.name` label column, then in the `.widget` column left to right
+ * `[auto] [min] [slider] [max]` — the small "auto" toggle button, the min
+ * number field, the bracketed `[ ─█──── ]` bar (bare track background
+ * outside the selection, ONE cyan gradient fill band between the two
+ * thumbs' own positions, no third visual element), and the max number
+ * field. Pixel values are copied from `.dn-floating-controls .lil-gui
+ * .controller.number` in `gallery-workbench.css` (the Dock's real
+ * lil-gui theme) into this component's own rules in
+ * `instrument-workbench.css`, the same "measured, not cascaded" mirror
+ * `.voice-slider` already uses for the single-handle case — this component
+ * imports that stylesheet directly so its look does not depend on whatever
+ * else a consuming workbench happens to import.
+ *
+ * Built from TWO overlapping native `<input type="range">` elements
+ * sharing one track (`.range-slider-track` gives each input
+ * `pointer-events: none` except its own thumb) rather than a
+ * from-scratch pointer/keyboard implementation — this is what gives
+ * pointer drag, arrow-key stepping, and Home/End their OWN browser-native
+ * behaviour for free; only the Shift-is-10x-step modifier (native ranges
+ * have no such concept) and the never-cross clamp (native ranges have no
+ * notion of a sibling thumb) are this component's own code. The native
+ * thumbs are themselves invisible (`::-webkit-slider-thumb`/
+ * `::-moz-range-thumb` painted transparent) — the two VISIBLE knobs are
+ * the fill band's own left/right edges (`border-left`/`border-right` +
+ * matching glow), the same cap style the single-handle `.voice-slider`
+ * already draws at its one fill edge, doubled onto both ends of the band.
+ * Numeric text inputs at both ends mirror the mark table's own
  * uncommitted-draft-string pattern (`ChartsMarkCard.tsx`) — a half-typed
  * value never fights the slider's live position.
  *
@@ -228,21 +249,26 @@ export function RangeSlider({
   };
 
   const title = disabled && disabledReason ? disabledReason : undefined;
-  return <div className={`range-slider${disabled ? " is-disabled" : ""}`} title={title}>
-    <div className="range-slider-head">
-      {label && <span className="range-slider-label">{label}</span>}
+  const loPct = pct(lo, min, max);
+  const hiPct = pct(hi, min, max);
+  // Same outer hooks a real lil-gui number row carries (`.controller`,
+  // `.number`, `.hasSlider` — this control always has one) so it reads as
+  // one family with the Width/Height rows above it in the same folder;
+  // `.range-slider`/`.is-disabled` are this component's own, kept for the
+  // existing test suite's selectors.
+  return <div className={`controller number hasSlider range-slider${disabled ? " disabled is-disabled" : ""}`} title={title}>
+    {label && <div className="name range-slider-label">{label}</div>}
+    <div className="widget range-slider-widget">
       <button type="button" className={`range-slider-auto${value === null ? " is-active" : ""}`} disabled={disabled}
         aria-pressed={value === null} title={title} aria-label={title ? `${label ?? "Range"} auto — ${title}` : undefined}
         onClick={() => onChange(value === null ? [domainLo, domainHi] : null)}>auto</button>
-    </div>
-    <div className="range-slider-inputs">
       <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} minimum`} disabled={disabled} title={title}
         value={loDraft ?? format(lo)}
         onChange={(e) => { setLoDraft(e.target.value); if (capError === "lo") setCapError(null); }}
         onBlur={(e) => commitText(e.target.value, "lo")}
         onKeyDown={onEndKeyDown} />
-      <div className="range-slider-track" onPointerDown={onTrackPointerPosition} onPointerMove={onTrackPointerPosition}>
-        <div className="range-slider-fill" style={{ left: `${pct(lo, min, max)}%`, right: `${100 - pct(hi, min, max)}%` }} />
+      <div className="slider range-slider-track" onPointerDown={onTrackPointerPosition} onPointerMove={onTrackPointerPosition}>
+        <div className="fill range-slider-fill" style={{ left: `${loPct}%`, width: `${hiPct - loPct}%` }} />
         <input type="range" className={`range-slider-range range-slider-range--lo${frontThumb === "lo" ? " is-front" : ""}`} min={min} max={max} step={resolvedStep} disabled={disabled}
           value={lo} aria-label={`${label ?? "Range"} minimum handle`} aria-valuetext={format(lo)} title={title}
           onChange={(e) => commit("lo", Number(e.target.value))}

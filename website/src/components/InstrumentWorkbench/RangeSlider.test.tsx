@@ -378,6 +378,30 @@ describe("RangeSlider", () => {
     for (const el of host.querySelectorAll("input, button")) expect((el as HTMLInputElement | HTMLButtonElement).disabled).toBe(true);
   });
 
+  // The rebuilt look (owner packet: "should look EXACTLY as our sliders for
+  // width or height, just with the two bands, and we should see the
+  // selection band") — the outer row carries the same lil-gui hook classes
+  // a real Width/Height number row does, and the fill band's own
+  // left/width styles are exactly the lo/hi fractions of `min`/`max`, never
+  // a separately-tracked position that could drift from the thumbs.
+  it("carries the same lil-gui row hook classes the Width/Height number rows do", () => {
+    const host = render(<Harness min={0} max={100} initial={[20, 80]} label="Domain" />);
+    const row = host.querySelector(".range-slider")!;
+    expect(row.classList.contains("controller")).toBe(true);
+    expect(row.classList.contains("number")).toBe(true);
+    expect(row.classList.contains("hasSlider")).toBe(true);
+  });
+
+  it("the fill band's left/width styles equal the lo/hi fractions of min/max — no separate knob element, no painted track outside the band", () => {
+    const host = render(<Harness min={0} max={100} initial={[20, 80]} label="Domain" />);
+    const fill = host.querySelector<HTMLDivElement>(".range-slider-fill")!;
+    expect(fill.style.left).toBe("20%");
+    expect(fill.style.width).toBe("60%");
+    act(() => setRangeValue(ranges(host).lo, 35));
+    expect(host.querySelector<HTMLDivElement>(".range-slider-fill")!.style.left).toBe("35%");
+    expect(host.querySelector<HTMLDivElement>(".range-slider-fill")!.style.width).toBe("45%");
+  });
+
   it("formats end values through a caller-supplied formatter (e.g. a date scale)", () => {
     const day = 24 * 60 * 60 * 1000;
     const host = render(<Harness min={0} max={10 * day} initial={[0, 10 * day]} format={(n) => new Date(n).toISOString().slice(0, 10)} label="Domain" />);
