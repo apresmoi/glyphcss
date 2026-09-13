@@ -1,31 +1,30 @@
 /**
- * `/charts`' data overlay — the dataset SEARCH box, the stock dataset
- * `<select>` and "Random", as ONE bar floating over the chart viewport's
- * top-left corner. The user's own words: "the dataset search should be
- * above the chart like in the /maps view — also the pick-a-dataset and the
- * random button."
+ * `/charts`' data overlay — ONE search field (built-in + Hugging Face
+ * browse, `ChartsDatasetSearchBox.tsx`) plus "Random", floating over the
+ * chart viewport's top edge, CENTERED exactly the way
+ * `MapsWorkbench/MapSearchBox.tsx` centers `/maps`' own place search. The
+ * user's own words: "the search box should be centered like the one in
+ * /maps, and the dataset dropdown could be just an arrow inside the search
+ * field — I don't need two dataset pickers — and the random button at the
+ * right." The old three-control bar (search + a stock `<select>` +
+ * "Random") is gone; `charts-workbench.css`'s `.charts-dataset-search`
+ * carries the exact same `left`/`transform`/`width`/`top` `.maps-search`
+ * does, and `.charts-random-btn` is pinned to its right on the same row.
  *
- * A sibling of `<InstrumentViewport>` inside `<InstrumentMain>`, exactly
- * where `MapsWorkbench/MapSearchBox.tsx` sits on `/maps` — the same
- * chrome-on-the-render idiom, just three controls in one row instead of
- * one. `charts-workbench.css`'s `.charts-data-overlay` positions it
- * (`position: absolute`, the shared `--overlay-top`/`--overlay-left`
- * insets) and gives the viewport a matching top inset so the render never
- * starts under it.
- *
- * ONE row at every width down to 760px; below that the bar wraps (search
- * full-width first, select + Random sharing a second row) — CSS-only, see
- * that stylesheet's own doc.
+ * A sibling of `<InstrumentViewport>` inside `<InstrumentMain>`, same as
+ * before. `ChartsWorkbench.tsx` still calls this with exactly
+ * `{ activeDatasetId, dispatch, onSelectRemote, onRandom }` — this file's
+ * own public contract, unchanged, so it stays the seam between the two.
  *
  * The rail (`ChartsWorkbench.tsx`) keeps only the dataset CARD (title,
  * description, credit, "View data ▸") and the Marks section below it —
- * no portal, no header action slot; this component owns the `<select>`
+ * no portal, no header action slot; this component owns dataset selection
  * directly.
  */
-import type { Dispatch } from "react";
+import { useEffect, useState, type Dispatch } from "react";
 import type { DatasetHit } from "../../lib/datasetSearch";
 import { ChartsDatasetSearchBox } from "./ChartsDatasetSearchBox";
-import { CHARTS_DATASETS, type ChartsWorkbenchAction } from "./chartsWorkbenchState";
+import { CHARTS_DATASETS, findChartsDataset, type ChartsWorkbenchAction } from "./chartsWorkbenchState";
 
 export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, onRandom }: {
   readonly activeDatasetId: string | undefined;
@@ -33,15 +32,24 @@ export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, o
   readonly onSelectRemote: (hit: DatasetHit) => void;
   readonly onRandom: () => void;
 }) {
+  // The search box's idle display needs "whatever is currently loaded",
+  // but its own props (frozen by `ChartsWorkbench.tsx`, which this packet
+  // cannot touch) carry only a VENDORED id — a remote pick has no id here
+  // at all. Tracked locally instead: set on every remote pick, cleared the
+  // moment a vendored id reappears (a Random click or a browse-list pick
+  // both flow through `activeDatasetId`, whichever dispatched them).
+  const [remoteTitle, setRemoteTitle] = useState<string | null>(null);
+  useEffect(() => { if (activeDatasetId) setRemoteTitle(null); }, [activeDatasetId]);
+  const loadedTitle = remoteTitle ?? (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined) ?? "";
+
   return (
     <div className="charts-data-overlay">
-      <ChartsDatasetSearchBox onSelect={onSelectRemote} />
-      <span className="gx-select charts-dataset-select charts-data-overlay-select">
-        <select aria-label="Dataset" value={activeDatasetId ?? ""} onChange={(e) => dispatch({ type: "select-dataset", id: e.target.value })}>
-          {!activeDatasetId && <option value="" disabled>— pick a dataset —</option>}
-          {CHARTS_DATASETS.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
-        </select>
-      </span>
+      <ChartsDatasetSearchBox
+        builtIn={CHARTS_DATASETS}
+        loadedTitle={loadedTitle}
+        onSelectBuiltIn={(id) => dispatch({ type: "select-dataset", id })}
+        onSelectRemote={(hit) => { setRemoteTitle(hit.title); onSelectRemote(hit); }}
+      />
       <button type="button" className="control-btn control-btn--primary charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={onRandom}>Random</button>
     </div>
   );

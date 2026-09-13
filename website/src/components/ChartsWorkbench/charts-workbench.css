@@ -244,59 +244,118 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
-/* Data overlay — the dataset SEARCH box, the stock dataset `<select>` and
-   "Random", moved OFF the rail and ONTO the chart viewport as one bar,
-   exactly the way `/maps` puts its own place search over the map
-   (`MapsWorkbench/MapSearchBox.tsx`'s own doc): a sibling of
-   `<InstrumentViewport>` inside `<InstrumentMain>`, `position: absolute`,
-   the same `--overlay-top`/`--overlay-left` insets. `ChartsDataOverlay.tsx`
-   is the component; the rail keeps only the dataset CARD (below) and the
-   Marks section.
+/* Data overlay — ONE search field (`ChartsDatasetSearchBox.tsx`: built-in
+   + Hugging Face browse behind a chevron, replacing the old stock
+   `<select>`) plus "Random", floating over the chart viewport exactly the
+   way `/maps` puts its own place search over the map
+   (`MapsWorkbench/MapSearchBox.tsx`'s own doc). `ChartsDataOverlay.tsx` is
+   the component; the rail keeps only the dataset CARD (below) and the
+   Marks section. The user's own words: "the search box should be
+   centered like the one in /maps... and the random button at the right."
 
-   ONE ROW at every width down to `760px` (`display: flex`, no wrap) —
-   the user's own words: "search, dataset select, Random side by side in a
-   single flex row, no second line". Below that the bar WRAPS: the search
-   field claims the first row on its own (`flex: 1 1 100%`), select and
-   Random share a second row — deliberate `flex-wrap`, not an incidental
-   overflow, so the two rows are always exactly those two groups and never
-   a mid-word wrap of one control. */
-.charts-data-overlay {
+   `.charts-data-overlay` itself carries no position of its own — its two
+   children anchor straight to `.synth-main` (`position: relative`,
+   instrument-workbench.css), the same positioned ancestor
+   `.maps-search`/`.maps-compass` use, skipping this wrapper entirely (a
+   static element is never a containing block). It collapses to zero
+   height since both children are removed from flow.
+
+   `.charts-dataset-search` carries the EXACT SAME `left`/`transform`/
+   `width`/`top` declarations `.maps-search` does — copied verbatim, not
+   merely similar — so the field itself is independently, exactly
+   centered (equal left/right margins) regardless of "Random" beside it.
+   `.charts-random-btn` cannot be a centered flex sibling (that would
+   center the ROW's midpoint, pulling the field off-center) — it is
+   pinned at a fixed offset from the centre instead: half the field's own
+   340px cap (170px) plus a 6px gap (`.maps-compass`'s own internal
+   gap). That 340px cap only ever gives way to `calc(100% - 24px)` below
+   364px viewport width — inside the 760px mobile breakpoint below, where
+   both switch to a plain flex row instead — so the fixed 170px offset
+   holds exactly through the whole desktop range. */
+.charts-dataset-search {
   position: absolute;
   top: var(--overlay-top, 12px);
-  left: var(--overlay-left, 12px);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: calc(100% - 24px);
+  width: min(340px, calc(100% - 24px));
   pointer-events: auto;
 }
-.charts-data-overlay .charts-dataset-search { flex: 1 1 260px; min-width: 160px; }
-.charts-data-overlay-select { flex: 0 0 auto; }
-.charts-data-overlay-select .gx-select { display: block; min-width: 140px; }
-.charts-random-btn { flex: 0 0 auto; white-space: nowrap; }
+.charts-random-btn {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: calc(50% + 170px + 6px);
+  z-index: 20;
+  white-space: nowrap;
+  pointer-events: auto;
+}
 
+/* Below 760px the field can no longer both stay centered AND leave room
+   for "Random" beside it without risking overlap on a narrow phone — both
+   switch to an ordinary flex row instead, right-aligned so "Random" reads
+   as the row's trailing action. The field's `min-width: 200px` (never
+   `0`) is the SAME "wrap before crush" rule the task asks for: flex-wrap
+   naturally pushes "Random" onto its own (right-aligned) row the instant
+   the field would otherwise drop under ~200px — no separate breakpoint
+   needed to express "drops under ~200px", the layout computes it. */
 @media (max-width: 760px) {
   .charts-data-overlay {
+    position: absolute;
+    top: var(--overlay-top, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: flex;
     flex-wrap: wrap;
-    max-width: calc(100% - 24px);
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
   }
-  .charts-data-overlay .charts-dataset-search { flex: 1 1 100%; }
-  .charts-data-overlay-select { flex: 1 1 auto; }
+  .charts-dataset-search {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .charts-random-btn {
+    position: static;
+    flex: 0 0 auto;
+  }
 }
 
 .charts-data-loading { font-style: italic; }
 
-/* Dataset search box — the FIELD/LIST/OPTION shape is
+/* The chevron ("Browse datasets") sits at the field's own right edge,
+   after the input and any transient "clear" button — "the instrument-
+   search-* look" reproduced locally (small, muted, brightens on hover),
+   since `instrument-workbench.css`'s shared block is `/maps`' own file
+   too and stays untouched here. */
+.charts-search-chevron {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.charts-search-chevron:hover,
+.charts-search-chevron[aria-expanded="true"] {
+  color: rgba(255, 232, 184, 0.94);
+}
+
+/* Dataset search box's own results list — the FIELD/LIST/OPTION shape is
    `instrument-workbench.css`'s shared `.instrument-search-*` block (same
    one `MapsWorkbench/MapSearchBox.tsx` renders through); this page keeps
-   only its own POSITIONING wrapper. Unlike `/maps`' `.maps-search` (the
-   sole content of its own absolutely-positioned overlay column, so its
-   list sits in ordinary flow right below the field), this search box is
-   one of THREE controls sharing one row — its list must float
-   (`position: absolute`) or opening it would grow `.charts-data-overlay`
-   downward over the render and shove the select/Random sideways. */
-.charts-dataset-search { position: relative; }
+   only its own POSITIONING override. `.charts-dataset-search` is itself
+   `position: absolute` now (the centering rule above), which already
+   makes it a valid containing block for this — no separate
+   `position: relative` needed — so the list floats directly under the
+   field at the field's own width, never the whole overlay row's. */
 .charts-dataset-search .instrument-search-list {
   position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 20;
 }

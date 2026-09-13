@@ -45,7 +45,26 @@ import {
 } from "./chartsWorkbenchState";
 import { chartsWorkbenchDisplayRender, renderChartsWorkbenchSpec, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
+import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
 import * as urlStateModule from "../../lib/urlState";
+
+// ── Data overlay test helpers (AGENTS.md's "Charts" — "Data layer") — the
+// old `<select>` these tests used to drive directly is gone
+// (`ChartsDataOverlay.tsx`/`ChartsDatasetSearchBox.tsx`'s own doc): a
+// vendored pick now goes through the chevron's browse list, and "what's
+// currently loaded" is read off the rail's own dataset-card title
+// (`.charts-data-title`, `ChartsDataFolder.tsx`) rather than a `<select>`'s
+// `.value` — both are shared across every describe block below that used
+// to reach into the select directly.
+function selectChartsDataset(container: ParentNode, id: string): void {
+  const chevron = container.querySelector<HTMLButtonElement>('[aria-label="Browse datasets"]')!;
+  act(() => chevron.click());
+  const option = container.querySelector<HTMLButtonElement>(`.instrument-search-option[data-dataset-id="${id}"]`)!;
+  act(() => option.click());
+}
+function chartsActiveDatasetTitle(container: ParentNode): string {
+  return container.querySelector(".charts-data-title")?.textContent ?? "";
+}
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
 vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
@@ -654,17 +673,13 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   });
 
   // Data folder end-to-end (AGENTS.md's "Charts" — "Data layer"): picking a
-  // real vendored dataset from the rail's `<select>` IMMEDIATELY replaces
-  // the marks with its recommended mapping AND sets an explicit time
-  // x-scale (see chartsDatasetDateAxis.test.ts's header comment — a date
-  // column is a plain ISO string, so nothing downstream infers "time" on
-  // its own) — no separate "Apply" step exists any more (item 1).
+  // real vendored dataset from the overlay's browse chevron IMMEDIATELY
+  // replaces the marks with its recommended mapping AND sets an explicit
+  // time x-scale (see chartsDatasetDateAxis.test.ts's header comment — a
+  // date column is a plain ISO string, so nothing downstream infers "time"
+  // on its own) — no separate "Apply" step exists any more (item 1).
   it("Data folder: choosing a dataset immediately replaces the chart with its recommended mapping and a real time x-scale", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    act(() => {
-      datasetSelect.value = "global-temperature";
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    selectChartsDataset(container, "global-temperature");
     expect(container.querySelector(".charts-data-info")!.textContent).toContain("NASA GISS");
     expect(container.querySelectorAll(".charts-mark-card")).toHaveLength(1);
     expect(activeMarkType()).toBe("line");
@@ -691,11 +706,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // reducer directly, so this is the same "what a reader would see" proof
   // the other Data-folder tests in this block use.
   it("Data folder: choosing a stacked-area dataset (energy-consumption-by-source) carries its curated transform to the mark and renders with no ledger reject", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    act(() => {
-      datasetSelect.value = "energy-consumption-by-source";
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    selectChartsDataset(container, "energy-consumption-by-source");
     expect(activeMarkType()).toBe("area");
     expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 transform"]')!.value).toBe("stack");
     expect(container.querySelector(".charts-error")).toBeNull();
@@ -711,11 +722,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // real vendored flow datasets now that `feat/diagrams` `b2278e2f` added
   // them, not just a synthetic fixture.
   it("Data folder: sankey/funnel mark-type buttons are disabled on a line dataset and enabled on their own flow datasets", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    const select = (value: string) => act(() => {
-      datasetSelect.value = value;
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const select = (id: string) => selectChartsDataset(container, id);
     select("global-temperature");
     const sankeyBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: sankey"]')!;
     const funnelBtn = container.querySelector<HTMLButtonElement>('[aria-label^="Mark 1 type: funnel"]')!;
@@ -733,11 +740,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   });
 
   it("choosing a different dataset replaces the chart again, with no accumulation", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    const select = (value: string) => act(() => {
-      datasetSelect.value = value;
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    const select = (id: string) => selectChartsDataset(container, id);
     select("global-temperature");
     select("iris-flowers");
     expect(container.querySelectorAll(".charts-mark-card")).toHaveLength(1);
@@ -756,46 +759,141 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
   });
 
-  // ── Data overlay (AGENTS.md's "Charts" — "Data layer"): the search box,
-  // the stock dataset `<select>` and "Random" moved OFF the rail and onto
-  // the chart VIEWPORT as one overlay bar (`ChartsDataOverlay.tsx`),
-  // exactly the way `/maps` places its own place search over the map —
-  // the user's own words: "the dataset search should be above the chart
-  // like in the /maps view — also the pick-a-dataset and the random
-  // button." The rail keeps only the dataset CARD and the Marks section;
-  // the Dock still carries no "Data" folder.
-  it("the search, dataset select and Random button live in the viewport's own data overlay, not the rail, and the rail body shows the dataset card with no Data folder left in the Dock", () => {
+  // ── Data overlay (AGENTS.md's "Charts" — "Data layer"): ONE centered
+  // search field (`ChartsDatasetSearchBox.tsx`) plus "Random" pinned to
+  // its right, floating over the chart VIEWPORT (`ChartsDataOverlay.tsx`),
+  // exactly the way `/maps` places its own centered place search over the
+  // map — the user's own words: "the search box should be centered like
+  // the one in /maps... and the dataset dropdown could be just an arrow
+  // inside the search field — I don't need two dataset pickers — and the
+  // random button at the right." The rail keeps only the dataset CARD and
+  // the Marks section; the Dock still carries no "Data" folder.
+  it("the data overlay is one search field (no <select> anywhere on the page) plus Random, not the rail, and the rail body shows the dataset card with no Data folder left in the Dock", () => {
     const rail = container.querySelector("#charts-data-panel")!;
     const main = container.querySelector(".synth-main")!;
     const overlay = main.querySelector(".charts-data-overlay")!;
     expect(overlay).not.toBeNull();
+    // Other selects legitimately remain (mark channel pickers etc.) — only
+    // the dataset select is gone.
+    expect(container.querySelectorAll('select[aria-label="Dataset"]')).toHaveLength(0);
     expect(overlay.querySelector('input[role="combobox"]')).not.toBeNull();
-    expect(overlay.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
+    expect(overlay.querySelector('[aria-label="Browse datasets"]')).not.toBeNull();
     expect(overlay.querySelector('[aria-label="Load random dataset"]')).not.toBeNull();
-    // The rail's own header carries none of the three controls any more.
+    // The rail's own header carries none of the overlay's controls.
     const railHead = rail.querySelector(".synth-voices-head")!;
-    expect(railHead.querySelector('select[aria-label="Dataset"]')).toBeNull();
     expect(railHead.querySelector('[aria-label="Load random dataset"]')).toBeNull();
     expect(railHead.querySelector('input[role="combobox"]')).toBeNull();
-    // The rail's own body shows the dataset card, and no second copy of
-    // the select lives there either — exactly one `<select>` on the page.
     expect(rail.querySelector(".charts-data-folder")).not.toBeNull();
-    expect(container.querySelectorAll('select[aria-label="Dataset"]')).toHaveLength(1);
     // The Dock (`#charts-controls-panel`) still owns no "Data" folder —
     // `ChartsDock.tsx` still owns "Output"/"Chart"/"Scales"/"Axes"/"Terminal".
     const dockFolderTitles = Array.from(container.querySelectorAll("#charts-controls-panel .lil-gui > .title")).map((n) => n.textContent);
     expect(dockFolderTitles).not.toContain("Data");
   });
 
-  // Keyboard/a11y (owner packet item 4): search -> select -> Random is the
+  // Centering parity with `/maps`: happy-dom computes no CSS cascade (no
+  // layout/paint engine — this file's own Glyph Mono font test above
+  // already establishes the CSS-source-reading idiom for exactly that
+  // reason), so this reads both stylesheets' raw text and checks
+  // `.charts-dataset-search` carries the SAME left/transform/width/top
+  // declarations `.maps-search` does, rather than merely similar ones.
+  // Equal left/right margins from a `left: 50%; transform:
+  // translateX(-50%)` pair is what "centered" (equal margins) MEANS for an
+  // element whose own width is fixed independent of viewport width.
+  it("the search field is centered exactly the way /maps' own search field is (same left/transform/width/top)", () => {
+    const chartsCss = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const mapsCss = readFileSync(fileURLToPath(new URL("../MapsWorkbench/maps-workbench.css", import.meta.url)), "utf8");
+    const fieldRule = chartsCss.match(/\.charts-dataset-search \{[^}]*\}/)![0];
+    const mapsRule = mapsCss.match(/\.maps-search \{[^}]*\}/)![0];
+    for (const rule of [fieldRule, mapsRule]) {
+      expect(rule).toMatch(/left:\s*50%/);
+      expect(rule).toMatch(/transform:\s*translateX\(-50%\)/);
+      expect(rule).toMatch(/width:\s*min\(340px, calc\(100% - 24px\)\)/);
+      expect(rule).toMatch(/top:\s*var\(--overlay-top,\s*12px\)/);
+    }
+  });
+
+  // The chevron ("Browse datasets") replaces the old stock `<select>`: it
+  // opens the SAME results list the search uses, pre-filled with every
+  // vendored dataset under "Built-in" and every curated Hugging Face
+  // suggestion under "Hugging Face" — the task's own "existing empty-query
+  // suggestion behaviour", just with a browse-list entry point that needs
+  // no typing at all.
+  it("the chevron opens a list with every vendored title under \"Built-in\" and every curated dataset under \"Hugging Face\"", () => {
+    const overlay = container.querySelector(".charts-data-overlay")!;
+    const chevron = overlay.querySelector<HTMLButtonElement>('[aria-label="Browse datasets"]')!;
+    expect(overlay.querySelector(".instrument-search-list")).toBeNull();
+    act(() => chevron.click());
+    const list = overlay.querySelector(".instrument-search-list")!;
+    expect(list).not.toBeNull();
+    const headings = Array.from(list.querySelectorAll(".instrument-search-group")).map((n) => n.textContent);
+    expect(headings).toContain("Built-in");
+    expect(headings).toContain("Hugging Face");
+    const names = Array.from(list.querySelectorAll(".instrument-search-name")).map((n) => n.textContent);
+    for (const dataset of CHARTS_DATASETS) expect(names).toContain(dataset.title);
+    for (const hit of CHARTS_REMOTE_DATASET_INDEX) expect(names).toContain(hit.title);
+  });
+
+  // Typing narrows the "Built-in" group locally (title/id substring, no
+  // network) — proven with a query that matches exactly one vendored
+  // dataset title and nothing else in either group.
+  it("typing in the search field filters the \"Built-in\" group", () => {
+    const overlay = container.querySelector(".charts-data-overlay")!;
+    const chevron = overlay.querySelector<HTMLButtonElement>('[aria-label="Browse datasets"]')!;
+    act(() => chevron.click());
+    const input = overlay.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "unemployment");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const list = overlay.querySelector(".instrument-search-list")!;
+    const names = Array.from(list.querySelectorAll(".instrument-search-name")).map((n) => n.textContent);
+    expect(names).toEqual(["US unemployment rate"]);
+  });
+
+  // Picking a vendored entry from the browse list dispatches the SAME
+  // `select-dataset` action the old `<select>` did — same assertion the
+  // removed select test used (the recommended mapping renders immediately).
+  it("picking a vendored entry from the chevron's list renders it immediately", () => {
+    selectChartsDataset(container, "iris-flowers");
+    expect(chartsActiveDatasetTitle(container)).toBe("Iris flower measurements");
+    expect(activeMarkType()).toBe("dot");
+  });
+
+  // Idle display: the field shows the currently loaded dataset's title
+  // when not focused — cleared on focus so typing starts fresh, restored
+  // on blur with no pick (`ChartsDatasetSearchBox.tsx`'s own doc).
+  it("the field shows the loaded dataset's title when idle, clears on focus, and restores on blur with no pick", async () => {
+    selectChartsDataset(container, "iris-flowers");
+    // `choose()` blurs the field itself (settling it back to the idle
+    // title) through the SAME deferred `setTimeout(0)` a real blur does
+    // (`ChartsDatasetSearchBox.tsx`'s own doc) — this block runs under
+    // real timers, so that needs a real tick to actually land.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const overlay = container.querySelector(".charts-data-overlay")!;
+    const input = overlay.querySelector<HTMLInputElement>(".instrument-search-input")!;
+    expect(input.value).toBe("Iris flower measurements");
+    act(() => { input.focus(); input.dispatchEvent(new Event("focus", { bubbles: true })); });
+    expect(input.value).toBe("");
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "some typed text with no pick");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => { input.blur(); input.dispatchEvent(new Event("blur", { bubbles: true })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(input.value).toBe("Iris flower measurements");
+  });
+
+  // Keyboard/a11y (owner packet item 4): field -> chevron -> Random is the
   // natural DOM/tab order inside the overlay bar, and the search list's
   // own dropdown is an ABSOLUTELY POSITIONED overlay (never a normal-flow
-  // sibling that would push the select/Random sideways when it opens).
-  it("the data overlay's tab order is search, then select, then Random, and the search list floats rather than reflowing the bar", async () => {
+  // sibling that would push Random sideways when it opens).
+  it("the data overlay's tab order is field, then chevron, then Random, and the search list floats rather than reflowing the bar", async () => {
     const overlay = container.querySelector(".charts-data-overlay")!;
-    const focusable = Array.from(overlay.querySelectorAll("input, select, button"));
+    const focusable = Array.from(overlay.querySelectorAll("input, button"));
     expect(focusable[0]!.getAttribute("role")).toBe("combobox");
-    expect((focusable[1] as HTMLSelectElement).getAttribute("aria-label")).toBe("Dataset");
+    expect((focusable[1] as HTMLButtonElement).getAttribute("aria-label")).toBe("Browse datasets");
     expect((focusable[2] as HTMLButtonElement).getAttribute("aria-label")).toBe("Load random dataset");
     // Focusing alone opens the list — the curated suggestions render with
     // no query typed and no network call (`ChartsDatasetSearchBox.tsx`'s
@@ -805,12 +903,12 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const list = overlay.querySelector(".instrument-search-list");
     expect(list).not.toBeNull();
     // The list is a child of the search box's own wrapper, a SIBLING of
-    // (never a wrapper around) the select/Random — so it never displaces
-    // them in the DOM, and `charts-workbench.css`'s own
-    // `.charts-dataset-search .instrument-search-list` rule is what keeps
-    // it floating over the render instead of growing the bar.
+    // (never a wrapper around) Random — so it never displaces it in the
+    // DOM, and `charts-workbench.css`'s own `.charts-dataset-search
+    // .instrument-search-list` rule is what keeps it floating over the
+    // render instead of growing the field's own box.
     expect(list!.closest(".charts-dataset-search")).not.toBeNull();
-    expect(overlay.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
+    expect(overlay.querySelector('[aria-label="Load random dataset"]')).not.toBeNull();
     // Escape closes the list.
     act(() => { input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
     expect(overlay.querySelector(".instrument-search-list")).toBeNull();
@@ -913,11 +1011,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // surfaces a reader rarely needs open — collapsed by default (native
   // `<details>`, no URL state) and revealed only on request.
   it("the dataset card's data table/JSON views are hidden by default and open on clicking \"View data\"", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    act(() => {
-      datasetSelect.value = "iris-flowers";
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    selectChartsDataset(container, "iris-flowers");
     const details = container.querySelector<HTMLDetailsElement>(".charts-data-info .charts-mark-data-details")!;
     expect(details.open).toBe(false);
     // Closed by default doesn't mean absent — the tabs/panels still exist,
@@ -937,17 +1031,13 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // Random" button: picks a DIFFERENT dataset than the one currently
   // loaded, immediately (no Apply step).
   it("the rail's Random button loads a different dataset immediately", () => {
-    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    act(() => {
-      datasetSelect.value = "iris-flowers";
-      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    selectChartsDataset(container, "iris-flowers");
     const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
     for (let i = 0; i < 8; i++) {
-      const before = datasetSelect.value;
+      const before = chartsActiveDatasetTitle(container);
       act(() => randomButton.click());
-      expect(datasetSelect.value).not.toBe(before);
-      expect(datasetSelect.value).not.toBe("");
+      expect(chartsActiveDatasetTitle(container)).not.toBe(before);
+      expect(chartsActiveDatasetTitle(container)).not.toBe("");
     }
   });
 
@@ -1128,8 +1218,7 @@ describe("ChartsWorkbench — showcase mount (items 2/3)", () => {
   it("mount with no ?c= param renders a stock dataset immediately", () => {
     window.history.replaceState(null, "", "/charts");
     mount();
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    expect(CHARTS_DATASETS.map((d) => d.id)).toContain(select.value);
+    expect(CHARTS_DATASETS.map((d) => d.title)).toContain(chartsActiveDatasetTitle(container));
     expect(container.querySelectorAll(".charts-mark-card")).toHaveLength(1);
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
   });
@@ -1138,7 +1227,7 @@ describe("ChartsWorkbench — showcase mount (items 2/3)", () => {
     const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "iris-flowers" });
     const raw = await encodeChartsUrlState(state);
     await mountWithLink(raw);
-    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value).toBe("iris-flowers");
+    expect(chartsActiveDatasetTitle(container)).toBe("Iris flower measurements");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Iris");
   });
 
@@ -1245,7 +1334,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
       setter.call(input, STUB_ID);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    const before = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value;
+    const before = chartsActiveDatasetTitle(container);
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     const start = Date.now();
     const hasLoadFailureFeedback = () => Array.from(container.querySelectorAll(".charts-readout")).some((el) => el.textContent?.includes("Couldn't load"));
@@ -1255,7 +1344,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     }
     act(() => {});
     // Fell back to SOME vendored dataset (never left on a blank/half state).
-    expect(CHARTS_DATASETS.map((d) => d.id)).toContain(container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value);
+    expect(CHARTS_DATASETS.map((d) => d.title)).toContain(chartsActiveDatasetTitle(container));
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     void before; // (documents intent: a different dataset than "none selected" — the exact id is randomized, not asserted)
   }, 10_000);
@@ -1292,7 +1381,7 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     act(() => {});
-    expect(CHARTS_DATASETS.map((d) => d.id)).toContain(container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!.value);
+    expect(CHARTS_DATASETS.map((d) => d.title)).toContain(chartsActiveDatasetTitle(container));
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     // No stuck spinner — the loading readout is gone, not merely
     // superseded by a later one.
@@ -1385,15 +1474,11 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     }
     act(() => {});
 
-    // Pick a stock dataset via the overlay's own `<select>` — the SAME
+    // Pick a stock dataset via the overlay's own browse chevron — the SAME
     // control `ChartsDataOverlay.tsx` renders, dispatching `select-dataset`
     // directly (never through `loadRemoteDataset`).
-    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
-    act(() => {
-      select.value = "iris-flowers";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(select.value).toBe("iris-flowers");
+    selectChartsDataset(container, "iris-flowers");
+    expect(chartsActiveDatasetTitle(container)).toBe("Iris flower measurements");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Iris");
 
     // Now let the STALE remote response resolve.
@@ -1410,10 +1495,10 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     act(() => {});
 
-    expect(select.value).toBe("iris-flowers");
+    expect(chartsActiveDatasetTitle(container)).toBe("Iris flower measurements");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Iris");
-    // The stale remote dispatch never landed — `select` is still `"dataset"`
-    // sourced (never `"remote"`), so no `.charts-data-loading` readout
+    // The stale remote dispatch never landed — the source is still
+    // `"dataset"` (never `"remote"`), so no `.charts-data-loading` readout
     // exists and the dataset title is still the stock one, not the stub.
     expect(container.querySelector(".charts-data-loading")).toBeNull();
     expect(container.querySelector(".charts-data-title")?.textContent).not.toBe(STUB_ID);
