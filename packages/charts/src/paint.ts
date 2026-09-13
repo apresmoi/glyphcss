@@ -3,6 +3,11 @@
  * order (PLAN.md Phase 1): fills (bar/area/rect/cell/arc — region marks)
  * first, then axes, then marks (line/dot/rule — stroke/point marks), then
  * labels (title/legend/data labels) last, so nothing paints over a label.
+ * Since CHARTS-RESEARCH's B1 fix, a line/dot mark touching the y domain's
+ * own minimum can share `xAxisLineRow` with the axis itself — axes still
+ * paint first (see `paintGlyphChart`'s own comment at the call site for
+ * why painting them after marks was tried and reverted), so that ONE
+ * touching column may carry sub-cell ink over the whole-cell axis glyph.
  * Every mark type gets its own small painter function; `paintGlyphChart`
  * is the only place that decides ORDER, matching `docs/design/canvas.md`'s
  * own "tiers are tables, painters are dumb" discipline one level up.
@@ -75,6 +80,20 @@ function dodgeColRange(range: readonly [number, number], index: number, count: n
 }
 
 /**
+ * Fills `[x0,x1] x [y0,y1]` with a SPECIFIC glyph (never a continuous
+ * `fillRect` shade level) — one row of `canvas.text` per painted row, the
+ * glyph repeated across the run. Bar/rect/area series identity (B2) needs
+ * the EXACT `seriesShade` glyph, and `ascii`'s series vocabulary (`# % + .`)
+ * is not a subsequence of `fillRect`'s own 8-level shading ramp — only
+ * `canvas.text` can guarantee the literal character painted.
+ */
+function fillRegionShade(canvas: GlyphCanvas, x0: number, y0: number, x1: number, y1: number, glyph: string, color: string | null): void {
+  if (x0 > x1 || y0 > y1) return;
+  const run = glyph.repeat(x1 - x0 + 1);
+  for (let y = y0; y <= y1; y++) canvas.text(x0, y, [run], { color });
+}
+
+/**
  * A bar's cell span is `(baseline, value]` — NOT `[0, value]` clamped to
  * "above" — so a negative value (mixed-sign honesty gate) draws BELOW the
  * baseline instead of collapsing to a zero-height bar. `stack`-transformed
@@ -82,9 +101,17 @@ function dodgeColRange(range: readonly [number, number], index: number, count: n
  * shared 0 baseline, and use the FULL band width — dodging is a horizontal
  * grouping for UNSTACKED multi-series bars only (a stack is already
  * disambiguated vertically, by `y0`/`y1`).
+ *
+ * `styleIndex` (the series' cross-mark identity, the SAME index that picks
+ * its colour) picks its FILL GLYPH too (CHARTS-RESEARCH diagnosis B2) —
+ * `seriesShade(tier, styleIndex)`, never a flat `"solid"` fill — so two
+ * stacked/dodged series remain distinguishable in `text` (Copy ASCII)
+ * whether or not colour is enabled, exactly like `paintArc` already does
+ * for pie slices.
  */
-function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
+function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
+  const glyph = seriesShade(canvas.tier, styleIndex);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
     const stacked = row.y1 !== undefined;
@@ -112,11 +139,15 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     x0 = Math.max(layout.plot.x0, x0);
     x1 = Math.min(layout.plot.x1, x1);
     if (x0 > x1 || top > bottom) continue;
-    canvas.fillRect(x0, top, x1, bottom, { fill: "solid", color });
+    fillRegionShade(canvas, x0, top, x1, bottom, glyph, color);
   }
 }
 
-function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null): void {
+/** See `paintBar`'s own doc — the same `styleIndex` -> `seriesShade` fill
+ * glyph rule (CHARTS-RESEARCH diagnosis B2), applied per column since an
+ * area's boundary is a slope rather than a flat-topped rect. */
+function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number): void {
+  const glyph = seriesShade(canvas.tier, styleIndex);
   for (const layer of areaLayers(rows)) {
     const sorted = [...layer].sort((a, b) => scales.x.toFraction(a.x) - scales.x.toFraction(b.x));
     for (let i = 0; i < sorted.length - 1; i++) {
@@ -129,7 +160,7 @@ function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
         const value = Math.round(topA + (topB - topA) * t), base = Math.round(baseA + (baseB - baseA) * t);
         if (value === base) continue;
         const top = Math.max(layout.plot.y0, Math.min(value, base) + (value > base ? 1 : 0)), bottom = Math.min(layout.plot.y1, Math.max(value, base) - (value < base ? 1 : 0));
-        if (top <= bottom) canvas.fillRect(col, top, col, bottom, { fill: "solid", color });
+        if (top <= bottom) fillRegionShade(canvas, col, top, col, bottom, glyph, color);
       }
     }
   }
@@ -144,8 +175,9 @@ function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
  * finding 4: an undodged Jan band read as North's bar with South's own
  * value merely painted over its base, "January resembles a stack").
  */
-function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
+function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
+  const glyph = seriesShade(canvas.tier, styleIndex);
   for (const row of rows) {
     const stacked = row.y1 !== undefined;
     const base = scaleToRow(scales.y, layout.plot, row.y0 ?? 0);
@@ -168,13 +200,30 @@ function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     x0 = Math.max(layout.plot.x0, x0);
     x1 = Math.min(layout.plot.x1, x1);
     if (x0 > x1 || !Number.isFinite(top) || top > bottom) continue;
-    canvas.fillRect(x0, top, x1, bottom, { fill: "solid", color });
+    fillRegionShade(canvas, x0, top, x1, bottom, glyph, color);
   }
 }
 
+/**
+ * Heatmap cells (CHARTS-RESEARCH diagnosis B6d): `fillRect`'s own subcell
+ * path (`blocks`/`braille`) derives its glyph from PARTIAL sub-cell dot
+ * COVERAGE, which is right for a fill that reads as density (a bar, an
+ * area) but wrong for a continuous VALUE ramp — a partially-covered cell
+ * picks a quadrant SHAPE (`▘ ▀ ▛`), so a heatmap's shade steps read as
+ * texture (which corner is lit) rather than monotone darkness, unlike
+ * `box`'s own `" ░▒▓█"` ramp, which reads correctly at every level. Cell
+ * marks therefore always quantise through `box`'s own 5-level ramp — the
+ * one every tier's reader agrees is monotone — painted via `canvas.text`
+ * (never `fillRect`) so `ascii`/`box` stay on `fillRect`'s existing,
+ * unaffected, per-tier path (this function is the ONE exception) and
+ * `blocks`/`braille` never touch the sub-cell occupancy buffer for a cell
+ * mark at all.
+ */
 function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number): void {
   const fallbackCols = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) * (scales.x.bandStep ?? 1 / Math.max(1, rows.length))));
   const fallbackRows = Math.max(1, Math.round((layout.plot.y1 - layout.plot.y0 + 1) * (scales.y.bandStep ?? 1 / Math.max(1, rows.length))));
+  const subcellTier = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
+  const cellRamp = GLYPH_CANVAS_TIERS.box.shadeRamp;
   for (const row of rows) {
     const colBand = bandColRange(scales.x, layout.plot, row.x);
     const rowBand = bandRowRange(scales.y, layout.plot, row.y);
@@ -187,7 +236,12 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     y0 = Math.max(layout.plot.y0, y0); y1 = Math.min(layout.plot.y1, y1);
     if (x0 > x1 || y0 > y1) continue;
     const shade = row.fill !== undefined ? shadeFor(numeric(row.fill)) : 1;
-    canvas.fillRect(x0, y0, x1, y1, { fill: Number.isFinite(shade) ? { shade } : "solid", color });
+    if (subcellTier) {
+      const level = Number.isFinite(shade) ? Math.round(shade * (cellRamp.length - 1)) : cellRamp.length - 1;
+      fillRegionShade(canvas, x0, y0, x1, y1, cellRamp[level]!, color);
+    } else {
+      canvas.fillRect(x0, y0, x1, y1, { fill: Number.isFinite(shade) ? { shade } : "solid", color });
+    }
   }
 }
 
@@ -288,20 +342,31 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout): void {
   const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
   const xTickCols = new Set(layout.xTicks.map((t) => t.cell));
 
+  // The y-axis spans the FULL plot height, top to bottom — never only up
+  // to `xAxisLineRow` — because that row is no longer necessarily the
+  // plot's own bottom edge (CHARTS-RESEARCH diagnosis B6a: a mixed-sign
+  // domain's zero row sits INTERIOR to the plot, with negative bars
+  // painted below it) and the vertical rule must keep going past it into
+  // that negative region, exactly as it already does above a positive one.
   if (layout.yTickMarks) {
-    for (let y = layout.plot.y0; y <= layout.xAxisLineRow; y++) {
+    for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
       const glyph = yTickRows.has(y) ? tier.junction[AXIS_N | AXIS_S | AXIS_W]! : tier.junction[AXIS_N | AXIS_S]!;
       canvas.text(layout.yAxisCol, y, [glyph]);
     }
   } else {
-    canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.xAxisLineRow }, { subcell: false });
+    canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.plot.y1 }, { subcell: false });
   }
 
   // Painted second, so it wins the shared corner cell — matches the
-  // pre-existing two-`canvas.line()`-call order this replaces.
+  // pre-existing two-`canvas.line()`-call order this replaces. The corner
+  // is a T-junction (`├`), not a plain corner (`└`), whenever the axis
+  // line sits above the plot's own bottom row (the mixed-sign case above)
+  // — the y-axis genuinely continues past it, so a plain corner glyph
+  // would read as the axis line stopping there.
+  const axisLineInterior = layout.xAxisLineRow < layout.plot.y1;
   if (layout.xTickMarks) {
     for (let x = layout.yAxisCol; x <= layout.plot.x1; x++) {
-      const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E]!
+      const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E | (axisLineInterior ? AXIS_S : 0)]!
         : xTickCols.has(x) ? tier.junction[AXIS_N | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
       canvas.text(x, layout.xAxisLineRow, [glyph]);
     }
@@ -385,56 +450,35 @@ function dotIndexToCoord(dotIndex: number, dotsPerCell: number): number {
  * it first (`scaleToCol`) would snap the mark to a whole cell before the
  * canvas ever sees the sub-cell offset.
  *
- * What keeps monochrome series identity legible at this resolution:
- * `styleIndex % 4 === 0` (the common "one series, or colour already carries
- * identity" case — `paintGlyphChart` zeroes `styleIndex` whenever
- * `colorEnabled`) is a single dot at the exact position via `canvas.line`'s
- * degenerate zero-length case; the other three cycle a distinct 2-dot
- * COMPANION shape (horizontal / vertical / diagonal pair) computed to land
- * in the SAME braille cell as the primary dot, via `primaryDotIndex` —
- * simply adding "half a cell" in continuous cell-space can cross into the
- * NEIGHBOURING cell instead, depending on which half of the current cell the
- * primary's own fraction happens to round into (verified by
- * `review.test.ts`). Every shape stays within the DOT MARK's own "at most 2
- * dots" bound — a property of `paintSubcellDot` below, not of `line()`
- * itself, which has no such limit (a genuine sloped `line()` run legitimately
- * touches up to 4 dots per cell; `canvas.ts`/`docs/design/canvas.md` are the
- * source of truth for that).
+ * CHARTS-RESEARCH diagnosis B6b: a single dot (or the old 2-dot companion
+ * pair) measures ~1.9px in Glyph Mono — a stray fleck, not a visible data
+ * point. "A point mark must put at least a whole cell of ink … sub-cell
+ * precision may position it, not shrink it" — so every point now paints a
+ * full 2x2 dot CLUSTER (4 of the cell's 8 dots: both columns, the pair of
+ * rows the point's own position actually falls into), regardless of series
+ * index. This trades the old per-series dot SHAPE for guaranteed
+ * visibility; colour remains the primary series-identity channel for dot
+ * marks, as it already is for every other mark type.
  */
-/**
- * Paints the sub-cell (braille/blocks) dot pattern for `shape` (0: a single
- * centred dot; 1/2/3: a horizontal/vertical/diagonal 2-dot companion pair)
- * at continuous cell-space position `(col, r)`. Shared by `paintDot` and the
- * dot legend swatch (`paintGlyphChart`) so the legend can never show a
- * pattern the plot itself does not paint (review finding 4).
- *
- * Each dot is painted as its own DEGENERATE (zero-length) `line()` call
- * rather than one `line()` between the primary and its companion: the
- * companion sits exactly 2 dot-steps away on the vertical/diagonal shapes,
- * and a real connecting line rasterises the dot exactly between them too,
- * exceeding the documented "at most 2 dots" bound (review finding 3).
- */
-function paintSubcellDot(canvas: GlyphCanvas, col: number, r: number, shape: number, color: string | null): void {
-  canvas.line({ x: col, y: r }, { x: col, y: r }, { color });
-  if (shape === 0) return;
+function paintSubcellDot(canvas: GlyphCanvas, col: number, r: number, color: string | null): void {
   const dotCol = primaryDotIndex(col, SUBCELL_DOT_COLS);
   const dotRow = primaryDotIndex(r, SUBCELL_DOT_ROWS);
   const cellCol = Math.floor(dotCol / SUBCELL_DOT_COLS);
   const cellRow = Math.floor(dotRow / SUBCELL_DOT_ROWS);
-  const localCol = dotCol - cellCol * SUBCELL_DOT_COLS;
   const localRow = dotRow - cellRow * SUBCELL_DOT_ROWS;
-  // shape 1: horizontal pair, shape 2: vertical pair, shape 3: diagonal.
-  const companionLocalCol = shape === 1 || shape === 3 ? (localCol + 1) % SUBCELL_DOT_COLS : localCol;
-  const companionLocalRow = shape === 2 || shape === 3 ? (localRow + 2) % SUBCELL_DOT_ROWS : localRow;
-  const companionCol = dotIndexToCoord(cellCol * SUBCELL_DOT_COLS + companionLocalCol, SUBCELL_DOT_COLS);
-  const companionRow = dotIndexToCoord(cellRow * SUBCELL_DOT_ROWS + companionLocalRow, SUBCELL_DOT_ROWS);
-  canvas.line({ x: companionCol, y: companionRow }, { x: companionCol, y: companionRow }, { color });
+  const rowBand = localRow < 2 ? 0 : 2; // the half of the cell the point actually falls in.
+  for (let lc = 0; lc < SUBCELL_DOT_COLS; lc++) {
+    for (let lr = rowBand; lr < rowBand + 2; lr++) {
+      const x = dotIndexToCoord(cellCol * SUBCELL_DOT_COLS + lc, SUBCELL_DOT_COLS);
+      const y = dotIndexToCoord(cellRow * SUBCELL_DOT_ROWS + lr, SUBCELL_DOT_ROWS);
+      canvas.line({ x, y }, { x, y }, { color });
+    }
+  }
 }
 
 function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number): void {
   const subcell = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
   const glyph = seriesDot(canvas.tier, styleIndex);
-  const shape = styleIndex % 4;
   for (const row of rows) {
     if (subcell) {
       const col = scaleToColExact(scales.x, layout.plot, row.x);
@@ -451,7 +495,7 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
       const cellCol = Math.floor(dotCol / SUBCELL_DOT_COLS);
       const cellRow = Math.floor(dotRow / SUBCELL_DOT_ROWS);
       if (cellCol < layout.plot.x0 || cellCol > layout.plot.x1 || cellRow < layout.plot.y0 || cellRow > layout.plot.y1) continue;
-      paintSubcellDot(canvas, col, r, shape, color);
+      paintSubcellDot(canvas, col, r, color);
       continue;
     }
     const col = scaleToCol(scales.x, layout.plot, row.x);
@@ -469,10 +513,18 @@ function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     if (axis === "y") {
       const row = scaleToRow(scales.y, layout.plot, v);
       if (row < layout.plot.y0 || row > layout.plot.y1) continue;
+      // A rule landing on the axis LINE's own row (now possible since B1's
+      // fix folded that row into the plot — see `layoutGlyphChart`'s
+      // `xAxisLineRow` derivation) is already drawn: `paintAxes` ran
+      // before this loop, so a dashed overlay here would only stomp its
+      // tick-mark junction glyphs for a line that reads identically to
+      // the axis rule wherever both are plain "─" anyway.
+      if (row === layout.xAxisLineRow) continue;
       canvas.line({ x: layout.plot.x0, y: row }, { x: layout.plot.x1, y: row }, { color, style: "dashed", subcell: false });
     } else {
       const col = scaleToCol(scales.x, layout.plot, v);
       if (col < layout.plot.x0 || col > layout.plot.x1) continue;
+      if (col === layout.yAxisCol) continue;
       canvas.line({ x: col, y: layout.plot.y0 }, { x: col, y: layout.plot.y1 }, { color, style: "dashed", subcell: false });
     }
   }
@@ -583,12 +635,23 @@ export function paintGlyphChart(
     else for (let i = 0; i < groups.length; i++) {
       const { rows, styleIndex } = groups[i]!;
       const color = paletteColor(styleIndex, opts.colorEnabled);
-      if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded);
-      if (mark.type === "area") paintArea(guarded, layout, scales, rows, color);
-      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex);
+      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") paintCell(guarded, layout, scales, rows, color, shadeFor);
     }
   }
+  // Axes paint BEFORE marks (PLAN.md Phase 1's original order, kept): a
+  // line/dot mark touching the y domain's own minimum now legitimately
+  // shares its row with `xAxisLineRow` (CHARTS-RESEARCH B1 — "when 0 is
+  // not in the domain the axis line row is the y-min row"), and painting
+  // axes AFTER marks was tried and reverted — it silently ERASED a data
+  // point sitting exactly on that row instead of merely blemishing the
+  // axis glyph beside it, which is strictly worse (missing data reads as
+  // no data, not as an axis touch). The trade-off this keeps instead: the
+  // ONE column a mark actually touches may show sub-cell ink on the axis
+  // row under braille/blocks; `paintGrid`'s own faint gridlines still
+  // paint first, so marks correctly sit on top of them either way.
   paintAxes(canvas, layout);
   for (const { mark, rows, ruleValues, styleIndex } of series) {
     const color = paletteColor(styleIndex, opts.colorEnabled);
@@ -646,14 +709,25 @@ export function paintGlyphChart(
       const swatchX = Math.max(0, label.x - 3);
       if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
-        // Under braille/blocks the plot itself paints a 1-2 dot sub-cell
-        // pattern, never the whole-cell "● × + ◆" glyph `seriesDot` returns
-        // (review finding 4) — the legend must show the SAME pattern
-        // `paintDot` actually painted for this series, via the same helper
-        // and the same shape derivation (`opts.colorEnabled ? 0 : styleIndex`).
-        paintSubcellDot(guardedLabels, swatchX, label.y, (opts.colorEnabled ? 0 : entry.styleIndex) % 4, color);
+        // Under braille/blocks the plot itself paints a 2x2 dot cluster
+        // (CHARTS-RESEARCH diagnosis B6b), never the whole-cell "● × + ◆"
+        // glyph `seriesDot` returns — the legend must show the SAME mark
+        // `paintDot` actually painted, via the same helper.
+        paintSubcellDot(guardedLabels, swatchX, label.y, color);
       }
       else if (entry?.mark.type === "dot") guardedLabels.text(swatchX, label.y, [seriesDot(canvas.tier, i)], { color });
+      // Region marks (bar/rect/area/cell) carry series identity through
+      // their own FILL GLYPH, never a line style (CHARTS-RESEARCH diagnosis
+      // B2/B6d) — the legend swatch must show that same glyph, so a bar
+      // chart's legend never reads as a line chart's. `cell` (a heatmap)
+      // has no per-series shade cycle of its own (`paintCell` shades by
+      // continuous VALUE, not by series) — its swatch is the ramp's own
+      // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
+      // it can paint.
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") {
+        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+      }
+      else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4] });
       guardedLabels.text(label.x, label.y, [label.text], { color });
     } else guardedLabels.text(label.x, label.y, [label.text]);

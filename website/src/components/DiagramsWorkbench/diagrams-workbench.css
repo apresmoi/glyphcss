@@ -43,7 +43,11 @@
    as a direct-child selector so nothing about its byte-identical render
    changes; `terminal`/`chat` reach their own `.glyph-output` through the
    dedicated rules below instead of this one. */
-.diagrams-grid-scroll > .glyph-output { display: block; width: max-content; margin: 0 auto; padding: 0; font-family: inherit; font-size: 13px; line-height: 1; white-space: pre; user-select: text; }
+/* Explicit, not `inherit` (CHARTS-RESEARCH diagnosis A4 — same defect on
+   this page's own `.dn-root`-nested `<pre>`): declared here, at the
+   highest-specificity rule this element matches, so no ancestor (`.dn-root`
+   has no "Glyph Mono" in its own stack) can reopen the cascade. */
+.diagrams-grid-scroll > .glyph-output { display: block; width: max-content; margin: 0 auto; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1; white-space: pre; user-select: text; }
 .diagrams-readout, .diagrams-error { margin: 0; font-size: 10px; line-height: 1.4; }
 .diagrams-readout { color: rgba(255, 232, 184, 0.65); }
 .diagrams-error { color: #fda4af; }
@@ -87,7 +91,17 @@
   text-overflow: ellipsis;
 }
 .target-preview__terminal-body { padding: 12px; background: #000; }
-.target-preview__terminal-body .glyph-output { background: #000; color: #e5e5e5; margin: 0; }
+/* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
+   `<pre>` is not a `.diagrams-grid-scroll > .glyph-output`, so without its
+   own rule it fell through to the UA `pre { font-family: monospace }` at
+   `.dn-root`'s inherited `line-height: 1.35`. */
+.target-preview__terminal-body .glyph-output {
+  background: #000;
+  color: #e5e5e5;
+  margin: 0;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  line-height: 1;
+}
 
 .target-preview--chat { display: flex; justify-content: flex-start; padding: 4px; }
 .target-preview__bubble {

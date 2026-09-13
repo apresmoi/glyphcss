@@ -35,11 +35,17 @@ describe("exact Phase 1 review regressions", () => {
     expect(r.grid.char.every((c) => c === " ")).toBe(true);
     expect(r.report.ledger).toContainEqual(expect.objectContaining({ code: "empty-total" }));
   });
-  it("1: positive and negative bars exclude the zero baseline", () => {
-    // Mutation: include baseline at either end -> invents an extra cell.
+  it("1: positive and negative bars exclude the zero baseline, which is now the axis line itself", () => {
+    // Mutation: include baseline at either end -> a bar's own fill glyph
+    // (not the axis tick glyph) shows up at the zero row -> red.
+    // CHARTS-RESEARCH diagnosis B1/B6a: a mixed-sign domain's zero row IS
+    // the x-axis line row (never a blank row floating between the bars and
+    // the axis, the pre-fix behaviour this test used to pin) — so the
+    // zero-row cells here read as the axis's own tick glyph, never a bar
+    // fill glyph and never blank.
     const p = picture(glyphChartBar([-1, 1]), 20, 8);
-    expect(p.atValue(0, 0)).toBe(" ");
-    expect(p.atValue(1, 0)).toBe(" ");
+    expect(p.atValue(0, 0)).toBe("┴");
+    expect(p.atValue(1, 0)).toBe("┴");
     expect(p.atValue(0, -1)).toBe("█");
     expect(p.atValue(1, 1)).toBe("█");
   });
@@ -108,17 +114,15 @@ describe("exact Phase 1 review regressions", () => {
     const forced = renderGlyphChart(mark, { target: "terminal", env: { NO_COLOR: "0", FORCE_COLOR: "0" } });
     expect(forced.text).toContain("\x1b[");
 
-    // Series identity when colour is suppressed vs. restored: `target:
-    // "terminal"` defaults to `braille`, where identity is a distinct
-    // SUB-CELL dot SHAPE (`SUBCELL_DOT_SHAPES` in `paint.ts`) rather than a
-    // distinct whole-cell glyph — a lone dot (popcount 1, styleIndex 0) vs.
-    // a 2-dot companion pair (popcount 2, styleIndex 1) once colour no
-    // longer carries it. Scanned over the PLOT INTERIOR only (`layout.plot`,
-    // via `picture`) — the whole grid also carries the axis lines' OWN
-    // braille dots (unrelated series identity), and the companion dot can
-    // legitimately land in the neighbouring cell rather than always sharing
-    // its primary's cell, so this checks for the SHAPE's presence rather
-    // than pinning one exact cell.
+    // Dot visibility under braille (CHARTS-RESEARCH diagnosis B6b): a
+    // single sub-cell dot measures ~1.9px in Glyph Mono and reads as a
+    // stray fleck, not a data point, so every dot mark now paints a full
+    // 2x2 cluster (popcount 4) regardless of series index or colour —
+    // colour remains the identity channel for dot series; sub-cell
+    // resolution only POSITIONS the mark, it no longer shrinks it to fit.
+    // Scanned over the PLOT INTERIOR only (`layout.plot`, via `picture`) —
+    // the whole grid also carries the axis lines' own braille dots,
+    // unrelated to a data point's own visibility.
     const popcount = (c: string): number => {
       let mask = c.codePointAt(0)! - 0x2800;
       let count = 0;
@@ -137,12 +141,11 @@ describe("exact Phase 1 review regressions", () => {
       return counts;
     };
     const mono = plotPopcounts(picture(mark, 24, 10, false, "braille"));
-    expect(mono).toContain(1); // series "A" (styleIndex 0): a lone dot.
-    expect(mono).toContain(2); // series "B" (styleIndex 1): a 2-dot companion pair.
+    expect(mono.length).toBeGreaterThan(0);
+    expect(mono.every((n) => n === 4)).toBe(true);
     const coloured = plotPopcounts(picture(mark, 24, 10, true, "braille"));
-    // Colour carries identity here, so every dot collapses to styleIndex 0 —
-    // a lone dot, never the 2-dot companion shape.
-    expect(coloured.every((n) => n === 1)).toBe(true);
+    expect(coloured.length).toBeGreaterThan(0);
+    expect(coloured.every((n) => n === 4)).toBe(true);
   });
   it("final-gate: a sub-cell dot clips by its actual DESTINATION cell, not a heuristic half-cell margin on the exact coordinate", () => {
     // Mutation: restore the half-cell-margin check on the continuous (col, r)
@@ -158,11 +161,10 @@ describe("exact Phase 1 review regressions", () => {
     }
   });
 
-  it("final-gate: every monochrome dot series (including the vertical/diagonal 3rd and 4th shapes) paints at most 2 dots, never a connecting midpoint", () => {
-    // Mutation: draw the companion via one `canvas.line(primary, companion)`
-    // call instead of two separate degenerate points -> the vertical (shape
-    // 2) and diagonal (shape 3) companions sit 2 dot-rows away, so the real
-    // line rasterises the dot exactly between them too, popcount 3 -> red.
+  it("final-gate: every dot mark (any series) paints a visible 2x2 cluster, exactly 4 dots, never a shrunk 1-2 dot fleck", () => {
+    // Mutation: revert `paintSubcellDot` to light only the primary dot (or a
+    // 1-2 dot companion pair) -> popcount drops to 1 or 2, CHARTS-RESEARCH
+    // diagnosis B6b's "at least a whole cell of ink" regresses -> red.
     const data = [0, 1, 2, 3].map((i) => ({ x: i, y: i, s: String(i) }));
     const p = picture(glyphChartDot(data, { x: "x", y: "y", fill: "s" }), 24, 10, false, "braille");
     const popcount = (c: string): number => {
@@ -170,16 +172,15 @@ describe("exact Phase 1 review regressions", () => {
       while (mask > 0) { count += mask & 1; mask >>>= 1; }
       return count;
     };
-    const patterns: string[] = [];
+    let sawDot = false;
     for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) {
       for (let x = p.layout.plot.x0; x <= p.layout.plot.x1; x++) {
         const c = p.at(x, y)!;
         const cp = c.codePointAt(0)!;
-        if (cp > 0x2800 && cp <= 0x28ff) { expect(popcount(c)).toBeLessThanOrEqual(2); patterns.push(c); }
+        if (cp > 0x2800 && cp <= 0x28ff) { expect(popcount(c)).toBe(4); sawDot = true; }
       }
     }
-    // Four series -> four distinct nonblank cells (each its own shape).
-    expect(new Set(patterns).size).toBe(4);
+    expect(sawDot).toBe(true);
   });
 
   it("final-gate: the dot legend swatch under braille/blocks paints a sub-cell pattern the plot itself can produce, not the whole-cell ● × + ◆ glyphs", () => {
@@ -208,7 +209,12 @@ describe("exact Phase 1 review regressions", () => {
     const data = [1, 3, 5, 7].flatMap((y, i) => [0, 1].map((x) => ({ x, y, s: String(i) })));
     const p = picture(glyphChartArea(data, { x: "x", y: "y", fill: "s" }), 40, 18);
     const rowAt = (v: number) => Array.from({ length: p.layout.plot.x1 - p.layout.plot.x0 + 1 }, (_, i) => p.at(p.layout.plot.x0 + i, scaleToRow(p.scales.y, p.layout.plot, v))).join("");
-    expect(rowAt(3)).toContain("█──█──"); expect(rowAt(5)).toContain("·█·"); expect(rowAt(7)).toContain("══");
+    // Series "3" (styleIndex 3, y=7..0) is the tallest and so is the last
+    // fill drawn — it covers rows 3 and 5 too, which is now its own shade
+    // glyph "░" (CHARTS-RESEARCH B2: a region series' fill glyph, not a
+    // uniform "█") wherever a shorter series' own dashed/dotted boundary
+    // doesn't interrupt it.
+    expect(rowAt(3)).toContain("──░──░"); expect(rowAt(5)).toContain("·░·░·"); expect(rowAt(7)).toContain("══");
   });
   it("4: the exact stacked area fills the full five-unit stack, with no sloping gap", () => {
     // Mutation: read original y rather than y0/y1 -> top two units remain empty.
@@ -385,7 +391,19 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const rows = r.text.split("\n");
     const axisLine = rows.find((row) => row.includes("─"))!;
     expect(axisLine).toBeDefined();
-    expect(axisLine.trimStart()).toMatch(/^─+$/);
+    // The y-axis GUTTER may legitimately carry a tick-value LABEL on this
+    // exact row now (CHARTS-RESEARCH B1: a y domain not containing 0 puts
+    // the axis line at the y-MINIMUM's own row, and `yTickMarks: false`
+    // still prints that tick's numeric label, just not its "┤" glyph) —
+    // strip that leading label token before checking the PLOT portion.
+    // Every cell there is whole-cell "─" EXCEPT the one column where this
+    // data set's own minimum (2, at index 2) legitimately touches the axis
+    // line — that column may carry a genuine sub-cell braille dot from the
+    // touching line, never a different whole-cell glyph. Folding braille
+    // codepoints back to "─" before the match isolates exactly that one
+    // tolerated intrusion.
+    const plotPortion = axisLine.replace(/^\s*\S*\s*/, "");
+    expect(plotPortion.replace(/[⠀-⣿]/g, "─")).toMatch(/^─+$/);
     const yAxisCol = rows.slice(0, -2).map((row) => row.indexOf("│")).find((i) => i >= 0)!;
     for (const row of rows.slice(0, -2)) {
       const ch = row[yAxisCol];
@@ -406,7 +424,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     ];
     const p = picture(glyphChartBar(data, { x: "m", y: "v", fill: "r" }), 34, 14);
     const janNorth = bandColRange(p.scales.x, p.layout.plot, "Jan")!;
-    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) === "█") n++; return n; };
+    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) !== " ") n++; return n; };
     const janCols = Array.from({ length: janNorth[1] - janNorth[0] + 1 }, (_, i) => janNorth[0] + i);
     const janHeights = janCols.map(countFilled);
     // North (9, tall) occupies the first sub-band, South (2, short) the
@@ -443,7 +461,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     ];
     const p = picture(glyphChartRect(data, { x: "m", y: "v", fill: "r" }), 34, 14);
     const janRange = bandColRange(p.scales.x, p.layout.plot, "Jan")!;
-    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) === "█") n++; return n; };
+    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) !== " ") n++; return n; };
     const janCols = Array.from({ length: janRange[1] - janRange[0] + 1 }, (_, i) => janRange[0] + i);
     const janHeights = janCols.map(countFilled);
     expect(janHeights[0]).toBeGreaterThan(janHeights.at(-1)!);
@@ -555,9 +573,12 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const p = picture(glyphChartLine([1000000, 2000000]), 6, 4);
     // Every surviving y-tick label is either untouched or a legitimately
     // abbreviated form no shorter than the ellipsis-truncation would allow —
-    // never a bare "1"/"2" standing in for "1M"/"2M"/"1.5M".
+    // never a bare "1"/"2" standing in for "1M"/"2M"/"1.5M". (CHARTS-RESEARCH
+    // B3's `yRowBudget` off-by-one fix changed exactly which nice ticks this
+    // 4-row plot requests — 1M/2M here, not the old 1.5M midpoint — the
+    // property under test is the DROP itself, not which value triggers it.)
     for (const t of p.layout.yTicks) expect(t.label).not.toMatch(/^\d$/);
-    expect(p.ledger.some((entry) => entry.code === "label-dropped" && entry.message.includes("1.5M"))).toBe(true);
+    expect(p.ledger.some((entry) => entry.code === "label-dropped" && /\dM/.test(entry.message))).toBe(true);
     // Category labels are unaffected — still elided with an ellipsis.
     const bands = renderGlyphChart(longBands, { width: 20, height: 6 });
     expect(bands.report.ledger.some((entry) => entry.code === "label-abbreviated")).toBe(true);

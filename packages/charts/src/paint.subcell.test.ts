@@ -60,16 +60,23 @@ describe("sub-cell line(): a chart line rendered in braille is genuinely higher-
   });
 });
 
-describe("sub-cell 'dot' mark: a braille point occupies one cell with ≤2 dots, at the sub-cell position", () => {
-  it("MUTATION CAUGHT: a whole-cell dot glyph (or unbounded fill) -> some painted cell has more than 2 dots", () => {
+describe("sub-cell 'dot' mark: a braille point paints a visible 2x2 cluster, at the sub-cell position", () => {
+  // CHARTS-RESEARCH diagnosis B6b: a single braille dot measures ~1.9px in
+  // Glyph Mono — a stray fleck a reader can miss entirely, not a plotted
+  // point. "A point mark must put at least a whole cell of ink … sub-cell
+  // precision may position it, not shrink it" — so every dot now paints
+  // exactly 4 of the cell's 8 dots (a 2x2 cluster: both columns, the pair
+  // of rows the point's own position falls into), regardless of series
+  // index or colour.
+  it("MUTATION CAUGHT: a whole-cell dot glyph (or unbounded fill) -> some painted cell has other than 4 dots", () => {
     const counts = plotBraillePopcounts(glyphChartDot([0, 1, 0]), 24, 10, false);
     expect(counts.length).toBeGreaterThan(0);
-    for (const count of counts) expect(count).toBeLessThanOrEqual(2);
+    for (const count of counts) expect(count).toBe(4);
   });
 
-  it("a single-series dot mark (styleIndex 0, or colour carrying identity) is exactly one dot", () => {
-    // colorEnabled: true (colour carries series identity) — `paintDot`
-    // zeroes every mark's styleIndex, so every dot is the single-dot shape.
+  it("a single-series dot mark (styleIndex 0, or colour carrying identity) is still a full 4-dot cluster, not a shrunk single dot", () => {
+    // Mutation: revert to the old shape-cycling design (a lone dot at
+    // styleIndex 0) -> popcount drops to 1 -> red.
     const counts = plotBraillePopcounts(
       glyphChartDot(categoricalSeriesData, { x: "x", y: "y", fill: "s" }),
       24,
@@ -77,6 +84,6 @@ describe("sub-cell 'dot' mark: a braille point occupies one cell with ≤2 dots,
       true,
     );
     expect(counts.length).toBeGreaterThan(0);
-    expect(counts.every((c) => c === 1)).toBe(true);
+    expect(counts.every((c) => c === 4)).toBe(true);
   });
 });

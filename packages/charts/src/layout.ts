@@ -205,6 +205,45 @@ function axisTicks(
   return kept;
 }
 
+/**
+ * Shrinks a numeric/time axis's requested tick count until the SCALE's own
+ * `ticks(n)` map to rows that already clear the minimum spacing on their
+ * own — so `axisTicks`'s later collision loop has nothing left to
+ * arbitrarily thin (CHARTS-RESEARCH diagnosis B3). The row-budget off-by-one
+ * fix at this function's call site handles the DOMINANT cause (over-asking
+ * d3 by one tick), but it doesn't fully rule out a second, independent one:
+ * `scale.ticks(n)` can return a count that already fits the budget while
+ * two of its VALUES still round to the same or adjacent rows (a step that
+ * doesn't divide the available rows evenly) — this loop is what turns "the
+ * budget fits" into "the actual rows fit," by re-asking for a coarser count
+ * exactly as the diagnosis's own rule prescribes ("re-ask d3 with a smaller
+ * count") rather than leaving the flat collision test to drop an arbitrary
+ * rung. `y1 - y0` (not `y1 - y0 + 1`, matching `fractionToRow`'s own
+ * `height - 1`) is the row-INTERVAL count the fraction spreads across.
+ */
+function fitTicksToRowSpacing(
+  ticksFor: (n: number) => readonly GlyphChartTick[],
+  initialCount: number,
+  y0: number,
+  y1: number,
+  minSpacing: number,
+): readonly GlyphChartTick[] {
+  const toRow = (fraction: number) => y1 - Math.round(fraction * Math.max(1, y1 - y0));
+  let n = initialCount;
+  let ticks = ticksFor(n);
+  while (n > 2) {
+    const rows = [...new Set(ticks.map((t) => toRow(t.fraction)))].sort((a, b) => a - b);
+    let fits = true;
+    for (let i = 1; i < rows.length; i++) {
+      if (rows[i]! - rows[i - 1]! < minSpacing) { fits = false; break; }
+    }
+    if (fits) break;
+    n -= 1;
+    ticks = ticksFor(n);
+  }
+  return ticks;
+}
+
 export function seriesNames(marks: readonly GlyphChartResolvedMark[]): string[] {
   return [...new Set(chartSeries(marks).flatMap((s) => s.name === undefined ? [] : [s.name]))];
 }
@@ -277,8 +316,22 @@ export function layoutGlyphChart(
   const yTickMarks = yAxisOpts?.tickMarks ?? true;
   const xGrid = xAxisOpts?.grid ?? false;
   const yGrid = yAxisOpts?.grid ?? false;
-  const xAxisTitleText = cartesian ? (xAxisOpts?.title !== undefined ? xAxisOpts.title : defaultAxisFieldName(marks, "x")) : undefined;
-  const yAxisTitleText = cartesian ? (yAxisOpts?.title !== undefined ? yAxisOpts.title : defaultAxisFieldName(marks, "y")) : undefined;
+  // An auto title (derived from a mark's own field NAME, never an explicit
+  // caller-supplied `axes.*.title`) costs a whole row it doesn't ask
+  // permission for, and it repeats what the tick labels already say —
+  // CHARTS-RESEARCH diagnosis B4 measured it costing 2 of 14 rows on a
+  // 40x14 bar chart, which is exactly the regime where the y ladder no
+  // longer fits (B3). An explicit title always shows regardless of size;
+  // the auto default is gated on there being genuine room for it (rows>=20
+  // for the x title, cols>=60 for the y title) AND the field name actually
+  // being a name (>2 characters — `defaultAxisFieldName`'s own "v"/"m"
+  // single-letter table columns are not worth a row anywhere).
+  const xFieldName = defaultAxisFieldName(marks, "x");
+  const yFieldName = defaultAxisFieldName(marks, "y");
+  const autoXTitleFits = rows >= 20 && (xFieldName?.length ?? 0) > 2;
+  const autoYTitleFits = cols >= 60 && (yFieldName?.length ?? 0) > 2;
+  const xAxisTitleText = cartesian ? (xAxisOpts?.title !== undefined ? xAxisOpts.title : (autoXTitleFits ? xFieldName : undefined)) : undefined;
+  const yAxisTitleText = cartesian ? (yAxisOpts?.title !== undefined ? yAxisOpts.title : (autoYTitleFits ? yFieldName : undefined)) : undefined;
 
   let titleRow: number | null = null;
   if (spec.title && detail !== "simplified" && rows > 4) {
@@ -329,8 +382,15 @@ export function layoutGlyphChart(
     }
     xAxisLabelRow = bottom;
     bottom -= 1;
-    xAxisLineRow = bottom;
-    bottom -= 1;
+    // The axis LINE is no longer a separately reserved row below the plot
+    // (CHARTS-RESEARCH diagnosis B1) — `xAxisLineRow` is reassigned below,
+    // once the plot rect and y scale are known, to whichever row the
+    // y-scale's own zero actually lands on (that row IS the plot's bottom
+    // row `bottom` for the common all-nonnegative/zero-anchored domain,
+    // and an INTERIOR row for a mixed-sign one — see the derivation below
+    // and B6a). Reserving a distinct row here, unconditionally one below
+    // the plot, put the drawn rule one row past the plot's own y=0 row,
+    // floating every bar/area a full row off the line meant to anchor them.
 
     // y-axis gutter width: measure a generous tick set's label width first,
     // then reserve exactly that many columns plus the axis-line column.
@@ -342,8 +402,28 @@ export function layoutGlyphChart(
     // `axes.y.ticks` (packet item 6) overrides this budget outright — a
     // caller-requested count, not a fitting heuristic; `axisTicks`'s own
     // collision/stride thinning still applies underneath it.
-    const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottom - top + 1) / 2) + 1));
-    let yTicksRaw: GlyphChartTick[] = integerOnlyTicks(scales.y.ticks(yRowBudget), scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
+    // Off-by-one (CHARTS-RESEARCH diagnosis B3): `bottom - top` is the
+    // number of ROW-INTERVALS the plot's `bottom - top + 1` rows span (one
+    // fewer than the row count), and a minimum 2-row spacing between
+    // adjacent ticks (`axisTicks`'s own y-collision rule) admits at most
+    // `floor(intervals / 2) + 1` of them — the previous `+ 1` inside the
+    // `floor` counted the row count instead of the interval count, so it
+    // over-asked d3 by one tick at every height, and `axisTicks`'s
+    // pre-existing overshoot-stride thinning (only engaged when d3 returns
+    // MORE than requested) never triggered because the over-ask matched
+    // d3's own overshoot exactly — leaving the flat collision loop to drop
+    // an arbitrary interior rung instead of asking for (or striding down
+    // to) a coarser, evenly-spaced ladder.
+    const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottom - top) / 2) + 1));
+    // Only the auto-computed budget gets shrunk to fit actual row spacing —
+    // an explicit `axes.y.ticks` count is a caller request, not a fitting
+    // heuristic (matches `axisTicks`'s own stride/collision thinning, which
+    // still applies underneath either path). Band ticks ignore `count`
+    // entirely (`buildBand`'s own `ticks()`), so they're excluded too.
+    const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
+      ? scales.y.ticks(yRowBudget)
+      : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottom, 2);
+    let yTicksRaw: GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
     const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
     // The zero baseline is the one tick a bar/rect/area chart must always
     // label, whether or not d3's own "nice" set happened to include it.
@@ -357,10 +437,29 @@ export function layoutGlyphChart(
       x0: Math.min(cols - 1, yAxisCol + 1),
       y0: top,
       x1: cols - 1,
-      y1: Math.max(top, xAxisLineRow - 1),
+      y1: Math.max(top, bottom),
     };
     const plotWidth = Math.max(1, plotForTicks.x1 - plotForTicks.x0 + 1);
     const plotHeight = Math.max(1, plotForTicks.y1 - plotForTicks.y0 + 1);
+
+    // The x-axis LINE row (CHARTS-RESEARCH diagnosis B1/B6a): wherever the
+    // y-scale's own zero lands, via the SAME fraction->row mapping every
+    // bar/area painter already uses for its own baseline
+    // (`scaleToRow(scales.y, plot, 0)`) — so the drawn rule and the row a
+    // bar stops one short of are, by construction, the same row. For a
+    // domain that does not admit zero at all (a band/time y scale, or a
+    // continuous one whose domain excludes it), that row is `plotForTicks
+    // .y1`, the y-MINIMUM row — the plot's own bottom edge, exactly where
+    // the pre-fix code always drew it. For an ordinary non-negative
+    // zero-anchored domain (the common bar/area case), the two coincide:
+    // `toFraction(0) === 0` there too. Only a MIXED-SIGN domain (B6a) puts
+    // this row somewhere INTERIOR to the plot — positive bars grow up from
+    // it, negative bars down, and `paintAxes` draws the actual rule there.
+    const yPositional = scales.y.type !== "band" && scales.y.type !== "time";
+    const zeroFraction = yPositional ? scales.y.toFraction(0) : NaN;
+    xAxisLineRow = Number.isFinite(zeroFraction) && zeroFraction >= 0 && zeroFraction <= 1
+      ? fractionToRow(plotForTicks, zeroFraction)
+      : plotForTicks.y1;
 
     // A band category's tick fraction is otherwise an independent
     // continuous-fraction computation (`scale.ticks()`'s own `bandwidth/2`
@@ -396,10 +495,32 @@ export function layoutGlyphChart(
     const provisionalXTicks = scales.x.ticks(xTickCountProvisional);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
     const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
-    const xTicksRaw = integerOnlyTicks(
+    let xTicksRaw = integerOnlyTicks(
       xTickCount >= xTickCountProvisional ? provisionalXTicks : scales.x.ticks(xTickCount),
       scales.x.type !== "band" && scales.x.type !== "time" && isIntegerAxisData(marks, "x"),
     );
+
+    // Same disagreement as the y-band fix above, mirrored for columns
+    // (CHARTS-RESEARCH diagnosis B6c): `scale.ticks()`'s own continuous
+    // `start + bandwidth/2` fraction, rounded to a column independently,
+    // can (and measurably did) land one column right of the band
+    // `bandColRange` — the function `paintBar`/`paintRect`/`paintCell`
+    // ACTUALLY paint from — occupies, because `bandColRange`'s own
+    // `fractionToCol(hi) - 1` right-edge pull-in isn't visible to a
+    // fraction computed independently of it. Re-deriving the tick's
+    // fraction from `bandColRange`'s own painted `[lo, hi]` centre (the
+    // same function the painters call, not a parallel re-implementation)
+    // guarantees the label always centres on the exact columns the bar
+    // occupies, by construction.
+    if (scales.x.type === "band") {
+      xTicksRaw = xTicksRaw.map((t) => {
+        const range = bandColRange(scales.x, plotForTicks, t.value);
+        if (!range) return t;
+        const center = Math.round((range[0] + range[1]) / 2);
+        const fraction = plotWidth > 1 ? (center - plotForTicks.x0) / (plotWidth - 1) : t.fraction;
+        return { ...t, fraction };
+      });
+    }
 
     const xPriority = new Set<unknown>(
       scales.x.type === "log" ? xTicksRaw.filter((t) => isDecadeTick(t.value)).map((t) => t.value)
@@ -420,7 +541,13 @@ export function layoutGlyphChart(
     x0: xAxisLineRow >= 0 ? Math.min(cols - 1, yAxisCol + 1) : 0,
     y0: top,
     x1: cols - 1,
-    y1: xAxisLineRow >= 0 ? Math.max(top, xAxisLineRow - 1) : bottom,
+    // The plot's bottom row is `bottom` itself now (B1) — never
+    // `xAxisLineRow - 1`: the axis line sits AT `plot.y1` for the common
+    // zero-anchored/no-zero-in-domain case, or somewhere INTERIOR to the
+    // plot for a mixed-sign one, but the plot rect's own extent is fixed
+    // by the reserved chrome rows alone, independent of where inside it
+    // the line lands.
+    y1: xAxisLineRow >= 0 ? Math.max(top, bottom) : bottom,
   };
 
   return {

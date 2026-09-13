@@ -68,15 +68,23 @@ describe("axes — tick marks (default ON)", () => {
 });
 
 describe("axes — titles", () => {
+  // CHARTS-RESEARCH diagnosis B4: an auto title (from a field name, never
+  // an explicit `axes.*.title`) now only shows when there's genuine room
+  // for it — rows>=20 for the x title, cols>=60 for the y title — because
+  // it used to cost 2 of 14 rows on exactly the small charts where every
+  // row matters (and is the regime B3's tick ladder broke in). Both
+  // defaults tests below now use a canvas past their own threshold; a
+  // dedicated describe block further down pins the SUPPRESSED case at the
+  // diagnosis's own 40x14 size.
   it("defaults the x title to the channel's own field name", () => {
     const spec = glyphChartPlot({ marks: [glyphChartLine([{ month: 0, value: 3 }, { month: 1, value: 5 }], { x: "month", y: "value" })] });
-    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 14 });
+    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 20 });
     expect(r.text).toContain("month");
   });
 
   it("defaults the y title to the channel's own field name, placed top-left", () => {
     const spec = glyphChartPlot({ marks: [glyphChartLine([{ month: 0, value: 3 }, { month: 1, value: 5 }], { x: "month", y: "value" })] });
-    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 14 });
+    const r = renderGlyphChart(spec, { target: "chat", width: 60, height: 14 });
     const lines = r.text.split("\n");
     const titleLine = lines.findIndex((line) => line.includes("value"));
     expect(titleLine).toBeGreaterThanOrEqual(0);
@@ -102,6 +110,37 @@ describe("axes — titles", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", width: 40, height: 14 });
     // No stray field-name text anywhere outside the tick digits/axis glyphs.
     expect(r.text).not.toMatch(/[a-zA-Z]{2,}/);
+  });
+
+  it("CHARTS-RESEARCH B4: neither auto title shows on a 40x14 chart — the diagnosis's own broken-ladder regime", () => {
+    // Mutation: drop (or widen) the rows>=20 / cols>=60 auto-title gate ->
+    // "month"/"value" reappear at this exact size and steal 2 of 14 rows.
+    const spec = glyphChartPlot({ marks: [glyphChartLine([{ month: 0, value: 3 }, { month: 1, value: 5 }], { x: "month", y: "value" })] });
+    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 14 });
+    expect(r.text).not.toMatch(/[^a-zA-Z]month[^a-zA-Z]/);
+    expect(r.text).not.toMatch(/[^a-zA-Z]value[^a-zA-Z]/);
+  });
+
+  it("CHARTS-RESEARCH B4: an explicit title shows regardless of size", () => {
+    // Mutation: fold the explicit-title branch into the same size gate as
+    // the auto default -> a caller-supplied title silently vanishes on a
+    // small chart, which is not what "explicit" means.
+    const spec = glyphChartPlot({
+      marks: [glyphChartLine([{ month: 0, value: 3 }, { month: 1, value: 5 }], { x: "month", y: "value" })],
+      axes: { x: { title: "Month" }, y: { title: "Value" } },
+    });
+    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 14 });
+    expect(r.text).toContain("Month");
+    expect(r.text).toContain("Value");
+  });
+
+  it("CHARTS-RESEARCH B4: a field name of 2 characters or fewer never gets an auto title, even with room to spare", () => {
+    // Mutation: drop the field-name length check -> single-letter table
+    // columns ("v"/"m") spend a whole row on themselves.
+    const spec = glyphChartPlot({ marks: [glyphChartLine([{ m: 0, v: 3 }, { m: 1, v: 5 }], { x: "m", y: "v" })] });
+    const r = renderGlyphChart(spec, { target: "chat", width: 80, height: 30 });
+    expect(r.text).not.toMatch(/[^a-zA-Z]m[^a-zA-Z]/);
+    expect(r.text).not.toMatch(/[^a-zA-Z]v[^a-zA-Z]/);
   });
 });
 

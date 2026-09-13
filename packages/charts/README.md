@@ -20,18 +20,18 @@ console.log(text);
 ```
 
 ```
-8 │                                   //
+8 ┤                                   //
   │                                  // 
   │                                 //  
-6 │                               ///   
-  │          -▔\\                //     
-  │      -▔‾_-  \\\\            //      
-4 │  -▔‾_-         \\\        ///       
+6 ┤                                //   
+  │                               //    
+  │          -▔\\               ///     
+  │      -▔‾_-  \\\\           //       
+4 ┤  -▔‾_-         \\\        //        
   │__-               \\\     //         
   │                    \\\\ //          
-2 │                       \//           
-  ──────────────────────────────────────
-   0    0.5    1    1.5    2    2.5    3
+2 └┴───────────┴──────────\//──────────┴
+   0           1           2           3
 ```
 
 A bare `number[]` infers `x = index, y = identity` — the same shorthand `Plot.lineY([3,5,2,8])` uses. `renderGlyphChart` also accepts a lone mark, an array of marks, or a full `glyphChartPlot({ marks, title?, description? })` spec.
@@ -46,18 +46,18 @@ Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, 
 renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 40, height: 12 });
 ```
 ```
-9 │                             /\      
-  │                  \\        // \     
-  │                 //\\\    ///   \    
-7 │                //   \\\ //      \   
-  │               //      \//        \  
-5 │     /\\       /                   \ 
-  │   /// \\     //                    \
+  │                             /\      
+8 ┤                  \\        //\\     
+  │                 //\\\    ///  \\    
+  │                //   \\\ //     \\   
+6 ┤                /      \//       \\  
+  │               //                 \\ 
+  │     /\\      //                   \\
+4 ┤   /// \\     /                     \
   │ ///    \\\  //                      
-3 │//        \\//                       
-  │           \/                        
-  ──────────────────────────────────────
-   0     1     2     3     4     5     6
+  │//        \\//                       
+2 └┴──────────\/───────────┴───────────┴
+   0           2           4           6
 ```
 
 ### `glyphChartArea`
@@ -67,41 +67,41 @@ renderGlyphChart(glyphChartArea([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
 ```
 ```
   │                              █      
-8 │                  ██        ████     
+8 ┤                  ██        ████     
   │                 ██████   ███████    
-6 │                ███████████████████  
-  │     ██        █████████████████████ 
-4 │  ███████     ███████████████████████
-  │███████████  ████████████████████████
-2 │█████████████████████████████████████
+6 ┤                ██████████████████   
+  │      █         ███████████████████  
+  │    █████      █████████████████████ 
+4 ┤  ████████    ███████████████████████
+  │████████████ ████████████████████████
+2 ┤█████████████████████████████████████
   │█████████████████████████████████████
-0 │                                     
-  ──────────────────────────────────────
+0 └┴───────────┴───────────┴───────────┴
    0           2           4           6
 ```
 
 ### `glyphChartBar`
 
-Bar cell heights are proportional to values within one cell. Zero paints nothing; both signs exclude the baseline. Bar, rect and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
+Bar cell heights are proportional to values within one cell, measured from the axis LINE — which sits on the y=0 row itself (an interior row for a mixed-sign domain, the plot's own bottom row otherwise), so a bar always touches it, never floating a row above a separately-drawn line. Zero paints nothing; both signs exclude the baseline. Bar, rect and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
 
 ```ts
 renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, height: 14 });
 ```
 ```
- 8 │                                ████
    │                                ████
- 6 │                                ████
+   │                                ████
+   │                                ████
+ 5 ┤                                ████
    │                                ████
    │███                             ████
- 2 │███                 ██████      ████
    │███                 ██████      ████
- 0 │                                    
+ 0 ├┴───────────┴──────────┴───────────┴
    │         ██████                     
    │         ██████                     
--4 │         ██████                     
    │         ██████                     
-   ─────────────────────────────────────
-    0    0.5    1    1.5   2    2.5    3
+   │         ██████                     
+-5 ┤         ██████                     
+    0           1          2           3
 ```
 
 ### `glyphChartDot`
@@ -110,18 +110,18 @@ renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, heig
 renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 40, height: 12 });
 ```
 ```
-9 │                              ●      
-  │                  ●                  
+  │                              ●      
+8 ┤                  ●                  
   │                                     
-7 │                                     
-  │                        ●            
-5 │      ●                              
-  │                                    ●
   │                                     
-3 │●                                    
-  │            ●                        
-  ──────────────────────────────────────
-   0     1     2     3     4     5     6
+6 ┤                        ●            
+  │                                     
+  │      ●                              
+4 ┤                                    ●
+  │                                     
+  │●                                    
+2 └┴───────────●───────────┴───────────┴
+   0           2           4           6
 ```
 
 ### `glyphChartArc` (pie/donut)
@@ -167,18 +167,18 @@ renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: 
 ```
   │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
   │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-2 │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+2 ┤          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
+  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
   │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
   │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
   │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-1 │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
+1 ┤          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
   │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
   │                                     
   │                                     
-0 │                                     
-  │                                     
-  ──────────────────────────────────────
-        0        1        2        3    
+0 ┤                                     
+  └────┴────────┴────────┴────────┴─────
+       0        1        2        3     
 ```
 
 ### `glyphChartText`
@@ -221,21 +221,21 @@ renderGlyphChart(spec, { target: "chat", width: 50, height: 16 });
 ```
 ```
                  line + dot + rule                
-8 │                                             /●
+8 ┤                                             /●
   │                                            // 
-  │                                          //   
-6 │                                        ///    
-  │             -▔●▔-                     //      
-  │        -▔‾_-    -_▔-                //        
-4 │   -▔‾_-            -_▔-           ///         
-  │●_-                    -_‾-       //           
+  │                                          ///  
+6 ┤                                         //    
+  │                                       ///     
+  │             -▔●▔-                    //       
+4 ┤        -▔‾_-    -_▔-               ///        
+  │   -▔‾_-            -_▔-           //          
+  │●_-                    -_‾-      ///           
   │                          -_‾-  //             
-2 │                             -_●/              
+2 ┤                             -_●/              
   │                                               
   │                                               
-0 │── ── ── ── ── ── ── ── ── ── ── ── ── ── ── ──
-  ────────────────────────────────────────────────
-   0      0.5     1      1.5      2     2.5      3
+0 └┴──────────────┴───────────────┴──────────────┴
+   0              1               2              3
 ```
 
 ## Legends
@@ -254,17 +254,17 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 ```
 ```
   │                                /\\      
-8 ┤                    ‾▔-       /// \\     
-  │                   /  -_‾-  /// /\\\\    
-6 ┤                  / \\   -_//  /   \\\   
-  │      /\\        / /  \\     / /   \ \\  
-  │    /// \\      /        \\  /      \\\\ 
-4 ┤ ///     \\\   / /         //         \\\
-  │//   - \\  \\ / /                     \  
-2 ┤  -‾ -   \\ \/                         \\
-  │__         \\ /                          
-0 ┤             /                           
-  └┴────────────┴─────────────┴────────────┴
+8 ┤                    \\         // \\     
+  │                   //\\\     ////\ \\    
+  │                  //    \\\ // /  \ \\   
+6 ┤                 // ‾▔    \/// /     \\  
+  │     -▔\\       // /  -_ -   /      \ \\ 
+4 ┤  -‾_-  \\     //        - //        \ \\
+  │__-    \\\\\  // /                       
+  │     //  \ \\// /                      \ 
+2 ┤  //     \ \\/                          \
+  │//         \  /                          
+0 └┴───────────\/─────────────┴────────────┴
    0            2             4            6
      ───Revenue            ── Visits        
 ```
@@ -281,13 +281,13 @@ renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", charset: "ascii
 ```
 8 +                         //
   |                        // 
-6 +                       //  
-  |        -\\           //   
-  |     ---  \\\       //     
-4 +  --_       \\\    //      
+  |                       //  
+6 +                      //   
+  |        -\\          //    
+4 +     ---  \\\       //     
+  |  --_       \\\    //      
   |__            \\\ //       
-2 +                \//        
-  ++--------+-------+--------+
+2 ++--------+------\//-------+
    0        1       2        3
 ```
 
@@ -299,34 +299,40 @@ const spec = glyphChartPlot({
   marks: [glyphChartLine(data, { x: "month", y: "value" }, { name: "Revenue" })],
   axes: { y: { ticks: 4, grid: true } },
 });
-renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 44, height: 16 }).text;
+renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 64, height: 22 }).text;
 ```
 ```
-value                                       
-8 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈‾-┈┈┈┈┈┈┈┈┈┈┈
-  │                           //-_‾-        
-  │                          //    -_▔-     
-6 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈//┈┈┈┈┈┈┈┈-_┈┈┈┈
-  │                        //               
-  │           -\\          /                
-  │        -‾_- \\        //                
-4 ┤┈┈┈┈┈-▔_-┈┈┈┈┈\\\┈┈┈┈┈//┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-  │    _-          \\\  //                  
-  │                  \\//                   
-2 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\/┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-  └────┴───────┴───────┴───────┴───────┴────
-      Jan     Feb     Mar     Apr     May   
-                     month                  
-                ───Revenue                  
+value                                                           
+8 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\\┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  │                                         //\\\               
+  │                                        //   \\\             
+  │                                        /      \\\           
+  │                                       //        \\\         
+  │                                      //           \\\       
+6 ┤┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈//┈┈┈┈┈┈┈┈┈┈┈┈┈┈\\┈┈┈┈┈┈
+  │                                     /                       
+  │                 /\\                //                       
+  │               /// \\              //                        
+  │             ///    \\             /                         
+4 ┤┈┈┈┈┈┈┈┈┈┈┈///┈┈┈┈┈┈┈\\\┈┈┈┈┈┈┈┈┈┈//┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  │         ///           \\        //                          
+  │       ///              \\      //                           
+  │      //                 \\\    /                            
+  │                           \\  //                            
+  │                            \\//                             
+2 └──────┴───────────┴──────────\/───────────┴───────────┴──────
+        Jan         Feb         Mar         Apr         May     
+                               month                            
+                          ───Revenue                            
 ```
 
-`y`'s title (`value`, defaulted from the channel field name) sits top-left above the axis — a rotated column of glyphs has no character-grid analogue — while `x`'s title (`month`) is centred under its own tick-label row. `tickMarks: false` on either axis reverts to a plain, undecorated rule. Index/integer data never shows a fractional tick (`0.5`, `1.5`, …), even where d3's own "nice" ladder for a small domain would otherwise reach for one.
+`y`'s title (`value`, defaulted from the channel field name) sits top-left above the axis — a rotated column of glyphs has no character-grid analogue — while `x`'s title (`month`) is centred under its own tick-label row. An auto title like these only shows with genuine room for it (`rows >= 20` for the x title, `cols >= 60` for the y title, hence the larger canvas above) and a field name longer than two characters; an EXPLICIT `axes.x.title`/`axes.y.title` (including `""` to suppress the default) always shows regardless of size. `tickMarks: false` on either axis reverts to a plain, undecorated rule. Index/integer data never shows a fractional tick (`0.5`, `1.5`, …), even where d3's own "nice" ladder for a small domain would otherwise reach for one.
 
 ## Scales, series and labels
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.
 
-Categorical `fill` or `stroke` splits line, area and dot rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours; monochrome cycles solid/dashed/dotted/double strokes and distinct dot glyphs (ASCII `o x + *`). Area boundaries carry the line style. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
+Categorical `fill` or `stroke` splits line, area, dot, bar, rect and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/rect/area) instead carries series identity through its own glyph (`█ ▓ ▒ ░`/`# % + .`), unconditionally — with colour on or off — so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
 
 All strings pass through the canvas's text fold. ASCII output is 7-bit, including `-`, a three-cell `...`, accented titles and text marks. Axis labels use the same slot-aware abbreviation policy as other labels: SI first, then elision, with ledger entries. Crowded category labels thin every kth tick; numeric/time collisions also thin. Labels never rely on canvas clipping.
 
@@ -363,37 +369,37 @@ const data = [3, 5, 2, 8, 6, 9, 4, 7, 3, 5];
 renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "box", width: 44, height: 12 }).text;
 ```
 ```
-9 │                      \                  
-  │             \\      /\\                 
+  │                      \                  
+8 ┤             \\      /\\                 
   │            //\\    /  \\                
-7 │            /   \\ /    \\    /\         
-  │           //    \/      \\  // \        
-5 │   /\\     /              \\//   \     //
-  │  // \\   //               //     \   // 
-  │ //   \\  /                        \ //  
-3 │//     \\//                         //   
-  │        \/                               
-  ──────────────────────────────────────────
+  │            /   \\ /    \      \         
+6 ┤           //    \/      \    /\\        
+  │           /             \\  /  \\       
+  │   /\\     /              \\/    \\    //
+4 ┤  // \\   //               /      \\  // 
+  │ //   \\  /                        \\//  
+  │//     \\//                         //   
+2 └┴───────\/────────┴────────┴────────┴────
    0        2        4        6        8    
 ```
 ```ts
 renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "braille", width: 44, height: 12 }).text;
 ```
 ```
-9 │                      ⢠                  
-  │             ⢠⡀      ⢠⠃⢣                 
-  │             ⡎⠈⢆    ⢠⠃  ⢇                
-7 │            ⢰⠁  ⠑⢄ ⢠⠃   ⠈⡆     ⡠⡀        
-  │            ⡎    ⠈⠢⠃     ⠘⡄   ⡔⠁⠱⡀       
-5 │    ⡠⡀     ⢰⠁             ⠸⡀⢀⠎   ⠱⡀     ⡠
-  │   ⡔⠁⠑⡄    ⡎               ⠱⠃     ⠱⡀   ⡔⠁
-  │ ⢀⠎   ⠘⢄  ⢰⠁                       ⠱⡀⢀⠎  
-3 │⠠⠃     ⠈⢢ ⡎                         ⠱⠃   
-  │         ⠳⠁                              
-  ──────────────────────────────────────────
+  │                      ⢠                  
+8 ┤             ⢠⡀      ⢠⠃⢇                 
+  │             ⡎⠈⢆    ⢠⠃ ⠈⡆                
+  │            ⢰⠁  ⠑⢄ ⢠⠃   ⠸⡀     ⢠         
+6 ┤            ⡜    ⠈⠢⠃     ⢣    ⢠⠃⢣        
+  │           ⢠⠃            ⠈⢆  ⢠⠃  ⢇       
+  │    ⡠⡀     ⡸              ⠘⡄⢠⠃   ⠈⡆     ⡠
+4 ┤   ⡔⠁⠑⡄   ⢀⠇               ⠱⠃     ⠘⡄   ⡔⠁
+  │ ⢀⠎   ⠘⢄  ⢸                        ⠸⡀⢀⠎  
+  │⠠⠃     ⠈⢢ ⡇                         ⠱⠃   
+2 └┴────────⠻────────┴────────┴────────┴────
    0        2        4        6        8    
 ```
-Real, unedited output from both calls. `box` uses 13 distinct glyphs: the two slope glyphs `/`/`\`, the nine tick digits, and the two whole-cell axis glyphs `│`/`─`. `braille` uses 36 distinct glyphs total — the same nine tick digits and two axis glyphs, unchanged from `box`'s own, plus 25 distinct actual braille dot patterns for the data line, never `/`/`\`.
+Real, unedited output from both calls. `box` uses 12 distinct glyphs: the two slope glyphs `/`/`\`, five tick digits (`0`/`2`/`4`/`6`/`8`), and five whole-cell axis/junction glyphs `│`/`─`/`┤`/`┴`/`└`. `braille` uses 40 distinct glyphs total — the same five tick digits and five axis/junction glyphs, unchanged from `box`'s own, plus 30 distinct actual braille dot patterns for the data line, never `/`/`\`.
 
 The `/charts` page applies target defaults to untouched controls and preserves explicit overrides per control. **Reset to target defaults** clears them. Terminal previews show plain text with a note that escapes are in **Copy ANSI**; CSS/web output shows HTML. **Copy as text** always copies plain text. ANSI escapes are never inserted into the browser preview.
 

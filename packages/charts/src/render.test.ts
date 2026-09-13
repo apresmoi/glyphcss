@@ -11,12 +11,12 @@ describe("renderGlyphChart — shorthand snapshot", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", width: 20, height: 8 });
     expect(r.text).toMatchInlineSnapshot(`
       "8 ┤                /
-        │               / 
-      6 ┤    -\\\\       /  
-        │ -▔_- \\\\\\    /   
-        │_-      \\\\\\ /    
-      2 ┤          \\/     
-        └┴──────────┴─────
+        │               //
+      6 ┤              // 
+        │    -\\\\      //  
+      4 ┤ -▔_- \\\\\\   //   
+        │_-      \\\\\\//    
+      2 └┴─────────\\/─────
          0          2     "
     `);
   });
@@ -28,7 +28,14 @@ describe("renderGlyphChart — composition fixture", () => {
     marks: [
       glyphChartLine(data, { x: "t", y: "v" }),
       glyphChartDot(data, { x: "t", y: "v" }),
-      glyphChartRule([0]),
+      // 5, not 0: a rule sitting exactly at the y-scale's zero now
+      // coincides with the x-axis LINE itself (B1's fix — "the axis line
+      // row IS the y=0 row"), and `paintRule` deliberately skips drawing a
+      // redundant dashed overlay on top of the axis rule it would
+      // otherwise stomp (see `paintRule`'s own doc). A mid-domain value
+      // keeps this fixture's own point — the rule painter draws a genuine
+      // dashed row distinct from the axis and the data.
+      glyphChartRule([5]),
     ],
   });
 
@@ -37,8 +44,8 @@ describe("renderGlyphChart — composition fixture", () => {
     // delete the rule painter -> no dashed rule row -> red.
     const r = renderGlyphChart(spec, { target: "chat", width: 50, height: 16 });
     expect(r.text).toContain("●");
-    // The rule at y=0 sits below every data point (all v > 0), so its own
-    // row is a dashed horizontal run across the plot width.
+    // The rule at y=5 sits strictly inside the domain, so its own row is a
+    // dashed horizontal run across the plot width.
     expect(r.text).toContain("── ──");
   });
 

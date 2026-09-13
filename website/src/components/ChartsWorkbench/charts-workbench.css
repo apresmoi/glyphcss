@@ -60,7 +60,15 @@
   width: max-content;
   margin: 0 auto;
   padding: 0;
-  font-family: inherit;
+  /* Explicit, not `inherit` (CHARTS-RESEARCH diagnosis A4): this element's
+     nearest ancestor with its own `font-family` is `.dn-root`
+     (gallery-workbench.css), whose stack has no "Glyph Mono" at all — an
+     `inherit` here silently took THAT stack instead of the page's own
+     `html, body` one, and the fallback face's braille glyphs measure 13.5%
+     wider than every other glyph in Glyph Mono, misaligning every row that
+     contains one. Declared here, at the highest-specificity rule this
+     element actually matches, so no ancestor can re-open the cascade. */
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
   font-size: 13px;
   line-height: 1;
   white-space: pre;
@@ -104,7 +112,19 @@
   text-overflow: ellipsis;
 }
 .target-preview__terminal-body { padding: 12px; background: #000; }
-.target-preview__terminal-body .glyph-output { background: #000; color: #e5e5e5; margin: 0; }
+/* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
+   `<pre>` sits inside `.target-preview__terminal-body`, never a direct
+   child of `.charts-grid-scroll`, so it matched no font rule at all and
+   fell through to the UA stylesheet's `pre { font-family: monospace }` at
+   `.dn-root`'s inherited `line-height: 1.35` — three different glyph
+   widths in one grid and every fill striped instead of solid. */
+.target-preview__terminal-body .glyph-output {
+  background: #000;
+  color: #e5e5e5;
+  margin: 0;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  line-height: 1;
+}
 
 .target-preview--chat { display: flex; justify-content: flex-start; padding: 4px; }
 .target-preview__bubble {

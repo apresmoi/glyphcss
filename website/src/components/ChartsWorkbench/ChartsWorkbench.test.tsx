@@ -17,6 +17,8 @@ vi.hoisted(async () => {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -166,6 +168,29 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   function button(label: string): HTMLButtonElement {
     return Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
   }
+
+  it("the rendered <pre> is the exact element the Glyph Mono font rule targets (CHARTS-RESEARCH diagnosis A4)", () => {
+    // happy-dom does not compute CSS cascade (no layout/paint engine), so
+    // this cannot re-run the diagnosis's own browser measurement — it can
+    // only confirm the DOM shape the fixed CSS rule actually selects
+    // (`.charts-grid-scroll > .glyph-output`) and that the rule itself
+    // declares an explicit, non-"inherit" `font-family` starting with
+    // "Glyph Mono". The real gate is the diagnosis's browser measurement
+    // (A9's console snippet): forcing the font and reading every glyph's
+    // advance back down to 7.617px. Mutation this catches: reverting
+    // `charts-workbench.css`'s rule to `font-family: inherit` — the DOM
+    // assertion here doesn't change, but the CSS-source assertion goes red.
+    const pre = container.querySelector(".charts-grid-scroll > pre.glyph-output");
+    expect(pre).not.toBeNull();
+    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const rule = css.match(/\.charts-grid-scroll > \.glyph-output \{[^}]*\}/)![0];
+    expect(rule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(rule).not.toContain("font-family: inherit");
+    expect(rule).toMatch(/line-height:\s*1\s*;/);
+    const terminalRule = css.match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
+    expect(terminalRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(terminalRule).toMatch(/line-height:\s*1\s*;/);
+  });
 
   it("shows exactly TypeScript and JSON tabs and copies each current snippet", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
