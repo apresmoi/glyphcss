@@ -6,6 +6,11 @@ import type { GlyphChartResult } from "./types";
 
 function disc(r: GlyphChartResult): string[] {
   // These budgets reserve the final row for the legend; never count its swatches as quantity.
+  // Every call in this file paints with `labels: "legend-only"` (arcShape.test.ts
+  // owns the callout feature itself) precisely so this remains "every
+  // non-space cell but the last row IS the disc" — a callout's own leader/
+  // label glyphs would otherwise land in that same slice and corrupt the
+  // glyph-area ratios these regression tests exist to pin.
   return r.grid.char.slice(0, -r.grid.cols).filter((c) => c !== " ");
 }
 function shares(cells: readonly string[], glyphs: readonly string[]): number[] {
@@ -15,7 +20,7 @@ function shares(cells: readonly string[], glyphs: readonly string[]): number[] {
 describe("Phase 1 round 2 arc regressions", () => {
   it("record arc uses y for values and fill for categories without an x channel", () => {
     // Mutation: require x+y for arc, or paint each category as a separate whole pie -> throws / slice ratios differ.
-    const r = renderGlyphChart(glyphChartArc(browserShares, { fill: "browser", y: "share" }), { target: "chat", width: 40, height: 14 });
+    const r = renderGlyphChart(glyphChartArc(browserShares, { fill: "browser", y: "share" }, { labels: "legend-only" }), { target: "chat", width: 40, height: 14 });
     expect(r.meta.series).toEqual(["Chrome", "Safari", "Firefox"]);
     expect(r.meta.values).toBe(3);
     const cells = disc(r);
@@ -28,7 +33,7 @@ describe("Phase 1 round 2 arc regressions", () => {
 
   it.each(["ascii", "box", "blocks", "braille"] as const)("[50,25,25] at 30x16 retains 2:1:1 glyph areas in %s", (charset) => {
     // Mutation: paint every slice solid -> fewer than three disc glyphs and wrong 2:1:1 counts.
-    const r = renderGlyphChart(glyphChartArc([50, 25, 25]), { target: "chat", width: 30, height: 16, charset });
+    const r = renderGlyphChart(glyphChartArc([50, 25, 25], undefined, { labels: "legend-only" }), { target: "chat", width: 30, height: 16, charset });
     const glyphs = charset === "ascii" ? ["#", "%", "+"] : ["█", "▓", "▒"];
     const cells = disc(r);
     expect(new Set(cells)).toEqual(new Set(glyphs));
@@ -40,8 +45,8 @@ describe("Phase 1 round 2 arc regressions", () => {
 
   it.each(["none", "css"] as const)("label fallback and fill precedence agree with legend under %s colour", (color) => {
     // Mutation: ignore label categories or let label override fill -> names/legend differ from the slices.
-    const fallback = renderGlyphChart(glyphChartArc(browserShares, { y: "share", label: "browser" }), { target: "chat", width: 40, height: 14, color });
-    const filled = renderGlyphChart(glyphChartArc(browserShares, { y: "share", fill: "browser", label: ["wrong", "wrong", "wrong"] }), { target: "chat", width: 40, height: 14, color });
+    const fallback = renderGlyphChart(glyphChartArc(browserShares, { y: "share", label: "browser" }, { labels: "legend-only" }), { target: "chat", width: 40, height: 14, color });
+    const filled = renderGlyphChart(glyphChartArc(browserShares, { y: "share", fill: "browser", label: ["wrong", "wrong", "wrong"] }, { labels: "legend-only" }), { target: "chat", width: 40, height: 14, color });
     expect(fallback.meta.series).toEqual(["Chrome", "Safari", "Firefox"]);
     expect(filled.text).toBe(fallback.text);
     // Mutation: cycle only with colour off -> stripping colours downstream leaves a solid disc.
@@ -57,7 +62,7 @@ describe("Phase 1 round 2 arc regressions", () => {
 
   it.each(["box", "ascii"] as const)("cycles four %s shades and keeps the closing neighbours distinct after wrapping", (charset) => {
     // Mutation: always use index % 4, including the closing slice -> slice 5 matches slice 1.
-    const r = renderGlyphChart(glyphChartArc([20, 20, 20, 20, 20]), { target: "chat", width: 80, height: 24, charset });
+    const r = renderGlyphChart(glyphChartArc([20, 20, 20, 20, 20], undefined, { labels: "legend-only" }), { target: "chat", width: 80, height: 24, charset });
     const swatches = r.text.split("\n").at(-1)!.match(charset === "ascii" ? /[#%+.]/g : /[█▓▒░]/g)!;
     expect(swatches).toHaveLength(5);
     expect(new Set(disc(r))).toEqual(new Set(charset === "ascii" ? ["#", "%", "+", "."] : ["█", "▓", "▒", "░"]));

@@ -43,7 +43,7 @@ const MARK_SCHEMA = {
     },
     options: {
       type: "object", additionalProperties: false,
-      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" }, color: MARK_COLOR_SCHEMA },
+      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" }, color: MARK_COLOR_SCHEMA, labels: { enum: ["callout", "legend-only"] } },
     },
   },
   allOf: [{

@@ -148,10 +148,11 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   }
   if (mark.options !== undefined) {
     const o = mark.options;
-    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, and color are supported options; size/shape/curve are not supported.");
+    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, and labels are supported options; size/shape/curve are not supported.");
     if (o.innerRadius !== undefined && (typeof o.innerRadius !== "number" || !Number.isFinite(o.innerRadius) || o.innerRadius < 0 || o.innerRadius >= 1)) chartError("invalid-inner-radius", "innerRadius must be in [0, 1).");
     if (o.axis !== undefined && o.axis !== "x" && o.axis !== "y") chartError("invalid-rule-axis", "axis must be x or y.");
     if (o.color !== undefined) validateMarkColor(o.color);
+    if (o.labels !== undefined && o.labels !== "callout" && o.labels !== "legend-only") chartError("bad-options", "labels must be callout or legend-only.");
   }
 }
 
@@ -247,7 +248,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-size": "Pass positive integer width and height, or omit them.",
   "non-finite-data": "Replace NaN and Infinity with finite data and channel values.",
   "bad-channels": "Use x/y/fill/stroke/label with fields, arrays, or accessors over numbers or records.",
-  "bad-options": "Remove unsupported options; use a valid name, axis, radius, and reducer.",
+  "bad-options": "Remove unsupported options; use a valid name, axis, radius, reducer, and labels mode.",
   "bad-scale": `Use ${SCALE_TYPES.join(", ")} and a domain of finite numbers or categories.`,
   "log-domain": "Use a strictly positive or strictly negative log domain; bars require a zero-capable scale.",
   "bar-domain-excludes-zero": "Extend the explicit bar/rect/area domain to include zero.",

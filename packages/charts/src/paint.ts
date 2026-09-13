@@ -13,7 +13,7 @@
  * own "tiers are tables, painters are dumb" discipline one level up.
  */
 
-import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle } from "glyphcss";
+import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle, type GlyphCanvasPoint } from "glyphcss";
 import {
   bandColRange,
   bandRowRange,
@@ -24,9 +24,10 @@ import {
   scaleToRowExact,
   type GlyphChartLayout,
   type GlyphChartLegendLayout,
+  type GlyphChartPlotRect,
 } from "./layout";
-import { abbreviateChartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
+import { ledgerEmptyTotal, ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
 import { areaLayers, chartSeries, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
@@ -295,12 +296,184 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
 }
 
 /**
+ * A pie/donut's outer diameter as a FRACTION of the smaller of the two
+ * budgets it's fitted into (`arcRadii`'s own `min(plotRows, ...)`) — never
+ * `1.0`, which touches the plot rect edge on the binding axis and leaves no
+ * room for a callout's own disc-adjacent leader cell. Exported: it's the
+ * one arc-shape contract that isn't a private layout constant (AGENTS.md's
+ * "Charts").
+ */
+export const GLYPH_CHART_ARC_FILL = 0.8;
+
+/**
+ * Columns reserved on EACH side of the disc for a callout's leader + label
+ * when `labels: "callout"` (the default) — a FIXED budget, not derived from
+ * any label's actual text, so the disc's own size never depends on what a
+ * slice happens to be named (`arcRadii`'s doc). Broken down:
+ * `GLYPH_CHART_ARC_CALLOUT_DISC_GAP` (the leader's first cell sits one cell
+ * outside the disc, per the addendum) + `..._DIAG_COLS` (the short diagonal
+ * run) + `..._STUB_COLS` (the horizontal stub) + `..._TEXT_GAP` (one blank
+ * cell before the label) + `..._MIN_TEXT_COLS` (room for a short abbreviated
+ * label — `abbreviateChartText` degrades gracefully below this, but this is
+ * what the gutter is SIZED for).
+ */
+const GLYPH_CHART_ARC_CALLOUT_DISC_GAP = 1;
+const GLYPH_CHART_ARC_CALLOUT_DIAG_COLS = 2;
+const GLYPH_CHART_ARC_CALLOUT_STUB_COLS = 2;
+const GLYPH_CHART_ARC_CALLOUT_TEXT_GAP = 1;
+const GLYPH_CHART_ARC_CALLOUT_MIN_TEXT_COLS = 6;
+export const GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS =
+  GLYPH_CHART_ARC_CALLOUT_DISC_GAP + GLYPH_CHART_ARC_CALLOUT_DIAG_COLS + GLYPH_CHART_ARC_CALLOUT_STUB_COLS +
+  GLYPH_CHART_ARC_CALLOUT_TEXT_GAP + GLYPH_CHART_ARC_CALLOUT_MIN_TEXT_COLS;
+
+/** A slice thinner than this never grows a callout — too little arc to
+ * genuinely point at, and a leader crowd at the centre reads as noise. */
+const GLYPH_CHART_ARC_CALLOUT_MIN_ANGLE = (8 * Math.PI) / 180;
+
+interface ArcSlice {
+  readonly s: number;
+  readonly e: number;
+  readonly color: string | null;
+  readonly glyph: string;
+  readonly name: string;
+  readonly value: number;
+}
+
+interface ArcRadii {
+  readonly cx: number;
+  readonly cy: number;
+  readonly rx: number;
+  readonly ry: number;
+  /** `false` when callouts were requested but there was no room for the
+   * gutter (a too-narrow/short plot) — `paintArc` degrades to the plain
+   * disc, exactly like `labels: "legend-only"`, rather than reserving a
+   * gutter no callout can actually be painted in. */
+  readonly calloutsFit: boolean;
+}
+
+/**
+ * One shared radius, split into `rx`/`ry` by `canvas.cellAspect`
+ * (width/height; default `0.5` — AGENTS.md's "Cell canvas") so a pie is a
+ * circle on SCREEN, not merely in cell counts: physically
+ * `colRadius * cellWidth == rowRadius * cellHeight`, so
+ * `colRadius = rowRadius / cellAspect`. The diameter (in ROW units, before
+ * that split) is `min(plotRows, availableCols * cellAspect) *
+ * GLYPH_CHART_ARC_FILL` — the largest row-diameter whose matching
+ * col-diameter (`/ cellAspect`) still clears `availableCols` too (see
+ * `docs/design/charts.md`'s "Arc shape and callouts" for why this is
+ * `* cellAspect` and not `/ cellAspect`). `availableCols` drops a
+ * `GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS`-wide strip on each side when
+ * callouts are wanted and the plot is wide enough to spare it; the centre
+ * (`cx`/`cy`) is unchanged either way since the gutters are symmetric.
+ */
+function arcRadii(plot: GlyphChartPlotRect, cellAspect: number, wantCallouts: boolean): ArcRadii {
+  const plotCols = plot.x1 - plot.x0 + 1;
+  const plotRows = plot.y1 - plot.y0 + 1;
+  const aspect = cellAspect > 0 && Number.isFinite(cellAspect) ? cellAspect : 0.5;
+  const gutter = GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS;
+  const calloutsFit = wantCallouts && plotCols - 2 * gutter >= 3 && plotRows >= 3;
+  const availableCols = calloutsFit ? plotCols - 2 * gutter : plotCols;
+  const diameter = Math.max(1, Math.min(plotRows, availableCols * aspect)) * GLYPH_CHART_ARC_FILL;
+  const rowRadius = Math.max(0.5, diameter / 2);
+  const colRadius = rowRadius / aspect;
+  return { cx: (plot.x0 + plot.x1) / 2, cy: (plot.y0 + plot.y1) / 2, rx: colRadius, ry: rowRadius, calloutsFit };
+}
+
+interface ArcCalloutCandidate {
+  readonly index: number;
+  readonly side: "left" | "right";
+  readonly mid: number;
+  readonly anchorRow: number;
+  readonly targetRow: number;
+  readonly name: string;
+  readonly pct: number;
+  readonly color: string | null;
+}
+
+/**
+ * Leader + `name · NN%` label for every slice whose own angular span clears
+ * `GLYPH_CHART_ARC_CALLOUT_MIN_ANGLE`. Per side (left = mid-angle's cosine
+ * negative, right = non-negative): candidates sort by their own natural
+ * TARGET row — which is already the same order `sin(mid)` puts them in
+ * across a whole side's angular domain (monotonic there: `(-90°,90°]` for
+ * the right half, `(90°,270°]` for the left, and `sin` is monotonic on
+ * each), so this IS "sort by angle", just read off the row it already
+ * implies — then rows are pushed apart by at least one so two labels never
+ * share a row, and a label pushed past the plot's own bottom row is
+ * dropped (`label-dropped`) rather than overlapping the next one down.
+ */
+function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices: readonly ArcSlice[], radii: ArcRadii, ledger: GlyphChartLedgerEntry[]): void {
+  const { cx, cy, rx, ry } = radii;
+  const total = slices.reduce((sum, sl) => sum + sl.value, 0);
+  const candidates: ArcCalloutCandidate[] = [];
+  for (let i = 0; i < slices.length; i++) {
+    const sl = slices[i]!;
+    if (sl.e - sl.s < GLYPH_CHART_ARC_CALLOUT_MIN_ANGLE) continue;
+    const mid = (sl.s + sl.e) / 2;
+    const side: "left" | "right" = Math.cos(mid) >= 0 ? "right" : "left";
+    const anchorRow = Math.round(cy + ry * Math.sin(mid));
+    const targetRow = Math.max(plot.y0, Math.min(plot.y1, anchorRow));
+    candidates.push({ index: i, side, mid, anchorRow, targetRow, name: sl.name, pct: Math.round((sl.value / total) * 100), color: sl.color });
+  }
+
+  for (const side of ["left", "right"] as const) {
+    const group = candidates.filter((c) => c.side === side).sort((a, b) => a.targetRow - b.targetRow);
+    const sign = side === "right" ? 1 : -1;
+    let lastRow = plot.y0 - 1;
+    for (const c of group) {
+      const row = Math.max(c.targetRow, lastRow + 1);
+      if (row > plot.y1) {
+        ledger.push(ledgerLabelDropped({ role: "pie callout", text: `${c.name} · ${c.pct}%`, reason: "there was no row left for it on this side of the pie" }));
+        continue;
+      }
+      lastRow = row;
+
+      // The disc's own edge column AT the anchor's row — solved from the
+      // exact ellipse test `paintArc`'s fill loop uses, so the leader's
+      // first cell is genuinely adjacent to that row's own disc ink rather
+      // than the disc's widest point (which is usually a different row).
+      const outRow = Math.max(plot.y0, Math.min(plot.y1, c.anchorRow));
+      const dyFrac = ry > 0 ? (outRow - cy) / ry : 0;
+      const edgeDx = Math.sqrt(Math.max(0, 1 - dyFrac * dyFrac)) * rx;
+      const discEdgeCol = side === "right" ? Math.floor(cx + edgeDx) : Math.ceil(cx - edgeDx);
+      const outCol = discEdgeCol + sign * GLYPH_CHART_ARC_CALLOUT_DISC_GAP;
+      const elbow: GlyphCanvasPoint = { x: outCol + sign * GLYPH_CHART_ARC_CALLOUT_DIAG_COLS, y: row };
+      const stubEnd: GlyphCanvasPoint = { x: elbow.x + sign * GLYPH_CHART_ARC_CALLOUT_STUB_COLS, y: row };
+      const textCol = stubEnd.x + sign * GLYPH_CHART_ARC_CALLOUT_TEXT_GAP;
+      const maxWidth = side === "right" ? plot.x1 - textCol + 1 : textCol - plot.x0 + 1;
+      if (maxWidth < 1) {
+        ledger.push(ledgerLabelDropped({ role: "pie callout", text: `${c.name} · ${c.pct}%`, reason: "there was no room for the label" }));
+        continue;
+      }
+
+      const full = `${c.name} · ${c.pct}%`;
+      let text: string;
+      if (chartText(full, canvas.tier).length <= maxWidth) {
+        text = chartText(full, canvas.tier);
+      } else {
+        const fitted = abbreviateChartText(c.name, maxWidth, canvas.tier, false);
+        if (fitted.text === "") {
+          ledger.push(ledgerLabelDropped({ role: "pie callout", text: full, reason: "there was no room for even the slice's own name" }));
+          continue;
+        }
+        text = fitted.text;
+        ledger.push(ledgerLabelAbbreviated({ role: "pie callout", before: full, after: text }));
+      }
+
+      canvas.line({ x: outCol, y: outRow }, elbow, { subcell: false, color: c.color });
+      canvas.line(elbow, stubEnd, { subcell: false, color: c.color });
+      canvas.text(textCol, row, [text], { align: side === "right" ? "left" : "right", color: c.color });
+    }
+  }
+}
+
+/**
  * One total covers every category in a pie. Angle and radius select the
  * slice per cell; its categorical shade is painted through canvas.text so
  * blocks/braille retain the same full-cell shade vocabulary as the legend,
  * instead of substituting subcell occupancy for slice identity.
  */
-function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number): void {
+function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number, labels: "callout" | "legend-only"): void {
   const values = series.map((s) => s.rows.reduce((sum, r) => sum + numeric(r.y), 0));
   const total = values.reduce((a, b) => a + b, 0);
   if (total === 0) { ledger.push(ledgerEmptyTotal("pie")); return; }
@@ -316,17 +489,15 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
   if (shownRows < resolvedRowCount) {
     ledger.push(ledgerSliceDropped({ dropped: resolvedRowCount - shownRows, total: resolvedRowCount }));
   }
-  const cx = (layout.plot.x0 + layout.plot.x1) / 2;
-  const cy = (layout.plot.y0 + layout.plot.y1) / 2;
-  const rx = (layout.plot.x1 - layout.plot.x0) / 2;
-  const ry = (layout.plot.y1 - layout.plot.y0) / 2;
+  const radii = arcRadii(layout.plot, canvas.cellAspect, labels === "callout");
+  const { cx, cy, rx, ry } = radii;
   let start = -Math.PI / 2;
-  const slices = values.map((v, i) => {
+  const slices: ArcSlice[] = values.map((v, i) => {
     const angle = (v / total) * Math.PI * 2;
     const s = start;
     start += angle;
     const entry = series[i]!;
-    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!) };
+    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!), name: entry.name ?? String(i), value: v };
   });
   for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
     for (let x = layout.plot.x0; x <= layout.plot.x1; x++) {
@@ -340,6 +511,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
       canvas.text(x, y, [slice.glyph], { color: slice.color });
     }
   }
+  if (radii.calloutsFit) paintArcCallouts(canvas, layout.plot, slices, radii, ledger);
 }
 
 // ── axes ─────────────────────────────────────────────────────────────────
@@ -796,7 +968,7 @@ export function paintGlyphChart(
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length);
+    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout");
     else if (mark.type === "sankey") {
       const r = sankeyRouted.get(mark);
       if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy);

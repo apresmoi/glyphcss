@@ -128,6 +128,8 @@ renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 
 
 An arc/text-only spec draws no cartesian axis. Record arcs require the value channel `y`; categories use `fill`, falling back to `label`, then the row index. Missing `y` rejects with `arc-missing-value`. Numeric arrays use each element as the value and its index as the category. Positive categories become `meta.series` and legend entries; repeated categories sum into one slice. Nonpositive values occupy no angle, and an all-zero pie is empty with an `empty-total` ledger entry. Pass `options.innerRadius` (`0 <= radius < 1`) for a donut hole.
 
+The disc is a genuine circle on screen (its radius is split by the canvas's own `cellAspect`, never fit independently per axis) and never touches the plot rect edge (`GLYPH_CHART_ARC_FILL = 0.8`). `options.labels: "callout" | "legend-only"` (default `"callout"`) draws a leader line from each slice whose own angular span is at least 8° out to a `name · NN%` label beside the disc — left half left, right half right, same-side labels stacked one row apart and dropped (`label-dropped`) when a side runs out of room; `"legend-only"` paints just the disc, leaving identification to the legend row. See AGENTS.md's "Charts" "Arc shape and callouts" and `docs/design/charts.md`'s own section for the derivation.
+
 ```ts
 const data = [
   { browser: "Chrome", share: 65 },
