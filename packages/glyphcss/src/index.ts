@@ -256,6 +256,7 @@ export {
   encodeGlyphCanvasText,
   encodeGlyphCanvasAnsi,
   encodeGlyphCanvasHtml,
+  nearestAnsiCanvasColor,
 } from "./render/canvas";
 export type {
   GlyphCanvas,
@@ -282,6 +283,7 @@ export type {
   GlyphCanvasDiagonalKey,
   GlyphCanvasAnsiColorMode,
   GlyphCanvasAnsiOptions,
+  GlyphCanvasHtmlOptions,
 } from "./render/canvas";
 
 // ── RasterizeContext ──────────────────────────────────────────────

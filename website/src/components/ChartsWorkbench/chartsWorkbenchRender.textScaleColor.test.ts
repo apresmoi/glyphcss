@@ -100,4 +100,27 @@ describe("renderChartsWorkbenchState — Density text scale across every colour 
     expect(rendered.display).toContain("font-size:3em");
     expect(rendered.display).toContain("line-height:calc(1 / 3)");
   });
+
+  // N1 (CHARTS-RESEARCH `REVIEW-batch4-fixes-opus.md`): the fractional
+  // correction must ALSO re-derive `width` from the ORIGINAL integer
+  // `textScale` (2, for a rounded density of 1.5) over the NEW fractional
+  // em — never leave the library's own baseline `width:1ch`, which at a
+  // shrunk `font-size` reserves only 1.5 ancestor cells instead of 2 and
+  // drifts every later column on the row (mutation: drop the width half
+  // of the correction -> the string below reverts to plain `width:1ch`).
+  it("N1: a fractional density (1.5) also corrects the span's width reservation to calc(2 / 1.5 * 1ch), pinned at the ORIGINAL integer textScale", () => {
+    const rendered = renderChartsWorkbenchState(stateAtDensity(1.5, "none"));
+    expect(rendered.ok).toBe(true);
+    if (!rendered.ok) return;
+    expect(rendered.display).toContain("width:calc(2 / 1.5 * 1ch)");
+    expect(rendered.display).not.toContain("width:1ch");
+  });
+
+  it("N1: an integer density (3) needs no width correction — the library's own width:1ch already reserves exactly 3 cells at font-size:3em", () => {
+    const rendered = renderChartsWorkbenchState(stateAtDensity(3, "css"));
+    expect(rendered.ok).toBe(true);
+    if (!rendered.ok) return;
+    expect(rendered.display).toContain("width:1ch");
+    expect(rendered.display).not.toContain("calc(3 / 3");
+  });
 });
