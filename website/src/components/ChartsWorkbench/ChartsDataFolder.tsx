@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type Dispatch } from "react";
+import { createPortal } from "react-dom";
 import type { GlyphChartMarkType } from "@glyphcss/charts";
 import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import {
@@ -110,15 +111,24 @@ function ChartsPipelineEditor({ pipeline, onChange }: { pipeline: readonly Pipel
 }
 
 /**
- * The Data folder's whole panel (AGENTS.md's "Charts" — "Data layer"): a
- * dataset picker (+ "Custom…" upload/paste), the transform pipeline, and a
- * ranked-recommendation readout with one-click Apply. Portaled as ONE React
- * tree into a single `useDockSlot` (`ChartsDock.tsx`) rather than built from
- * individual lil-gui controls — the table/pipeline editors need real DOM
- * structure (grids, per-kind field sets) lil-gui's own `add()` vocabulary
- * has no equivalent for.
+ * The dataset card in the left rail (AGENTS.md's "Charts" — "Data layer"):
+ * synth's rail is the voice/model picker, and a dataset is this page's own
+ * "model" — a stock dataset (+ "Custom…" upload/paste), the transform
+ * pipeline, and a ranked-recommendation readout with one-click Apply. Built
+ * from real DOM structure (grids, per-kind field sets) rather than
+ * individual lil-gui controls, which have no equivalent for any of it.
+ *
+ * The dataset `<select>` itself renders into `selectSlot` — the rail
+ * header's own `action` slot (`ChartsWorkbench.tsx`), mirroring
+ * `InstrumentRail`'s synth precedent of a header action beside the title —
+ * via a plain `createPortal`, so this component keeps owning every piece of
+ * state the picker needs (`customText`/`customHint`, the re-select-Custom…
+ * size check) with no change to that logic, only to where the control
+ * paints. `selectSlot` omitted/`null` (a bare `<ChartsDataFolder>` mount,
+ * as this file's own direct-mount tests do) renders the select inline
+ * instead, so the component stays self-contained when used standalone.
  */
-export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchDataState; dispatch: Dispatch<ChartsWorkbenchAction> }) {
+export function ChartsDataFolder({ data, dispatch, selectSlot }: { data: ChartsWorkbenchDataState; dispatch: Dispatch<ChartsWorkbenchAction>; selectSlot?: HTMLElement | null }) {
   // F3: seeded from `data.source` itself, not `useState("")` — a shared
   // link decodes `data.source` (`ChartsWorkbench.tsx` gates the first
   // render on that decode) BEFORE this component ever mounts, so a lazy
@@ -216,17 +226,20 @@ export function ChartsDataFolder({ data, dispatch }: { data: ChartsWorkbenchData
   const apply = (mark: GlyphChartMarkType, channels: ChartsRecommendedChannels, pipeline?: readonly PipelineStep[]) =>
     dispatch({ type: "apply-data", mark, channels, pipeline });
 
+  const selectField = (
+    <span className="gx-select charts-dataset-select">
+      <select aria-label="Dataset" value={selectValue} onChange={(e) => onSelectDataset(e.target.value)}>
+        <option value="">— none —</option>
+        {CHARTS_DATASETS.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+        <option value={CUSTOM_OPTION}>Custom…</option>
+      </select>
+    </span>
+  );
+
   return <div className="charts-data-folder">
-    <label className="voice-row charts-mark-row">
-      <span>Dataset</span>
-      <span className="gx-select">
-        <select aria-label="Dataset" value={selectValue} onChange={(e) => onSelectDataset(e.target.value)}>
-          <option value="">— none —</option>
-          {CHARTS_DATASETS.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
-          <option value={CUSTOM_OPTION}>Custom…</option>
-        </select>
-      </span>
-    </label>
+    {selectSlot
+      ? createPortal(selectField, selectSlot)
+      : <label className="voice-row charts-mark-row"><span>Dataset</span>{selectField}</label>}
 
     {/* A2: rendered here, OUTSIDE the `isCustom`-gated panel below, because
      *  the dropdown path (re-selecting "Custom…" while the current source

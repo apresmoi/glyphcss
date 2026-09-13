@@ -31,6 +31,16 @@
    at its own exact grid coordinate, so a row's `×` can never drift out of
    alignment with its own row the way the previous `<table>` markup let it
    when a column's content width disagreed with its header's. */
+/* View data disclosure (closed by default, native `<details>` — no state,
+   nothing persisted to the URL). `list-style: none` + the marker-hiding
+   rules below replace the browser's own twisty; the summary already spells
+   out "▸" in its own text. */
+.charts-mark-data-details { margin-top: 4px; }
+.charts-mark-data-summary {
+  list-style: none; cursor: pointer; font-size: 11px; color: rgba(255, 232, 184, 0.65); padding: 2px 0;
+}
+.charts-mark-data-summary::-webkit-details-marker { display: none; }
+.charts-mark-data-summary:hover { color: rgba(255, 232, 184, 0.9); }
 .charts-data-tabs { margin: 4px 0; }
 .charts-grid-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
 .charts-grid { display: grid; font-size: 11px; }
@@ -175,8 +185,28 @@
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
+/* Dataset select — portaled into the rail header's own action slot
+   (`ChartsWorkbench.tsx`), sized so a long dataset title never pushes the
+   "DATA" title out of the header row. */
+.charts-dataset-select-slot .gx-select,
+.charts-dataset-select-slot { display: block; width: 190px; }
+
+/* Marks section — the rail's SECOND section, below the dataset card: the
+   rail is this page's model picker (AGENTS.md's "Charts" — "Data layer"),
+   and a mark is its own repeatable, addable/removable unit, exactly like a
+   synth voice, so it stays in the rail rather than the Dock. Same header
+   idiom as `.synth-voices-head` (uppercase, accent colour) but a plain
+   `border-top` rather than that class's own border/padding, since this
+   header sits INSIDE the rail's already-padded scroll body instead of
+   pinned above it. */
+.charts-marks-section { display: flex; flex-direction: column; gap: 9px; padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
+.charts-marks-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(56, 189, 248, 0.95);
+}
+
 /* Data folder (packet items 2/3) — dataset picker, custom upload, pipeline
-   row editor, recommendation readout. Plain flow inside one dock slot. */
+   row editor, recommendation readout. Plain flow inside the rail body. */
 .charts-data-folder { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
 .charts-data-info { display: flex; flex-direction: column; gap: 2px; }
 .charts-data-info a { color: #38bdf8; }

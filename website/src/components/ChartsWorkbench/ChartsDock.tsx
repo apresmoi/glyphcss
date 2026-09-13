@@ -6,7 +6,6 @@ import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
-import { ChartsDataFolder } from "./ChartsDataFolder";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS,
@@ -145,15 +144,11 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
   const detailSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
 
-  // Data folder (AGENTS.md's "Charts" — "Data layer"), positioned ahead of
-  // Chart: picking a dataset (or Custom…) and its pipeline is the FIRST
-  // decision a reader makes, before title/legend/axis polish. One slot
-  // portals the whole rich panel (`ChartsDataFolder.tsx`) — the picker,
-  // pipeline row editor and ranked recommendation readout all need real
-  // DOM structure lil-gui's own `add()` controls have no equivalent for.
-  const dataFolder = useFolder(gui, "Data", { open: true });
-  const dataSlot = useDockSlot(dataFolder, { position: "bottom", className: "charts-data-folder-slot" });
-
+  // Dataset selection now lives in the left rail (AGENTS.md's "Charts" —
+  // "Data layer" — it is this page's own "model", exactly as synth's rail
+  // is the voice/model picker): `ChartsWorkbench.tsx` renders
+  // `ChartsDataFolder` directly in the rail body, so this Dock carries no
+  // Data folder at all.
   const chart = useFolder(gui, "Chart", { open: true });
   // Folder-header reset (P2-6, REVIEW-dock-colours-sliders-opus.md) — the
   // Output folder's own header reset is scoped to output settings only
@@ -205,7 +200,6 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
   return <>
-    {dataSlot && createPortal(<ChartsDataFolder data={state.data} dispatch={dispatch} />, dataSlot)}
     {outputHeaderSlot && createPortal(
       <div className="dock-folder-header">
         <span>OUTPUT</span>

@@ -25,9 +25,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChartsWorkbench from "./ChartsWorkbench";
 import { ChartsDataFolder } from "./ChartsDataFolder";
+import { CHART_MARK_TYPE_TOGGLE } from "./ChartsMarkCard";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
+  CHART_MARK_TYPES,
   createChartsWorkbenchState,
   reduceChartsWorkbenchState,
   reduceGlyphChartsWorkbenchControls,
@@ -169,6 +171,15 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   }
   function activeToggleLabel(rowLabel: string): string {
     return toggleRow(rowLabel).querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!.getAttribute("aria-label")!;
+  }
+  // Mark type is an `IconToggle` too (owner packet item 3, extended to the
+  // mark card) — `data-row="type"` scopes to that one row so it's never
+  // confused with a type-specific toggle further down the same card (arc
+  // shape, rule axis), which share `.charts-mark-row > .gx-toggle` but not
+  // this attribute. Reads mark 1 by default; pass an index for a later one.
+  function activeMarkType(markIndex = 0): string {
+    const cards = container.querySelectorAll(".charts-mark-card");
+    return cards[markIndex]!.querySelector<HTMLButtonElement>('.charts-mark-row[data-row="type"] .gx-toggle-btn.is-active')!.getAttribute("aria-label")!;
   }
   function controller(name: string): Element {
     return Array.from(container.querySelectorAll("#charts-controls-panel .controller")).find((node) => node.querySelector(".name")?.textContent?.toLowerCase() === name.toLowerCase())!;
@@ -396,8 +407,8 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // Mutation: leave preset buttons disconnected from the editor/render state.
   it("renders a preset selected by its button", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 type"]')!.value).toBe("bar");
-    expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toEqual({ month: "Jan", value: 3 });
+    expect(activeMarkType()).toBe("bar");
+    expect(JSON.parse(container.querySelector('textarea[aria-label="Mark 1 data JSON"]')!.value)[0]).toEqual({ month: "Jan", value: 3 });
     expect(container.querySelector("pre")!.textContent).toContain("Bar");
   });
 
@@ -617,7 +628,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const applyButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Apply")!;
     act(() => applyButton.click());
     expect(container.querySelectorAll(".voice-card")).toHaveLength(1);
-    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 type"]')!.value).toBe("line");
+    expect(activeMarkType()).toBe("line");
     expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 x"]')!.value).toBe("year");
     expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 y"]')!.value).toBe("anomaly_c");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Global temperature anomaly");
@@ -660,12 +671,73 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   it("opens only the selected mobile drawer and closes it with Escape", () => {
     const tabs = container.querySelectorAll<HTMLButtonElement>(".dn-mobile-tabs button");
     act(() => tabs[0]!.click());
-    expect(container.querySelector("#charts-marks-panel")!.classList.contains("is-mobile-open")).toBe(true);
+    expect(container.querySelector("#charts-data-panel")!.classList.contains("is-mobile-open")).toBe(true);
     act(() => tabs[1]!.click());
-    expect(container.querySelector("#charts-marks-panel")!.classList.contains("is-mobile-open")).toBe(false);
+    expect(container.querySelector("#charts-data-panel")!.classList.contains("is-mobile-open")).toBe(false);
     expect(container.querySelector("#charts-controls-panel")!.classList.contains("is-mobile-open")).toBe(true);
     act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
+  });
+
+  // ── Rail reorg (AGENTS.md's "Charts" — "Data layer"): the dataset is
+  // this page's own "model", exactly as synth's rail is the voice/model
+  // picker — its `<select>` lives in the rail's own header action slot,
+  // the rest of `ChartsDataFolder` (info/pipeline/recommendation/custom
+  // controls) is a card in the rail body, and the Dock carries no "Data"
+  // folder at all.
+  it("the rail's header carries the dataset select and the rail body shows the dataset card, with no Data folder left in the Dock", () => {
+    const rail = container.querySelector("#charts-data-panel")!;
+    const railHead = rail.querySelector(".synth-voices-head")!;
+    expect(railHead.querySelector('select[aria-label="Dataset"]')).not.toBeNull();
+    expect(rail.querySelector(".charts-data-folder")).not.toBeNull();
+    // The select itself is NOT duplicated inline in the body once it has a
+    // header slot to portal into.
+    expect(rail.querySelectorAll('select[aria-label="Dataset"]')).toHaveLength(1);
+    // The Dock (`#charts-controls-panel`) no longer owns a "Data" folder —
+    // `ChartsDock.tsx` still owns "Output"/"Chart"/"Scales"/"Axes"/"Terminal".
+    const dockFolderTitles = Array.from(container.querySelectorAll("#charts-controls-panel .lil-gui > .title")).map((n) => n.textContent);
+    expect(dockFolderTitles).not.toContain("Data");
+  });
+
+  it("the rail also carries the Marks section, below the dataset card", () => {
+    const rail = container.querySelector("#charts-data-panel")!;
+    expect(rail.querySelector(".charts-marks-section")).not.toBeNull();
+    expect(rail.querySelectorAll(".charts-mark-card")).toHaveLength(1);
+    expect(Array.from(rail.querySelectorAll(".charts-marks-head")).some((n) => n.textContent?.includes("Marks"))).toBe(true);
+  });
+
+  // ── Mark type is now an icon toggle (owner packet item 3, extended to
+  // the mark card), replacing the old `<select>`. Switching it must both
+  // update the render AND reach the `?c=` link, same as every other
+  // dispatched change.
+  it("the mark-type icon toggle switches types and the change reaches the encoded URL", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    expect(activeMarkType()).toBe("line");
+    const typeGroup = container.querySelector('.charts-mark-row[data-row="type"]')!;
+    const barButton = Array.from(typeGroup.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => b.getAttribute("aria-label") === "bar")!;
+    act(() => barButton.click());
+    expect(activeMarkType()).toBe("bar");
+    act(() => button("Copy link").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
+    const link = writeText.mock.calls.at(-1)![0] as string;
+    const param = new URLSearchParams(link.split("?")[1] ?? "").get("c");
+    const decoded = await decodeChartsUrlState(param);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.marks[0]!.type).toBe("bar");
+  });
+
+  // ── The table/JSON data views are real editing surfaces a reader rarely
+  // needs open — collapsed by default (native `<details>`, no URL state)
+  // and revealed only on request.
+  it("a mark's data table/JSON views are hidden by default and open on clicking \"View data\"", () => {
+    const details = container.querySelector<HTMLDetailsElement>(".charts-mark-data-details")!;
+    expect(details.open).toBe(false);
+    // Closed by default doesn't mean absent — the tabs/panels still exist,
+    // just collapsed; only `open` gates their visibility.
+    expect(details.querySelector('[role="tablist"]')).not.toBeNull();
+    const summary = details.querySelector("summary")!;
+    act(() => summary.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+    expect(details.open).toBe(true);
   });
 
 });
@@ -776,7 +848,7 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     act(() => applyButton.click());
     const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
     act(() => jsonTab.click());
-    const rows = JSON.parse(container.querySelector("textarea")!.value) as unknown[];
+    const rows = JSON.parse(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mark 1 data JSON"]')!.value) as unknown[];
     expect(rows).toHaveLength(3);
   });
 
@@ -924,5 +996,22 @@ describe("ChartsWorkbench — Data folder custom source (F3/P2-5)", () => {
     await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
     const expectedKB = Math.ceil(rawBytes / 1024);
     expect(container.textContent).toMatch(new RegExp(`Custom data \\(${expectedKB} KB\\) isn't included in this link\\.`));
+  });
+});
+
+// ── Mark-type icon toggle options (owner packet item 3, extended to the
+// mark card) — no DOM needed, this is a pure array check pinning "one entry
+// per CHART_MARK_TYPES, in the same order, no duplicates".
+describe("ChartsMarkCard — CHART_MARK_TYPE_TOGGLE", () => {
+  it("has exactly one option per CHART_MARK_TYPES entry, in order, with no duplicate values", () => {
+    expect(CHART_MARK_TYPE_TOGGLE.map((o) => o.value)).toEqual([...CHART_MARK_TYPES]);
+    expect(new Set(CHART_MARK_TYPE_TOGGLE.map((o) => o.value)).size).toBe(CHART_MARK_TYPES.length);
+  });
+  it("gives every option a real icon and a one-line description", () => {
+    for (const option of CHART_MARK_TYPE_TOGGLE) {
+      expect(option.icon).toBeTruthy();
+      expect(typeof option.desc).toBe("string");
+      expect(option.desc!.length).toBeGreaterThan(0);
+    }
   });
 });

@@ -9,6 +9,7 @@ import {
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
+import { ChartsDataFolder } from "./ChartsDataFolder";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState } from "./chartsWorkbenchState";
@@ -17,7 +18,7 @@ import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./ch
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
 
-type MobilePanel = "marks" | "controls" | "presets" | "export";
+type MobilePanel = "data" | "controls" | "presets" | "export";
 const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", label: "JSON" }] as const;
 
 /**
@@ -58,6 +59,12 @@ export default function ChartsWorkbench({ initialState }: { initialState?: Chart
 function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchState }) {
   const [state, dispatch] = useReducer(reduceChartsWorkbenchState, initialState);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
+  // Portal target for the dataset `<select>` — the rail's own header
+  // `action` slot, mirroring `InstrumentRail`'s synth precedent (Voices'
+  // header carries its own mode toggle + "+ Add" the same way). Null on the
+  // very first render (the ref hasn't committed yet); `ChartsDataFolder`
+  // renders the select inline for that one frame instead of dropping it.
+  const [dataSelectSlot, setDataSelectSlot] = useState<HTMLElement | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [urlSizeBytes, setUrlSizeBytes] = useState(0);
@@ -180,10 +187,29 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
 
   return <InstrumentShell kind="synth" className="charts-shell">
     <InstrumentBody>
-      <InstrumentRail id="charts-marks-panel" title="Marks" open={mobilePanel === "marks"}
-        action={<button type="button" className="voice-add" onClick={() => dispatch({ type: "add-mark" })}>+ Add mark</button>}>
-        {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
-        {state.marks.length === 0 && <p className="synth-empty">No marks — add one to start.</p>}
+      {/* Data is this page's own "model" (AGENTS.md's "Charts" — "Data
+       *  layer"), exactly as synth's rail is the voice/model picker: the
+       *  header action carries the dataset picker, the body shows it as a
+       *  card (`ChartsDataFolder` — info, pipeline, recommendation, and the
+       *  custom paste/upload controls when "Custom…" is chosen), and a
+       *  second section below holds the marks — synth's own structure has
+       *  its repeatable, addable/removable units (voices) live in the
+       *  rail and its scene-wide render settings in the Dock; a mark is
+       *  that unit here (its own type/channels/style, freely added or
+       *  removed) while target/charset/color/axes/scales are scene-wide
+       *  and stay in the Dock, so marks stay in the rail rather than
+       *  moving to the Dock's Chart folder. */}
+      <InstrumentRail id="charts-data-panel" title="Data" open={mobilePanel === "data"}
+        action={<span className="charts-dataset-select-slot" ref={setDataSelectSlot} />}>
+        <ChartsDataFolder data={state.data} dispatch={dispatch} selectSlot={dataSelectSlot} />
+        <div className="charts-marks-section">
+          <div className="charts-marks-head">
+            <span>Marks</span>
+            <button type="button" className="voice-add" onClick={() => dispatch({ type: "add-mark" })}>+ Add mark</button>
+          </div>
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
+          {state.marks.length === 0 && <p className="synth-empty">No marks — add one to start.</p>}
+        </div>
       </InstrumentRail>
       <InstrumentMain>
         <InstrumentViewport className="charts-viewport">
@@ -231,7 +257,7 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
         <span className="synth-tile-label">{preset.label}</span>
       </button>)}
     </InstrumentTray>
-    <InstrumentMobileTabs label="Charts panels" items={(["marks", "controls", "presets", "export"] as const).map((panel) => ({
+    <InstrumentMobileTabs label="Charts panels" items={(["data", "controls", "presets", "export"] as const).map((panel) => ({
       id: panel, label: panel[0]!.toUpperCase() + panel.slice(1), controls: `charts-${panel}-panel`, expanded: mobilePanel === panel, onClick: () => togglePanel(panel),
     }))} />
   </InstrumentShell>;
