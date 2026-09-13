@@ -64,10 +64,17 @@ describe("DiagramsWorkbench mounted integration", () => {
   function toggleRow(label: string): Element {
     return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
   }
+  // `IconToggle`'s F5 a11y pass (synthKit.tsx) prefixes `aria-label` with
+  // the row's own `groupTitle` ("Output target: web") — the bare option is
+  // the text after the LAST ": ".
+  function toggleOption(button: HTMLButtonElement): string {
+    const parts = (button.getAttribute("aria-label") ?? "").split(": ");
+    return parts[parts.length - 1]!;
+  }
   async function select(name: string, value: string) {
     if (TOGGLE_ROWS.includes(name)) {
       await act(async () => {
-        Array.from(toggleRow(name).querySelectorAll<HTMLButtonElement>("button")).find((b) => b.getAttribute("aria-label") === value)!.click();
+        Array.from(toggleRow(name).querySelectorAll<HTMLButtonElement>("button")).find((b) => toggleOption(b) === value)!.click();
       });
     } else {
       await act(async () => {

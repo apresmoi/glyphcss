@@ -41,6 +41,11 @@
 }
 .charts-mark-data-summary::-webkit-details-marker { display: none; }
 .charts-mark-data-summary:hover { color: rgba(255, 232, 184, 0.9); }
+/* F7: the "▸" is real text (`.charts-mark-data-marker`), not a generated
+   marker, so it never turns to reflect open/closed state on its own —
+   rotate it a quarter turn once the `<details>` is open. */
+.charts-mark-data-marker { display: inline-block; transition: transform 0.1s ease; }
+details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: rotate(90deg); }
 .charts-data-tabs { margin: 4px 0; }
 .charts-grid-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
 .charts-grid { display: grid; font-size: 11px; }

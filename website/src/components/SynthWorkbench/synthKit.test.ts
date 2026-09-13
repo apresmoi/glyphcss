@@ -7,7 +7,14 @@
 // needs one to create its `<pre>`/host elements. happy-dom, not jsdom, to
 // match the rest of the repo's DOM-environment tests (e.g.
 // useSynthPreview.test.tsx).
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+
+// Needed only by the `IconToggle` a11y suite below (a real `react-dom`
+// mount) — same one-liner `LayersPanel.osmLabels.test.tsx` and its
+// siblings already use for the same reason.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // Importing synthKit.tsx transitively imports Dock/slots.tsx, whose
 // useRenderingFolder module calls `ensureCalibratedPalette()` at IMPORT TIME
@@ -36,6 +43,7 @@ import {
   FIELDS,
   FIELDS_3D,
   FIELDS_NORMAL,
+  IconToggle,
   MAX_COLOR_VOICES,
   NORMAL_DERIVED_SYNTH_FIELDS,
   PYRAMID_STAGE_SIZE,
@@ -1185,5 +1193,109 @@ describe("VOICE_FIELD_MAP_BASE_ANGLE", () => {
 describe("NORMAL_DERIVED_SYNTH_FIELDS", () => {
   it("is exactly FIELDS_NORMAL, as a Set", () => {
     expect([...NORMAL_DERIVED_SYNTH_FIELDS].sort()).toEqual([...FIELDS_NORMAL].sort());
+  });
+});
+
+// F5 (REVIEW-rail-titleAt-opus.md): `IconToggle` a11y — a repeating
+// per-item consumer (`ChartsMarkCard`'s mark-type row, one `IconToggle` per
+// mark) used to render every button's accessible name as the bare enum
+// value ("line"), indistinguishable from the SAME value on a second mark
+// card; the group itself carried no accessible name at all. `groupTitle`/
+// `groupLabel` is what disambiguates it, `role="radiogroup"` + roving
+// `tabIndex` is what makes one group ONE tab stop.
+describe("IconToggle (F5 a11y)", () => {
+  const OPTIONS = [
+    { value: "line", icon: null, label: "line" },
+    { value: "bar", icon: null, label: "bar" },
+    { value: "dot", icon: null, label: "dot" },
+  ];
+  let container: HTMLElement;
+  let root: Root;
+  // Local mount/unmount helpers (not vitest's `beforeEach`/`afterEach`, to
+  // keep this describe block self-contained) — a fresh root per test.
+  function mount(props: Partial<Parameters<typeof IconToggle>[0]> = {}) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const value = props.value ?? "line";
+    const onChange = props.onChange ?? (() => {});
+    act(() => { root.render(createElement(IconToggle, { options: OPTIONS, value, onChange, groupTitle: props.groupTitle, groupLabel: props.groupLabel })); });
+    return container;
+  }
+  function rerender(props: Partial<Parameters<typeof IconToggle>[0]>) {
+    const value = props.value ?? "line";
+    const onChange = props.onChange ?? (() => {});
+    act(() => { root.render(createElement(IconToggle, { options: OPTIONS, value, onChange, groupTitle: props.groupTitle, groupLabel: props.groupLabel })); });
+  }
+  function unmount() {
+    act(() => { root.unmount(); });
+    container.remove();
+  }
+
+  it("gives the group role=\"radiogroup\" and an aria-label from groupLabel (falling back to groupTitle)", () => {
+    const el = mount({ groupTitle: "Mark 1 type" });
+    const group = el.querySelector(".gx-toggle")!;
+    expect(group.getAttribute("role")).toBe("radiogroup");
+    // Mutation: drop the `groupLabel ?? groupTitle` fallback -> this goes
+    // red for every existing caller, none of which pass `groupLabel`.
+    expect(group.getAttribute("aria-label")).toBe("Mark 1 type");
+    unmount();
+    const el2 = mount({ groupTitle: "Mark 1 type (tooltip)", groupLabel: "Mark 1 type" });
+    expect(el2.querySelector(".gx-toggle")!.getAttribute("aria-label")).toBe("Mark 1 type");
+    unmount();
+  });
+
+  it("prefixes each button's aria-label with the group's own name, disambiguating two groups sharing an option value", () => {
+    const el = mount({ groupTitle: "Mark 1 type" });
+    const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn"));
+    // Mutation: `aria-label={o.label}` (drop the group-name prefix) -> a
+    // second mark card's own "line" button is indistinguishable from this
+    // one to assistive tech (the exact review finding).
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Mark 1 type: line", "Mark 1 type: bar", "Mark 1 type: dot"]);
+    unmount();
+  });
+
+  it("leaves aria-label as the bare option when neither groupTitle nor groupLabel is given — unchanged for a caller with no group name", () => {
+    const el = mount({});
+    const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn"));
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["line", "bar", "dot"]);
+    unmount();
+  });
+
+  it("marks the active option aria-pressed=true and every other one false", () => {
+    const el = mount({ value: "bar" });
+    const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn"));
+    // Mutation: drop `aria-pressed` -> every entry below is `null`, not a
+    // boolean string, so this goes red.
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "true", "false"]);
+    unmount();
+  });
+
+  it("roving tabindex: only the active option is a tab stop", () => {
+    const el = mount({ value: "bar" });
+    const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn"));
+    // Mutation: `tabIndex={0}` unconditionally -> every button becomes its
+    // own tab stop and this goes red.
+    expect(buttons.map((b) => b.tabIndex)).toEqual([-1, 0, -1]);
+    unmount();
+  });
+
+  it("ArrowRight moves BOTH the selection and focus to the next option, wrapping at the end", () => {
+    let value = "dot"; // last option — ArrowRight must wrap to the first
+    const onChange = (v: string) => { value = v; };
+    const el = mount({ value, onChange });
+    const active = () => el.querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!;
+    act(() => { active().focus(); });
+    act(() => { active().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })); });
+    // The component only re-renders when the PARENT re-supplies the new
+    // `value` — simulate that controlled round trip explicitly, mirroring
+    // how a real consumer's `onChange` dispatch flows back in.
+    rerender({ value, onChange });
+    expect(value).toBe("line");
+    // Mutation: the keydown handler applies the selection but never moves
+    // FOCUS to the new active button -> this stays on the old (now
+    // non-tab-stop) button instead of following the roving tabindex.
+    expect(document.activeElement).toBe(el.querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active"));
+    unmount();
   });
 });

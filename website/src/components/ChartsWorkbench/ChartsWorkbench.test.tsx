@@ -160,17 +160,25 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // item 3: "buttons with symbols not dropdowns"), not lil-gui `<select>`
   // controllers — `toggleRow` finds the row by its own `.dock-toggle-row-
   // label` text, and `pickToggle`/`activeToggleLabel` drive/read it by each
-  // button's `aria-label` (`IconToggle`'s own convention: `aria-label={
-  // option.label}`, the raw enum value).
+  // button's `aria-label`. `IconToggle`'s F5 a11y pass (synthKit.tsx)
+  // prefixes that with the group's own name ("Output target: web") whenever
+  // a `groupTitle`/`groupLabel` is given — which every Dock row and the
+  // mark-type row both do — so a bare option value is read via `optionOf`
+  // below (the text after the LAST ": ", robust to a `groupTitle` that
+  // itself contains no colon, true of every row this file exercises).
   function toggleRow(label: string): Element {
     return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
   }
+  function optionOf(ariaLabel: string): string {
+    const parts = ariaLabel.split(": ");
+    return parts[parts.length - 1]!;
+  }
   function pickToggle(rowLabel: string, optionLabel: string): void {
-    const btn = Array.from(toggleRow(rowLabel).querySelectorAll<HTMLButtonElement>("button")).find((b) => b.getAttribute("aria-label") === optionLabel)!;
+    const btn = Array.from(toggleRow(rowLabel).querySelectorAll<HTMLButtonElement>("button")).find((b) => optionOf(b.getAttribute("aria-label") ?? "") === optionLabel)!;
     act(() => btn.click());
   }
   function activeToggleLabel(rowLabel: string): string {
-    return toggleRow(rowLabel).querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!.getAttribute("aria-label")!;
+    return optionOf(toggleRow(rowLabel).querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!.getAttribute("aria-label")!);
   }
   // Mark type is an `IconToggle` too (owner packet item 3, extended to the
   // mark card) — `data-row="type"` scopes to that one row so it's never
@@ -179,7 +187,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // this attribute. Reads mark 1 by default; pass an index for a later one.
   function activeMarkType(markIndex = 0): string {
     const cards = container.querySelectorAll(".charts-mark-card");
-    return cards[markIndex]!.querySelector<HTMLButtonElement>('.charts-mark-row[data-row="type"] .gx-toggle-btn.is-active')!.getAttribute("aria-label")!;
+    return optionOf(cards[markIndex]!.querySelector<HTMLButtonElement>('.charts-mark-row[data-row="type"] .gx-toggle-btn.is-active')!.getAttribute("aria-label")!);
   }
   function controller(name: string): Element {
     return Array.from(container.querySelectorAll("#charts-controls-panel .controller")).find((node) => node.querySelector(".name")?.textContent?.toLowerCase() === name.toLowerCase())!;
@@ -794,7 +802,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     expect(activeMarkType()).toBe("line");
     const typeGroup = container.querySelector('.charts-mark-row[data-row="type"]')!;
-    const barButton = Array.from(typeGroup.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => b.getAttribute("aria-label") === "bar")!;
+    const barButton = Array.from(typeGroup.querySelectorAll<HTMLButtonElement>(".gx-toggle-btn")).find((b) => optionOf(b.getAttribute("aria-label") ?? "") === "bar")!;
     act(() => barButton.click());
     expect(activeMarkType()).toBe("bar");
     act(() => button("Copy link").click());

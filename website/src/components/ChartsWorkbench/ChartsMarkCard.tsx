@@ -11,38 +11,42 @@ import { IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 // Mark-type toggle (owner packet item 3's own idiom, extended to the mark
 // card: an icon per shape reads faster than a `<select>` of eleven names,
 // same `gx-toggle` markup `ChartsDock.tsx`'s target/charset/color rows
-// already use). Every icon is a small inline shape at the shared
-// `ToggleIcon` size (16x16, `currentColor`, stroke 1.5) that reads as the
-// chart it picks, never a letter or symbol standing in for one.
+// already use). Every icon is a small inline shape at `ToggleIcon`'s own
+// shared default size (15x15, `currentColor`, stroke 1.6 — `WAVE_ICONS`/
+// `FIELD_ICONS`/`SUBCELL_ICONS` and every other icon set in synthKit.tsx
+// take it unmodified; F6's review finding caught this file alone
+// overriding to 16x16/1.5, a 1px-larger, marginally thinner render with no
+// stated reason) that reads as the chart it picks, never a letter or
+// symbol standing in for one.
 const CHART_MARK_TYPE_ICONS: Record<(typeof CHART_MARK_TYPES)[number], ReactNode> = {
-  line: <ToggleIcon width={16} height={16} strokeWidth={1.5}><path d="M2 12 L6 6 L9 9 L14 3" /></ToggleIcon>,
-  area: <ToggleIcon width={16} height={16} strokeWidth={1.5} fill="currentColor" fillOpacity={0.35}><path d="M2 12 L6 6 L9 9 L14 3 L14 13 L2 13 Z" /></ToggleIcon>,
+  line: <ToggleIcon><path d="M2 12 L6 6 L9 9 L14 3" /></ToggleIcon>,
+  area: <ToggleIcon fill="currentColor" fillOpacity={0.35}><path d="M2 12 L6 6 L9 9 L14 3 L14 13 L2 13 Z" /></ToggleIcon>,
   bar: (
-    <ToggleIcon width={16} height={16} strokeWidth={1.5} fill="currentColor" stroke="none">
+    <ToggleIcon fill="currentColor" stroke="none">
       <rect x="2.4" y="8" width="2.6" height="5.6" />
       <rect x="6.7" y="4" width="2.6" height="9.6" />
       <rect x="11" y="6.5" width="2.6" height="7.1" />
     </ToggleIcon>
   ),
   dot: (
-    <ToggleIcon width={16} height={16} strokeWidth={1.5} fill="currentColor" stroke="none">
+    <ToggleIcon fill="currentColor" stroke="none">
       <circle cx="4" cy="10.5" r="1.3" /><circle cx="8.2" cy="5" r="1.3" /><circle cx="11.5" cy="9.5" r="1.3" /><circle cx="13.3" cy="4" r="1.3" />
     </ToggleIcon>
   ),
-  arc: <ToggleIcon width={16} height={16} strokeWidth={1.5}><circle cx="8" cy="8" r="6" /><path d="M8 2 L8 8 L13 11" /></ToggleIcon>,
-  rect: <ToggleIcon width={16} height={16} strokeWidth={1.5}><rect x="3" y="3" width="10" height="10" /></ToggleIcon>,
-  cell: <ToggleIcon width={16} height={16} strokeWidth={1.5}><rect x="2" y="2" width="12" height="12" /><line x1="8" y1="2" x2="8" y2="14" /><line x1="2" y1="8" x2="14" y2="8" /></ToggleIcon>,
-  text: <ToggleIcon width={16} height={16} strokeWidth={1.5}><line x1="4" y1="4" x2="12" y2="4" /><line x1="8" y1="4" x2="8" y2="13" /></ToggleIcon>,
-  rule: <ToggleIcon width={16} height={16} strokeWidth={1.5}><line x1="2" y1="8" x2="14" y2="8" strokeDasharray="2.4 1.6" /></ToggleIcon>,
+  arc: <ToggleIcon><circle cx="8" cy="8" r="6" /><path d="M8 2 L8 8 L13 11" /></ToggleIcon>,
+  rect: <ToggleIcon><rect x="3" y="3" width="10" height="10" /></ToggleIcon>,
+  cell: <ToggleIcon><rect x="2" y="2" width="12" height="12" /><line x1="8" y1="2" x2="8" y2="14" /><line x1="2" y1="8" x2="14" y2="8" /></ToggleIcon>,
+  text: <ToggleIcon><line x1="4" y1="4" x2="12" y2="4" /><line x1="8" y1="4" x2="8" y2="13" /></ToggleIcon>,
+  rule: <ToggleIcon><line x1="2" y1="8" x2="14" y2="8" strokeDasharray="2.4 1.6" /></ToggleIcon>,
   sankey: (
-    <ToggleIcon width={16} height={16} strokeWidth={1.5}>
+    <ToggleIcon>
       <line x1="3" y1="3" x2="3" y2="13" strokeWidth={2.5} />
       <line x1="13" y1="2" x2="13" y2="6" strokeWidth={2.5} />
       <line x1="13" y1="9" x2="13" y2="14" strokeWidth={2.5} />
       <path d="M3 6 C8 6, 8 4, 13 4" /><path d="M3 10 C8 10, 8 11.5, 13 11.5" />
     </ToggleIcon>
   ),
-  funnel: <ToggleIcon width={16} height={16} strokeWidth={1.5}><path d="M2 3 L14 3 L10 8 L10 13 L6 13 L6 8 Z" /></ToggleIcon>,
+  funnel: <ToggleIcon><path d="M2 3 L14 3 L10 8 L10 13 L6 13 L6 8 Z" /></ToggleIcon>,
 };
 const CHART_MARK_TYPE_DESCRIPTIONS: Record<(typeof CHART_MARK_TYPES)[number], string> = {
   line: "connected points along a continuous axis",
@@ -297,7 +301,7 @@ export function ChartsMarkCard({ mark, index, series, colorDisabled, dispatch }:
        *  asked for (native `<details>` — no state to wire, nothing
        *  persisted to the URL) rather than always occupying the card. */}
       <details className="charts-mark-data-details">
-        <summary className="charts-mark-data-summary">View data ▸</summary>
+        <summary className="charts-mark-data-summary">View data <span className="charts-mark-data-marker" aria-hidden="true">▸</span></summary>
         <div className="gx-toggle charts-data-tabs" role="tablist" aria-labelledby={`charts-data-label-${mark.id}`}>
           {DATA_VIEWS.map((view) => <button type="button" key={view.id} role="tab" id={`charts-data-${view.id}-tab-${mark.id}`}
             aria-selected={dataView === view.id} aria-controls={`charts-data-${view.id}-${mark.id}`}
